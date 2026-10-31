@@ -237,6 +237,39 @@ impl IncidentRepo for Store {
         Ok(Paged { items, next_cursor })
     }
 
+    async fn discard_pending(&self, id: IncidentId) -> Result<(), StoreError> {
+        const STATUS: &str = "SELECT status FROM incidents WHERE id = ?";
+        const LINKS: &str = "DELETE FROM incident_signals WHERE incident_id = ?";
+        const DELETE: &str = "DELETE FROM incidents WHERE id = ? AND status = 'pending'";
+        let mut tx = self.write.begin().await.map_err(db)?;
+        let status: Option<(String,)> = sqlx::query_as(STATUS)
+            .bind(id.to_string())
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(db)?;
+        match status {
+            None => return Err(StoreError::NotFound),
+            Some((status,)) if status != "pending" => {
+                return Err(StoreError::Conflict(
+                    "only pending incidents are discarded".to_owned(),
+                ));
+            }
+            Some(_) => {}
+        }
+        sqlx::query(LINKS)
+            .bind(id.to_string())
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
+        // Timeline rows go with the incident (ON DELETE CASCADE).
+        sqlx::query(DELETE)
+            .bind(id.to_string())
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
+        tx.commit().await.map_err(db)
+    }
+
     async fn append_event(&self, entry: &IncidentTimelineEntry) -> Result<(), StoreError> {
         const SQL: &str = "INSERT INTO incident_events (incident_id, at, kind, summary, detail) \
             VALUES (?, ?, ?, ?, ?)";
