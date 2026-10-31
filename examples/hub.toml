@@ -29,6 +29,12 @@ trusted_proxies = ["127.0.0.1"]
 [agent_server]
 # Address agents connect to over mutually authenticated TLS.
 bind = "0.0.0.0:7421"
+# The address agents dial, printed in the enroll command (default: wss://<hub name>:<port>).
+# public_url = "wss://domovoi.example.net:7421"
+# Something outside your network the hub checks before it blames a silent host.
+self_check = "1.1.1.1:53"
+# How often agents check in. Three missed heartbeats mean the agent is silent.
+heartbeat = "10s"
 
 # Language model providers used by triage. The secondary is tried when the primary fails.
 [llm.primary]

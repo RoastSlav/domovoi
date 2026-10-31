@@ -122,12 +122,27 @@ pub struct AgentServerSection {
     /// Listen address for agent connections. Default `0.0.0.0:7421`.
     #[serde(default = "default_agent_bind")]
     pub bind: SocketAddr,
+    /// The `wss://` address agents dial, as printed in the enroll command.
+    /// Default `wss://<hub name>:<bind port>`.
+    #[serde(default)]
+    pub public_url: Option<Url>,
+    /// A `host:port` outside the network the hub checks before it blames a silent
+    /// host. Default `1.1.1.1:53`.
+    #[serde(default = "default_self_check")]
+    pub self_check: String,
+    /// How often agents send a heartbeat. Three missed heartbeats mean a silent agent.
+    /// Default `10s`.
+    #[serde(default = "default_agent_heartbeat")]
+    pub heartbeat: Duration,
 }
 
 impl Default for AgentServerSection {
     fn default() -> Self {
         Self {
             bind: default_agent_bind(),
+            public_url: None,
+            self_check: default_self_check(),
+            heartbeat: default_agent_heartbeat(),
         }
     }
 }
@@ -399,6 +414,12 @@ fn default_web_bind() -> SocketAddr {
 }
 fn default_agent_bind() -> SocketAddr {
     SocketAddr::from(([0, 0, 0, 0], 7421))
+}
+fn default_self_check() -> String {
+    "1.1.1.1:53".to_owned()
+}
+fn default_agent_heartbeat() -> Duration {
+    Duration::secs(10)
 }
 fn default_confirm_runs() -> u8 {
     2

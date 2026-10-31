@@ -91,6 +91,24 @@ expression: "HubConfig::json_schema()"
           "description": "Listen address for agent connections. Default `0.0.0.0:7421`.",
           "type": "string",
           "default": "0.0.0.0:7421"
+        },
+        "heartbeat": {
+          "description": "How often agents send a heartbeat. Three missed heartbeats mean a silent agent.\nDefault `10s`.",
+          "$ref": "#/$defs/Duration"
+        },
+        "public_url": {
+          "description": "The `wss://` address agents dial, as printed in the enroll command.\nDefault `wss://<hub name>:<bind port>`.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uri",
+          "default": null
+        },
+        "self_check": {
+          "description": "A `host:port` outside the network the hub checks before it blames a silent\nhost. Default `1.1.1.1:53`.",
+          "type": "string",
+          "default": "1.1.1.1:53"
         }
       },
       "additionalProperties": false

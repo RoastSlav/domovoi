@@ -122,3 +122,24 @@ fn every_problem_is_reported_at_once() {
     );
     assert_eq!(errors.len(), 3, "{errors:#?}");
 }
+
+#[test]
+fn agent_server_settings_are_validated() {
+    let errors = hub_errors(
+        "[agent_server]
+public_url = \"https://hub.lan:7421\"
+self_check = \"1.1.1.1\"
+",
+    );
+    assert_issue(&errors, "agent_server.public_url", "wss://");
+    assert_issue(&errors, "agent_server.self_check", "host:port");
+    let errors = hub_errors("[agent_server]
+heartbeat = \"0s\"
+");
+    assert_issue(&errors, "agent_server.heartbeat", "positive duration");
+    let (config, _) = hub("[agent_server]
+public_url = \"wss://hub.lan:7421\"
+").unwrap();
+    assert_eq!(config.agent_server.self_check, "1.1.1.1:53");
+    assert_eq!(config.agent_server.heartbeat.to_string(), "10s");
+}
