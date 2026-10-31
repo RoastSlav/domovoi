@@ -1,0 +1,94 @@
+# release-plz configuration (ADR 0008).
+#
+# Every crate shares one version (version_group) so a single vX.Y.Z tag
+# describes the whole product. Only the `domovoi` package creates the tag, the
+# GitHub release and the changelog; it includes commits from every library crate.
+# Nothing is published to crates.io yet.
+#
+# Pre-1.0, release-plz bumps the patch number for ordinary changes. To cut a
+# minor release such as 0.1.0, edit the version in the release PR before merging.
+
+[workspace]
+publish = false
+semver_check = false
+dependencies_update = false
+changelog_update = false
+git_tag_enable = false
+git_release_enable = false
+pr_labels = ["release"]
+
+[[package]]
+name = "domovoi"
+version_group = "domovoi"
+changelog_update = true
+changelog_path = "CHANGELOG.md"
+changelog_include = [
+    "domovoi-core",
+    "domovoi-config",
+    "domovoi-proto",
+    "domovoi-engine",
+    "domovoi-store",
+    "domovoi-llm",
+    "domovoi-chat",
+    "domovoi-checks",
+    "domovoi-runner",
+    "domovoi-agent",
+    "domovoi-hub",
+    "domovoi-testkit",
+]
+git_tag_enable = true
+git_tag_name = "v{{ version }}"
+git_release_enable = true
+git_release_name = "v{{ version }}"
+
+[[package]]
+name = "domovoi-core"
+version_group = "domovoi"
+
+[[package]]
+name = "domovoi-config"
+version_group = "domovoi"
+
+[[package]]
+name = "domovoi-proto"
+version_group = "domovoi"
+
+[[package]]
+name = "domovoi-engine"
+version_group = "domovoi"
+
+[[package]]
+name = "domovoi-store"
+version_group = "domovoi"
+
+[[package]]
+name = "domovoi-llm"
+version_group = "domovoi"
+
+[[package]]
+name = "domovoi-chat"
+version_group = "domovoi"
+
+[[package]]
+name = "domovoi-checks"
+version_group = "domovoi"
+
+[[package]]
+name = "domovoi-runner"
+version_group = "domovoi"
+
+[[package]]
+name = "domovoi-agent"
+version_group = "domovoi"
+
+[[package]]
+name = "domovoi-hub"
+version_group = "domovoi"
+
+[[package]]
+name = "domovoi-testkit"
+version_group = "domovoi"
+
+[[package]]
+name = "xtask"
+release = false

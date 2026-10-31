@@ -1,0 +1,18 @@
+[package]
+name = "domovoi-testkit"
+description = "Fakes, a fake clock and fixtures for testing Domovoi. Dev-dependency only."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+domovoi-core = { workspace = true }
+domovoi-proto = { workspace = true }
+
+[dev-dependencies]
+
+[lints]
+workspace = true

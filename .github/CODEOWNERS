@@ -1,0 +1,8 @@
+# Replace @OWNER with the maintainer's GitHub handle or team.
+*                                   @OWNER
+/ARCHITECTURE.md                    @OWNER
+/docs/adr/                          @OWNER
+/xtask/src/arch/                    @OWNER
+/crates/domovoi-runner/             @OWNER
+/crates/domovoi-hub/src/auth/       @OWNER
+/.github/workflows/                 @OWNER

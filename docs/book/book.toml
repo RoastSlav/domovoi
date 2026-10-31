@@ -1,0 +1,10 @@
+[book]
+title = "Domovoi"
+authors = ["Domovoi contributors"]
+language = "en"
+src = "src"
+
+[output.html]
+git-repository-url = "https://github.com/OWNER/domovoi"
+edit-url-template = "https://github.com/OWNER/domovoi/edit/main/docs/book/{path}"
+site-url = "/domovoi/"

@@ -1,0 +1,21 @@
+[package]
+name = "domovoi-agent"
+description = "Domovoi agent runtime: hub link, check scheduler, request handling and spool."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+domovoi-core = { workspace = true }
+domovoi-config = { workspace = true }
+domovoi-proto = { workspace = true }
+domovoi-checks = { workspace = true, features = ["host", "net"] }
+domovoi-runner = { workspace = true }
+
+[dev-dependencies]
+
+[lints]
+workspace = true
