@@ -163,6 +163,16 @@ impl HostRepo for Store {
         row.map(AgentRow::into_agent).transpose()
     }
 
+    async fn live_agent(&self, host: HostId) -> Result<Option<AgentIdentity>, StoreError> {
+        const SQL: &str = "SELECT agent_id, host_id, public_key, version, enrolled_at,             revoked_at FROM agents WHERE host_id = ? AND revoked_at IS NULL";
+        let row: Option<AgentRow> = sqlx::query_as(SQL)
+            .bind(host.to_string())
+            .fetch_optional(&self.read)
+            .await
+            .map_err(db)?;
+        row.map(AgentRow::into_agent).transpose()
+    }
+
     async fn revoke_agent(&self, id: AgentId, at: Timestamp) -> Result<(), StoreError> {
         const SQL: &str =
             "UPDATE agents SET revoked_at = coalesce(revoked_at, ?) WHERE agent_id = ?";

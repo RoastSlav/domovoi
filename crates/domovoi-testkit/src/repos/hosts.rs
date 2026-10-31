@@ -64,6 +64,15 @@ impl HostRepo for InMemoryStore {
         Ok(self.begin()?.agents.get(&id).cloned())
     }
 
+    async fn live_agent(&self, host: HostId) -> Result<Option<AgentIdentity>, StoreError> {
+        let state = self.begin()?;
+        Ok(state
+            .agents
+            .values()
+            .find(|a| a.host == host && a.revoked_at.is_none())
+            .cloned())
+    }
+
     async fn revoke_agent(&self, id: AgentId, at: Timestamp) -> Result<(), StoreError> {
         let mut state = self.begin()?;
         let agent = state.agents.get_mut(&id).ok_or(StoreError::NotFound)?;

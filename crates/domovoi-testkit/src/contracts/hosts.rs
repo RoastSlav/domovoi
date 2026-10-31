@@ -65,9 +65,11 @@ async fn agents(repo: &dyn HostRepo) -> ContractResult {
     let orphan = agent(HostId::new());
     assert_eq!(repo.put_agent(&orphan).await, Err(StoreError::NotFound));
 
+    assert_eq!(repo.live_agent(box1.id).await?, None, "no agent yet");
     let first = agent(box1.id);
     repo.put_agent(&first).await?;
     assert_eq!(repo.get_agent(first.agent).await?, Some(first.clone()));
+    assert_eq!(repo.live_agent(box1.id).await?, Some(first.clone()));
 
     let mut upgraded = first.clone();
     upgraded.version = "0.2.0".to_owned();
@@ -92,7 +94,13 @@ async fn agents(repo: &dyn HostRepo) -> ContractResult {
         matches!(repo.put_agent(&first).await, Err(StoreError::Conflict(_))),
         "a revoked agent never comes back"
     );
+    assert_eq!(
+        repo.live_agent(box1.id).await?,
+        None,
+        "a revoked agent is not live"
+    );
     repo.put_agent(&second).await?;
+    assert_eq!(repo.live_agent(box1.id).await?, Some(second.clone()));
     assert_eq!(
         repo.revoke_agent(AgentId::new(), T0).await,
         Err(StoreError::NotFound)
