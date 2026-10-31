@@ -1,12 +1,14 @@
 //! Incident data: status, policy and the incident record itself.
 
+use std::collections::BTreeMap;
+
 use jiff::{SignedDuration, Timestamp};
 
 use crate::fingerprint::Fingerprint;
 use crate::history::EntityHistory;
 use crate::id::{HostId, IncidentId};
 use crate::severity::Severity;
-use crate::signal::{CheckKey, Signal, TargetKey};
+use crate::signal::{CheckKey, Signal, SourceKind, TargetKey};
 use crate::verdict::Verdict;
 
 /// Where an incident is in its life.
@@ -72,6 +74,13 @@ pub struct Incident {
     pub(super) firing_streak: u8,
     pub(super) occurrences: u32,
     pub(super) history: EntityHistory,
+    /// Where the first signal came from; `None` for incidents stored before this was kept.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) source: Option<SourceKind>,
+    /// Fingerprints grouped into this incident, the primary one included, and whether
+    /// each is still firing. Empty for an incident with a single fingerprint.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub(super) members: BTreeMap<Fingerprint, bool>,
 }
 
 impl Incident {
@@ -99,6 +108,8 @@ impl Incident {
             firing_streak: 0,
             occurrences: 0,
             history: EntityHistory::new(),
+            source: Some(signal.source().clone()),
+            members: BTreeMap::new(),
         }
     }
 
@@ -107,6 +118,47 @@ impl Incident {
     pub fn with_id(mut self, id: IncidentId) -> Self {
         self.id = id;
         self
+    }
+
+    /// Groups another fingerprint into this incident, firing or not. The primary
+    /// fingerprint becomes a member too, firing unless the incident is resolved.
+    pub fn relate(&mut self, fingerprint: Fingerprint, firing: bool) {
+        if self.members.is_empty() {
+            let primary_firing = self.status != IncidentStatus::Resolved;
+            self.members.insert(self.fingerprint, primary_firing);
+        }
+        self.members.insert(fingerprint, firing);
+    }
+
+    /// Records whether the member `fingerprint` is firing, and returns whether any member
+    /// still is. For an incident with a single fingerprint this is just `firing`.
+    pub fn mark_member(&mut self, fingerprint: Fingerprint, firing: bool) -> bool {
+        if self.members.is_empty() {
+            return firing;
+        }
+        if let Some(state) = self.members.get_mut(&fingerprint) {
+            *state = firing;
+        }
+        self.members.values().any(|f| *f)
+    }
+
+    /// Whether `fingerprint` is this incident's own or one grouped into it.
+    #[must_use]
+    pub fn is_member(&self, fingerprint: &Fingerprint) -> bool {
+        self.fingerprint == *fingerprint || self.members.contains_key(fingerprint)
+    }
+
+    /// The fingerprints grouped into this incident besides its own.
+    pub fn related(&self) -> impl Iterator<Item = &Fingerprint> {
+        self.members
+            .keys()
+            .filter(move |fp| **fp != self.fingerprint)
+    }
+
+    /// Where the first signal came from, when known.
+    #[must_use]
+    pub fn source(&self) -> Option<&SourceKind> {
+        self.source.as_ref()
     }
 
     /// Sets the triage verdict. Triage output does not change the incident status.

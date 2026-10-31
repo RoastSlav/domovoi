@@ -92,6 +92,11 @@ pub trait IncidentRepo: Send + Sync {
         page: &Page,
     ) -> Result<Paged<Incident>, StoreError>;
 
+    /// Deletes a pending incident that resolved before it was confirmed, with its timeline
+    /// and its signal links (the signals stay). [`StoreError::NotFound`] when it does not
+    /// exist, [`StoreError::Conflict`] when it is not pending: confirmed incidents are kept.
+    async fn discard_pending(&self, id: IncidentId) -> Result<(), StoreError>;
+
     /// Appends a timeline entry. [`StoreError::NotFound`] when the incident does not exist.
     async fn append_event(&self, entry: &IncidentTimelineEntry) -> Result<(), StoreError>;
 

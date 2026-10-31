@@ -84,7 +84,47 @@ pub async fn incident_repo_contract(repo: &dyn IncidentRepo) -> ContractResult {
     fingerprints(repo).await?;
     listing(repo).await?;
     timeline(repo).await?;
+    discard(repo).await?;
     search(repo).await
+}
+
+async fn discard(repo: &dyn IncidentRepo) -> ContractResult {
+    let host = HostId::new();
+    let pending = crate::build::incident(host, "net.flap", Some("eth0"))?;
+    repo.insert(&pending).await?;
+    let entry = IncidentTimelineEntry {
+        incident: pending.id(),
+        at: at(1),
+        kind: "status.changed".to_owned(),
+        summary: "pending".to_owned(),
+        detail: serde_json::Value::Null,
+    };
+    repo.append_event(&entry).await?;
+    repo.discard_pending(pending.id()).await?;
+    assert_eq!(repo.get(pending.id()).await?, None, "discarded");
+    assert!(
+        repo.timeline(pending.id()).await?.is_empty(),
+        "timeline goes too"
+    );
+    assert_eq!(
+        repo.discard_pending(pending.id()).await,
+        Err(StoreError::NotFound)
+    );
+    // The fingerprint is free again.
+    let again = crate::build::incident(host, "net.flap", Some("eth0"))?;
+    repo.insert(&again).await?;
+
+    let open = open_incident(host, "net.down", None)?;
+    repo.insert(&open).await?;
+    assert!(
+        matches!(
+            repo.discard_pending(open.id()).await,
+            Err(StoreError::Conflict(_))
+        ),
+        "confirmed incidents are kept"
+    );
+    assert_eq!(repo.get(open.id()).await?, Some(open));
+    Ok(())
 }
 
 async fn fingerprints(repo: &dyn IncidentRepo) -> ContractResult {
