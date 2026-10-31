@@ -2,7 +2,7 @@
 # Builds Domovoi from source with the embedded web UI.
 # Release images are built from prebuilt binaries instead (docker/Dockerfile.release).
 
-FROM node:22-alpine AS web
+FROM node:25-alpine AS web
 WORKDIR /src/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci
