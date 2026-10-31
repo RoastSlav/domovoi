@@ -1,0 +1,187 @@
+---
+source: crates/domovoi-core/tests/serde_snapshots.rs
+expression: schemas
+---
+{
+  "docker_events": {
+    "additionalProperties": false,
+    "properties": {
+      "container": {
+        "description": "Only events for this container.",
+        "maxLength": 128,
+        "minLength": 1,
+        "type": "string"
+      },
+      "since_minutes": {
+        "default": 60,
+        "description": "How many minutes back to look.",
+        "maximum": 1440,
+        "minimum": 1,
+        "type": "integer"
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "docker_inspect": {
+    "additionalProperties": false,
+    "properties": {
+      "container": {
+        "description": "Container name.",
+        "maxLength": 128,
+        "minLength": 1,
+        "type": "string"
+      }
+    },
+    "required": [
+      "container"
+    ],
+    "type": "object"
+  },
+  "docker_logs": {
+    "additionalProperties": false,
+    "properties": {
+      "container": {
+        "description": "Container name.",
+        "maxLength": 128,
+        "minLength": 1,
+        "type": "string"
+      },
+      "lines": {
+        "default": 100,
+        "maximum": 500,
+        "minimum": 1,
+        "type": "integer"
+      }
+    },
+    "required": [
+      "container"
+    ],
+    "type": "object"
+  },
+  "docker_ps": {
+    "additionalProperties": false,
+    "properties": {
+      "all": {
+        "default": false,
+        "description": "Include stopped containers.",
+        "type": "boolean"
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "host_overview": {
+    "additionalProperties": false,
+    "properties": {},
+    "required": [],
+    "type": "object"
+  },
+  "incident_history": {
+    "additionalProperties": false,
+    "properties": {
+      "limit": {
+        "default": 10,
+        "maximum": 50,
+        "minimum": 1,
+        "type": "integer"
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "journal": {
+    "additionalProperties": false,
+    "properties": {
+      "kernel": {
+        "default": false,
+        "description": "Kernel messages only.",
+        "type": "boolean"
+      },
+      "lines": {
+        "default": 100,
+        "maximum": 500,
+        "minimum": 1,
+        "type": "integer"
+      },
+      "since_minutes": {
+        "default": 60,
+        "description": "How many minutes back to look.",
+        "maximum": 1440,
+        "minimum": 1,
+        "type": "integer"
+      },
+      "unit": {
+        "description": "Only lines from this systemd unit.",
+        "maxLength": 128,
+        "minLength": 1,
+        "type": "string"
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "listening_ports": {
+    "additionalProperties": false,
+    "properties": {},
+    "required": [],
+    "type": "object"
+  },
+  "notes_search": {
+    "additionalProperties": false,
+    "properties": {
+      "limit": {
+        "default": 5,
+        "maximum": 20,
+        "minimum": 1,
+        "type": "integer"
+      },
+      "query": {
+        "maxLength": 200,
+        "minLength": 1,
+        "type": "string"
+      }
+    },
+    "required": [
+      "query"
+    ],
+    "type": "object"
+  },
+  "run_read_skill": {
+    "additionalProperties": false,
+    "properties": {
+      "args": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "description": "Arguments as declared by the skill.",
+        "maxProperties": 32,
+        "type": "object"
+      },
+      "skill": {
+        "description": "Name of a read-only skill.",
+        "pattern": "^[a-z][a-z0-9_]{0,63}$",
+        "type": "string"
+      }
+    },
+    "required": [
+      "skill"
+    ],
+    "type": "object"
+  },
+  "smart_report": {
+    "additionalProperties": false,
+    "properties": {
+      "device": {
+        "description": "Disk device, for example /dev/sda.",
+        "maxLength": 64,
+        "pattern": "^/dev/",
+        "type": "string"
+      }
+    },
+    "required": [
+      "device"
+    ],
+    "type": "object"
+  }
+}

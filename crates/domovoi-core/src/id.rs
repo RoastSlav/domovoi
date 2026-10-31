@@ -89,6 +89,14 @@ define_id!(
     /// Identifies a hub-to-agent request.
     RequestId
 );
+define_id!(
+    /// Identifies an ack rule.
+    AckRuleId
+);
+define_id!(
+    /// Identifies an advisory.
+    AdvisoryId
+);
 
 #[cfg(test)]
 mod tests {

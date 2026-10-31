@@ -1,0 +1,44 @@
+---
+source: crates/domovoi-core/tests/serde_snapshots.rs
+expression: card
+---
+{
+  "incident": "01900000-0000-7000-8000-000000000003",
+  "host": "nas",
+  "badge": {
+    "verdict": "ACTION_NEEDED"
+  },
+  "headline": "plex is crash-looping after the 1.41 image update",
+  "bullets": [
+    "7 restarts in 10 minutes",
+    "migration 42 failed"
+  ],
+  "next_step": "Pin the previous image tag and restart.",
+  "buttons": [
+    {
+      "type": "ack"
+    },
+    {
+      "type": "mute1h"
+    },
+    {
+      "type": "details"
+    },
+    {
+      "type": "approve",
+      "action": "01900000-0000-7000-8000-000000000004",
+      "token": "tok_test"
+    },
+    {
+      "type": "deny",
+      "action": "01900000-0000-7000-8000-000000000004",
+      "token": "tok_test"
+    },
+    {
+      "type": "open_in_web",
+      "action": "01900000-0000-7000-8000-000000000004"
+    }
+  ],
+  "details": "Full reasoning goes here.",
+  "resolved": false
+}
