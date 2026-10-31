@@ -1,0 +1,12 @@
+---
+source: crates/domovoi-proto/tests/protocol/snapshots.rs
+expression: "pretty(&message, reply)"
+---
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "ping",
+  "payload": {
+    "at": "2023-11-14T22:13:20Z"
+  },
+  "v": 1
+}

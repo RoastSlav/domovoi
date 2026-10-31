@@ -1,0 +1,23 @@
+---
+source: crates/domovoi-proto/tests/protocol/snapshots.rs
+expression: "pretty(&message, reply)"
+---
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "config_update",
+  "payload": {
+    "config": {
+      "check_overrides": {
+        "disk.usage": {
+          "enabled": true,
+          "interval_seconds": 300,
+          "thresholds": {
+            "critical_percent": 95
+          }
+        }
+      },
+      "heartbeat_seconds": 30
+    }
+  },
+  "v": 1
+}

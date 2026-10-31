@@ -1,0 +1,22 @@
+---
+source: crates/domovoi-proto/tests/protocol/snapshots.rs
+expression: "pretty(&samples::skill_success(), true)"
+---
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "skill_result",
+  "payload": {
+    "outcome": {
+      "ok": {
+        "argv_hash": "0303030303030303030303030303030303030303030303030303030303030303",
+        "duration_ms": 1250,
+        "exit_code": 0,
+        "stderr": "",
+        "stdout": "postgres\n",
+        "truncated": false
+      }
+    }
+  },
+  "reply_to": "01900000-0000-7000-8000-000000000002",
+  "v": 1
+}
