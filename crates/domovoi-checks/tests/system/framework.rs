@@ -5,7 +5,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use domovoi_checks::commands::{
-    CommandError, Commands, DevicePath, JailName, JournalCursor, UnitName, UnitProperty,
+    CommandError, Commands, DevicePath, JailName, JournalCursor, JournalScope, UnitName,
+    UnitProperty,
 };
 use domovoi_checks::framework::{
     Check, CheckContext, CheckError, CheckReport, CheckSettings, HostDeps, Registry,
@@ -45,8 +46,7 @@ async fn templates_put_every_slot_in_its_own_argv_element_and_reject_invalid_slo
     let spec = c
         .journal_since_cursor(
             Some(&cursor),
-            &[unit.clone(), UnitName::parse("ssh@1.service").unwrap()],
-            false,
+            JournalScope::Units(&[unit.clone(), UnitName::parse("ssh@1.service").unwrap()]),
         )
         .unwrap();
     assert_eq!(

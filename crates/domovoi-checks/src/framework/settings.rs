@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 
+use domovoi_core::Criticality;
 use jiff::SignedDuration;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
@@ -20,6 +21,8 @@ pub struct CheckSettings {
     pub cadence: Option<SignedDuration>,
     /// Check-specific thresholds.
     pub thresholds: Map<String, Value>,
+    /// Overrides how bad a failure is, for checks that honour it.
+    pub criticality: Option<Criticality>,
 }
 
 impl Default for CheckSettings {
@@ -28,6 +31,7 @@ impl Default for CheckSettings {
             enabled: true,
             cadence: None,
             thresholds: Map::new(),
+            criticality: None,
         }
     }
 }
