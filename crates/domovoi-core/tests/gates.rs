@@ -108,3 +108,36 @@ fn destructive_actions_cannot_be_approved_from_chat() {
         Err(ActionError::DestructiveNeedsTypedConfirmation)
     );
 }
+
+/// `AuditLog` exposes only `append` and `list` (INV-7). This impl defines exactly those two
+/// methods, so adding any required method to the trait (an update, a delete) stops this
+/// test compiling. Adding a provided (default) method would not; reviewers must reject that
+/// too.
+#[test]
+fn audit_log_has_no_mutation_api() {
+    use async_trait::async_trait;
+    use domovoi_core::ports::{AuditEvent, AuditFilter, AuditLog, Page, Paged, StoreError};
+
+    struct OnlyAppendAndList;
+
+    #[async_trait]
+    impl AuditLog for OnlyAppendAndList {
+        async fn append(&self, _event: &AuditEvent) -> Result<u64, StoreError> {
+            Ok(1)
+        }
+
+        async fn list(
+            &self,
+            _filter: &AuditFilter,
+            _page: &Page,
+        ) -> Result<Paged<AuditEvent>, StoreError> {
+            Ok(Paged {
+                items: Vec::new(),
+                next_cursor: None,
+            })
+        }
+    }
+
+    let log: &dyn AuditLog = &OnlyAppendAndList;
+    let _ = log;
+}
