@@ -8,4 +8,4 @@ Domovoi is designed so that a confused or manipulated model cannot cause harm on
 4. Destructive skills need a typed confirmation in the web UI and can never be approved from chat.
 5. Every proposal, approval and execution is written to an append-only audit log.
 
-The full list of invariants and how each is enforced is in [ARCHITECTURE.md §15](https://github.com/OWNER/domovoi/blob/main/ARCHITECTURE.md#15-security-invariants). To report a vulnerability, see [SECURITY.md](https://github.com/OWNER/domovoi/blob/main/SECURITY.md).
+The full list of invariants and how each is enforced is in [ARCHITECTURE.md §15](https://github.com/RoastSlav/domovoi/blob/main/ARCHITECTURE.md#15-security-invariants). To report a vulnerability, see [SECURITY.md](https://github.com/RoastSlav/domovoi/blob/main/SECURITY.md).

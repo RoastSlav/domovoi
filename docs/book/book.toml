@@ -5,6 +5,6 @@ language = "en"
 src = "src"
 
 [output.html]
-git-repository-url = "https://github.com/OWNER/domovoi"
-edit-url-template = "https://github.com/OWNER/domovoi/edit/main/docs/book/{path}"
+git-repository-url = "https://github.com/RoastSlav/domovoi"
+edit-url-template = "https://github.com/RoastSlav/domovoi/edit/main/docs/book/{path}"
 site-url = "/domovoi/"

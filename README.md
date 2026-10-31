@@ -4,8 +4,8 @@
 
 Named after the Slavic household spirit that quietly keeps a home in order.
 
-[![CI](https://github.com/OWNER/domovoi/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/domovoi/actions/workflows/ci.yml)
-[![Docs](https://img.shields.io/badge/docs-book-blue)](https://OWNER.github.io/domovoi)
+[![CI](https://github.com/RoastSlav/domovoi/actions/workflows/ci.yml/badge.svg)](https://github.com/RoastSlav/domovoi/actions/workflows/ci.yml)
+[![Docs](https://img.shields.io/badge/docs-book-blue)](https://RoastSlav.github.io/domovoi)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](#license)
 
 > **Status: pre-alpha.** The architecture is in place and v0.1 is under active development. Nothing here is ready to run in production yet.
@@ -47,11 +47,11 @@ These are enforced by tests and by an architecture checker in CI, not just by co
 
 ## Quick start
 
-Coming with v0.1. The plan: download a static binary or pull `ghcr.io/OWNER/domovoi`, run `domovoi hub run --with-local-agent`, open the setup link, connect Discord and an LLM, and you are watching your first host in about ten minutes.
+Coming with v0.1. The plan: download a static binary or pull `ghcr.io/RoastSlav/domovoi`, run `domovoi hub run --with-local-agent`, open the setup link, connect Discord and an LLM, and you are watching your first host in about ten minutes.
 
 ## Documentation
 
-- User docs: <https://OWNER.github.io/domovoi> (sources in [`docs/book`](docs/book))
+- User docs: <https://RoastSlav.github.io/domovoi> (sources in [`docs/book`](docs/book))
 - Architecture: [ARCHITECTURE.md](ARCHITECTURE.md) and decision records in [`docs/adr`](docs/adr)
 
 ## Contributing

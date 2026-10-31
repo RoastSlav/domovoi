@@ -8,8 +8,8 @@ version = "0.0.1"
 edition = "2024"
 rust-version = "1.94"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/OWNER/domovoi"
-homepage = "https://OWNER.github.io/domovoi"
+repository = "https://github.com/RoastSlav/domovoi"
+homepage = "https://RoastSlav.github.io/domovoi"
 authors = ["Domovoi contributors"]
 publish = false
 

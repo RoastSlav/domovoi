@@ -13,7 +13,7 @@ Thanks for helping. Domovoi runs with root-level reach on people's servers, so t
 You need Rust (the toolchain in `rust-toolchain.toml` installs automatically through rustup) and Node.js 22 for the web UI.
 
 ```sh
-git clone https://github.com/OWNER/domovoi && cd domovoi
+git clone https://github.com/RoastSlav/domovoi && cd domovoi
 cargo xtask ci          # fmt, clippy, tests, arch-check, cargo-deny
 cargo xtask ci --web    # also lint, typecheck, test and build the web UI
 ```

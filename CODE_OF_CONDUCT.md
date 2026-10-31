@@ -6,6 +6,6 @@ In short: be respectful, assume good intent, give and accept constructive feedba
 
 ## Reporting
 
-Report unacceptable behaviour to the maintainers at **conduct@OWNER.example** (replace with a real address before publishing) or privately to any maintainer. Reports are handled confidentially. Maintainers who do not follow the code of conduct may be removed from the project.
+Report unacceptable behaviour to the maintainers at **raikov0411@gmail.com** or privately to any maintainer. Reports are handled confidentially. Maintainers who do not follow the code of conduct may be removed from the project.
 
 Enforcement follows the Contributor Covenant's enforcement guidelines: correction, warning, temporary ban, permanent ban, depending on severity.

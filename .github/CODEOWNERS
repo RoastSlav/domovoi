@@ -1,8 +1,7 @@
-# Replace @OWNER with the maintainer's GitHub handle or team.
-*                                   @OWNER
-/ARCHITECTURE.md                    @OWNER
-/docs/adr/                          @OWNER
-/xtask/src/arch/                    @OWNER
-/crates/domovoi-runner/             @OWNER
-/crates/domovoi-hub/src/auth/       @OWNER
-/.github/workflows/                 @OWNER
+*                                   @RoastSlav
+/ARCHITECTURE.md                    @RoastSlav
+/docs/adr/                          @RoastSlav
+/xtask/src/arch/                    @RoastSlav
+/crates/domovoi-runner/             @RoastSlav
+/crates/domovoi-hub/src/auth/       @RoastSlav
+/.github/workflows/                 @RoastSlav
