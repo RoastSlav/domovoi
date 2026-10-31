@@ -13,7 +13,7 @@ use jiff::SignedDuration;
 
 use crate::commands::{CommandError, Commands};
 
-pub use report::{CheckReport, Observation, number_fact, round2};
+pub use report::{CheckReport, Observation, number_fact, round2, text_fact};
 pub use settings::{CheckSettings, CheckState};
 
 #[cfg(feature = "host")]
@@ -43,6 +43,17 @@ pub enum CheckError {
         program: String,
         /// What went wrong.
         source: ProcessError,
+    },
+    /// The container runtime could not be read.
+    #[error("reading containers: {0}")]
+    Container(String),
+    /// A command's output could not be understood.
+    #[error("parsing {what}: {reason}")]
+    Parse {
+        /// What was being parsed.
+        what: &'static str,
+        /// What was wrong with it.
+        reason: String,
     },
     /// `[checks.<key>]` settings are invalid for this check.
     #[error("invalid settings: {0}")]
@@ -111,4 +122,39 @@ pub async fn run_bounded(
         result = check.run(ctx) => result,
         () = clock.sleep_until(deadline) => Err(CheckError::Timeout),
     }
+}
+
+/// Parses a built-in check key.
+#[cfg(any(feature = "host", feature = "net"))]
+pub(crate) fn key(name: &str) -> Result<CheckKey, domovoi_core::ValidationError> {
+    CheckKey::parse(name)
+}
+
+/// A target key, or `None` (with a log line) when `name` is not a valid one.
+#[cfg(any(feature = "host", feature = "net"))]
+pub(crate) fn target(name: &str) -> Option<domovoi_core::TargetKey> {
+    let parsed = domovoi_core::TargetKey::parse(name);
+    if parsed.is_err() {
+        tracing::warn!(target_name = name, "skipping a target with an invalid name");
+    }
+    parsed.ok()
+}
+
+/// Runs `spec` through the executor, as a check error naming the program on failure.
+#[cfg(feature = "host")]
+pub(crate) async fn run_command(
+    ctx: &CheckContext<'_>,
+    spec: domovoi_core::ports::ProcessSpec,
+) -> Result<domovoi_core::ports::ProcessOutput, CheckError> {
+    let program = spec.program.clone();
+    ctx.exec
+        .run(spec)
+        .await
+        .map_err(|source| CheckError::Process { program, source })
+}
+
+/// A count as integer evidence, saturating at `i64::MAX`.
+#[cfg(feature = "host")]
+pub(crate) fn int(value: u64) -> domovoi_core::EvidenceValue {
+    domovoi_core::EvidenceValue::Int(i64::try_from(value).unwrap_or(i64::MAX))
 }

@@ -116,3 +116,22 @@ pub fn number_fact(
         observed_at,
     }
 }
+
+/// A text digest fact.
+#[must_use]
+pub fn text_fact(
+    host: HostId,
+    key: impl Into<String>,
+    label: impl Into<String>,
+    value: impl Into<String>,
+    observed_at: Timestamp,
+) -> DigestFact {
+    DigestFact {
+        host,
+        key: key.into(),
+        label: label.into(),
+        value: FactValue::Text(value.into()),
+        unit: None,
+        observed_at,
+    }
+}
