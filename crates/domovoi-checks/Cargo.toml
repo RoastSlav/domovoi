@@ -11,9 +11,9 @@ publish.workspace = true
 [features]
 default = []
 # Host checks that read /proc, /sys, logs and Docker. Enabled by the agent.
-host = ["dep:nix", "tokio/fs", "tokio/io-util"]
+host = ["dep:nix", "dep:bollard", "dep:futures", "tokio/fs", "tokio/io-util"]
 # Network probes (TCP, HTTP, gateway reachability). Used by agent and hub.
-net = []
+net = ["dep:reqwest", "dep:url", "dep:rustls", "dep:rustls-platform-verifier", "tokio/net"]
 
 [dependencies]
 domovoi-core = { workspace = true }
@@ -24,6 +24,12 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros"] }
 tracing = { workspace = true }
+bollard = { workspace = true, optional = true }
+futures = { workspace = true, optional = true }
+reqwest = { workspace = true, optional = true }
+rustls = { workspace = true, optional = true }
+rustls-platform-verifier = { workspace = true, optional = true }
+url = { workspace = true, optional = true }
 
 [target.'cfg(unix)'.dependencies]
 nix = { workspace = true, optional = true }
@@ -31,8 +37,12 @@ nix = { workspace = true, optional = true }
 [dev-dependencies]
 domovoi-testkit = { workspace = true }
 proptest = { workspace = true }
+rcgen = { workspace = true }
+rustls = { workspace = true }
+tokio-rustls = { workspace = true }
+wiremock = { workspace = true }
 tempfile = { workspace = true }
-tokio = { workspace = true, features = ["macros", "rt", "time"] }
+tokio = { workspace = true, features = ["macros", "rt", "time", "net", "io-util"] }
 uuid = { workspace = true }
 
 [[test]]
