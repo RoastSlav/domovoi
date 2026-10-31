@@ -7,6 +7,8 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 publish.workspace = true
+# tests/gates.rs is built into the agent_server test binary, which owns its helpers.
+autotests = false
 
 [features]
 default = []
@@ -22,8 +24,31 @@ domovoi-store = { workspace = true }
 domovoi-llm = { workspace = true }
 domovoi-chat = { workspace = true }
 domovoi-checks = { workspace = true, features = ["net"] }
+async-trait = { workspace = true }
+base64 = { workspace = true }
+ed25519-dalek = { workspace = true }
+futures = { workspace = true }
+hex = { workspace = true }
+jiff = { workspace = true }
+rand = { workspace = true }
+rcgen = { workspace = true }
+rustls = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tokio-rustls = { workspace = true }
+tokio-tungstenite = { workspace = true }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+url = { workspace = true }
 
 [dev-dependencies]
+domovoi-testkit = { workspace = true }
+tempfile = { workspace = true }
+
+[[test]]
+name = "agent_server"
+path = "tests/agent_server/main.rs"
 
 [lints]
 workspace = true

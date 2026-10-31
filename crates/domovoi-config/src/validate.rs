@@ -3,7 +3,7 @@
 use url::Url;
 
 use crate::agent::AgentConfig;
-use crate::hub::{HubConfig, LlmKind, LlmProvider, Probe, ProbeKind};
+use crate::hub::{AgentServerSection, HubConfig, LlmKind, LlmProvider, Probe, ProbeKind};
 use crate::issue::ConfigIssue;
 
 /// Cross-field validation run after a config deserializes.
@@ -52,6 +52,7 @@ impl Validate for HubConfig {
                 "must be zero or more; remove it for no budget",
             ));
         }
+        agent_server_rules(&self.agent_server, issues);
         if self.incidents.confirm_runs == 0 {
             issues.push(ConfigIssue::error(
                 "incidents.confirm_runs",
@@ -182,6 +183,23 @@ fn probe_rules(path: &str, probe: &Probe, issues: &mut Vec<ConfigIssue>) {
 
 fn non_negative(value: f64) -> bool {
     value.is_finite() && value >= 0.0
+}
+
+fn agent_server_rules(server: &AgentServerSection, issues: &mut Vec<ConfigIssue>) {
+    if let Some(url) = &server.public_url
+        && (url.scheme() != "wss" || url.host().is_none())
+    {
+        issues.push(ConfigIssue::error(
+            "agent_server.public_url",
+            "must be a wss:// URL such as \"wss://hub.lan:7421\"",
+        ));
+    }
+    if !valid_host_port(&server.self_check) {
+        issues.push(ConfigIssue::error(
+            "agent_server.self_check",
+            "needs host:port outside your network, such as \"1.1.1.1:53\"",
+        ));
+    }
 }
 
 fn valid_host_port(target: &str) -> bool {
