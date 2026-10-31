@@ -10,8 +10,24 @@ publish.workspace = true
 
 [dependencies]
 domovoi-core = { workspace = true }
+async-trait = { workspace = true }
+hex = { workspace = true }
+jiff = { workspace = true }
+serde = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["process", "io-util", "time", "fs", "rt", "macros"] }
+toml = { workspace = true }
+tracing = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+nix = { workspace = true }
 
 [dev-dependencies]
+domovoi-testkit = { workspace = true }
+proptest = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["process", "io-util", "time", "fs", "rt", "rt-multi-thread", "macros"] }
 
 [lints]
 workspace = true

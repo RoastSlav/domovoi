@@ -1,0 +1,4 @@
+name = "broken"
+description = "Not a valid manifest: risk is missing and timeout is not a duration."
+entry = "run"
+timeout = 5

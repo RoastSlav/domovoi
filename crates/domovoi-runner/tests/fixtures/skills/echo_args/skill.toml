@@ -1,0 +1,17 @@
+name = "echo_args"
+description = "Prints each argument on its own line, then the skill name."
+risk = "read"
+entry = "run"
+timeout = "10s"
+max_output_bytes = 4096
+
+[[params]]
+name = "first"
+description = "First value"
+kind = { type = "string", pattern = '^[ -~]{0,64}$', max_len = 64 }
+
+[[params]]
+name = "second"
+description = "Second value"
+required = false
+kind = { type = "integer", min = 0, max = 100 }
