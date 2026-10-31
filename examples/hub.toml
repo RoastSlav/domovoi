@@ -1,0 +1,144 @@
+# hub.toml: configuration for the Domovoi hub.
+#
+# Every option is shown with its default unless marked "example". Validate this file
+# with `domovoi check config hub.toml`; problems are reported with their TOML path.
+#
+# Secrets are never written here. Each secret is a table naming where the value lives:
+#   { env = "NAME" }        read from an environment variable
+#   { file = "/path" }      read from a file (chmod 600; one trailing newline is ignored)
+#
+# Any scalar can be overridden from the environment with DOMOVOI_<SECTION>__<KEY>,
+# for example DOMOVOI_WEB__BIND=0.0.0.0:7420. Use a double underscore between levels.
+
+[hub]
+# Display name of this hub.
+name = "domovoi"
+# Where the database and state live.
+data_dir = "/var/lib/domovoi"
+# IANA time zone for quiet hours, digests and day boundaries.
+timezone = "UTC"
+
+[web]
+# Address the web UI and HTTP API listen on. Keep it on localhost behind a proxy.
+bind = "127.0.0.1:7420"
+# The URL people use to reach the UI, used for links in chat (example; optional).
+public_url = "https://domovoi.example.net"
+# Reverse proxies whose X-Forwarded-For header is trusted (default: none).
+trusted_proxies = ["127.0.0.1"]
+
+[agent_server]
+# Address agents connect to over mutually authenticated TLS.
+bind = "0.0.0.0:7421"
+
+# Language model providers used by triage. The secondary is tried when the primary fails.
+[llm.primary]
+# "anthropic", "openai_compatible" or "cli".
+kind = "anthropic"
+# Model name; required for anthropic and openai_compatible (example).
+model = "claude-sonnet-5-5"
+# API key; required for anthropic.
+api_key = { env = "ANTHROPIC_API_KEY" }
+# Prices used for the monthly budget, in US dollars per million tokens (example; optional).
+price = { input_per_mtok_usd = 3.0, output_per_mtok_usd = 15.0 }
+
+[llm.secondary]
+# A local command-line tool as the fallback (example; optional).
+kind = "cli"
+# preset = "claude" or "codex" supplies the right arguments. command overrides the
+# program path (absolute) and args are appended.
+cli = { preset = "claude", command = "/usr/local/bin/claude", args = [] }
+
+[triage]
+# Whether new incidents are triaged automatically (default false). Needs [llm.primary].
+enabled = true
+# Triage runs at the same time.
+concurrency = 2
+# Limits for a single run: tool calls, wall-clock seconds and output tokens.
+per_run = { tool_calls = 15, seconds = 90, output_tokens = 2000 }
+# Runs started per hour at most.
+per_hour_runs = 6
+# Spending cap per calendar month in US dollars (example; optional, default no cap).
+monthly_budget_usd = 20.0
+# Days a triage report is reused when the evidence has not changed.
+cache_days = 7
+
+[incidents]
+# Consecutive failing runs before an incident opens.
+confirm_runs = 2
+# A resolved incident that fails again within this window reopens instead of opening anew.
+reopen_window = "6h"
+# Signals on one host this close together are grouped into one notification.
+grouping_window = "5m"
+# Incidents with no new signal for this long resolve (example; optional, default never).
+default_ttl = "3d"
+
+[notify]
+# Warnings wait until quiet hours end; critical alerts are always sent. The range may
+# cross midnight (example; optional, default no quiet hours).
+quiet_hours = { start = "00:00", end = "09:00" }
+# How often an unacknowledged incident is announced again, by severity.
+renotify = { warning = "24h", critical = "4h" }
+# The daily digest and the local time it is sent.
+digest = { enabled = true, time = "09:00" }
+
+# The Discord bot (optional; omit the section to run without Discord).
+[discord]
+# Whether the bot runs.
+enabled = true
+# The bot token.
+bot_token = { env = "DISCORD_BOT_TOKEN" }
+# The channel incidents are posted to (example).
+channel_id = 123456789012345678
+# Discord users who may press buttons and run commands; required when enabled (example).
+allowed_user_ids = [234567890123456789]
+# A channel webhook used when the bot is down (optional).
+webhook_url = { env = "DISCORD_WEBHOOK_URL" }
+
+# Inbound webhooks, one table per name; the name appears in the URL
+# /api/webhooks/<name>. Names use a-z, 0-9, '-' and '_' (example; optional).
+[webhooks.alerts]
+# Payload format: "generic", "alertmanager" or "uptime_kuma".
+kind = "alertmanager"
+# "hmac" verifies an HMAC-SHA256 signature of the body; "bearer" checks a token.
+auth = "bearer"
+# The HMAC key or bearer token.
+secret = { env = "DOMOVOI_ALERTS_TOKEN" }
+# Host used when the payload names none (optional).
+default_host = "nas"
+
+# Network probes run from the hub (example; optional, repeat the table for more).
+[[probes]]
+# The host the probe reports on.
+host = "nas"
+# "tcp" opens a connection; "http" sends a GET.
+kind = "http"
+# host:port for tcp, an http or https URL for http.
+target = "https://nas.lan:5001/"
+# How often it runs.
+interval = "1m"
+# The status that counts as healthy; required for http, not allowed for tcp.
+expect_status = 200
+
+[[probes]]
+host = "nas"
+kind = "tcp"
+target = "nas.lan:22"
+interval = "1m"
+
+# A dead man's switch pinged while the hub is healthy (optional; omit to disable).
+[heartbeat]
+# The URL pinged; it usually embeds a token, so it is a secret.
+url = { env = "DOMOVOI_HEARTBEAT_URL" }
+# How often it is pinged.
+interval = "1m"
+
+[backup]
+# Where database backups are written (default: <data_dir>/backups).
+dir = "/var/lib/domovoi/backups"
+# Backups kept.
+keep = 7
+
+[secrets]
+# Names of secrets you know were exposed; each raises an advisory until you rotate the
+# secret and remove its name here (default: none).
+exposed = []

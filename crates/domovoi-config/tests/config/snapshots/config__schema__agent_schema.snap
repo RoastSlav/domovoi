@@ -1,0 +1,264 @@
+---
+source: crates/domovoi-config/tests/config/schema.rs
+expression: "AgentConfig::json_schema()"
+---
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AgentConfig",
+  "description": "The whole of `agent.toml`. Only `[agent]` is required.",
+  "type": "object",
+  "properties": {
+    "agent": {
+      "description": "Identity of this agent and where it connects.",
+      "$ref": "#/$defs/AgentSection"
+    },
+    "checks": {
+      "description": "Per-check settings, keyed by check key such as `disk.usage`.",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/CheckConfig"
+      },
+      "propertyNames": {
+        "description": "A dotted check key such as `disk.usage`.",
+        "type": "string",
+        "pattern": "^[a-z0-9_]+(\\.[a-z0-9_]+){0,7}$"
+      }
+    },
+    "containers": {
+      "description": "Container baselines.",
+      "$ref": "#/$defs/ContainersSection"
+    },
+    "docker": {
+      "description": "The Docker integration.",
+      "$ref": "#/$defs/DockerSection"
+    },
+    "local_webhooks": {
+      "description": "A local listener for webhooks from services on this host. Omit to disable.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LocalWebhooks"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "policy": {
+      "description": "What skills this agent is willing to run.",
+      "$ref": "#/$defs/PolicySection"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "agent"
+  ],
+  "$defs": {
+    "AgentSection": {
+      "description": "`[agent]`.",
+      "type": "object",
+      "properties": {
+        "host_name": {
+          "description": "This host's name as shown in Domovoi.",
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+        },
+        "host_root": {
+          "description": "Where the host filesystem is mounted; `/host` when running in a container.\nDefault `/`.",
+          "type": "string",
+          "default": "/"
+        },
+        "hub_url": {
+          "description": "The hub's agent server, such as `wss://hub.example.net:7421`. Must use `wss`.",
+          "type": "string",
+          "format": "uri"
+        },
+        "skills_dir": {
+          "description": "Where skill manifests are read from. Default `/etc/domovoi/skills`.",
+          "type": "string",
+          "default": "/etc/domovoi/skills"
+        },
+        "state_dir": {
+          "description": "Where the agent keeps its key and spool. Default `/var/lib/domovoi-agent`.",
+          "type": "string",
+          "default": "/var/lib/domovoi-agent"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "host_name",
+        "hub_url"
+      ]
+    },
+    "CheckConfig": {
+      "description": "`[checks.<check_key>]`.",
+      "type": "object",
+      "properties": {
+        "criticality": {
+          "description": "Overrides how bad a failure is. Default: decided by the check.",
+          "type": "string",
+          "default": null,
+          "enum": [
+            "critical",
+            "warning"
+          ]
+        },
+        "enabled": {
+          "description": "Whether the check runs. Default `true`.",
+          "type": "boolean",
+          "default": true
+        },
+        "interval": {
+          "description": "How often it runs. Default: the check's own interval.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Duration"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "thresholds": {
+          "description": "Check-specific thresholds; each check documents its keys.",
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "string",
+              "number",
+              "integer",
+              "boolean"
+            ]
+          },
+          "default": {}
+        }
+      },
+      "additionalProperties": false
+    },
+    "ContainersSection": {
+      "description": "`[containers]`.",
+      "type": "object",
+      "properties": {
+        "baseline_expiry": {
+          "description": "A container gone this long is dropped from the baseline. Default `\"7d\"`.",
+          "$ref": "#/$defs/Duration"
+        },
+        "critical": {
+          "description": "Container names whose absence is critical.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        },
+        "ignore": {
+          "description": "Container names never checked.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "DockerSection": {
+      "description": "`[docker]`.",
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "description": "Whether container checks and skills are enabled. Default `false`.",
+          "type": "boolean",
+          "default": false
+        },
+        "endpoint": {
+          "description": "`unix:///path/to/docker.sock` or `tcp://host:port` (for a socket proxy). Default\n`unix:///var/run/docker.sock`.",
+          "type": "string",
+          "default": "unix:///var/run/docker.sock"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Duration": {
+      "description": "A positive duration such as \"30s\", \"5m\", \"24h\", \"7d\" or \"1h30m\".",
+      "type": "string"
+    },
+    "LocalWebhooks": {
+      "description": "`[local_webhooks]`.",
+      "type": "object",
+      "properties": {
+        "bind": {
+          "description": "Listen address. Default `127.0.0.1:7422`.",
+          "type": "string",
+          "default": "127.0.0.1:7422"
+        },
+        "token": {
+          "description": "A bearer token callers must send. Optional.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Secret"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "PolicySection": {
+      "description": "`[policy]`.",
+      "type": "object",
+      "properties": {
+        "allow_risk": {
+          "description": "Risk classes of skills this agent runs. Default `[\"read\", \"write\"]`; add\n`\"destructive\"` to opt in.",
+          "type": "array",
+          "default": [
+            "read",
+            "write"
+          ],
+          "items": {
+            "description": "What a skill may do: read, write or destructive.",
+            "type": "string",
+            "enum": [
+              "read",
+              "write",
+              "destructive"
+            ]
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "Secret": {
+      "description": "A secret read from an environment variable or a file; never written inline.",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "env": {
+              "description": "Name of the environment variable holding the value.",
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "env"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "file": {
+              "description": "Path of a file, readable only by its owner, holding the value.",
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "file"
+          ]
+        }
+      ]
+    }
+  }
+}
