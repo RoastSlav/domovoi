@@ -45,6 +45,9 @@ pub trait HostRepo: Send + Sync {
     /// The agent with `id`, revoked or not.
     async fn get_agent(&self, id: AgentId) -> Result<Option<AgentIdentity>, StoreError>;
 
+    /// The agent enrolled for `host` that is not revoked, if any. A host has at most one.
+    async fn live_agent(&self, host: HostId) -> Result<Option<AgentIdentity>, StoreError>;
+
     /// Marks an agent revoked at `at`. Revoking twice keeps the first time.
     async fn revoke_agent(&self, id: AgentId, at: Timestamp) -> Result<(), StoreError>;
 
