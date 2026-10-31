@@ -10,7 +10,7 @@ use crate::interaction::{Interaction, InteractionReply};
 use crate::severity::Severity;
 
 /// A posted chat message, opaque outside its gateway.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct MessageRef {
     /// The platform that issued it.
     pub platform: String,
@@ -19,7 +19,7 @@ pub struct MessageRef {
 }
 
 /// A chat thread, opaque outside its gateway.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct ThreadRef {
     /// The platform that issued it.
     pub platform: String,
