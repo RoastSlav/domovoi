@@ -10,8 +10,21 @@ publish.workspace = true
 
 [dependencies]
 domovoi-core = { workspace = true }
+async-trait = { workspace = true }
+jiff = { workspace = true }
+metrics = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["sync", "time", "rt", "macros"] }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
 
 [dev-dependencies]
+domovoi-testkit = { workspace = true }
+proptest = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
 
 [lints]
 workspace = true
