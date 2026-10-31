@@ -30,3 +30,4 @@ An ADR records one decision that shapes the codebase: the context, the decision 
 | [0010](0010-discord-first.md) | Discord is the first interactive chat gateway | Accepted |
 | [0011](0011-single-writer-incident-manager.md) | Incident state has a single writer | Accepted |
 | [0012](0012-license.md) | License: MIT OR Apache-2.0 | Accepted |
+| [0013](0013-config-error-paths.md) | Config errors carry their TOML path via serde_path_to_error | Accepted |
