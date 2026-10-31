@@ -276,6 +276,10 @@ pub struct WebhookConfig {
     #[serde(default)]
     #[schemars(schema_with = "crate::schema::host_name")]
     pub default_host: Option<HostName>,
+    /// For Alertmanager, the label that names the host. Default: `host`, then `instance`
+    /// without its port.
+    #[serde(default)]
+    pub host_label: Option<String>,
 }
 
 /// An inbound webhook payload format.

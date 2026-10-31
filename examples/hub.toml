@@ -101,7 +101,7 @@ allowed_user_ids = [234567890123456789]
 webhook_url = { env = "DISCORD_WEBHOOK_URL" }
 
 # Inbound webhooks, one table per name; the name appears in the URL
-# /api/webhooks/<name>. Names use a-z, 0-9, '-' and '_' (example; optional).
+# /hooks/<name>. Names use a-z, 0-9, '-' and '_' (example; optional).
 [webhooks.alerts]
 # Payload format: "generic", "alertmanager" or "uptime_kuma".
 kind = "alertmanager"
@@ -111,6 +111,8 @@ auth = "bearer"
 secret = { env = "DOMOVOI_ALERTS_TOKEN" }
 # Host used when the payload names none (optional).
 default_host = "nas"
+# For Alertmanager, the label naming the host (default: "host", then "instance" without port).
+host_label = "host"
 
 # Network probes run from the hub (example; optional, repeat the table for more).
 [[probes]]

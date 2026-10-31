@@ -186,6 +186,11 @@ expression: "AgentConfig::json_schema()"
       "description": "`[local_webhooks]`.",
       "type": "object",
       "properties": {
+        "allow_non_loopback": {
+          "description": "Allow a `bind` address other than loopback. Default false: services on this host\nreach the relay, and nothing else does.",
+          "type": "boolean",
+          "default": false
+        },
         "bind": {
           "description": "Listen address. Default `127.0.0.1:7422`.",
           "type": "string",

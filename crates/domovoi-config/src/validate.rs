@@ -76,7 +76,17 @@ impl Validate for HubConfig {
                 "must list at least one Discord user ID when Discord is enabled",
             ));
         }
-        for name in self.webhooks.keys() {
+        for (name, hook) in &self.webhooks {
+            if hook
+                .host_label
+                .as_deref()
+                .is_some_and(|l| l.is_empty() || l.len() > 128)
+            {
+                issues.push(ConfigIssue::error(
+                    format!("webhooks.{name}.host_label"),
+                    "must be a label name of 1 to 128 characters, such as \"host\"",
+                ));
+            }
             if !valid_webhook_name(name) {
                 issues.push(ConfigIssue::error(
                     format!("webhooks.{name}"),
@@ -232,6 +242,15 @@ impl Validate for AgentConfig {
             issues.push(ConfigIssue::error(
                 "docker.endpoint",
                 "must be unix:///path/to/docker.sock or tcp://host:port",
+            ));
+        }
+        if let Some(relay) = &self.local_webhooks
+            && !relay.bind.ip().is_loopback()
+            && !relay.allow_non_loopback
+        {
+            issues.push(ConfigIssue::error(
+                "local_webhooks.bind",
+                "must be a loopback address such as 127.0.0.1:7422; set allow_non_loopback = true to open it to the network",
             ));
         }
     }
