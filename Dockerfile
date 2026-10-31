@@ -9,7 +9,7 @@ RUN npm ci
 COPY web/ ./
 RUN npm run build
 
-FROM rust:1.97-alpine AS build
+FROM rust:1.98-alpine AS build
 RUN apk add --no-cache musl-dev
 # Use the image's toolchain instead of downloading the one pinned in rust-toolchain.toml.
 ENV RUSTUP_TOOLCHAIN=1.97.0 CARGO_TERM_COLOR=always
