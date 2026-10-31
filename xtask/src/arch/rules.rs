@@ -43,6 +43,7 @@ pub const CRATES: &[CrateRule] = &[
             "schemars",
             "url",
             "uuid",
+            "serde_path_to_error",
         ]),
     },
     CrateRule {
