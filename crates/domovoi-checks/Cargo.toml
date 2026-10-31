@@ -11,14 +11,34 @@ publish.workspace = true
 [features]
 default = []
 # Host checks that read /proc, /sys, logs and Docker. Enabled by the agent.
-host = []
+host = ["dep:nix", "tokio/fs", "tokio/io-util"]
 # Network probes (TCP, HTTP, gateway reachability). Used by agent and hub.
 net = []
 
 [dependencies]
 domovoi-core = { workspace = true }
+async-trait = { workspace = true }
+jiff = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["macros"] }
+tracing = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+nix = { workspace = true, optional = true }
 
 [dev-dependencies]
+domovoi-testkit = { workspace = true }
+proptest = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt", "time"] }
+uuid = { workspace = true }
+
+[[test]]
+name = "system"
+path = "tests/system/main.rs"
+required-features = ["host"]
 
 [lints]
 workspace = true
