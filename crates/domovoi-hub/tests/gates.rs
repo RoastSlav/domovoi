@@ -64,3 +64,82 @@ async fn agent_link_requires_completed_handshake() {
         "the full handshake does"
     );
 }
+
+/// INV-12: no unauthenticated webhook request reaches the signal sink.
+#[tokio::test]
+async fn webhook_without_auth_never_reaches_signal_sink() {
+    use std::collections::BTreeMap;
+    use std::sync::Arc;
+
+    use axum::body::Body;
+    use axum::http::{HeaderValue, Request, StatusCode};
+    use domovoi_config::hub::{WebhookAuth, WebhookConfig, WebhookKind};
+    use domovoi_config::{Secret, SecretSource};
+    use domovoi_hub::ingest::{IngestDeps, IngestState, router};
+    use domovoi_testkit::{FakeClock, InMemoryStore, RecordingSignalSink};
+    use hmac::{Hmac, KeyInit, Mac};
+    use secrecy::SecretString;
+    use sha2::Sha256;
+    use tower::ServiceExt;
+
+    let body = r#"{"host":"nas","check":"a.b","summary":"x"}"#;
+    let secret = || {
+        Secret::resolved(
+            SecretSource::Env("TEST_SECRET".to_owned()),
+            SecretString::from("secret".to_owned()),
+        )
+    };
+    let clock = Arc::new(FakeClock::new(jiff::Timestamp::constant(1_700_000_000, 0)));
+    let sink = Arc::new(RecordingSignalSink::new());
+    let make_router = |auth| {
+        let config = WebhookConfig {
+            kind: WebhookKind::Generic,
+            auth,
+            secret: secret(),
+            default_host: None,
+            host_label: None,
+        };
+        router(IngestState::new(
+            BTreeMap::from([("alerts".to_owned(), config)]),
+            IngestDeps {
+                clock: clock.clone(),
+                hosts: Arc::new(InMemoryStore::new()),
+                sink: sink.clone(),
+            },
+        ))
+    };
+    let send = |router: axum::Router, header: Option<(&'static str, String)>| async move {
+        let mut request = Request::post("/hooks/alerts")
+            .body(Body::from(body))
+            .unwrap();
+        if let Some((name, value)) = header {
+            request.headers_mut().insert(
+                axum::http::HeaderName::from_bytes(name.as_bytes()).unwrap(),
+                HeaderValue::from_str(&value).unwrap(),
+            );
+        }
+        let response = router.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    };
+
+    send(make_router(WebhookAuth::Hmac), None).await;
+    send(
+        make_router(WebhookAuth::Hmac),
+        Some(("x-hub-signature-256", format!("sha256={}", "0".repeat(64)))),
+    )
+    .await;
+    let mut mac = <Hmac<Sha256> as KeyInit>::new_from_slice(b"secret").unwrap();
+    mac.update(b"a different body");
+    let signature = format!("sha256={}", hex::encode(mac.finalize().into_bytes()));
+    send(
+        make_router(WebhookAuth::Hmac),
+        Some(("x-hub-signature-256", signature)),
+    )
+    .await;
+    send(
+        make_router(WebhookAuth::Bearer),
+        Some(("authorization", "Bearer wrong".to_owned())),
+    )
+    .await;
+    assert!(sink.batches().is_empty());
+}

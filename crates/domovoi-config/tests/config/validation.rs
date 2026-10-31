@@ -148,12 +148,25 @@ public_url = \"wss://hub.lan:7421\"
 }
 
 #[test]
+fn webhook_default_host_must_parse() {
+    let errors = hub_errors(
+        "[webhooks.alerts]\nkind = \"generic\"\nauth = \"hmac\"\nsecret = { env = \"S\" }\ndefault_host = \"Bad_Host\"\n",
+    );
+    assert_issue(&errors, "webhooks.alerts.default_host", "host name");
+}
+
+#[test]
 fn webhook_host_label_parses() {
-    let text = "[webhooks.alerts]\nkind = \"alertmanager\"\nauth = \"hmac\"\nsecret = { env = \"S\" }\n";
+    let text =
+        "[webhooks.alerts]\nkind = \"alertmanager\"\nauth = \"hmac\"\nsecret = { env = \"S\" }\n";
     let errors = hub_errors(&format!("{text}host_label = \"\"\n"));
     assert_issue(&errors, "webhooks.alerts.host_label", "label name");
     let errors = hub_errors(&format!("{text}host_label = \"node\"\n"));
-    assert!(errors.iter().all(|e| e.path != "webhooks.alerts.host_label"));
+    assert!(
+        errors
+            .iter()
+            .all(|e| e.path != "webhooks.alerts.host_label")
+    );
 }
 
 #[test]

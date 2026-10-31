@@ -1,0 +1,9 @@
+{
+  "host": "nas",
+  "check": "backup.nightly",
+  "target": "photos",
+  "status": "firing",
+  "severity": "warning",
+  "summary": "Backup failed",
+  "evidence": { "exit_code": 2, "repository": "/srv/backups/photos", "retried": false }
+}

@@ -12,6 +12,8 @@ mod hub;
 #[cfg(test)]
 mod link;
 #[cfg(test)]
+mod relay;
+#[cfg(test)]
 mod requests;
 #[cfg(test)]
 mod runtime;

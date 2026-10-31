@@ -55,15 +55,16 @@ fn invalid(prefix: &str, field: &str, reason: impl Into<String>) -> ParseError {
 }
 
 fn one(value: Value, prefix: &str) -> Result<SourceSignal, ParseError> {
-    let raw: Generic = serde_json::from_value(value)
-        .map_err(|e| ParseError::Malformed(format!("{prefix}{e}")))?;
+    let raw: Generic =
+        serde_json::from_value(value).map_err(|e| ParseError::Malformed(format!("{prefix}{e}")))?;
     let check = CheckKey::parse(&raw.check).map_err(|e| invalid(prefix, "check", e.to_string()))?;
-    let target = match raw.target.as_deref() {
-        None => None,
-        Some(text) => Some(target(text).ok_or_else(|| {
-            invalid(prefix, "target", "must be 1 to 128 printable characters")
-        })?),
-    };
+    let target =
+        match raw.target.as_deref() {
+            None => None,
+            Some(text) => Some(target(text).ok_or_else(|| {
+                invalid(prefix, "target", "must be 1 to 128 printable characters")
+            })?),
+        };
     let status = match raw.status.as_deref().map(str::trim) {
         None | Some("firing") => SignalStatus::Firing,
         Some("resolved") => SignalStatus::Resolved,

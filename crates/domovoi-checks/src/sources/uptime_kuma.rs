@@ -53,7 +53,11 @@ pub(super) fn parse(value: Value) -> Result<Vec<SourceSignal>, ParseError> {
     let name = monitor.as_ref().and_then(|m| m.name.as_deref());
     let mut evidence = Evidence::new();
     if let Some(monitor) = &monitor {
-        if let Some(url) = monitor.url.as_deref().filter(|u| !u.is_empty() && *u != "https://") {
+        if let Some(url) = monitor
+            .url
+            .as_deref()
+            .filter(|u| !u.is_empty() && *u != "https://")
+        {
             put(&mut evidence, "url", EvidenceValue::Text(url.to_owned()));
         }
         if let Some(kind) = &monitor.kind {
@@ -65,13 +69,13 @@ pub(super) fn parse(value: Value) -> Result<Vec<SourceSignal>, ParseError> {
         .filter(|m| !m.trim().is_empty())
         .or(payload.msg)
         .unwrap_or_default();
-    let summary = match (name, status) {
-        (Some(name), _) if !message.trim().is_empty() => format!("{name}: {}", message.trim()),
-        (Some(name), SignalStatus::Firing) => format!("{name} is down"),
-        (Some(name), SignalStatus::Resolved) => format!("{name} is up"),
-        (None, _) if !message.trim().is_empty() => message.trim().to_owned(),
-        (None, SignalStatus::Firing) => "A monitor is down".to_owned(),
-        (None, SignalStatus::Resolved) => "A monitor is up".to_owned(),
+    let summary = if message.trim().is_empty() {
+        match status {
+            SignalStatus::Firing => "A monitor is down".to_owned(),
+            SignalStatus::Resolved => "A monitor is up".to_owned(),
+        }
+    } else {
+        message.trim().to_owned()
     };
     Ok(vec![SourceSignal {
         host: None,

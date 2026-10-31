@@ -1,0 +1,25 @@
+{
+  "heartbeat": {
+    "monitorID": 3,
+    "status": 0,
+    "time": "2026-10-31 11:58:02.731",
+    "msg": "connect ECONNREFUSED 192.168.1.20:32400",
+    "important": true,
+    "duration": 60,
+    "timezone": "Europe/Sofia",
+    "timezoneOffset": "+02:00",
+    "localDateTime": "2026-10-31 13:58:02"
+  },
+  "monitor": {
+    "id": 3,
+    "name": "Plex",
+    "description": null,
+    "url": "http://192.168.1.20:32400/web",
+    "type": "http",
+    "interval": 60,
+    "hostname": null,
+    "port": null,
+    "active": true
+  },
+  "msg": "[Plex] [🔴 Down] connect ECONNREFUSED 192.168.1.20:32400"
+}

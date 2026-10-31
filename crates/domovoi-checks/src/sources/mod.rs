@@ -112,10 +112,7 @@ impl SourceSignal {
     /// The signal for host `host`, received at `now`. A sender's time later than `now` is
     /// replaced by `now`.
     #[must_use]
-    pub fn into_signal(self, host: HostId, format: SourceFormat, now: Timestamp) -> Signal {
-        let source = SourceKind::Webhook {
-            kind: format.name().to_owned(),
-        };
+    pub fn into_signal(self, host: HostId, source: SourceKind, now: Timestamp) -> Signal {
         let at = self.observed_at.filter(|t| *t <= now).unwrap_or(now);
         let signal = match self.status {
             SignalStatus::Firing => Signal::firing(
