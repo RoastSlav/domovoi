@@ -1,0 +1,11 @@
+/dev/sda1 / ext4 rw,relatime 0 0
+proc /proc proc rw,nosuid 0 0
+sysfs /sys sysfs rw 0 0
+tmpfs /run tmpfs rw,nosuid 0 0
+devtmpfs /dev devtmpfs rw 0 0
+cgroup2 /sys/fs/cgroup cgroup2 rw 0 0
+overlay /var/lib/docker/overlay2/abc/merged overlay rw 0 0
+squashfs /snap/core/1 squashfs ro 0 0
+/dev/sdb1 /srv ext4 rw 0 0
+/dev/sdc1 /mnt/backup\040disk xfs rw 0 0
+/dev/sda1 / ext4 rw,relatime 0 0

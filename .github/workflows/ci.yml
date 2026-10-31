@@ -87,6 +87,13 @@ jobs:
         run: cargo nextest run --workspace --locked --no-tests=pass
       - name: Doctests
         run: cargo test --workspace --doc --locked
+      - name: Feature-gated checks (clippy, tests, rustdoc)
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: |
+          cargo clippy --package domovoi-checks --all-features --all-targets --locked -- -D warnings
+          cargo test --package domovoi-checks --all-features --locked
+          cargo doc --package domovoi-checks --all-features --no-deps --locked
       - name: Architecture rules
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then

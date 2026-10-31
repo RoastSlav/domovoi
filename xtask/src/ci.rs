@@ -36,6 +36,36 @@ pub fn run(root: &Path, fast: bool, web: bool) -> anyhow::Result<()> {
     } else {
         step(root, "test", "cargo", &["test", "--workspace", "--locked"])?;
     }
+    // Feature-gated code is not built by the workspace steps above; `--all-features`
+    // on the workspace would also turn on `domovoi/embed-ui`, which needs the web build.
+    step(
+        root,
+        "checks features clippy",
+        "cargo",
+        &[
+            "clippy",
+            "--package",
+            "domovoi-checks",
+            "--all-features",
+            "--all-targets",
+            "--locked",
+            "--",
+            "-D",
+            "warnings",
+        ],
+    )?;
+    step(
+        root,
+        "checks features test",
+        "cargo",
+        &[
+            "test",
+            "--package",
+            "domovoi-checks",
+            "--all-features",
+            "--locked",
+        ],
+    )?;
     step(
         root,
         "xtask tests",

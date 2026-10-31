@@ -434,7 +434,19 @@ dependencies = [
 name = "domovoi-checks"
 version = "0.0.1"
 dependencies = [
+ "async-trait",
  "domovoi-core",
+ "domovoi-testkit",
+ "jiff",
+ "nix",
+ "proptest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]
