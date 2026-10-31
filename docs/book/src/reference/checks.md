@@ -146,6 +146,8 @@ A managed container seen running in two consecutive runs becomes expected. From 
   - `baseline.expired` (the name of a container dropped from the baseline), for an advisory.
 - Each run also keeps the last 24 hours of container events (at most 500) for the Docker events read tool and for triage.
 
+The agent's Docker read tools use the same source. `docker_inspect` lists environment variable names only, and `docker_logs` returns at most 256 KiB.
+
 ### `container.unhealthy`
 
 Fires with warning severity while a container's health check reports `unhealthy`. Containers without a health check report nothing.

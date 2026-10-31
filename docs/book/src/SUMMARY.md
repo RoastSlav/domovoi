@@ -36,6 +36,7 @@
 - [Built-in checks](reference/checks.md)
 - [HTTP API](reference/api.md)
 - [Agent protocol](reference/protocol.md)
+- [Agent runtime](reference/agent.md)
 - [Data model](reference/data-model.md)
 
 # Security
