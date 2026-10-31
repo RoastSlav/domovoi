@@ -5,13 +5,15 @@ use std::collections::{BTreeMap, HashMap};
 use async_trait::async_trait;
 use bollard::Docker;
 use bollard::models::{ContainerInspectResponse, ContainerStateStatusEnum, HealthStatusEnum};
-use bollard::query_parameters::{EventsOptionsBuilder, ListContainersOptionsBuilder};
+use bollard::query_parameters::{
+    EventsOptionsBuilder, ListContainersOptionsBuilder, LogsOptionsBuilder,
+};
 use futures::StreamExt;
 use jiff::Timestamp;
 
 use super::{
     ContainerError, ContainerEvent, ContainerInfo, ContainerSource, Health, MAX_CONTAINERS,
-    RunState,
+    MAX_LOG_BYTES, RunState, strip_env,
 };
 
 /// How long one Docker API request may take, in seconds.
@@ -217,5 +219,39 @@ impl ContainerSource for DockerSource {
             });
         }
         Ok(events)
+    }
+
+    async fn inspect(&self, name: &str) -> Result<serde_json::Value, ContainerError> {
+        let inspect = self
+            .docker
+            .inspect_container(name, None)
+            .await
+            .map_err(error)?;
+        let mut value = serde_json::to_value(&inspect).map_err(error)?;
+        strip_env(&mut value);
+        Ok(value)
+    }
+
+    async fn logs(&self, name: &str, lines: u16) -> Result<String, ContainerError> {
+        let options = LogsOptionsBuilder::new()
+            .stdout(true)
+            .stderr(true)
+            .tail(&lines.to_string())
+            .build();
+        let mut stream = self.docker.logs(name, Some(options));
+        let mut text = String::new();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(error)?;
+            text.push_str(&String::from_utf8_lossy(&chunk.into_bytes()));
+            if text.len() >= MAX_LOG_BYTES {
+                let mut end = MAX_LOG_BYTES;
+                while !text.is_char_boundary(end) {
+                    end -= 1;
+                }
+                text.truncate(end);
+                break;
+            }
+        }
+        Ok(text)
     }
 }

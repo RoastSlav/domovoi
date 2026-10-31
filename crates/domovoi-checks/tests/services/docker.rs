@@ -102,3 +102,57 @@ fn docker_endpoints_other_than_unix_and_tcp_are_rejected() {
     assert!(DockerSource::connect("ssh://nas").is_err());
     assert!(DockerSource::connect("/var/run/docker.sock").is_err());
 }
+
+#[tokio::test]
+async fn docker_inspect_omits_environment_values_and_logs_are_tailed() {
+    let server = MockServer::start().await;
+    serve(
+        &server,
+        r"^(/v[0-9.]+)?/containers/plex/json$",
+        "docker/inspect_env.json",
+    )
+    .await;
+    let mut frames = Vec::new();
+    for (stream, line) in [
+        (
+            1u8,
+            "starting
+",
+        ),
+        (
+            2u8,
+            "warning: slow disk
+",
+        ),
+    ] {
+        frames.extend_from_slice(&[stream, 0, 0, 0]);
+        frames.extend_from_slice(&u32::try_from(line.len()).unwrap().to_be_bytes());
+        frames.extend_from_slice(line.as_bytes());
+    }
+    Mock::given(method("GET"))
+        .and(path_regex(r"^(/v[0-9.]+)?/containers/plex/logs$"))
+        .and(wiremock::matchers::query_param("tail", "50"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_raw(frames, "application/vnd.docker.multiplexed-stream"),
+        )
+        .mount(&server)
+        .await;
+
+    let source = DockerSource::connect(&format!("tcp://{}", server.address())).unwrap();
+    let inspect = source.inspect("plex").await.unwrap();
+    let text = inspect.to_string();
+    assert!(!text.contains("claim-secret-123"), "{text}");
+    assert_eq!(
+        inspect["Config"]["Env"],
+        serde_json::json!(["PLEX_CLAIM", "TZ", "EMPTY"])
+    );
+
+    let logs = source.logs("plex", 50).await.unwrap();
+    assert_eq!(
+        logs,
+        "starting
+warning: slow disk
+"
+    );
+}
