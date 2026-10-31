@@ -1,0 +1,33 @@
+---
+source: crates/domovoi-core/tests/serde_snapshots.rs
+expression: incident
+---
+{
+  "id": "01900000-0000-7000-8000-000000000003",
+  "fingerprint": "42cb9bbed0ac0db3646b5aed0b56b64680c2fd4b3d2837873dc107f449059852",
+  "host": "01900000-0000-7000-8000-000000000001",
+  "check": "container.restart_loop",
+  "target": "plex",
+  "title": "plex restarted 7 times in 10 minutes",
+  "status": {
+    "type": "open"
+  },
+  "severity": "warning",
+  "verdict": null,
+  "opened_at": "2023-11-14T22:13:20Z",
+  "confirmed_at": "2023-11-14T22:14:20Z",
+  "resolved_at": null,
+  "last_firing_at": "2023-11-14T22:14:20Z",
+  "firing_streak": 2,
+  "occurrences": 2,
+  "history": [
+    [
+      "2023-11-14T22:13:20Z",
+      7.5
+    ],
+    [
+      "2023-11-14T22:14:20Z",
+      7.5
+    ]
+  ]
+}

@@ -1,0 +1,25 @@
+---
+source: crates/domovoi-core/tests/serde_snapshots.rs
+expression: sample_signal()
+---
+{
+  "id": "01900000-0000-7000-8000-000000000002",
+  "source": {
+    "type": "webhook",
+    "kind": "uptime-kuma"
+  },
+  "host": "01900000-0000-7000-8000-000000000001",
+  "check": "container.restart_loop",
+  "target": "plex",
+  "status": "firing",
+  "severity": "warning",
+  "class": "normal",
+  "summary": "plex restarted 7 times in 10 minutes",
+  "evidence": {
+    "container": "plex",
+    "oom_killed": true,
+    "restarts": 7,
+    "value": 7.5
+  },
+  "observed_at": "2023-11-14T22:13:20Z"
+}
