@@ -1,0 +1,59 @@
+# agent.toml: configuration for a Domovoi agent.
+#
+# Every option is shown with its default unless marked "example". Only [agent] is
+# required. Validate this file with `domovoi check config agent.toml`.
+#
+# Secrets are never written here: use { env = "NAME" } or { file = "/path" }.
+# Scalars can be overridden with DOMOVOI_<SECTION>__<KEY>, for example
+# DOMOVOI_AGENT__HUB_URL=wss://hub.lan:7421.
+
+[agent]
+# This host's name in Domovoi: lowercase letters, digits and '-' (example).
+host_name = "nas"
+# The hub's agent server. Must use wss:// (example).
+hub_url = "wss://hub.example.net:7421"
+# Where the agent keeps its key and its spool of unsent signals.
+state_dir = "/var/lib/domovoi-agent"
+# Where skill manifests are read from.
+skills_dir = "/etc/domovoi/skills"
+# Where the host filesystem is mounted. Set to "/host" when the agent runs in a
+# container with the host's root mounted there.
+host_root = "/"
+
+[policy]
+# Risk classes of skills this agent will run. Add "destructive" to opt in to skills that
+# cannot be undone; those still need typed confirmation in the web UI.
+allow_risk = ["read", "write"]
+
+[docker]
+# Whether container checks and skills are enabled (default false).
+enabled = true
+# unix:///path/to/docker.sock, or tcp://host:port for a socket proxy.
+endpoint = "unix:///var/run/docker.sock"
+
+# Per-check settings, one table per check key (example; optional). Quote keys that
+# contain dots.
+[checks."disk.usage"]
+# Whether the check runs.
+enabled = true
+# How often it runs (default: the check's own interval).
+interval = "5m"
+# Check-specific thresholds; each check documents its keys.
+thresholds = { warning_percent = 85, critical_percent = 95 }
+# Overrides how bad a failure is: "critical" or "warning" (default: decided by the check).
+criticality = "critical"
+
+[containers]
+# Container names whose absence is critical (default: none).
+critical = ["postgres"]
+# Container names never checked (default: none).
+ignore = ["watchtower"]
+# A container gone this long is dropped from the baseline.
+baseline_expiry = "7d"
+
+# A local listener for webhooks from services on this host (optional; omit to disable).
+[local_webhooks]
+# Listen address; keep it on localhost.
+bind = "127.0.0.1:7422"
+# A bearer token callers must send (optional).
+token = { env = "DOMOVOI_LOCAL_WEBHOOK_TOKEN" }
