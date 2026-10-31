@@ -37,6 +37,7 @@ The hub keeps its state in one SQLite database in WAL mode, under `[hub] data_di
 | `users` | Web users: username and argon2id password hash. Usernames are case-sensitive. |
 | `sessions` | Web sessions: hashes of the session and CSRF tokens, owner and expiry. |
 | `settings` | Hub settings changed from the UI, as JSON values. |
+| `notify_state` | Per incident: where its card and thread are on each chat platform, when it was last reminded about, folded repeats not yet mentioned, and an alert held for the end of quiet hours. |
 
 ## Search
 
