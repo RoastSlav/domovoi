@@ -58,7 +58,7 @@ fn proposed(risk: Risk) -> ActionRequest {
         host(),
         &skill,
         &args(&skill, "plex"),
-        Principal::System("triage"),
+        Principal::System("triage".into()),
         SignedDuration::from_hours(1),
         at(0),
     )
@@ -328,7 +328,7 @@ fn propose_copies_risk_and_normalised_args() {
     );
     assert_eq!(req.expires_at(), at(3600));
     assert_eq!(req.chat_token_hash(), Some(&[7; 32]));
-    assert_eq!(req.proposed_by(), Principal::System("triage"));
+    assert_eq!(req.proposed_by(), &Principal::System("triage".into()));
 }
 
 #[test]

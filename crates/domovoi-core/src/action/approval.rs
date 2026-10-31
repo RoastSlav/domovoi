@@ -47,8 +47,9 @@ pub enum ApprovalChannel {
 
 /// Proof that an authenticated human approved an action (INV-1).
 ///
-/// There is deliberately no `Default` and no `Deserialize`: the only way to obtain one is
-/// [`HumanApproval::new`].
+/// There is deliberately no `Default` and no `Deserialize`: the only ways to obtain one are
+/// [`HumanApproval::new`], after authentication, and [`HumanApproval::restore`], when the
+/// store loads an approval it persisted (ADR 0014).
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct HumanApproval {
     user: UserId,
@@ -63,6 +64,15 @@ impl HumanApproval {
     /// `xtask arch-check` enforces this (INV-1).
     #[must_use]
     pub fn new(user: UserId, channel: ApprovalChannel, at: Timestamp) -> Self {
+        Self { user, channel, at }
+    }
+
+    /// Rebuilds an approval the store persisted when [`HumanApproval::new`] created it.
+    ///
+    /// Call only in `crates/domovoi-store/src/` when loading a stored action. It records
+    /// no new decision. `xtask arch-check` enforces this (INV-1, ADR 0014).
+    #[must_use]
+    pub fn restore(user: UserId, channel: ApprovalChannel, at: Timestamp) -> Self {
         Self { user, channel, at }
     }
 

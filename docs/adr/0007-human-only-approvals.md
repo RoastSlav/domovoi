@@ -18,6 +18,7 @@ The triage agent reads untrusted text. A prompt-injected model must not be able 
 
 - Gate tests (`tests/gates.rs`) assert the tool catalogue contents, the call-site restriction, plan-hash re-validation and destructive gating. They may never be deleted, only extended.
 - Any future surface (MCP, operator, policies) must state in its ADR how it preserves this invariant.
+- Loading a persisted approval is the one other way to obtain a `HumanApproval`; [ADR 0014](0014-rehydrating-stored-approvals.md) restricts it to the store.
 
 ## Alternatives considered
 

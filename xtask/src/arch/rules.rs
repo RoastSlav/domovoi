@@ -169,6 +169,11 @@ pub const PROCESS_ALLOWED_PREFIXES: &[&str] = &["crates/domovoi-runner/"];
 pub const HUMAN_APPROVAL_ALLOWED_PREFIXES: &[&str] =
     &["crates/domovoi-hub/src/auth/", "crates/domovoi-testkit/"];
 
+/// Path prefixes where `HumanApproval::restore` may be called: loading a stored approval
+/// (INV-1, ADR 0014).
+pub const HUMAN_APPROVAL_RESTORE_ALLOWED_PREFIXES: &[&str] =
+    &["crates/domovoi-store/src/", "crates/domovoi-testkit/"];
+
 /// Crates whose sources must stay free of I/O (R2).
 pub const PURE_CRATE_DIRS: &[&str] = &[
     "crates/domovoi-core/src/",

@@ -30,7 +30,7 @@ pub mod verdict;
 pub use ack::{AckRule, EvidencePredicate, MaintenanceWindow, TargetPattern};
 pub use action::{
     ActionChange, ActionError, ActionRequest, ActionStatus, ApprovalChannel, HumanApproval,
-    PlanHash, Principal,
+    PlanHash, Principal, StoredAction,
 };
 pub use advisory::{Advisory, AdvisoryKind};
 pub use baseline::{BaselineEntry, BaselineKind, Criticality};

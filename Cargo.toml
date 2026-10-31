@@ -79,7 +79,7 @@ ed25519-dalek = { version = "3.0.0", features = ["rand_core"] }
 tokio-tungstenite = { version = "0.30.0", default-features = false, features = ["handshake", "stream"] }
 
 # Adapters
-sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "sqlite-bundled", "migrate", "derive"] }
+sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "sqlite-bundled", "migrate", "derive", "macros"] }
 reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls-no-provider", "http2", "charset"] }
 bollard = "0.21.1"
 serenity = { version = "0.12.5", default-features = false, features = ["builder", "cache", "client", "gateway", "model", "http", "utils", "rustls_backend"] }
