@@ -730,13 +730,22 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "assert_cmd",
+ "async-trait",
  "clap",
  "domovoi-agent",
+ "domovoi-checks",
  "domovoi-config",
  "domovoi-core",
  "domovoi-hub",
+ "domovoi-proto",
  "domovoi-runner",
+ "domovoi-testkit",
+ "jiff",
  "predicates",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+ "url",
 ]
 
 [[package]]
@@ -868,6 +877,8 @@ dependencies = [
 name = "domovoi-hub"
 version = "0.0.1"
 dependencies = [
+ "async-trait",
+ "base64 0.23.1",
  "domovoi-chat",
  "domovoi-checks",
  "domovoi-config",
@@ -876,6 +887,23 @@ dependencies = [
  "domovoi-llm",
  "domovoi-proto",
  "domovoi-store",
+ "domovoi-testkit",
+ "ed25519-dalek",
+ "futures",
+ "hex",
+ "jiff",
+ "rand",
+ "rcgen",
+ "rustls",
+ "sha2 0.10.9",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tokio-rustls",
+ "tokio-tungstenite",
+ "tokio-util",
+ "tracing",
+ "url",
 ]
 
 [[package]]
@@ -3047,6 +3075,7 @@ dependencies = [
  "bytes",
  "libc",
  "mio",
+ "parking_lot",
  "pin-project-lite",
  "signal-hook-registry",
  "socket2",
