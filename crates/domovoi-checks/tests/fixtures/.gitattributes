@@ -1,0 +1,2 @@
+# Fixture files mirror Linux /proc and /sys; keep LF endings on every checkout.
+* text eol=lf
