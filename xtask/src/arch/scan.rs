@@ -5,8 +5,8 @@ use std::path::Path;
 
 use super::Violation;
 use super::rules::{
-    HUMAN_APPROVAL_ALLOWED_PREFIXES, MAX_FILE_LINES, PROCESS_ALLOWED_PREFIXES, PURE_CRATE_DIRS,
-    PURE_FORBIDDEN_PATHS,
+    HUMAN_APPROVAL_ALLOWED_PREFIXES, HUMAN_APPROVAL_RESTORE_ALLOWED_PREFIXES, MAX_FILE_LINES,
+    PROCESS_ALLOWED_PREFIXES, PURE_CRATE_DIRS, PURE_FORBIDDEN_PATHS,
 };
 
 /// Scan every `.rs` file under `crates/`.
@@ -66,6 +66,10 @@ pub fn check_file(rel: &str, text: &str) -> Vec<Violation> {
         || HUMAN_APPROVAL_ALLOWED_PREFIXES
             .iter()
             .any(|p| rel.starts_with(p));
+    let restore_ok = test
+        || HUMAN_APPROVAL_RESTORE_ALLOWED_PREFIXES
+            .iter()
+            .any(|p| rel.starts_with(p));
     let pure = !test && PURE_CRATE_DIRS.iter().any(|p| rel.starts_with(p));
 
     for (i, line) in text.lines().enumerate() {
@@ -96,6 +100,13 @@ pub fn check_file(rel: &str, text: &str) -> Vec<Violation> {
                 "R4",
                 &at,
                 "never invoke a shell; build an argv vector from validated parameters",
+            ));
+        }
+        if line.contains("HumanApproval::restore(") && !restore_ok {
+            out.push(v(
+                "INV-1",
+                &at,
+                "HumanApproval::restore may only be called in crates/domovoi-store/src/",
             ));
         }
         if line.contains("HumanApproval::new(") && !approval_ok {
@@ -200,6 +211,20 @@ mod tests {
         assert_eq!(v[0].rule, "INV-1");
         assert!(check_file("crates/domovoi-hub/src/auth/session.rs", text).is_empty());
         assert!(check_file("crates/domovoi-engine/tests/gates.rs", text).is_empty());
+    }
+
+    #[test]
+    fn human_approval_restore_outside_store_is_rejected() {
+        let text = "let a = HumanApproval::restore(user, channel, at);
+";
+        let v = check_file("crates/domovoi-hub/src/auth/session.rs", text);
+        assert_eq!(v[0].rule, "INV-1");
+        assert_eq!(
+            check_file("crates/domovoi-engine/src/actions.rs", text)[0].rule,
+            "INV-1"
+        );
+        assert!(check_file("crates/domovoi-store/src/rows/action.rs", text).is_empty());
+        assert!(check_file("crates/domovoi-store/tests/actions.rs", text).is_empty());
     }
 
     #[test]

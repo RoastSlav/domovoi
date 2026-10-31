@@ -1,5 +1,6 @@
 //! Action requests: a proposal to run a write or destructive skill, and its status.
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 
 use jiff::{SignedDuration, Timestamp};
@@ -41,13 +42,49 @@ pub enum ActionStatus {
 }
 
 /// Who did something. Only `Human` can approve, and only through a [`HumanApproval`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(tag = "type", content = "id", rename_all = "snake_case")]
 pub enum Principal {
     /// An authenticated user.
     Human(UserId),
     /// A Domovoi component, for example `triage`.
-    System(&'static str),
+    System(Cow<'static, str>),
+}
+
+/// Every field of a stored [`ActionRequest`], for the store to load it back.
+///
+/// An approval can only be supplied as a [`HumanApproval`], so loading cannot approve
+/// anything that was not approved before it was stored.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredAction {
+    /// Unique id.
+    pub id: ActionId,
+    /// The incident the action is for.
+    pub incident: IncidentId,
+    /// Where the skill runs.
+    pub host: HostId,
+    /// Which skill runs.
+    pub skill: SkillName,
+    /// The skill's risk at proposal time.
+    pub risk: Risk,
+    /// Validated, normalised arguments.
+    pub args: BTreeMap<String, String>,
+    /// The plan the approval binds to.
+    pub plan_hash: PlanHash,
+    /// Status when stored.
+    pub status: ActionStatus,
+    /// Who proposed it.
+    pub proposed_by: Principal,
+    /// The approval, if one was given.
+    pub approved_by: Option<HumanApproval>,
+    /// When the approval window closes.
+    pub expires_at: Timestamp,
+    /// When it was proposed.
+    pub created_at: Timestamp,
+    /// When it last changed.
+    pub updated_at: Timestamp,
+    /// Hash of the chat button token, if one was issued.
+    pub chat_token_hash: Option<[u8; 32]>,
 }
 
 /// A request to run a skill with specific arguments on a specific host.
@@ -103,6 +140,27 @@ impl ActionRequest {
             created_at: now,
             updated_at: now,
             chat_token_hash: None,
+        }
+    }
+
+    /// Loads a request the store persisted, unchanged.
+    #[must_use]
+    pub fn from_stored(stored: StoredAction) -> Self {
+        Self {
+            id: stored.id,
+            incident: stored.incident,
+            host: stored.host,
+            skill: stored.skill,
+            risk: stored.risk,
+            args: stored.args,
+            plan_hash: stored.plan_hash,
+            status: stored.status,
+            proposed_by: stored.proposed_by,
+            approved_by: stored.approved_by,
+            expires_at: stored.expires_at,
+            created_at: stored.created_at,
+            updated_at: stored.updated_at,
+            chat_token_hash: stored.chat_token_hash,
         }
     }
 
@@ -170,8 +228,8 @@ impl ActionRequest {
 
     /// Who proposed it.
     #[must_use]
-    pub fn proposed_by(&self) -> Principal {
-        self.proposed_by
+    pub fn proposed_by(&self) -> &Principal {
+        &self.proposed_by
     }
 
     /// The approval, once given.

@@ -134,7 +134,7 @@ pub fn action(incident: IncidentId, host: HostId, risk: Risk) -> Result<ActionRe
         host,
         &summary,
         &args,
-        Principal::System("triage"),
+        Principal::System("triage".into()),
         SignedDuration::from_hours(1),
         T0,
     ))

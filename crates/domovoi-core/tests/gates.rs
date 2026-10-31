@@ -91,7 +91,7 @@ fn destructive_actions_cannot_be_approved_from_chat() {
         HostId::new(),
         &skill,
         &args,
-        Principal::System("triage"),
+        Principal::System("triage".into()),
         SignedDuration::from_hours(1),
         now,
     );
@@ -140,4 +140,41 @@ fn audit_log_has_no_mutation_api() {
 
     let log: &dyn AuditLog = &OnlyAppendAndList;
     let _ = log;
+}
+
+/// Approvals can't be deserialized (INV-1, ADR 0014). They come only from
+/// `HumanApproval::new` after authentication and `HumanApproval::restore` when the store
+/// loads one; arch-check restricts both call sites. This probe resolves to `true` only if
+/// the type implements `Deserialize`.
+#[test]
+fn approvals_and_actions_cannot_be_deserialized() {
+    use std::marker::PhantomData;
+
+    use domovoi_core::{ActionRequest, HumanApproval, Principal};
+
+    struct Probe<T>(PhantomData<T>);
+    trait Deserializable {
+        fn deserializable(&self) -> bool {
+            true
+        }
+    }
+    impl<T: serde::de::DeserializeOwned> Deserializable for &Probe<T> {}
+    trait NotDeserializable {
+        fn deserializable(&self) -> bool {
+            false
+        }
+    }
+    impl<T> NotDeserializable for Probe<T> {}
+
+    // The double reference picks the `Deserializable` impl when it applies.
+    macro_rules! deserializable {
+        ($t:ty) => {
+            (&&Probe::<$t>(PhantomData)).deserializable()
+        };
+    }
+    assert!(!deserializable!(HumanApproval));
+    assert!(!deserializable!(ActionRequest));
+    assert!(!deserializable!(Principal));
+    // The probe does detect a type that can be deserialized.
+    assert!(deserializable!(domovoi_core::Severity));
 }
