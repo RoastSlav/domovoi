@@ -1,0 +1,25 @@
+{
+  "Id": "aaa111",
+  "Name": "/plex",
+  "Image": "sha256:img1",
+  "RestartCount": 2,
+  "State": {
+    "Status": "running",
+    "Running": true,
+    "StartedAt": "2026-10-30T10:00:00.123456789Z",
+    "Health": {
+      "Status": "unhealthy",
+      "FailingStreak": 3
+    }
+  },
+  "Config": {
+    "Image": "plexinc/pms:latest",
+    "Labels": {
+      "com.docker.compose.project": "media",
+      "com.docker.compose.service": "plex"
+    }
+  },
+  "HostConfig": {
+    "AutoRemove": false
+  }
+}

@@ -1,0 +1,4 @@
+pam_unix(sudo:auth): authentication failure; logname=dave uid=1000 euid=0 tty=/dev/pts/0 ruser=dave rhost=  user=dave
+dave : 3 incorrect password attempts ; TTY=pts/0 ; PWD=/home/dave ; USER=root ; COMMAND=/usr/bin/ls
+erin : TTY=pts/1 ; PWD=/home/erin ; USER=root ; COMMAND=/usr/bin/apt update
+-- cursor: s=sudo;i=4

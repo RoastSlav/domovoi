@@ -9,11 +9,25 @@
 //! - [`commands`]: the closed set of fixed command templates.
 //! - `hostfs` and `system` (feature `host`): the real host filesystem and the system
 //!   checks (disk, memory, temperature, reboots, kernel errors, power).
+//! - `containers`, `units`, `smart` and `security` (feature `host`): service checks.
+//! - `net` (feature `net`): TCP, HTTP and gateway probes; they do not need `host`.
 
 pub mod commands;
 pub mod framework;
 
 #[cfg(feature = "host")]
+pub mod containers;
+#[cfg(feature = "host")]
 pub mod hostfs;
 #[cfg(feature = "host")]
+pub mod learn;
+#[cfg(feature = "net")]
+pub mod net;
+#[cfg(feature = "host")]
+pub mod security;
+#[cfg(feature = "host")]
+pub mod smart;
+#[cfg(feature = "host")]
 pub mod system;
+#[cfg(feature = "host")]
+pub mod units;

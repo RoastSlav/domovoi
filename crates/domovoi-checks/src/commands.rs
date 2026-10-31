@@ -126,6 +126,27 @@ slot!(
     |b: u8| b.is_ascii_graphic()
 );
 
+slot!(
+    /// A syslog identifier such as `sudo`: `[A-Za-z0-9_.-]{1,64}`, not starting with `-`.
+    SyslogIdentifier,
+    "syslog identifier",
+    64,
+    |b: u8| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b'-')
+);
+
+/// Which journal messages [`Commands::journal_since_cursor`] reads.
+///
+/// journalctl combines filters of different kinds with AND, so one call reads one kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JournalScope<'a> {
+    /// The kernel ring buffer.
+    Kernel,
+    /// Messages from any of these units.
+    Units(&'a [UnitName]),
+    /// Messages with any of these syslog identifiers.
+    Identifiers(&'a [SyslogIdentifier]),
+}
+
 /// A disk device path: `/dev/` followed by `[a-z0-9]+`.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct DevicePath(String);
@@ -242,13 +263,12 @@ impl Commands {
         Ok(spec(program, args))
     }
 
-    /// Journal messages after `cursor` (or from the last [`FIRST_RUN_MINUTES`] without
-    /// one), message text only, ending with a `-- cursor: ...` line.
+    /// Journal messages in `scope` after `cursor` (or from the last [`FIRST_RUN_MINUTES`]
+    /// without one), message text only, ending with a `-- cursor: ...` line.
     pub fn journal_since_cursor(
         &self,
         cursor: Option<&JournalCursor>,
-        units: &[UnitName],
-        kernel: bool,
+        scope: JournalScope<'_>,
     ) -> Result<ProcessSpec, CommandError> {
         let program = Self::tool(&self.journalctl, "journalctl")?;
         let mut args = owned(&["--no-pager", "--quiet", "--output=cat", "--show-cursor"]);
@@ -256,12 +276,29 @@ impl Commands {
             Some(cursor) => args.push(format!("--after-cursor={cursor}")),
             None => args.push(format!("--since=-{FIRST_RUN_MINUTES}min")),
         }
-        if kernel {
-            args.push("--dmesg".to_owned());
-        }
-        for unit in units {
-            args.push("--unit".to_owned());
-            args.push(unit.to_string());
+        match scope {
+            JournalScope::Kernel => args.push("--dmesg".to_owned()),
+            JournalScope::Units(units) => {
+                if units.is_empty() {
+                    return Err(invalid("unit name", "at least one unit is needed"));
+                }
+                for unit in units {
+                    args.push("--unit".to_owned());
+                    args.push(unit.to_string());
+                }
+            }
+            JournalScope::Identifiers(ids) => {
+                if ids.is_empty() {
+                    return Err(invalid(
+                        "syslog identifier",
+                        "at least one identifier is needed",
+                    ));
+                }
+                for id in ids {
+                    args.push("--identifier".to_owned());
+                    args.push(id.to_string());
+                }
+            }
         }
         Ok(spec(program, args))
     }
@@ -309,6 +346,22 @@ impl Commands {
                 "--no-legend",
                 "--plain",
                 "--no-pager",
+            ]),
+        ))
+    }
+
+    /// Every failed unit as a JSON array (systemd 246 and later).
+    pub fn systemctl_failed_json(&self) -> Result<ProcessSpec, CommandError> {
+        let program = Self::tool(&self.systemctl, "systemctl")?;
+        Ok(spec(
+            program,
+            owned(&[
+                "list-units",
+                "--state=failed",
+                "--no-legend",
+                "--plain",
+                "--no-pager",
+                "--output=json",
             ]),
         ))
     }

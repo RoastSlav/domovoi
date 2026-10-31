@@ -72,6 +72,7 @@ nix = { version = "0.31.3", features = ["signal", "process", "user", "fs"] }
 
 # TLS and protocol (rustls only; never OpenSSL, see deny.toml)
 rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+rustls-platform-verifier = "0.7.1"
 tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12", "logging"] }
 rcgen = "0.14.10"
 ed25519-dalek = { version = "3.0.0", features = ["rand_core"] }

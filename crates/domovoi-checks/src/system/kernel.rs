@@ -16,7 +16,7 @@ use domovoi_core::{CheckKey, EvidenceValue, Severity, SignalClass, ValidationErr
 use jiff::SignedDuration;
 
 use super::{key, target};
-use crate::commands::JournalCursor;
+use crate::commands::{JournalCursor, JournalScope};
 use crate::framework::{Check, CheckContext, CheckError, CheckReport, Observation};
 
 /// The state key holding the journal cursor.
@@ -209,7 +209,7 @@ impl Check for KernelErrors {
             .and_then(|c| JournalCursor::parse(c).ok());
         let spec = ctx
             .commands
-            .journal_since_cursor(previous.as_ref(), &[], true)?;
+            .journal_since_cursor(previous.as_ref(), JournalScope::Kernel)?;
         let program = spec.program.clone();
         let output = ctx
             .exec

@@ -13,10 +13,9 @@ pub mod reboot;
 pub mod reboot_required;
 pub mod temperature;
 
-use domovoi_core::ports::{FsError, HostFs};
-use domovoi_core::{CheckKey, TargetKey, ValidationError};
-
 use crate::framework::CheckError;
+pub(crate) use crate::framework::{key, target};
+use domovoi_core::ports::{FsError, HostFs};
 
 pub use disk::{DiskFree, FsStats, FsUsage, RealFsStats};
 pub use kernel::KernelErrors;
@@ -28,10 +27,6 @@ pub use temperature::CpuTemperature;
 
 /// Bytes in one GiB.
 pub(crate) const GIB: f64 = 1024.0 * 1024.0 * 1024.0;
-
-pub(crate) fn key(name: &str) -> Result<CheckKey, ValidationError> {
-    CheckKey::parse(name)
-}
 
 /// Reads a whole file, as a check error naming the path on failure.
 pub(crate) async fn read(fs: &dyn HostFs, path: &str) -> Result<String, CheckError> {
@@ -59,13 +54,4 @@ pub(crate) async fn list_optional(fs: &dyn HostFs, path: &str) -> Result<Vec<Str
         Err(FsError::NotFound) => Ok(Vec::new()),
         Err(e) => Err(CheckError::fs(path, e)),
     }
-}
-
-/// A target key, or `None` (with a log line) when `name` is not a valid one.
-pub(crate) fn target(name: &str) -> Option<TargetKey> {
-    let parsed = TargetKey::parse(name);
-    if parsed.is_err() {
-        tracing::warn!(target_name = name, "skipping a target with an invalid name");
-    }
-    parsed.ok()
 }

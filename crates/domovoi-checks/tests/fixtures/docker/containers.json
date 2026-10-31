@@ -1,0 +1,26 @@
+[
+  {
+    "Id": "aaa111",
+    "Names": [
+      "/plex"
+    ],
+    "Image": "plexinc/pms:latest",
+    "ImageID": "sha256:img1",
+    "State": "running",
+    "Status": "Up 2 days",
+    "Labels": {
+      "com.docker.compose.project": "media"
+    }
+  },
+  {
+    "Id": "bbb222",
+    "Names": [
+      "/scratch"
+    ],
+    "Image": "alpine:3.20",
+    "ImageID": "sha256:img2",
+    "State": "exited",
+    "Status": "Exited (0)",
+    "Labels": {}
+  }
+]
