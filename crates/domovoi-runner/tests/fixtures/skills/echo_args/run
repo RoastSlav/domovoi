@@ -1,0 +1,6 @@
+#!/bin/sh
+# Prints each argument on its own line, then the skill name from the environment.
+for arg in "$@"; do
+  printf '%s\n' "$arg"
+done
+printf 'skill=%s\n' "$DOMOVOI_SKILL"

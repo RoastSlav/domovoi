@@ -1,0 +1,2 @@
+# Fixture scripts are executed on Linux; keep LF endings on every checkout.
+* text eol=lf

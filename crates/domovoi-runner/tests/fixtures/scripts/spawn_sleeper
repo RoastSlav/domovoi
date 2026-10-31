@@ -1,0 +1,4 @@
+#!/bin/sh
+# Starts a background sleeper in the same process group, then waits on another.
+/bin/sleep 29.7531 &
+/bin/sleep 29.7532
