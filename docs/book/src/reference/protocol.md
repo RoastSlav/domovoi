@@ -63,7 +63,7 @@ The agent signs these bytes, concatenated:
 | The agent id (UUID bytes, big-endian) | 16 |
 | The session hint, UTF-8 | rest |
 
-The session hint binds the signature to the connection it was made on.
+The session hint binds the signature to the connection it was made on. Over TLS it is the connection's RFC 9266 channel binding (the `EXPORTER-Channel-Binding` exporter, 32 bytes, lowercase hex), which the hub computes on its side.
 
 ## Message kinds
 

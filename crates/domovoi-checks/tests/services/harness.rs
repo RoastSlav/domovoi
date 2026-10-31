@@ -188,6 +188,17 @@ impl ContainerSource for FakeDocker {
             .cloned()
             .collect())
     }
+
+    async fn inspect(&self, name: &str) -> Result<serde_json::Value, ContainerError> {
+        Ok(serde_json::json!({ "Name": format!("/{name}") }))
+    }
+
+    async fn logs(&self, name: &str, lines: u16) -> Result<String, ContainerError> {
+        Ok(format!(
+            "{lines} lines of {name}
+"
+        ))
+    }
 }
 
 pub fn deps(docker: &Arc<FakeDocker>, policy: ContainerPolicy) -> ContainerDeps {

@@ -149,6 +149,34 @@ pub trait ContainerSource: Send + Sync {
         since: Timestamp,
         until: Timestamp,
     ) -> Result<Vec<ContainerEvent>, ContainerError>;
+    /// The inspect document of the container called `name`, with environment values removed
+    /// (see [`strip_env`]).
+    async fn inspect(&self, name: &str) -> Result<serde_json::Value, ContainerError>;
+    /// The last `lines` lines of the container's stdout and stderr, at most
+    /// [`MAX_LOG_BYTES`].
+    async fn logs(&self, name: &str, lines: u16) -> Result<String, ContainerError>;
+}
+
+/// Most log bytes one [`ContainerSource::logs`] call returns.
+pub const MAX_LOG_BYTES: usize = 256 * 1024;
+
+/// Replaces every `Config.Env` entry with its variable name alone, since values often hold
+/// secrets.
+pub fn strip_env(inspect: &mut serde_json::Value) {
+    let Some(env) = inspect
+        .get_mut("Config")
+        .and_then(|c| c.get_mut("Env"))
+        .and_then(serde_json::Value::as_array_mut)
+    else {
+        return;
+    };
+    for entry in env.iter_mut() {
+        let name = entry
+            .as_str()
+            .map(|e| e.split('=').next().unwrap_or_default().to_owned())
+            .unwrap_or_default();
+        *entry = serde_json::Value::String(name);
+    }
 }
 
 /// How container checks treat particular containers, from `[containers]`.
