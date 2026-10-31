@@ -1,0 +1,8 @@
+Server listening on 0.0.0.0 port 22.
+Accepted publickey for alice from 192.168.1.20 port 51234 ssh2: ED25519 SHA256:abc
+pam_unix(sshd:session): session opened for user alice(uid=1000) by alice(uid=0)
+Accepted password for bob from 203.0.113.7 port 40022 ssh2
+Accepted publickey for bob from 10.0.0.5 port 40100 ssh2: RSA SHA256:def
+Failed password for invalid user admin from 198.51.100.9 port 33333 ssh2
+Accepted publickey for carol from fd12:3456::7 port 50000 ssh2: ED25519 SHA256:ghi
+-- cursor: s=ssh;i=10

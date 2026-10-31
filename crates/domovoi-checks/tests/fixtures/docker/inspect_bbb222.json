@@ -1,0 +1,18 @@
+{
+  "Id": "bbb222",
+  "Name": "/scratch",
+  "Image": "sha256:img2",
+  "RestartCount": 0,
+  "State": {
+    "Status": "exited",
+    "Running": false,
+    "StartedAt": "0001-01-01T00:00:00Z"
+  },
+  "Config": {
+    "Image": "alpine:3.20",
+    "Labels": {}
+  },
+  "HostConfig": {
+    "AutoRemove": true
+  }
+}

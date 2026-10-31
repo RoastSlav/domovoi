@@ -50,5 +50,15 @@ name = "system"
 path = "tests/system/main.rs"
 required-features = ["host"]
 
+[[test]]
+name = "services"
+path = "tests/services/main.rs"
+required-features = ["host"]
+
+[[test]]
+name = "probes"
+path = "tests/probes/main.rs"
+required-features = ["net"]
+
 [lints]
 workspace = true

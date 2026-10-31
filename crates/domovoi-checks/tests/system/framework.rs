@@ -5,9 +5,10 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use domovoi_checks::commands::{
-    CommandError, Commands, DevicePath, JailName, JournalCursor, JournalScope, UnitName,
-    UnitProperty,
+    CommandError, Commands, DevicePath, JailName, JournalCursor, JournalScope, SyslogIdentifier,
+    UnitName, UnitProperty,
 };
+use domovoi_checks::containers::{ContainerDeps, ContainerPolicy, DockerSource};
 use domovoi_checks::framework::{
     Check, CheckContext, CheckError, CheckReport, CheckSettings, HostDeps, Registry,
 };
@@ -142,6 +143,45 @@ async fn templates_put_every_slot_in_its_own_argv_element_and_reject_invalid_slo
     );
 }
 
+#[tokio::test]
+async fn journal_scopes_never_mix_units_and_identifiers() {
+    let h = Harness::new("tools").await;
+    let c = &h.commands;
+    let sudo = SyslogIdentifier::parse("sudo").unwrap();
+    let spec = c
+        .journal_since_cursor(None, JournalScope::Identifiers(&[sudo]))
+        .unwrap();
+    assert_eq!(
+        args(&spec),
+        [
+            "--no-pager",
+            "--quiet",
+            "--output=cat",
+            "--show-cursor",
+            "--since=-15min",
+            "--identifier",
+            "sudo"
+        ]
+    );
+    let kernel = c.journal_since_cursor(None, JournalScope::Kernel).unwrap();
+    assert_eq!(args(&kernel).last(), Some(&"--dmesg"));
+    assert!(
+        c.journal_since_cursor(None, JournalScope::Units(&[]))
+            .is_err()
+    );
+    assert!(
+        c.journal_since_cursor(None, JournalScope::Identifiers(&[]))
+            .is_err()
+    );
+    for bad in ["", "-t", "a b", "a/b", &"a".repeat(65)] {
+        assert!(SyslogIdentifier::parse(bad).is_err(), "identifier {bad:?}");
+    }
+    assert_eq!(
+        args(&c.systemctl_failed_json().unwrap()).last(),
+        Some(&"--output=json")
+    );
+}
+
 struct Slow;
 
 #[async_trait]
@@ -177,6 +217,7 @@ async fn slow_check_times_out_on_the_fake_clock() {
 fn registry_builds_enabled_checks_in_key_order() {
     let deps = HostDeps {
         fs_stats: Arc::new(RealFsStats::new("/")),
+        containers: None,
     };
     let all = Registry::build(&BTreeMap::new(), deps.clone()).unwrap();
     let keys: Vec<String> = all.checks().map(|c| c.key().to_string()).collect();
@@ -187,9 +228,16 @@ fn registry_builds_enabled_checks_in_key_order() {
             "kernel.errors",
             "memory.available",
             "power.supply",
+            "security.fail2ban",
+            "security.new_port",
+            "security.ssh_login",
+            "security.sudo_failure",
+            "smart.health",
             "system.reboot",
             "system.reboot_required",
-            "temperature.cpu"
+            "temperature.cpu",
+            "unit.failed",
+            "unit.watch"
         ]
     );
     let off = CheckSettings {
@@ -197,10 +245,32 @@ fn registry_builds_enabled_checks_in_key_order() {
         ..CheckSettings::default()
     };
     let memory = CheckKey::parse("memory.available").unwrap();
-    let some = Registry::build(&BTreeMap::from([(memory.clone(), off)]), deps).unwrap();
-    assert_eq!(some.checks().count(), 6);
+    let some = Registry::build(&BTreeMap::from([(memory.clone(), off)]), deps.clone()).unwrap();
+    assert_eq!(some.checks().count(), 13);
     assert!(some.get(&memory).is_none());
     assert!(some.get(&CheckKey::parse("disk.free").unwrap()).is_some());
+
+    // With Docker enabled, the four container checks join in key order.
+    let docker = DockerSource::connect("tcp://127.0.0.1:2375").unwrap();
+    let with_docker = HostDeps {
+        containers: Some(ContainerDeps {
+            source: Arc::new(docker),
+            policy: ContainerPolicy::default(),
+        }),
+        ..deps
+    };
+    let all = Registry::build(&BTreeMap::new(), with_docker).unwrap();
+    let keys: Vec<String> = all.checks().map(|c| c.key().to_string()).collect();
+    assert_eq!(keys.len(), 18);
+    assert_eq!(
+        &keys[..4],
+        [
+            "container.expected_down",
+            "container.new",
+            "container.restart_loop",
+            "container.unhealthy"
+        ]
+    );
 }
 
 #[tokio::test]

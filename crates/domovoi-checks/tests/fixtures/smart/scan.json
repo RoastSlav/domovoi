@@ -1,0 +1,20 @@
+{
+  "json_format_version": [
+    1,
+    0
+  ],
+  "devices": [
+    {
+      "name": "/dev/sda",
+      "info_name": "/dev/sda [SAT]",
+      "type": "sat",
+      "protocol": "ATA"
+    },
+    {
+      "name": "/dev/nvme0",
+      "info_name": "/dev/nvme0",
+      "type": "nvme",
+      "protocol": "NVMe"
+    }
+  ]
+}
