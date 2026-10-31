@@ -1,0 +1,18 @@
+---
+source: crates/domovoi-proto/tests/protocol/snapshots.rs
+expression: "pretty(&message, reply)"
+---
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "tool_result",
+  "payload": {
+    "outcome": {
+      "ok": {
+        "text": "ready to accept connections",
+        "truncated": false
+      }
+    }
+  },
+  "reply_to": "01900000-0000-7000-8000-000000000002",
+  "v": 1
+}

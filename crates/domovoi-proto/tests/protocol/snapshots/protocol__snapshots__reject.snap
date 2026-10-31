@@ -1,0 +1,19 @@
+---
+source: crates/domovoi-proto/tests/protocol/snapshots.rs
+expression: "pretty(&message, reply)"
+---
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "reject",
+  "payload": {
+    "reason": {
+      "code": "incompatible",
+      "hub": {
+        "major": 1,
+        "minor": 0
+      }
+    }
+  },
+  "reply_to": "01900000-0000-7000-8000-000000000002",
+  "v": 1
+}

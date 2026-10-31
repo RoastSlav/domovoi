@@ -1,0 +1,14 @@
+---
+source: crates/domovoi-proto/tests/protocol/snapshots.rs
+expression: "pretty(&message, reply)"
+---
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "run_check",
+  "payload": {
+    "check": "disk.usage",
+    "deadline": "2023-11-14T22:14:50Z",
+    "target": "/srv"
+  },
+  "v": 1
+}

@@ -1,0 +1,18 @@
+---
+source: crates/domovoi-proto/tests/protocol/snapshots.rs
+expression: "pretty(&message, reply)"
+---
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "run_skill",
+  "payload": {
+    "action_id": "01900000-0000-7000-8000-0000000000e1",
+    "args": {
+      "container": "postgres"
+    },
+    "deadline": "2023-11-14T22:14:50Z",
+    "plan_hash": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+    "skill": "restart_container"
+  },
+  "v": 1
+}

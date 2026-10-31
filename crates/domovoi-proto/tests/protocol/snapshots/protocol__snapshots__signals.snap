@@ -1,0 +1,31 @@
+---
+source: crates/domovoi-proto/tests/protocol/snapshots.rs
+expression: "pretty(&message, reply)"
+---
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "signals",
+  "payload": {
+    "batch_seq": 42,
+    "signals": [
+      {
+        "check": "disk.usage",
+        "class": "normal",
+        "evidence": {
+          "used_percent": 97.5
+        },
+        "host": "01900000-0000-7000-8000-0000000000b1",
+        "id": "01900000-0000-7000-8000-0000000000c1",
+        "observed_at": "2023-11-14T22:13:20Z",
+        "severity": "critical",
+        "source": {
+          "type": "built_in"
+        },
+        "status": "firing",
+        "summary": "/srv is 97% full",
+        "target": "/srv"
+      }
+    ]
+  },
+  "v": 1
+}
