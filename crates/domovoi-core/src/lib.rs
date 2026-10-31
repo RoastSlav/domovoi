@@ -18,11 +18,13 @@ pub mod id;
 pub mod incident;
 pub mod interaction;
 pub mod note;
+pub mod ports;
 pub mod severity;
 mod sha256;
 pub mod signal;
 pub mod skill;
 pub mod triage;
+pub mod user;
 pub mod verdict;
 
 pub use ack::{AckRule, EvidencePredicate, MaintenanceWindow, TargetPattern};
@@ -37,7 +39,7 @@ pub use digest::{Digest, DigestFact, FactValue, HostDigest, Trend};
 pub use error::{TransitionError, ValidationError};
 pub use fingerprint::Fingerprint;
 pub use history::EntityHistory;
-pub use host::{Host, HostKind, HostName};
+pub use host::{AgentIdentity, Host, HostKind, HostName};
 pub use id::{
     AckRuleId, ActionId, AdvisoryId, AgentId, HostId, IncidentId, NoteId, RequestId, SignalId,
     UserId,
@@ -59,4 +61,5 @@ pub use triage::{
     ActionProposal, EvidenceRef, ReadTool, ReadToolCall, ToolArgError, TriageBudget, TriageOutcome,
     TriageReport,
 };
+pub use user::{Session, User};
 pub use verdict::Verdict;

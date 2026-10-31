@@ -60,3 +60,24 @@ macro_rules! sha256_newtype {
 }
 
 pub(crate) use sha256_newtype;
+
+/// Serde helpers for raw 32-byte values written as lowercase hex.
+pub(crate) mod hex32 {
+    /// Writes `bytes` as lowercase hex.
+    pub(crate) fn serialize<S: serde::Serializer>(
+        bytes: &[u8; 32],
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        serializer.collect_str(&hex::encode(bytes))
+    }
+
+    /// Reads 32 bytes from a hex string.
+    pub(crate) fn deserialize<'de, D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<[u8; 32], D::Error> {
+        let text = <String as serde::Deserialize>::deserialize(deserializer)?;
+        let mut bytes = [0u8; 32];
+        hex::decode_to_slice(&text, &mut bytes).map_err(serde::de::Error::custom)?;
+        Ok(bytes)
+    }
+}

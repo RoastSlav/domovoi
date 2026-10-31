@@ -11,6 +11,12 @@ publish.workspace = true
 [dependencies]
 domovoi-core = { workspace = true }
 domovoi-proto = { workspace = true }
+async-trait = { workspace = true }
+jiff = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["sync", "time", "macros", "rt"] }
+uuid = { workspace = true }
 
 [dev-dependencies]
 

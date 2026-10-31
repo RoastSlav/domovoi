@@ -6,7 +6,7 @@ use std::fmt;
 use jiff::Timestamp;
 
 use crate::error::ValidationError;
-use crate::id::HostId;
+use crate::id::{AgentId, HostId};
 
 /// A validated host slug matching `^[a-z0-9][a-z0-9-]{0,62}$`.
 #[derive(
@@ -98,6 +98,24 @@ pub struct Host {
     pub labels: BTreeMap<String, String>,
     /// When the host was first registered.
     pub created_at: Timestamp,
+}
+
+/// The enrolled agent of a host (ARCHITECTURE.md §5.1).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AgentIdentity {
+    /// Stable identifier of the agent.
+    pub agent: AgentId,
+    /// The host the agent runs on.
+    pub host: HostId,
+    /// The agent's ed25519 public key.
+    #[serde(with = "crate::sha256::hex32")]
+    pub public_key: [u8; 32],
+    /// Agent version reported at enrollment or on the last handshake.
+    pub version: String,
+    /// When the agent enrolled.
+    pub enrolled_at: Timestamp,
+    /// When the agent was revoked; a revoked agent may never connect again.
+    pub revoked_at: Option<Timestamp>,
 }
 
 #[cfg(test)]
