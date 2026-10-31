@@ -1,0 +1,30 @@
+---
+source: crates/domovoi-engine/tests/notify/cards.rs
+expression: card
+---
+{
+  "incident": "01900000-0000-7000-8000-000000001001",
+  "host": "nas",
+  "badge": {
+    "severity": "warning"
+  },
+  "headline": "plex restarted 7 times in 10 minutes",
+  "bullets": [
+    "restarts: 7",
+    "window: 10m"
+  ],
+  "next_step": null,
+  "buttons": [
+    {
+      "type": "ack"
+    },
+    {
+      "type": "mute1h"
+    },
+    {
+      "type": "details"
+    }
+  ],
+  "details": null,
+  "resolved": false
+}

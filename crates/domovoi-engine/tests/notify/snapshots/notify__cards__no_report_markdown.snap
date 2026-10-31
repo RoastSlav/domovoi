@@ -1,0 +1,8 @@
+---
+source: crates/domovoi-engine/tests/notify/cards.rs
+expression: rendered
+---
+**[WARNING] nas**
+plex restarted 7 times in 10 minutes
+- restarts: 7
+- window: 10m

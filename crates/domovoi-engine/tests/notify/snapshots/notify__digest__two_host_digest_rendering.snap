@@ -1,0 +1,8 @@
+---
+source: crates/domovoi-engine/tests/notify/digest.rs
+expression: "render::digest(&digest)"
+---
+**Daily digest, 2026-10-31**
+**nas**
+- Pool free 480 GB, down 41 GB in 7d, full in ~12 weeks at this rate
+pi: healthy, nothing changed

@@ -1,0 +1,30 @@
+---
+source: crates/domovoi-engine/tests/notify/cards.rs
+expression: card
+---
+{
+  "incident": "01900000-0000-7000-8000-000000001001",
+  "host": "nas",
+  "badge": {
+    "verdict": "MONITOR"
+  },
+  "headline": "plex is crash-looping after the 1.41 image update",
+  "bullets": [
+    "restarts: 7 in 10 minutes",
+    "last error: migration 42 failed"
+  ],
+  "next_step": "Pin the previous image tag and restart.",
+  "buttons": [
+    {
+      "type": "ack"
+    },
+    {
+      "type": "mute1h"
+    },
+    {
+      "type": "details"
+    }
+  ],
+  "details": "The container exits during startup.\n\nDatabase migration 42 fails on the new image.",
+  "resolved": false
+}
