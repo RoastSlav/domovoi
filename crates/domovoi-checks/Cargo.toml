@@ -14,6 +14,8 @@ default = []
 host = ["dep:nix", "dep:bollard", "dep:futures", "tokio/fs", "tokio/io-util"]
 # Network probes (TCP, HTTP, gateway reachability). Used by agent and hub.
 net = ["dep:reqwest", "dep:url", "dep:rustls", "dep:rustls-platform-verifier", "tokio/net"]
+# Parsers for webhook payloads (generic, Alertmanager, Uptime Kuma). Pure; used by agent and hub.
+sources = []
 
 [dependencies]
 domovoi-core = { workspace = true }
@@ -54,6 +56,11 @@ required-features = ["host"]
 name = "services"
 path = "tests/services/main.rs"
 required-features = ["host"]
+
+[[test]]
+name = "sources"
+path = "tests/sources/main.rs"
+required-features = ["sources"]
 
 [[test]]
 name = "probes"

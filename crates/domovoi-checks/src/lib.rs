@@ -11,6 +11,8 @@
 //!   checks (disk, memory, temperature, reboots, kernel errors, power).
 //! - `containers`, `units`, `smart` and `security` (feature `host`): service checks.
 //! - `net` (feature `net`): TCP, HTTP and gateway probes; they do not need `host`.
+//! - `sources` (feature `sources`): pure parsers for webhook payloads from Alertmanager,
+//!   Uptime Kuma and the generic format, shared by the hub and the agent's relay.
 
 pub mod commands;
 pub mod framework;
@@ -27,6 +29,8 @@ pub mod net;
 pub mod security;
 #[cfg(feature = "host")]
 pub mod smart;
+#[cfg(feature = "sources")]
+pub mod sources;
 #[cfg(feature = "host")]
 pub mod system;
 #[cfg(feature = "host")]
