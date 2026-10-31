@@ -148,6 +148,25 @@ impl IncidentRepo for InMemoryStore {
         paginate(items, page)
     }
 
+    async fn discard_pending(&self, id: IncidentId) -> Result<(), StoreError> {
+        let mut state = self.begin()?;
+        match state.incidents.get(&id) {
+            None => return Err(StoreError::NotFound),
+            Some(incident) if incident.status() != IncidentStatus::Pending => {
+                return Err(conflict("only pending incidents are discarded"));
+            }
+            Some(_) => {}
+        }
+        state.incidents.remove(&id);
+        state.timeline.remove(&id);
+        for (_, link) in state.signals.values_mut() {
+            if *link == Some(id) {
+                *link = None;
+            }
+        }
+        Ok(())
+    }
+
     async fn append_event(&self, entry: &IncidentTimelineEntry) -> Result<(), StoreError> {
         let mut state = self.begin()?;
         if !state.incidents.contains_key(&entry.incident) {

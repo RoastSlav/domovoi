@@ -29,5 +29,9 @@ expression: incident
       "2023-11-14T22:14:20Z",
       7.5
     ]
-  ]
+  ],
+  "source": {
+    "type": "webhook",
+    "kind": "uptime-kuma"
+  }
 }
