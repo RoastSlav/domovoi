@@ -66,6 +66,25 @@ pub fn run(root: &Path, fast: bool, web: bool) -> anyhow::Result<()> {
             "--locked",
         ],
     )?;
+    // Network probes are also used by the hub, which does not enable `host`.
+    step(
+        root,
+        "checks net-only clippy",
+        "cargo",
+        &[
+            "clippy",
+            "--package",
+            "domovoi-checks",
+            "--no-default-features",
+            "--features",
+            "net",
+            "--all-targets",
+            "--locked",
+            "--",
+            "-D",
+            "warnings",
+        ],
+    )?;
     step(
         root,
         "xtask tests",

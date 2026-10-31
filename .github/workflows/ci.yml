@@ -93,6 +93,7 @@ jobs:
         run: |
           cargo clippy --package domovoi-checks --all-features --all-targets --locked -- -D warnings
           cargo test --package domovoi-checks --all-features --locked
+          cargo clippy --package domovoi-checks --no-default-features --features net --all-targets --locked -- -D warnings
           cargo doc --package domovoi-checks --all-features --no-deps --locked
       - name: Architecture rules
         run: |
