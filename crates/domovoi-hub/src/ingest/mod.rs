@@ -60,7 +60,6 @@ impl IngestState {
 }
 
 /// Routes signed webhook posts. The composition root merges this into the web server.
-#[must_use]
 pub fn router(state: IngestState) -> axum::Router {
     use axum::extract::DefaultBodyLimit;
     use axum::routing::post;

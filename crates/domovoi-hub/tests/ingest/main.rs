@@ -1,5 +1,7 @@
 //! Signed webhook ingest through the real axum router.
 
+#![cfg(test)]
+
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
