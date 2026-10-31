@@ -1,0 +1,125 @@
+[workspace]
+resolver = "3"
+members = ["crates/*", "xtask"]
+default-members = ["crates/*"]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2024"
+rust-version = "1.94"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/OWNER/domovoi"
+homepage = "https://OWNER.github.io/domovoi"
+authors = ["Domovoi contributors"]
+publish = false
+
+# Every dependency version lives here (ARCHITECTURE.md R11).
+# Crates opt in with `name = { workspace = true, features = [...] }`.
+[workspace.dependencies]
+# Internal crates
+domovoi-core = { path = "crates/domovoi-core" }
+domovoi-config = { path = "crates/domovoi-config" }
+domovoi-proto = { path = "crates/domovoi-proto" }
+domovoi-engine = { path = "crates/domovoi-engine" }
+domovoi-store = { path = "crates/domovoi-store" }
+domovoi-llm = { path = "crates/domovoi-llm" }
+domovoi-chat = { path = "crates/domovoi-chat" }
+domovoi-checks = { path = "crates/domovoi-checks" }
+domovoi-runner = { path = "crates/domovoi-runner" }
+domovoi-agent = { path = "crates/domovoi-agent" }
+domovoi-hub = { path = "crates/domovoi-hub" }
+domovoi-testkit = { path = "crates/domovoi-testkit" }
+
+# Foundation
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+toml = "1.1.8"
+thiserror = "2.0.21"
+anyhow = "1.0.104"
+async-trait = "0.1.92"
+futures = "0.3.34"
+jiff = { version = "0.2.38", features = ["serde"] }
+uuid = { version = "1.29.0", features = ["v7", "serde"] }
+secrecy = { version = "0.10.3", features = ["serde"] }
+sha2 = "0.10"
+hex = "0.4"
+base64 = "0.23.1"
+regex = "1.13.1"
+url = { version = "2", features = ["serde"] }
+schemars = { version = "1.2.3", features = ["derive"] }
+clap = { version = "4.6.7", features = ["derive", "env"] }
+
+# Async runtime and observability
+tokio = "1.54.1"
+tokio-util = "0.7"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
+
+# Web and API
+axum = "0.8.9"
+tower = "0.5.3"
+tower-http = "0.7.1"
+utoipa = { version = "6.0.0", features = ["axum_extras", "uuid", "jiff_0_2"] }
+utoipa-axum = "0.3.0"
+rust-embed = { version = "8.13.0", features = ["mime-guess"] }
+mime_guess = "2.0.5"
+argon2 = "0.6.0"
+rand = "0.10.3"
+hmac = "0.13.0"
+subtle = "2.6.1"
+nix = { version = "0.31.3", features = ["signal", "process", "user", "fs"] }
+
+# TLS and protocol (rustls only; never OpenSSL, see deny.toml)
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12", "logging"] }
+rcgen = "0.14.10"
+ed25519-dalek = { version = "3.0.0", features = ["rand_core"] }
+tokio-tungstenite = { version = "0.30.0", default-features = false, features = ["handshake", "stream"] }
+
+# Adapters
+sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "sqlite-bundled", "migrate", "derive"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls-no-provider", "http2", "charset"] }
+bollard = "0.21.1"
+serenity = { version = "0.12.5", default-features = false, features = ["builder", "cache", "client", "gateway", "model", "http", "utils", "rustls_backend"] }
+poise = "0.7.1"
+metrics = "0.24"
+metrics-exporter-prometheus = { version = "0.17", default-features = false }
+
+# Testing
+insta = { version = "1.49.0", features = ["json", "yaml"] }
+proptest = "1.12.0"
+wiremock = "0.6.5"
+tempfile = "3.27.0"
+assert_cmd = "2.2.2"
+predicates = "3.1.4"
+
+# xtask
+cargo_metadata = "0.23.1"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+unused_must_use = "deny"
+rust_2018_idioms = { level = "warn", priority = -1 }
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+unwrap_used = "deny"
+expect_used = "warn"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"
+print_stdout = "warn"
+print_stderr = "warn"
+disallowed_methods = "deny"
+disallowed_types = "deny"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+panic = "abort"
+
+[profile.dev.package."*"]
+opt-level = 1

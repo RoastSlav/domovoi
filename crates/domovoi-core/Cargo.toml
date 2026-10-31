@@ -1,0 +1,16 @@
+[package]
+name = "domovoi-core"
+description = "Domain types, state machines and ports for Domovoi. No I/O."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[dev-dependencies]
+
+[lints]
+workspace = true

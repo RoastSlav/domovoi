@@ -1,0 +1,15 @@
+# Image built by the release workflow from prebuilt static binaries
+# (dist/bin-amd64/domovoi and dist/bin-arm64/domovoi). No compilation here.
+FROM gcr.io/distroless/static-debian12:nonroot
+
+ARG TARGETARCH
+COPY --chmod=0755 dist/bin-${TARGETARCH}/domovoi /usr/local/bin/domovoi
+
+LABEL org.opencontainers.image.title="Domovoi" \
+      org.opencontainers.image.description="Self-hosted server overseer with AI triage and human-approved actions" \
+      org.opencontainers.image.licenses="MIT OR Apache-2.0"
+
+USER nonroot:nonroot
+EXPOSE 7420 7421
+ENTRYPOINT ["/usr/local/bin/domovoi"]
+CMD ["hub", "run", "--config", "/etc/domovoi/hub.toml"]

@@ -1,0 +1,26 @@
+name: Docker build
+
+on:
+  pull_request:
+    paths: ["Dockerfile", "docker/**", ".dockerignore", ".github/workflows/docker.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build the source image (no push)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile
+          push: false
+          load: true
+          tags: domovoi:ci
+      - name: Smoke test
+        run: docker run --rm domovoi:ci version

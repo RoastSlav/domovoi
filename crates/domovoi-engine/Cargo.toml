@@ -1,0 +1,17 @@
+[package]
+name = "domovoi-engine"
+description = "Application services for Domovoi: correlation, incidents, notification policy, triage, approvals and digests."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+domovoi-core = { workspace = true }
+
+[dev-dependencies]
+
+[lints]
+workspace = true

@@ -1,0 +1,15 @@
+# Shared clippy configuration. Lint levels live in Cargo.toml [workspace.lints].
+
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-print-in-tests = true
+allow-dbg-in-tests = true
+
+disallowed-methods = [
+    { path = "std::process::Command::new", reason = "Only domovoi-runner may spawn processes (ARCHITECTURE.md R3, ADR 0004). Use the ProcessExecutor port." },
+    { path = "tokio::process::Command::new", reason = "Only domovoi-runner may spawn processes (ARCHITECTURE.md R3, ADR 0004). Use the ProcessExecutor port.", allow-invalid = true },
+    { path = "std::env::set_var", reason = "Not thread-safe. Pass configuration explicitly." },
+    { path = "std::env::remove_var", reason = "Not thread-safe. Pass configuration explicitly." },
+    { path = "std::thread::sleep", reason = "Use the Clock port so tests stay deterministic." },
+]

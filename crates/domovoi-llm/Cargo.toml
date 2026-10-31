@@ -1,0 +1,17 @@
+[package]
+name = "domovoi-llm"
+description = "LLM provider adapters for Domovoi: Anthropic, OpenAI-compatible and CLI."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+domovoi-core = { workspace = true }
+
+[dev-dependencies]
+
+[lints]
+workspace = true

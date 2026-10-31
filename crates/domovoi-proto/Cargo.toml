@@ -1,0 +1,17 @@
+[package]
+name = "domovoi-proto"
+description = "Hub and agent wire protocol for Domovoi: envelope, messages and versioning."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+domovoi-core = { workspace = true }
+
+[dev-dependencies]
+
+[lints]
+workspace = true
