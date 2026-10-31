@@ -1,0 +1,9 @@
+---
+source: crates/domovoi-engine/tests/notify/cards.rs
+expression: rendered
+---
+**[FIXED] nas** · resolved
+plex is crash-looping after the 1.41 image update
+- restarts: 7 in 10 minutes
+- last error: migration 42 failed
+Next: Pin the previous image tag and restart.

@@ -6,6 +6,7 @@ mod audit;
 mod hosts;
 mod incidents;
 mod knowledge;
+mod notify;
 mod triage;
 
 use std::collections::{BTreeMap, VecDeque};
@@ -48,6 +49,7 @@ struct State {
     settings: BTreeMap<String, Value>,
     users: BTreeMap<UserId, User>,
     sessions: BTreeMap<[u8; 32], Session>,
+    notify: BTreeMap<IncidentId, (domovoi_core::NotifyState, Timestamp)>,
 }
 
 /// An in-memory implementation of every repository port in `domovoi_core::ports`.

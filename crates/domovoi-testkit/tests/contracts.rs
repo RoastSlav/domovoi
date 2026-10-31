@@ -32,6 +32,7 @@ contract_tests! {
     in_memory_settings_repo_satisfies_contract => settings_repo_contract,
     in_memory_user_repo_satisfies_contract => user_repo_contract,
     in_memory_session_repo_satisfies_contract => session_repo_contract,
+    in_memory_notify_state_repo_satisfies_contract => notify_state_repo_contract,
 }
 
 #[tokio::test]

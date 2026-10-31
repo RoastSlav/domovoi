@@ -18,6 +18,7 @@ pub mod id;
 pub mod incident;
 pub mod interaction;
 pub mod note;
+pub mod notify;
 pub mod ports;
 pub mod severity;
 mod sha256;
@@ -49,6 +50,7 @@ pub use incident::{
 };
 pub use interaction::{Interaction, InteractionKind, InteractionReply};
 pub use note::Note;
+pub use notify::{ChatRefs, HeldItem, NotifyState};
 pub use severity::Severity;
 pub use signal::{
     CheckKey, Evidence, EvidenceValue, Signal, SignalClass, SignalStatus, SourceKind, TargetKey,

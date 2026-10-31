@@ -15,6 +15,7 @@ jiff = { workspace = true }
 metrics = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["sync", "time", "rt", "macros"] }
 tokio-util = { workspace = true }
@@ -23,6 +24,7 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 domovoi-testkit = { workspace = true }
+insta = { workspace = true }
 proptest = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
 

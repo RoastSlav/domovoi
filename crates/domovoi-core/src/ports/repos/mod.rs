@@ -17,6 +17,7 @@ mod audit;
 mod hosts;
 mod incidents;
 mod knowledge;
+mod notify;
 mod triage;
 
 pub use accounts::{SessionRepo, SettingsRepo, UserRepo};
@@ -25,6 +26,7 @@ pub use audit::{AuditEvent, AuditFilter, AuditLog};
 pub use hosts::{EnrollmentToken, HostRepo};
 pub use incidents::{IncidentFilter, IncidentRepo, IncidentTimelineEntry, SignalRepo};
 pub use knowledge::{AckRepo, AdvisoryRepo, BaselineRepo, FactRepo, NoteHit, NoteRepo};
+pub use notify::NotifyStateRepo;
 pub use triage::{TriageCacheRepo, UsageRepo, UsageTotal};
 
 /// Why a repository call failed.
