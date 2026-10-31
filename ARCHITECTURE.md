@@ -101,7 +101,7 @@ All identifiers are newtypes over UUIDv7 (time-ordered) unless noted. Timestamps
 
 ### 5.1 Hosts and agents
 
-- `HostId`, `AgentId`. A host has a `name` (slug, `^[a-z0-9][a-z0-9-]{0,62}$`), a `kind` (`Local` or `Remote`), labels, and at most one enrolled agent.
+- `HostId`, `AgentId`. A host has a `name` (slug, `^[a-z0-9][a-z0-9-]{0,62}$`), a `kind` (`Local`, `Remote`, or `External` for hosts known only from webhooks, which have no agent), labels, and at most one enrolled agent.
 - `AgentIdentity`: agent id, ed25519 public key, agent version, enrolled-at.
 
 ### 5.2 Signals and fingerprints
@@ -124,7 +124,12 @@ stateDiagram-v2
   Pending --> [*]: resolved before confirmation (dropped, counted as flap)
   Open --> Acked: human ack
   Open --> Muted: mute until T
-  Muted --> Open: mute expires while firing
+  Acked --> Muted: mute until T
+  Muted --> Acked: human ack
+  Muted --> Open: mute expires while firing, or unmute
+  Open --> Open: firing signal folded
+  Acked --> Acked: firing signal folded
+  Muted --> Muted: firing signal folded
   Open --> Resolved: all signals resolved, or TTL without firing
   Acked --> Resolved
   Muted --> Resolved
