@@ -1,10 +1,12 @@
 //! JSON wire-format snapshots for the types that cross crate and process boundaries.
 
 use domovoi_core::{
-    CheckKey, Evidence, EvidenceValue, HostId, Incident, IncidentEvent, IncidentId, IncidentPolicy,
-    Severity, Signal, SignalClass, SignalId, SourceKind, TargetKey, apply,
+    ActionId, ActionProposal, Advisory, AdvisoryId, AdvisoryKind, Card, CardBadge, CardButton,
+    CheckKey, Digest, Evidence, EvidenceRef, EvidenceValue, HostDigest, HostId, HostName, Incident,
+    IncidentEvent, IncidentId, IncidentPolicy, ReadTool, Severity, Signal, SignalClass, SignalId,
+    SkillName, SourceKind, TargetKey, Trend, TriageReport, Verdict, apply,
 };
-use jiff::Timestamp;
+use jiff::{SignedDuration, Timestamp, civil::date};
 use uuid::Uuid;
 
 fn fixed_host() -> HostId {
@@ -71,4 +73,123 @@ fn incident_json_snapshot() {
         apply(&mut incident, event, &policy, ts(offset)).unwrap();
     }
     insta::assert_json_snapshot!(incident);
+}
+
+#[cfg(test)]
+fn incident_id() -> IncidentId {
+    IncidentId::from_uuid(Uuid::from_u128(0x0190_0000_0000_7000_8000_0000_0000_0003))
+}
+
+#[test]
+fn triage_report_json_snapshot() {
+    let report = TriageReport {
+        headline: "plex is crash-looping after the 1.41 image update".to_owned(),
+        summary:
+            "plex restarted 7 times in 10 minutes, each time after a database migration error."
+                .to_owned(),
+        cause: "The new image expects a schema the existing library database does not have."
+            .to_owned(),
+        evidence: vec![
+            EvidenceRef {
+                label: "restarts".to_owned(),
+                value: "7 in 10m".to_owned(),
+                source: "docker_inspect plex".to_owned(),
+            },
+            EvidenceRef {
+                label: "last error".to_owned(),
+                value: "migration 42 failed".to_owned(),
+                source: "docker_logs plex".to_owned(),
+            },
+        ],
+        verdict: Verdict::ActionNeeded,
+        next_step: "Pin the previous image tag and restart.".to_owned(),
+        proposals: vec![ActionProposal {
+            skill: SkillName::parse("restart_container").unwrap(),
+            args: [("container".to_owned(), "plex".to_owned())].into(),
+            reason: "Restart on the previous tag once it is pinned.".to_owned(),
+        }],
+        details: "Full reasoning goes here.".to_owned(),
+    };
+    report.validate().unwrap();
+    insta::assert_json_snapshot!(report);
+}
+
+#[test]
+fn card_json_snapshot() {
+    let action = ActionId::from_uuid(Uuid::from_u128(0x0190_0000_0000_7000_8000_0000_0000_0004));
+    let card = Card {
+        incident: incident_id(),
+        host: HostName::parse("nas").unwrap(),
+        badge: CardBadge::Verdict(Verdict::ActionNeeded),
+        headline: "plex is crash-looping after the 1.41 image update".to_owned(),
+        bullets: vec![
+            "7 restarts in 10 minutes".to_owned(),
+            "migration 42 failed".to_owned(),
+        ],
+        next_step: Some("Pin the previous image tag and restart.".to_owned()),
+        buttons: vec![
+            CardButton::Ack,
+            CardButton::Mute1h,
+            CardButton::Details,
+            CardButton::Approve {
+                action,
+                token: "tok_test".to_owned(),
+            },
+            CardButton::Deny {
+                action,
+                token: "tok_test".to_owned(),
+            },
+            CardButton::OpenInWeb { action },
+        ],
+        details: Some("Full reasoning goes here.".to_owned()),
+        resolved: false,
+    };
+    card.validate().unwrap();
+    insta::assert_json_snapshot!(card);
+}
+
+#[test]
+fn digest_json_snapshot() {
+    let digest = Digest {
+        date: date(2026, 10, 31),
+        hosts: vec![
+            HostDigest {
+                host: HostName::parse("nas").unwrap(),
+                quiet: false,
+                lines: vec!["tank grew 120 GB this week".to_owned()],
+                trends: vec![Trend {
+                    key: "zfs.tank.used_pct".to_owned(),
+                    delta: 1.5,
+                    period: SignedDuration::from_hours(7 * 24),
+                    projection: Some("full in about 40 days".to_owned()),
+                }],
+            },
+            HostDigest {
+                host: HostName::parse("pi").unwrap(),
+                quiet: true,
+                lines: Vec::new(),
+                trends: Vec::new(),
+            },
+        ],
+        open_incidents: vec![(incident_id(), "plex is crash-looping".to_owned())],
+        advisories: vec![Advisory {
+            id: AdvisoryId::from_uuid(Uuid::from_u128(0x0190_0000_0000_7000_8000_0000_0000_0005)),
+            kind: AdvisoryKind::StaleImage,
+            host: Some(fixed_host()),
+            title: "sonarr image is 120 days old".to_owned(),
+            detail: "Pull and recreate the container.".to_owned(),
+            created_at: ts(0),
+            resolved_at: None,
+        }],
+    };
+    insta::assert_json_snapshot!(digest);
+}
+
+#[test]
+fn read_tool_schemas_snapshot() {
+    let schemas: serde_json::Map<String, serde_json::Value> = ReadTool::ALL
+        .iter()
+        .map(|tool| (tool.name().to_owned(), tool.json_schema()))
+        .collect();
+    insta::assert_json_snapshot!(schemas);
 }

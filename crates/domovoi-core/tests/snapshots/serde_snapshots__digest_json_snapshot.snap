@@ -1,0 +1,47 @@
+---
+source: crates/domovoi-core/tests/serde_snapshots.rs
+expression: digest
+---
+{
+  "date": "2026-10-31",
+  "hosts": [
+    {
+      "host": "nas",
+      "quiet": false,
+      "lines": [
+        "tank grew 120 GB this week"
+      ],
+      "trends": [
+        {
+          "key": "zfs.tank.used_pct",
+          "delta": 1.5,
+          "period": "168h",
+          "projection": "full in about 40 days"
+        }
+      ]
+    },
+    {
+      "host": "pi",
+      "quiet": true,
+      "lines": [],
+      "trends": []
+    }
+  ],
+  "open_incidents": [
+    [
+      "01900000-0000-7000-8000-000000000003",
+      "plex is crash-looping"
+    ]
+  ],
+  "advisories": [
+    {
+      "id": "01900000-0000-7000-8000-000000000005",
+      "kind": "stale_image",
+      "host": "01900000-0000-7000-8000-000000000001",
+      "title": "sonarr image is 120 days old",
+      "detail": "Pull and recreate the container.",
+      "created_at": "2023-11-14T22:13:20Z",
+      "resolved_at": null
+    }
+  ]
+}

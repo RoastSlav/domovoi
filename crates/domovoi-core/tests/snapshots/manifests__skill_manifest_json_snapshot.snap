@@ -1,0 +1,69 @@
+---
+source: crates/domovoi-core/tests/manifests.rs
+expression: sample()
+---
+{
+  "name": "restart_container",
+  "description": "Restart a container managed by compose",
+  "risk": "write",
+  "entry": "bin/restart",
+  "params": [
+    {
+      "name": "container",
+      "description": "Container name",
+      "required": true,
+      "kind": {
+        "type": "string",
+        "pattern": "^[a-z0-9_.-]{1,64}$",
+        "max_len": 64
+      }
+    },
+    {
+      "name": "wait_seconds",
+      "description": "Seconds to wait before reporting",
+      "required": false,
+      "kind": {
+        "type": "integer",
+        "min": 0,
+        "max": 300
+      }
+    },
+    {
+      "name": "pull",
+      "description": "Pull the image first",
+      "required": true,
+      "kind": {
+        "type": "boolean"
+      }
+    },
+    {
+      "name": "mode",
+      "description": "Restart mode",
+      "required": true,
+      "kind": {
+        "type": "enum",
+        "values": [
+          "soft",
+          "hard"
+        ]
+      }
+    }
+  ],
+  "timeout": "1m 30s",
+  "run_as": "domovoi-skills",
+  "hosts": [
+    "nas"
+  ],
+  "applies_to": [
+    "container.restart_loop"
+  ],
+  "verify": {
+    "recheck": true,
+    "delay": "30s"
+  },
+  "revert": {
+    "entry": "bin/start",
+    "confirm_window": "10m"
+  },
+  "max_output_bytes": 65536
+}

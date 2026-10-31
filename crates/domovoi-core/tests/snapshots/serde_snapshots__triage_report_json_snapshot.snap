@@ -1,0 +1,33 @@
+---
+source: crates/domovoi-core/tests/serde_snapshots.rs
+expression: report
+---
+{
+  "headline": "plex is crash-looping after the 1.41 image update",
+  "summary": "plex restarted 7 times in 10 minutes, each time after a database migration error.",
+  "cause": "The new image expects a schema the existing library database does not have.",
+  "evidence": [
+    {
+      "label": "restarts",
+      "value": "7 in 10m",
+      "source": "docker_inspect plex"
+    },
+    {
+      "label": "last error",
+      "value": "migration 42 failed",
+      "source": "docker_logs plex"
+    }
+  ],
+  "verdict": "ACTION_NEEDED",
+  "next_step": "Pin the previous image tag and restart.",
+  "proposals": [
+    {
+      "skill": "restart_container",
+      "args": {
+        "container": "plex"
+      },
+      "reason": "Restart on the previous tag once it is pinned."
+    }
+  ],
+  "details": "Full reasoning goes here."
+}
