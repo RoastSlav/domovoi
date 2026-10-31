@@ -2,7 +2,7 @@
 //! re-validates and serves tool and skill requests through the runner, and spools signals
 //! while the hub is unreachable. See ARCHITECTURE.md §7.2 and §8.
 //!
-//! - [`enroll`] trades a one-time token for an [`identity::Identity`] and pins the hub's
+//! - [`enroll`](mod@enroll) trades a one-time token for an [`identity::Identity`] and pins the hub's
 //!   certificate.
 //! - [`link`] keeps a mutually authenticated WebSocket over pinned TLS, reconnecting with
 //!   backoff.

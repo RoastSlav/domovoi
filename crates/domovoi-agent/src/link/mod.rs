@@ -1,7 +1,7 @@
 //! The link to the hub: connect, authenticate, exchange messages, reconnect.
 //!
 //! - [`tls`] pins the hub certificate; [`ws`] frames the protocol over a WebSocket.
-//! - [`handshake`] proves the agent holds its key, bound to the TLS session.
+//! - [`handshake`](mod@handshake) proves the agent holds its key, bound to the TLS session.
 //! - [`Link::run`] reconnects with [`backoff`] until shutdown, revocation or an
 //!   incompatible hub. Each connection replays the spool, sends a `ping` every heartbeat
 //!   and gives up after three unanswered pings.
