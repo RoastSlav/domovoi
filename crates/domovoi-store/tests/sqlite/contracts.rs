@@ -33,4 +33,5 @@ contract_tests! {
     sqlite_settings_repo_satisfies_contract => settings_repo_contract,
     sqlite_user_repo_satisfies_contract => user_repo_contract,
     sqlite_session_repo_satisfies_contract => session_repo_contract,
+    sqlite_notify_state_repo_satisfies_contract => notify_state_repo_contract,
 }

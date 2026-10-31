@@ -7,6 +7,7 @@ mod hosts;
 mod incidents;
 mod knowledge;
 mod notes;
+mod notify;
 mod triage;
 
 pub use notes::SNIPPET_CHARS;

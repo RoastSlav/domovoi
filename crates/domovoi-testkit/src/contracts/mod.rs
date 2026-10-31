@@ -9,6 +9,7 @@ mod actions;
 mod hosts;
 mod incidents;
 mod knowledge;
+mod notify;
 mod triage;
 
 pub use accounts::{session_repo_contract, settings_repo_contract, user_repo_contract};
@@ -19,6 +20,7 @@ pub use knowledge::{
     ack_repo_contract, advisory_repo_contract, baseline_repo_contract, fact_repo_contract,
     note_repo_contract,
 };
+pub use notify::notify_state_repo_contract;
 pub use triage::{triage_cache_repo_contract, usage_repo_contract};
 
 use domovoi_core::ports::StoreError;
