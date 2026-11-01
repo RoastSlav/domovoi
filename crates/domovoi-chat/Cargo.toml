@@ -27,6 +27,8 @@ url = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
+domovoi-testkit = { workspace = true }
+rustls = { workspace = true }
 insta = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 wiremock = { workspace = true }

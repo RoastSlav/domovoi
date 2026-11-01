@@ -5,10 +5,16 @@
 //! [`InteractionSink`](domovoi_core::ports::InteractionSink), which decides whether the
 //! Discord user may do anything.
 
+mod commands;
 pub mod components;
 pub mod embed;
+pub mod events;
+pub mod gateway;
 pub mod ids;
 pub mod settings;
 pub mod split;
+pub mod webhook;
 
+pub use gateway::{DiscordGateway, PLATFORM};
 pub use settings::DiscordSettings;
+pub use webhook::DiscordWebhookNotifier;
