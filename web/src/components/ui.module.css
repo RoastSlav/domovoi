@@ -143,6 +143,8 @@
 }
 
 .tableWrap {
+  /* Contains visually hidden headers, so they scroll with the table instead of widening the page. */
+  position: relative;
   overflow-x: auto;
 }
 
