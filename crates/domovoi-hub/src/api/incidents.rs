@@ -94,7 +94,9 @@ async fn load(state: &ApiState, id: &str) -> Result<Incident, ApiError> {
 }
 
 /// The latest triage outcome in the timeline.
-fn latest_triage(timeline: &[domovoi_core::ports::IncidentTimelineEntry]) -> Option<TriageOutcome> {
+pub(crate) fn latest_triage(
+    timeline: &[domovoi_core::ports::IncidentTimelineEntry],
+) -> Option<TriageOutcome> {
     timeline
         .iter()
         .rev()

@@ -13,11 +13,11 @@ pub mod notes_import;
 mod actions;
 mod auth;
 mod events;
-mod hosts;
-mod incidents;
+pub(crate) mod hosts;
+pub(crate) mod incidents;
 mod notes;
 mod settings;
-mod system;
+pub(crate) mod system;
 mod version;
 
 use std::sync::Arc;
@@ -143,6 +143,12 @@ impl ApiState {
             deps: Arc::new(deps),
             auth,
         }
+    }
+
+    /// The repositories and handles the API works with, shared with the chat authorizer.
+    #[must_use]
+    pub fn deps(&self) -> &Arc<ApiDeps> {
+        &self.deps
     }
 
     /// The auth state, for the CSRF guard and the setup link.

@@ -19,6 +19,8 @@ mod gates;
 #[cfg(test)]
 mod harness;
 #[cfg(test)]
+mod interactions;
+#[cfg(test)]
 mod presence;
 #[cfg(test)]
 mod sessions;

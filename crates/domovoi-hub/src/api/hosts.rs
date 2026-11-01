@@ -36,7 +36,10 @@ fn agent_error(err: crate::agent_server::AgentServerError) -> ApiError {
 }
 
 /// The DTO of `host`, with its agent's presence and its count of unresolved incidents.
-async fn host_dto(state: &ApiState, host: &domovoi_core::Host) -> Result<HostDto, ApiError> {
+pub(crate) async fn host_dto(
+    state: &ApiState,
+    host: &domovoi_core::Host,
+) -> Result<HostDto, ApiError> {
     let filter = IncidentFilter {
         host: Some(host.id),
         active: Some(true),
