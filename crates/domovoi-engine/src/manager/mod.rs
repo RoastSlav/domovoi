@@ -6,10 +6,10 @@
 //! nothing and fails the command.
 
 mod actor;
+mod annotate;
 mod command;
 mod decide;
 mod handle;
-mod triage;
 
 pub use actor::{IncidentManager, ManagerDeps};
 pub use command::{Command, CommandError};

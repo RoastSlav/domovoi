@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use domovoi_core::ports::{IngestError, SignalSink};
 use std::collections::BTreeMap;
 
-use domovoi_core::{ActionId, IncidentId, Signal, TriageOutcome, UserId};
+use domovoi_core::{ActionId, IncidentId, Signal, TriageOutcome, UserId, Verdict};
 use jiff::Timestamp;
 use tokio::sync::{mpsc, oneshot};
 
@@ -101,6 +101,15 @@ impl ManagerHandle {
             tokens,
         })
         .await
+    }
+
+    /// Sets `incident`'s verdict.
+    pub async fn set_verdict(
+        &self,
+        incident: IncidentId,
+        verdict: Verdict,
+    ) -> Result<(), CommandError> {
+        self.send(Command::SetVerdict { incident, verdict }).await
     }
 
     /// Adds a follow-up question and its answer to `incident`'s timeline.
