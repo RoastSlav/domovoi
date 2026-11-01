@@ -16,8 +16,9 @@ use super::command::{Command, CommandError};
 use super::decide::{State, Write, decide};
 use super::handle::{COMMAND_QUEUE, Envelope, ManagerHandle};
 use super::redact::redact_command;
-use crate::events::DomainEvent;
+use crate::events::{DomainEvent, EventKind};
 use crate::policy::EnginePolicy;
+use crate::telemetry;
 
 /// The flap counter's metric name.
 pub const FLAPS_METRIC: &str = "domovoi_incident_flaps_total";
@@ -154,7 +155,18 @@ impl IncidentManager {
                 .fetch_add(u64::from(decision.flaps), Ordering::Relaxed);
             metrics::counter!(FLAPS_METRIC).increment(u64::from(decision.flaps));
         }
+        if let Command::Ingest(signals) = command {
+            for signal in signals {
+                let source = telemetry::source_label(signal.source());
+                metrics::counter!(telemetry::SIGNALS_TOTAL, "source" => source).increment(1);
+            }
+        }
+        telemetry::record_active(&self.active);
         for event in decision.events {
+            if let EventKind::TriageCompleted { outcome, .. } = &event.kind {
+                let outcome = telemetry::outcome_label(outcome);
+                metrics::counter!(telemetry::TRIAGE_RUNS_TOTAL, "outcome" => outcome).increment(1);
+            }
             // No subscribers is fine: the event is already stored.
             let _ = self.deps.bus.send(event);
         }

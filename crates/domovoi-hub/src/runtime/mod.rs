@@ -1,7 +1,10 @@
 //! Assembly and lifecycle of a complete hub.
 
+pub(crate) mod adapters;
 mod delivery;
 mod dispatcher;
+mod local;
+mod lock;
 mod schedulers;
 mod serve;
 mod settings;
@@ -9,22 +12,18 @@ mod support;
 #[cfg(test)]
 mod tests;
 
-use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use domovoi_config::Secrets;
 use domovoi_config::hub::HubConfig;
-use domovoi_core::ports::{
-    ChatGateway, Clock, HostRepo, InteractionSink, Notifier, ProcessExecutor, SettingsRepo,
-};
-use domovoi_core::{Host, HostId, HostKind, HostName};
+use domovoi_core::ports::{ChatGateway, Clock, InteractionSink, Notifier, ProcessExecutor};
 use domovoi_engine::triage::{TriageDeps, TriageHandle, TriageService};
 use domovoi_engine::{
     ActionDeps, ActionService, DomainEvent, IncidentManager, ManagerDeps, ManagerHandle,
     PatternRedactor,
 };
 use domovoi_llm::LlmBuildError;
-use domovoi_store::{Store, StoreOpenError, StoreOptions};
+use domovoi_store::{Store, StoreOpenError};
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -32,14 +31,17 @@ use tokio_util::sync::CancellationToken;
 use crate::agent_server::{
     AgentServer, AgentServerDeps, AgentServerError, RealNetProbes, ServerSettings,
 };
-use crate::api::{ApiDeps, ApiState};
-use crate::auth::interactions::{ChatDeps, InteractionAuthorizer};
+use crate::api::{ApiDeps, ApiState, MetricsRender};
 use crate::auth::{AuthState, WebIdentity};
 use crate::digest::DigestDeps;
 use crate::ingest::{IngestDeps, IngestState};
 
 pub(crate) use dispatcher::Dispatcher;
+pub use local::{LocalAgents, LocalEnrollment};
+pub use lock::{HubLock, LockError};
 pub(crate) use schedulers::Schedulers;
+pub(crate) use support::FanOut;
+pub(crate) use support::public_url as support_public_url;
 
 /// External capabilities supplied by the binary. The hub never creates a process executor.
 pub struct HubDeps {
@@ -47,6 +49,9 @@ pub struct HubDeps {
     pub clock: Arc<dyn Clock>,
     /// Runs a CLI language model; HTTP providers do not need it.
     pub process_executor: Option<Arc<dyn ProcessExecutor>>,
+    /// Renders the process-wide metrics recorder the binary installed, for `/metrics`.
+    /// `None` serves an empty page.
+    pub metrics: Option<MetricsRender>,
 }
 
 /// Why the hub could not be built, served or stopped.
@@ -81,6 +86,9 @@ pub enum RuntimeError {
     /// A server task stopped unexpectedly.
     #[error("{0}")]
     Serve(String),
+    /// Another hub process holds this data directory.
+    #[error(transparent)]
+    Locked(#[from] LockError),
     /// The runtime exceeded its shutdown budget.
     #[error("hub shutdown did not complete within 15 seconds")]
     ShutdownTimeout,
@@ -97,6 +105,8 @@ pub(crate) struct AdapterOverrides {
 
 /// A fully assembled hub. Build starts engine consumers; [`run`](Self::run) opens intake.
 pub struct HubRuntime {
+    pub(crate) lock: HubLock,
+    pub(crate) auth: Arc<AuthState>,
     pub(crate) config: Arc<HubConfig>,
     pub(crate) clock: Arc<dyn Clock>,
     pub(crate) store: Arc<Store>,
@@ -128,24 +138,14 @@ impl HubRuntime {
         deps: HubDeps,
         overrides: AdapterOverrides,
     ) -> Result<Self, RuntimeError> {
-        let _ = rustls::crypto::ring::default_provider().install_default();
+        let lock = HubLock::acquire(&config.hub.data_dir)?;
         let mut secrets = Vec::new();
         config.secrets_mut(&mut |_, secret| secrets.push(secret.value().clone()));
         let redactor = Arc::new(PatternRedactor::new(secrets));
         let clock = deps.clock;
-        let database = config.hub.data_dir.join("hub.db");
-        let store_options = StoreOptions {
-            backup_dir: config
-                .backup
-                .dir
-                .clone()
-                .unwrap_or_else(|| config.hub.data_dir.join("backups")),
-            keep_backups: config.backup.keep as usize,
-            now: clock.now(),
-        };
-        let store = Arc::new(Store::open(&database, store_options).await?);
-        ensure_hub_host(&store, &config, clock.now()).await?;
-        let hub_host = hub_host(&store).await?;
+        let store = Arc::new(adapters::open_store(&config, &*clock).await?);
+        adapters::ensure_hub_host(&store, &config, clock.now()).await?;
+        let hub_host = adapters::hub_host(&store).await?;
         let capacity = overrides.bus_capacity.unwrap_or(4096).max(1);
         let (bus, _) = broadcast::channel(capacity);
         let manager_shutdown = CancellationToken::new();
@@ -201,7 +201,7 @@ impl HubRuntime {
             settings::actions(),
         );
         let public_url = support::public_url(&config)?;
-        let (gateways, notifiers) = build_chat(&config, &clock, &public_url, &overrides)?;
+        let (gateways, notifiers) = adapters::build_chat(&config, &clock, &public_url, &overrides)?;
         let auth = Arc::new(AuthState::new(
             store.clone(),
             store.clone(),
@@ -228,10 +228,10 @@ impl HubRuntime {
                 clock: clock.clone(),
                 bus: bus.clone(),
                 config: Arc::new(config.clone()),
-                notifier: support::FanOut::over(&notifiers),
-                metrics: support::metrics(),
+                notifier: FanOut::over(&notifiers),
+                metrics: deps.metrics,
             },
-            auth,
+            auth.clone(),
         )
         .with_shutdown(intake_shutdown.clone());
         let ingest = IngestState::new(
@@ -244,7 +244,7 @@ impl HubRuntime {
         );
         let app = crate::router::router(api.clone(), Some(ingest));
         let delivery_gateways = gateways.clone();
-        let gateways = gateway_sinks(&config, &api, &store, gateways);
+        let gateways = adapters::gateway_sinks(&config, &api, &store, gateways);
         let config = Arc::new(config);
         let digest = DigestDeps {
             config: config.clone(),
@@ -272,6 +272,8 @@ impl HubRuntime {
             digest,
         );
         Ok(Self {
+            lock,
+            auth,
             config,
             clock,
             store,
@@ -293,50 +295,28 @@ impl HubRuntime {
         })
     }
 
+    /// Registers and attaches agents running in this process (single-box mode).
+    #[must_use]
+    pub fn local_agents(&self) -> LocalAgents {
+        LocalAgents::new(
+            self.agent_server.clone(),
+            self.store.clone(),
+            self.clock.clone(),
+        )
+    }
+
+    /// The first-run setup link while no account exists, issued once; `None` afterwards.
+    pub async fn setup_link(&self) -> Result<Option<String>, RuntimeError> {
+        self.auth
+            .open_setup()
+            .await
+            .map_err(|err| RuntimeError::Serve(format!("could not open setup: {err}")))
+    }
+
     /// Serves until `shutdown` is cancelled, then drains and closes within 15 seconds.
     pub async fn run(self, shutdown: CancellationToken) -> Result<(), RuntimeError> {
         serve::run(self, shutdown).await
     }
-}
-
-async fn ensure_hub_host(
-    store: &Store,
-    config: &HubConfig,
-    now: jiff::Timestamp,
-) -> Result<(), RuntimeError> {
-    if hub_host(store).await.is_ok() {
-        return Ok(());
-    }
-    let name = HostName::parse(&config.hub.name)
-        .or_else(|_| HostName::parse("domovoi"))
-        .map_err(|err| RuntimeError::Url(err.to_string()))?;
-    let id = if let Some(existing) = store.get_host_by_name(&name).await? {
-        existing.id
-    } else {
-        let id = HostId::new();
-        store
-            .upsert_host(&Host {
-                id,
-                name,
-                kind: HostKind::Local,
-                labels: BTreeMap::new(),
-                created_at: now,
-            })
-            .await?;
-        id
-    };
-    SettingsRepo::set(store, "hub_host_id", &serde_json::json!(id.to_string())).await?;
-    Ok(())
-}
-
-async fn hub_host(store: &Store) -> Result<HostId, RuntimeError> {
-    let value = SettingsRepo::get(store, "hub_host_id")
-        .await?
-        .and_then(|value| value.as_str().map(str::to_owned))
-        .ok_or_else(|| RuntimeError::Serve("the hub host id is not initialized".to_owned()))?;
-    value
-        .parse()
-        .map_err(|err| RuntimeError::Serve(format!("invalid stored hub host id: {err}")))
 }
 
 struct TriageBuild<'a> {
@@ -406,80 +386,4 @@ async fn build_triage(
         settings::triage(config),
     );
     Ok((Some(handle), Some(task)))
-}
-
-type ChatAdapters = (Vec<Arc<dyn ChatGateway>>, Vec<Arc<dyn Notifier>>);
-
-fn build_chat(
-    config: &HubConfig,
-    clock: &Arc<dyn Clock>,
-    public_url: &url::Url,
-    overrides: &AdapterOverrides,
-) -> Result<ChatAdapters, RuntimeError> {
-    if overrides.gateways.is_some() || overrides.notifiers.is_some() {
-        return Ok((
-            overrides.gateways.clone().unwrap_or_default(),
-            overrides.notifiers.clone().unwrap_or_default(),
-        ));
-    }
-    let mut gateways: Vec<Arc<dyn ChatGateway>> = Vec::new();
-    let mut notifiers: Vec<Arc<dyn Notifier>> = Vec::new();
-    if let Some(discord) = &config.discord {
-        if let Some(url) = &discord.webhook_url {
-            notifiers.push(Arc::new(
-                domovoi_chat::discord::DiscordWebhookNotifier::new(
-                    "discord-webhook",
-                    url.value().clone(),
-                    clock.clone(),
-                )
-                .map_err(|err| RuntimeError::Chat(err.to_string()))?,
-            ));
-        }
-        if discord.enabled {
-            gateways.push(Arc::new(domovoi_chat::discord::DiscordGateway::new(
-                discord.bot_token.value().clone(),
-                domovoi_chat::discord::DiscordSettings {
-                    channel_id: discord.channel_id,
-                    web_base: public_url.clone(),
-                },
-                clock.clone(),
-            )));
-        }
-    }
-    Ok((gateways, notifiers))
-}
-
-fn gateway_sinks(
-    config: &HubConfig,
-    api: &ApiState,
-    store: &Arc<Store>,
-    gateways: Vec<Arc<dyn ChatGateway>>,
-) -> Vec<(Arc<dyn ChatGateway>, Arc<dyn InteractionSink>)> {
-    let allowed = config
-        .discord
-        .as_ref()
-        .map(|discord| {
-            discord
-                .allowed_user_ids
-                .iter()
-                .map(|id| id.to_string())
-                .collect::<BTreeSet<_>>()
-        })
-        .unwrap_or_default();
-    gateways
-        .into_iter()
-        .map(|gateway| {
-            let sink: Arc<dyn InteractionSink> = Arc::new(InteractionAuthorizer::new(
-                api,
-                ChatDeps {
-                    users: store.clone(),
-                    notify: store.clone(),
-                    audit: store.clone(),
-                    gateway: gateway.clone(),
-                    allowed: allowed.clone(),
-                },
-            ));
-            (gateway, sink)
-        })
-        .collect()
 }

@@ -30,6 +30,7 @@ pub mod policy;
 pub mod redact;
 pub mod render;
 pub mod suppress;
+pub mod telemetry;
 pub mod triage;
 
 pub use actions::{ActionDeps, ActionHandle, ActionService, ActionSettings, ApprovalError};

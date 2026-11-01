@@ -54,7 +54,8 @@ pub struct AgentRuntime {
     jitter: Box<dyn FnMut() -> f64 + Send + Sync>,
 }
 
-fn policy(config: &AgentConfig) -> ContainerPolicy {
+/// The container policy from `[containers]`.
+pub(crate) fn container_policy(config: &AgentConfig) -> ContainerPolicy {
     ContainerPolicy {
         critical: config.containers.critical.iter().cloned().collect(),
         ignore: config.containers.ignore.iter().cloned().collect(),
@@ -81,7 +82,7 @@ impl AgentRuntime {
         let settings = Arc::new(check_settings(&config).map_err(AgentError::Checks)?);
         let containers = deps.container_source.clone().map(|source| ContainerDeps {
             source,
-            policy: policy(&config),
+            policy: container_policy(&config),
         });
         let host_deps = HostDeps {
             fs_stats: deps.fs_stats.clone(),

@@ -12,6 +12,9 @@ use jiff::Timestamp;
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
+/// Agents with a live session right now.
+pub const AGENTS_CONNECTED: &str = "domovoi_agents_connected";
+
 /// The most requests one agent may have in flight.
 pub const MAX_PENDING: usize = 256;
 
@@ -64,6 +67,13 @@ impl Registry {
         self.hosts.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
+    /// Publishes how many hosts have a live session, from inside the lock.
+    fn report(hosts: &BTreeMap<HostId, Entry>) {
+        let live = hosts.values().filter(|e| e.live.is_some()).count();
+        let live = u32::try_from(live).map_or(f64::from(u32::MAX), f64::from);
+        metrics::gauge!(AGENTS_CONNECTED).set(live);
+    }
+
     /// Starts watching `host` without a session, as if last heard at `at`.
     pub fn track(&self, host: HostId, at: Timestamp) {
         let mut hosts = self.lock();
@@ -83,6 +93,7 @@ impl Registry {
             entry.remote_ip = remote_ip;
         }
         entry.live = Some(live);
+        Self::report(&hosts);
     }
 
     /// Ends `session` if it is still the host's session. Waiting requests fail.
@@ -93,13 +104,16 @@ impl Registry {
         {
             entry.live = None;
         }
+        Self::report(&hosts);
     }
 
     /// Closes the host's live session, if any.
     pub fn close(&self, host: HostId) {
-        if let Some(live) = self.lock().get_mut(&host).and_then(|e| e.live.take()) {
+        let mut hosts = self.lock();
+        if let Some(live) = hosts.get_mut(&host).and_then(|e| e.live.take()) {
             live.cancel.cancel();
         }
+        Self::report(&hosts);
     }
 
     /// Records a frame from the host at `at`.

@@ -121,6 +121,7 @@ impl Shared {
         if let Err(err) = self.deps.audit.append(&entry).await {
             tracing::error!(%err, kind = %entry.kind, "could not write the audit log");
         }
+        crate::telemetry::record_action(action.status());
         self.publish(
             action,
             EventKind::ActionChanged {

@@ -35,7 +35,7 @@ pub use handshake::{BAD_TOKEN_DELAY, FIRST_FRAME_TIMEOUT, STEP_TIMEOUT};
 pub use link::WsAgentLink;
 pub use memory::MemoryTransport;
 pub use probes::{NetProbes, RealNetProbes};
-pub use registry::MAX_PENDING;
+pub use registry::{AGENTS_CONNECTED, MAX_PENDING};
 pub use settings::ServerSettings;
 pub use tls::{CHANNEL_BINDING_LABEL, HUB_SAN, TlsIdentity, colon_hex};
 pub use tokens::{EnrollmentInvite, TOKEN_TTL, token_hash};

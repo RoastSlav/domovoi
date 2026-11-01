@@ -83,6 +83,12 @@ impl Identity {
         PublicKey(self.signing_key.verifying_key().to_bytes())
     }
 
+    /// A copy of the signing key, to keep it when the hub re-registers a local agent.
+    #[must_use]
+    pub fn signing_key(&self) -> SigningKey {
+        self.signing_key.clone()
+    }
+
     /// Signs `message` with the agent's key.
     #[must_use]
     pub fn sign(&self, message: &[u8]) -> Signature {

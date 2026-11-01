@@ -43,6 +43,12 @@ pub(crate) async fn complete(
 ) -> Result<LlmResponse, LlmError> {
     let response = provider.complete(req).await?;
     let usage = response.usage;
+    crate::telemetry::record_llm(
+        provider.id(),
+        usage.input_tokens,
+        usage.output_tokens,
+        usage.cost_micros,
+    );
     if let Err(err) = shared
         .deps
         .usage
