@@ -263,6 +263,7 @@ async fn main() -> Result<()> {
         signals: store.clone(),
         acks: store.clone(),
         clock: clock.clone(),
+        redactor: Arc::new(PatternRedactor::default()),
         policy: EnginePolicy::default(),
         bus: bus.clone(),
         shutdown: shutdown.clone(),

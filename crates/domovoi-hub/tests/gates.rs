@@ -325,4 +325,85 @@ mod api {
         assert_eq!(reply.body["heartbeat"]["url"], "[set]");
         assert_eq!(reply.body["llm_secondary"]["api_key"], "[unset]");
     }
+
+    /// A credential posted to a webhook is redacted before the incident is stored, so the
+    /// API never returns it.
+    #[tokio::test]
+    async fn webhook_secrets_never_reach_the_incident_api() {
+        use std::collections::BTreeMap;
+        use std::sync::Arc;
+
+        use domovoi_config::hub::{WebhookAuth, WebhookConfig, WebhookKind};
+        use domovoi_config::{Secret, SecretSource};
+        use domovoi_core::ports::IncidentRepo;
+        use domovoi_core::{CheckKey, Fingerprint};
+        use domovoi_hub::ingest::{IngestDeps, IngestState, router};
+        use secrecy::SecretString;
+        use tower::ServiceExt;
+
+        const LEAKS: [&str; 2] = ["hunter2hunter2", "ghp_abcdefghijklmnopqrstuvwxyz0123456789"];
+        let a = api().await;
+        let login = a.admin().await;
+        let hooks = router(IngestState::new(
+            BTreeMap::from([(
+                "alerts".to_owned(),
+                WebhookConfig {
+                    kind: WebhookKind::Generic,
+                    auth: WebhookAuth::Bearer,
+                    secret: Secret::resolved(
+                        SecretSource::Env("TEST_SECRET".to_owned()),
+                        SecretString::from("hook-token".to_owned()),
+                    ),
+                    default_host: None,
+                    host_label: None,
+                },
+            )]),
+            IngestDeps {
+                clock: a.clock.clone(),
+                hosts: a.store.clone(),
+                sink: Arc::new(a.manager.clone()),
+            },
+        ));
+        let body = json!({
+            "host": "nas",
+            "check": "backup.nightly",
+            "severity": "critical",
+            "summary": "login failed with password=hunter2hunter2",
+            "evidence": {
+                "auth": "token ghp_abcdefghijklmnopqrstuvwxyz0123456789",
+                "attempts": 3
+            }
+        })
+        .to_string();
+        // Two firing signals confirm the incident.
+        for _ in 0..2 {
+            let request = Request::post("/hooks/alerts")
+                .header(header::AUTHORIZATION, "Bearer hook-token")
+                .body(Body::from(body.clone()))
+                .unwrap();
+            let response = hooks.clone().oneshot(request).await.unwrap();
+            assert_eq!(response.status(), StatusCode::ACCEPTED);
+        }
+
+        let fingerprint =
+            Fingerprint::of(a.nas.id, &CheckKey::parse("backup.nightly").unwrap(), None);
+        let incident = IncidentRepo::find_active_by_fingerprint(&*a.store, &fingerprint)
+            .await
+            .unwrap()
+            .expect("the webhook opened an incident");
+        for uri in [
+            format!("/api/v1/incidents/{}", incident.id()),
+            "/api/v1/incidents".to_owned(),
+        ] {
+            let reply = a.get(&uri, &login).await;
+            assert_eq!(reply.status, StatusCode::OK, "{}", reply.text);
+            for leak in LEAKS {
+                assert!(!reply.text.contains(leak), "{uri} returned {leak}");
+            }
+        }
+        let detail = a
+            .get(&format!("/api/v1/incidents/{}", incident.id()), &login)
+            .await;
+        assert!(detail.text.contains("[REDACTED]"), "{}", detail.text);
+    }
 }

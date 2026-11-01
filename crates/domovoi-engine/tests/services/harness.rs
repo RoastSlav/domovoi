@@ -132,11 +132,15 @@ pub async fn world(setup: Setup) -> World {
     let incident = incident_with(&store, setup.evidence).await;
     let (bus, events) = broadcast::channel(256);
     let shutdown = CancellationToken::new();
+    let redactor = Arc::new(PatternRedactor::new([SecretString::from(
+        SECRET.to_owned(),
+    )]));
     let (manager, _task) = IncidentManager::spawn(ManagerDeps {
         incidents: store.clone(),
         signals: store.clone(),
         acks: store.clone(),
         clock: clock.clone(),
+        redactor: redactor.clone(),
         policy: EnginePolicy::default(),
         bus: bus.clone(),
         shutdown: shutdown.clone(),
@@ -161,9 +165,7 @@ pub async fn world(setup: Setup) -> World {
         cache: store.clone(),
         usage: store.clone(),
         advisories: store.clone(),
-        redactor: Arc::new(PatternRedactor::new([SecretString::from(
-            SECRET.to_owned(),
-        )])),
+        redactor,
         clock: clock.clone(),
         manager: manager.clone(),
         bus: bus.clone(),

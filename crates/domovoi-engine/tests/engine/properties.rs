@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use domovoi_core::ports::{IncidentFilter, IncidentRepo, Page};
 use domovoi_core::{Fingerprint, HostId};
-use domovoi_engine::{EnginePolicy, IncidentManager, ManagerDeps};
+use domovoi_engine::{EnginePolicy, IncidentManager, ManagerDeps, PatternRedactor};
 use domovoi_testkit::build::T0;
 use domovoi_testkit::{FakeClock, InMemoryStore};
 use jiff::SignedDuration;
@@ -44,6 +44,7 @@ async fn run_steps(steps: Vec<Step>) {
         signals: store.clone(),
         acks: store.clone(),
         clock: clock.clone(),
+        redactor: Arc::new(PatternRedactor::default()),
         policy,
         bus,
         shutdown: shutdown.clone(),

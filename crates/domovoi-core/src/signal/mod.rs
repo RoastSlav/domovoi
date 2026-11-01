@@ -143,6 +143,13 @@ impl Signal {
         self
     }
 
+    /// Replaces the summary, for example with a redacted copy. Truncated like the original.
+    #[must_use]
+    pub fn with_summary(mut self, summary: impl Into<String>) -> Self {
+        self.summary = clamp_summary(summary);
+        self
+    }
+
     /// Replaces the generated id, for rehydrating stored signals and fixed test ids.
     #[must_use]
     pub fn with_id(mut self, id: SignalId) -> Self {
