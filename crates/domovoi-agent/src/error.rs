@@ -104,4 +104,7 @@ pub enum AgentError {
     /// The link stopped for good.
     #[error(transparent)]
     Link(#[from] LinkError),
+    /// The local webhook relay could not start or serve.
+    #[error(transparent)]
+    Relay(#[from] crate::relay::RelayError),
 }

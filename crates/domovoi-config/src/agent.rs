@@ -153,6 +153,10 @@ pub struct LocalWebhooks {
     /// A bearer token callers must send. Optional.
     #[serde(default)]
     pub token: Option<Secret>,
+    /// Allow a `bind` address other than loopback. Default false: services on this host
+    /// reach the relay, and nothing else does.
+    #[serde(default)]
+    pub allow_non_loopback: bool,
 }
 
 impl AgentConfig {

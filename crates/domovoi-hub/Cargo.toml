@@ -23,17 +23,21 @@ domovoi-engine = { workspace = true }
 domovoi-store = { workspace = true }
 domovoi-llm = { workspace = true }
 domovoi-chat = { workspace = true }
-domovoi-checks = { workspace = true, features = ["net"] }
+domovoi-checks = { workspace = true, features = ["net", "sources"] }
 async-trait = { workspace = true }
+axum = { workspace = true }
 base64 = { workspace = true }
 ed25519-dalek = { workspace = true }
 futures = { workspace = true }
 hex = { workspace = true }
+hmac = { workspace = true }
 jiff = { workspace = true }
 rand = { workspace = true }
+secrecy = { workspace = true }
 rcgen = { workspace = true }
 rustls = { workspace = true }
 sha2 = { workspace = true }
+subtle = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tokio-rustls = { workspace = true }
@@ -45,10 +49,15 @@ url = { workspace = true }
 [dev-dependencies]
 domovoi-testkit = { workspace = true }
 tempfile = { workspace = true }
+tower = { workspace = true }
 
 [[test]]
 name = "agent_server"
 path = "tests/agent_server/main.rs"
+
+[[test]]
+name = "ingest"
+path = "tests/ingest/main.rs"
 
 [lints]
 workspace = true

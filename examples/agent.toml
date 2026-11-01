@@ -57,3 +57,5 @@ baseline_expiry = "7d"
 bind = "127.0.0.1:7422"
 # A bearer token callers must send (optional).
 token = { env = "DOMOVOI_LOCAL_WEBHOOK_TOKEN" }
+# Allow a non-loopback bind address (default false).
+allow_non_loopback = false

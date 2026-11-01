@@ -50,6 +50,7 @@ pub struct AgentRuntime {
     requests: Arc<RequestCtx>,
     store: Arc<CheckStore>,
     spool: Arc<SharedSpool>,
+    relay: Option<crate::relay::Relay>,
     jitter: Box<dyn FnMut() -> f64 + Send + Sync>,
 }
 
@@ -121,6 +122,12 @@ impl AgentRuntime {
             verifier,
             deps.clock.clone(),
         ));
+        let relay = match &config.local_webhooks {
+            Some(relay) => {
+                Some(crate::relay::Relay::bind(relay, config.agent.host_name.clone()).await?)
+            }
+            None => None,
+        };
         Ok(Self {
             identity,
             deps,
@@ -129,6 +136,7 @@ impl AgentRuntime {
             requests,
             store,
             spool,
+            relay,
             jitter: random_jitter(),
         })
     }
@@ -151,6 +159,7 @@ impl AgentRuntime {
     /// Runs until `shutdown` is cancelled or the link stops for good.
     pub async fn run(self, shutdown: CancellationToken) -> Result<(), AgentError> {
         let stop = shutdown.child_token();
+        let host = self.identity.host_id;
         let parts = LinkParts {
             connector: self.connector,
             identity: self.identity,
@@ -165,9 +174,17 @@ impl AgentRuntime {
             self.checks,
             self.requests.check_env.clone(),
             self.store.clone(),
-            self.spool,
+            self.spool.clone(),
             handle.clone(),
         );
+        let relay = self.relay.map(|relay| {
+            tokio::spawn(relay.serve(
+                self.spool.clone(),
+                host,
+                self.deps.clock.clone(),
+                stop.clone(),
+            ))
+        });
         let scheduler = tokio::spawn(scheduler.run(stop.clone()));
         let served = tokio::spawn(serve(self.requests, requests, handle, stop.clone()));
         let result = link.run(stop.clone()).await;
@@ -178,7 +195,18 @@ impl AgentRuntime {
         if let Err(err) = served.await {
             tracing::error!(%err, "the request handler stopped abnormally");
         }
+        let mut relay_error = None;
+        if let Some(relay) = relay {
+            match relay.await {
+                Ok(Ok(())) => {}
+                Ok(Err(err)) => relay_error = Some(err),
+                Err(err) => tracing::error!(%err, "the webhook relay stopped abnormally"),
+            }
+        }
         self.store.save()?;
+        if let Some(err) = relay_error {
+            return Err(AgentError::Relay(err));
+        }
         result.map_err(AgentError::from)
     }
 }

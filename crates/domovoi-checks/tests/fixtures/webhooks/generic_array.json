@@ -1,0 +1,16 @@
+[
+  {
+    "host": "nas",
+    "check": "backup.nightly",
+    "target": "photos",
+    "status": "resolved",
+    "summary": "Backup finished"
+  },
+  {
+    "check": "cron.certbot",
+    "severity": "critical",
+    "summary": "Certificate renewal failed",
+    "evidence": { "days_left": 3 },
+    "observed_at": "2026-10-31T11:30:00Z"
+  }
+]

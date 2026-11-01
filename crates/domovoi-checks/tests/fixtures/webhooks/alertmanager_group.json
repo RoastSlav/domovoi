@@ -1,0 +1,49 @@
+{
+  "version": "4",
+  "groupKey": "{}/{severity=~\"warning|critical\"}:{alertname=\"DiskFilling\"}",
+  "truncatedAlerts": 0,
+  "status": "firing",
+  "receiver": "domovoi",
+  "groupLabels": { "alertname": "DiskFilling" },
+  "commonLabels": { "alertname": "DiskFilling", "job": "node" },
+  "commonAnnotations": {},
+  "externalURL": "http://alertmanager.lan:9093",
+  "alerts": [
+    {
+      "status": "firing",
+      "labels": {
+        "alertname": "DiskFilling",
+        "instance": "nas.lan:9100",
+        "job": "node",
+        "mountpoint": "/srv",
+        "severity": "warning",
+        "pod_template_hash": "6d4cf56db6"
+      },
+      "annotations": {
+        "summary": "/srv on nas is 92% full",
+        "description": "Filesystem /srv has less than 8% space left."
+      },
+      "startsAt": "2026-10-31T11:52:00Z",
+      "endsAt": "0001-01-01T00:00:00Z",
+      "generatorURL": "http://prometheus.lan:9090/graph?g0.expr=node_filesystem_avail_bytes",
+      "fingerprint": "8f2b1c4e9a7d3f60"
+    },
+    {
+      "status": "resolved",
+      "labels": {
+        "alertname": "DiskFilling",
+        "instance": "media.lan:9100",
+        "job": "node",
+        "mountpoint": "/",
+        "severity": "critical"
+      },
+      "annotations": {
+        "description": "Filesystem / has less than 3% space left."
+      },
+      "startsAt": "2026-10-31T09:00:00Z",
+      "endsAt": "2026-10-31T11:40:00Z",
+      "generatorURL": "http://prometheus.lan:9090/graph?g0.expr=node_filesystem_avail_bytes",
+      "fingerprint": "1a2b3c4d5e6f7081"
+    }
+  ]
+}

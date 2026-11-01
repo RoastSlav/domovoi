@@ -146,3 +146,35 @@ public_url = \"wss://hub.lan:7421\"
     assert_eq!(config.agent_server.self_check, "1.1.1.1:53");
     assert_eq!(config.agent_server.heartbeat.to_string(), "10s");
 }
+
+#[test]
+fn webhook_default_host_must_parse() {
+    let errors = hub_errors(
+        "[webhooks.alerts]\nkind = \"generic\"\nauth = \"hmac\"\nsecret = { env = \"S\" }\ndefault_host = \"Bad_Host\"\n",
+    );
+    assert_issue(&errors, "webhooks.alerts.default_host", "host name");
+}
+
+#[test]
+fn webhook_host_label_parses() {
+    let text =
+        "[webhooks.alerts]\nkind = \"alertmanager\"\nauth = \"hmac\"\nsecret = { env = \"S\" }\n";
+    let errors = hub_errors(&format!("{text}host_label = \"\"\n"));
+    assert_issue(&errors, "webhooks.alerts.host_label", "label name");
+    let errors = hub_errors(&format!("{text}host_label = \"node\"\n"));
+    assert!(
+        errors
+            .iter()
+            .all(|e| e.path != "webhooks.alerts.host_label")
+    );
+}
+
+#[test]
+fn local_webhooks_non_loopback_needs_flag() {
+    let open = format!("{AGENT}[local_webhooks]\nbind = \"0.0.0.0:7422\"\n");
+    let errors = agent_errors(&open);
+    assert_issue(&errors, "local_webhooks.bind", "loopback");
+    let allowed = format!("{open}allow_non_loopback = true\n");
+    assert!(agent(&allowed).is_ok());
+    assert!(agent(&format!("{AGENT}[local_webhooks]\nbind = \"[::1]:7422\"\n")).is_ok());
+}

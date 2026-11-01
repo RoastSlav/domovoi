@@ -19,6 +19,7 @@ pub mod facts;
 pub mod fs_atomic;
 pub mod identity;
 pub mod link;
+pub mod relay;
 pub mod requests;
 pub mod runtime;
 pub mod scheduler;

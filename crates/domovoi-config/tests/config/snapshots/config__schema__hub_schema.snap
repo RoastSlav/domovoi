@@ -763,6 +763,14 @@ expression: "HubConfig::json_schema()"
           "default": null,
           "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
         },
+        "host_label": {
+          "description": "For Alertmanager, the label that names the host. Default: `host`, then `instance`\nwithout its port.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
         "kind": {
           "description": "The payload format.",
           "$ref": "#/$defs/WebhookKind"
