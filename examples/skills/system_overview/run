@@ -1,0 +1,22 @@
+#!/bin/sh
+# Uptime, load, memory and disk usage. Reads only.
+set -u
+
+echo "== uptime"
+uptime 2>/dev/null || cat /proc/uptime
+
+echo
+echo "== load (1, 5, 15 minutes; running/total tasks)"
+cat /proc/loadavg
+
+echo
+echo "== memory (MiB)"
+if command -v free >/dev/null 2>&1; then
+    free -m
+else
+    grep -E '^(MemTotal|MemAvailable|SwapTotal|SwapFree):' /proc/meminfo
+fi
+
+echo
+echo "== disks"
+df -hP -x tmpfs -x devtmpfs -x overlay -x squashfs 2>/dev/null || df -hP

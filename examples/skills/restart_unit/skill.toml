@@ -1,0 +1,16 @@
+name = "restart_unit"
+description = "Restart one systemd unit, then re-run the check that raised the incident."
+risk = "write"
+entry = "run"
+timeout = "2m"
+applies_to = ["unit.failed", "unit.watch"]
+max_output_bytes = 8192
+
+[[params]]
+name = "unit"
+description = "The unit, such as nginx.service"
+kind = { type = "string", pattern = '^[A-Za-z0-9][A-Za-z0-9@._:-]{0,127}$', max_len = 128 }
+
+[verify]
+recheck = true
+delay = "30s"

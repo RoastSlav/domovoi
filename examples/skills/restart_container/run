@@ -1,0 +1,7 @@
+#!/bin/sh
+# Restarts container "$1". The pattern in skill.toml already rules out options and spaces.
+set -eu
+
+container="$1"
+docker restart -- "$container"
+docker inspect --format '{{.Name}} is {{.State.Status}} (restarts: {{.RestartCount}})' -- "$container"

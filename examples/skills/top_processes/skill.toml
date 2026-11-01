@@ -1,0 +1,6 @@
+name = "top_processes"
+description = "The 15 processes using the most CPU, and the 15 using the most memory."
+risk = "read"
+entry = "run"
+timeout = "15s"
+max_output_bytes = 32768

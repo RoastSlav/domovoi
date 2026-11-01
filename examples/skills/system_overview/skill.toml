@@ -1,0 +1,6 @@
+name = "system_overview"
+description = "Uptime, load, memory and disk usage of this host."
+risk = "read"
+entry = "run"
+timeout = "15s"
+max_output_bytes = 16384

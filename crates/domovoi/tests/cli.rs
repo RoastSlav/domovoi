@@ -121,6 +121,30 @@ mod tests {
             .stdout(contains("1 valid, 1 with issues"));
     }
 
+    /// The starter skills in `examples/skills` all load. They are copied first so the
+    /// checkout's umask cannot leave a folder group-writable.
+    #[cfg(unix)]
+    #[test]
+    fn starter_skills_validate() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let skills = dir.path().join("skills");
+        copy_tree(&workspace().join("examples/skills"), &skills);
+        for entry in fs::read_dir(&skills).unwrap() {
+            let folder = entry.unwrap().path();
+            fs::set_permissions(&folder, fs::Permissions::from_mode(0o755)).unwrap();
+            fs::set_permissions(folder.join("run"), fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        domovoi()
+            .args(["check", "skills"])
+            .arg(&skills)
+            .assert()
+            .success()
+            .stdout(contains("ok     vacuum_journal (destructive)"))
+            .stdout(contains("7 valid, 0 with issues"));
+    }
+
     fn copy_tree(from: &Path, to: &Path) {
         fs::create_dir_all(to).unwrap();
         for entry in fs::read_dir(from).unwrap() {

@@ -1,0 +1,12 @@
+name = "vacuum_journal"
+description = "Delete archived journal files older than 7, 14 or 30 days to free disk space."
+risk = "destructive"
+entry = "run"
+timeout = "5m"
+applies_to = ["disk.free"]
+max_output_bytes = 16384
+
+[[params]]
+name = "keep"
+description = "How much journal history to keep"
+kind = { type = "enum", values = ["7d", "14d", "30d"] }

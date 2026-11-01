@@ -1,0 +1,16 @@
+name = "restart_container"
+description = "Restart one Docker container, then re-run the check that raised the incident."
+risk = "write"
+entry = "run"
+timeout = "2m"
+applies_to = ["container.expected_down", "container.unhealthy", "container.restart_loop"]
+max_output_bytes = 8192
+
+[[params]]
+name = "container"
+description = "The container's name"
+kind = { type = "string", pattern = '^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$', max_len = 128 }
+
+[verify]
+recheck = true
+delay = "30s"

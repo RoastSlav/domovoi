@@ -1,0 +1,15 @@
+#!/bin/sh
+# Deletes archived journal files older than "$1". This cannot be undone.
+set -eu
+
+keep="$1"
+case "$keep" in
+7d | 14d | 30d) ;;
+*)
+    echo "keep must be 7d, 14d or 30d" >&2
+    exit 2
+    ;;
+esac
+journalctl --disk-usage
+journalctl --vacuum-time="$keep"
+journalctl --disk-usage
