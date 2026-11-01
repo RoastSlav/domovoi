@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<!--
+  The Domovoi agent for Unraid. Copy this file to
+  /boot/config/plugins/dockerMan/templates-user/ and add the container from
+  Docker > Add Container > Template.
+
+  Before the first start, enroll it: open the container's console (or run
+  `docker exec -it domovoi-agent sh`) and run the enroll command from the hub's
+  Hosts > Add host dialog. Then restart the container.
+
+  Docker access goes through a read-only socket proxy: install
+  tecnativa/docker-socket-proxy with CONTAINERS=1, EVENTS=1, INFO=1 and IMAGES=1 on the
+  same network, or set Docker enabled to false.
+-->
+<Container version="2">
+  <Name>domovoi-agent</Name>
+  <Repository>ghcr.io/roastslav/domovoi-agent:latest</Repository>
+  <Registry>https://github.com/RoastSlav/domovoi/pkgs/container/domovoi-agent</Registry>
+  <Network>bridge</Network>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/RoastSlav/domovoi/issues</Support>
+  <Project>https://github.com/RoastSlav/domovoi</Project>
+  <Overview>The Domovoi agent: watches this server and reports to your Domovoi hub. It sees the host through read-only mounts and Docker through a read-only socket proxy.</Overview>
+  <Category>Tools: Status:Stable</Category>
+  <ExtraParams>--pid=host --restart=always</ExtraParams>
+  <PostArgs/>
+  <Config Name="State" Target="/var/lib/domovoi-agent" Default="/mnt/user/appdata/domovoi-agent" Mode="rw" Description="agent.toml and the agent's key. Keep it across upgrades." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/domovoi-agent</Config>
+  <Config Name="Host /proc" Target="/host/proc" Default="/proc" Mode="ro" Description="The host's processes and memory." Type="Path" Display="advanced" Required="true" Mask="false">/proc</Config>
+  <Config Name="Host /sys" Target="/host/sys" Default="/sys" Mode="ro" Description="The host's devices and sensors." Type="Path" Display="advanced" Required="true" Mask="false">/sys</Config>
+  <Config Name="Host os-release" Target="/host/etc/os-release" Default="/etc/os-release" Mode="ro" Description="The host's OS name and version." Type="Path" Display="advanced" Required="true" Mask="false">/etc/os-release</Config>
+  <Config Name="Array" Target="/host/mnt/user" Default="/mnt/user" Mode="ro" Description="Disk checks read paths under /host; this one watches the array." Type="Path" Display="always" Required="false" Mask="false">/mnt/user</Config>
+  <Config Name="Host root" Target="DOMOVOI_AGENT__HOST_ROOT" Default="/host" Mode="" Description="Where the host's files are mounted." Type="Variable" Display="advanced" Required="true" Mask="false">/host</Config>
+  <Config Name="Docker enabled" Target="DOMOVOI_DOCKER__ENABLED" Default="true" Mode="" Description="Container checks, through the socket proxy." Type="Variable" Display="always" Required="false" Mask="false">true</Config>
+  <Config Name="Docker endpoint" Target="DOMOVOI_DOCKER__ENDPOINT" Default="tcp://docker-socket-proxy:2375" Mode="" Description="The socket proxy's address. Never mount docker.sock here." Type="Variable" Display="always" Required="false" Mask="false">tcp://docker-socket-proxy:2375</Config>
+</Container>

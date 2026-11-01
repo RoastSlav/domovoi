@@ -47,7 +47,15 @@ These are enforced by tests and by an architecture checker in CI, not just by co
 
 ## Quick start
 
-Coming with v0.1. The plan: download a static binary or pull `ghcr.io/RoastSlav/domovoi`, run `domovoi hub run --with-local-agent`, open the setup link, connect Discord and an LLM, and you are watching your first host in about ten minutes.
+On a Linux machine (x86_64 or arm64), install and start the hub, then open the setup link it prints:
+
+```sh
+curl -fsSL https://github.com/RoastSlav/domovoi/releases/latest/download/install.sh | sudo sh -s -- --role hub
+sudo systemctl enable --now domovoi-hub
+sudo journalctl -u domovoi-hub | grep -A1 setup
+```
+
+No config file is needed: the guided first run sets up Discord, a model and your first host. To use Docker instead, or to run the agent in a container on a NAS, see the [install guides](docs/book/src/install/binary.md) and [`deploy/`](deploy).
 
 ## Documentation
 

@@ -1,0 +1,59 @@
+# The Domovoi agent, for a host that runs everything in containers.
+#
+# 1. In the hub's web UI, open Hosts, then Add host. Run the enroll command it shows
+#    through Compose, with `docker compose -f agent.yml run --rm agent` in front of it:
+#
+#      docker compose -f agent.yml run --rm agent agent enroll --hub wss://… --token … --fingerprint … --name …
+#
+#    That writes agent.toml and the agent's key into the volume.
+# 2. docker compose -f agent.yml up -d
+#
+# The agent sees the host through read-only mounts under /host. It reads Docker through
+# a socket proxy that allows only reads, never the socket itself.
+name: domovoi-agent
+
+services:
+  agent:
+    image: ghcr.io/roastslav/domovoi-agent:latest
+    restart: always
+    pid: host # process checks see the host's processes
+    depends_on:
+      - docker-socket-proxy
+    volumes:
+      - domovoi-agent:/var/lib/domovoi-agent
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /etc/os-release:/host/etc/os-release:ro
+      # Disk checks read a path under /host. Mount each filesystem to watch at its own
+      # path, for example:
+      # - /mnt/data:/host/mnt/data:ro
+    environment:
+      DOMOVOI_AGENT__HOST_ROOT: /host
+      DOMOVOI_DOCKER__ENABLED: "true"
+      DOMOVOI_DOCKER__ENDPOINT: tcp://docker-socket-proxy:2375
+    # SMART needs the raw disks. Either list them:
+    # devices:
+    #   - /dev/sda
+    #   - /dev/nvme0
+    # cap_add:
+    #   - SYS_RAWIO
+    #   - SYS_ADMIN
+    # or, simpler and with much less isolation:
+    # privileged: true
+
+  docker-socket-proxy:
+    image: tecnativa/docker-socket-proxy:v0.4.1
+    restart: always
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      CONTAINERS: 1
+      EVENTS: 1
+      INFO: 1
+      IMAGES: 1
+      # Container skills (restart, stop) need write access. This lets anything that can
+      # reach the proxy change containers; leave it off unless you use those skills.
+      # POST: 1
+
+volumes:
+  domovoi-agent:

@@ -107,12 +107,23 @@ mod tests {
         }
     }
 
+    /// A free port below the kernel's ephemeral range (32768 and up on Linux), so an
+    /// outgoing connection or a `bind(0)` in another test cannot take it between this
+    /// check and the hub binding it.
     fn free_port() -> u16 {
-        TcpListener::bind("127.0.0.1:0")
-            .unwrap()
-            .local_addr()
-            .unwrap()
-            .port()
+        use std::sync::atomic::{AtomicU32, Ordering};
+        static TRIES: AtomicU32 = AtomicU32::new(0);
+        loop {
+            let n = TRIES.fetch_add(1, Ordering::Relaxed);
+            let offset = std::process::id()
+                .wrapping_mul(7919)
+                .wrapping_add(n.wrapping_mul(104_729))
+                % 12_000;
+            let port = 20_000 + u16::try_from(offset).unwrap();
+            if TcpListener::bind(("127.0.0.1", port)).is_ok() {
+                return port;
+            }
+        }
     }
 
     fn client() -> reqwest::Client {

@@ -1,16 +1,21 @@
-name: Docker build
+name: Container smoke test
 
 on:
   pull_request:
-    paths: ["Dockerfile", "docker/**", ".dockerignore", ".github/workflows/docker.yml"]
+    paths:
+      - "Dockerfile"
+      - "docker/**"
+      - "deploy/**"
+      - ".dockerignore"
+      - ".github/workflows/docker.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  build:
-    name: Build the source image (no push)
+  container-smoke:
+    name: Build and run the images (no push)
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -22,5 +27,47 @@ jobs:
           push: false
           load: true
           tags: domovoi:ci
-      - name: Smoke test
+      - name: version
         run: docker run --rm domovoi:ci version
+      - name: selftest --offline
+        run: docker run --rm domovoi:ci selftest --offline
+      - name: A fresh hub serves /healthz and logs a setup link
+        run: |
+          docker volume create domovoi-ci
+          docker run -d --name hub -p 127.0.0.1:7420:7420 -v domovoi-ci:/var/lib/domovoi domovoi:ci
+          for _ in $(seq 60); do
+            if curl -fsS http://127.0.0.1:7420/healthz; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:7420/healthz
+          docker logs hub 2>&1 | grep -q '/setup?token=' || { docker logs hub; exit 1; }
+      - name: It stops cleanly within the grace period
+        run: |
+          docker stop -t 20 hub
+          code=$(docker inspect -f '{{.State.ExitCode}}' hub)
+          docker logs hub 2>&1 | tail -n 20
+          test "$code" = 0
+      - name: A restart keeps the data and the secret key
+        run: |
+          key() { docker run --rm -v domovoi-ci:/data alpine:3.22 sha256sum /data/secret.key; }
+          before=$(key)
+          docker rm hub
+          docker run -d --name hub -p 127.0.0.1:7420:7420 -v domovoi-ci:/var/lib/domovoi domovoi:ci
+          for _ in $(seq 60); do
+            if curl -fsS http://127.0.0.1:7420/healthz; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:7420/healthz
+          docker stop -t 20 hub
+          test "$(key)" = "$before"
+          docker run --rm -v domovoi-ci:/data alpine:3.22 test -s /data/hub.db
+      - name: The agent image runs the same binary
+        run: |
+          arch=$(dpkg --print-architecture)
+          mkdir -p "dist/bin-$arch"
+          id=$(docker create domovoi:ci)
+          docker cp "$id:/usr/local/bin/domovoi" "dist/bin-$arch/domovoi"
+          docker rm "$id"
+          docker build --build-arg "TARGETARCH=$arch" -f docker/Dockerfile.agent -t domovoi-agent:ci .
+          docker run --rm domovoi-agent:ci version
+          docker run --rm --entrypoint smartctl domovoi-agent:ci --version

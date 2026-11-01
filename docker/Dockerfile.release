@@ -1,15 +1,25 @@
 # Image built by the release workflow from prebuilt static binaries
 # (dist/bin-amd64/domovoi and dist/bin-arm64/domovoi). No compilation here.
+FROM busybox:1.37-musl AS data
+# The data directory, owned by the runtime user (distroless nonroot is 65532).
+RUN mkdir -p /out/var/lib/domovoi && chown 65532:65532 /out/var/lib/domovoi && chmod 0750 /out/var/lib/domovoi
+
 FROM gcr.io/distroless/static-debian12:nonroot
 
 ARG TARGETARCH
 COPY --chmod=0755 dist/bin-${TARGETARCH}/domovoi /usr/local/bin/domovoi
+COPY --from=data --chown=65532:65532 /out/var/lib/domovoi /var/lib/domovoi
 
 LABEL org.opencontainers.image.title="Domovoi" \
       org.opencontainers.image.description="Self-hosted server overseer with AI triage and human-approved actions" \
       org.opencontainers.image.licenses="MIT OR Apache-2.0"
 
+# No config file is needed; open the setup link from the logs. A hub.toml mounted at
+# /etc/domovoi/hub.toml, and DOMOVOI_* variables, are read when present.
+ENV DOMOVOI_WEB__BIND=0.0.0.0:7420 \
+    DOMOVOI_AGENT_SERVER__BIND=0.0.0.0:7421
 USER nonroot:nonroot
+VOLUME /var/lib/domovoi
 EXPOSE 7420 7421
 ENTRYPOINT ["/usr/local/bin/domovoi"]
-CMD ["hub", "run", "--config", "/etc/domovoi/hub.toml"]
+CMD ["hub", "run"]

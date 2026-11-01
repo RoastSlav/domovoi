@@ -27,7 +27,7 @@ Create `release` (used by release-plz PRs), `bug`, `enhancement`, `triage`, `sec
 
 1. Merge feature work until v0.1 is done.
 2. release-plz keeps a release PR open. Before merging the v0.1 release PR, set the version to `0.1.0` in it (pre-1.0, release-plz otherwise bumps the patch number).
-3. Merging tags `v0.1.0`; the Release workflow builds both musl binaries with the embedded UI, attaches archives, checksums and provenance attestations to the GitHub release, and pushes `ghcr.io/RoastSlav/domovoi:0.1.0` and `:latest`.
+3. Merging tags `v0.1.0`; the Release workflow builds both musl binaries with the embedded UI, attaches archives, checksums, provenance attestations and `install.sh` to the GitHub release, and pushes `ghcr.io/RoastSlav/domovoi` and `ghcr.io/RoastSlav/domovoi-agent` as `:0.1.0` and `:latest`.
 4. Verify: `gh attestation verify domovoi-v0.1.0-x86_64-unknown-linux-musl.tar.gz --repo RoastSlav/domovoi`.
 
 On the very first release-plz run, check the release PR carefully: confirm all crates moved to the same version and the changelog lists commits from every crate. If not, adjust `release-plz.toml` before merging.
