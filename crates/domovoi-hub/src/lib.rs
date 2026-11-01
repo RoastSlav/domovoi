@@ -11,3 +11,4 @@ pub mod auth;
 pub mod ingest;
 pub mod middleware;
 pub mod router;
+pub mod spa;

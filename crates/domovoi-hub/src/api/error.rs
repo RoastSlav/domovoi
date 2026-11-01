@@ -23,6 +23,9 @@ pub enum ApiError {
     /// No valid session.
     #[error("log in first")]
     Unauthorized,
+    /// No account exists yet; the admin must be created with the setup link first.
+    #[error("no account exists yet; open the setup link the hub logged")]
+    SetupRequired,
     /// Login failed; deliberately says nothing about which part was wrong.
     #[error("wrong username or password")]
     BadCredentials,
@@ -53,6 +56,7 @@ impl ApiError {
     fn parts(&self) -> (StatusCode, &'static str) {
         match self {
             Self::Unauthorized => (StatusCode::UNAUTHORIZED, "unauthorized"),
+            Self::SetupRequired => (StatusCode::UNAUTHORIZED, "setup_required"),
             Self::BadCredentials => (StatusCode::UNAUTHORIZED, "bad_credentials"),
             Self::Forbidden(_) => (StatusCode::FORBIDDEN, "forbidden"),
             Self::NotFound => (StatusCode::NOT_FOUND, "not_found"),

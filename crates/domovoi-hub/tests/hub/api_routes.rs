@@ -86,6 +86,11 @@ async fn incident_detail_ack_and_mute() {
     assert_eq!(detail.status, StatusCode::OK, "{}", detail.text);
     assert_eq!(detail.body["host"], "nas");
     assert_eq!(detail.body["card"]["headline"], a.incident.title());
+    assert_eq!(
+        detail.body["card"]["badge"],
+        a.incident.severity().to_string(),
+        "before triage the badge is the severity"
+    );
     assert_eq!(detail.body["report"], Value::Null);
 
     let acked = a
@@ -233,6 +238,8 @@ async fn security_headers_present_on_api_and_healthz() {
         a.send(Method::GET, "/api/v1/session", None, None).await,
         a.get("/api/v1/incidents", &login).await,
         a.send(Method::GET, "/metrics", None, None).await,
+        a.send(Method::GET, "/incidents", None, None).await,
+        a.send(Method::GET, "/api/v1/nope", None, None).await,
     ];
     for reply in replies {
         let h = &reply.headers;

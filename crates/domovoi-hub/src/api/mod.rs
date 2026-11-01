@@ -156,7 +156,8 @@ impl FromRef<ApiState> for Arc<AuthState> {
     }
 }
 
-/// The logged-in session of a request; 401 without one.
+/// The logged-in session of a request; 401 without one, with `setup_required` while no
+/// account exists.
 #[derive(Debug, Clone)]
 pub struct Authed(pub Current);
 
@@ -164,11 +165,15 @@ impl FromRequestParts<ApiState> for Authed {
     type Rejection = ApiError;
 
     async fn from_request_parts(parts: &mut Parts, state: &ApiState) -> Result<Self, ApiError> {
-        let id = csrf::session_id(&parts.headers).ok_or(ApiError::Unauthorized)?;
-        match state.auth.current(id).await? {
-            Some(current) => Ok(Self(current)),
-            None => Err(ApiError::Unauthorized),
+        if let Some(id) = csrf::session_id(&parts.headers)
+            && let Some(current) = state.auth.current(id).await?
+        {
+            return Ok(Self(current));
         }
+        if state.auth.setup_required().await? {
+            return Err(ApiError::SetupRequired);
+        }
+        Err(ApiError::Unauthorized)
     }
 }
 

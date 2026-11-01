@@ -1,0 +1,132 @@
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.filter {
+  display: grid;
+  gap: 0.2rem;
+  font-size: 0.9rem;
+}
+
+.list {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.rowHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.title {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.meta {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.more {
+  display: flex;
+  justify-content: center;
+  margin-top: 1rem;
+}
+
+.card {
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--border);
+  border-left: 6px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.card[data-resolved="true"] {
+  border-left-color: var(--fixed);
+}
+
+.card h1 {
+  margin: 0.4rem 0 0.5rem;
+  font-size: 1.35rem;
+  overflow-wrap: anywhere;
+}
+
+.card ul {
+  margin: 0 0 0.5rem;
+  padding-left: 1.25rem;
+}
+
+.nextStep {
+  margin: 0;
+}
+
+.section {
+  margin-top: 1.75rem;
+}
+
+.section h2 {
+  font-size: 1.1rem;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.timeline {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.timeline li {
+  margin-bottom: 0.35rem;
+}
+
+.kind {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.ask {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.ask textarea {
+  width: 100%;
+  min-height: 4.5rem;
+}
+
+.answer {
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.error {
+  margin: 0;
+  color: var(--danger);
+  font-weight: 600;
+}

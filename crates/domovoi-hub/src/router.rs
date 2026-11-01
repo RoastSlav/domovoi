@@ -1,4 +1,4 @@
-//! The hub's HTTP router: the API, webhooks and health behind the shared middleware, and
+//! The hub's HTTP router: the API, webhooks, health and the web UI behind the shared middleware, and
 //! the OpenAPI document generated from the same routes.
 
 use axum::Router;
@@ -11,10 +11,10 @@ use tower_http::trace::TraceLayer;
 use crate::api::{self, ApiState};
 use crate::auth::csrf;
 use crate::ingest::{self, IngestState};
-use crate::middleware;
+use crate::{middleware, spa};
 
-/// The full HTTP surface: `/api/v1`, `/healthz`, `/metrics` and, with `ingest`,
-/// `/hooks/{name}`. The CSRF guard covers the API; webhooks authenticate themselves.
+/// The full HTTP surface: `/api/v1`, `/healthz`, `/metrics`, with `ingest`
+/// `/hooks/{name}`, and the web UI for every other path. The CSRF guard covers the API; webhooks authenticate themselves.
 pub fn router(api: ApiState, ingest: Option<IngestState>) -> Router {
     let (routes, _) = api::routes().split_for_parts();
     let routes = routes
@@ -28,6 +28,7 @@ pub fn router(api: ApiState, ingest: Option<IngestState>) -> Router {
     if let Some(ingest) = ingest {
         app = app.merge(ingest::router(ingest));
     }
+    let app = app.fallback(spa::handler);
     let [csp, nosniff, referrer, permissions] = middleware::security_headers();
     app.layer(axum::middleware::from_fn(middleware::timeout))
         .layer(

@@ -1423,7 +1423,7 @@
             }
           },
           "401": {
-            "description": "Not logged in",
+            "description": "Not logged in; the error is `setup_required` while no account exists",
             "content": {
               "application/json": {
                 "schema": {
@@ -1708,7 +1708,7 @@
         "properties": {
           "badge": {
             "type": "string",
-            "description": "The badge text: a verdict or a severity."
+            "description": "A verdict (`ACTION_NEEDED`, `MONITOR`, `EXPECTED` or `FIXED`) or, before triage, a\nseverity (`info`, `warning` or `critical`)."
           },
           "bullets": {
             "type": "array",

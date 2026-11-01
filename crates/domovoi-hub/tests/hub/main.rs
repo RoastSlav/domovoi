@@ -1,5 +1,5 @@
 //! The hub: the agent server against a scripted agent over real TLS on 127.0.0.1, and the
-//! HTTP API over a temporary store.
+//! HTTP API over a temporary store, and the embedded web UI.
 
 #[cfg(test)]
 mod agent;
@@ -20,3 +20,5 @@ mod harness;
 mod presence;
 #[cfg(test)]
 mod sessions;
+#[cfg(test)]
+mod spa;

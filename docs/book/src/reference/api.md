@@ -63,6 +63,7 @@ Errors are JSON, with an HTTP status to match:
 | Status | `error` | Meaning |
 | --- | --- | --- |
 | 400 | `bad_request` | invalid input |
+| 401 | `setup_required` | no account exists yet; open the setup link |
 | 401 | `unauthorized` | not logged in |
 | 401 | `bad_credentials` | wrong username or password |
 | 403 | `forbidden` | CSRF token, origin or confirmation missing or wrong |

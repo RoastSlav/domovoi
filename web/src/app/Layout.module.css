@@ -1,0 +1,121 @@
+.shell {
+  min-height: 100vh;
+}
+
+.skip {
+  position: absolute;
+  left: 0.5rem;
+  top: -3rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--accent);
+  color: var(--accent-fg);
+  border-radius: var(--radius);
+  z-index: 20;
+}
+
+.skip:focus {
+  top: 0.5rem;
+}
+
+.header {
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.bar,
+.nav {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 0.5rem 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+}
+
+.brand {
+  font-weight: 800;
+  font-size: 1.1rem;
+  color: var(--fg);
+  text-decoration: none;
+}
+
+.pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  flex: 1 1 auto;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.05rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.85rem;
+}
+
+.dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.pill[data-connected="true"] .dot,
+.live[data-status="live"] .dot {
+  background: var(--ok);
+}
+
+.pill[data-connected="false"] .dot,
+.live[data-status="offline"] .dot {
+  background: var(--danger);
+}
+
+.live {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.user {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
+  color: var(--muted);
+}
+
+.nav {
+  padding-top: 0;
+  gap: 0.25rem 1rem;
+}
+
+.nav a {
+  padding: 0.35rem 0;
+  color: var(--fg);
+  text-decoration: none;
+  border-bottom: 3px solid transparent;
+}
+
+.nav a.active {
+  border-bottom-color: var(--accent);
+  font-weight: 700;
+}
+
+.main {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 1.25rem 1rem 3rem;
+}
+
+.main:focus {
+  outline: none;
+}

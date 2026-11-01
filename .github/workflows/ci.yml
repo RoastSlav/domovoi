@@ -110,6 +110,10 @@ jobs:
         run: cargo doc --workspace --no-deps --locked
       - name: Build with the embedded web UI
         run: cargo build --package domovoi --features embed-ui --locked
+      - name: Hub with the embedded web UI (clippy, tests)
+        run: |
+          cargo clippy --package domovoi-hub --features embed-ui --all-targets --locked -- -D warnings
+          cargo test --package domovoi-hub --features embed-ui --locked
 
   deny:
     name: Supply chain (cargo-deny)
