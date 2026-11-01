@@ -1,0 +1,33 @@
+# The Domovoi hub.
+#
+#   docker compose -f hub.yml up -d
+#   docker compose -f hub.yml logs hub | grep setup    # open this link to create the admin account
+#
+# No config file is needed: everything is set in the web UI. The volume holds the
+# database, secret.key (which encrypts the secrets saved in the UI) and the agent
+# certificate. Back it up, and keep it when you upgrade.
+name: domovoi
+
+services:
+  hub:
+    image: ghcr.io/roastslav/domovoi:latest
+    restart: unless-stopped
+    ports:
+      - "7420:7420" # web UI and API
+      - "7421:7421" # agents connect here
+    volumes:
+      - domovoi:/var/lib/domovoi
+      # Advanced: config as code. Anything set in this file is read-only in the web UI.
+      # - ./hub.toml:/etc/domovoi/hub.toml:ro
+    # The setup link points at http://127.0.0.1:7420 and enroll commands at
+    # wss://domovoi:7421 until you set the hub's addresses in Settings, or here.
+    # Advanced: any setting can come from DOMOVOI_<SECTION>__<KEY>, and is then
+    # read-only in the web UI.
+    # environment:
+    #   DOMOVOI_WEB__PUBLIC_URL: "https://domovoi.example.net"
+    #   DOMOVOI_AGENT_SERVER__PUBLIC_URL: "wss://domovoi.example.net:7421"
+    #   DOMOVOI_HUB__TIMEZONE: "Europe/Sofia"
+    stop_grace_period: 20s
+
+volumes:
+  domovoi:

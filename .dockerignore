@@ -3,7 +3,9 @@ target
 web/node_modules
 web/dist
 docs/book/book
-dist
+# The release images copy prebuilt binaries from dist/bin-<arch>/.
+dist/*
+!dist/bin-*
 *.db
 *.db-wal
 *.db-shm
