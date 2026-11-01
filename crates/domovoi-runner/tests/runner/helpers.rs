@@ -4,7 +4,8 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use domovoi_core::ports::ProcessSpec;
+use async_trait::async_trait;
+use domovoi_core::ports::{ProcessError, ProcessExecutor, ProcessOutput, ProcessSpec};
 use domovoi_runner::SandboxExecutor;
 use domovoi_testkit::ListRedactor;
 use jiff::SignedDuration;
@@ -34,8 +35,31 @@ pub fn any_bin(paths: &[&str]) -> Option<String> {
         })
 }
 
-pub fn executor() -> SandboxExecutor {
-    SandboxExecutor::new(Arc::new(ListRedactor::new([SECRET])))
+pub fn executor() -> TestExecutor {
+    TestExecutor(SandboxExecutor::new(Arc::new(ListRedactor::new([SECRET]))))
+}
+
+/// The sandbox executor, retrying a spawn that fails with "Text file busy".
+///
+/// Tests write scripts just before running them, while other tests in this process
+/// fork. A child forked in that moment holds the script open for writing until it
+/// execs, and exec of a file open for writing fails with ETXTBSY. Production code
+/// never writes a program it is about to run, so the retry lives here.
+pub struct TestExecutor(SandboxExecutor);
+
+#[async_trait]
+impl ProcessExecutor for TestExecutor {
+    async fn run(&self, spec: ProcessSpec) -> Result<ProcessOutput, ProcessError> {
+        for _ in 0..50 {
+            match self.0.run(spec.clone()).await {
+                Err(ProcessError::Spawn(message)) if message.contains("Text file busy") => {
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                }
+                other => return other,
+            }
+        }
+        self.0.run(spec).await
+    }
 }
 
 pub fn spec(program: &str, args: &[&str]) -> ProcessSpec {
