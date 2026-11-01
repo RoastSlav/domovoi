@@ -10,6 +10,8 @@ pub mod duration;
 pub mod env;
 pub mod hub;
 pub mod issue;
+pub mod layered;
+pub mod provenance;
 mod schema;
 pub mod secret;
 pub mod time;
@@ -24,7 +26,9 @@ pub use duration::Duration;
 pub use env::{EnvSource, MapEnv, SystemEnv};
 pub use hub::HubConfig;
 pub use issue::{ConfigIssue, IssueSeverity};
-pub use secret::{Secret, SecretSource, Secrets};
+pub use layered::{Layered, LayeredError, LayeredResult, load_hub_layered};
+pub use provenance::{Provenance, Source};
+pub use secret::{NoStoredSecrets, Secret, SecretSource, Secrets, StoredSecrets};
 pub use time::{LocalTime, TimeZone};
 pub use validate::Validate;
 
@@ -51,13 +55,29 @@ where
     let mut table: toml::Table = text.parse().map_err(|err: toml::de::Error| {
         vec![ConfigIssue::error("", format!("invalid TOML: {err}"))]
     })?;
-    let mut issues = env::apply_overrides(&mut table, env);
+    let issues = env::apply_overrides(&mut table, env);
+    finish(table, env, None, issues)
+}
+
+/// Deserializes, resolves secrets and validates a table that already has its overrides.
+pub(crate) fn finish<T>(
+    table: toml::Table,
+    env: &dyn EnvSource,
+    stored: Option<&dyn StoredSecrets>,
+    mut issues: Vec<ConfigIssue>,
+) -> LoadResult<T>
+where
+    T: DeserializeOwned + Validate + Secrets,
+{
     if issues.iter().any(ConfigIssue::is_error) {
         return Err(issues);
     }
-    let mut config: T = serde_path_to_error::deserialize(toml::Value::Table(table))
-        .map_err(|err| vec![issue::from_path_error(&err)])?;
-    config.secrets_mut(&mut |path, secret| secret.resolve(path, env, &mut issues));
+    let mut config: T =
+        serde_path_to_error::deserialize(toml::Value::Table(table)).map_err(|err| {
+            issues.push(issue::from_path_error(&err));
+            issues.clone()
+        })?;
+    config.secrets_mut(&mut |path, secret| secret.resolve(path, env, stored, &mut issues));
     config.validate(&mut issues);
     if issues.iter().any(ConfigIssue::is_error) {
         Err(issues)

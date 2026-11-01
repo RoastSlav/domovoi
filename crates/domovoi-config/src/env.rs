@@ -74,9 +74,18 @@ impl EnvSource for MapEnv {
 /// keeps its type (the variable is parsed as a bool, integer, float or string to match);
 /// a new value is inferred as bool, then integer, then float, then string.
 pub(crate) fn apply_overrides(table: &mut Table, env: &dyn EnvSource) -> Vec<ConfigIssue> {
+    apply_overrides_tracked(table, env).0
+}
+
+/// Like [`apply_overrides`], and also returns which variable set each dotted path.
+pub(crate) fn apply_overrides_tracked(
+    table: &mut Table,
+    env: &dyn EnvSource,
+) -> (Vec<ConfigIssue>, BTreeMap<String, String>) {
     let mut vars = env.vars();
     vars.sort();
     let mut issues = Vec::new();
+    let mut set = BTreeMap::new();
     for (name, raw) in vars {
         let Some(rest) = name.strip_prefix(OVERRIDE_PREFIX) else {
             continue;
@@ -93,11 +102,14 @@ pub(crate) fn apply_overrides(table: &mut Table, env: &dyn EnvSource) -> Vec<Con
             ));
             continue;
         }
-        if let Err(message) = set_scalar(table, &segments, &raw) {
-            issues.push(ConfigIssue::error(path, format!("{name}: {message}")));
+        match set_scalar(table, &segments, &raw) {
+            Ok(()) => {
+                set.insert(path, name);
+            }
+            Err(message) => issues.push(ConfigIssue::error(path, format!("{name}: {message}"))),
         }
     }
-    issues
+    (issues, set)
 }
 
 fn set_scalar(table: &mut Table, segments: &[String], raw: &str) -> Result<(), String> {

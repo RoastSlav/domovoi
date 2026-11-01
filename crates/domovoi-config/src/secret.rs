@@ -22,6 +22,29 @@ pub enum SecretSource {
     Env(String),
     /// A file whose contents are the value: `{ file = "/path" }`.
     File(PathBuf),
+    /// Entered in the web UI and kept encrypted by the hub: `{ stored = true }`. Only the
+    /// stored settings layer may use it.
+    Stored,
+}
+
+/// The message for `{ stored = true }` outside the stored settings layer.
+pub const STORED_OUTSIDE_UI: &str =
+    "stored secrets come only from the web UI; use { env = .. } or { file = .. } in files";
+
+/// Decrypted values of the secrets entered in the web UI, looked up by config path.
+pub trait StoredSecrets {
+    /// The value stored for `path`, if any.
+    fn get(&self, path: &str) -> Option<SecretString>;
+}
+
+/// No stored secrets: loading a file on its own.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NoStoredSecrets;
+
+impl StoredSecrets for NoStoredSecrets {
+    fn get(&self, _path: &str) -> Option<SecretString> {
+        None
+    }
 }
 
 /// A secret configuration value.
@@ -55,13 +78,25 @@ impl Secret {
     }
 
     /// Reads the value from its source. Problems are pushed onto `issues` at `path`.
+    /// `stored` is `None` outside the layered loader, where a stored secret is an error.
     pub(crate) fn resolve(
         &mut self,
         path: &str,
         env: &dyn EnvSource,
+        stored: Option<&dyn StoredSecrets>,
         issues: &mut Vec<ConfigIssue>,
     ) {
         match &self.source {
+            SecretSource::Stored => match stored {
+                Some(stored) => match stored.get(path) {
+                    Some(value) => self.value = value,
+                    None => issues.push(ConfigIssue::warning(
+                        path,
+                        "the stored secret is missing or unreadable; enter it again in Settings",
+                    )),
+                },
+                None => issues.push(ConfigIssue::error(path, STORED_OUTSIDE_UI)),
+            },
             SecretSource::Env(name) => match env.var(name) {
                 Some(value) if !value.is_empty() => self.value = SecretString::from(value),
                 Some(_) => issues.push(ConfigIssue::error(
@@ -156,7 +191,7 @@ impl<'de> Visitor<'de> for SecretVisitor {
     type Value = Secret;
 
     fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("a table with exactly one of `env` or `file`")
+        f.write_str("a table with exactly one of `env`, `file` or `stored`")
     }
 
     fn visit_str<E: de::Error>(self, _: &str) -> Result<Secret, E> {
@@ -169,6 +204,12 @@ impl<'de> Visitor<'de> for SecretVisitor {
             let next = match key.as_str() {
                 "env" => SecretSource::Env(map.next_value()?),
                 "file" => SecretSource::File(map.next_value()?),
+                "stored" => {
+                    if !map.next_value::<bool>()? {
+                        return Err(de::Error::custom("`stored` must be true"));
+                    }
+                    SecretSource::Stored
+                }
                 other => {
                     return Err(de::Error::custom(format!(
                         "unknown key `{other}` in a secret; use {{ env = .. }} or {{ file = .. }}"
