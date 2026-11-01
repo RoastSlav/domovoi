@@ -1,0 +1,35 @@
+# The Domovoi agent. Installed by install.sh; enroll it with the command from the hub's
+# "Add host" dialog, then start it with
+#   systemctl enable --now domovoi-agent
+#
+# It runs as root: SMART needs the disks, the journal checks read every unit's log, and
+# skills run as the user their manifest names. The unit still keeps /usr and /etc
+# read-only, gives the agent a private /tmp, and only lets it write its own state.
+#
+# RestrictSUIDSGID=no because a skill may run a setuid tool (for example `sudo -u` in a
+# manifest's command, or a vendor CLI); blocking it would make those skills fail.
+#
+# To run it unprivileged instead, add a drop-in (systemctl edit domovoi-agent) with
+# User=, Group= and ReadWritePaths= for its state directory. SMART, journal and skill
+# checks that need root then report errors; the rest keep working.
+
+[Unit]
+Description=Domovoi agent
+Documentation=https://github.com/RoastSlav/domovoi
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/domovoi agent run
+Restart=always
+RestartSec=5
+
+ReadWritePaths=/var/lib/domovoi-agent
+ProtectSystem=full
+PrivateTmp=yes
+ProtectKernelModules=yes
+RestrictSUIDSGID=no
+
+[Install]
+WantedBy=multi-user.target

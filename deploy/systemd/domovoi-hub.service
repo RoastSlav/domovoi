@@ -1,0 +1,48 @@
+# The Domovoi hub. Installed by install.sh; start it with
+#   systemctl enable --now domovoi-hub
+# then open the setup link it prints once: journalctl -u domovoi-hub | grep setup
+#
+# No config file is needed. /etc/domovoi/hub.toml and /etc/domovoi/hub.env are read when
+# they exist (config as code); anything set there is read-only in the web UI.
+#
+# A `cli` model provider (Claude Code, Codex) runs as this unit's user, with
+# /var/lib/domovoi as its home, and ProtectHome=yes hides other home directories. Log
+# the tool in as that user: sudo -u domovoi -H claude login
+# Node-based tools such as Claude Code need a JIT, which MemoryDenyWriteExecute=yes
+# blocks; add a drop-in (systemctl edit domovoi-hub) with MemoryDenyWriteExecute=no.
+
+[Unit]
+Description=Domovoi hub
+Documentation=https://github.com/RoastSlav/domovoi
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=domovoi
+Group=domovoi
+EnvironmentFile=-/etc/domovoi/hub.env
+ExecStart=/usr/local/bin/domovoi hub run
+Restart=on-failure
+RestartSec=5
+# The hub stops within 15 seconds.
+TimeoutStopSec=20
+
+# hub.db, secret.key, hub.lock, tls/ and backups/ live here.
+ReadWritePaths=/var/lib/domovoi
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target
