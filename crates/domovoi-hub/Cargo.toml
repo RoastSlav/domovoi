@@ -12,7 +12,8 @@ autotests = false
 
 [features]
 default = []
-# Embed the built React app from web/dist. Requires `npm run build` in web/ first.
+# Embed the built React app from web/dist. Requires `npm run build` in web/ first;
+# without it the hub serves a page explaining how to build the UI.
 embed-ui = []
 
 [dependencies]
@@ -39,6 +40,7 @@ secrecy = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 rcgen = { workspace = true }
+rust-embed = { workspace = true }
 rustls = { workspace = true }
 sha2 = { workspace = true }
 subtle = { workspace = true }

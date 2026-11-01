@@ -2721,7 +2721,7 @@ expression: spec
                 }
               }
             },
-            "description": "Not logged in"
+            "description": "Not logged in; the error is `setup_required` while no account exists"
           }
         },
         "summary": "The current session and its CSRF token.",

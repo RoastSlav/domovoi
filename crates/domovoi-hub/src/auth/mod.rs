@@ -174,6 +174,11 @@ impl AuthState {
         &self.web
     }
 
+    /// Whether no user exists yet, so the setup link is the only way in.
+    pub async fn setup_required(&self) -> Result<bool, AuthError> {
+        Ok(self.users.count().await? == 0)
+    }
+
     /// While no user exists, issues a single-use setup token valid for 24 h and returns the
     /// setup link, which the caller logs once. Returns `None` once a user exists or while
     /// an issued token is still valid.

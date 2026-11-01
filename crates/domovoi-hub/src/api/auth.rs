@@ -36,7 +36,7 @@ fn with_cookie(state: &ApiState, new: NewSession) -> Response {
     get, path = "/api/v1/session", operation_id = "get_session", tag = "auth",
     responses(
         (status = 200, description = "Logged in", body = SessionDto),
-        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 401, description = "Not logged in; the error is `setup_required` while no account exists", body = ErrorBody),
     )
 )]
 pub(super) async fn session(Authed(current): Authed) -> Json<SessionDto> {

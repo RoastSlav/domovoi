@@ -195,6 +195,7 @@ async fn login_rate_limit_locks_out() {
 #[tokio::test]
 async fn unauthenticated_requests_get_401() {
     let a = api().await;
+    a.admin().await;
     for uri in [
         "/api/v1/session",
         "/api/v1/incidents",
@@ -252,4 +253,32 @@ async fn sessions_expire_when_idle_and_after_a_week() {
         StatusCode::UNAUTHORIZED,
         "a week after login, however active"
     );
+}
+
+#[tokio::test]
+async fn setup_required_until_first_user() {
+    let a = api().await;
+    let before = a.send(Method::GET, "/api/v1/session", None, None).await;
+    assert_eq!(before.status, StatusCode::UNAUTHORIZED);
+    assert_eq!(before.body["error"], "setup_required");
+    let stale = a
+        .send(
+            Method::GET,
+            "/api/v1/incidents",
+            Some(&crate::api_harness::Login {
+                cookie: "domovoi_session=gone".to_owned(),
+                csrf: String::new(),
+            }),
+            None,
+        )
+        .await;
+    assert_eq!(
+        stale.body["error"], "setup_required",
+        "even with a stale cookie"
+    );
+
+    a.admin().await;
+    let after = a.send(Method::GET, "/api/v1/session", None, None).await;
+    assert_eq!(after.status, StatusCode::UNAUTHORIZED);
+    assert_eq!(after.body["error"], "unauthorized");
 }

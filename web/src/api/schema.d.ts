@@ -2087,7 +2087,7 @@ export interface operations {
                     "application/json": components["schemas"]["SessionDto"];
                 };
             };
-            /** @description Not logged in */
+            /** @description Not logged in; the error is `setup_required` while no account exists */
             401: {
                 headers: {
                     [name: string]: unknown;
