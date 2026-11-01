@@ -2,7 +2,7 @@
 
 use domovoi_core::SkillSummary;
 use domovoi_proto::messages::{
-    AgentSettings, ChallengeResponse, Hello, HostFacts, RejectReason, Welcome,
+    AgentSettings, ChallengeResponse, CheckInfo, Hello, HostFacts, RejectReason, Welcome,
 };
 use domovoi_proto::{Message, PROTOCOL_VERSION, Transport, challenge_message};
 use jiff::SignedDuration;
@@ -20,6 +20,8 @@ pub struct Announce<'a> {
     pub facts: HostFacts,
     /// Summaries of the skills in the local catalogue.
     pub skills: &'a [SkillSummary],
+    /// Every check with its local settings.
+    pub checks: &'a [CheckInfo],
 }
 
 /// Runs the handshake on a fresh connection and returns the hub's `welcome`.
@@ -39,6 +41,7 @@ pub async fn handshake(
         facts: announce.facts,
         capabilities: Vec::new(),
         skills: announce.skills.to_vec(),
+        checks: announce.checks.to_vec(),
     };
     frame::send(transport, &Message::Hello(hello), None).await?;
     let challenge = match frame::expect(transport).await?.message {

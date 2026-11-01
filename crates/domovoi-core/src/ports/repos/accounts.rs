@@ -16,6 +16,13 @@ pub trait SettingsRepo: Send + Sync {
 
     /// Sets `key`, replacing any previous value.
     async fn set(&self, key: &str, value: &Value) -> Result<(), StoreError>;
+
+    /// Applies every write at once: `Some` sets the key, `None` deletes it. Either all
+    /// writes are stored or none are.
+    async fn set_many(&self, writes: &[(String, Option<Value>)]) -> Result<(), StoreError>;
+
+    /// Every key starting with `prefix`, with its value, sorted by key.
+    async fn list_prefix(&self, prefix: &str) -> Result<Vec<(String, Value)>, StoreError>;
 }
 
 /// Web UI accounts.

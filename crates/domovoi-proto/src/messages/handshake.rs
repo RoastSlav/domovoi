@@ -137,6 +137,24 @@ pub struct Hello {
     /// The skills the agent has, with manifest hashes.
     #[serde(default)]
     pub skills: Vec<SkillSummary>,
+    /// Every check the agent knows, with its local settings before any hub override, so
+    /// the hub can show what an override changes. Empty from older agents.
+    #[serde(default)]
+    pub checks: Vec<CheckInfo>,
+}
+
+/// One check as the agent's own config sets it.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CheckInfo {
+    /// The check.
+    pub key: CheckKey,
+    /// Whether `agent.toml` leaves it on.
+    pub enabled: bool,
+    /// How often it runs, in seconds.
+    pub interval_seconds: u32,
+    /// Thresholds from `agent.toml`; the check's built-in defaults apply to the rest.
+    #[serde(default)]
+    pub thresholds: BTreeMap<String, Value>,
 }
 
 /// The hub's random challenge after `hello`.

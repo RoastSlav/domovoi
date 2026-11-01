@@ -103,6 +103,7 @@ pub fn hello(agent: AgentId, protocol: ProtocolVersion) -> Message {
         facts: facts(),
         capabilities: Vec::new(),
         skills: Vec::new(),
+        checks: Vec::new(),
     })
 }
 

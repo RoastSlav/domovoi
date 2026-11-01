@@ -167,6 +167,7 @@ impl AgentRuntime {
             clock: self.deps.clock.clone(),
             fs: self.deps.hostfs.clone(),
             skills: self.requests.catalog.summaries(),
+            checks: Vec::new(),
             spool: self.spool.clone(),
             jitter: self.jitter,
         };

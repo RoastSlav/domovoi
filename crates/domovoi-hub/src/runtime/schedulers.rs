@@ -224,7 +224,10 @@ impl Schedulers {
                 .is_none_or(|advisory| {
                     !matches!(
                         advisory.kind,
-                        AdvisoryKind::TriageDegraded | AdvisoryKind::DeliveryFailed
+                        AdvisoryKind::TriageDegraded
+                            | AdvisoryKind::DeliveryFailed
+                            | AdvisoryKind::StoredSecretUnreadable
+                            | AdvisoryKind::SettingsApplyFailed
                     )
                 })
         });

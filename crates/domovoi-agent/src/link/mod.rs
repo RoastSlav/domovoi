@@ -18,7 +18,9 @@ use std::sync::Arc;
 
 use domovoi_core::ports::{Clock, HostFs};
 use domovoi_core::{RequestId, SkillSummary};
-use domovoi_proto::messages::{Ping, Pong, RunCheck, RunSkill, RunTool, Signals, Unsupported};
+use domovoi_proto::messages::{
+    CheckInfo, Ping, Pong, RunCheck, RunSkill, RunTool, Signals, Unsupported,
+};
 use domovoi_proto::{Decoded, Message, Transport};
 use jiff::SignedDuration;
 use tokio::sync::mpsc;
@@ -102,6 +104,8 @@ pub struct LinkParts {
     pub fs: Arc<dyn HostFs>,
     /// The local catalogue, announced in `hello`.
     pub skills: Vec<SkillSummary>,
+    /// Every check with its local settings, announced in `hello`.
+    pub checks: Vec<CheckInfo>,
     /// Signal batches to send and replay.
     pub spool: Arc<SharedSpool>,
     /// Jitter factors for the reconnect delay.
@@ -182,6 +186,7 @@ impl Link {
         let announce = Announce {
             facts: host_facts(&*self.parts.fs).await,
             skills: &self.parts.skills,
+            checks: &self.parts.checks,
         };
         let shake = handshake(
             transport.as_mut(),

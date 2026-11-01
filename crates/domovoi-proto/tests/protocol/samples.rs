@@ -129,6 +129,12 @@ pub fn all() -> Vec<Message> {
             facts: facts(),
             capabilities: vec!["docker".to_owned(), "journal".to_owned()],
             skills: vec![skill_summary()],
+            checks: vec![CheckInfo {
+                key: CheckKey::parse("disk.usage").unwrap(),
+                enabled: true,
+                interval_seconds: 300,
+                thresholds: BTreeMap::from([("warn_percent".to_owned(), serde_json::json!(85))]),
+            }],
         }
         .into(),
         Challenge {

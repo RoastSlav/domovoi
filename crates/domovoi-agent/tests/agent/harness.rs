@@ -82,6 +82,7 @@ pub fn start_link_with(
         clock: clock.clone(),
         fs: empty_fs(dir),
         skills: Vec::new(),
+        checks: Vec::new(),
         spool,
         jitter: Box::new(|| 1.0),
     };

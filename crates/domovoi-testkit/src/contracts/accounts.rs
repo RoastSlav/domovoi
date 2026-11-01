@@ -20,6 +20,28 @@ pub async fn settings_repo_contract(repo: &dyn SettingsRepo) -> ContractResult {
         "set replaces"
     );
     assert_eq!(repo.get("digest.time").await?, Some(json!({ "hour": 8 })));
+
+    repo.set_many(&[
+        ("secret.a_b".to_owned(), Some(json!("x"))),
+        ("secret.c".to_owned(), Some(json!("y"))),
+        ("secretz".to_owned(), Some(json!("z"))),
+        ("digest.time".to_owned(), None),
+    ])
+    .await?;
+    assert_eq!(repo.get("digest.time").await?, None, "None deletes");
+    let listed = repo.list_prefix("secret.").await?;
+    assert_eq!(
+        listed,
+        vec![
+            ("secret.a_b".to_owned(), json!("x")),
+            ("secret.c".to_owned(), json!("y"))
+        ],
+        "only the prefix, sorted"
+    );
+    assert!(
+        repo.list_prefix("secret._").await?.is_empty(),
+        "`_` is literal"
+    );
     Ok(())
 }
 

@@ -16,6 +16,29 @@ impl SettingsRepo for InMemoryStore {
         self.begin()?.settings.insert(key.to_owned(), value.clone());
         Ok(())
     }
+
+    async fn set_many(&self, writes: &[(String, Option<Value>)]) -> Result<(), StoreError> {
+        let mut state = self.begin()?;
+        for (key, value) in writes {
+            match value {
+                Some(value) => state.settings.insert(key.clone(), value.clone()),
+                None => state.settings.remove(key),
+            };
+        }
+        Ok(())
+    }
+
+    async fn list_prefix(&self, prefix: &str) -> Result<Vec<(String, Value)>, StoreError> {
+        let mut rows: Vec<(String, Value)> = self
+            .begin()?
+            .settings
+            .iter()
+            .filter(|(key, _)| key.starts_with(prefix))
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect();
+        rows.sort_by(|a, b| a.0.cmp(&b.0));
+        Ok(rows)
+    }
 }
 
 #[async_trait]
