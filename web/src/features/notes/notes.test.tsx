@@ -50,10 +50,12 @@ test("notes_search_debounces_and_renders_snippets", async () => {
   fireEvent.change(box, { target: { value: "zf" } });
   await act(() => vi.advanceTimersByTimeAsync(100));
   fireEvent.change(box, { target: { value: "zfs" } });
-  await act(() => vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS - 1));
+  // The fake clock also follows real time (`shouldAdvanceTime`), so check well before the
+  // debounce ends rather than 1 ms before it, which a slow runner can overshoot.
+  await act(() => vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS / 2));
   expect(searches(), "nothing while typing").toHaveLength(0);
 
-  await act(() => vi.advanceTimersByTimeAsync(1));
+  await act(() => vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS / 2));
   const results = await screen.findByRole("list", { name: "Search results" });
   expect(searches().map((c) => c.init.params?.query)).toEqual([{ q: "zfs" }]);
   expect(within(results).getByRole("link", { name: "ZFS pools" })).toHaveAttribute(
