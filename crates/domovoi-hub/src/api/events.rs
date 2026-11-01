@@ -81,7 +81,7 @@ fn events(rx: broadcast::Receiver<DomainEvent>) -> impl Stream<Item = Result<Eve
 /// A stream of incident and action changes, as `incident` and `action` events whose data is
 /// a JSON `UiEvent`.
 #[utoipa::path(
-    get, path = "/api/v1/events", tag = "system",
+    get, path = "/api/v1/events", operation_id = "stream_events", tag = "system",
     responses(
         (status = 200, description = "An event stream", body = UiEvent, content_type = "text/event-stream"),
         (status = 401, description = "Not logged in", body = ErrorBody),

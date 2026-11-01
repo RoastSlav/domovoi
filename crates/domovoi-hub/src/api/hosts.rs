@@ -26,7 +26,7 @@ fn agent_error(err: crate::agent_server::AgentServerError) -> ApiError {
 
 /// Every host with its agent's presence, sorted by name.
 #[utoipa::path(
-    get, path = "/api/v1/hosts", tag = "hosts",
+    get, path = "/api/v1/hosts", operation_id = "list_hosts", tag = "hosts",
     responses(
         (status = 200, description = "The hosts", body = Vec<HostDto>),
         (status = 401, description = "Not logged in", body = ErrorBody),
@@ -68,7 +68,7 @@ pub(super) async fn list(
 /// A one-time enrollment invite for host `name`, creating the host if it is new. The
 /// token is shown only in this response.
 #[utoipa::path(
-    post, path = "/api/v1/hosts/{name}/enrollment", tag = "hosts",
+    post, path = "/api/v1/hosts/{name}/enrollment", operation_id = "create_enrollment", tag = "hosts",
     params(("name" = String, Path, description = "Host name")),
     responses(
         (status = 200, description = "The invite", body = InviteDto),
@@ -100,7 +100,7 @@ pub(super) async fn enrollment(
 
 /// Revokes the agent of host `name` and disconnects it.
 #[utoipa::path(
-    post, path = "/api/v1/hosts/{name}/revoke", tag = "hosts",
+    post, path = "/api/v1/hosts/{name}/revoke", operation_id = "revoke_agent", tag = "hosts",
     params(("name" = String, Path, description = "Host name")),
     responses(
         (status = 200, description = "Whether an agent was revoked", body = RevokeDto),
@@ -128,7 +128,7 @@ pub(super) async fn revoke(
 
 /// The skills host `name`'s agent reported.
 #[utoipa::path(
-    get, path = "/api/v1/hosts/{name}/skills", tag = "hosts",
+    get, path = "/api/v1/hosts/{name}/skills", operation_id = "list_skills", tag = "hosts",
     params(("name" = String, Path, description = "Host name")),
     responses(
         (status = 200, description = "The catalogue", body = Vec<SkillDto>),

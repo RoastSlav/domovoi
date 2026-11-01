@@ -45,7 +45,7 @@ fn command(err: CommandError) -> ApiError {
 
 /// Incidents, newest first, with optional filters.
 #[utoipa::path(
-    get, path = "/api/v1/incidents", tag = "incidents",
+    get, path = "/api/v1/incidents", operation_id = "list_incidents", tag = "incidents",
     params(IncidentQuery),
     responses(
         (status = 200, description = "One page", body = IncidentPage),
@@ -104,7 +104,7 @@ fn latest_triage(timeline: &[domovoi_core::ports::IncidentTimelineEntry]) -> Opt
 
 /// Everything about one incident: report, card, timeline and actions.
 #[utoipa::path(
-    get, path = "/api/v1/incidents/{id}", tag = "incidents",
+    get, path = "/api/v1/incidents/{id}", operation_id = "get_incident", tag = "incidents",
     params(("id" = String, Path, description = "Incident id")),
     responses(
         (status = 200, description = "The incident", body = IncidentDetail),
@@ -187,7 +187,7 @@ const MAX_ACTIONS: u16 = 50;
 
 /// Acknowledges an incident.
 #[utoipa::path(
-    post, path = "/api/v1/incidents/{id}/ack", tag = "incidents",
+    post, path = "/api/v1/incidents/{id}/ack", operation_id = "ack_incident", tag = "incidents",
     params(("id" = String, Path, description = "Incident id")),
     responses(
         (status = 204, description = "Acknowledged"),
@@ -212,7 +212,7 @@ pub(super) async fn ack(
 
 /// Mutes an incident for a while.
 #[utoipa::path(
-    post, path = "/api/v1/incidents/{id}/mute", tag = "incidents",
+    post, path = "/api/v1/incidents/{id}/mute", operation_id = "mute_incident", tag = "incidents",
     params(("id" = String, Path, description = "Incident id")),
     request_body = MuteRequest,
     responses(
@@ -248,7 +248,7 @@ pub(super) async fn mute(
 
 /// Lifts a mute.
 #[utoipa::path(
-    post, path = "/api/v1/incidents/{id}/unmute", tag = "incidents",
+    post, path = "/api/v1/incidents/{id}/unmute", operation_id = "unmute_incident", tag = "incidents",
     params(("id" = String, Path, description = "Incident id")),
     responses(
         (status = 204, description = "Unmuted"),
@@ -274,7 +274,7 @@ pub(super) async fn unmute(
 /// Asks the triage model a follow-up question about an incident. It uses read-only tools
 /// and never proposes actions.
 #[utoipa::path(
-    post, path = "/api/v1/incidents/{id}/ask", tag = "incidents",
+    post, path = "/api/v1/incidents/{id}/ask", operation_id = "ask_incident", tag = "incidents",
     params(("id" = String, Path, description = "Incident id")),
     request_body = AskRequest,
     responses(

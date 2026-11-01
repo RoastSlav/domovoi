@@ -17,7 +17,7 @@ pub const HISTORY_DAYS: i64 = 14;
 
 /// Open advisories, newest first.
 #[utoipa::path(
-    get, path = "/api/v1/advisories", tag = "system",
+    get, path = "/api/v1/advisories", operation_id = "list_advisories", tag = "system",
     responses(
         (status = 200, description = "Open advisories", body = Vec<AdvisoryDto>),
         (status = 401, description = "Not logged in", body = ErrorBody),
@@ -93,7 +93,7 @@ async fn build(state: &ApiState) -> Result<DigestPreview, ApiError> {
 
 /// Today's digest as it would be sent now.
 #[utoipa::path(
-    get, path = "/api/v1/digest/preview", tag = "system",
+    get, path = "/api/v1/digest/preview", operation_id = "preview_digest", tag = "system",
     responses(
         (status = 200, description = "The digest", body = DigestPreview),
         (status = 401, description = "Not logged in", body = ErrorBody),
@@ -108,7 +108,7 @@ pub(super) async fn digest_preview(
 
 /// Sends today's digest now.
 #[utoipa::path(
-    post, path = "/api/v1/digest/send", tag = "system",
+    post, path = "/api/v1/digest/send", operation_id = "send_digest", tag = "system",
     responses(
         (status = 200, description = "Sent", body = DigestPreview),
         (status = 401, description = "Not logged in", body = ErrorBody),
@@ -139,7 +139,7 @@ pub(super) async fn digest_send(
 
 /// Liveness: `ok` while the hub serves requests.
 #[utoipa::path(
-    get, path = "/healthz", tag = "system",
+    get, path = "/healthz", operation_id = "healthz", tag = "system",
     responses((status = 200, description = "Healthy", body = String, content_type = "text/plain"))
 )]
 pub(super) async fn healthz() -> &'static str {
@@ -148,7 +148,7 @@ pub(super) async fn healthz() -> &'static str {
 
 /// Prometheus metrics.
 #[utoipa::path(
-    get, path = "/metrics", tag = "system",
+    get, path = "/metrics", operation_id = "metrics", tag = "system",
     responses((status = 200, description = "Prometheus text format", body = String, content_type = "text/plain"))
 )]
 pub(super) async fn metrics(State(state): State<ApiState>) -> impl IntoResponse {

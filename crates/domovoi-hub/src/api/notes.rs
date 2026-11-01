@@ -62,7 +62,7 @@ async fn validated(state: &ApiState, id: NoteId, input: NoteInput) -> Result<Not
 
 /// Notes about one host, or global notes when no host is given.
 #[utoipa::path(
-    get, path = "/api/v1/notes", tag = "notes",
+    get, path = "/api/v1/notes", operation_id = "list_notes", tag = "notes",
     params(NoteListQuery),
     responses(
         (status = 200, description = "The notes", body = Vec<NoteDto>),
@@ -82,7 +82,7 @@ pub(super) async fn list(
 
 /// Creates a note.
 #[utoipa::path(
-    post, path = "/api/v1/notes", tag = "notes",
+    post, path = "/api/v1/notes", operation_id = "create_note", tag = "notes",
     request_body = NoteInput,
     responses(
         (status = 201, description = "Created", body = NoteDto),
@@ -102,7 +102,7 @@ pub(super) async fn create(
 
 /// Full-text search over notes.
 #[utoipa::path(
-    get, path = "/api/v1/notes/search", tag = "notes",
+    get, path = "/api/v1/notes/search", operation_id = "search_notes", tag = "notes",
     params(NoteSearchQuery),
     responses(
         (status = 200, description = "Hits, best first", body = Vec<NoteHitDto>),
@@ -129,7 +129,7 @@ pub(super) async fn search(
 
 /// One note.
 #[utoipa::path(
-    get, path = "/api/v1/notes/{id}", tag = "notes",
+    get, path = "/api/v1/notes/{id}", operation_id = "get_note", tag = "notes",
     params(("id" = String, Path, description = "Note id")),
     responses(
         (status = 200, description = "The note", body = NoteDto),
@@ -153,7 +153,7 @@ pub(super) async fn get(
 
 /// Replaces a note.
 #[utoipa::path(
-    put, path = "/api/v1/notes/{id}", tag = "notes",
+    put, path = "/api/v1/notes/{id}", operation_id = "replace_note", tag = "notes",
     params(("id" = String, Path, description = "Note id")),
     request_body = NoteInput,
     responses(
@@ -180,7 +180,7 @@ pub(super) async fn replace(
 
 /// Deletes a note.
 #[utoipa::path(
-    delete, path = "/api/v1/notes/{id}", tag = "notes",
+    delete, path = "/api/v1/notes/{id}", operation_id = "delete_note", tag = "notes",
     params(("id" = String, Path, description = "Note id")),
     responses(
         (status = 204, description = "Deleted"),

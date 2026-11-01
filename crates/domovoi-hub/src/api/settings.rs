@@ -198,7 +198,7 @@ pub fn view(config: &HubConfig) -> (HubSettings, Option<DiscordSettings>, Vec<We
 
 /// The effective configuration, secrets hidden.
 #[utoipa::path(
-    get, path = "/api/v1/settings", tag = "system",
+    get, path = "/api/v1/settings", operation_id = "get_settings", tag = "system",
     responses(
         (status = 200, description = "The settings", body = SettingsDto),
         (status = 401, description = "Not logged in", body = ErrorBody),

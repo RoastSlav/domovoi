@@ -2,6 +2,7 @@
 //!
 //! - `cargo xtask arch-check [--base <ref>]`: enforce ARCHITECTURE.md rules.
 //! - `cargo xtask ci [--fast] [--web]`: run the same gates CI runs.
+//! - `cargo xtask openapi [--check]`: write (or check) `web/src/api/openapi.json`.
 //!
 //! xtask is not part of the product; it may spawn processes (cargo, git, npm).
 
@@ -9,6 +10,7 @@
 
 mod arch;
 mod ci;
+mod openapi;
 
 use std::path::PathBuf;
 
@@ -39,6 +41,12 @@ enum Command {
         #[arg(long)]
         web: bool,
     },
+    /// Write the hub's OpenAPI document to web/src/api/openapi.json.
+    Openapi {
+        /// Fail if the committed file differs instead of writing it.
+        #[arg(long)]
+        check: bool,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -47,6 +55,7 @@ fn main() -> anyhow::Result<()> {
     match cli.command {
         Command::ArchCheck { base } => arch::run(&root, base.as_deref()),
         Command::Ci { fast, web } => ci::run(&root, fast, web),
+        Command::Openapi { check } => openapi::run(&root, check),
     }
 }
 

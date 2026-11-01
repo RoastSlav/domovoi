@@ -34,7 +34,7 @@ async fn load(state: &ApiState, id: ActionId) -> Result<ActionRequest, ApiError>
 
 /// Actions, newest first.
 #[utoipa::path(
-    get, path = "/api/v1/actions", tag = "actions",
+    get, path = "/api/v1/actions", operation_id = "list_actions", tag = "actions",
     params(ActionQuery),
     responses(
         (status = 200, description = "One page", body = ActionPage),
@@ -70,7 +70,7 @@ pub(super) async fn list(
 /// Approves a proposed action. Destructive skills need `confirm_text` equal to the skill's
 /// name; chat buttons can never approve them.
 #[utoipa::path(
-    post, path = "/api/v1/actions/{id}/approve", tag = "actions",
+    post, path = "/api/v1/actions/{id}/approve", operation_id = "approve_action", tag = "actions",
     params(("id" = String, Path, description = "Action id")),
     request_body = ApproveRequest,
     responses(
@@ -105,7 +105,7 @@ pub(super) async fn approve(
 
 /// Denies a proposed action.
 #[utoipa::path(
-    post, path = "/api/v1/actions/{id}/deny", tag = "actions",
+    post, path = "/api/v1/actions/{id}/deny", operation_id = "deny_action", tag = "actions",
     params(("id" = String, Path, description = "Action id")),
     responses(
         (status = 200, description = "Denied", body = ActionDto),

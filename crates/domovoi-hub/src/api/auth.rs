@@ -33,7 +33,7 @@ fn with_cookie(state: &ApiState, new: NewSession) -> Response {
 
 /// The current session and its CSRF token.
 #[utoipa::path(
-    get, path = "/api/v1/session", tag = "auth",
+    get, path = "/api/v1/session", operation_id = "get_session", tag = "auth",
     responses(
         (status = 200, description = "Logged in", body = SessionDto),
         (status = 401, description = "Not logged in", body = ErrorBody),
@@ -46,7 +46,7 @@ pub(super) async fn session(Authed(current): Authed) -> Json<SessionDto> {
 /// Logs in and sets the session cookie. Five failures a minute from one address lock it
 /// out for a while.
 #[utoipa::path(
-    post, path = "/api/v1/auth/login", tag = "auth",
+    post, path = "/api/v1/auth/login", operation_id = "login", tag = "auth",
     request_body = LoginRequest,
     responses(
         (status = 200, description = "Logged in; the cookie is set", body = SessionDto),
@@ -67,7 +67,7 @@ pub(super) async fn login(
 
 /// Ends the session and clears the cookie.
 #[utoipa::path(
-    post, path = "/api/v1/auth/logout", tag = "auth",
+    post, path = "/api/v1/auth/logout", operation_id = "logout", tag = "auth",
     responses((status = 204, description = "Logged out"))
 )]
 pub(super) async fn logout(
@@ -87,7 +87,7 @@ pub(super) async fn logout(
 /// Creates the admin account with the one-time token from the setup link, and logs in.
 /// Only works before the first user exists.
 #[utoipa::path(
-    post, path = "/api/v1/auth/setup", tag = "auth",
+    post, path = "/api/v1/auth/setup", operation_id = "setup", tag = "auth",
     request_body = SetupRequest,
     responses(
         (status = 200, description = "Account created and logged in", body = SessionDto),

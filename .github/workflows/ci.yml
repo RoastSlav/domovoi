@@ -102,6 +102,8 @@ jobs:
           else
             cargo xtask arch-check
           fi
+      - name: OpenAPI document is up to date (ARCHITECTURE.md R12)
+        run: cargo xtask openapi --check
       - name: Rustdoc
         env:
           RUSTDOCFLAGS: -D warnings
