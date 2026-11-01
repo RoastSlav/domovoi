@@ -217,7 +217,6 @@ async fn quiet_hours_release_happens_at_end_time() {
     )
     .await;
     harness.start_dispatcher();
-    harness.start_schedulers();
     assert_eq!(
         harness.webhook(&firing("web-1", "disk.full")).await,
         StatusCode::ACCEPTED
@@ -238,11 +237,10 @@ async fn quiet_hours_release_happens_at_end_time() {
     assert_eq!(post_count(&harness.gateway), 0);
 
     harness.clock.set(at("2026-11-01T06:59:00Z"));
-    for _ in 0..10 {
-        tokio::task::yield_now().await;
-    }
+    harness.runtime.as_ref().unwrap().schedulers.minute().await;
     assert!(harness.notifier.sent().is_empty());
     harness.clock.set(at("2026-11-01T07:00:00Z"));
+    harness.runtime.as_ref().unwrap().schedulers.minute().await;
     until(|| harness.notifier.sent().len() == 1).await;
     assert!(harness.notifier.sent()[0].markdown.contains("disk.full"));
     harness.stop().await;
@@ -371,6 +369,29 @@ async fn bus_lag_triggers_reload_not_crash() {
         StatusCode::ACCEPTED
     );
     let incidents = wait_for_incidents(&harness, 2).await;
+    // An incident that opened and resolved before delivery caught up: history, not news.
+    assert_eq!(
+        harness.webhook(&firing("old-1", "disk.full")).await,
+        StatusCode::ACCEPTED
+    );
+    assert_eq!(
+        harness.webhook(&resolving("old-1", "disk.full")).await,
+        StatusCode::ACCEPTED
+    );
+    guard(async {
+        loop {
+            if harness
+                .incidents()
+                .await
+                .iter()
+                .any(|i| i.resolved_at().is_some())
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
     harness
         .put_notify_state(
             incidents[0].id(),
@@ -407,7 +428,54 @@ async fn bus_lag_triggers_reload_not_crash() {
         StatusCode::ACCEPTED
     );
     until(|| post_count(&harness.gateway) >= 1).await;
-    assert_eq!(wait_for_incidents(&harness, 3).await.len(), 3);
+    assert_eq!(wait_for_incidents(&harness, 4).await.len(), 4);
+    assert!(
+        !harness.gateway.calls().iter().any(|call| matches!(
+            call,
+            GatewayCall::PostCard(card) | GatewayCall::UpdateCard(_, card)
+                if card.host.as_str() == "old-1"
+        )),
+        "recovery never posts or updates resolved incidents"
+    );
+    harness.stop().await;
+}
+
+#[tokio::test]
+async fn quiet_hours_release_without_a_notifier_posts_held_cards() {
+    let mut harness = Harness::without_notifier(
+        "[notify]
+quiet_hours = { start = \"22:00\", end = \"07:00\" }
+[notify.digest]
+enabled = false",
+        at("2026-10-31T22:30:00Z"),
+    )
+    .await;
+    harness.start_dispatcher();
+    harness.start_schedulers();
+    assert_eq!(
+        harness.webhook(&firing("web-1", "disk.full")).await,
+        StatusCode::ACCEPTED
+    );
+    guard(async {
+        loop {
+            let held = NotifyStateRepo::list_held(&*harness.runtime.as_ref().unwrap().store)
+                .await
+                .unwrap();
+            if !held.is_empty() {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+    assert_eq!(post_count(&harness.gateway), 0, "held during quiet hours");
+
+    harness.clock.set(at("2026-11-01T07:00:00Z"));
+    until(|| post_count(&harness.gateway) == 1).await;
+    assert!(harness.gateway.calls().iter().any(|call| matches!(
+        call,
+        GatewayCall::PostCard(card) if card.host.as_str() == "web-1"
+    )));
     harness.stop().await;
 }
 

@@ -22,6 +22,12 @@ use super::Dispatcher;
 
 const DIGEST_LAST_SENT: &str = "digest_last_sent_at";
 
+/// How long to wait before trying again after every notifier refused the digest.
+const DIGEST_RETRY: SignedDuration = SignedDuration::from_mins(15);
+
+/// How long one heartbeat ping may take.
+const HEARTBEAT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
 /// All runtime schedulers. Each returned task is independently cancellable.
 #[derive(Clone)]
 pub(crate) struct Schedulers {
@@ -32,6 +38,10 @@ pub(crate) struct Schedulers {
     dispatcher: Dispatcher,
     digest: Arc<DigestDeps>,
     heartbeat: Arc<Mutex<HeartbeatStatus>>,
+    /// The client heartbeat pings use; `None` when TLS could not be set up.
+    http: Option<reqwest::Client>,
+    /// After a failed digest, when to try again.
+    digest_retry_at: Arc<Mutex<Option<Timestamp>>>,
 }
 
 impl Schedulers {
@@ -42,12 +52,17 @@ impl Schedulers {
         actions: ActionHandle,
         dispatcher: Dispatcher,
         digest: DigestDeps,
-        _notifiers: Vec<Arc<dyn domovoi_core::ports::Notifier>>,
     ) -> Self {
         let heartbeat = HeartbeatStatus {
             configured: config.heartbeat.is_some(),
             failing_since: None,
         };
+        let http = reqwest::Client::builder()
+            .timeout(HEARTBEAT_TIMEOUT)
+            .user_agent(concat!("domovoi/", env!("CARGO_PKG_VERSION")))
+            .build()
+            .map_err(|err| tracing::error!(err = %err.without_url(), "no HTTP client for heartbeat pings"))
+            .ok();
         Self {
             config,
             clock,
@@ -56,6 +71,8 @@ impl Schedulers {
             dispatcher,
             digest: Arc::new(digest),
             heartbeat: Arc::new(Mutex::new(heartbeat)),
+            http,
+            digest_retry_at: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -90,7 +107,7 @@ impl Schedulers {
         }
     }
 
-    async fn minute(&self) {
+    pub(crate) async fn minute(&self) {
         self.dispatcher.tick().await;
         if let Err(err) = self.actions.expire_due().await {
             tracing::warn!(%err, "could not expire action approvals");
@@ -99,7 +116,18 @@ impl Schedulers {
     }
 
     async fn digest_due(&self) {
+        // Digests go out through notifiers only; without one there is nothing to send.
+        if !self.dispatcher.has_notifiers() {
+            return;
+        }
         let now = self.clock.now();
+        let retry_at = *self
+            .digest_retry_at
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if retry_at.is_some_and(|at| now < at) {
+            return;
+        }
         let last = SettingsRepo::get(&*self.store, DIGEST_LAST_SENT)
             .await
             .ok()
@@ -114,9 +142,19 @@ impl Schedulers {
         }
         match digest::build(&self.digest).await {
             Ok(rendered) => {
-                self.dispatcher
+                let sent = self
+                    .dispatcher
                     .digest(rendered.date, rendered.markdown)
                     .await;
+                *self
+                    .digest_retry_at
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner) =
+                    (!sent).then(|| now.checked_add(DIGEST_RETRY).unwrap_or(now));
+                if !sent {
+                    tracing::warn!("every notifier refused the digest; trying again later");
+                    return;
+                }
                 if let Err(err) = SettingsRepo::set(
                     &*self.store,
                     DIGEST_LAST_SENT,
@@ -210,14 +248,19 @@ impl Schedulers {
         let timeout = now
             .checked_add(SignedDuration::from_secs(10))
             .unwrap_or(now);
-        let request = reqwest::Client::new()
-            .get(secrecy::ExposeSecret::expose_secret(config.url.value()))
-            .send();
-        let result = tokio::select! {
-            response = request => response
-                .map(|response| response.status().is_success())
-                .map_err(|err| err.without_url().to_string()),
-            () = self.clock.sleep_until(timeout) => Err("heartbeat timed out".to_owned()),
+        let result = match &self.http {
+            None => Err("no HTTP client".to_owned()),
+            Some(http) => {
+                let request = http
+                    .get(secrecy::ExposeSecret::expose_secret(config.url.value()))
+                    .send();
+                tokio::select! {
+                    response = request => response
+                        .map(|response| response.status().is_success())
+                        .map_err(|err| err.without_url().to_string()),
+                    () = self.clock.sleep_until(timeout) => Err("heartbeat timed out".to_owned()),
+                }
+            }
         };
         {
             let mut status = self

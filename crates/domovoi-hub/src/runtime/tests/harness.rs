@@ -40,6 +40,8 @@ pub struct Harness {
     primary: Arc<dyn LlmProvider>,
     gateways: Vec<Arc<RecordingGateway>>,
     bus_capacity: usize,
+    /// Whether the webhook notifier is configured; without it, only chat cards go out.
+    notifier_on: bool,
     tasks: Vec<JoinHandle<()>>,
     _dir: TempDir,
 }
@@ -59,8 +61,15 @@ impl Harness {
             Vec::new(),
             4096,
             MapEnv::new().with("HEARTBEAT_URL", url),
+            true,
         )
         .await
+    }
+
+    /// A hub with the chat gateway only: no notifier for digests or quiet-hours summaries.
+    pub async fn without_notifier(extra: &str, start: Timestamp) -> Self {
+        let llm = Arc::new(ScriptedLlm::new());
+        Self::with_all(extra, start, llm, Vec::new(), 4096, MapEnv::new(), false).await
     }
 
     pub async fn with_adapters(
@@ -70,7 +79,16 @@ impl Harness {
         gateways: Vec<Arc<RecordingGateway>>,
         bus_capacity: usize,
     ) -> Self {
-        Self::with_all(extra, start, primary, gateways, bus_capacity, MapEnv::new()).await
+        Self::with_all(
+            extra,
+            start,
+            primary,
+            gateways,
+            bus_capacity,
+            MapEnv::new(),
+            true,
+        )
+        .await
     }
 
     async fn with_all(
@@ -80,6 +98,7 @@ impl Harness {
         gateways: Vec<Arc<RecordingGateway>>,
         bus_capacity: usize,
         env: MapEnv,
+        notifier_on: bool,
     ) -> Self {
         let _ = tracing_subscriber::fmt().with_test_writer().try_init();
         let dir = tempfile::tempdir().unwrap();
@@ -134,6 +153,7 @@ secret = {{ env = "TEST_SECRET" }}
             primary,
             gateways,
             bus_capacity,
+            notifier_on,
             tasks: Vec::new(),
             _dir: dir,
         };
@@ -157,7 +177,11 @@ secret = {{ env = "TEST_SECRET" }}
                 primary: Some(self.primary.clone()),
                 secondary: None,
                 gateways: Some(gateways),
-                notifiers: Some(vec![self.notifier.clone()]),
+                notifiers: Some(if self.notifier_on {
+                    vec![self.notifier.clone()]
+                } else {
+                    Vec::new()
+                }),
                 bus_capacity: Some(self.bus_capacity),
             },
         )

@@ -5,6 +5,7 @@ mod dispatcher;
 mod schedulers;
 mod serve;
 mod settings;
+mod support;
 #[cfg(test)]
 mod tests;
 
@@ -199,7 +200,7 @@ impl HubRuntime {
             },
             settings::actions(),
         );
-        let public_url = public_url(&config)?;
+        let public_url = support::public_url(&config)?;
         let (gateways, notifiers) = build_chat(&config, &clock, &public_url, &overrides)?;
         let auth = Arc::new(AuthState::new(
             store.clone(),
@@ -227,11 +228,12 @@ impl HubRuntime {
                 clock: clock.clone(),
                 bus: bus.clone(),
                 config: Arc::new(config.clone()),
-                notifier: notifiers.first().cloned(),
-                metrics: None,
+                notifier: support::FanOut::over(&notifiers),
+                metrics: support::metrics(),
             },
             auth,
-        );
+        )
+        .with_shutdown(intake_shutdown.clone());
         let ingest = IngestState::new(
             config.webhooks.clone(),
             IngestDeps {
@@ -268,7 +270,6 @@ impl HubRuntime {
             actions_service,
             dispatcher.clone(),
             digest,
-            notifiers,
         );
         Ok(Self {
             config,
@@ -336,14 +337,6 @@ async fn hub_host(store: &Store) -> Result<HostId, RuntimeError> {
     value
         .parse()
         .map_err(|err| RuntimeError::Serve(format!("invalid stored hub host id: {err}")))
-}
-
-fn public_url(config: &HubConfig) -> Result<url::Url, RuntimeError> {
-    match &config.web.public_url {
-        Some(url) => Ok(url.clone()),
-        None => url::Url::parse(&format!("http://{}", config.web.bind))
-            .map_err(|err| RuntimeError::Url(err.to_string())),
-    }
 }
 
 struct TriageBuild<'a> {

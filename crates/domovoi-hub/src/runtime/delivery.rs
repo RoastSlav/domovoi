@@ -6,9 +6,8 @@ use std::sync::{Arc, Mutex};
 
 use domovoi_config::HubConfig;
 use domovoi_core::ports::{
-    ActionFilter, ActionRepo, AdvisoryRepo, ChatError, ChatGateway, Clock, HostRepo,
-    IncidentFilter, IncidentRepo, MessageRef, Notifier, NotifyStateRepo, OutboundMessage, Page,
-    SignalRepo, StoreError,
+    ActionFilter, ActionRepo, AdvisoryRepo, ChatError, ChatGateway, Clock, HostRepo, IncidentRepo,
+    MessageRef, Notifier, NotifyStateRepo, OutboundMessage, Page, SignalRepo, StoreError,
 };
 use domovoi_core::{
     Advisory, AdvisoryKind, Card, ChatRefs, Incident, IncidentId, NotifyState, TriageOutcome,
@@ -310,48 +309,50 @@ impl Delivery {
         })
     }
 
-    pub(super) async fn recover(&self) {
-        let mut page = Page::first(Page::MAX_LIMIT);
-        loop {
-            let got =
-                match IncidentRepo::list(&*self.store, &IncidentFilter::default(), &page).await {
-                    Ok(got) => got,
-                    Err(err) => {
-                        tracing::warn!(%err, "could not reload notification state after lag");
-                        return;
-                    }
-                };
-            for incident in got.items {
-                let state = match NotifyStateRepo::get(&*self.store, incident.id()).await {
-                    Ok(Some(state)) => state,
-                    Ok(None) => NotifyState {
-                        first_alert_at: Some(incident.opened_at()),
-                        ..NotifyState::default()
-                    },
-                    Err(_) => continue,
-                };
-                let actions = notify::card_changed(&incident, &state);
-                self.actions(incident, actions, state, BTreeMap::new())
-                    .await;
+    /// Brings `incident`'s card up to date after missed events: an existing card is updated,
+    /// and one whose opening event was missed is posted.
+    pub(super) async fn recover(&self, incident: Incident) {
+        let state = match NotifyStateRepo::get(&*self.store, incident.id()).await {
+            Ok(Some(state)) => state,
+            Ok(None) => NotifyState {
+                first_alert_at: Some(incident.opened_at()),
+                ..NotifyState::default()
+            },
+            Err(err) => {
+                tracing::warn!(%err, incident = %incident.id(), "could not reload notification state");
+                return;
             }
-            match got.next_cursor {
-                Some(cursor) => page.cursor = Some(cursor),
-                None => break,
-            }
-        }
+        };
+        let actions = notify::card_changed(&incident, &state);
+        self.actions(incident, actions, state, BTreeMap::new())
+            .await;
     }
 
-    pub(super) async fn send_all(&self, message: OutboundMessage) {
+    /// Whether any one-way notifier is configured.
+    pub(super) fn has_notifiers(&self) -> bool {
+        !self.notifiers.is_empty()
+    }
+
+    /// Sends `message` through every notifier and returns how many accepted it.
+    pub(super) async fn send_all(&self, message: OutboundMessage) -> usize {
         let jobs = self.notifiers.iter().map(|notifier| async {
             match self.retry(|| notifier.send(&message)).await {
-                Ok(()) => self.succeeded(notifier.id()).await,
+                Ok(()) => {
+                    self.succeeded(notifier.id()).await;
+                    true
+                }
                 Err(err) => {
                     tracing::warn!(%err, notifier = %notifier.id(), "notification failed after retries");
                     self.failed(notifier.id()).await;
+                    false
                 }
             }
         });
-        futures::future::join_all(jobs).await;
+        futures::future::join_all(jobs)
+            .await
+            .into_iter()
+            .filter(|sent| *sent)
+            .count()
     }
 
     async fn retry<T, F>(&self, mut call: impl FnMut() -> F) -> Result<T, ChatError>

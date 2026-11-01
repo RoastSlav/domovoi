@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use axum::extract::State;
 use axum::response::sse::{Event, KeepAlive, Sse};
-use futures::Stream;
+use futures::{Stream, StreamExt};
 use tokio::sync::broadcast;
 
 use super::dto_admin::UiEvent;
@@ -59,7 +59,9 @@ pub fn ui_event(event: &DomainEvent) -> Option<UiEvent> {
     Some(ui)
 }
 
-fn events(rx: broadcast::Receiver<DomainEvent>) -> impl Stream<Item = Result<Event, Infallible>> {
+pub(crate) fn events(
+    rx: broadcast::Receiver<DomainEvent>,
+) -> impl Stream<Item = Result<Event, Infallible>> {
     futures::stream::unfold(rx, |mut rx| async move {
         loop {
             match rx.recv().await {
@@ -94,5 +96,6 @@ pub(super) async fn stream(
     State(state): State<ApiState>,
     _auth: Authed,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
-    Sse::new(events(state.deps.bus.subscribe())).keep_alive(KeepAlive::new().interval(KEEP_ALIVE))
+    let stream = events(state.deps.bus.subscribe()).take_until(state.shutdown.cancelled_owned());
+    Sse::new(stream).keep_alive(KeepAlive::new().interval(KEEP_ALIVE))
 }
