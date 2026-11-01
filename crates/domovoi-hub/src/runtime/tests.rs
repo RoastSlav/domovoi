@@ -273,6 +273,9 @@ async fn heartbeat_failure_raises_advisory_and_success_clears_it() {
         .mount(&server)
         .await;
     harness.clock.advance(SignedDuration::from_secs(670));
+    // The ping now hangs, so only the fake clock can time it out. Keep moving the clock:
+    // if the scheduler set its ping deadline after the advance above, a single advance
+    // would never reach it.
     guard(async {
         loop {
             if harness
@@ -283,6 +286,7 @@ async fn heartbeat_failure_raises_advisory_and_success_clears_it() {
             {
                 break;
             }
+            harness.clock.advance(SignedDuration::from_secs(5));
             tokio::task::yield_now().await;
         }
     })
@@ -294,6 +298,7 @@ async fn heartbeat_failure_raises_advisory_and_success_clears_it() {
         .mount(&server)
         .await;
     harness.clock.advance(SignedDuration::from_mins(1));
+    // As above: keep the clock moving until the next ping has gone out and succeeded.
     guard(async {
         loop {
             if !harness
@@ -304,6 +309,7 @@ async fn heartbeat_failure_raises_advisory_and_success_clears_it() {
             {
                 break;
             }
+            harness.clock.advance(SignedDuration::from_secs(5));
             tokio::task::yield_now().await;
         }
     })
