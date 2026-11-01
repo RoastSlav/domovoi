@@ -23,4 +23,8 @@ pub trait Transport: Send {
     async fn send(&mut self, frame: String) -> Result<(), TransportError>;
     /// Receives the next frame, or `None` once the peer has closed cleanly.
     async fn recv(&mut self) -> Result<Option<String>, TransportError>;
+    /// Closes the connection, using the transport's going-away semantics when it has them.
+    async fn close(&mut self) -> Result<(), TransportError> {
+        Ok(())
+    }
 }

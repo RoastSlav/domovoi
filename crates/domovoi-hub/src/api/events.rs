@@ -71,7 +71,10 @@ fn events(rx: broadcast::Receiver<DomainEvent>) -> impl Stream<Item = Result<Eve
                     return Some((Ok(sse), rx));
                 }
                 // A slow client misses some updates; the UI refetches on the next one.
-                Err(broadcast::error::RecvError::Lagged(_)) => {}
+                Err(broadcast::error::RecvError::Lagged(missed)) => {
+                    metrics::counter!("domovoi_event_bus_lagged_total", "consumer" => "sse")
+                        .increment(missed);
+                }
                 Err(broadcast::error::RecvError::Closed) => return None,
             }
         }

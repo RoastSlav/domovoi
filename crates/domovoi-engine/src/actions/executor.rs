@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use domovoi_core::ports::{Presence, SkillDispatch, SkillOutput};
+use domovoi_core::ports::{ActionFilter, Page, Presence, SkillDispatch, SkillOutput};
 use domovoi_core::{
     ActionId, ActionRequest, ActionStatus, PlanHash, Risk, SignalStatus, SkillSummary,
     ValidatedArgs, Verdict,
@@ -27,9 +27,10 @@ pub const RECHECK_DEADLINE: SignedDuration = SignedDuration::from_secs(60);
 
 pub(crate) async fn serve(shared: Arc<Shared>, mut events: broadcast::Receiver<DomainEvent>) {
     let shutdown = shared.deps.shutdown.clone();
+    let mut running = tokio::task::JoinSet::new();
     loop {
         let event = tokio::select! {
-            () = shutdown.cancelled() => return,
+            () = shutdown.cancelled() => break,
             event = events.recv() => event,
         };
         match event {
@@ -38,7 +39,7 @@ pub(crate) async fn serve(shared: Arc<Shared>, mut events: broadcast::Receiver<D
                 ..
             }) => {
                 let shared = shared.clone();
-                tokio::spawn(async move {
+                running.spawn(async move {
                     let stop = shared.deps.shutdown.clone();
                     tokio::select! {
                         () = stop.cancelled() => {}
@@ -48,9 +49,40 @@ pub(crate) async fn serve(shared: Arc<Shared>, mut events: broadcast::Receiver<D
             }
             Ok(_) => {}
             Err(broadcast::error::RecvError::Lagged(missed)) => {
-                tracing::warn!(missed, "the action executor missed events");
+                metrics::counter!("domovoi_event_bus_lagged_total", "consumer" => "actions")
+                    .increment(missed);
+                tracing::warn!(
+                    missed,
+                    "the action executor missed events; reloading approvals"
+                );
+                reload_approved(&shared).await;
             }
-            Err(broadcast::error::RecvError::Closed) => return,
+            Err(broadcast::error::RecvError::Closed) => break,
+        }
+    }
+    running.shutdown().await;
+}
+
+async fn reload_approved(shared: &Arc<Shared>) {
+    let filter = ActionFilter {
+        status: Some("approved".to_owned()),
+        ..ActionFilter::default()
+    };
+    let mut page = Page::first(Page::MAX_LIMIT);
+    loop {
+        let got = match shared.deps.actions.list(&filter, &page).await {
+            Ok(got) => got,
+            Err(err) => {
+                tracing::warn!(%err, "could not reload approved actions");
+                return;
+            }
+        };
+        for action in got.items {
+            run(shared, action.id()).await;
+        }
+        match got.next_cursor {
+            Some(cursor) => page.cursor = Some(cursor),
+            None => break,
         }
     }
 }

@@ -58,6 +58,17 @@ where
             }
         }
     }
+
+    async fn close(&mut self) -> Result<(), TransportError> {
+        let frame = tokio_tungstenite::tungstenite::protocol::CloseFrame {
+            code: tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode::Away,
+            reason: "going_away".into(),
+        };
+        self.ws
+            .send(WsMessage::Close(Some(frame)))
+            .await
+            .map_err(io)
+    }
 }
 
 /// The WebSocket limits: a message or frame larger than one protocol frame is refused.
@@ -118,5 +129,9 @@ impl Transport for Limited {
             )));
         }
         Ok(Some(frame))
+    }
+
+    async fn close(&mut self) -> Result<(), TransportError> {
+        self.inner.close().await
     }
 }

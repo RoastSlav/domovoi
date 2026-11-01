@@ -8,7 +8,9 @@
 pub mod agent_server;
 pub mod api;
 pub mod auth;
+mod digest;
 pub mod ingest;
 pub mod middleware;
 pub mod router;
+pub mod runtime;
 pub mod spa;
