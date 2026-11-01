@@ -34,6 +34,10 @@ pub struct AgentDeps {
     pub executor: Arc<dyn ProcessExecutor>,
     /// The host's files, under `[agent] host_root`.
     pub hostfs: Arc<dyn HostFs>,
+    /// Where check tools such as `smartctl` and `journalctl` are looked up: the
+    /// filesystem they run in, which is the agent's own even when `host_root` points
+    /// at a mounted host.
+    pub toolfs: Arc<dyn HostFs>,
     /// Filesystem usage for `disk.free` and the overview.
     pub fs_stats: Arc<dyn FsStats>,
     /// The container runtime; `None` turns the container checks and tools off.
@@ -102,7 +106,7 @@ impl AgentRuntime {
         let check_infos = crate::overrides::report(&registry, &base);
         let effective = EffectiveChecks::new(base);
         let checks: Arc<dyn CheckSet> = Arc::new(registry);
-        let commands = Arc::new(Commands::resolve(&*deps.hostfs).await);
+        let commands = Arc::new(Commands::resolve(&*deps.toolfs).await);
         let store = Arc::new(CheckStore::open(state_dir)?);
         let spool = Arc::new(SharedSpool::new(Spool::open(state_dir)?));
         let check_env = CheckEnv {

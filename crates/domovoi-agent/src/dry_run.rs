@@ -78,7 +78,7 @@ pub async fn run_checks_once(
     {
         return Err(AgentError::Checks(format!("no enabled check named {key}")));
     }
-    let commands = Commands::resolve(&*deps.hostfs).await;
+    let commands = Commands::resolve(&*deps.toolfs).await;
     let host = HostId::new();
     let mut runs = Vec::new();
     for check in registry.checks() {

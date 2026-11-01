@@ -16,6 +16,7 @@ fn deps(dir: &tempfile::TempDir) -> AgentDeps {
         clock: clock(),
         executor: Arc::new(FakeProcessExecutor::new()),
         hostfs: empty_fs(dir),
+        toolfs: empty_fs(dir),
         fs_stats: Arc::new(NoStats),
         container_source: None,
         redactor: Arc::new(ListRedactor::new(Vec::<String>::new())),

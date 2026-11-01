@@ -38,8 +38,8 @@ docker compose -f agent.yml up -d
 
 Some checks need the host itself and do not work from a container:
 
-- **systemd and the journal.** The image has no `systemctl` or `journalctl`. Install the agent on the host if you need unit and log checks.
-- **SMART.** The image includes `smartctl`, but the container also needs the disks. Either list them under `devices:` with the `SYS_RAWIO` and `SYS_ADMIN` capabilities, or run the container `privileged: true`, which gives it full access to the host. The commented lines in `agent.yml` show both.
+- **systemd and the journal.** The image has no `systemctl` or `journalctl`, so those checks report "journalctl is not installed". Install the agent on the host if you need unit and log checks.
+- **SMART.** The agent runs the `smartctl` that ships in the image, but the container also needs the disks. Either list them under `devices:` with the `SYS_RAWIO` and `SYS_ADMIN` capabilities, or run the container `privileged: true`, which gives it full access to the host. The commented lines in `agent.yml` show both.
 
 ## The socket proxy
 
