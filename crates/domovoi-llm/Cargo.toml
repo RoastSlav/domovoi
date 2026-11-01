@@ -10,8 +10,27 @@ publish.workspace = true
 
 [dependencies]
 domovoi-core = { workspace = true }
+async-trait = { workspace = true }
+jiff = { workspace = true }
+reqwest = { workspace = true }
+secrecy = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+url = { workspace = true }
 
 [dev-dependencies]
+domovoi-testkit = { workspace = true }
+insta = { workspace = true }
+rustls = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tracing-subscriber = { workspace = true }
+wiremock = { workspace = true }
+
+[[test]]
+name = "llm"
+path = "tests/llm/main.rs"
 
 [lints]
 workspace = true
