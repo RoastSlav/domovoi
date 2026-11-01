@@ -78,6 +78,39 @@ Lists return `{"items": […], "next_cursor": "…"}`, newest first. Pass `curso
 
 `GET /api/v1/hosts` lists every host with its agent's presence, whether the agent is older than the hub (`outdated`), and how many of its incidents are not yet resolved (`open_incidents`). `GET /api/v1/hosts/{name}` adds the latest value of each digest fact the host reported in the last 24 hours.
 
+## Settings
+
+`GET /api/v1/settings` returns, under `editable`:
+
+- the merged settings as `values`, shaped like `hub.toml`, with every secret shown as `"[set]"`;
+- the `revision` a save must name;
+- `fields`, mapping each field some layer set to `ui`, `file` or `env:<VAR>`.
+
+`GET /api/v1/settings/schema` is the JSON schema with every field's description and default.
+
+`PATCH /api/v1/settings` saves a change and restarts the hub with it:
+
+```json
+{
+  "base_revision": 3,
+  "changes": { "notify": { "digest": { "time": "08:00" } }, "discord": { "bot_token": { "set": "…" } } },
+  "password": "…"
+}
+```
+
+- `null` removes a value, so the lower layers apply.
+- A secret takes `{ "keep": true }`, `{ "set": "…" }` or `{ "clear": true }`. No response ever contains a secret.
+- The password is needed when the change touches `discord.allowed_user_ids`, `web.trusted_proxies`, `webhooks` or any secret. Wrong passwords count against the login limit.
+- Answers:
+  - `200 { revision, applied }`.
+  - `400` with an `issues` list of `{ path, message, severity }`.
+  - `403` when the password is missing or wrong.
+  - `409` for a stale revision, or a field set in `hub.toml` or the environment.
+
+`POST /api/v1/settings/test/{discord,llm,heartbeat}` takes `{ changes }` in the same shape and tries the connection with those candidate values without saving them. A secret left as `{ "keep": true }` uses the stored one. Each session may run 10 tests a minute, and each test times out after 15 seconds.
+
+`GET` and `PUT /api/v1/hosts/{name}/checks` read and replace a host's check overrides. Each override has `enabled`, `interval_seconds` and `thresholds`. A saved change goes to the connected agent at once, or when it reconnects.
+
 ## Importing notes
 
 `POST /api/v1/notes/import` takes a folder of Markdown runbooks as `multipart/form-data`: one `files` field per file, and an optional `host` field naming the host they are about.

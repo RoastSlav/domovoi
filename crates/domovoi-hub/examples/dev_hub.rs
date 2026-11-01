@@ -150,10 +150,10 @@ fn config() -> Result<HubConfig> {
     .fold(MapEnv::new(), |env, name| {
         env.with(name, "https://dev.invalid/secret")
     });
-    let text = include_str!("../../../examples/hub.toml");
+    let text = include_str!("../../../examples/hub.full.toml");
     domovoi_config::parse::<HubConfig>(text, &env)
         .map(|(config, _)| config)
-        .map_err(|issues| format!("examples/hub.toml: {issues:?}").into())
+        .map_err(|issues| format!("examples/hub.full.toml: {issues:?}").into())
 }
 
 fn firing(

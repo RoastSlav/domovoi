@@ -159,7 +159,7 @@ pub fn config() -> HubConfig {
     for (name, value) in SECRETS {
         env = env.with(name, value);
     }
-    let text = include_str!("../../../../examples/hub.toml");
+    let text = include_str!("../../../../examples/hub.full.toml");
     domovoi_config::parse::<HubConfig>(text, &env).unwrap().0
 }
 

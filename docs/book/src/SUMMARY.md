@@ -9,6 +9,7 @@
 - [Docker](install/docker.md)
 - [Container-mode agent](install/container-agent.md)
 - [Upgrading and uninstalling](install/upgrading.md)
+- [Advanced: config as code](install/config-as-code.md)
 
 # Concepts
 
@@ -32,6 +33,7 @@
 # Reference
 
 - [Configuration](reference/configuration.md)
+- [Backups](reference/backup.md)
 - [Command line](reference/cli.md)
 - [Built-in checks](reference/checks.md)
 - [HTTP API](reference/api.md)

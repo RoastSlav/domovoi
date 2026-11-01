@@ -57,7 +57,11 @@ mod tests {
 
     #[test]
     fn check_config_accepts_examples_and_reports_paths_for_errors() {
-        for (file, kind) in [("hub.toml", "hub"), ("agent.toml", "agent")] {
+        for (file, kind) in [
+            ("hub.toml", "hub"),
+            ("hub.full.toml", "hub"),
+            ("agent.toml", "agent"),
+        ] {
             domovoi()
                 .args(["check", "config", "--kind", kind])
                 .arg(workspace().join("examples").join(file))

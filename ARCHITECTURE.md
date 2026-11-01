@@ -306,10 +306,12 @@ flowchart LR
 
 ## 14. Configuration (`domovoi-config`)
 
-- `hub.toml` and `agent.toml`, loaded from the path given on the command line, then overridden by `DOMOVOI_*` environment variables.
-- Secrets are never inline: each secret field accepts `{ env = "NAME" }` or `{ file = "/path" }` and is held as `secrecy::SecretString`.
+- Settings come from four layers, lowest first: built-in defaults, values saved in the web UI (`settings` table), `hub.toml`, `DOMOVOI_*` environment variables. Each field records its source; fields set in a file or the environment are read-only in the UI.
+- Bootstrap settings (`hub.data_dir`, `web.bind`, `agent_server.bind`) come only from the command line, file or environment. `hub.toml` is optional.
+- Secrets in files use `{ env = .. }` or `{ file = .. }`. Secrets entered in the UI are encrypted at rest with a key in `<data_dir>/secret.key`, are write-only through the API and are held as `secrecy::SecretString`.
+- A settings change is validated as a whole, audited, and applied by an in-process restart of the hub runtime, with rollback to the last good settings if the restart fails.
 - `domovoi check config <file>` validates without starting and reports every problem with its TOML path.
-- Config structs derive `schemars::JsonSchema`; the reference documentation is generated from them.
+- Config structs derive `schemars::JsonSchema`; the reference documentation and the UI's field help are generated from them.
 
 ## 15. Security invariants
 
