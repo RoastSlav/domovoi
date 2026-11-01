@@ -42,7 +42,10 @@ pub(crate) async fn run_session(
     let result = async {
         loop {
             tokio::select! {
-                () = cancel.cancelled() => return Ok(()),
+                () = cancel.cancelled() => {
+                    transport.close().await.map_err(|e| ConnError::Protocol(e.to_string()))?;
+                    return Ok(());
+                }
                 Some(frame) = queued.recv() => transport
                     .send(frame)
                     .await

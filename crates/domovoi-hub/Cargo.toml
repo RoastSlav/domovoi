@@ -35,11 +35,13 @@ hex = { workspace = true }
 hmac = { workspace = true }
 jiff = { workspace = true }
 metrics = { workspace = true }
+metrics-exporter-prometheus = { workspace = true }
 rand = { workspace = true }
 secrecy = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 rcgen = { workspace = true }
+reqwest = { workspace = true }
 rust-embed = { workspace = true }
 rustls = { workspace = true }
 sha2 = { workspace = true }
@@ -60,6 +62,8 @@ utoipa-axum = { workspace = true }
 domovoi-testkit = { workspace = true }
 insta = { workspace = true }
 tempfile = { workspace = true }
+tracing-subscriber = { workspace = true }
+wiremock = { workspace = true }
 
 [[test]]
 name = "hub"

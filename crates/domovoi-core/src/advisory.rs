@@ -22,6 +22,8 @@ pub enum AdvisoryKind {
     BaselineEntryExpired,
     /// An agent runs an older version than the hub.
     AgentOutdated,
+    /// A chat gateway or notifier could not accept a delivery after every retry.
+    DeliveryFailed,
 }
 
 /// One hygiene finding.

@@ -94,15 +94,22 @@ impl IncidentManager {
                     None => break,
                 },
             };
-            let Envelope { command, reply } = envelope;
-            let command = redact_command(self.deps.redactor.as_ref(), command);
-            let result = self.handle(&command).await;
-            if let Err(err) = &result {
-                tracing::warn!(%err, "an incident command failed");
-            }
-            if let Some(reply) = reply {
-                let _ = reply.send(result);
-            }
+            self.process(envelope).await;
+        }
+        while let Ok(envelope) = rx.try_recv() {
+            self.process(envelope).await;
+        }
+    }
+
+    async fn process(&mut self, envelope: Envelope) {
+        let Envelope { command, reply } = envelope;
+        let command = redact_command(self.deps.redactor.as_ref(), command);
+        let result = self.handle(&command).await;
+        if let Err(err) = &result {
+            tracing::warn!(%err, "an incident command failed");
+        }
+        if let Some(reply) = reply {
+            let _ = reply.send(result);
         }
     }
 

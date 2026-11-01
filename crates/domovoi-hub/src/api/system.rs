@@ -4,16 +4,11 @@ use axum::Json;
 use axum::extract::State;
 use axum::http::{StatusCode, header};
 use axum::response::IntoResponse;
-use domovoi_core::ports::{IncidentFilter, OutboundMessage, Page};
-use domovoi_engine::digest::{DigestInputs, build_digest};
-use jiff::SignedDuration;
+use domovoi_core::ports::OutboundMessage;
 
 use super::dto_admin::{AdvisoryDto, DigestPreview};
 use super::error::{ApiError, ErrorBody};
 use super::{ApiState, Authed};
-
-/// Days of facts before today that trends are computed from.
-pub const HISTORY_DAYS: i64 = 14;
 
 /// Open advisories, newest first.
 #[utoipa::path(
@@ -48,46 +43,22 @@ pub(super) async fn advisories(
 /// Today's digest, built now.
 pub(crate) async fn build(state: &ApiState) -> Result<DigestPreview, ApiError> {
     let deps = &state.deps;
-    let tz = deps.config.hub.timezone.zone().clone();
-    let now = deps.clock.now();
-    let date = now.to_zoned(tz.clone()).date();
-    let start = date
-        .to_zoned(tz.clone())
-        .map_err(|e| ApiError::internal("digest day start", e))?
-        .timestamp();
-    let history_start = start
-        .checked_sub(SignedDuration::from_hours(24 * HISTORY_DAYS))
-        .unwrap_or(start);
-    let hosts = deps.hosts.list_hosts().await?;
-    let mut facts_today = Vec::new();
-    let mut facts_history = Vec::new();
-    for host in &hosts {
-        facts_today.extend(deps.facts.list(host.id, start, now).await?);
-        facts_history.extend(deps.facts.list(host.id, history_start, start).await?);
-    }
-    let active = IncidentFilter {
-        active: Some(true),
-        ..IncidentFilter::default()
-    };
-    let open_incidents = deps
-        .incidents
-        .list(&active, &Page::first(Page::MAX_LIMIT))
-        .await?
-        .items;
-    let advisories = deps.advisories.list_open().await?;
-    let digest = build_digest(&DigestInputs {
-        date,
-        hosts: &hosts,
-        facts_today: &facts_today,
-        facts_history: &facts_history,
-        open_incidents: &open_incidents,
-        advisories: &advisories,
-        tz: &tz,
-        now,
-    });
+    let rendered = crate::digest::build(&crate::digest::DigestDeps {
+        config: deps.config.clone(),
+        clock: deps.clock.clone(),
+        hosts: deps.hosts.clone(),
+        facts: deps.facts.clone(),
+        incidents: deps.incidents.clone(),
+        advisories: deps.advisories.clone(),
+    })
+    .await
+    .map_err(|err| match err {
+        crate::digest::DigestError::Store(err) => ApiError::from(err),
+        crate::digest::DigestError::DayStart(err) => ApiError::internal("digest day start", err),
+    })?;
     Ok(DigestPreview {
-        date: date.to_string(),
-        markdown: domovoi_engine::render::digest(&digest),
+        date: rendered.date,
+        markdown: rendered.markdown,
     })
 }
 

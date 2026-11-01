@@ -3,9 +3,10 @@
 //! Each `ActionApproved` event starts one run. A run reloads the action and does nothing
 //! unless it is still `Approved`, so a repeated event never runs a skill twice.
 
-use std::sync::Arc;
+use std::collections::BTreeSet;
+use std::sync::{Arc, Mutex};
 
-use domovoi_core::ports::{Presence, SkillDispatch, SkillOutput};
+use domovoi_core::ports::{ActionFilter, Page, Presence, SkillDispatch, SkillOutput};
 use domovoi_core::{
     ActionId, ActionRequest, ActionStatus, PlanHash, Risk, SignalStatus, SkillSummary,
     ValidatedArgs, Verdict,
@@ -13,6 +14,7 @@ use domovoi_core::{
 use jiff::{SignedDuration, Timestamp};
 use sha2::{Digest, Sha256};
 use tokio::sync::broadcast;
+use tokio::task::JoinSet;
 
 use super::Shared;
 use super::audit::{self, RunRecord};
@@ -25,34 +27,99 @@ pub const EXCERPT_BYTES: usize = 4 * 1024;
 /// How long a verification re-check may take.
 pub const RECHECK_DEADLINE: SignedDuration = SignedDuration::from_secs(60);
 
+/// Starts running `action` as a task in `running`, stopping it on shutdown.
+fn start(running: &mut JoinSet<()>, shared: &Arc<Shared>, action: ActionId) {
+    let shared = shared.clone();
+    running.spawn(async move {
+        let stop = shared.deps.shutdown.clone();
+        tokio::select! {
+            () = stop.cancelled() => {}
+            () = run(&shared, action) => {}
+        }
+    });
+}
+
 pub(crate) async fn serve(shared: Arc<Shared>, mut events: broadcast::Receiver<DomainEvent>) {
     let shutdown = shared.deps.shutdown.clone();
+    let mut running = JoinSet::new();
     loop {
+        // Forget finished runs, so the set holds only work still in flight.
+        while running.try_join_next().is_some() {}
         let event = tokio::select! {
-            () = shutdown.cancelled() => return,
+            () = shutdown.cancelled() => break,
             event = events.recv() => event,
         };
         match event {
             Ok(DomainEvent {
                 kind: EventKind::ActionApproved { action },
                 ..
-            }) => {
-                let shared = shared.clone();
-                tokio::spawn(async move {
-                    let stop = shared.deps.shutdown.clone();
-                    tokio::select! {
-                        () = stop.cancelled() => {}
-                        () = run(&shared, action) => {}
-                    }
-                });
-            }
+            }) => start(&mut running, &shared, action),
             Ok(_) => {}
             Err(broadcast::error::RecvError::Lagged(missed)) => {
-                tracing::warn!(missed, "the action executor missed events");
+                metrics::counter!("domovoi_event_bus_lagged_total", "consumer" => "actions")
+                    .increment(missed);
+                tracing::warn!(
+                    missed,
+                    "the action executor missed events; reloading approvals"
+                );
+                for action in approved(&shared).await {
+                    start(&mut running, &shared, action);
+                }
             }
-            Err(broadcast::error::RecvError::Closed) => return,
+            Err(broadcast::error::RecvError::Closed) => break,
         }
     }
+    running.shutdown().await;
+}
+
+/// Every action still waiting to run, for catching up after missed events.
+async fn approved(shared: &Arc<Shared>) -> Vec<ActionId> {
+    let filter = ActionFilter {
+        status: Some("approved".to_owned()),
+        ..ActionFilter::default()
+    };
+    let mut ids = Vec::new();
+    let mut page = Page::first(Page::MAX_LIMIT);
+    loop {
+        let got = match shared.deps.actions.list(&filter, &page).await {
+            Ok(got) => got,
+            Err(err) => {
+                tracing::warn!(%err, "could not reload approved actions");
+                return ids;
+            }
+        };
+        ids.extend(got.items.iter().map(ActionRequest::id));
+        match got.next_cursor {
+            Some(cursor) => page.cursor = Some(cursor),
+            None => return ids,
+        }
+    }
+}
+
+/// Marks an action as running until dropped.
+pub(crate) struct Claim<'a> {
+    running: &'a Mutex<BTreeSet<ActionId>>,
+    id: ActionId,
+}
+
+impl Drop for Claim<'_> {
+    fn drop(&mut self) {
+        lock(self.running).remove(&self.id);
+    }
+}
+
+/// Claims `id` for one run, or `None` while another run of it is in flight: the event
+/// path and the catch-up after missed events can both reach the same approved action, and
+/// it must reach the agent once.
+pub(crate) fn claim(running: &Mutex<BTreeSet<ActionId>>, id: ActionId) -> Option<Claim<'_>> {
+    let fresh = lock(running).insert(id);
+    fresh.then_some(Claim { running, id })
+}
+
+fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 fn save_error(err: &str) {
@@ -61,6 +128,10 @@ fn save_error(err: &str) {
 
 /// Runs action `id` if it is still approved.
 pub(crate) async fn run(shared: &Shared, id: ActionId) {
+    let Some(_claim) = claim(&shared.running, id) else {
+        tracing::debug!(action = %id, "already running");
+        return;
+    };
     let deps = &shared.deps;
     let mut action = match deps.actions.get(id).await {
         Ok(Some(action)) if action.status() == &ActionStatus::Approved => action,
@@ -349,5 +420,35 @@ async fn verify(shared: &Shared, action: &mut ActionRequest, skill: &SkillSummar
             .await
     {
         tracing::warn!(%err, "could not mark the incident fixed");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+    use std::sync::Mutex;
+
+    use domovoi_core::ActionId;
+
+    use super::claim;
+
+    #[test]
+    fn an_action_is_never_run_twice_at_once() {
+        let running = Mutex::new(BTreeSet::new());
+        let id = ActionId::new();
+        let first = claim(&running, id).expect("the first run claims it");
+        assert!(
+            claim(&running, id).is_none(),
+            "a catch-up run while the event's run is in flight does nothing"
+        );
+        assert!(
+            claim(&running, ActionId::new()).is_some(),
+            "others are not blocked"
+        );
+        drop(first);
+        assert!(
+            claim(&running, id).is_some(),
+            "free again once the run ends"
+        );
     }
 }

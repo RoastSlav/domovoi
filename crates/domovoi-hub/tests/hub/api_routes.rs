@@ -362,3 +362,38 @@ fn openapi_snapshot() {
     let spec: Value = serde_json::from_str(&domovoi_hub::router::openapi_json()).unwrap();
     insta::assert_json_snapshot!("openapi", spec);
 }
+
+#[tokio::test]
+async fn event_stream_ends_when_the_server_shuts_down() {
+    use axum::extract::connect_info::MockConnectInfo;
+    use axum::http::{Request, header};
+    use tower::ServiceExt;
+
+    let a = api().await;
+    let login = a.admin().await;
+    let shutdown = tokio_util::sync::CancellationToken::new();
+    let app = domovoi_hub::router::router(a.state.clone().with_shutdown(shutdown.clone()), None)
+        .layer(MockConnectInfo(crate::api_harness::peer()));
+    let response = app
+        .oneshot(
+            Request::get("/api/v1/events")
+                .header(header::COOKIE, &login.cookie)
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let mut body = response.into_body().into_data_stream();
+    for _ in 0..10 {
+        tokio::task::yield_now().await;
+    }
+    assert!(
+        futures::FutureExt::now_or_never(body.next()).is_none(),
+        "the stream stays open while the hub runs"
+    );
+
+    shutdown.cancel();
+    // Ends instead of hanging the test: graceful shutdown no longer waits on open tabs.
+    while body.next().await.is_some() {}
+}

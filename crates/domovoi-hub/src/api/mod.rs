@@ -34,6 +34,7 @@ use domovoi_core::{HostId, HostName, SkillSummary};
 use domovoi_engine::triage::TriageHandle;
 use domovoi_engine::{ActionHandle, DomainEvent, ManagerHandle};
 use tokio::sync::broadcast;
+use tokio_util::sync::CancellationToken;
 use utoipa::OpenApi;
 use utoipa::openapi::security::{ApiKey, ApiKeyValue, SecurityScheme};
 use utoipa_axum::router::OpenApiRouter;
@@ -127,6 +128,8 @@ pub struct ApiDeps {
 pub struct ApiState {
     pub(crate) deps: Arc<ApiDeps>,
     pub(crate) auth: Arc<AuthState>,
+    /// Ends long-lived responses (the event stream) when the server shuts down.
+    pub(crate) shutdown: CancellationToken,
 }
 
 impl std::fmt::Debug for ApiState {
@@ -142,7 +145,16 @@ impl ApiState {
         Self {
             deps: Arc::new(deps),
             auth,
+            shutdown: CancellationToken::new(),
         }
+    }
+
+    /// The same state, with event streams ending when `shutdown` is cancelled so a graceful
+    /// shutdown does not wait on open browser tabs.
+    #[must_use]
+    pub fn with_shutdown(mut self, shutdown: CancellationToken) -> Self {
+        self.shutdown = shutdown;
+        self
     }
 
     /// The repositories and handles the API works with, shared with the chat authorizer.

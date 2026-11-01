@@ -11,7 +11,7 @@ mod approvals;
 pub mod audit;
 mod executor;
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::{Arc, Mutex};
 
 use domovoi_core::ports::{
@@ -102,6 +102,8 @@ pub(crate) struct Shared {
     pub(crate) deps: ActionDeps,
     pub(crate) settings: ActionSettings,
     pub(crate) dispatches: Mutex<Dispatches>,
+    /// Actions being run right now, so one is never run twice at once.
+    pub(crate) running: Mutex<BTreeSet<ActionId>>,
 }
 
 impl Shared {
@@ -169,6 +171,7 @@ impl ActionService {
             deps,
             settings,
             dispatches: Mutex::new(BTreeMap::new()),
+            running: Mutex::new(BTreeSet::new()),
         });
         let task = tokio::spawn(executor::serve(shared.clone(), events));
         (ActionHandle { shared }, task)
