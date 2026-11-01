@@ -4,7 +4,15 @@ import type { Action, Host, IncidentDetail, IncidentSummary } from "../api/types
 export const T0 = "2026-10-31T12:00:00Z";
 
 /** The `nas` host, connected. */
-export const nas: Host = { id: "host-nas", name: "nas", kind: "agent", connected: true };
+export const nas: Host = {
+  id: "host-nas",
+  name: "nas",
+  kind: "remote",
+  connected: true,
+  version: "0.0.1",
+  outdated: false,
+  open_incidents: 1,
+};
 
 /** An open incident on `nas`, overridable. */
 export function incident(overrides: Partial<IncidentSummary> = {}): IncidentSummary {

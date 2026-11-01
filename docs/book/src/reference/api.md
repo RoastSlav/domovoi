@@ -74,6 +74,26 @@ Errors are JSON, with an HTTP status to match:
 
 Lists return `{"items": […], "next_cursor": "…"}`, newest first. Pass `cursor=<next_cursor>` for the next page; `limit` is 1 to 200 and defaults to 50.
 
+## Hosts
+
+`GET /api/v1/hosts` lists every host with its agent's presence, whether the agent is older than the hub (`outdated`), and how many of its incidents are not yet resolved (`open_incidents`). `GET /api/v1/hosts/{name}` adds the latest value of each digest fact the host reported in the last 24 hours.
+
+## Importing notes
+
+`POST /api/v1/notes/import` takes a folder of Markdown runbooks as `multipart/form-data`: one `files` field per file, and an optional `host` field naming the host they are about.
+
+```bash
+curl -b cookies.txt -H "X-CSRF-Token: $csrf" \
+  -F host=nas -F files=@docs/zfs.md -F files=@docs/backups.md \
+  https://domovoi.example.net/api/v1/notes/import
+```
+
+- At most 200 files per request; more is refused with `400` and nothing is imported.
+- Each note's title is the file's first `# ` heading, or else its name without `.md`.
+- A file is skipped, with the reason in `skipped_files`, when it is not `.md`, is over 256 KiB, is not UTF-8, is empty, or a note with the same title already exists for that host. Importing the same folder twice adds nothing.
+
+The reply counts what happened: `{"created": 2, "skipped": 0, "skipped_files": []}`. Notes may be up to 256 KiB, whether imported or written in the UI.
+
 ## Events
 
 `GET /api/v1/events` is a server-sent event stream of `incident` and `action` events. Each event's data is a JSON object naming the incident, the action and the new status. The UI reloads what changed. A comment is sent every 15 seconds to keep proxies from closing the stream.

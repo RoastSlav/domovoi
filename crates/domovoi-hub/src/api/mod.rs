@@ -8,6 +8,7 @@
 pub mod dto;
 pub mod dto_admin;
 pub mod error;
+pub mod notes_import;
 
 mod actions;
 mod auth;
@@ -17,11 +18,12 @@ mod incidents;
 mod notes;
 mod settings;
 mod system;
+mod version;
 
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use axum::extract::{FromRef, FromRequestParts};
+use axum::extract::{DefaultBodyLimit, FromRef, FromRequestParts};
 use axum::http::request::Parts;
 use domovoi_config::HubConfig;
 use domovoi_core::ports::{
@@ -249,6 +251,7 @@ pub fn routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(actions::approve))
         .routes(routes!(actions::deny))
         .routes(routes!(hosts::list))
+        .routes(routes!(hosts::detail))
         .routes(routes!(hosts::enrollment))
         .routes(routes!(hosts::revoke))
         .routes(routes!(hosts::skills))
@@ -262,6 +265,12 @@ pub fn routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(events::stream))
         .routes(routes!(system::healthz))
         .routes(routes!(system::metrics))
+        .merge(
+            // Inside the router's 1 MiB default, so this route alone takes a folder of notes.
+            OpenApiRouter::new()
+                .routes(routes!(notes_import::import))
+                .layer(DefaultBodyLimit::max(notes_import::MAX_REQUEST_BYTES)),
+        )
 }
 
 /// The OpenAPI document of [`routes()`].

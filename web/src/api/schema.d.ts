@@ -203,6 +203,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/hosts/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Host `name` with its agent and the latest value of each digest fact from the last day. */
+        get: operations["get_host"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/hosts/{name}/enrollment": {
         parameters: {
             query?: never;
@@ -374,6 +391,27 @@ export interface paths {
         put?: never;
         /** Creates a note. */
         post: operations["create_note"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notes/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Imports Markdown files as notes. Each note's title is its first `# ` heading or the
+         *     file name. Files that are not `.md`, too large, not UTF-8, empty, or titled like an
+         *     existing note in the same scope are skipped, so importing a folder twice adds nothing.
+         */
+        post: operations["import_notes"];
         delete?: never;
         options?: never;
         head?: never;
@@ -610,6 +648,19 @@ export interface components {
             /** @description The value. */
             value: string;
         };
+        /** @description One digest fact about a host. */
+        FactDto: {
+            /** @description Stable key, for example `zfs.tank.used_pct`. */
+            key: string;
+            /** @description Label for people. */
+            label: string;
+            /** @description When it was observed. */
+            observed_at: string;
+            /** @description Unit, for example `%`. */
+            unit?: string | null;
+            /** @description The value as text. */
+            value: string;
+        };
         /** @description The dead man's switch. */
         HeartbeatSettings: {
             /** @description Whether a heartbeat URL is configured. */
@@ -620,6 +671,13 @@ export interface components {
             interval?: string | null;
             /** @description `[set]` or `[unset]`. */
             url: string;
+        };
+        /** @description A host with its latest digest facts. */
+        HostDetailDto: {
+            /** @description The latest value of each fact seen in the last 24 hours, sorted by key. */
+            facts: components["schemas"]["FactDto"][];
+            /** @description The host and its agent. */
+            host: components["schemas"]["HostDto"];
         };
         /** @description A host and its agent's presence. */
         HostDto: {
@@ -635,6 +693,13 @@ export interface components {
             last_seen?: string | null;
             /** @description Host name. */
             name: string;
+            /**
+             * Format: int32
+             * @description Incidents not yet resolved (pending, open, acked or muted), counted up to 200.
+             */
+            open_incidents: number;
+            /** @description Whether the connected agent is older than the hub. */
+            outdated: boolean;
             /** @description The agent's version, while connected. */
             version?: string | null;
         };
@@ -650,6 +715,21 @@ export interface components {
             timezone: string;
             /** @description Proxies whose forwarded headers are trusted. */
             trusted_proxies: string[];
+        };
+        /** @description What a notes import did. */
+        ImportResultDto: {
+            /**
+             * Format: int32
+             * @description Notes created.
+             */
+            created: number;
+            /**
+             * Format: int32
+             * @description Files left out.
+             */
+            skipped: number;
+            /** @description Each file left out, and why. */
+            skipped_files: components["schemas"]["SkippedFileDto"][];
         };
         /** @description Everything about one incident. */
         IncidentDetail: {
@@ -773,7 +853,7 @@ export interface components {
         };
         /** @description Creating or replacing a note. */
         NoteInput: {
-            /** @description Body in Markdown, at most 64 KiB. */
+            /** @description Body in Markdown, at most 256 KiB. */
             body_markdown: string;
             /** @description The host it is about, by name; absent for a global note. */
             host?: string | null;
@@ -781,6 +861,13 @@ export interface components {
             tags?: string[];
             /** @description Title, 1 to 200 characters. */
             title: string;
+        };
+        /** @description The form an import posts. Documents the request; the handler reads it field by field. */
+        NotesImportForm: {
+            /** @description The Markdown files, one form field each. Only `.md` files are imported. */
+            files: string[];
+            /** @description The host the notes are about, by name; absent for global notes. */
+            host?: string | null;
         };
         /** @description One declared skill parameter. */
         ParamDto: {
@@ -877,6 +964,13 @@ export interface components {
              * @description How long one run may take, in seconds.
              */
             timeout_secs: number;
+        };
+        /** @description A file a notes import left out. */
+        SkippedFileDto: {
+            /** @description The file name as uploaded. */
+            name: string;
+            /** @description Why it was left out. */
+            reason: string;
         };
         /** @description One timeline line. */
         TimelineEntryDto: {
@@ -1397,6 +1491,47 @@ export interface operations {
             };
         };
     };
+    get_host: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Host name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The host */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HostDetailDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such host */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     create_enrollment: {
         parameters: {
             query?: never;
@@ -1895,6 +2030,57 @@ export interface operations {
             };
             /** @description Not logged in */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    import_notes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["NotesImportForm"];
+            };
+        };
+        responses: {
+            /** @description What was imported and skipped */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportResultDto"];
+                };
+            };
+            /** @description Too many files or an unreadable upload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such host */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

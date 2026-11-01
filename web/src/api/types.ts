@@ -24,6 +24,31 @@ export type ActionPage = Schemas["ActionPage"];
 export type Host = Schemas["HostDto"];
 /** A change pushed over the event stream. */
 export type UiEvent = Schemas["UiEvent"];
+/** A host with its latest digest facts. */
+export type HostDetail = Schemas["HostDetailDto"];
+/** One digest fact about a host. */
+export type Fact = Schemas["FactDto"];
+/** A one-time enrollment invite. */
+export type Invite = Schemas["InviteDto"];
+/** A skill an agent reported. */
+export type Skill = Schemas["SkillDto"];
+/** A note. */
+export type Note = Schemas["NoteDto"];
+/** Creating or replacing a note. */
+export type NoteInput = Schemas["NoteInput"];
+/** One note search hit. */
+export type NoteHit = Schemas["NoteHitDto"];
+/** What a notes import did. */
+export type ImportResult = Schemas["ImportResultDto"];
+/** The effective configuration, secrets shown only as set or unset. */
+export type Settings = Schemas["SettingsDto"];
+/** An open advisory. */
+export type Advisory = Schemas["AdvisoryDto"];
+/** The digest as it would be sent now. */
+export type DigestPreview = Schemas["DigestPreview"];
+
+/** How the API shows a secret that has a value. */
+export const SECRET_SET = "[set]";
 
 /** A failed API call: the HTTP status and the error code from the body. */
 export class ApiFailure extends Error {

@@ -10,6 +10,15 @@ export const keys = {
   actions: ["actions"] as const,
   actionList: (status: string | undefined) => ["actions", "list", status ?? "all"] as const,
   hosts: ["hosts"] as const,
+  host: (name: string) => ["hosts", "detail", name] as const,
+  skills: (name: string) => ["hosts", "skills", name] as const,
+  notes: ["notes"] as const,
+  noteList: (host: string | undefined) => ["notes", "list", host ?? ""] as const,
+  noteSearch: (q: string, host: string | undefined) => ["notes", "search", q, host ?? ""] as const,
+  note: (id: string) => ["notes", "detail", id] as const,
+  settings: ["settings"] as const,
+  advisories: ["advisories"] as const,
+  digest: ["digest"] as const,
 };
 
 /** Retries once, but never a client error: a 401 or 404 will not change on retry. */

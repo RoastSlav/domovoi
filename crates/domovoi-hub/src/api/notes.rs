@@ -13,12 +13,12 @@ use super::{ApiState, Authed, host_named};
 pub const MAX_TITLE_CHARS: usize = 200;
 
 /// The largest note body, in bytes.
-pub const MAX_BODY_BYTES: usize = 64 * 1024;
+pub const MAX_BODY_BYTES: usize = 256 * 1024;
 
 /// The most hits a search returns.
 pub const MAX_HITS: u16 = 20;
 
-fn dto(note: &Note) -> NoteDto {
+pub(super) fn dto(note: &Note) -> NoteDto {
     NoteDto {
         id: note.id.to_string(),
         host_id: note.host.map(|h| h.to_string()),
@@ -33,7 +33,10 @@ fn parse_id(id: &str) -> Result<NoteId, ApiError> {
     id.parse().map_err(|_| ApiError::NotFound)
 }
 
-async fn host_id(state: &ApiState, name: Option<&str>) -> Result<Option<HostId>, ApiError> {
+pub(super) async fn host_id(
+    state: &ApiState,
+    name: Option<&str>,
+) -> Result<Option<HostId>, ApiError> {
     match name {
         Some(name) => Ok(Some(host_named(state, name).await?.id)),
         None => Ok(None),

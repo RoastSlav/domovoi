@@ -4,6 +4,8 @@
 #[cfg(test)]
 mod agent;
 #[cfg(test)]
+mod api_admin;
+#[cfg(test)]
 mod api_auth;
 #[cfg(test)]
 mod api_harness;
