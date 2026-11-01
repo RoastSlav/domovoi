@@ -1,0 +1,17 @@
+---
+source: crates/domovoi-chat/tests/discord/cards.rs
+expression: value
+---
+{
+  "components": [],
+  "embed": {
+    "color": 15103744,
+    "description": "**Next:** Prune old snapshots",
+    "footer": {
+      "text": "incident e4efb986"
+    },
+    "title": "MONITOR · nas: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…",
+    "type": "rich",
+    "url": "https://domovoi.example.net/incidents/01a19721-5d58-7277-a3eb-f866e4efb986"
+  }
+}

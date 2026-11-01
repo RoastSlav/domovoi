@@ -1,0 +1,77 @@
+---
+source: crates/domovoi-chat/tests/discord/cards.rs
+expression: value
+---
+{
+  "components": [
+    {
+      "components": [
+        {
+          "custom_id": "dv1:k:AaGXIV1Ycnej6_hm5O-5hg",
+          "disabled": false,
+          "label": "Ack",
+          "style": 2,
+          "type": 2
+        },
+        {
+          "custom_id": "dv1:m:AaGXIV1Ycnej6_hm5O-5hg",
+          "disabled": false,
+          "label": "Mute 1h",
+          "style": 2,
+          "type": 2
+        },
+        {
+          "custom_id": "dv1:d:AaGXIV1Ycnej6_hm5O-5hg",
+          "disabled": false,
+          "label": "Details",
+          "style": 2,
+          "type": 2
+        },
+        {
+          "custom_id": "dv1:a:AaGXIV1Ycnej6_hm5O-5hg:AaGXIWAAcACAAAAAAAAAAQ:qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqo",
+          "disabled": false,
+          "label": "Approve",
+          "style": 3,
+          "type": 2
+        },
+        {
+          "custom_id": "dv1:n:AaGXIV1Ycnej6_hm5O-5hg:AaGXIWAAcACAAAAAAAAAAQ:qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqo",
+          "disabled": false,
+          "label": "Deny",
+          "style": 4,
+          "type": 2
+        }
+      ],
+      "type": 1
+    },
+    {
+      "components": [
+        {
+          "custom_id": "dv1:a:AaGXIV1Ycnej6_hm5O-5hg:AaGXIWAAcACAAAAAAAAAAg:u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7s",
+          "disabled": false,
+          "label": "Approve",
+          "style": 3,
+          "type": 2
+        },
+        {
+          "custom_id": "dv1:n:AaGXIV1Ycnej6_hm5O-5hg:AaGXIWAAcACAAAAAAAAAAg:u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7s",
+          "disabled": false,
+          "label": "Deny",
+          "style": 4,
+          "type": 2
+        }
+      ],
+      "type": 1
+    }
+  ],
+  "embed": {
+    "color": 13183530,
+    "description": "• 93% used, 70 GB free\n• Grew 40 GB since 02:00\n\n**Next:** Prune old snapshots",
+    "footer": {
+      "text": "incident e4efb986"
+    },
+    "title": "ACTION NEEDED · nas: Disk /srv is 93% full",
+    "type": "rich",
+    "url": "https://domovoi.example.net/incidents/01a19721-5d58-7277-a3eb-f866e4efb986"
+  }
+}
