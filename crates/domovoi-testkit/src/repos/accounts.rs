@@ -81,6 +81,13 @@ impl SessionRepo for InMemoryStore {
             .cloned())
     }
 
+    async fn extend(&self, token_hash: &[u8; 32], expires_at: Timestamp) -> Result<(), StoreError> {
+        if let Some(session) = self.begin()?.sessions.get_mut(token_hash) {
+            session.expires_at = expires_at;
+        }
+        Ok(())
+    }
+
     async fn delete(&self, token_hash: &[u8; 32]) -> Result<(), StoreError> {
         self.begin()?.sessions.remove(token_hash);
         Ok(())

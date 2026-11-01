@@ -38,6 +38,11 @@ pub struct IncidentFilter {
     pub active: Option<bool>,
     /// Only incidents opened at or after this instant.
     pub opened_since: Option<Timestamp>,
+    /// Only incidents with this status name (see
+    /// [`IncidentStatus::NAMES`](crate::IncidentStatus::NAMES)).
+    pub status: Option<String>,
+    /// Only incidents of this severity.
+    pub severity: Option<crate::Severity>,
 }
 
 /// One line in an incident's timeline.

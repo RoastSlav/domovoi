@@ -48,6 +48,12 @@ impl ActionRepo for InMemoryStore {
             .values()
             .filter(|a| filter.incident.is_none_or(|i| a.incident() == i))
             .filter(|a| filter.host.is_none_or(|h| a.host() == h))
+            .filter(|a| {
+                filter
+                    .status
+                    .as_deref()
+                    .is_none_or(|s| a.status().name() == s)
+            })
             .map(|a| {
                 (
                     (a.created_at().as_nanosecond(), a.id().to_string()),

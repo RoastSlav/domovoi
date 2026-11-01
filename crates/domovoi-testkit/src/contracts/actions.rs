@@ -84,6 +84,28 @@ pub async fn action_repo_contract(repo: &dyn ActionRepo) -> ContractResult {
     };
     let only = repo.list(&by_host, &Page::first(10)).await?.items;
     assert_eq!(only, vec![elsewhere]);
+    let status = |name: &str| ActionFilter {
+        status: Some(name.to_owned()),
+        ..ActionFilter::default()
+    };
+    let approved = repo
+        .list(&status("approved"), &Page::first(10))
+        .await?
+        .items;
+    assert_eq!(approved, vec![first]);
+    assert_eq!(
+        repo.list(&status("proposed"), &Page::first(10))
+            .await?
+            .items
+            .len(),
+        2
+    );
+    assert!(
+        repo.list(&status("verified"), &Page::first(10))
+            .await?
+            .items
+            .is_empty()
+    );
     Ok(())
 }
 

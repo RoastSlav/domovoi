@@ -204,6 +204,7 @@ impl ActionRepo for Store {
             " WHERE (?1 IS NULL OR incident_id = ?1) \
             AND (?2 IS NULL OR host_id = ?2) \
             AND (?3 IS NULL OR created_at < ?3 OR (created_at = ?3 AND id < ?4)) \
+            AND (?6 IS NULL OR json_extract(status, '$.type') = ?6) \
             ORDER BY created_at DESC, id DESC LIMIT ?5"
         );
         let (after_key, after_id) = Cursor::bind(page.cursor.as_deref())?;
@@ -214,6 +215,7 @@ impl ActionRepo for Store {
             .bind(after_key)
             .bind(after_id)
             .bind(fetch_limit(limit))
+            .bind(filter.status.as_deref())
             .fetch_all(&self.read)
             .await
             .map_err(db)?;

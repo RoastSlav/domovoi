@@ -30,6 +30,24 @@ pub enum IncidentStatus {
     Resolved,
 }
 
+impl IncidentStatus {
+    /// Every status name, as [`IncidentStatus::name`] gives them.
+    pub const NAMES: [&'static str; 5] = ["pending", "open", "acked", "muted", "resolved"];
+
+    /// The status without its details, as stored and filtered: `pending`, `open`, `acked`,
+    /// `muted` or `resolved`.
+    #[must_use]
+    pub const fn name(&self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Open => "open",
+            Self::Acked => "acked",
+            Self::Muted { .. } => "muted",
+            Self::Resolved => "resolved",
+        }
+    }
+}
+
 /// Tunable behaviour of the incident state machine.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct IncidentPolicy {
