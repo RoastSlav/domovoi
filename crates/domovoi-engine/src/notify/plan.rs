@@ -212,6 +212,19 @@ pub fn plan(
             }
         }
         EventKind::TriageRequested => Vec::new(),
+        EventKind::TriageCompleted { .. } => card_changed(incident, &state),
+        EventKind::TriageDegraded { reason } => {
+            if posted(&state) {
+                vec![NotifyAction::ThreadReply {
+                    incident: id,
+                    text: format!(
+                        "Triage is degraded: {reason}. Alerts still go out without triage."
+                    ),
+                }]
+            } else {
+                Vec::new()
+            }
+        }
     };
     Plan { actions, state }
 }

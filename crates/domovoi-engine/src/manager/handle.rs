@@ -5,7 +5,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use async_trait::async_trait;
 use domovoi_core::ports::{IngestError, SignalSink};
-use domovoi_core::{IncidentId, Signal, UserId};
+use std::collections::BTreeMap;
+
+use domovoi_core::{ActionId, IncidentId, Signal, TriageOutcome, UserId};
 use jiff::Timestamp;
 use tokio::sync::{mpsc, oneshot};
 
@@ -84,6 +86,38 @@ impl ManagerHandle {
     /// Expires mutes and resolves quiet incidents now; the ticker does this on its own.
     pub async fn tick(&self) -> Result<(), CommandError> {
         self.send(Command::Tick).await
+    }
+
+    /// Stores a triage outcome on `incident` and publishes `TriageCompleted`.
+    pub async fn attach_triage(
+        &self,
+        incident: IncidentId,
+        outcome: TriageOutcome,
+        tokens: BTreeMap<ActionId, String>,
+    ) -> Result<(), CommandError> {
+        self.send(Command::AttachTriage {
+            incident,
+            outcome,
+            tokens,
+        })
+        .await
+    }
+
+    /// Adds a follow-up question and its answer to `incident`'s timeline.
+    pub async fn record_follow_up(
+        &self,
+        incident: IncidentId,
+        asked_by: UserId,
+        question: String,
+        answer: String,
+    ) -> Result<(), CommandError> {
+        self.send(Command::RecordFollowUp {
+            incident,
+            asked_by,
+            question,
+            answer,
+        })
+        .await
     }
 
     /// Pending incidents dropped before confirmation since the manager started.

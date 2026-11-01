@@ -78,6 +78,21 @@ pub fn advisory_id(kind: AdvisoryKind, host: Option<HostId>, subject: &str) -> A
     AdvisoryId::from_uuid(uuid::Uuid::from_bytes(bytes))
 }
 
+/// The `TriageDegraded` advisory for `reason`, raised at `now`. The triage service stores
+/// it itself; [`evaluate`] produces the same one from [`AdvisoryInputs::triage_degraded`].
+#[must_use]
+pub fn triage_degraded(reason: &str, now: Timestamp) -> Advisory {
+    Advisory {
+        id: advisory_id(AdvisoryKind::TriageDegraded, None, ""),
+        kind: AdvisoryKind::TriageDegraded,
+        host: None,
+        title: "Triage is degraded".to_owned(),
+        detail: format!("{reason}. Alerts still go out without triage."),
+        created_at: now,
+        resolved_at: None,
+    }
+}
+
 struct Wanted {
     kind: AdvisoryKind,
     host: Option<HostId>,
@@ -129,12 +144,13 @@ fn wanted(inputs: &AdvisoryInputs<'_>, now: Timestamp) -> Vec<Wanted> {
         });
     }
     if let Some(reason) = inputs.triage_degraded {
+        let advisory = triage_degraded(reason, now);
         out.push(Wanted {
-            kind: AdvisoryKind::TriageDegraded,
-            host: None,
+            kind: advisory.kind,
+            host: advisory.host,
             subject: String::new(),
-            title: "Triage is degraded".to_owned(),
-            detail: format!("{reason}. Alerts still go out without triage."),
+            title: advisory.title,
+            detail: advisory.detail,
         });
     }
     for fact in inputs.facts {

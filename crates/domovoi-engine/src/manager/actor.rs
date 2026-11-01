@@ -158,6 +158,7 @@ impl IncidentManager {
         let mut hosts: BTreeSet<HostId> = BTreeSet::new();
         let mut resolved = BTreeMap::new();
         let mut acks = Vec::new();
+        let mut triaged = None;
         match command {
             Command::Ingest(signals) => {
                 let since = now
@@ -191,7 +192,15 @@ impl IncidentManager {
                 acks = self.deps.acks.list_rules().await?;
             }
             Command::Tick => hosts.extend(self.active.iter().map(Incident::host)),
-            Command::Ack { .. } | Command::Mute { .. } | Command::Unmute { .. } => {}
+            Command::Ack { .. }
+            | Command::Mute { .. }
+            | Command::Unmute { .. }
+            | Command::RecordFollowUp { .. } => {}
+            Command::AttachTriage { incident, .. } => {
+                if !self.active.iter().any(|i| i.id() == *incident) {
+                    triaged = self.deps.incidents.get(*incident).await?;
+                }
+            }
         }
         let mut windows = Vec::new();
         for host in hosts {
@@ -202,6 +211,7 @@ impl IncidentManager {
             resolved,
             acks,
             windows,
+            triaged,
         })
     }
 

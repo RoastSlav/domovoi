@@ -9,6 +9,7 @@ mod actor;
 mod command;
 mod decide;
 mod handle;
+mod triage;
 
 pub use actor::{IncidentManager, ManagerDeps};
 pub use command::{Command, CommandError};
