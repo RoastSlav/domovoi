@@ -1,6 +1,8 @@
 //! What the incident manager can be asked to do, and why it can refuse.
 
-use domovoi_core::{IncidentId, Signal, UserId};
+use std::collections::BTreeMap;
+
+use domovoi_core::{ActionId, IncidentId, Signal, TriageOutcome, UserId};
 use jiff::Timestamp;
 
 /// One request to the incident manager. Everything that changes an incident is one of these
@@ -32,13 +34,33 @@ pub enum Command {
     },
     /// Time passed: expire mutes and resolve incidents quiet past their TTL.
     Tick,
+    /// Triage finished for an incident, which may have resolved meanwhile.
+    AttachTriage {
+        /// Which incident.
+        incident: IncidentId,
+        /// What triage produced.
+        outcome: TriageOutcome,
+        /// Plain chat tokens of the proposed actions, passed on in the event.
+        tokens: BTreeMap<ActionId, String>,
+    },
+    /// A follow-up question and its answer, for the timeline. Publishes nothing.
+    RecordFollowUp {
+        /// Which incident.
+        incident: IncidentId,
+        /// Who asked.
+        asked_by: UserId,
+        /// The question.
+        question: String,
+        /// The redacted answer.
+        answer: String,
+    },
 }
 
 /// Why a command was not carried out. Nothing was stored and nothing was published.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum CommandError {
-    /// No active incident has that id.
-    #[error("no active incident {0}")]
+    /// No active incident (or, for triage, no incident at all) has that id.
+    #[error("no such incident {0}")]
     UnknownIncident(IncidentId),
     /// The incident cannot make that change from its current status.
     #[error("not allowed now: {0}")]

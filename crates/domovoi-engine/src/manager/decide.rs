@@ -28,6 +28,8 @@ pub struct State {
     pub acks: Vec<AckRule>,
     /// Maintenance windows of the hosts involved.
     pub windows: Vec<MaintenanceWindow>,
+    /// For [`Command::AttachTriage`]: the incident, loaded even when resolved.
+    pub triaged: Option<Incident>,
 }
 
 /// One store write, applied in order.
@@ -466,6 +468,21 @@ pub fn decide(
             "unmuted",
         )?,
         Command::Tick => builder.tick(),
+        Command::AttachTriage {
+            incident,
+            outcome,
+            tokens,
+        } => return super::triage::attach(state, *incident, outcome, tokens, now),
+        Command::RecordFollowUp {
+            incident,
+            asked_by,
+            question,
+            answer,
+        } => {
+            return Ok(super::triage::follow_up(
+                *incident, *asked_by, question, answer, now,
+            ));
+        }
     }
     Ok(builder.out)
 }

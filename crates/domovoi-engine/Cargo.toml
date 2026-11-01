@@ -7,12 +7,16 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 publish.workspace = true
+autotests = false
 
 [dependencies]
 domovoi-core = { workspace = true }
 async-trait = { workspace = true }
+hex = { workspace = true }
 jiff = { workspace = true }
 metrics = { workspace = true }
+regex = { workspace = true }
+secrecy = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
@@ -27,6 +31,18 @@ domovoi-testkit = { workspace = true }
 insta = { workspace = true }
 proptest = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
+
+[[test]]
+name = "engine"
+path = "tests/engine/main.rs"
+
+[[test]]
+name = "notify"
+path = "tests/notify/main.rs"
+
+[[test]]
+name = "triage"
+path = "tests/triage/main.rs"
 
 [lints]
 workspace = true

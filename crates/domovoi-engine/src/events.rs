@@ -1,6 +1,8 @@
 //! Domain events: what changed, published on the broadcast bus after it is stored.
 
-use domovoi_core::{Incident, Severity, SignalId, UserId};
+use std::collections::BTreeMap;
+
+use domovoi_core::{ActionId, Incident, Severity, SignalId, TriageOutcome, UserId};
 use jiff::Timestamp;
 
 /// What happened to an incident.
@@ -40,6 +42,19 @@ pub enum EventKind {
     IncidentUnmuted,
     /// The incident needs (fresh) triage: it opened, reopened or escalated.
     TriageRequested,
+    /// Triage finished, was skipped or failed; the card shows the outcome.
+    TriageCompleted {
+        /// What triage produced.
+        outcome: TriageOutcome,
+        /// Plain chat tokens of the actions triage proposed, for the card's buttons. Only
+        /// their hashes are stored.
+        tokens: BTreeMap<ActionId, String>,
+    },
+    /// Triage failed several times in a row; incidents go out without triage.
+    TriageDegraded {
+        /// Why, in one line.
+        reason: String,
+    },
 }
 
 /// One change to one incident, broadcast to every consumer.
