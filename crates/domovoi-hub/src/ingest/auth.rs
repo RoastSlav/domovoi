@@ -6,6 +6,9 @@ use secrecy::{ExposeSecret, SecretString};
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 
+/// The header carrying `sha256=<hex>` over the raw body, for `auth = "hmac"`.
+pub const SIGNATURE_HEADER: &str = "x-domovoi-signature";
+
 pub(super) fn authorized(
     config: &domovoi_config::hub::WebhookConfig,
     headers: &HeaderMap,
@@ -14,7 +17,7 @@ pub(super) fn authorized(
     let secret = config.secret.value();
     match config.auth {
         domovoi_config::hub::WebhookAuth::Hmac => {
-            verify_hmac(secret, body, headers.get("x-hub-signature-256"))
+            verify_hmac(secret, body, headers.get(SIGNATURE_HEADER))
         }
         domovoi_config::hub::WebhookAuth::Bearer => {
             verify_bearer(secret, headers.get(header::AUTHORIZATION))

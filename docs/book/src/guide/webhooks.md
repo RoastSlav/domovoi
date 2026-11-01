@@ -17,7 +17,7 @@ default_host = "nas"        # used when the payload names no host
 host_label = "node"         # optional Alertmanager label to use instead
 ```
 
-For Alertmanager, the host comes from `host_label` when configured. Otherwise Domovoi tries the `host` label, then `instance` with its port removed, then `default_host`. A valid name not already known to the hub becomes an `External` host. A payload with an invalid host name, or no usable host and no `default_host`, is rejected.
+For Alertmanager, the host comes from `host_label` when configured. Otherwise Domovoi tries the `host` label, then `instance` with its port removed, then `default_host`. A valid name not already known to the hub becomes an `External` host. A host name Domovoi cannot use, such as one with capitals or underscores, falls back to `default_host`; without one, the payload is rejected.
 
 Keep the secret in an environment variable or a file, not in `hub.toml`. Check the file with `domovoi check config hub.toml` after editing it.
 
@@ -26,7 +26,7 @@ Keep the secret in an environment variable or a file, not in `hub.toml`. Check t
 With `auth = "hmac"`, sign the exact request body using HMAC-SHA256 and send the lowercase hexadecimal digest in this header:
 
 ```text
-X-Hub-Signature-256: sha256=<hex digest>
+X-Domovoi-Signature: sha256=<hex digest>
 ```
 
 With `auth = "bearer"`, send:
@@ -95,7 +95,7 @@ SECRET='your-secret'
 BODY='{"host":"nas","check":"backup.nightly","summary":"Backup failed"}'
 SIGNATURE=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$SECRET" -hex | cut -d' ' -f2)
 curl -i -X POST 'http://127.0.0.1:7420/hooks/alerts' \
-  -H "X-Hub-Signature-256: sha256=$SIGNATURE" \
+  -H "X-Domovoi-Signature: sha256=$SIGNATURE" \
   -H 'Content-Type: application/json' \
   --data-binary "$BODY"
 ```

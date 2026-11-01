@@ -163,7 +163,10 @@ fn uptime_kuma_down_and_up() {
     assert_eq!(down[0].check.as_str(), "uptime_kuma.monitor");
     assert_eq!(down[0].target.as_ref().map(|t| t.as_str()), Some("Plex"));
     assert_eq!(down[0].status, SignalStatus::Firing);
-    assert_eq!(down[0].summary, "connect ECONNREFUSED 192.168.1.20:32400");
+    assert_eq!(
+        down[0].summary,
+        "Plex: connect ECONNREFUSED 192.168.1.20:32400"
+    );
     assert_eq!(
         text(&down[0], "url").as_deref(),
         Some("http://192.168.1.20:32400/web")

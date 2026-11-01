@@ -69,7 +69,7 @@ impl Harness {
     }
 
     async fn hmac(&self, body: &str) -> axum::response::Response {
-        self.send(body, Some(("x-hub-signature-256", signature(body))))
+        self.send(body, Some(("x-domovoi-signature", signature(body))))
             .await
     }
 }
@@ -106,8 +106,8 @@ async fn invalid_or_missing_signature_is_401() {
     let harness = Harness::new(WebhookAuth::Hmac);
     for auth in [
         None,
-        Some(("x-hub-signature-256", "sha256=00".to_owned())),
-        Some(("x-hub-signature-256", signature("different"))),
+        Some(("x-domovoi-signature", "sha256=00".to_owned())),
+        Some(("x-domovoi-signature", signature("different"))),
     ] {
         let response = harness.send(BODY, auth).await;
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
@@ -203,6 +203,22 @@ async fn default_host_and_sink_unavailable_are_handled() {
     let harness = Harness::with_config(config(WebhookAuth::Hmac, Some("fallback")));
     let body = r#"{"check":"a.b","summary":"x"}"#;
     assert_eq!(harness.hmac(body).await.status(), StatusCode::ACCEPTED);
+    let unusable = r#"{"host":"Bad_Host","check":"a.b","summary":"x"}"#;
+    assert_eq!(harness.hmac(unusable).await.status(), StatusCode::ACCEPTED);
+    let fallback = harness
+        .hosts
+        .get_host_by_name(&HostName::parse("fallback").unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        harness
+            .sink
+            .batches()
+            .iter()
+            .flatten()
+            .all(|s| s.host() == fallback.id)
+    );
     harness
         .sink
         .fail_next(IngestError::Unavailable("full".to_owned()));

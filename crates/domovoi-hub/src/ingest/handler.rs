@@ -74,12 +74,11 @@ async fn resolve(
     signal: SourceSignal,
     now: jiff::Timestamp,
 ) -> Result<domovoi_core::Signal, StatusCode> {
+    // A name Domovoi cannot use, or none at all, falls back to the webhook's default.
     let name = signal
         .host
         .as_deref()
-        .map(HostName::parse)
-        .transpose()
-        .map_err(|_| StatusCode::UNPROCESSABLE_ENTITY)?
+        .and_then(|h| HostName::parse(h).ok())
         .or_else(|| config.default_host.clone())
         .ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
     let host_id = match state.deps.hosts.get_host_by_name(&name).await {

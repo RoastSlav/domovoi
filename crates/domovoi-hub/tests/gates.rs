@@ -125,7 +125,7 @@ async fn webhook_without_auth_never_reaches_signal_sink() {
     send(make_router(WebhookAuth::Hmac), None).await;
     send(
         make_router(WebhookAuth::Hmac),
-        Some(("x-hub-signature-256", format!("sha256={}", "0".repeat(64)))),
+        Some(("x-domovoi-signature", format!("sha256={}", "0".repeat(64)))),
     )
     .await;
     let mut mac = <Hmac<Sha256> as KeyInit>::new_from_slice(b"secret").unwrap();
@@ -133,7 +133,7 @@ async fn webhook_without_auth_never_reaches_signal_sink() {
     let signature = format!("sha256={}", hex::encode(mac.finalize().into_bytes()));
     send(
         make_router(WebhookAuth::Hmac),
-        Some(("x-hub-signature-256", signature)),
+        Some(("x-domovoi-signature", signature)),
     )
     .await;
     send(

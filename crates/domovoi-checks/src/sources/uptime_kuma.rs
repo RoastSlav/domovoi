@@ -69,13 +69,14 @@ pub(super) fn parse(value: Value) -> Result<Vec<SourceSignal>, ParseError> {
         .filter(|m| !m.trim().is_empty())
         .or(payload.msg)
         .unwrap_or_default();
-    let summary = if message.trim().is_empty() {
-        match status {
-            SignalStatus::Firing => "A monitor is down".to_owned(),
-            SignalStatus::Resolved => "A monitor is up".to_owned(),
-        }
-    } else {
-        message.trim().to_owned()
+    let message = message.trim();
+    let summary = match (name, status) {
+        (Some(name), _) if !message.is_empty() => format!("{name}: {message}"),
+        (Some(name), SignalStatus::Firing) => format!("{name} is down"),
+        (Some(name), SignalStatus::Resolved) => format!("{name} is up"),
+        (None, _) if !message.is_empty() => message.to_owned(),
+        (None, SignalStatus::Firing) => "A monitor is down".to_owned(),
+        (None, SignalStatus::Resolved) => "A monitor is up".to_owned(),
     };
     Ok(vec![SourceSignal {
         host: None,

@@ -10,7 +10,7 @@ use axum::routing::post;
 use domovoi_checks::sources::{MAX_BODY_BYTES, ParseOptions, SourceFormat, parse};
 use domovoi_config::agent::LocalWebhooks;
 use domovoi_core::ports::Clock;
-use domovoi_core::{EvidenceValue, HostId, SourceKind};
+use domovoi_core::{EvidenceValue, HostId, HostName, SourceKind};
 use secrecy::{ExposeSecret, SecretString};
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
@@ -37,11 +37,13 @@ pub enum RelayError {
 pub struct Relay {
     listener: TcpListener,
     token: Option<SecretString>,
+    host_name: HostName,
 }
 
 impl Relay {
-    /// Binds the configured address, refusing non-loopback exposure by default.
-    pub async fn bind(config: &LocalWebhooks) -> Result<Self, RelayError> {
+    /// Binds the configured address for the agent of `host_name`, refusing non-loopback
+    /// exposure by default.
+    pub async fn bind(config: &LocalWebhooks, host_name: HostName) -> Result<Self, RelayError> {
         if !config.bind.ip().is_loopback() && !config.allow_non_loopback {
             return Err(RelayError::NonLoopback(config.bind));
         }
@@ -51,6 +53,7 @@ impl Relay {
         Ok(Self {
             listener,
             token: config.token.as_ref().map(|token| token.value().clone()),
+            host_name,
         })
     }
 
@@ -72,6 +75,7 @@ impl Relay {
             host,
             clock,
             token: self.token,
+            host_name: self.host_name,
         };
         let app = axum::Router::new()
             .route("/hooks/generic", post(generic))
@@ -92,6 +96,7 @@ struct RelayState {
     host: HostId,
     clock: Arc<dyn Clock>,
     token: Option<SecretString>,
+    host_name: HostName,
 }
 
 async fn generic(State(state): State<RelayState>, headers: HeaderMap, body: Bytes) -> StatusCode {
@@ -131,7 +136,12 @@ async fn receive(
     let signals = parsed
         .into_iter()
         .map(|mut source| {
-            if let Some(reported) = source.host.take() {
+            // Every relayed signal is about this host; a different name is kept as evidence.
+            if let Some(reported) = source
+                .host
+                .take()
+                .filter(|h| h.as_str() != state.host_name.as_str())
+            {
                 source
                     .evidence
                     .insert("reported_host".to_owned(), EvidenceValue::Text(reported));

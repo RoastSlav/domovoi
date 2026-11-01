@@ -62,14 +62,18 @@ async fn post(addr: SocketAddr, token: Option<&str>) -> u16 {
     response.split_whitespace().nth(1).unwrap().parse().unwrap()
 }
 
+fn nas() -> domovoi_core::HostName {
+    domovoi_core::HostName::parse("nas").unwrap()
+}
+
 #[tokio::test]
 async fn relay_refuses_non_loopback_bind_by_default() {
-    let rejected = Relay::bind(&config("0.0.0.0:0", false)).await;
+    let rejected = Relay::bind(&config("0.0.0.0:0", false), nas()).await;
     assert!(matches!(rejected, Err(RelayError::NonLoopback(_))));
 
     let mut allowed = config("0.0.0.0:0", false);
     allowed.allow_non_loopback = true;
-    let relay = Relay::bind(&allowed).await.unwrap();
+    let relay = Relay::bind(&allowed, nas()).await.unwrap();
     assert_eq!(
         relay.local_addr().unwrap().ip(),
         std::net::IpAddr::from([0, 0, 0, 0])
@@ -87,7 +91,9 @@ async fn relayed_alert_is_spooled_and_sent_with_agent_host() {
     let mut conn = hub.accept().await;
     conn.welcome(&identity, 10).await;
 
-    let relay = Relay::bind(&config("127.0.0.1:0", true)).await.unwrap();
+    let relay = Relay::bind(&config("127.0.0.1:0", true), nas())
+        .await
+        .unwrap();
     let (addr, stop, task) = serve(relay, spool, identity.host_id).await;
     assert_eq!(post(addr, Some("local-secret")).await, 202);
     let signals = conn.signals().await;
@@ -115,7 +121,9 @@ async fn relayed_alert_is_spooled_and_sent_with_agent_host() {
 async fn relay_requires_token_when_configured() {
     let dir = tempfile::tempdir().unwrap();
     let spool = Arc::new(SharedSpool::new(Spool::open(dir.path()).unwrap()));
-    let relay = Relay::bind(&config("127.0.0.1:0", true)).await.unwrap();
+    let relay = Relay::bind(&config("127.0.0.1:0", true), nas())
+        .await
+        .unwrap();
     let (addr, stop, task) = serve(relay, spool.clone(), HostId::new()).await;
 
     assert_eq!(post(addr, None).await, 401);

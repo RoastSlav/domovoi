@@ -123,7 +123,9 @@ impl AgentRuntime {
             deps.clock.clone(),
         ));
         let relay = match &config.local_webhooks {
-            Some(config) => Some(crate::relay::Relay::bind(config).await?),
+            Some(relay) => {
+                Some(crate::relay::Relay::bind(relay, config.agent.host_name.clone()).await?)
+            }
             None => None,
         };
         Ok(Self {
