@@ -194,7 +194,7 @@ expression: spec
         "description": "The incident's chat card, as it would be posted.",
         "properties": {
           "badge": {
-            "description": "The badge text: a verdict or a severity.",
+            "description": "A verdict (`ACTION_NEEDED`, `MONITOR`, `EXPECTED` or `FIXED`) or, before triage, a\nseverity (`info`, `warning` or `critical`).",
             "type": "string"
           },
           "bullets": {

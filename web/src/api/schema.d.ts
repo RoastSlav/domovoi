@@ -558,7 +558,10 @@ export interface components {
         };
         /** @description The incident's chat card, as it would be posted. */
         CardDto: {
-            /** @description The badge text: a verdict or a severity. */
+            /**
+             * @description A verdict (`ACTION_NEEDED`, `MONITOR`, `EXPECTED` or `FIXED`) or, before triage, a
+             *     severity (`info`, `warning` or `critical`).
+             */
             badge: string;
             /** @description Key facts. */
             bullets: string[];

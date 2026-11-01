@@ -86,6 +86,11 @@ async fn incident_detail_ack_and_mute() {
     assert_eq!(detail.status, StatusCode::OK, "{}", detail.text);
     assert_eq!(detail.body["host"], "nas");
     assert_eq!(detail.body["card"]["headline"], a.incident.title());
+    assert_eq!(
+        detail.body["card"]["badge"],
+        a.incident.severity().to_string(),
+        "before triage the badge is the severity"
+    );
     assert_eq!(detail.body["report"], Value::Null);
 
     let acked = a

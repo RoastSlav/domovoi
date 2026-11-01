@@ -4,9 +4,19 @@
 use std::collections::BTreeMap;
 
 use domovoi_core::ports::IncidentTimelineEntry;
-use domovoi_core::{ActionRequest, ActionStatus, Card, Incident, Principal, TriageReport};
+use domovoi_core::{
+    ActionRequest, ActionStatus, Card, CardBadge, Incident, Principal, TriageReport, Verdict,
+};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
+
+/// The wire name of `verdict`, for example `ACTION_NEEDED`.
+fn verdict_name(verdict: Verdict) -> String {
+    serde_json::to_value(verdict)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_owned))
+        .unwrap_or_default()
+}
 
 /// One incident in a list.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
@@ -54,7 +64,7 @@ impl From<&Incident> for IncidentSummary {
             status: i.status().name().to_owned(),
             muted_until,
             severity: i.severity().to_string(),
-            verdict: i.verdict().map(|v| v.label().to_owned()),
+            verdict: i.verdict().map(verdict_name),
             opened_at: i.opened_at().to_string(),
             last_firing_at: i.last_firing_at().to_string(),
             resolved_at: i.resolved_at().map(|t| t.to_string()),
@@ -146,7 +156,7 @@ impl From<&TriageReport> for ReportDto {
                     source: e.source.clone(),
                 })
                 .collect(),
-            verdict: r.verdict.label().to_owned(),
+            verdict: verdict_name(r.verdict),
             next_step: r.next_step.clone(),
             proposals: r
                 .proposals
@@ -174,7 +184,8 @@ pub struct TriageStateDto {
 /// The incident's chat card, as it would be posted.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
 pub struct CardDto {
-    /// The badge text: a verdict or a severity.
+    /// A verdict (`ACTION_NEEDED`, `MONITOR`, `EXPECTED` or `FIXED`) or, before triage, a
+    /// severity (`info`, `warning` or `critical`).
     pub badge: String,
     /// One line.
     pub headline: String,
@@ -190,10 +201,10 @@ pub struct CardDto {
 
 impl From<&Card> for CardDto {
     fn from(c: &Card) -> Self {
-        let badge = serde_json::to_value(c.badge)
-            .ok()
-            .and_then(|v| v.as_str().map(str::to_owned))
-            .unwrap_or_default();
+        let badge = match c.badge {
+            CardBadge::Verdict(v) => verdict_name(v),
+            CardBadge::Severity(s) => s.to_string(),
+        };
         Self {
             badge,
             headline: c.headline.clone(),
@@ -356,4 +367,29 @@ pub struct AskRequest {
 pub struct AskResponse {
     /// Plain text, at most 1500 characters.
     pub answer: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn badges_and_verdicts_use_wire_names() {
+        assert_eq!(verdict_name(Verdict::ActionNeeded), "ACTION_NEEDED");
+        let card = |badge| Card {
+            incident: domovoi_core::IncidentId::new(),
+            host: domovoi_core::HostName::parse("nas").unwrap(),
+            badge,
+            headline: String::new(),
+            bullets: Vec::new(),
+            next_step: None,
+            details: None,
+            buttons: Vec::new(),
+            resolved: false,
+        };
+        let verdict = CardDto::from(&card(CardBadge::Verdict(Verdict::Monitor)));
+        assert_eq!(verdict.badge, "MONITOR");
+        let severity = CardDto::from(&card(CardBadge::Severity(domovoi_core::Severity::Critical)));
+        assert_eq!(severity.badge, "critical");
+    }
 }
