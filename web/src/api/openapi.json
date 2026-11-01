@@ -523,6 +523,58 @@
         }
       }
     },
+    "/api/v1/hosts/{name}": {
+      "get": {
+        "tags": [
+          "hosts"
+        ],
+        "summary": "Host `name` with its agent and the latest value of each digest fact from the last day.",
+        "operationId": "get_host",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Host name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The host",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HostDetailDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such host",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/hosts/{name}/enrollment": {
       "post": {
         "tags": [
@@ -1185,6 +1237,67 @@
         }
       }
     },
+    "/api/v1/notes/import": {
+      "post": {
+        "tags": [
+          "notes"
+        ],
+        "summary": "Imports Markdown files as notes. Each note's title is its first `# ` heading or the\nfile name. Files that are not `.md`, too large, not UTF-8, empty, or titled like an\nexisting note in the same scope are skipped, so importing a folder twice adds nothing.",
+        "operationId": "import_notes",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/NotesImportForm"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "What was imported and skipped",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportResultDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Too many files or an unreadable upload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such host",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/notes/search": {
       "get": {
         "tags": [
@@ -1836,6 +1949,41 @@
           }
         }
       },
+      "FactDto": {
+        "type": "object",
+        "description": "One digest fact about a host.",
+        "required": [
+          "key",
+          "label",
+          "value",
+          "observed_at"
+        ],
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "Stable key, for example `zfs.tank.used_pct`."
+          },
+          "label": {
+            "type": "string",
+            "description": "Label for people."
+          },
+          "observed_at": {
+            "type": "string",
+            "description": "When it was observed."
+          },
+          "unit": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Unit, for example `%`."
+          },
+          "value": {
+            "type": "string",
+            "description": "The value as text."
+          }
+        }
+      },
       "HeartbeatSettings": {
         "type": "object",
         "description": "The dead man's switch.",
@@ -1866,6 +2014,27 @@
           }
         }
       },
+      "HostDetailDto": {
+        "type": "object",
+        "description": "A host with its latest digest facts.",
+        "required": [
+          "host",
+          "facts"
+        ],
+        "properties": {
+          "facts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FactDto"
+            },
+            "description": "The latest value of each fact seen in the last 24 hours, sorted by key."
+          },
+          "host": {
+            "$ref": "#/components/schemas/HostDto",
+            "description": "The host and its agent."
+          }
+        }
+      },
       "HostDto": {
         "type": "object",
         "description": "A host and its agent's presence.",
@@ -1873,7 +2042,9 @@
           "id",
           "name",
           "kind",
-          "connected"
+          "connected",
+          "outdated",
+          "open_incidents"
         ],
         "properties": {
           "connected": {
@@ -1905,6 +2076,16 @@
           "name": {
             "type": "string",
             "description": "Host name."
+          },
+          "open_incidents": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Incidents not yet resolved (pending, open, acked or muted), counted up to 200.",
+            "minimum": 0
+          },
+          "outdated": {
+            "type": "boolean",
+            "description": "Whether the connected agent is older than the hub."
           },
           "version": {
             "type": [
@@ -1950,6 +2131,36 @@
               "type": "string"
             },
             "description": "Proxies whose forwarded headers are trusted."
+          }
+        }
+      },
+      "ImportResultDto": {
+        "type": "object",
+        "description": "What a notes import did.",
+        "required": [
+          "created",
+          "skipped",
+          "skipped_files"
+        ],
+        "properties": {
+          "created": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Notes created.",
+            "minimum": 0
+          },
+          "skipped": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Files left out.",
+            "minimum": 0
+          },
+          "skipped_files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SkippedFileDto"
+            },
+            "description": "Each file left out, and why."
           }
         }
       },
@@ -2295,7 +2506,7 @@
         "properties": {
           "body_markdown": {
             "type": "string",
-            "description": "Body in Markdown, at most 64 KiB."
+            "description": "Body in Markdown, at most 256 KiB."
           },
           "host": {
             "type": [
@@ -2314,6 +2525,30 @@
           "title": {
             "type": "string",
             "description": "Title, 1 to 200 characters."
+          }
+        }
+      },
+      "NotesImportForm": {
+        "type": "object",
+        "description": "The form an import posts. Documents the request; the handler reads it field by field.",
+        "required": [
+          "files"
+        ],
+        "properties": {
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "binary"
+            },
+            "description": "The Markdown files, one form field each. Only `.md` files are imported."
+          },
+          "host": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The host the notes are about, by name; absent for global notes."
           }
         }
       },
@@ -2592,6 +2827,24 @@
             "type": "integer",
             "format": "int64",
             "description": "How long one run may take, in seconds."
+          }
+        }
+      },
+      "SkippedFileDto": {
+        "type": "object",
+        "description": "A file a notes import left out.",
+        "required": [
+          "name",
+          "reason"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The file name as uploaded."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Why it was left out."
           }
         }
       },

@@ -59,6 +59,54 @@ pub struct HostDto {
     pub connected_since: Option<String>,
     /// When it was last seen, while disconnected.
     pub last_seen: Option<String>,
+    /// Whether the connected agent is older than the hub.
+    pub outdated: bool,
+    /// Incidents not yet resolved (pending, open, acked or muted), counted up to 200.
+    pub open_incidents: u32,
+}
+
+/// One digest fact about a host.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
+pub struct FactDto {
+    /// Stable key, for example `zfs.tank.used_pct`.
+    pub key: String,
+    /// Label for people.
+    pub label: String,
+    /// The value as text.
+    pub value: String,
+    /// Unit, for example `%`.
+    pub unit: Option<String>,
+    /// When it was observed.
+    pub observed_at: String,
+}
+
+/// A host with its latest digest facts.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
+pub struct HostDetailDto {
+    /// The host and its agent.
+    pub host: HostDto,
+    /// The latest value of each fact seen in the last 24 hours, sorted by key.
+    pub facts: Vec<FactDto>,
+}
+
+/// A file a notes import left out.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
+pub struct SkippedFileDto {
+    /// The file name as uploaded.
+    pub name: String,
+    /// Why it was left out.
+    pub reason: String,
+}
+
+/// What a notes import did.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
+pub struct ImportResultDto {
+    /// Notes created.
+    pub created: u32,
+    /// Files left out.
+    pub skipped: u32,
+    /// Each file left out, and why.
+    pub skipped_files: Vec<SkippedFileDto>,
 }
 
 /// An enrollment invite. Shown once; the token is not stored.
@@ -137,7 +185,7 @@ pub struct NoteInput {
     pub host: Option<String>,
     /// Title, 1 to 200 characters.
     pub title: String,
-    /// Body in Markdown, at most 64 KiB.
+    /// Body in Markdown, at most 256 KiB.
     pub body_markdown: String,
     /// Tags.
     #[serde(default)]

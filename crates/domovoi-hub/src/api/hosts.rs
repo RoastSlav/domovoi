@@ -1,13 +1,24 @@
-//! Hosts: list with presence, enrollment invites, revocation and skill catalogues.
+//! Hosts: list with presence and open incidents, detail with digest facts, enrollment
+//! invites, revocation and skill catalogues.
+
+use std::collections::BTreeMap;
 
 use axum::Json;
 use axum::extract::{Path, State};
-use domovoi_core::ports::Presence;
-use domovoi_core::{HostKind, HostName};
+use domovoi_core::ports::{IncidentFilter, Page, Presence};
+use domovoi_core::{DigestFact, FactValue, HostKind, HostName};
+use jiff::SignedDuration;
 
-use super::dto_admin::{HostDto, InviteDto, ParamDto, RevokeDto, SkillDto};
+use super::dto_admin::{FactDto, HostDetailDto, HostDto, InviteDto, ParamDto, RevokeDto, SkillDto};
 use super::error::{ApiError, ErrorBody};
+use super::version::{HUB_VERSION, is_older};
 use super::{ApiState, Authed, host_named};
+
+/// How far back host detail looks for digest facts.
+pub const FACT_WINDOW: SignedDuration = SignedDuration::from_hours(24);
+
+/// The most unresolved incidents counted per host.
+pub const OPEN_COUNT_CAP: u16 = 200;
 
 fn kind(kind: HostKind) -> &'static str {
     match kind {
@@ -24,6 +35,43 @@ fn agent_error(err: crate::agent_server::AgentServerError) -> ApiError {
     }
 }
 
+/// The DTO of `host`, with its agent's presence and its count of unresolved incidents.
+async fn host_dto(state: &ApiState, host: &domovoi_core::Host) -> Result<HostDto, ApiError> {
+    let filter = IncidentFilter {
+        host: Some(host.id),
+        active: Some(true),
+        ..IncidentFilter::default()
+    };
+    let page = Page {
+        cursor: None,
+        limit: OPEN_COUNT_CAP,
+    };
+    let open = state.deps.incidents.list(&filter, &page).await?.items.len();
+    let mut dto = HostDto {
+        id: host.id.to_string(),
+        name: host.name.to_string(),
+        kind: kind(host.kind).to_owned(),
+        connected: false,
+        version: None,
+        connected_since: None,
+        last_seen: None,
+        outdated: false,
+        open_incidents: u32::try_from(open).unwrap_or(u32::MAX),
+    };
+    match state.deps.agents.presence(host.id) {
+        Presence::Connected { since, version } => {
+            dto.connected = true;
+            dto.outdated = is_older(&version, HUB_VERSION);
+            dto.version = Some(version);
+            dto.connected_since = Some(since.to_string());
+        }
+        Presence::Disconnected { last_seen } => {
+            dto.last_seen = last_seen.map(|t| t.to_string());
+        }
+    }
+    Ok(dto)
+}
+
 /// Every host with its agent's presence, sorted by name.
 #[utoipa::path(
     get, path = "/api/v1/hosts", operation_id = "list_hosts", tag = "hosts",
@@ -37,32 +85,64 @@ pub(super) async fn list(
     _auth: Authed,
 ) -> Result<Json<Vec<HostDto>>, ApiError> {
     let hosts = state.deps.hosts.list_hosts().await?;
-    let dtos = hosts
-        .iter()
-        .map(|host| {
-            let mut dto = HostDto {
-                id: host.id.to_string(),
-                name: host.name.to_string(),
-                kind: kind(host.kind).to_owned(),
-                connected: false,
-                version: None,
-                connected_since: None,
-                last_seen: None,
-            };
-            match state.deps.agents.presence(host.id) {
-                Presence::Connected { since, version } => {
-                    dto.connected = true;
-                    dto.version = Some(version);
-                    dto.connected_since = Some(since.to_string());
-                }
-                Presence::Disconnected { last_seen } => {
-                    dto.last_seen = last_seen.map(|t| t.to_string());
-                }
-            }
-            dto
-        })
-        .collect();
+    let mut dtos = Vec::with_capacity(hosts.len());
+    for host in &hosts {
+        dtos.push(host_dto(&state, host).await?);
+    }
     Ok(Json(dtos))
+}
+
+fn fact_dto(fact: &DigestFact) -> FactDto {
+    let value = match &fact.value {
+        FactValue::Text(text) => text.clone(),
+        FactValue::Number(n) => {
+            let rounded = (n * 100.0).round() / 100.0;
+            rounded.to_string()
+        }
+    };
+    FactDto {
+        key: fact.key.clone(),
+        label: fact.label.clone(),
+        value,
+        unit: fact.unit.clone(),
+        observed_at: fact.observed_at.to_string(),
+    }
+}
+
+/// The latest fact per key from `facts` (oldest first), sorted by key.
+fn latest_per_key(facts: &[DigestFact]) -> Vec<FactDto> {
+    let mut latest: BTreeMap<&str, &DigestFact> = BTreeMap::new();
+    for fact in facts {
+        latest.insert(fact.key.as_str(), fact);
+    }
+    latest.values().map(|fact| fact_dto(fact)).collect()
+}
+
+/// Host `name` with its agent and the latest value of each digest fact from the last day.
+#[utoipa::path(
+    get, path = "/api/v1/hosts/{name}", operation_id = "get_host", tag = "hosts",
+    params(("name" = String, Path, description = "Host name")),
+    responses(
+        (status = 200, description = "The host", body = HostDetailDto),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 404, description = "No such host", body = ErrorBody),
+    )
+)]
+pub(super) async fn detail(
+    State(state): State<ApiState>,
+    _auth: Authed,
+    Path(name): Path<String>,
+) -> Result<Json<HostDetailDto>, ApiError> {
+    let host = host_named(&state, &name).await?;
+    let now = state.deps.clock.now();
+    let since = now.checked_sub(FACT_WINDOW).unwrap_or(now);
+    // `until` is exclusive; include facts observed right now.
+    let until = now.checked_add(SignedDuration::from_secs(1)).unwrap_or(now);
+    let facts = state.deps.facts.list(host.id, since, until).await?;
+    Ok(Json(HostDetailDto {
+        host: host_dto(&state, &host).await?,
+        facts: latest_per_key(&facts),
+    }))
 }
 
 /// A one-time enrollment invite for host `name`, creating the host if it is new. The
