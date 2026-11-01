@@ -13,6 +13,8 @@
 //! - [`notify`] decides what to say about each event and when, [`cards`] builds the card,
 //!   [`digest`] the daily digest, [`advisories`] the hygiene findings, and [`render`] turns
 //!   them into short markdown. All pure; sending happens elsewhere.
+//! - [`triage`] runs the model over read-only tools and attaches its report; [`redact`]
+//!   removes secrets from everything that reaches a prompt or leaves the hub.
 
 pub mod advisories;
 pub mod cards;
@@ -22,9 +24,13 @@ pub mod events;
 pub mod manager;
 pub mod notify;
 pub mod policy;
+pub mod redact;
 pub mod render;
 pub mod suppress;
+pub mod triage;
 
 pub use events::{DomainEvent, EventKind};
 pub use manager::{Command, CommandError, IncidentManager, ManagerDeps, ManagerHandle};
 pub use policy::EnginePolicy;
+pub use redact::PatternRedactor;
+pub use triage::{TriageDeps, TriageError, TriageHandle, TriageService, TriageSettings};
