@@ -1,0 +1,35 @@
+.badge {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #ffffff;
+  background: var(--expected);
+  white-space: nowrap;
+}
+
+.badge[data-tone="action-needed"] {
+  background: var(--action-needed);
+}
+
+.badge[data-tone="monitor"] {
+  background: var(--monitor);
+}
+
+.badge[data-tone="fixed"] {
+  background: var(--fixed);
+}
+
+.badge[data-tone="critical"] {
+  background: var(--critical);
+}
+
+.badge[data-tone="warning"] {
+  background: var(--warning);
+}
+
+.badge[data-tone="info"] {
+  background: var(--info);
+}
