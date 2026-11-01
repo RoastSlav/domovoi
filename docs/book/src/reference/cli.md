@@ -115,7 +115,7 @@ domovoi check skills /etc/domovoi/skills
 
 ### `domovoi check run`
 
-Runs every enabled check once on this host and prints what each one saw, plus its digest facts. No hub is needed, and the agent's stored check state is not touched. `--only <check>` runs a single check, and `--json` prints JSON. A check that cannot run here, for example because `smartctl` is not installed, is reported in the output. The command still exits 0, because the run itself completed.
+Runs every enabled check once on this host and prints what each one saw, plus its digest facts. No hub is needed, and the agent's stored check state is not touched. `--only <check>` runs a single check, and `--json` prints JSON. A check that cannot run here, for example because `smartctl` is not installed or because the agent runs in a container and the check needs journalctl, is reported as `unavailable`. A check that fails for another reason is reported as `error`. The command still exits 0, because the run itself completed.
 
 ```sh
 domovoi check run --config /etc/domovoi/agent.toml

@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use domovoi_checks::commands::Commands;
+use domovoi_checks::commands::{Commands, ToolHost};
 use domovoi_checks::framework::{
     Check, CheckContext, CheckReport, CheckSettings, CheckState, run_bounded,
 };
@@ -32,7 +32,7 @@ pub struct Harness {
 impl Harness {
     pub async fn new(scenario: &str) -> Self {
         let fs = FixtureHostFs::new(fixture(scenario));
-        let commands = Commands::resolve(&fs).await;
+        let commands = Commands::resolve(&fs, ToolHost::Host).await;
         Self {
             host: HostId::from_uuid(Uuid::from_u128(0x0190_0000_0000_7000_8000_0000_0000_00b1)),
             fs,

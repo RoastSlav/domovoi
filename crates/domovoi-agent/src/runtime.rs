@@ -3,7 +3,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use domovoi_checks::commands::Commands;
+use domovoi_checks::commands::{Commands, ToolHost};
 use domovoi_checks::containers::{ContainerDeps, ContainerPolicy, ContainerSource};
 use domovoi_checks::framework::{HostDeps, Registry};
 use domovoi_checks::system::FsStats;
@@ -34,9 +34,10 @@ pub struct AgentDeps {
     pub executor: Arc<dyn ProcessExecutor>,
     /// The host's files, under `[agent] host_root`.
     pub hostfs: Arc<dyn HostFs>,
-    /// Where check tools such as `smartctl` and `journalctl` are looked up: the
-    /// filesystem they run in, which is the agent's own even when `host_root` points
-    /// at a mounted host.
+    /// Where check tools such as `smartctl` are looked up: the filesystem they run in,
+    /// which is the agent's own even when `host_root` points at a mounted host. With a
+    /// `host_root` other than `/`, journalctl and systemctl are not used at all (see
+    /// [`ToolHost`]).
     pub toolfs: Arc<dyn HostFs>,
     /// Filesystem usage for `disk.free` and the overview.
     pub fs_stats: Arc<dyn FsStats>,
@@ -106,7 +107,13 @@ impl AgentRuntime {
         let check_infos = crate::overrides::report(&registry, &base);
         let effective = EffectiveChecks::new(base);
         let checks: Arc<dyn CheckSet> = Arc::new(registry);
-        let commands = Arc::new(Commands::resolve(&*deps.toolfs).await);
+        let commands = Arc::new(
+            Commands::resolve(
+                &*deps.toolfs,
+                ToolHost::from_host_root(&config.agent.host_root),
+            )
+            .await,
+        );
         let store = Arc::new(CheckStore::open(state_dir)?);
         let spool = Arc::new(SharedSpool::new(Spool::open(state_dir)?));
         let check_env = CheckEnv {

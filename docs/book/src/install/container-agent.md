@@ -38,7 +38,7 @@ docker compose -f agent.yml up -d
 
 Some checks need the host itself and do not work from a container:
 
-- **systemd and the journal.** The image has no `systemctl` or `journalctl`, so those checks report "journalctl is not installed". Install the agent on the host if you need unit and log checks.
+- **systemd and the journal.** A `journalctl` or `systemctl` inside a container would read the container's journal and systemd, not the host's. So whenever `host_root` is not `/`, the agent does not use them. `kernel.errors`, `security.ssh_login`, `security.sudo_failure`, `unit.failed`, `unit.watch` and the `journal` read tool report "unavailable" instead. The agent skips them without raising an incident or logging a warning, and `domovoi check run` lists them as `unavailable`. Install the agent on the host if you need unit and log checks.
 - **SMART.** The agent runs the `smartctl` that ships in the image, but the container also needs the disks. Either list them under `devices:` with the `SYS_RAWIO` and `SYS_ADMIN` capabilities, or run the container `privileged: true`, which gives it full access to the host. The commented lines in `agent.yml` show both.
 
 ## The socket proxy

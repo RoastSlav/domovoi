@@ -2,7 +2,7 @@
 
 use std::fmt::Write;
 
-use domovoi_checks::commands::{DevicePath, UnitName};
+use domovoi_checks::commands::{CommandError, DevicePath, UnitName};
 use domovoi_checks::containers::{ContainerSource, EventLog, RunState};
 use domovoi_checks::security::ports::listeners;
 use domovoi_core::ReadToolCall;
@@ -28,6 +28,16 @@ fn docker(ctx: &RequestCtx) -> Result<&dyn ContainerSource, ToolFail> {
 
 fn docker_err(err: impl std::fmt::Display) -> ToolFail {
     ToolFail::new(ToolFailureCode::Unavailable, format!("Docker: {err}"))
+}
+
+/// A template that could not be built: the tool is missing or unusable here, or an
+/// argument is invalid.
+fn template(err: CommandError) -> ToolFail {
+    if err.is_unavailable() {
+        ToolFail::new(ToolFailureCode::Unavailable, err.to_string())
+    } else {
+        invalid(err)
+    }
 }
 
 fn invalid(err: impl std::fmt::Display) -> ToolFail {
@@ -125,7 +135,7 @@ pub async fn run_tool(ctx: &RequestCtx, call: &ReadToolCall) -> Result<(String, 
             let spec = ctx
                 .commands
                 .journal(unit.as_ref(), *since_minutes, *lines, *kernel)
-                .map_err(invalid)?;
+                .map_err(template)?;
             command(ctx, spec).await
         }
         ReadToolCall::ListeningPorts => {
@@ -140,7 +150,7 @@ pub async fn run_tool(ctx: &RequestCtx, call: &ReadToolCall) -> Result<(String, 
         }
         ReadToolCall::SmartReport { device } => {
             let device = DevicePath::parse(device).map_err(invalid)?;
-            let spec = ctx.commands.smartctl_all(&device).map_err(invalid)?;
+            let spec = ctx.commands.smartctl_all(&device).map_err(template)?;
             command(ctx, spec).await
         }
         ReadToolCall::RunReadSkill { skill, args } => run_read_skill(ctx, skill, args).await,

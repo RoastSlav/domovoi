@@ -5,9 +5,16 @@
 //! argv element (or the value part of a single `--flag=value` element), and no slot may
 //! start with `-`, so a slot can never become an option or a shell word. Program paths come
 //! from fixed candidate lists checked with [`HostFs::exists`]; there is no `PATH` lookup.
+//!
+//! Tools are looked up in the filesystem the executor runs them in: the agent's own `/`,
+//! not `[agent] host_root`. In a container ([`ToolHost::Container`]) journalctl and
+//! systemctl are not used at all, because inside the container they would read the
+//! container's journal and systemd rather than the host's; templates that need them fail
+//! with [`CommandError::Unavailable`].
 
 use std::collections::BTreeMap;
 use std::fmt;
+use std::path::Path;
 
 use domovoi_core::ports::{HostFs, ProcessSpec};
 use jiff::SignedDuration;
@@ -34,6 +41,14 @@ pub enum CommandError {
     /// None of the tool's candidate paths exists on this host.
     #[error("{0} is not installed")]
     NotInstalled(&'static str),
+    /// The tool cannot do its job where the agent runs.
+    #[error("{tool} is not available: {reason}")]
+    Unavailable {
+        /// Which tool.
+        tool: &'static str,
+        /// Why.
+        reason: &'static str,
+    },
     /// A slot value failed validation.
     #[error("invalid {slot}: {reason}")]
     InvalidSlot {
@@ -43,6 +58,38 @@ pub enum CommandError {
         reason: String,
     },
 }
+
+impl CommandError {
+    /// Whether the tool is missing or cannot run here, rather than a slot being invalid.
+    #[must_use]
+    pub fn is_unavailable(&self) -> bool {
+        matches!(self, Self::NotInstalled(_) | Self::Unavailable { .. })
+    }
+}
+
+/// Where the agent runs, which decides how tools are looked up.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolHost {
+    /// Directly on the host (`host_root` is `/`).
+    Host,
+    /// In a container with the host mounted elsewhere (`host_root` is not `/`).
+    Container,
+}
+
+impl ToolHost {
+    /// [`ToolHost::Host`] when `host_root` is `/`, otherwise [`ToolHost::Container`].
+    #[must_use]
+    pub fn from_host_root(host_root: &Path) -> Self {
+        if host_root == Path::new("/") {
+            Self::Host
+        } else {
+            Self::Container
+        }
+    }
+}
+
+const NOT_IN_CONTAINER: &str =
+    "the agent runs in a container and cannot reach the host's journal or systemd";
 
 fn invalid(slot: &'static str, reason: impl Into<String>) -> CommandError {
     CommandError::InvalidSlot {
@@ -178,22 +225,34 @@ impl DevicePath {
     }
 }
 
+/// One tool's lookup result.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+enum Tool {
+    /// Found at this path.
+    Found(String),
+    /// None of the candidates exists.
+    #[default]
+    Missing,
+    /// Not used where the agent runs.
+    Unavailable(&'static str),
+}
+
 /// The resolved program paths of the tools the templates use.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Commands {
-    journalctl: Option<String>,
-    smartctl: Option<String>,
-    systemctl: Option<String>,
-    fail2ban_client: Option<String>,
+    journalctl: Tool,
+    smartctl: Tool,
+    systemctl: Tool,
+    fail2ban_client: Tool,
 }
 
-async fn first_existing(fs: &dyn HostFs, candidates: &[&str]) -> Option<String> {
+async fn first_existing(fs: &dyn HostFs, candidates: &[&str]) -> Tool {
     for candidate in candidates {
         if fs.exists(candidate).await {
-            return Some((*candidate).to_owned());
+            return Tool::Found((*candidate).to_owned());
         }
     }
-    None
+    Tool::Missing
 }
 
 fn spec(program: &str, args: Vec<String>) -> ProcessSpec {
@@ -215,17 +274,36 @@ fn owned(args: &[&str]) -> Vec<String> {
 
 impl Commands {
     /// Looks up each tool once in its fixed candidate list.
-    pub async fn resolve(fs: &dyn HostFs) -> Self {
+    ///
+    /// `tools` is the filesystem the executor runs programs in (the agent's own `/`), not
+    /// the host filesystem under `host_root`. With [`ToolHost::Container`], journalctl and
+    /// systemctl are not looked up and their templates fail with
+    /// [`CommandError::Unavailable`].
+    pub async fn resolve(tools: &dyn HostFs, host: ToolHost) -> Self {
+        let (journalctl, systemctl) = match host {
+            ToolHost::Host => (
+                first_existing(tools, JOURNALCTL).await,
+                first_existing(tools, SYSTEMCTL).await,
+            ),
+            ToolHost::Container => (
+                Tool::Unavailable(NOT_IN_CONTAINER),
+                Tool::Unavailable(NOT_IN_CONTAINER),
+            ),
+        };
         Self {
-            journalctl: first_existing(fs, JOURNALCTL).await,
-            smartctl: first_existing(fs, SMARTCTL).await,
-            systemctl: first_existing(fs, SYSTEMCTL).await,
-            fail2ban_client: first_existing(fs, FAIL2BAN).await,
+            journalctl,
+            smartctl: first_existing(tools, SMARTCTL).await,
+            systemctl,
+            fail2ban_client: first_existing(tools, FAIL2BAN).await,
         }
     }
 
-    fn tool<'a>(path: &'a Option<String>, name: &'static str) -> Result<&'a str, CommandError> {
-        path.as_deref().ok_or(CommandError::NotInstalled(name))
+    fn tool<'a>(tool: &'a Tool, name: &'static str) -> Result<&'a str, CommandError> {
+        match tool {
+            Tool::Found(path) => Ok(path),
+            Tool::Missing => Err(CommandError::NotInstalled(name)),
+            Tool::Unavailable(reason) => Err(CommandError::Unavailable { tool: name, reason }),
+        }
     }
 
     /// The last `lines` journal lines from the last `since_minutes`, for one unit or the

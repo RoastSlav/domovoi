@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use domovoi_checks::commands::Commands;
+use domovoi_checks::commands::{Commands, ToolHost};
 use domovoi_checks::containers::ContainerDeps;
 use domovoi_checks::framework::{CheckContext, CheckState, HostDeps, Registry, run_bounded};
 use domovoi_config::AgentConfig;
@@ -19,8 +19,10 @@ use crate::runtime::{AgentDeps, container_policy};
 pub struct CheckRun {
     /// The check's key.
     pub check: String,
-    /// Why the check could not run, if it failed.
+    /// Why the check failed, if it did.
     pub error: Option<String>,
+    /// Why the check cannot run on this host (a tool is missing or unusable here), if so.
+    pub unavailable: Option<String>,
     /// What it saw, one entry per target.
     pub observations: Vec<ObservationRow>,
     /// Measurements for the digest.
@@ -78,7 +80,11 @@ pub async fn run_checks_once(
     {
         return Err(AgentError::Checks(format!("no enabled check named {key}")));
     }
-    let commands = Commands::resolve(&*deps.toolfs).await;
+    let commands = Commands::resolve(
+        &*deps.toolfs,
+        ToolHost::from_host_root(&config.agent.host_root),
+    )
+    .await;
     let host = HostId::new();
     let mut runs = Vec::new();
     for check in registry.checks() {
@@ -101,6 +107,7 @@ pub async fn run_checks_once(
             Ok(report) => CheckRun {
                 check: key.to_string(),
                 error: None,
+                unavailable: None,
                 observations: report
                     .observations
                     .into_iter()
@@ -125,9 +132,17 @@ pub async fn run_checks_once(
                     })
                     .collect(),
             },
+            Err(err) if err.is_unavailable() => CheckRun {
+                check: key.to_string(),
+                error: None,
+                unavailable: Some(err.to_string()),
+                observations: Vec::new(),
+                facts: Vec::new(),
+            },
             Err(err) => CheckRun {
                 check: key.to_string(),
                 error: Some(err.to_string()),
+                unavailable: None,
                 observations: Vec::new(),
                 facts: Vec::new(),
             },
@@ -144,6 +159,8 @@ pub fn summary(runs: &[CheckRun]) -> BTreeMap<&'static str, usize> {
     for run in runs {
         let label = if run.error.is_some() {
             "error"
+        } else if run.unavailable.is_some() {
+            "unavailable"
         } else if run.observations.iter().any(|o| o.firing) {
             "firing"
         } else {

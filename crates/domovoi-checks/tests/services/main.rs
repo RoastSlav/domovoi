@@ -1,6 +1,8 @@
 //! Container, unit, SMART and security checks against fakes and fixtures.
 
 #[cfg(test)]
+mod container_mode;
+#[cfg(test)]
 mod containers;
 #[cfg(test)]
 mod docker;
