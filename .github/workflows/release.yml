@@ -64,6 +64,12 @@ jobs:
         run: |
           tag=$(printf '%s' "$RELEASES" | jq -r '.[] | select(.package_name == "domovoi") | .tag')
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - name: Upload the installer to the GitHub release
+        if: steps.tag.outputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: gh release upload "$TAG" install.sh --clobber
 
   web:
     name: Build web UI
@@ -161,9 +167,11 @@ jobs:
         with:
           pattern: bin-*
           path: dist
-      - name: Image name (GHCR needs lowercase)
+      - name: Image names (GHCR needs lowercase)
         id: name
-        run: echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/domovoi" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/domovoi" >> "$GITHUB_OUTPUT"
+          echo "agent=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/domovoi-agent" >> "$GITHUB_OUTPUT"
       - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v4
         with:
@@ -191,4 +199,26 @@ jobs:
         with:
           subject-name: ${{ steps.name.outputs.image }}
           subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+      - id: agent-meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ steps.name.outputs.agent }}
+          tags: |
+            type=semver,pattern={{version}},value=${{ needs.release.outputs.tag }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.release.outputs.tag }}
+            type=raw,value=latest
+      - id: agent-push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: docker/Dockerfile.agent
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.agent-meta.outputs.tags }}
+          labels: ${{ steps.agent-meta.outputs.labels }}
+      - uses: actions/attest-build-provenance@v4
+        with:
+          subject-name: ${{ steps.name.outputs.agent }}
+          subject-digest: ${{ steps.agent-push.outputs.digest }}
           push-to-registry: true
