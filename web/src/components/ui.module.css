@@ -62,6 +62,15 @@
   box-shadow: 0 10px 40px rgb(0 0 0 / 30%);
 }
 
+.dialog.wide {
+  width: min(40rem, 100%);
+}
+
+.dialog {
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
+}
+
 .dialog h2 {
   margin-top: 0;
   font-size: 1.15rem;
@@ -93,4 +102,58 @@
 .error {
   color: var(--danger);
   font-weight: 600;
+}
+
+.copy {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.copy pre {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  padding: 0.6rem 0.75rem;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 0.85rem;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table th,
+.table td {
+  padding: 0.5rem 0.6rem;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border);
+}
+
+.table th {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.tableWrap {
+  overflow-x: auto;
+}
+
+.pageHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.muted {
+  color: var(--muted);
 }

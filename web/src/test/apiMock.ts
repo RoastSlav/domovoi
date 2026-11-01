@@ -8,6 +8,7 @@
 type Init = {
   params?: { path?: Record<string, string>; query?: Record<string, unknown> };
   body?: unknown;
+  bodySerializer?: (body: unknown) => unknown;
 };
 type Handler = (init: Init) => unknown;
 
@@ -68,6 +69,8 @@ async function answer(method: string, path: string, init: Init = {}): Promise<An
 export const api = {
   GET: (path: string, init?: Init) => answer("GET", path, init),
   POST: (path: string, init?: Init) => answer("POST", path, init),
+  PUT: (path: string, init?: Init) => answer("PUT", path, init),
+  DELETE: (path: string, init?: Init) => answer("DELETE", path, init),
 };
 
 /** The CSRF header name, as the real module exports it. */
