@@ -3,6 +3,7 @@ import { useLiveEvents, type LiveStatus } from "../api/events";
 import { useHosts } from "../api/hooks/hosts";
 import { useLogout, useSession } from "../api/hooks/session";
 import { Button } from "../components/Button";
+import { SetupBanner } from "../features/setup/SetupBanner";
 import styles from "./Layout.module.css";
 
 const NAV = [
@@ -92,6 +93,7 @@ export function Layout() {
         </nav>
       </header>
       <main id="main" className={styles.main} tabIndex={-1}>
+        <SetupBanner />
         <Outlet />
       </main>
     </div>

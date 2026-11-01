@@ -4,6 +4,7 @@ import { useAdvisories, useSettings } from "../../api/hooks/system";
 import { SECRET_SET, type Settings } from "../../api/types";
 import { EmptyState } from "../../components/EmptyState";
 import { RelativeTime } from "../../components/RelativeTime";
+import { EditableSettings } from "./EditableSettings";
 import styles from "./settings.module.css";
 
 type Llm = NonNullable<Settings["llm_primary"]>;
@@ -113,7 +114,11 @@ function Advisories() {
   );
 }
 
-/** The effective configuration and status, read-only. Secrets show only as set or not set. */
+/**
+ * The settings: editable sections when the hub manages them (each field shows where its
+ * value comes from), then status that is always read-only. Secrets show only as set or
+ * not set.
+ */
 export function SettingsPage() {
   const settings = useSettings();
   if (settings.isPending) {
@@ -123,6 +128,28 @@ export function SettingsPage() {
     return <EmptyState title="Could not load settings" />;
   }
   const s = settings.data;
+  if (s.editable) {
+    return (
+      <>
+        <h1>Settings</h1>
+        <p className={styles.note}>
+          Changes apply right away: the hub restarts in a few seconds. Fields set in hub.toml or the
+          environment are read-only here.
+        </p>
+        <EditableSettings editable={s.editable} />
+        <h2 className={styles.statusHeading}>Status</h2>
+        <Section title="Model usage">
+          <Usage settings={s} />
+        </Section>
+        <Section title="Heartbeat status">
+          <p>{s.heartbeat.failing ? <strong className={styles.failing}>Failing</strong> : "OK"}</p>
+        </Section>
+        <Section title="Advisories">
+          <Advisories />
+        </Section>
+      </>
+    );
+  }
   return (
     <>
       <h1>Settings</h1>

@@ -46,22 +46,44 @@ export type Settings = Schemas["SettingsDto"];
 export type Advisory = Schemas["AdvisoryDto"];
 /** The digest as it would be sent now. */
 export type DigestPreview = Schemas["DigestPreview"];
+/** The settings as the settings page edits them, with each field's source. */
+export type Editable = Schemas["EditableSettings"];
+/** A saved settings change. */
+export type Saved = Schemas["SavedDto"];
+/** The result of a connection test. */
+export type TestResult = Schemas["TestResultDto"];
+/** A host's checks: what its agent reports and what the hub overrides. */
+export type HostChecks = Schemas["HostChecksDto"];
+/** One check on a host. */
+export type HostCheck = Schemas["HostCheckDto"];
+/** One check's settings. */
+export type CheckSettings = Schemas["CheckSettingsDto"];
+/** One problem with submitted settings, with its path. */
+export type Issue = Schemas["IssueDto"];
 
 /** How the API shows a secret that has a value. */
 export const SECRET_SET = "[set]";
 
-/** A failed API call: the HTTP status and the error code from the body. */
+/** A failed API call: the HTTP status, the error code and, for invalid settings, each issue. */
 export class ApiFailure extends Error {
   readonly status: number;
   readonly code: string;
   readonly retryAfter: number | undefined;
+  readonly issues: Issue[];
 
-  constructor(status: number, code: string, message: string, retryAfter?: number) {
+  constructor(
+    status: number,
+    code: string,
+    message: string,
+    retryAfter?: number,
+    issues: Issue[] = [],
+  ) {
     super(message);
     this.name = "ApiFailure";
     this.status = status;
     this.code = code;
     this.retryAfter = retryAfter;
+    this.issues = issues;
   }
 }
 
@@ -71,11 +93,21 @@ interface Result<T> {
   response: Response;
 }
 
-function errorBody(error: unknown): { error: string; message: string } {
-  if (typeof error === "object" && error !== null && "error" in error && "message" in error) {
-    return { error: String(error.error), message: String(error.message) };
+function issuesOf(error: object): Issue[] {
+  if (!("issues" in error) || !Array.isArray(error.issues)) {
+    return [];
   }
-  return { error: "unknown", message: "request failed" };
+  return error.issues.filter(
+    (issue): issue is Issue =>
+      typeof issue === "object" && issue !== null && "path" in issue && "message" in issue,
+  );
+}
+
+function errorBody(error: unknown): { error: string; message: string; issues: Issue[] } {
+  if (typeof error === "object" && error !== null && "error" in error && "message" in error) {
+    return { error: String(error.error), message: String(error.message), issues: issuesOf(error) };
+  }
+  return { error: "unknown", message: "request failed", issues: [] };
 }
 
 /** The data of a successful call; throws {@link ApiFailure} otherwise. */
@@ -89,6 +121,7 @@ export async function call<T>(request: Promise<Result<T>>): Promise<T> {
       body.error,
       body.message,
       Number.isFinite(retry) && retry > 0 ? retry : undefined,
+      body.issues,
     );
   }
   return data as T;

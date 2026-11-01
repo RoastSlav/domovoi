@@ -29,8 +29,14 @@ export function route(key: string, handler: Handler): void {
 }
 
 /** A failed call's answer; return it from a handler. */
-export function failure(status: number, error: string, message: string, headers?: HeadersInit) {
-  return new Failure(status, error, message, headers);
+export function failure(
+  status: number,
+  error: string,
+  message: string,
+  headers?: HeadersInit,
+  issues?: { path: string; message: string; severity: string }[],
+) {
+  return new Failure(status, error, message, headers, issues);
 }
 
 class Failure {
@@ -39,6 +45,7 @@ class Failure {
     readonly error: string,
     readonly message: string,
     readonly headers?: HeadersInit,
+    readonly issues?: { path: string; message: string; severity: string }[],
   ) {}
 }
 
@@ -58,7 +65,7 @@ async function answer(method: string, path: string, init: Init = {}): Promise<An
   const result = handler(init);
   if (result instanceof Failure) {
     return {
-      error: { error: result.error, message: result.message },
+      error: { error: result.error, message: result.message, issues: result.issues ?? [] },
       response: new Response(null, { status: result.status, headers: result.headers ?? {} }),
     };
   }
@@ -70,6 +77,7 @@ export const api = {
   GET: (path: string, init?: Init) => answer("GET", path, init),
   POST: (path: string, init?: Init) => answer("POST", path, init),
   PUT: (path: string, init?: Init) => answer("PUT", path, init),
+  PATCH: (path: string, init?: Init) => answer("PATCH", path, init),
   DELETE: (path: string, init?: Init) => answer("DELETE", path, init),
 };
 

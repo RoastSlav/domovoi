@@ -31,7 +31,7 @@ test("setup_page_validates_password_length_and_submits", async () => {
   await user.clear(screen.getByLabelText("Repeat password"));
   await user.type(screen.getByLabelText("Repeat password"), "a long passphrase");
   await user.click(screen.getByRole("button", { name: "Create account" }));
-  expect(await screen.findByTestId("location")).toHaveTextContent("/incidents");
+  expect(await screen.findByTestId("location")).toHaveTextContent("/welcome");
   expect(calls).toEqual([
     {
       route: "POST /api/v1/auth/setup",

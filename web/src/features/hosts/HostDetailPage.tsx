@@ -5,7 +5,9 @@ import { ApiFailure, type Fact } from "../../api/types";
 import { Badge } from "../../components/Badge";
 import { EmptyState } from "../../components/EmptyState";
 import { RelativeTime } from "../../components/RelativeTime";
+import { Tabs } from "../../components/Tabs";
 import { SkillList } from "../skills/SkillList";
+import { ChecksTab } from "./ChecksTab";
 import { HostStatus, VersionCell } from "./HostStatus";
 import styles from "./hosts.module.css";
 
@@ -53,7 +55,7 @@ function RecentIncidents({ host }: { host: string }) {
   );
 }
 
-/** One host: its agent, the latest digest facts, recent incidents and skills. */
+/** One host: its agent, then tabs for its facts, incidents and skills, and its checks. */
 export function HostDetailPage() {
   const { name = "" } = useParams();
   const host = useHost(name);
@@ -81,24 +83,36 @@ export function HostDetailPage() {
         {detail.host.kind}
       </p>
 
+      <Tabs
+        label={`${detail.host.name} details`}
+        tabs={[
+          { label: "Overview", content: <Overview name={detail.host.name} facts={detail.facts} /> },
+          { label: "Checks", content: <ChecksTab host={detail.host.name} /> },
+        ]}
+      />
+    </>
+  );
+}
+
+function Overview({ name, facts }: { name: string; facts: Fact[] }) {
+  return (
+    <>
       <section aria-labelledby="facts-heading">
         <h2 id="facts-heading">Facts</h2>
-        <Facts facts={detail.facts} />
+        <Facts facts={facts} />
       </section>
 
       <section aria-labelledby="incidents-heading">
         <h2 id="incidents-heading">Recent incidents</h2>
-        <RecentIncidents host={detail.host.name} />
+        <RecentIncidents host={name} />
         <p>
-          <Link to={`/incidents?host=${encodeURIComponent(detail.host.name)}`}>
-            All incidents on {detail.host.name}
-          </Link>
+          <Link to={`/incidents?host=${encodeURIComponent(name)}`}>All incidents on {name}</Link>
         </p>
       </section>
 
       <section aria-labelledby="skills-heading">
         <h2 id="skills-heading">Skills</h2>
-        <SkillList host={detail.host.name} />
+        <SkillList host={name} />
       </section>
     </>
   );
