@@ -1,7 +1,7 @@
 //! `domovoi check config|skills|run`.
 
+use crate::ExitCode;
 use std::path::{Path, PathBuf};
-use std::process::ExitCode;
 use std::sync::Arc;
 
 use clap::{Subcommand, ValueEnum};

@@ -1,6 +1,6 @@
 //! `domovoi version`.
 
-use std::process::ExitCode;
+use crate::ExitCode;
 
 /// Prints the version, git commit, build date and target.
 pub fn run() -> anyhow::Result<ExitCode> {

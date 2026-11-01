@@ -10,12 +10,13 @@ mod cmd;
 mod init;
 mod local_link;
 
-use std::process::ExitCode;
-
 use clap::Parser;
 
 use crate::cmd::Command;
 use crate::init::{LogFormat, Logging};
+
+/// The process exit status every command returns.
+pub type ExitCode = std::process::ExitCode;
 
 /// Command-line interface.
 #[derive(Debug, Parser)]

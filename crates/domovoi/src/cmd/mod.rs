@@ -8,9 +8,9 @@ mod notify;
 mod selftest;
 mod version;
 
+use crate::ExitCode;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::ExitCode;
 use std::sync::Arc;
 
 use clap::Subcommand;

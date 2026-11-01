@@ -1,6 +1,6 @@
 //! `domovoi selftest`.
 
-use std::process::ExitCode;
+use crate::ExitCode;
 use std::sync::Arc;
 
 use clap::Args;

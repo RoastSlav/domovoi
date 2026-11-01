@@ -1,8 +1,8 @@
 //! `domovoi hub run|token|agent|set-password`.
 
+use crate::ExitCode;
 use std::io::BufRead;
 use std::path::PathBuf;
-use std::process::ExitCode;
 use std::sync::Arc;
 
 use clap::{Args, Subcommand};

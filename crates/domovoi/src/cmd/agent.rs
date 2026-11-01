@@ -1,7 +1,7 @@
 //! `domovoi agent run|enroll`.
 
+use crate::ExitCode;
 use std::path::PathBuf;
-use std::process::ExitCode;
 use std::sync::Arc;
 
 use clap::{Args, Subcommand};
