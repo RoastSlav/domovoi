@@ -13,6 +13,7 @@
 //! - [`runtime::AgentRuntime`] wires it all together.
 
 pub mod checks;
+pub mod config_file;
 pub mod dry_run;
 pub mod enroll;
 pub mod error;
@@ -21,6 +22,7 @@ pub mod fs_atomic;
 pub mod identity;
 pub mod link;
 pub mod local;
+pub mod overrides;
 pub mod production;
 pub mod relay;
 pub mod requests;

@@ -84,7 +84,7 @@ pub(crate) async fn create(
         })
         .await?;
     let command = format!(
-        "domovoi agent enroll --hub {hub_url} --token {} --fingerprint {fingerprint}",
+        "domovoi agent enroll --hub {hub_url} --token {} --fingerprint {fingerprint} --name {name}",
         token.expose()
     );
     Ok(EnrollmentInvite {

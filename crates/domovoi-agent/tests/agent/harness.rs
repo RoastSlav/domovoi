@@ -83,6 +83,7 @@ pub fn start_link_with(
         fs: empty_fs(dir),
         skills: Vec::new(),
         checks: Vec::new(),
+        overrides: None,
         spool,
         jitter: Box::new(|| 1.0),
     };

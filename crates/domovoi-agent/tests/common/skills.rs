@@ -90,7 +90,7 @@ impl Fixture {
             exec: self.exec.clone(),
             commands: commands.clone(),
             clock: self.clock.clone(),
-            settings: Arc::new(BTreeMap::new()),
+            settings: domovoi_agent::overrides::fixed(BTreeMap::new()),
         };
         RequestCtx {
             host_id: self.host_id,

@@ -106,6 +106,8 @@ pub struct LinkParts {
     pub skills: Vec<SkillSummary>,
     /// Every check with its local settings, announced in `hello`.
     pub checks: Vec<CheckInfo>,
+    /// Where the hub's check overrides take effect; `None` ignores them.
+    pub overrides: Option<crate::overrides::EffectiveChecks>,
     /// Signal batches to send and replay.
     pub spool: Arc<SharedSpool>,
     /// Jitter factors for the reconnect delay.
@@ -200,6 +202,9 @@ impl Link {
         };
         tracing::info!(session = ?welcome.session_id, "connected to the hub");
         let mut beat = heartbeat(&welcome.config);
+        if let Some(overrides) = &self.parts.overrides {
+            overrides.apply(&welcome.config.check_overrides);
+        }
         let mut sent = None;
         let mut missed = 0;
         let mut next_ping = clock.now().saturating_add(beat).unwrap_or(clock.now());
@@ -277,6 +282,9 @@ impl Link {
             }
             Message::ConfigUpdate(update) => {
                 *beat = heartbeat(&update.config);
+                if let Some(overrides) = &self.parts.overrides {
+                    overrides.apply(&update.config.check_overrides);
+                }
                 return Ok(());
             }
             Message::RunTool(run) => RequestKind::Tool(run),

@@ -41,6 +41,10 @@ pub struct EnrollArgs {
     /// The hub certificate's SHA-256, as printed with the token.
     #[arg(long)]
     fingerprint: String,
+    /// This host's name in Domovoi, as printed with the token. Used to write
+    /// `agent.toml` when it does not exist yet; an existing file is never changed.
+    #[arg(long)]
+    name: Option<String>,
     #[command(flatten)]
     config: ConfigArg,
 }
@@ -58,7 +62,23 @@ pub async fn run(command: AgentCommand) -> anyhow::Result<ExitCode> {
             Ok(ExitCode::SUCCESS)
         }
         AgentCommand::Enroll(args) => {
-            let config = load_agent(&args.config.config)?;
+            let path = &args.config.config;
+            if !path.exists() {
+                let name = args.name.as_deref().ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "{} does not exist; pass --name (as printed with the token) to write it",
+                        path.display()
+                    )
+                })?;
+                domovoi_agent::config_file::write_if_absent(
+                    path,
+                    name,
+                    &args.hub,
+                    &args.fingerprint,
+                )?;
+                println!("Wrote {}.", path.display());
+            }
+            let config = load_agent(path)?;
             let fingerprint = production::parse_fingerprint(&args.fingerprint)
                 .map_err(|err| anyhow::anyhow!("--fingerprint: {err}"))?;
             let clock = SystemClock;

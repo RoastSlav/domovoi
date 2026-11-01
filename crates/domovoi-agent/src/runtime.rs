@@ -19,6 +19,7 @@ use crate::link::backoff::random_jitter;
 use crate::link::tls::PinnedVerifier;
 use crate::link::ws::{Connector, TlsConnector};
 use crate::link::{Link, LinkParts};
+use crate::overrides::EffectiveChecks;
 use crate::requests::{RequestCtx, serve};
 use crate::scheduler::{CheckEnv, Scheduler};
 use crate::spool::{SharedSpool, Spool};
@@ -43,6 +44,8 @@ pub struct AgentDeps {
 
 /// A configured agent, ready to run.
 pub struct AgentRuntime {
+    effective: EffectiveChecks,
+    check_infos: Vec<domovoi_proto::messages::CheckInfo>,
     identity: Identity,
     deps: AgentDeps,
     connector: Arc<dyn Connector>,
@@ -79,7 +82,13 @@ impl AgentRuntime {
         let state_dir = &config.agent.state_dir;
         let identity = Identity::load(state_dir)?
             .ok_or_else(|| AgentError::NotEnrolled(Identity::path(state_dir)))?;
-        let settings = Arc::new(check_settings(&config).map_err(AgentError::Checks)?);
+        let base = check_settings(&config).map_err(AgentError::Checks)?;
+        // Every check is built, so the hub can turn on one that `agent.toml` turns off;
+        // the scheduler skips the ones off in the settings in effect.
+        let mut all_on = base.clone();
+        for settings in all_on.values_mut() {
+            settings.enabled = true;
+        }
         let containers = deps.container_source.clone().map(|source| ContainerDeps {
             source,
             policy: container_policy(&config),
@@ -89,7 +98,9 @@ impl AgentRuntime {
             containers,
         };
         let registry =
-            Registry::build(&settings, host_deps).map_err(|e| AgentError::Checks(e.to_string()))?;
+            Registry::build(&all_on, host_deps).map_err(|e| AgentError::Checks(e.to_string()))?;
+        let check_infos = crate::overrides::report(&registry, &base);
+        let effective = EffectiveChecks::new(base);
         let checks: Arc<dyn CheckSet> = Arc::new(registry);
         let commands = Arc::new(Commands::resolve(&*deps.hostfs).await);
         let store = Arc::new(CheckStore::open(state_dir)?);
@@ -100,7 +111,7 @@ impl AgentRuntime {
             exec: deps.executor.clone(),
             commands: commands.clone(),
             clock: deps.clock.clone(),
-            settings,
+            settings: effective.view(),
         };
         let requests = Arc::new(RequestCtx {
             host_id: identity.host_id,
@@ -130,6 +141,8 @@ impl AgentRuntime {
             None => None,
         };
         Ok(Self {
+            effective,
+            check_infos,
             identity,
             deps,
             connector,
@@ -167,7 +180,8 @@ impl AgentRuntime {
             clock: self.deps.clock.clone(),
             fs: self.deps.hostfs.clone(),
             skills: self.requests.catalog.summaries(),
-            checks: Vec::new(),
+            checks: self.check_infos,
+            overrides: Some(self.effective),
             spool: self.spool.clone(),
             jitter: self.jitter,
         };

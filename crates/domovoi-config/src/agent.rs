@@ -175,6 +175,29 @@ impl Secrets for AgentConfig {
     }
 }
 
+/// The default directories of `[agent]`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentDirs {
+    /// `state_dir`.
+    pub state_dir: PathBuf,
+    /// `skills_dir`.
+    pub skills_dir: PathBuf,
+    /// `host_root`.
+    pub host_root: PathBuf,
+}
+
+impl AgentSection {
+    /// The directories `[agent]` uses when they are not set.
+    #[must_use]
+    pub fn default_dirs() -> AgentDirs {
+        AgentDirs {
+            state_dir: default_state_dir(),
+            skills_dir: default_skills_dir(),
+            host_root: default_host_root(),
+        }
+    }
+}
+
 fn default_state_dir() -> PathBuf {
     PathBuf::from("/var/lib/domovoi-agent")
 }

@@ -65,7 +65,7 @@ async fn token_for_unknown_host_creates_remote_host_and_command_line() {
     assert_eq!(
         invite.command,
         format!(
-            "domovoi agent enroll --hub wss://testhub:7421/ --token {} --fingerprint {}",
+            "domovoi agent enroll --hub wss://testhub:7421/ --token {} --fingerprint {} --name media",
             invite.token.expose(),
             hub.server.fingerprint_text()
         )
