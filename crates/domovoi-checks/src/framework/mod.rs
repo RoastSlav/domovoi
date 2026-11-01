@@ -64,6 +64,13 @@ pub enum CheckError {
 }
 
 impl CheckError {
+    /// Whether the check cannot run here because a tool it needs is missing or unusable,
+    /// rather than because something went wrong.
+    #[must_use]
+    pub fn is_unavailable(&self) -> bool {
+        matches!(self, Self::Command(err) if err.is_unavailable())
+    }
+
     /// A read failure at `path`.
     #[must_use]
     pub fn fs(path: &str, source: FsError) -> Self {

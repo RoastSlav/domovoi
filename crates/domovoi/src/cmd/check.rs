@@ -162,6 +162,10 @@ fn print_runs(runs: &[CheckRun]) {
             println!("{}: error: {err}", run.check);
             continue;
         }
+        if let Some(why) = &run.unavailable {
+            println!("{}: unavailable: {why}", run.check);
+            continue;
+        }
         println!("{}:", run.check);
         for o in &run.observations {
             let state = if o.firing { "FIRING" } else { "ok" };

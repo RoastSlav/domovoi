@@ -319,6 +319,10 @@ impl Scheduler {
             let key = check.key();
             let report = match report {
                 Ok(report) => report,
+                Err(err) if err.is_unavailable() => {
+                    tracing::debug!(check = %key, %err, "check unavailable on this host");
+                    continue;
+                }
                 Err(err) => {
                     tracing::warn!(check = %key, %err, "check failed");
                     continue;

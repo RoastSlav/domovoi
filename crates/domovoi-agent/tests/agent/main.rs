@@ -6,6 +6,8 @@ mod common;
 #[cfg(test)]
 mod docker;
 #[cfg(test)]
+mod dry_run;
+#[cfg(test)]
 mod harness;
 #[cfg(test)]
 mod hub;

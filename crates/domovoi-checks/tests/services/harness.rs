@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use domovoi_checks::commands::Commands;
+use domovoi_checks::commands::{Commands, ToolHost};
 use domovoi_checks::containers::{
     ContainerDeps, ContainerError, ContainerEvent, ContainerInfo, ContainerPolicy, ContainerSource,
     MANAGED_LABEL, RunState,
@@ -45,12 +45,22 @@ impl Harness {
     /// A harness whose host files come from `tests/fixtures/<fs_root>` and whose tools are
     /// all installed.
     pub async fn new(fs_root: &str) -> Self {
+        Self::with_tools(fs_root, ToolHost::Host).await
+    }
+
+    /// Like [`Harness::new`], but as an agent running in a container: every tool is in the
+    /// agent's filesystem, yet journalctl and systemctl cannot reach the host.
+    pub async fn in_container(fs_root: &str) -> Self {
+        Self::with_tools(fs_root, ToolHost::Container).await
+    }
+
+    async fn with_tools(fs_root: &str, mode: ToolHost) -> Self {
         let tools = FixtureHostFs::new(fixture("system/tools"));
         Self {
             host: HostId::from_uuid(Uuid::from_u128(0x0190_0000_0000_7000_8000_0000_0000_00c1)),
             fs: FixtureHostFs::new(fixture(fs_root)),
             exec: FakeProcessExecutor::new(),
-            commands: Commands::resolve(&tools).await,
+            commands: Commands::resolve(&tools, mode).await,
             clock: Arc::new(FakeClock::new(T0)),
             settings: CheckSettings::default(),
             state: CheckState::new(),
