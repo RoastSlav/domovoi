@@ -8,7 +8,12 @@ Named after the Slavic household spirit that quietly keeps a home in order.
 [![Docs](https://img.shields.io/badge/docs-book-blue)](https://RoastSlav.github.io/domovoi)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](#license)
 
-> **Status: pre-alpha.** The architecture is in place and v0.1 is under active development. Nothing here is ready to run in production yet.
+> **Status: v0.1, before its first release.** Everything below works and is tested; expect rough edges until the first tagged release.
+
+<p align="center">
+  <img src="docs/assets/card.svg" alt="A Discord card for an incident: verdict, likely cause, next step, and approve and deny buttons for a proposed fix" width="49%">
+  <img src="docs/assets/incident.svg" alt="The incident page in the web UI: the signal timeline, the triage report and the proposed actions" width="49%">
+</p>
 
 ## What it does
 
@@ -16,7 +21,8 @@ Named after the Slavic household spirit that quietly keeps a home in order.
 - **Correlates** signals into incidents: one incident per problem, repeats folded into its thread, reminders instead of spam, quiet hours, and a daily digest that collapses healthy hosts into one line.
 - **Triages** each incident with the LLM of your choice (Anthropic, any OpenAI-compatible API including Ollama, or a coding-agent CLI you are already logged into) using read-only tools on the host, and writes a short card: what happened, the likely cause, a verdict and one next step.
 - **Talks** to you in Discord: a thread per incident, buttons to acknowledge, mute or approve, and follow-up questions answered in the thread.
-- **Acts only with your approval:** fixes are your own scripts ("skills") with declared risk and validated parameters. The model can propose; only you can approve. Destructive actions need a typed confirmation in the web UI.
+- **Acts only with your approval:** fixes are your own scripts ("skills") with declared risk and validated parameters. The model can propose; only you can approve. Destructive actions need a typed confirmation in the web UI. A [starter pack](examples/skills) covers overviews, container and unit restarts, and journal cleanup.
+- **Is set up in the browser:** no config file to write. A guided first run covers Discord, the model, the digest and your first host, and every setting can still come from files when you prefer config as code.
 - **Runs off the box it guards:** the hub can live on another machine, so it notices when a host dies, and tells "host down" apart from "agent down" and "my own network is down".
 
 ## How it works
@@ -43,7 +49,7 @@ One binary, two roles: the **hub** (web UI, API, correlation, triage, approvals,
 4. Destructive skills require a typed confirmation in the web UI and can never be approved from chat.
 5. Every proposal, approval and execution is recorded in an append-only audit log.
 
-These are enforced by tests and by an architecture checker in CI, not just by convention.
+These are enforced by tests, by an architecture checker, and by scored triage drills that run realistic incidents (decoys, prompt injection, destructive-only fixes) through the real engine on every change.
 
 ## Quick start
 
@@ -55,11 +61,11 @@ sudo systemctl enable --now domovoi-hub
 sudo journalctl -u domovoi-hub | grep -A1 setup
 ```
 
-No config file is needed: the guided first run sets up Discord, a model and your first host. To use Docker instead, or to run the agent in a container on a NAS, see the [install guides](docs/book/src/install/binary.md) and [`deploy/`](deploy).
+No config file is needed: the guided first run sets up Discord, a model and your first host. The [quick start](docs/book/src/quick-start.md) goes from here to a first triaged card in about ten minutes. To use Docker instead, or to run the agent in a container on a NAS, see the [install guides](docs/book/src/install/binary.md) and [`deploy/`](deploy).
 
 ## Documentation
 
-- User docs: <https://RoastSlav.github.io/domovoi> (sources in [`docs/book`](docs/book))
+- User docs: <https://RoastSlav.github.io/domovoi> (sources in [`docs/book`](docs/book)), starting with the [quick start](docs/book/src/quick-start.md) and the [security model](docs/book/src/security.md)
 - Architecture: [ARCHITECTURE.md](ARCHITECTURE.md) and decision records in [`docs/adr`](docs/adr)
 
 ## Contributing
