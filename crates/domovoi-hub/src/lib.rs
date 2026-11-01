@@ -6,5 +6,8 @@
 //! `ARCHITECTURE.md` §7.1 and §10.
 
 pub mod agent_server;
+pub mod api;
 pub mod auth;
 pub mod ingest;
+pub mod middleware;
+pub mod router;
