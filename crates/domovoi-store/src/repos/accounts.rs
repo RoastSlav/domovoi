@@ -107,6 +107,15 @@ impl UserRepo for Store {
             .map_err(db)?;
         Ok(uint(count))
     }
+
+    async fn first_user(&self) -> Result<Option<User>, StoreError> {
+        const SQL: &str = concat!(user_columns!(), " ORDER BY created_at, id LIMIT 1");
+        let row = sqlx::query_as(SQL)
+            .fetch_optional(&self.read)
+            .await
+            .map_err(db)?;
+        row.map(user).transpose()
+    }
 }
 
 #[async_trait]

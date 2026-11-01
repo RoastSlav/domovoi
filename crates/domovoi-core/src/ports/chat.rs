@@ -98,6 +98,7 @@ pub trait Notifier: Send + Sync {
     /// Stable notifier id from config.
     fn id(&self) -> &str;
 
-    /// Sends one message. Does not retry.
+    /// Sends one message. Does not retry failures; it may wait out a rate limit the
+    /// platform announces before giving up.
     async fn send(&self, msg: &OutboundMessage) -> Result<(), ChatError>;
 }

@@ -35,6 +35,7 @@ fn user(username: &str) -> User {
 /// Exercises account creation, lookup and password changes on an empty `repo`.
 pub async fn user_repo_contract(repo: &dyn UserRepo) -> ContractResult {
     assert_eq!(repo.count().await?, 0);
+    assert_eq!(repo.first_user().await?, None);
     let admin = user("admin");
     repo.create(&admin).await?;
     assert_eq!(repo.count().await?, 1);
@@ -65,6 +66,26 @@ pub async fn user_repo_contract(repo: &dyn UserRepo) -> ContractResult {
     assert_eq!(
         repo.set_password_hash(UserId::new(), "x").await,
         Err(StoreError::NotFound)
+    );
+
+    let earlier = User {
+        created_at: T0
+            .checked_sub(jiff::SignedDuration::from_hours(1))
+            .unwrap_or(T0),
+        ..user("first")
+    };
+    let later = User {
+        created_at: T0
+            .checked_add(jiff::SignedDuration::from_hours(1))
+            .unwrap_or(T0),
+        ..user("third")
+    };
+    repo.create(&later).await?;
+    repo.create(&earlier).await?;
+    assert_eq!(
+        repo.first_user().await?.map(|u| u.username),
+        Some("first".to_owned()),
+        "the oldest account, whatever the insertion order"
     );
     Ok(())
 }

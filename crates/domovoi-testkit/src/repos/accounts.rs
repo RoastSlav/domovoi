@@ -55,6 +55,15 @@ impl UserRepo for InMemoryStore {
     async fn count(&self) -> Result<u64, StoreError> {
         Ok(self.begin()?.users.len() as u64)
     }
+
+    async fn first_user(&self) -> Result<Option<User>, StoreError> {
+        Ok(self
+            .begin()?
+            .users
+            .values()
+            .min_by_key(|u| (u.created_at, u.id))
+            .cloned())
+    }
 }
 
 #[async_trait]

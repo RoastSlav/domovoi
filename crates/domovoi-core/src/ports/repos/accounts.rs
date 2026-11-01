@@ -35,6 +35,9 @@ pub trait UserRepo: Send + Sync {
 
     /// How many accounts exist; zero means first-start setup is still open.
     async fn count(&self) -> Result<u64, StoreError>;
+
+    /// The oldest account (by creation time, then id): the admin chat actions run as.
+    async fn first_user(&self) -> Result<Option<User>, StoreError>;
 }
 
 /// Login sessions, looked up by the hash of the session cookie.
