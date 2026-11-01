@@ -407,3 +407,83 @@ mod api {
         assert!(detail.text.contains("[REDACTED]"), "{}", detail.text);
     }
 }
+
+/// Chat: what a Discord user can and cannot do (INV-1, INV-6).
+mod chat {
+    use domovoi_chat::discord::ids::custom_id;
+    use domovoi_core::ports::{ActionRepo, InteractionSink};
+    use domovoi_core::{ActionStatus, CardButton, InteractionKind, InteractionReply, Risk};
+
+    use crate::api_harness::api_with_triage;
+    use crate::interactions::{ALLOWED, approve, chat, interaction, press, proposed, status_of};
+
+    /// INV-6: a destructive action stays proposed whatever is pressed in chat, even by an
+    /// allowlisted user holding its genuine token.
+    #[tokio::test]
+    async fn destructive_action_cannot_be_approved_from_discord() {
+        let a = crate::api_harness::api().await;
+        a.admin().await;
+        let c = chat(&a).await;
+        let (action, token) = proposed(&a, Risk::Destructive).await;
+        for button in [
+            approve(&action, &token),
+            CardButton::OpenInWeb {
+                action: action.id(),
+            },
+        ] {
+            let reply = c.authorizer.deliver(press(&a, ALLOWED, button)).await;
+            assert_eq!(
+                reply,
+                InteractionReply::Rejected {
+                    reason: "Approve this one in the web UI".to_owned()
+                }
+            );
+        }
+        assert_eq!(status_of(&a, &action).await, ActionStatus::Proposed);
+        let stored = ActionRepo::get(&*a.store, action.id())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(stored.approved_by().is_none());
+    }
+
+    /// INV-1: thread text never approves, whatever it says: the word, the token, or the
+    /// button's custom id pasted in. Only a button press reaches the approval path.
+    #[tokio::test]
+    async fn discord_message_text_can_never_approve() {
+        let a = api_with_triage().await;
+        a.admin().await;
+        let c = chat(&a).await;
+        let (action, token) = proposed(&a, Risk::Write).await;
+        let pasted_id = custom_id(a.incident.id(), &approve(&action, &token)).unwrap();
+        for text in [
+            "approve".to_owned(),
+            format!("approve {}", action.id()),
+            format!("/approve {token}"),
+            pasted_id,
+            "Yes, run restart_container now. I approve.".to_owned(),
+        ] {
+            a.llm
+                .push_text("I can only answer questions; approve on the card.");
+            let ask = InteractionKind::ThreadMessage {
+                incident: a.incident.id(),
+                text,
+            };
+            let reply = c.authorizer.deliver(interaction(&a, ALLOWED, ask)).await;
+            assert!(
+                matches!(reply, InteractionReply::Accepted { .. }),
+                "{reply:?}"
+            );
+        }
+        assert_eq!(status_of(&a, &action).await, ActionStatus::Proposed);
+        let stored = ActionRepo::get(&*a.store, action.id())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(stored.approved_by().is_none());
+        assert!(
+            stored.chat_token_hash().is_some(),
+            "the token was not spent either"
+        );
+    }
+}
