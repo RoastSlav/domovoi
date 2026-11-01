@@ -1,6 +1,6 @@
 //! Invariant gates for the hub. Never delete or weaken these; extend them.
 //!
-//! Built into the `agent_server` test binary, which owns the scripted agent.
+//! Built into the `hub` test binary, which owns the scripted agent and the API harness.
 
 use domovoi_core::ReadToolCall;
 use domovoi_core::ports::{AgentLink, LinkError, Presence};
@@ -142,4 +142,187 @@ async fn webhook_without_auth_never_reaches_signal_sink() {
     )
     .await;
     assert!(sink.batches().is_empty());
+}
+
+// The web surface (INV-1, INV-5, INV-6, INV-8): every unsafe method needs the session's
+// CSRF token and the hub's own origin, destructive approvals need the exact skill name,
+// and settings never show a secret.
+mod api {
+    use axum::body::Body;
+    use axum::http::{Method, Request, StatusCode, header};
+    use domovoi_core::{ActionStatus, Risk};
+    use domovoi_hub::auth::csrf::NO_TOKEN_PATHS;
+    use serde_json::json;
+
+    use crate::api_harness::{Api, Login, ORIGIN, SECRETS, api};
+
+    /// Every unsafe method and concrete path of the API, from the OpenAPI document, with
+    /// path parameters filled in from `a`.
+    async fn mutating_routes(a: &Api) -> Vec<(Method, String)> {
+        let action = a.propose(Risk::Write).await;
+        let note = domovoi_core::Note {
+            id: domovoi_core::NoteId::new(),
+            host: None,
+            title: "n".to_owned(),
+            body_markdown: String::new(),
+            tags: Vec::new(),
+            updated_at: a.now(),
+        };
+        domovoi_core::ports::NoteRepo::upsert(&*a.store, &note)
+            .await
+            .unwrap();
+        let spec = domovoi_hub::router::openapi();
+        let mut routes = Vec::new();
+        for (path, item) in &spec.paths.paths {
+            let concrete = path.replace("{name}", "nas").replace(
+                "{id}",
+                &if path.starts_with("/api/v1/actions") {
+                    action.id().to_string()
+                } else if path.starts_with("/api/v1/notes") {
+                    note.id.to_string()
+                } else {
+                    a.incident.id().to_string()
+                },
+            );
+            let methods = [
+                (item.post.is_some(), Method::POST),
+                (item.put.is_some(), Method::PUT),
+                (item.patch.is_some(), Method::PATCH),
+                (item.delete.is_some(), Method::DELETE),
+            ];
+            for (present, method) in methods {
+                if present {
+                    routes.push((method, concrete.clone()));
+                }
+            }
+        }
+        assert!(routes.len() >= 15, "the document lists the mutating routes");
+        routes
+    }
+
+    async fn send(
+        a: &Api,
+        method: Method,
+        uri: &str,
+        cookie: &str,
+        csrf: Option<&str>,
+        origin: Option<&str>,
+    ) -> StatusCode {
+        let mut req = Request::builder()
+            .method(method)
+            .uri(uri)
+            .header(header::COOKIE, cookie)
+            .header(header::CONTENT_TYPE, "application/json");
+        if let Some(csrf) = csrf {
+            req = req.header("x-csrf-token", csrf);
+        }
+        if let Some(origin) = origin {
+            req = req.header(header::ORIGIN, origin);
+        }
+        a.raw(req.body(Body::from("{}")).unwrap()).await.status
+    }
+
+    #[tokio::test]
+    async fn unsafe_methods_without_csrf_are_403() {
+        let a = api().await;
+        let login = a.admin().await;
+        for (method, uri) in mutating_routes(&a).await {
+            if NO_TOKEN_PATHS.contains(&uri.as_str()) {
+                continue;
+            }
+            for token in [None, Some("0".repeat(64).as_str()), Some("not-a-token")] {
+                let status = send(&a, method.clone(), &uri, &login.cookie, token, None).await;
+                assert_eq!(
+                    status,
+                    StatusCode::FORBIDDEN,
+                    "{method} {uri} with {token:?}"
+                );
+            }
+        }
+        assert_eq!(
+            a.get("/api/v1/session", &login).await.status,
+            StatusCode::OK,
+            "the session still works"
+        );
+    }
+
+    #[tokio::test]
+    async fn cross_origin_mutation_is_403() {
+        let a = api().await;
+        let login = a.admin().await;
+        for (method, uri) in mutating_routes(&a).await {
+            for origin in ["https://evil.example", "http://domovoi.example.net", "null"] {
+                let status = send(
+                    &a,
+                    method.clone(),
+                    &uri,
+                    &login.cookie,
+                    Some(&login.csrf),
+                    Some(origin),
+                )
+                .await;
+                assert_eq!(
+                    status,
+                    StatusCode::FORBIDDEN,
+                    "{method} {uri} from {origin}"
+                );
+            }
+        }
+        let same = send(
+            &a,
+            Method::POST,
+            &format!("/api/v1/incidents/{}/ack", a.incident.id()),
+            &login.cookie,
+            Some(&login.csrf),
+            Some(ORIGIN),
+        )
+        .await;
+        assert_eq!(same, StatusCode::NO_CONTENT, "the hub's own origin is fine");
+    }
+
+    #[tokio::test]
+    async fn destructive_approve_requires_exact_confirm_text() {
+        let a = api().await;
+        let login: Login = a.admin().await;
+        let action = a.propose(Risk::Destructive).await;
+        let uri = format!("/api/v1/actions/{}/approve", action.id());
+        for confirm in [
+            json!({}),
+            json!({ "confirm_text": null }),
+            json!({ "confirm_text": "" }),
+            json!({ "confirm_text": "RESTART_CONTAINER" }),
+            json!({ "confirm_text": "restart_container " }),
+            json!({ "confirm_text": " restart_container" }),
+            json!({ "confirm_text": "restart" }),
+        ] {
+            let reply = a.post(&uri, &login, confirm.clone()).await;
+            assert_eq!(reply.status, StatusCode::FORBIDDEN, "{confirm}");
+            let stored = domovoi_core::ports::ActionRepo::get(&*a.store, action.id())
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(stored.status(), &ActionStatus::Proposed);
+        }
+        let reply = a
+            .post(&uri, &login, json!({ "confirm_text": "restart_container" }))
+            .await;
+        assert_eq!(reply.status, StatusCode::OK, "{}", reply.text);
+        assert_eq!(reply.body["status"], "approved");
+    }
+
+    #[tokio::test]
+    async fn settings_never_return_secret_values() {
+        let a = api().await;
+        let login = a.admin().await;
+        let reply = a.get("/api/v1/settings", &login).await;
+        assert_eq!(reply.status, StatusCode::OK, "{}", reply.text);
+        for (name, value) in SECRETS {
+            assert!(!reply.text.contains(value), "{name} leaked");
+        }
+        assert_eq!(reply.body["llm_primary"]["api_key"], "[set]");
+        assert_eq!(reply.body["discord"]["bot_token"], "[set]");
+        assert_eq!(reply.body["webhooks"][0]["secret"], "[set]");
+        assert_eq!(reply.body["heartbeat"]["url"], "[set]");
+        assert_eq!(reply.body["llm_secondary"]["api_key"], "[unset]");
+    }
 }

@@ -7,7 +7,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 publish.workspace = true
-# tests/gates.rs is built into the agent_server test binary, which owns its helpers.
+# tests/gates.rs is built into the hub test binary, which owns its helpers.
 autotests = false
 
 [features]
@@ -60,8 +60,8 @@ insta = { workspace = true }
 tempfile = { workspace = true }
 
 [[test]]
-name = "agent_server"
-path = "tests/agent_server/main.rs"
+name = "hub"
+path = "tests/hub/main.rs"
 
 [[test]]
 name = "ingest"

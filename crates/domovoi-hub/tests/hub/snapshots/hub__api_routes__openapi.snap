@@ -1,0 +1,2833 @@
+---
+source: crates/domovoi-hub/tests/hub/api_routes.rs
+expression: spec
+---
+{
+  "components": {
+    "schemas": {
+      "ActionDto": {
+        "description": "An action.",
+        "properties": {
+          "approved_by": {
+            "description": "Who approved it, if anyone.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "args": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Arguments by parameter name.",
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "created_at": {
+            "description": "When it was proposed.",
+            "type": "string"
+          },
+          "expires_at": {
+            "description": "When the approval window closes.",
+            "type": "string"
+          },
+          "host_id": {
+            "description": "The host it runs on.",
+            "type": "string"
+          },
+          "id": {
+            "description": "Action id.",
+            "type": "string"
+          },
+          "incident_id": {
+            "description": "The incident it is for.",
+            "type": "string"
+          },
+          "proposed_by": {
+            "description": "Who proposed it, for example `system:triage`.",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Why it was rejected or failed.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "risk": {
+            "description": "`read`, `write` or `destructive`.",
+            "type": "string"
+          },
+          "skill": {
+            "description": "Skill name.",
+            "type": "string"
+          },
+          "status": {
+            "description": "The status name, for example `proposed` or `verified`.",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "When it last changed.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "incident_id",
+          "host_id",
+          "skill",
+          "risk",
+          "args",
+          "status",
+          "proposed_by",
+          "expires_at",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "ActionPage": {
+        "description": "One page of actions, newest first.",
+        "properties": {
+          "items": {
+            "description": "The actions.",
+            "items": {
+              "$ref": "#/components/schemas/ActionDto"
+            },
+            "type": "array"
+          },
+          "next_cursor": {
+            "description": "Pass as `cursor` for the next page; absent on the last.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
+      "AdvisoryDto": {
+        "description": "An open advisory.",
+        "properties": {
+          "created_at": {
+            "description": "When it was raised.",
+            "type": "string"
+          },
+          "detail": {
+            "description": "What to do.",
+            "type": "string"
+          },
+          "host_id": {
+            "description": "The host it is about, if any.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "description": "Advisory id.",
+            "type": "string"
+          },
+          "kind": {
+            "description": "The kind, for example `stale_image`.",
+            "type": "string"
+          },
+          "title": {
+            "description": "One line.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "title",
+          "detail",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "ApproveRequest": {
+        "description": "Approving an action.",
+        "properties": {
+          "confirm_text": {
+            "description": "For destructive skills: the skill's name typed exactly, as confirmation.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "AskRequest": {
+        "description": "A follow-up question.",
+        "properties": {
+          "question": {
+            "description": "The question, at most 1000 characters.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "question"
+        ],
+        "type": "object"
+      },
+      "AskResponse": {
+        "description": "The answer to a follow-up question.",
+        "properties": {
+          "answer": {
+            "description": "Plain text, at most 1500 characters.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "answer"
+        ],
+        "type": "object"
+      },
+      "CardDto": {
+        "description": "The incident's chat card, as it would be posted.",
+        "properties": {
+          "badge": {
+            "description": "The badge text: a verdict or a severity.",
+            "type": "string"
+          },
+          "bullets": {
+            "description": "Key facts.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "details": {
+            "description": "Summary, cause and details, if triage ran.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "headline": {
+            "description": "One line.",
+            "type": "string"
+          },
+          "next_step": {
+            "description": "The next step, if triage gave one.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "resolved": {
+            "description": "Whether the incident resolved.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "badge",
+          "headline",
+          "bullets",
+          "resolved"
+        ],
+        "type": "object"
+      },
+      "DigestPreview": {
+        "description": "The daily digest as it would be sent now.",
+        "properties": {
+          "date": {
+            "description": "The day it is for.",
+            "type": "string"
+          },
+          "markdown": {
+            "description": "The rendered Markdown.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "date",
+          "markdown"
+        ],
+        "type": "object"
+      },
+      "DiscordSettings": {
+        "description": "Discord.",
+        "properties": {
+          "allowed_user_ids": {
+            "description": "Discord user ids allowed to press buttons.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "bot_token": {
+            "description": "`[set]` or `[unset]`.",
+            "type": "string"
+          },
+          "channel_id": {
+            "description": "The channel cards go to.",
+            "type": "string"
+          },
+          "enabled": {
+            "description": "Whether the bot runs.",
+            "type": "boolean"
+          },
+          "webhook_url": {
+            "description": "`[set]` or `[unset]`.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "enabled",
+          "channel_id",
+          "allowed_user_ids",
+          "bot_token",
+          "webhook_url"
+        ],
+        "type": "object"
+      },
+      "ErrorBody": {
+        "description": "The body of every error response.",
+        "properties": {
+          "error": {
+            "description": "A stable machine-readable code, for example `not_found`.",
+            "type": "string"
+          },
+          "message": {
+            "description": "One line for people.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "error",
+          "message"
+        ],
+        "type": "object"
+      },
+      "EvidenceDto": {
+        "description": "One piece of evidence in a report.",
+        "properties": {
+          "label": {
+            "description": "What it shows.",
+            "type": "string"
+          },
+          "source": {
+            "description": "Where it came from.",
+            "type": "string"
+          },
+          "value": {
+            "description": "The value.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "value",
+          "source"
+        ],
+        "type": "object"
+      },
+      "HeartbeatSettings": {
+        "description": "The dead man's switch.",
+        "properties": {
+          "configured": {
+            "description": "Whether a heartbeat URL is configured.",
+            "type": "boolean"
+          },
+          "failing": {
+            "description": "Whether the heartbeat-missing advisory is open.",
+            "type": "boolean"
+          },
+          "interval": {
+            "description": "How often it is pinged, if configured.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "url": {
+            "description": "`[set]` or `[unset]`.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "configured",
+          "url",
+          "failing"
+        ],
+        "type": "object"
+      },
+      "HostDto": {
+        "description": "A host and its agent's presence.",
+        "properties": {
+          "connected": {
+            "description": "Whether the agent is connected now.",
+            "type": "boolean"
+          },
+          "connected_since": {
+            "description": "Since when it is connected.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "description": "Host id.",
+            "type": "string"
+          },
+          "kind": {
+            "description": "`agent`, `container_agent` or `external`.",
+            "type": "string"
+          },
+          "last_seen": {
+            "description": "When it was last seen, while disconnected.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "description": "Host name.",
+            "type": "string"
+          },
+          "version": {
+            "description": "The agent's version, while connected.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "connected"
+        ],
+        "type": "object"
+      },
+      "HubSettings": {
+        "description": "The hub's identity.",
+        "properties": {
+          "bind": {
+            "description": "Where the web UI listens.",
+            "type": "string"
+          },
+          "name": {
+            "description": "The hub's name.",
+            "type": "string"
+          },
+          "public_url": {
+            "description": "The URL people open, if set.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "timezone": {
+            "description": "The time zone for quiet hours and the digest.",
+            "type": "string"
+          },
+          "trusted_proxies": {
+            "description": "Proxies whose forwarded headers are trusted.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "timezone",
+          "bind",
+          "trusted_proxies"
+        ],
+        "type": "object"
+      },
+      "IncidentDetail": {
+        "description": "Everything about one incident.",
+        "properties": {
+          "actions": {
+            "description": "Actions for this incident, newest first.",
+            "items": {
+              "$ref": "#/components/schemas/ActionDto"
+            },
+            "type": "array"
+          },
+          "card": {
+            "$ref": "#/components/schemas/CardDto",
+            "description": "The chat card."
+          },
+          "host": {
+            "description": "The host's name.",
+            "type": "string"
+          },
+          "incident": {
+            "$ref": "#/components/schemas/IncidentSummary",
+            "description": "The incident."
+          },
+          "report": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ReportDto",
+                "description": "The latest triage report, if any."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "timeline": {
+            "description": "The timeline, oldest first.",
+            "items": {
+              "$ref": "#/components/schemas/TimelineEntryDto"
+            },
+            "type": "array"
+          },
+          "triage": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TriageStateDto",
+                "description": "How the latest triage went, if it ran."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "incident",
+          "host",
+          "card",
+          "timeline",
+          "actions"
+        ],
+        "type": "object"
+      },
+      "IncidentPage": {
+        "description": "One page of incidents, newest first.",
+        "properties": {
+          "items": {
+            "description": "The incidents.",
+            "items": {
+              "$ref": "#/components/schemas/IncidentSummary"
+            },
+            "type": "array"
+          },
+          "next_cursor": {
+            "description": "Pass as `cursor` for the next page; absent on the last.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
+      "IncidentSummary": {
+        "description": "One incident in a list.",
+        "properties": {
+          "check": {
+            "description": "What was checked, for example `disk.usage`.",
+            "type": "string"
+          },
+          "host_id": {
+            "description": "Host id.",
+            "type": "string"
+          },
+          "id": {
+            "description": "Incident id.",
+            "type": "string"
+          },
+          "last_firing_at": {
+            "description": "When it last fired.",
+            "type": "string"
+          },
+          "muted_until": {
+            "description": "When a mute ends, if muted.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "occurrences": {
+            "description": "Firing signals folded into it.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "opened_at": {
+            "description": "When the first signal arrived.",
+            "type": "string"
+          },
+          "resolved_at": {
+            "description": "When it resolved.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "severity": {
+            "description": "`info`, `warning` or `critical`.",
+            "type": "string"
+          },
+          "status": {
+            "description": "`pending`, `open`, `acked`, `muted` or `resolved`.",
+            "type": "string"
+          },
+          "target": {
+            "description": "What it was checked on, for example `/srv`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "description": "One line for people.",
+            "type": "string"
+          },
+          "verdict": {
+            "description": "Triage's verdict, if any: `ACTION_NEEDED`, `MONITOR`, `EXPECTED` or `FIXED`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "host_id",
+          "check",
+          "title",
+          "status",
+          "severity",
+          "opened_at",
+          "last_firing_at",
+          "occurrences"
+        ],
+        "type": "object"
+      },
+      "InviteDto": {
+        "description": "An enrollment invite. Shown once; the token is not stored.",
+        "properties": {
+          "command": {
+            "description": "The command to run on the host.",
+            "type": "string"
+          },
+          "expires_at": {
+            "description": "When the token stops working.",
+            "type": "string"
+          },
+          "fingerprint": {
+            "description": "The hub's certificate fingerprint the agent pins.",
+            "type": "string"
+          },
+          "host_id": {
+            "description": "The host it is for.",
+            "type": "string"
+          },
+          "token": {
+            "description": "The one-time enrollment token.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "host_id",
+          "token",
+          "expires_at",
+          "fingerprint",
+          "command"
+        ],
+        "type": "object"
+      },
+      "LlmSettings": {
+        "description": "One language model provider.",
+        "properties": {
+          "api_key": {
+            "description": "`[set]` or `[unset]`.",
+            "type": "string"
+          },
+          "base_url": {
+            "description": "The API base URL, if set.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "description": "`anthropic`, `openai_compatible` or `cli`.",
+            "type": "string"
+          },
+          "model": {
+            "description": "The model, if set.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "kind",
+          "api_key"
+        ],
+        "type": "object"
+      },
+      "LoginRequest": {
+        "description": "Logging in.",
+        "properties": {
+          "password": {
+            "description": "Password.",
+            "type": "string"
+          },
+          "username": {
+            "description": "Login name.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "username",
+          "password"
+        ],
+        "type": "object"
+      },
+      "MuteRequest": {
+        "description": "Muting an incident.",
+        "properties": {
+          "minutes": {
+            "description": "How long, in minutes, 1 to 10080 (a week).",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "minutes"
+        ],
+        "type": "object"
+      },
+      "NoteDto": {
+        "description": "A note.",
+        "properties": {
+          "body_markdown": {
+            "description": "Body in Markdown.",
+            "type": "string"
+          },
+          "host_id": {
+            "description": "The host it is about, by id; absent for global notes.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "description": "Note id.",
+            "type": "string"
+          },
+          "tags": {
+            "description": "Tags.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "title": {
+            "description": "Title.",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "When it last changed.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "body_markdown",
+          "tags",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "NoteHitDto": {
+        "description": "One search hit.",
+        "properties": {
+          "note": {
+            "$ref": "#/components/schemas/NoteDto",
+            "description": "The note."
+          },
+          "score": {
+            "description": "Relevance; higher is better.",
+            "format": "double",
+            "type": "number"
+          },
+          "snippet": {
+            "description": "The matching text.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "note",
+          "snippet",
+          "score"
+        ],
+        "type": "object"
+      },
+      "NoteInput": {
+        "description": "Creating or replacing a note.",
+        "properties": {
+          "body_markdown": {
+            "description": "Body in Markdown, at most 64 KiB.",
+            "type": "string"
+          },
+          "host": {
+            "description": "The host it is about, by name; absent for a global note.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tags": {
+            "description": "Tags.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "title": {
+            "description": "Title, 1 to 200 characters.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "body_markdown"
+        ],
+        "type": "object"
+      },
+      "ParamDto": {
+        "description": "One declared skill parameter.",
+        "properties": {
+          "description": {
+            "description": "What it means.",
+            "type": "string"
+          },
+          "kind": {
+            "description": "The type and its limits as JSON, for example `{\"type\":\"integer\",\"min\":1,\"max\":10}`."
+          },
+          "name": {
+            "description": "Parameter name.",
+            "type": "string"
+          },
+          "required": {
+            "description": "Whether it must be given.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "required",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "ProposalDto": {
+        "description": "An action triage suggested.",
+        "properties": {
+          "args": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Arguments by parameter name.",
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "reason": {
+            "description": "Why.",
+            "type": "string"
+          },
+          "skill": {
+            "description": "Skill name.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "skill",
+          "args",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "ReportDto": {
+        "description": "A triage report.",
+        "properties": {
+          "cause": {
+            "description": "The likely cause.",
+            "type": "string"
+          },
+          "details": {
+            "description": "Anything else.",
+            "type": "string"
+          },
+          "evidence": {
+            "description": "Supporting evidence.",
+            "items": {
+              "$ref": "#/components/schemas/EvidenceDto"
+            },
+            "type": "array"
+          },
+          "headline": {
+            "description": "What is wrong, in one line.",
+            "type": "string"
+          },
+          "next_step": {
+            "description": "The single next step.",
+            "type": "string"
+          },
+          "proposals": {
+            "description": "Suggested actions.",
+            "items": {
+              "$ref": "#/components/schemas/ProposalDto"
+            },
+            "type": "array"
+          },
+          "summary": {
+            "description": "What happened.",
+            "type": "string"
+          },
+          "verdict": {
+            "description": "`ACTION_NEEDED`, `MONITOR`, `EXPECTED` or `FIXED`.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "headline",
+          "summary",
+          "cause",
+          "evidence",
+          "verdict",
+          "next_step",
+          "proposals",
+          "details"
+        ],
+        "type": "object"
+      },
+      "RevokeDto": {
+        "description": "Whether an agent was revoked.",
+        "properties": {
+          "revoked": {
+            "description": "`false` when the host had no live agent.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "revoked"
+        ],
+        "type": "object"
+      },
+      "SessionDto": {
+        "description": "The current session.",
+        "properties": {
+          "csrf_token": {
+            "description": "Send as `X-CSRF-Token` on every `POST`, `PUT`, `PATCH` and `DELETE`.",
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/components/schemas/UserDto",
+            "description": "Who is logged in."
+          }
+        },
+        "required": [
+          "user",
+          "csrf_token"
+        ],
+        "type": "object"
+      },
+      "SettingsDto": {
+        "description": "The effective settings.",
+        "properties": {
+          "discord": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DiscordSettings",
+                "description": "Discord, if configured."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "heartbeat": {
+            "$ref": "#/components/schemas/HeartbeatSettings",
+            "description": "The heartbeat."
+          },
+          "hub": {
+            "$ref": "#/components/schemas/HubSettings",
+            "description": "The hub and web listener."
+          },
+          "llm_primary": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/LlmSettings",
+                "description": "The primary model provider, if configured."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "llm_secondary": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/LlmSettings",
+                "description": "The fallback model provider, if configured."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "triage": {
+            "$ref": "#/components/schemas/TriageSettings",
+            "description": "Triage limits."
+          },
+          "usage": {
+            "$ref": "#/components/schemas/UsageSettings",
+            "description": "Model usage this month."
+          },
+          "webhooks": {
+            "description": "Inbound webhooks.",
+            "items": {
+              "$ref": "#/components/schemas/WebhookSettings"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "hub",
+          "triage",
+          "webhooks",
+          "heartbeat",
+          "usage"
+        ],
+        "type": "object"
+      },
+      "SetupRequest": {
+        "description": "Creating the admin account on first run.",
+        "properties": {
+          "password": {
+            "description": "Password, at least 12 characters.",
+            "type": "string"
+          },
+          "token": {
+            "description": "The token from the setup link the hub logged.",
+            "type": "string"
+          },
+          "username": {
+            "description": "Login name, 1 to 64 characters without spaces.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "username",
+          "password"
+        ],
+        "type": "object"
+      },
+      "SkillDto": {
+        "description": "A skill on a host.",
+        "properties": {
+          "applies_to": {
+            "description": "Checks it is relevant to.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "description": {
+            "description": "What it does.",
+            "type": "string"
+          },
+          "name": {
+            "description": "Skill name.",
+            "type": "string"
+          },
+          "params": {
+            "description": "Declared parameters.",
+            "items": {
+              "$ref": "#/components/schemas/ParamDto"
+            },
+            "type": "array"
+          },
+          "risk": {
+            "description": "`read`, `write` or `destructive`.",
+            "type": "string"
+          },
+          "timeout_secs": {
+            "description": "How long one run may take, in seconds.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "risk",
+          "params",
+          "applies_to",
+          "timeout_secs"
+        ],
+        "type": "object"
+      },
+      "TimelineEntryDto": {
+        "description": "One timeline line.",
+        "properties": {
+          "at": {
+            "description": "When.",
+            "type": "string"
+          },
+          "kind": {
+            "description": "What kind, for example `incident.opened` or `triage.report`.",
+            "type": "string"
+          },
+          "summary": {
+            "description": "One line.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "at",
+          "kind",
+          "summary"
+        ],
+        "type": "object"
+      },
+      "TriageSettings": {
+        "description": "Triage limits.",
+        "properties": {
+          "concurrency": {
+            "description": "Runs at the same time.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "enabled": {
+            "description": "Whether new incidents are triaged.",
+            "type": "boolean"
+          },
+          "monthly_budget_usd": {
+            "description": "Monthly spending cap in US dollars, if set.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "per_hour_runs": {
+            "description": "Runs per hour at most.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "enabled",
+          "concurrency",
+          "per_hour_runs"
+        ],
+        "type": "object"
+      },
+      "TriageStateDto": {
+        "description": "How triage went for an incident.",
+        "properties": {
+          "kind": {
+            "description": "`report`, `cached`, `skipped` or `failed`.",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Why it was skipped or failed.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "type": "object"
+      },
+      "UiEvent": {
+        "description": "A change the web UI should show, sent on the event stream.",
+        "properties": {
+          "action_id": {
+            "description": "The action concerned, for action events.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "event": {
+            "description": "What happened, for example `incident_opened` or `action_changed`.",
+            "type": "string"
+          },
+          "incident_id": {
+            "description": "The incident concerned.",
+            "type": "string"
+          },
+          "kind": {
+            "description": "`incident` or `action`.",
+            "type": "string"
+          },
+          "status": {
+            "description": "The new status name, when it changed.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "kind",
+          "event",
+          "incident_id"
+        ],
+        "type": "object"
+      },
+      "UsageSettings": {
+        "description": "Model usage this calendar month (UTC).",
+        "properties": {
+          "cost_usd": {
+            "description": "Cost in US dollars, as far as prices are configured.",
+            "format": "double",
+            "type": "number"
+          },
+          "tokens_in": {
+            "description": "Prompt tokens.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "tokens_out": {
+            "description": "Generated tokens.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tokens_in",
+          "tokens_out",
+          "cost_usd"
+        ],
+        "type": "object"
+      },
+      "UserDto": {
+        "description": "The logged-in user.",
+        "properties": {
+          "id": {
+            "description": "User id.",
+            "type": "string"
+          },
+          "username": {
+            "description": "Login name.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "username"
+        ],
+        "type": "object"
+      },
+      "WebhookSettings": {
+        "description": "One inbound webhook.",
+        "properties": {
+          "auth": {
+            "description": "`hmac` or `bearer`.",
+            "type": "string"
+          },
+          "default_host": {
+            "description": "The host used when the payload names none.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "description": "`generic`, `alertmanager` or `uptime_kuma`.",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name in its URL.",
+            "type": "string"
+          },
+          "secret": {
+            "description": "`[set]` or `[unset]`.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "kind",
+          "auth",
+          "secret"
+        ],
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "session": {
+        "in": "cookie",
+        "name": "domovoi_session",
+        "type": "apiKey"
+      }
+    }
+  },
+  "info": {
+    "description": "The hub's JSON API. Log in with `POST /api/v1/auth/login`; the session is a cookie. Send the session's `csrf_token` as `X-CSRF-Token` on every unsafe request.",
+    "license": {
+      "identifier": "MIT OR Apache-2.0",
+      "name": "MIT OR Apache-2.0"
+    },
+    "title": "Domovoi hub API",
+    "version": "0.0.1"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/actions": {
+      "get": {
+        "operationId": "list_actions",
+        "parameters": [
+          {
+            "description": "Only this status name, for example `proposed`.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The `next_cursor` of the previous page.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Page size, 1 to 200. Default 50.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionPage"
+                }
+              }
+            },
+            "description": "One page"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unknown status"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          }
+        },
+        "summary": "Actions, newest first.",
+        "tags": [
+          "actions"
+        ]
+      }
+    },
+    "/api/v1/actions/{id}/approve": {
+      "post": {
+        "operationId": "approve_action",
+        "parameters": [
+          {
+            "description": "Action id",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionDto"
+                }
+              }
+            },
+            "description": "Approved; it runs next"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Destructive without the typed confirmation"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such action"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not proposed any more, or expired"
+          }
+        },
+        "summary": "Approves a proposed action. Destructive skills need `confirm_text` equal to the skill's\nname; chat buttons can never approve them.",
+        "tags": [
+          "actions"
+        ]
+      }
+    },
+    "/api/v1/actions/{id}/deny": {
+      "post": {
+        "operationId": "deny_action",
+        "parameters": [
+          {
+            "description": "Action id",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionDto"
+                }
+              }
+            },
+            "description": "Denied"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such action"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not proposed any more"
+          }
+        },
+        "summary": "Denies a proposed action.",
+        "tags": [
+          "actions"
+        ]
+      }
+    },
+    "/api/v1/advisories": {
+      "get": {
+        "operationId": "list_advisories",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AdvisoryDto"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Open advisories"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          }
+        },
+        "summary": "Open advisories, newest first.",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/v1/auth/login": {
+      "post": {
+        "operationId": "login",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionDto"
+                }
+              }
+            },
+            "description": "Logged in; the cookie is set"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Wrong username or password"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many attempts"
+          }
+        },
+        "summary": "Logs in and sets the session cookie. Five failures a minute from one address lock it\nout for a while.",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/logout": {
+      "post": {
+        "operationId": "logout",
+        "responses": {
+          "204": {
+            "description": "Logged out"
+          }
+        },
+        "summary": "Ends the session and clears the cookie.",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/setup": {
+      "post": {
+        "operationId": "setup",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetupRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionDto"
+                }
+              }
+            },
+            "description": "Account created and logged in"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Invalid username or password"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Wrong, used or expired token"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Setup is closed"
+          }
+        },
+        "summary": "Creates the admin account with the one-time token from the setup link, and logs in.\nOnly works before the first user exists.",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/digest/preview": {
+      "get": {
+        "operationId": "preview_digest",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DigestPreview"
+                }
+              }
+            },
+            "description": "The digest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          }
+        },
+        "summary": "Today's digest as it would be sent now.",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/v1/digest/send": {
+      "post": {
+        "operationId": "send_digest",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DigestPreview"
+                }
+              }
+            },
+            "description": "Sent"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No notifier is configured, or sending failed"
+          }
+        },
+        "summary": "Sends today's digest now.",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/v1/events": {
+      "get": {
+        "operationId": "stream_events",
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/UiEvent"
+                }
+              }
+            },
+            "description": "An event stream"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          }
+        },
+        "summary": "A stream of incident and action changes, as `incident` and `action` events whose data is\na JSON `UiEvent`.",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/v1/hosts": {
+      "get": {
+        "operationId": "list_hosts",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/HostDto"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The hosts"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          }
+        },
+        "summary": "Every host with its agent's presence, sorted by name.",
+        "tags": [
+          "hosts"
+        ]
+      }
+    },
+    "/api/v1/hosts/{name}/enrollment": {
+      "post": {
+        "operationId": "create_enrollment",
+        "parameters": [
+          {
+            "description": "Host name",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InviteDto"
+                }
+              }
+            },
+            "description": "The invite"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Invalid host name"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          }
+        },
+        "summary": "A one-time enrollment invite for host `name`, creating the host if it is new. The\ntoken is shown only in this response.",
+        "tags": [
+          "hosts"
+        ]
+      }
+    },
+    "/api/v1/hosts/{name}/revoke": {
+      "post": {
+        "operationId": "revoke_agent",
+        "parameters": [
+          {
+            "description": "Host name",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevokeDto"
+                }
+              }
+            },
+            "description": "Whether an agent was revoked"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such host"
+          }
+        },
+        "summary": "Revokes the agent of host `name` and disconnects it.",
+        "tags": [
+          "hosts"
+        ]
+      }
+    },
+    "/api/v1/hosts/{name}/skills": {
+      "get": {
+        "operationId": "list_skills",
+        "parameters": [
+          {
+            "description": "Host name",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SkillDto"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The catalogue"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such host"
+          }
+        },
+        "summary": "The skills host `name`'s agent reported.",
+        "tags": [
+          "hosts"
+        ]
+      }
+    },
+    "/api/v1/incidents": {
+      "get": {
+        "operationId": "list_incidents",
+        "parameters": [
+          {
+            "description": "Only this status: `pending`, `open`, `acked`, `muted` or `resolved`.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only this host, by name.",
+            "in": "query",
+            "name": "host",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only this severity: `info`, `warning` or `critical`.",
+            "in": "query",
+            "name": "severity",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The `next_cursor` of the previous page.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Page size, 1 to 200. Default 50.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncidentPage"
+                }
+              }
+            },
+            "description": "One page"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unknown filter value"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          }
+        },
+        "summary": "Incidents, newest first, with optional filters.",
+        "tags": [
+          "incidents"
+        ]
+      }
+    },
+    "/api/v1/incidents/{id}": {
+      "get": {
+        "operationId": "get_incident",
+        "parameters": [
+          {
+            "description": "Incident id",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncidentDetail"
+                }
+              }
+            },
+            "description": "The incident"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such incident"
+          }
+        },
+        "summary": "Everything about one incident: report, card, timeline and actions.",
+        "tags": [
+          "incidents"
+        ]
+      }
+    },
+    "/api/v1/incidents/{id}/ack": {
+      "post": {
+        "operationId": "ack_incident",
+        "parameters": [
+          {
+            "description": "Incident id",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Acknowledged"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No active incident"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not possible now"
+          }
+        },
+        "summary": "Acknowledges an incident.",
+        "tags": [
+          "incidents"
+        ]
+      }
+    },
+    "/api/v1/incidents/{id}/ask": {
+      "post": {
+        "operationId": "ask_incident",
+        "parameters": [
+          {
+            "description": "Incident id",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AskRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AskResponse"
+                }
+              }
+            },
+            "description": "The answer"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Empty or too long"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such incident"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Triage is off or the model is unavailable"
+          }
+        },
+        "summary": "Asks the triage model a follow-up question about an incident. It uses read-only tools\nand never proposes actions.",
+        "tags": [
+          "incidents"
+        ]
+      }
+    },
+    "/api/v1/incidents/{id}/mute": {
+      "post": {
+        "operationId": "mute_incident",
+        "parameters": [
+          {
+            "description": "Incident id",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MuteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Muted"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Bad duration"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No active incident"
+          }
+        },
+        "summary": "Mutes an incident for a while.",
+        "tags": [
+          "incidents"
+        ]
+      }
+    },
+    "/api/v1/incidents/{id}/unmute": {
+      "post": {
+        "operationId": "unmute_incident",
+        "parameters": [
+          {
+            "description": "Incident id",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Unmuted"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No active incident"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not muted"
+          }
+        },
+        "summary": "Lifts a mute.",
+        "tags": [
+          "incidents"
+        ]
+      }
+    },
+    "/api/v1/notes": {
+      "get": {
+        "operationId": "list_notes",
+        "parameters": [
+          {
+            "description": "Only notes about this host, by name; absent for global notes.",
+            "in": "query",
+            "name": "host",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/NoteDto"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The notes"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such host"
+          }
+        },
+        "summary": "Notes about one host, or global notes when no host is given.",
+        "tags": [
+          "notes"
+        ]
+      },
+      "post": {
+        "operationId": "create_note",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NoteInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoteDto"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Invalid note"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          }
+        },
+        "summary": "Creates a note.",
+        "tags": [
+          "notes"
+        ]
+      }
+    },
+    "/api/v1/notes/search": {
+      "get": {
+        "operationId": "search_notes",
+        "parameters": [
+          {
+            "description": "Words to look for.",
+            "in": "query",
+            "name": "q",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Also search this host's notes, by name.",
+            "in": "query",
+            "name": "host",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/NoteHitDto"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Hits, best first"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          }
+        },
+        "summary": "Full-text search over notes.",
+        "tags": [
+          "notes"
+        ]
+      }
+    },
+    "/api/v1/notes/{id}": {
+      "delete": {
+        "operationId": "delete_note",
+        "parameters": [
+          {
+            "description": "Note id",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such note"
+          }
+        },
+        "summary": "Deletes a note.",
+        "tags": [
+          "notes"
+        ]
+      },
+      "get": {
+        "operationId": "get_note",
+        "parameters": [
+          {
+            "description": "Note id",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoteDto"
+                }
+              }
+            },
+            "description": "The note"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such note"
+          }
+        },
+        "summary": "One note.",
+        "tags": [
+          "notes"
+        ]
+      },
+      "put": {
+        "operationId": "replace_note",
+        "parameters": [
+          {
+            "description": "Note id",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NoteInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoteDto"
+                }
+              }
+            },
+            "description": "Replaced"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Invalid note"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such note"
+          }
+        },
+        "summary": "Replaces a note.",
+        "tags": [
+          "notes"
+        ]
+      }
+    },
+    "/api/v1/session": {
+      "get": {
+        "operationId": "get_session",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionDto"
+                }
+              }
+            },
+            "description": "Logged in"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          }
+        },
+        "summary": "The current session and its CSRF token.",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/settings": {
+      "get": {
+        "operationId": "get_settings",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsDto"
+                }
+              }
+            },
+            "description": "The settings"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          }
+        },
+        "summary": "The effective configuration, secrets hidden.",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/healthz": {
+      "get": {
+        "operationId": "healthz",
+        "responses": {
+          "200": {
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Healthy"
+          }
+        },
+        "summary": "Liveness: `ok` while the hub serves requests.",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/metrics": {
+      "get": {
+        "operationId": "metrics",
+        "responses": {
+          "200": {
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Prometheus text format"
+          }
+        },
+        "summary": "Prometheus metrics.",
+        "tags": [
+          "system"
+        ]
+      }
+    }
+  },
+  "tags": [
+    {
+      "description": "Setup, login and sessions",
+      "name": "auth"
+    },
+    {
+      "description": "Incidents and their triage",
+      "name": "incidents"
+    },
+    {
+      "description": "Proposed actions and approvals",
+      "name": "actions"
+    },
+    {
+      "description": "Hosts, enrollment and skills",
+      "name": "hosts"
+    },
+    {
+      "description": "Host and global notes",
+      "name": "notes"
+    },
+    {
+      "description": "Settings, advisories, digest, events and health",
+      "name": "system"
+    }
+  ]
+}
