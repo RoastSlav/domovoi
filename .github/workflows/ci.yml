@@ -104,6 +104,10 @@ jobs:
           fi
       - name: OpenAPI document is up to date (ARCHITECTURE.md R12)
         run: cargo xtask openapi --check
+      - name: Configuration reference is up to date
+        run: cargo xtask docs-config --check
+      - name: Book links, anchors and pages
+        run: cargo xtask docs-links
       - name: Rustdoc
         env:
           RUSTDOCFLAGS: -D warnings

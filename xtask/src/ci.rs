@@ -99,6 +99,8 @@ pub fn run(root: &Path, fast: bool, web: bool) -> anyhow::Result<()> {
     )?;
     super::arch::run(root, None)?;
     super::openapi::run(root, true)?;
+    super::docs_config::run(root, true)?;
+    super::docs_links::run(root)?;
     if !fast {
         if Command::new("cargo")
             .current_dir(root)
