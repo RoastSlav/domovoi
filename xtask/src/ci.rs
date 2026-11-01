@@ -92,6 +92,7 @@ pub fn run(root: &Path, fast: bool, web: bool) -> anyhow::Result<()> {
         &["test", "--package", "xtask", "--locked"],
     )?;
     super::arch::run(root, None)?;
+    super::openapi::run(root, true)?;
     if !fast {
         if Command::new("cargo")
             .current_dir(root)

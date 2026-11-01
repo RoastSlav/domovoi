@@ -13,6 +13,9 @@ pub struct ActionFilter {
     pub incident: Option<IncidentId>,
     /// Only actions on this host.
     pub host: Option<HostId>,
+    /// Only actions with this status name (see
+    /// [`ActionStatus::NAMES`](crate::ActionStatus::NAMES)).
+    pub status: Option<String>,
 }
 
 /// Stored action requests. Listings order by `created_at`, newest first.

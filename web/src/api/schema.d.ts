@@ -4,6 +4,452 @@
  */
 
 export interface paths {
+    "/api/v1/actions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Actions, newest first. */
+        get: operations["list_actions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/actions/{id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approves a proposed action. Destructive skills need `confirm_text` equal to the skill's
+         *     name; chat buttons can never approve them.
+         */
+        post: operations["approve_action"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/actions/{id}/deny": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Denies a proposed action. */
+        post: operations["deny_action"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/advisories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Open advisories, newest first. */
+        get: operations["list_advisories"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Logs in and sets the session cookie. Five failures a minute from one address lock it
+         *     out for a while.
+         */
+        post: operations["login"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Ends the session and clears the cookie. */
+        post: operations["logout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/setup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Creates the admin account with the one-time token from the setup link, and logs in.
+         *     Only works before the first user exists.
+         */
+        post: operations["setup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/digest/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Today's digest as it would be sent now. */
+        get: operations["preview_digest"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/digest/send": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Sends today's digest now. */
+        post: operations["send_digest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A stream of incident and action changes, as `incident` and `action` events whose data is
+         *     a JSON `UiEvent`.
+         */
+        get: operations["stream_events"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/hosts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every host with its agent's presence, sorted by name. */
+        get: operations["list_hosts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/hosts/{name}/enrollment": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * A one-time enrollment invite for host `name`, creating the host if it is new. The
+         *     token is shown only in this response.
+         */
+        post: operations["create_enrollment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/hosts/{name}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revokes the agent of host `name` and disconnects it. */
+        post: operations["revoke_agent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/hosts/{name}/skills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The skills host `name`'s agent reported. */
+        get: operations["list_skills"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/incidents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Incidents, newest first, with optional filters. */
+        get: operations["list_incidents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/incidents/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Everything about one incident: report, card, timeline and actions. */
+        get: operations["get_incident"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/incidents/{id}/ack": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Acknowledges an incident. */
+        post: operations["ack_incident"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/incidents/{id}/ask": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Asks the triage model a follow-up question about an incident. It uses read-only tools
+         *     and never proposes actions.
+         */
+        post: operations["ask_incident"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/incidents/{id}/mute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mutes an incident for a while. */
+        post: operations["mute_incident"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/incidents/{id}/unmute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Lifts a mute. */
+        post: operations["unmute_incident"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Notes about one host, or global notes when no host is given. */
+        get: operations["list_notes"];
+        put?: never;
+        /** Creates a note. */
+        post: operations["create_note"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notes/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Full-text search over notes. */
+        get: operations["search_notes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notes/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One note. */
+        get: operations["get_note"];
+        /** Replaces a note. */
+        put: operations["replace_note"];
+        post?: never;
+        /** Deletes a note. */
+        delete: operations["delete_note"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The current session and its CSRF token. */
+        get: operations["get_session"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The effective configuration, secrets hidden. */
+        get: operations["get_settings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/healthz": {
         parameters: {
             query?: never;
@@ -11,7 +457,25 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /** Liveness: `ok` while the hub serves requests. */
         get: operations["healthz"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Prometheus metrics. */
+        get: operations["metrics"];
         put?: never;
         post?: never;
         delete?: never;
@@ -23,7 +487,482 @@ export interface paths {
 }
 export type webhooks = Record<string, never>;
 export interface components {
-    schemas: never;
+    schemas: {
+        /** @description An action. */
+        ActionDto: {
+            /** @description Who approved it, if anyone. */
+            approved_by?: string | null;
+            /** @description Arguments by parameter name. */
+            args: {
+                [key: string]: string;
+            };
+            /** @description When it was proposed. */
+            created_at: string;
+            /** @description When the approval window closes. */
+            expires_at: string;
+            /** @description The host it runs on. */
+            host_id: string;
+            /** @description Action id. */
+            id: string;
+            /** @description The incident it is for. */
+            incident_id: string;
+            /** @description Who proposed it, for example `system:triage`. */
+            proposed_by: string;
+            /** @description Why it was rejected or failed. */
+            reason?: string | null;
+            /** @description `read`, `write` or `destructive`. */
+            risk: string;
+            /** @description Skill name. */
+            skill: string;
+            /** @description The status name, for example `proposed` or `verified`. */
+            status: string;
+            /** @description When it last changed. */
+            updated_at: string;
+        };
+        /** @description One page of actions, newest first. */
+        ActionPage: {
+            /** @description The actions. */
+            items: components["schemas"]["ActionDto"][];
+            /** @description Pass as `cursor` for the next page; absent on the last. */
+            next_cursor?: string | null;
+        };
+        /** @description An open advisory. */
+        AdvisoryDto: {
+            /** @description When it was raised. */
+            created_at: string;
+            /** @description What to do. */
+            detail: string;
+            /** @description The host it is about, if any. */
+            host_id?: string | null;
+            /** @description Advisory id. */
+            id: string;
+            /** @description The kind, for example `stale_image`. */
+            kind: string;
+            /** @description One line. */
+            title: string;
+        };
+        /** @description Approving an action. */
+        ApproveRequest: {
+            /** @description For destructive skills: the skill's name typed exactly, as confirmation. */
+            confirm_text?: string | null;
+        };
+        /** @description A follow-up question. */
+        AskRequest: {
+            /** @description The question, at most 1000 characters. */
+            question: string;
+        };
+        /** @description The answer to a follow-up question. */
+        AskResponse: {
+            /** @description Plain text, at most 1500 characters. */
+            answer: string;
+        };
+        /** @description The incident's chat card, as it would be posted. */
+        CardDto: {
+            /** @description The badge text: a verdict or a severity. */
+            badge: string;
+            /** @description Key facts. */
+            bullets: string[];
+            /** @description Summary, cause and details, if triage ran. */
+            details?: string | null;
+            /** @description One line. */
+            headline: string;
+            /** @description The next step, if triage gave one. */
+            next_step?: string | null;
+            /** @description Whether the incident resolved. */
+            resolved: boolean;
+        };
+        /** @description The daily digest as it would be sent now. */
+        DigestPreview: {
+            /** @description The day it is for. */
+            date: string;
+            /** @description The rendered Markdown. */
+            markdown: string;
+        };
+        /** @description Discord. */
+        DiscordSettings: {
+            /** @description Discord user ids allowed to press buttons. */
+            allowed_user_ids: string[];
+            /** @description `[set]` or `[unset]`. */
+            bot_token: string;
+            /** @description The channel cards go to. */
+            channel_id: string;
+            /** @description Whether the bot runs. */
+            enabled: boolean;
+            /** @description `[set]` or `[unset]`. */
+            webhook_url: string;
+        };
+        /** @description The body of every error response. */
+        ErrorBody: {
+            /** @description A stable machine-readable code, for example `not_found`. */
+            error: string;
+            /** @description One line for people. */
+            message: string;
+        };
+        /** @description One piece of evidence in a report. */
+        EvidenceDto: {
+            /** @description What it shows. */
+            label: string;
+            /** @description Where it came from. */
+            source: string;
+            /** @description The value. */
+            value: string;
+        };
+        /** @description The dead man's switch. */
+        HeartbeatSettings: {
+            /** @description Whether a heartbeat URL is configured. */
+            configured: boolean;
+            /** @description Whether the heartbeat-missing advisory is open. */
+            failing: boolean;
+            /** @description How often it is pinged, if configured. */
+            interval?: string | null;
+            /** @description `[set]` or `[unset]`. */
+            url: string;
+        };
+        /** @description A host and its agent's presence. */
+        HostDto: {
+            /** @description Whether the agent is connected now. */
+            connected: boolean;
+            /** @description Since when it is connected. */
+            connected_since?: string | null;
+            /** @description Host id. */
+            id: string;
+            /** @description `agent`, `container_agent` or `external`. */
+            kind: string;
+            /** @description When it was last seen, while disconnected. */
+            last_seen?: string | null;
+            /** @description Host name. */
+            name: string;
+            /** @description The agent's version, while connected. */
+            version?: string | null;
+        };
+        /** @description The hub's identity. */
+        HubSettings: {
+            /** @description Where the web UI listens. */
+            bind: string;
+            /** @description The hub's name. */
+            name: string;
+            /** @description The URL people open, if set. */
+            public_url?: string | null;
+            /** @description The time zone for quiet hours and the digest. */
+            timezone: string;
+            /** @description Proxies whose forwarded headers are trusted. */
+            trusted_proxies: string[];
+        };
+        /** @description Everything about one incident. */
+        IncidentDetail: {
+            /** @description Actions for this incident, newest first. */
+            actions: components["schemas"]["ActionDto"][];
+            /** @description The chat card. */
+            card: components["schemas"]["CardDto"];
+            /** @description The host's name. */
+            host: string;
+            /** @description The incident. */
+            incident: components["schemas"]["IncidentSummary"];
+            report?: components["schemas"]["ReportDto"] | null;
+            /** @description The timeline, oldest first. */
+            timeline: components["schemas"]["TimelineEntryDto"][];
+            triage?: components["schemas"]["TriageStateDto"] | null;
+        };
+        /** @description One page of incidents, newest first. */
+        IncidentPage: {
+            /** @description The incidents. */
+            items: components["schemas"]["IncidentSummary"][];
+            /** @description Pass as `cursor` for the next page; absent on the last. */
+            next_cursor?: string | null;
+        };
+        /** @description One incident in a list. */
+        IncidentSummary: {
+            /** @description What was checked, for example `disk.usage`. */
+            check: string;
+            /** @description Host id. */
+            host_id: string;
+            /** @description Incident id. */
+            id: string;
+            /** @description When it last fired. */
+            last_firing_at: string;
+            /** @description When a mute ends, if muted. */
+            muted_until?: string | null;
+            /**
+             * Format: int32
+             * @description Firing signals folded into it.
+             */
+            occurrences: number;
+            /** @description When the first signal arrived. */
+            opened_at: string;
+            /** @description When it resolved. */
+            resolved_at?: string | null;
+            /** @description `info`, `warning` or `critical`. */
+            severity: string;
+            /** @description `pending`, `open`, `acked`, `muted` or `resolved`. */
+            status: string;
+            /** @description What it was checked on, for example `/srv`. */
+            target?: string | null;
+            /** @description One line for people. */
+            title: string;
+            /** @description Triage's verdict, if any: `ACTION_NEEDED`, `MONITOR`, `EXPECTED` or `FIXED`. */
+            verdict?: string | null;
+        };
+        /** @description An enrollment invite. Shown once; the token is not stored. */
+        InviteDto: {
+            /** @description The command to run on the host. */
+            command: string;
+            /** @description When the token stops working. */
+            expires_at: string;
+            /** @description The hub's certificate fingerprint the agent pins. */
+            fingerprint: string;
+            /** @description The host it is for. */
+            host_id: string;
+            /** @description The one-time enrollment token. */
+            token: string;
+        };
+        /** @description One language model provider. */
+        LlmSettings: {
+            /** @description `[set]` or `[unset]`. */
+            api_key: string;
+            /** @description The API base URL, if set. */
+            base_url?: string | null;
+            /** @description `anthropic`, `openai_compatible` or `cli`. */
+            kind: string;
+            /** @description The model, if set. */
+            model?: string | null;
+        };
+        /** @description Logging in. */
+        LoginRequest: {
+            /** @description Password. */
+            password: string;
+            /** @description Login name. */
+            username: string;
+        };
+        /** @description Muting an incident. */
+        MuteRequest: {
+            /**
+             * Format: int32
+             * @description How long, in minutes, 1 to 10080 (a week).
+             */
+            minutes: number;
+        };
+        /** @description A note. */
+        NoteDto: {
+            /** @description Body in Markdown. */
+            body_markdown: string;
+            /** @description The host it is about, by id; absent for global notes. */
+            host_id?: string | null;
+            /** @description Note id. */
+            id: string;
+            /** @description Tags. */
+            tags: string[];
+            /** @description Title. */
+            title: string;
+            /** @description When it last changed. */
+            updated_at: string;
+        };
+        /** @description One search hit. */
+        NoteHitDto: {
+            /** @description The note. */
+            note: components["schemas"]["NoteDto"];
+            /**
+             * Format: double
+             * @description Relevance; higher is better.
+             */
+            score: number;
+            /** @description The matching text. */
+            snippet: string;
+        };
+        /** @description Creating or replacing a note. */
+        NoteInput: {
+            /** @description Body in Markdown, at most 64 KiB. */
+            body_markdown: string;
+            /** @description The host it is about, by name; absent for a global note. */
+            host?: string | null;
+            /** @description Tags. */
+            tags?: string[];
+            /** @description Title, 1 to 200 characters. */
+            title: string;
+        };
+        /** @description One declared skill parameter. */
+        ParamDto: {
+            /** @description What it means. */
+            description: string;
+            /** @description The type and its limits as JSON, for example `{"type":"integer","min":1,"max":10}`. */
+            kind: unknown;
+            /** @description Parameter name. */
+            name: string;
+            /** @description Whether it must be given. */
+            required: boolean;
+        };
+        /** @description An action triage suggested. */
+        ProposalDto: {
+            /** @description Arguments by parameter name. */
+            args: {
+                [key: string]: string;
+            };
+            /** @description Why. */
+            reason: string;
+            /** @description Skill name. */
+            skill: string;
+        };
+        /** @description A triage report. */
+        ReportDto: {
+            /** @description The likely cause. */
+            cause: string;
+            /** @description Anything else. */
+            details: string;
+            /** @description Supporting evidence. */
+            evidence: components["schemas"]["EvidenceDto"][];
+            /** @description What is wrong, in one line. */
+            headline: string;
+            /** @description The single next step. */
+            next_step: string;
+            /** @description Suggested actions. */
+            proposals: components["schemas"]["ProposalDto"][];
+            /** @description What happened. */
+            summary: string;
+            /** @description `ACTION_NEEDED`, `MONITOR`, `EXPECTED` or `FIXED`. */
+            verdict: string;
+        };
+        /** @description Whether an agent was revoked. */
+        RevokeDto: {
+            /** @description `false` when the host had no live agent. */
+            revoked: boolean;
+        };
+        /** @description The current session. */
+        SessionDto: {
+            /** @description Send as `X-CSRF-Token` on every `POST`, `PUT`, `PATCH` and `DELETE`. */
+            csrf_token: string;
+            /** @description Who is logged in. */
+            user: components["schemas"]["UserDto"];
+        };
+        /** @description The effective settings. */
+        SettingsDto: {
+            discord?: components["schemas"]["DiscordSettings"] | null;
+            /** @description The heartbeat. */
+            heartbeat: components["schemas"]["HeartbeatSettings"];
+            /** @description The hub and web listener. */
+            hub: components["schemas"]["HubSettings"];
+            llm_primary?: components["schemas"]["LlmSettings"] | null;
+            llm_secondary?: components["schemas"]["LlmSettings"] | null;
+            /** @description Triage limits. */
+            triage: components["schemas"]["TriageSettings"];
+            /** @description Model usage this month. */
+            usage: components["schemas"]["UsageSettings"];
+            /** @description Inbound webhooks. */
+            webhooks: components["schemas"]["WebhookSettings"][];
+        };
+        /** @description Creating the admin account on first run. */
+        SetupRequest: {
+            /** @description Password, at least 12 characters. */
+            password: string;
+            /** @description The token from the setup link the hub logged. */
+            token: string;
+            /** @description Login name, 1 to 64 characters without spaces. */
+            username: string;
+        };
+        /** @description A skill on a host. */
+        SkillDto: {
+            /** @description Checks it is relevant to. */
+            applies_to: string[];
+            /** @description What it does. */
+            description: string;
+            /** @description Skill name. */
+            name: string;
+            /** @description Declared parameters. */
+            params: components["schemas"]["ParamDto"][];
+            /** @description `read`, `write` or `destructive`. */
+            risk: string;
+            /**
+             * Format: int64
+             * @description How long one run may take, in seconds.
+             */
+            timeout_secs: number;
+        };
+        /** @description One timeline line. */
+        TimelineEntryDto: {
+            /** @description When. */
+            at: string;
+            /** @description What kind, for example `incident.opened` or `triage.report`. */
+            kind: string;
+            /** @description One line. */
+            summary: string;
+        };
+        /** @description Triage limits. */
+        TriageSettings: {
+            /**
+             * Format: int32
+             * @description Runs at the same time.
+             */
+            concurrency: number;
+            /** @description Whether new incidents are triaged. */
+            enabled: boolean;
+            /**
+             * Format: double
+             * @description Monthly spending cap in US dollars, if set.
+             */
+            monthly_budget_usd?: number | null;
+            /**
+             * Format: int32
+             * @description Runs per hour at most.
+             */
+            per_hour_runs: number;
+        };
+        /** @description How triage went for an incident. */
+        TriageStateDto: {
+            /** @description `report`, `cached`, `skipped` or `failed`. */
+            kind: string;
+            /** @description Why it was skipped or failed. */
+            reason?: string | null;
+        };
+        /** @description A change the web UI should show, sent on the event stream. */
+        UiEvent: {
+            /** @description The action concerned, for action events. */
+            action_id?: string | null;
+            /** @description What happened, for example `incident_opened` or `action_changed`. */
+            event: string;
+            /** @description The incident concerned. */
+            incident_id: string;
+            /** @description `incident` or `action`. */
+            kind: string;
+            /** @description The new status name, when it changed. */
+            status?: string | null;
+        };
+        /** @description Model usage this calendar month (UTC). */
+        UsageSettings: {
+            /**
+             * Format: double
+             * @description Cost in US dollars, as far as prices are configured.
+             */
+            cost_usd: number;
+            /**
+             * Format: int64
+             * @description Prompt tokens.
+             */
+            tokens_in: number;
+            /**
+             * Format: int64
+             * @description Generated tokens.
+             */
+            tokens_out: number;
+        };
+        /** @description The logged-in user. */
+        UserDto: {
+            /** @description User id. */
+            id: string;
+            /** @description Login name. */
+            username: string;
+        };
+        /** @description One inbound webhook. */
+        WebhookSettings: {
+            /** @description `hmac` or `bearer`. */
+            auth: string;
+            /** @description The host used when the payload names none. */
+            default_host?: string | null;
+            /** @description `generic`, `alertmanager` or `uptime_kuma`. */
+            kind: string;
+            /** @description The name in its URL. */
+            name: string;
+            /** @description `[set]` or `[unset]`. */
+            secret: string;
+        };
+    };
     responses: never;
     parameters: never;
     requestBodies: never;
@@ -32,6 +971,1162 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    list_actions: {
+        parameters: {
+            query?: {
+                /** @description Only this status name, for example `proposed`. */
+                status?: string;
+                /** @description The `next_cursor` of the previous page. */
+                cursor?: string;
+                /** @description Page size, 1 to 200. Default 50. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActionPage"];
+                };
+            };
+            /** @description Unknown status */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    approve_action: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Action id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApproveRequest"];
+            };
+        };
+        responses: {
+            /** @description Approved; it runs next */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActionDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Destructive without the typed confirmation */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such action */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not proposed any more, or expired */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    deny_action: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Action id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Denied */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActionDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such action */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not proposed any more */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_advisories: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Open advisories */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdvisoryDto"][];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    login: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoginRequest"];
+            };
+        };
+        responses: {
+            /** @description Logged in; the cookie is set */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionDto"];
+                };
+            };
+            /** @description Wrong username or password */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Too many attempts */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    logout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Logged out */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    setup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetupRequest"];
+            };
+        };
+        responses: {
+            /** @description Account created and logged in */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionDto"];
+                };
+            };
+            /** @description Invalid username or password */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Wrong, used or expired token */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Setup is closed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    preview_digest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The digest */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DigestPreview"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    send_digest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Sent */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DigestPreview"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No notifier is configured, or sending failed */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    stream_events: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description An event stream */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": components["schemas"]["UiEvent"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_hosts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The hosts */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HostDto"][];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    create_enrollment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Host name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The invite */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InviteDto"];
+                };
+            };
+            /** @description Invalid host name */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    revoke_agent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Host name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Whether an agent was revoked */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RevokeDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such host */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_skills: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Host name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The catalogue */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillDto"][];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such host */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_incidents: {
+        parameters: {
+            query?: {
+                /** @description Only this status: `pending`, `open`, `acked`, `muted` or `resolved`. */
+                status?: string;
+                /** @description Only this host, by name. */
+                host?: string;
+                /** @description Only this severity: `info`, `warning` or `critical`. */
+                severity?: string;
+                /** @description The `next_cursor` of the previous page. */
+                cursor?: string;
+                /** @description Page size, 1 to 200. Default 50. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncidentPage"];
+                };
+            };
+            /** @description Unknown filter value */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_incident: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Incident id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The incident */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncidentDetail"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such incident */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    ack_incident: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Incident id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Acknowledged */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No active incident */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not possible now */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    ask_incident: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Incident id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AskRequest"];
+            };
+        };
+        responses: {
+            /** @description The answer */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AskResponse"];
+                };
+            };
+            /** @description Empty or too long */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such incident */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Triage is off or the model is unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    mute_incident: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Incident id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MuteRequest"];
+            };
+        };
+        responses: {
+            /** @description Muted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Bad duration */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No active incident */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    unmute_incident: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Incident id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Unmuted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No active incident */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not muted */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_notes: {
+        parameters: {
+            query?: {
+                /** @description Only notes about this host, by name; absent for global notes. */
+                host?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The notes */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoteDto"][];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such host */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    create_note: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NoteInput"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoteDto"];
+                };
+            };
+            /** @description Invalid note */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    search_notes: {
+        parameters: {
+            query: {
+                /** @description Words to look for. */
+                q: string;
+                /** @description Also search this host's notes, by name. */
+                host?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Hits, best first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoteHitDto"][];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_note: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Note id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The note */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoteDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such note */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    replace_note: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Note id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NoteInput"];
+            };
+        };
+        responses: {
+            /** @description Replaced */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoteDto"];
+                };
+            };
+            /** @description Invalid note */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such note */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    delete_note: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Note id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such note */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_session: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Logged in */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The settings */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettingsDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     healthz: {
         parameters: {
             query?: never;
@@ -41,7 +2136,27 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The hub is running. */
+            /** @description Healthy */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": string;
+                };
+            };
+        };
+    };
+    metrics: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Prometheus text format */
             200: {
                 headers: {
                     [name: string]: unknown;

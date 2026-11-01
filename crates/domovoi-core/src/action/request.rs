@@ -41,6 +41,40 @@ pub enum ActionStatus {
     VerifyFailed,
 }
 
+impl ActionStatus {
+    /// Every status name, as [`ActionStatus::name`] gives them.
+    pub const NAMES: [&'static str; 10] = [
+        "proposed",
+        "approved",
+        "denied",
+        "expired",
+        "dispatched",
+        "rejected",
+        "succeeded",
+        "failed",
+        "verified",
+        "verify_failed",
+    ];
+
+    /// The status without its details, as stored and filtered, for example `proposed` or
+    /// `verify_failed`.
+    #[must_use]
+    pub const fn name(&self) -> &'static str {
+        match self {
+            Self::Proposed => "proposed",
+            Self::Approved => "approved",
+            Self::Denied => "denied",
+            Self::Expired => "expired",
+            Self::Dispatched => "dispatched",
+            Self::Rejected { .. } => "rejected",
+            Self::Succeeded => "succeeded",
+            Self::Failed { .. } => "failed",
+            Self::Verified => "verified",
+            Self::VerifyFailed => "verify_failed",
+        }
+    }
+}
+
 /// Who did something. Only `Human` can approve, and only through a [`HumanApproval`].
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(tag = "type", content = "id", rename_all = "snake_case")]

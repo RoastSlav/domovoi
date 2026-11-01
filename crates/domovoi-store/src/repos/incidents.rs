@@ -213,6 +213,8 @@ impl IncidentRepo for Store {
               AND (?2 IS NULL OR (status <> 'resolved') = ?2) \
               AND (?3 IS NULL OR opened_at >= ?3) \
               AND (?4 IS NULL OR opened_at < ?4 OR (opened_at = ?4 AND id < ?5)) \
+              AND (?7 IS NULL OR status = ?7) \
+              AND (?8 IS NULL OR severity = ?8) \
             ORDER BY opened_at DESC, id DESC LIMIT ?6";
         let (after_key, after_id) = Cursor::bind(page.cursor.as_deref())?;
         let limit = page.effective_limit();
@@ -223,6 +225,8 @@ impl IncidentRepo for Store {
             .bind(after_key)
             .bind(after_id)
             .bind(fetch_limit(limit))
+            .bind(filter.status.as_deref())
+            .bind(filter.severity.map(|s| name(&s)).transpose()?)
             .fetch_all(&self.read)
             .await
             .map_err(db)?;

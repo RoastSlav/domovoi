@@ -24,6 +24,9 @@ struct Cli {
 enum Command {
     /// Print version and build information.
     Version,
+    /// Print the hub's OpenAPI document as JSON (used by `cargo xtask openapi`).
+    #[command(hide = true)]
+    Openapi,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -32,6 +35,7 @@ fn main() -> anyhow::Result<()> {
         Some(Command::Version) | None => {
             println!("domovoi {}", env!("CARGO_PKG_VERSION"));
         }
+        Some(Command::Openapi) => print!("{}", domovoi_hub::router::openapi_json()),
     }
     Ok(())
 }

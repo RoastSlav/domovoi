@@ -138,6 +138,13 @@ impl IncidentRepo for InMemoryStore {
             .filter(|i| filter.host.is_none_or(|h| i.host() == h))
             .filter(|i| filter.active.is_none_or(|active| is_active(i) == active))
             .filter(|i| filter.opened_since.is_none_or(|t| i.opened_at() >= t))
+            .filter(|i| {
+                filter
+                    .status
+                    .as_deref()
+                    .is_none_or(|s| i.status().name() == s)
+            })
+            .filter(|i| filter.severity.is_none_or(|s| i.severity() == s))
             .map(|i| {
                 (
                     (i.opened_at().as_nanosecond(), i.id().to_string()),

@@ -105,6 +105,19 @@ pub async fn session_repo_contract(repo: &dyn SessionRepo) -> ContractResult {
     assert_eq!(repo.delete_for_user(alice).await?, 1);
     assert_eq!(repo.get(&[1; 32], at(0)).await?, None);
 
+    repo.extend(&[3; 32], at(300)).await?;
+    assert_eq!(
+        repo.get(&[3; 32], at(250)).await?.map(|s| s.expires_at),
+        Some(at(300)),
+        "extend moves the expiry"
+    );
+    repo.extend(&[9; 32], at(300)).await?;
+    assert_eq!(
+        repo.get(&[9; 32], T0).await?,
+        None,
+        "extending nothing creates nothing"
+    );
+
     repo.delete(&[3; 32]).await?;
     repo.delete(&[3; 32]).await?;
     assert_eq!(repo.get(&[3; 32], at(0)).await?, None);

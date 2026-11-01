@@ -51,6 +51,10 @@ pub trait SessionRepo: Send + Sync {
         now: Timestamp,
     ) -> Result<Option<Session>, StoreError>;
 
+    /// Moves the session's expiry to `expires_at`, for idle timeouts that slide with use.
+    /// Extending an unknown session succeeds and changes nothing.
+    async fn extend(&self, token_hash: &[u8; 32], expires_at: Timestamp) -> Result<(), StoreError>;
+
     /// Deletes one session (logout). Deleting an unknown session succeeds.
     async fn delete(&self, token_hash: &[u8; 32]) -> Result<(), StoreError>;
 

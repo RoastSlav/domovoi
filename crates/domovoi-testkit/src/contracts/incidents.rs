@@ -259,6 +259,35 @@ async fn listing(repo: &dyn IncidentRepo) -> ContractResult {
             },
             0,
         ),
+        (
+            IncidentFilter {
+                status: Some("resolved".to_owned()),
+                ..only_host.clone()
+            },
+            1,
+        ),
+        (
+            IncidentFilter {
+                status: Some("acked".to_owned()),
+                ..only_host.clone()
+            },
+            0,
+        ),
+        (
+            IncidentFilter {
+                severity: Some(crate::build::signal(host, "x.y", None)?.severity()),
+                status: Some("resolved".to_owned()),
+                ..only_host.clone()
+            },
+            1,
+        ),
+        (
+            IncidentFilter {
+                severity: Some(domovoi_core::Severity::Critical),
+                ..only_host.clone()
+            },
+            0,
+        ),
     ];
     for (filter, expected) in filters {
         let got = repo.list(&filter, &Page::first(100)).await?.items.len();

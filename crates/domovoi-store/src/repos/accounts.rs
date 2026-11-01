@@ -169,6 +169,16 @@ impl SessionRepo for Store {
         Ok(done.rows_affected())
     }
 
+    async fn extend(&self, token_hash: &[u8; 32], expires_at: Timestamp) -> Result<(), StoreError> {
+        sqlx::query("UPDATE sessions SET expires_at = ? WHERE token_hash = ?")
+            .bind(ms(expires_at))
+            .bind(&token_hash[..])
+            .execute(&self.write)
+            .await
+            .map_err(db)?;
+        Ok(())
+    }
+
     async fn purge_expired(&self, now: Timestamp) -> Result<u64, StoreError> {
         let done = sqlx::query("DELETE FROM sessions WHERE expires_at <= ?")
             .bind(ms(now))
