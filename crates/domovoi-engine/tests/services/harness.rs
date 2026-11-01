@@ -157,6 +157,7 @@ pub async fn world(setup: Setup) -> World {
         signals: store.clone(),
         notes: store.clone(),
         actions: store.clone(),
+        audit: store.clone(),
         cache: store.clone(),
         usage: store.clone(),
         advisories: store.clone(),
