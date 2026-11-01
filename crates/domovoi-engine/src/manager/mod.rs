@@ -10,6 +10,7 @@ mod annotate;
 mod command;
 mod decide;
 mod handle;
+mod redact;
 
 pub use actor::{IncidentManager, ManagerDeps};
 pub use command::{Command, CommandError};

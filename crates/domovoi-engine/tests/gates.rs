@@ -242,6 +242,169 @@ async fn triage_failure_still_leaves_a_card() {
     assert_eq!(card.headline, w.incident.title());
 }
 
+// Redaction (INV-5): nothing the model writes and nothing a webhook posts reaches the
+// store, a card or an event with a secret still in it.
+
+mod redaction {
+    use domovoi_core::ports::{IncidentRepo, SignalRepo};
+    use domovoi_core::{
+        CheckKey, Evidence, EvidenceValue, HostName, Severity, Signal, SignalClass, SourceKind,
+        TriageOutcome,
+    };
+    use domovoi_engine::EventKind;
+    use domovoi_engine::cards::{CardLinks, build_card};
+    use domovoi_testkit::build::resolved_incident;
+    use serde_json::json;
+
+    use crate::harness::{SECRET, Setup, disk, host_id, restart_skill, world};
+
+    /// A token the pattern redactor recognises without being told about it.
+    const GITHUB_TOKEN: &str = "ghp_abcdefghijklmnopqrstuvwxyz0123456789";
+
+    fn assert_clean(what: &str, text: &str) {
+        for leak in [SECRET, "hunter2hunter2", GITHUB_TOKEN] {
+            assert!(!text.contains(leak), "{what} contains {leak}: {text}");
+        }
+    }
+
+    #[tokio::test]
+    async fn secrets_in_a_report_are_redacted_before_it_is_attached_or_cached() {
+        let mut w = world(Setup::default()).await;
+        w.link.set_skills(host_id(), vec![restart_skill()]);
+        let leak = format!("password=hunter2hunter2 with {SECRET} and {GITHUB_TOKEN}");
+        let text = json!({
+            "headline": "Login uses password=hunter2hunter2",
+            "summary": leak,
+            "cause": leak,
+            "evidence": [{"label": leak, "value": leak, "source": leak}],
+            "verdict": "ACTION_NEEDED",
+            "next_step": leak,
+            "proposals": [{"skill": "restart_container", "args": {"container": "nginx"}, "reason": leak}],
+            "details": leak
+        })
+        .to_string();
+        w.primary.push_text(text);
+        let outcome = w.run().await;
+        let TriageOutcome::Report(report) = &outcome else {
+            panic!("a report, not {outcome:?}");
+        };
+        assert_clean("the outcome", &format!("{outcome:?}"));
+        assert!(
+            report.summary.contains("[REDACTED]"),
+            "redacted, not dropped"
+        );
+        assert_eq!(report.proposals.len(), 1, "the proposal is still offered");
+        assert_eq!(
+            report.proposals[0]
+                .args
+                .get("container")
+                .map(String::as_str),
+            Some("nginx"),
+            "arguments are never rewritten"
+        );
+
+        let attached: Vec<_> = w
+            .drain()
+            .into_iter()
+            .filter(|e| matches!(e.kind, EventKind::TriageCompleted { .. }))
+            .collect();
+        assert_eq!(attached.len(), 1);
+        assert_clean("the attached outcome", &format!("{:?}", attached[0].kind));
+        let timeline = IncidentRepo::timeline(&*w.store, w.incident.id())
+            .await
+            .unwrap();
+        assert_clean("the timeline", &format!("{timeline:?}"));
+
+        let card = build_card(
+            &w.incident,
+            Some(report),
+            &w.actions().await,
+            &HostName::parse("nas").unwrap(),
+            &CardLinks::default(),
+            None,
+        );
+        assert_clean("the card", &format!("{card:?}"));
+
+        // The cached copy is what a repeat incident gets.
+        let earlier =
+            resolved_incident(host_id(), "docker.container", Some("nginx"), w.now()).unwrap();
+        IncidentRepo::insert(&*w.store, &earlier).await.unwrap();
+        w.signal(disk(92.1)).await;
+        let cached = w.run().await;
+        assert!(
+            matches!(&cached, TriageOutcome::Cached { report: r, .. } if r == report),
+            "{cached:?}"
+        );
+        assert_clean("the cached report", &format!("{cached:?}"));
+    }
+
+    #[tokio::test]
+    async fn secrets_in_an_inbound_signal_are_redacted_before_storage() {
+        let w = world(Setup::default()).await;
+        let mut evidence = Evidence::new();
+        evidence.insert(
+            "auth",
+            EvidenceValue::Text(format!("Authorization: token={GITHUB_TOKEN}")),
+        );
+        evidence.insert("env", EvidenceValue::Text(format!("DB_PASSWORD={SECRET}")));
+        evidence.insert("attempts", EvidenceValue::Int(3));
+        evidence.insert("retried", EvidenceValue::Bool(true));
+        let signal = Signal::firing(
+            SourceKind::Webhook {
+                kind: "generic".to_owned(),
+            },
+            host_id(),
+            CheckKey::parse("backup.nightly").unwrap(),
+            None,
+            Severity::Critical,
+            format!("login failed with password=hunter2hunter2 for {SECRET}"),
+            w.now(),
+        )
+        .with_class(SignalClass::Immediate)
+        .with_evidence(evidence);
+        let fingerprint = signal.fingerprint();
+        w.manager.ingest(vec![signal]).await.unwrap();
+
+        let incident = IncidentRepo::find_active_by_fingerprint(&*w.store, &fingerprint)
+            .await
+            .unwrap()
+            .expect("an incident opened");
+        assert_clean("the incident", &format!("{incident:?}"));
+        let timeline = IncidentRepo::timeline(&*w.store, incident.id())
+            .await
+            .unwrap();
+        assert_clean("the timeline", &format!("{timeline:?}"));
+        let signals = SignalRepo::list_for_incident(&*w.store, incident.id(), 10)
+            .await
+            .unwrap();
+        assert_eq!(signals.len(), 1);
+        assert_clean("the stored signal", &format!("{signals:?}"));
+        let stored = &signals[0];
+        assert!(stored.summary().contains("[REDACTED]"));
+        assert_eq!(
+            stored.evidence().get("attempts"),
+            Some(&EvidenceValue::Int(3)),
+            "numbers are kept"
+        );
+        assert_eq!(
+            stored.evidence().get("retried"),
+            Some(&EvidenceValue::Bool(true)),
+            "flags are kept"
+        );
+
+        let card = build_card(
+            &incident,
+            None,
+            &[],
+            &HostName::parse("nas").unwrap(),
+            &CardLinks::default(),
+            Some(stored),
+        );
+        assert!(card.bullets.iter().any(|b| b.contains("[REDACTED]")));
+        assert_clean("the card", &format!("{card:?}"));
+    }
+}
+
 // Actions (INV-1, INV-6): only `approve` with a human approval reaches `Approved`, and a
 // rejected or failed action never runs again on its own.
 

@@ -110,7 +110,7 @@ All identifiers are newtypes over UUIDv7 (time-ordered) unless noted. Timestamps
   - `source: SourceKind` (`BuiltIn`, `Webhook { kind }`, `Probe`, `Agent`)
   - `host: HostId`, `check: CheckKey` (dotted, e.g. `container.restart_loop`), `target: Option<TargetKey>` (e.g. `plex`, `/dev/sdc`)
   - `status: Firing | Resolved`, `severity: Info | Warning | Critical`
-  - `summary: String`, `evidence: Evidence` (ordered key → value map, values are strings or numbers), `observed_at`
+  - `summary: String`, `evidence: Evidence` (ordered key → value map, values are strings, numbers or booleans), `observed_at`
   - `class: Normal | Immediate` (immediate skips confirmation runs, e.g. power loss)
 - `Fingerprint = hash(host, check, target)`. **Volatile values (counts, IDs, timestamps, measurements) are never part of a fingerprint.** They live in evidence.
 

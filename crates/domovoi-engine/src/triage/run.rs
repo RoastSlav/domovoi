@@ -10,7 +10,7 @@ use jiff::{SignedDuration, Timestamp};
 
 use super::agent::{self, text_of};
 use super::cache::evidence_digest;
-use super::report::parse_report;
+use super::report::{parse_report, redact_report};
 use super::{DEGRADED_AFTER, SYSTEM_PROMPT, Shared, context, proposals, tools};
 use crate::advisories::triage_degraded;
 use crate::events::{DomainEvent, EventKind};
@@ -66,6 +66,7 @@ async fn outcome(
     let bundle = context::build(shared, incident, &skills).await;
     match providers(shared, incident, &skills, &bundle).await {
         Ok(mut report) => {
+            redact_report(deps.redactor.as_ref(), &mut report);
             let tokens = proposals::create(shared, incident, &skills, &mut report).await;
             if let Err(err) = deps
                 .cache
