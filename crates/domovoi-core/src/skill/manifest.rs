@@ -160,11 +160,13 @@ impl SkillManifest {
             params: self.params.clone(),
             applies_to: self.applies_to.clone(),
             manifest_hash: self.manifest_hash(),
+            timeout: self.timeout,
+            verify: self.verify.clone(),
         }
     }
 }
 
-/// The parts of a manifest an agent reports to the hub: no entry, user or limits.
+/// The parts of a manifest an agent reports to the hub: no entry, user or output limit.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct SkillSummary {
     /// Unique name of the skill.
@@ -179,4 +181,17 @@ pub struct SkillSummary {
     pub applies_to: Vec<CheckKey>,
     /// Hash of the full manifest on the agent.
     pub manifest_hash: ManifestHash,
+    /// How long one run may take; the agent kills it after this.
+    #[serde(
+        default = "default_summary_timeout",
+        serialize_with = "jiff::fmt::serde::duration::friendly::compact::required"
+    )]
+    pub timeout: SignedDuration,
+    /// How to check that a write skill worked.
+    #[serde(default)]
+    pub verify: Option<VerifySpec>,
+}
+
+fn default_summary_timeout() -> SignedDuration {
+    SignedDuration::from_secs(60)
 }

@@ -112,6 +112,13 @@ impl ActionRequest {
         Ok(self.move_to(to, now))
     }
 
+    /// `Approved → Rejected` before dispatch, when a check other than the plan hash fails:
+    /// a loop guard, a skill that is gone or changed risk, arguments no longer valid.
+    pub fn reject(&mut self, reason: String, now: Timestamp) -> Result<ActionChange, ActionError> {
+        self.require(self.status == ActionStatus::Approved, "reject")?;
+        Ok(self.move_to(ActionStatus::Rejected { reason }, now))
+    }
+
     /// `Dispatched → Succeeded` or `Dispatched → Failed`.
     pub fn complete(
         &mut self,
