@@ -170,7 +170,8 @@ mod common {
         let deps = AgentDeps {
             clock,
             executor: Arc::new(FakeProcessExecutor::new()),
-            hostfs: fs,
+            hostfs: fs.clone(),
+            toolfs: fs,
             fs_stats: Arc::new(NoStats),
             container_source: None,
             redactor: Arc::new(ListRedactor::new(Vec::<String>::new())),

@@ -41,12 +41,23 @@ mod tests {
         }
     }
 
+    /// A free port below the kernel's ephemeral range (32768 and up on Linux), so an
+    /// outgoing connection or a `bind(0)` in another test cannot take it between this
+    /// check and the hub binding it.
     fn free_port() -> u16 {
-        TcpListener::bind("127.0.0.1:0")
-            .unwrap()
-            .local_addr()
-            .unwrap()
-            .port()
+        use std::sync::atomic::{AtomicU32, Ordering};
+        static TRIES: AtomicU32 = AtomicU32::new(0);
+        loop {
+            let n = TRIES.fetch_add(1, Ordering::Relaxed);
+            let offset = std::process::id()
+                .wrapping_mul(7919)
+                .wrapping_add(n.wrapping_mul(104_729))
+                % 12_000;
+            let port = 20_000 + u16::try_from(offset).unwrap();
+            if TcpListener::bind(("127.0.0.1", port)).is_ok() {
+                return port;
+            }
+        }
     }
 
     /// Starts `hub run` with no config file: the data dir and listeners come from the
@@ -92,17 +103,17 @@ mod tests {
         (child, lines, format!("http://127.0.0.1:{web}"))
     }
 
-    fn setup_token(lines: &mpsc::Receiver<String>) -> String {
+    fn setup_token(lines: &mpsc::Receiver<String>) -> Option<String> {
         let deadline = Instant::now() + Duration::from_secs(30);
         while let Some(left) = deadline.checked_duration_since(Instant::now()) {
             let Ok(line) = lines.recv_timeout(left) else {
                 break;
             };
             if let Some((_, token)) = line.split_once("/setup?token=") {
-                return token.trim().to_owned();
+                return Some(token.trim().to_owned());
             }
         }
-        panic!("the hub printed no setup link");
+        None
     }
 
     fn client() -> reqwest::Client {
@@ -142,18 +153,51 @@ mod tests {
     }
 
     impl Hub {
+        /// Starts a hub and creates the admin account. The hub prints its setup link
+        /// before it binds its ports, so when a port was taken after `free_port` checked
+        /// it, the hub exits and another hub may answer on that port: start again on
+        /// new ports.
         async fn start(dir: &Path, local_agent: bool) -> Self {
-            let (child, lines, base) = spawn(dir, local_agent);
-            let token = setup_token(&lines);
             let client = client();
-            wait_healthy(&client, &base).await;
-            let reply = client
-                .post(format!("{base}/api/v1/auth/setup"))
-                .json(&json!({ "token": token, "username": "admin", "password": PASSWORD }))
-                .send()
-                .await
-                .unwrap();
-            assert!(reply.status().is_success(), "setup: {}", reply.status());
+            for attempt in 1..=5 {
+                let (mut child, lines, base) = spawn(dir, local_agent);
+                let token = setup_token(&lines);
+                let exited = |child: &mut Child| child.try_wait().unwrap().is_some();
+                let Some(token) = token else {
+                    assert!(exited(&mut child), "the hub printed no setup link");
+                    let _ = child.wait();
+                    continue;
+                };
+                wait_healthy(&client, &base).await;
+                let reply = client
+                    .post(format!("{base}/api/v1/auth/setup"))
+                    .json(&json!({ "token": token, "username": "admin", "password": PASSWORD }))
+                    .send()
+                    .await
+                    .unwrap();
+                if !reply.status().is_success() {
+                    // Give an exit that is under way a moment to show.
+                    let _ = lines.recv_timeout(Duration::from_millis(200));
+                    assert!(
+                        exited(&mut child) && attempt < 5,
+                        "setup: {}",
+                        reply.status()
+                    );
+                    let _ = child.wait();
+                    continue;
+                }
+                return Self::logged_in(child, lines, base, client, reply).await;
+            }
+            panic!("the hub did not start in five attempts");
+        }
+
+        async fn logged_in(
+            child: Child,
+            lines: mpsc::Receiver<String>,
+            base: String,
+            client: reqwest::Client,
+            reply: reqwest::Response,
+        ) -> Self {
             let cookie = reply.headers()[SET_COOKIE]
                 .to_str()
                 .unwrap()
