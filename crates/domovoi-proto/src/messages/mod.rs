@@ -12,8 +12,8 @@ mod work;
 use serde_json::Value;
 
 pub use handshake::{
-    AgentSettings, Challenge, ChallengeResponse, CheckOverride, Enroll, Enrolled, Hello, HostFacts,
-    Reject, RejectReason, SessionId, Welcome,
+    AgentSettings, Challenge, ChallengeResponse, CheckInfo, CheckOverride, Enroll, Enrolled, Hello,
+    HostFacts, Reject, RejectReason, SessionId, Welcome,
 };
 pub use stream::{
     ConfigUpdate, DigestFacts, ErrorMessage, Ping, Pong, Signals, SignalsAck, Unsupported,

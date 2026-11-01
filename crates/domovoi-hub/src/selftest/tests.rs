@@ -34,6 +34,7 @@ fn deps() -> HubDeps {
         clock: Arc::new(FakeClock::new("2026-11-01T12:00:00Z".parse().unwrap())),
         process_executor: None,
         metrics: None,
+        apply: None,
     }
 }
 

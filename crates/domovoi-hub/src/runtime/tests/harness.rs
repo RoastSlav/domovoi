@@ -175,6 +175,7 @@ secret = {{ env = "TEST_SECRET" }}
                 clock: self.clock.clone(),
                 process_executor: None,
                 metrics: None,
+                apply: None,
             },
             AdapterOverrides {
                 primary: Some(self.primary.clone()),

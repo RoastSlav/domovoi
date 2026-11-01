@@ -47,15 +47,16 @@ pub struct CheckEnv {
     pub commands: Arc<Commands>,
     /// Time.
     pub clock: Arc<dyn Clock>,
-    /// Per-check settings; a check without an entry uses the defaults.
-    pub settings: Arc<BTreeMap<CheckKey, CheckSettings>>,
+    /// Per-check settings in effect, which change when the hub sends overrides; a check
+    /// without an entry uses the defaults.
+    pub settings: crate::overrides::SettingsView,
 }
 
 impl CheckEnv {
     /// The settings for `key`.
     #[must_use]
     pub fn settings_for(&self, key: &CheckKey) -> CheckSettings {
-        self.settings.get(key).cloned().unwrap_or_default()
+        self.settings.borrow().get(key).cloned().unwrap_or_default()
     }
 
     /// Runs `check` once on its stored state and stores the state it leaves.
@@ -207,6 +208,11 @@ impl Scheduler {
             .map(|c| (c.key(), start))
             .collect();
         let mut facts_at = start.saturating_add(FACTS_EVERY).unwrap_or(start);
+        let mut last_run: BTreeMap<CheckKey, Timestamp> = BTreeMap::new();
+        let mut changes = self.env.settings.clone();
+        changes.mark_unchanged();
+        // A fixed view has no sender; stop watching it rather than spin on the error.
+        let mut watching = true;
         loop {
             let now = clock.now();
             let ready: Vec<CheckKey> = due
@@ -221,6 +227,7 @@ impl Scheduler {
                 }
                 let after = clock.now();
                 for key in &ready {
+                    last_run.insert(key.clone(), after);
                     if let Some(check) = self.checks.get(key) {
                         let next = after.saturating_add(self.cadence(check)).unwrap_or(after);
                         due.insert(key.clone(), next);
@@ -238,12 +245,50 @@ impl Scheduler {
                 .unwrap_or(facts_at)
                 .min(facts_at);
             if wake > clock.now() {
+                let changed = async {
+                    if watching {
+                        changes.changed().await.is_ok()
+                    } else {
+                        std::future::pending().await
+                    }
+                };
                 tokio::select! {
                     () = shutdown.cancelled() => return,
                     () = clock.sleep_until(wake) => {}
+                    ok = changed => {
+                        watching = ok;
+                        if ok {
+                            self.reschedule(&mut due, &last_run);
+                        }
+                    }
                 }
             }
         }
+    }
+
+    /// Applies new settings: a check turned off leaves the schedule, one turned on runs
+    /// now, and the rest run one (possibly new) interval after their last run.
+    fn reschedule(
+        &self,
+        due: &mut BTreeMap<CheckKey, Timestamp>,
+        last_run: &BTreeMap<CheckKey, Timestamp>,
+    ) {
+        let now = self.env.clock.now();
+        for check in self.checks.all() {
+            let key = check.key();
+            if !self.env.settings_for(&key).enabled {
+                due.remove(&key);
+                continue;
+            }
+            let next = last_run.get(&key).map_or(now, |at| {
+                at.saturating_add(self.cadence(check)).unwrap_or(now)
+            });
+            due.insert(key, next);
+        }
+        tracing::debug!(
+            scheduled = due.len(),
+            "rescheduled checks after new settings"
+        );
     }
 
     async fn run_due(&mut self, keys: &[CheckKey]) {

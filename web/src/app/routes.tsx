@@ -16,6 +16,7 @@ import { IncidentListPage } from "../features/incidents/IncidentListPage";
 import { NoteEditorPage } from "../features/notes/NoteEditorPage";
 import { NotesPage } from "../features/notes/NotesPage";
 import { SettingsPage } from "../features/settings/SettingsPage";
+import { FirstRun } from "../features/setup/FirstRun";
 import { SkillsPage } from "../features/skills/SkillsPage";
 import { Layout } from "./Layout";
 import { Placeholder } from "./Placeholder";
@@ -66,6 +67,7 @@ export function AppRoutes() {
             <Route path="/notes/:id" element={<NoteEditorPage />} />
             <Route path="/digest" element={<DigestPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/welcome" element={<FirstRun />} />
             <Route path="*" element={<Placeholder title="Not found" />} />
           </Route>
         </Route>

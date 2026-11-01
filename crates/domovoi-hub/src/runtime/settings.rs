@@ -48,7 +48,7 @@ pub(super) fn triage(config: &HubConfig) -> TriageSettings {
     }
 }
 
-pub(super) fn provider(config: &LlmProvider) -> ProviderSettings {
+pub(crate) fn provider(config: &LlmProvider) -> ProviderSettings {
     let kind = match config.kind {
         LlmKind::Anthropic => ProviderKind::Anthropic,
         LlmKind::OpenaiCompatible => ProviderKind::OpenaiCompatible,

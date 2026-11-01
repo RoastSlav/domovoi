@@ -4,6 +4,7 @@ mod agent;
 mod check;
 mod digest;
 mod hub;
+mod hub_run;
 mod notify;
 mod selftest;
 mod version;
@@ -17,6 +18,7 @@ use clap::Subcommand;
 use domovoi_config::{AgentConfig, ConfigIssue, HubConfig, Secrets, SystemEnv};
 use domovoi_core::ports::Redactor;
 use domovoi_hub::PatternRedactor;
+use domovoi_hub::settings::ConfigSources;
 
 /// Where `hub.toml` is read from unless `--config` says otherwise.
 pub const DEFAULT_HUB_CONFIG: &str = "/etc/domovoi/hub.toml";
@@ -99,13 +101,8 @@ pub fn warn(message: &str) {
     let _ = writeln!(std::io::stderr(), "{message}");
 }
 
-/// The hub configuration at `path`, validated with secrets resolved. Warnings go to
+/// The agent configuration at `path`, validated with secrets resolved. Warnings go to
 /// standard error; errors fail with every issue listed.
-pub fn load_hub(path: &Path) -> anyhow::Result<HubConfig> {
-    loaded(path, domovoi_config::load_hub(path, &SystemEnv))
-}
-
-/// The agent configuration at `path`, like [`load_hub`].
 pub fn load_agent(path: &Path) -> anyhow::Result<AgentConfig> {
     loaded(path, domovoi_config::load_agent(path, &SystemEnv))
 }
@@ -139,7 +136,37 @@ pub fn redactor<C: Secrets + Clone>(config: &C) -> Arc<dyn Redactor> {
 /// `--config` for hub commands.
 #[derive(Debug, clap::Args)]
 pub struct HubConfigArg {
-    /// The hub configuration file.
-    #[arg(long, short, env = "DOMOVOI_HUB_CONFIG", default_value = DEFAULT_HUB_CONFIG)]
-    pub config: PathBuf,
+    /// The hub configuration file. Optional: without it, `/etc/domovoi/hub.toml` is read
+    /// when it exists, and otherwise the hub runs on defaults, the environment and the
+    /// settings saved in the web UI.
+    #[arg(long, short, env = "DOMOVOI_HUB_CONFIG")]
+    pub config: Option<PathBuf>,
+}
+
+impl HubConfigArg {
+    /// The file and environment layers. A file named explicitly must exist; the default
+    /// one is used only when it does.
+    pub fn sources(&self) -> anyhow::Result<ConfigSources> {
+        let file = match &self.config {
+            Some(path) if path.exists() => Some(path.clone()),
+            Some(path) => anyhow::bail!("{} does not exist", path.display()),
+            None => Some(PathBuf::from(DEFAULT_HUB_CONFIG)).filter(|p| p.exists()),
+        };
+        Ok(ConfigSources {
+            file,
+            env: Arc::new(SystemEnv),
+        })
+    }
+
+    /// The effective settings: file, environment and the values saved in the web UI.
+    /// Warnings go to standard error.
+    pub async fn effective(&self) -> anyhow::Result<HubConfig> {
+        let sources = self.sources()?;
+        let (config, warnings) =
+            domovoi_hub::settings::load_effective(&sources, &crate::init::SystemClock).await?;
+        for issue in warnings {
+            warn(&format!("settings: {issue}"));
+        }
+        Ok(config)
+    }
 }

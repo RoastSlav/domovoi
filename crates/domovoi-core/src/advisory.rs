@@ -24,6 +24,11 @@ pub enum AdvisoryKind {
     AgentOutdated,
     /// A chat gateway or notifier could not accept a delivery after every retry.
     DeliveryFailed,
+    /// Secrets saved in the web UI could not be decrypted (the key file is missing or
+    /// different), so those settings are off until they are entered again.
+    StoredSecretUnreadable,
+    /// Saved settings could not be applied; the hub went back to the previous ones.
+    SettingsApplyFailed,
 }
 
 /// One hygiene finding.

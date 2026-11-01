@@ -324,6 +324,105 @@ mod api {
         assert_eq!(reply.body["webhooks"][0]["secret"], "[set]");
         assert_eq!(reply.body["heartbeat"]["url"], "[set]");
         assert_eq!(reply.body["llm_secondary"]["api_key"], "[unset]");
+
+        // The write path: a save with a secret, an invalid save carrying one, and a
+        // connection test that uses one never echo it.
+        const UI_SECRET: &str = "ui-secret-value-never-returned";
+        let mut bodies = Vec::new();
+        let saved = a
+            .send(
+                Method::PATCH,
+                "/api/v1/settings",
+                Some(&login),
+                Some(json!({
+                    "base_revision": 0,
+                    "password": crate::api_harness::PASSWORD,
+                    "changes": { "discord": { "enabled": false, "channel_id": 1, "bot_token": { "set": UI_SECRET } } }
+                })),
+            )
+            .await;
+        assert_eq!(saved.status, StatusCode::OK, "{}", saved.text);
+        bodies.push(saved.text);
+        let invalid = a
+            .send(
+                Method::PATCH,
+                "/api/v1/settings",
+                Some(&login),
+                Some(json!({
+                    "base_revision": 1,
+                    "password": crate::api_harness::PASSWORD,
+                    "changes": { "heartbeat": { "url": { "set": UI_SECRET } }, "backup": { "keep": 0 } }
+                })),
+            )
+            .await;
+        assert_eq!(invalid.status, StatusCode::BAD_REQUEST);
+        bodies.push(invalid.text);
+        let inline = a
+            .send(
+                Method::PATCH,
+                "/api/v1/settings",
+                Some(&login),
+                Some(
+                    json!({ "base_revision": 1, "changes": { "heartbeat": { "url": UI_SECRET } } }),
+                ),
+            )
+            .await;
+        assert_eq!(
+            inline.status,
+            StatusCode::BAD_REQUEST,
+            "inline secrets are refused"
+        );
+        bodies.push(inline.text);
+        let tested = a
+            .post(
+                "/api/v1/settings/test/heartbeat",
+                &login,
+                json!({ "changes": { "heartbeat": { "url": { "set": format!("http://127.0.0.1:9/{UI_SECRET}") } } } }),
+            )
+            .await;
+        bodies.push(tested.text);
+        bodies.push(a.get("/api/v1/settings", &login).await.text);
+        for body in bodies {
+            assert!(!body.contains(UI_SECRET), "a secret leaked: {body}");
+            for (name, value) in SECRETS {
+                assert!(!body.contains(value), "{name} leaked: {body}");
+            }
+        }
+    }
+
+    /// INV-8: settings writes need a logged-in admin and the CSRF token.
+    #[tokio::test]
+    async fn settings_writes_require_admin_session_and_csrf() {
+        let a = api().await;
+        let login = a.admin().await;
+        let writes = [
+            (Method::PATCH, "/api/v1/settings"),
+            (Method::POST, "/api/v1/settings/test/discord"),
+            (Method::POST, "/api/v1/settings/test/llm"),
+            (Method::POST, "/api/v1/settings/test/heartbeat"),
+            (Method::PUT, "/api/v1/hosts/nas/checks"),
+        ];
+        for (method, uri) in writes {
+            let anonymous = send(&a, method.clone(), uri, "", None, None).await;
+            assert_eq!(
+                anonymous,
+                StatusCode::UNAUTHORIZED,
+                "{method} {uri} without a session"
+            );
+            let no_csrf = send(&a, method.clone(), uri, &login.cookie, None, None).await;
+            assert_eq!(
+                no_csrf,
+                StatusCode::FORBIDDEN,
+                "{method} {uri} without the CSRF token"
+            );
+        }
+        assert_eq!(
+            domovoi_core::ports::SettingsRepo::get(&*a.store, "config")
+                .await
+                .unwrap(),
+            None,
+            "nothing was saved"
+        );
     }
 
     /// A credential posted to a webhook is redacted before the incident is stored, so the
@@ -409,6 +508,37 @@ mod api {
 }
 
 /// Chat: what a Discord user can and cannot do (INV-1, INV-6).
+/// Principle 1 and INV-1: no model tool and no chat command can read or change settings.
+#[test]
+fn no_tool_or_chat_command_reaches_settings() {
+    for tool in domovoi_core::ReadTool::ALL {
+        let name = tool.name();
+        assert!(
+            !name.contains("setting") && !name.contains("config") && !name.contains("secret"),
+            "model tool {name} looks like it reaches settings"
+        );
+    }
+    for command in domovoi_chat::discord::commands::NAMES {
+        assert!(
+            !command.contains("setting") && !command.contains("config"),
+            "chat command {command} looks like it reaches settings"
+        );
+    }
+    let interactions =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/auth/interactions");
+    for entry in std::fs::read_dir(&interactions).unwrap() {
+        let path = entry.unwrap().path();
+        let text = std::fs::read_to_string(&path).unwrap();
+        for forbidden in ["SettingsService", "crate::settings", "settings::"] {
+            assert!(
+                !text.contains(forbidden),
+                "{} reaches the settings service ({forbidden})",
+                path.display()
+            );
+        }
+    }
+}
+
 mod chat {
     use domovoi_chat::discord::ids::custom_id;
     use domovoi_core::ports::{ActionRepo, InteractionSink};

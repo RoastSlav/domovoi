@@ -7,7 +7,8 @@ mod local;
 mod lock;
 mod schedulers;
 mod serve;
-mod settings;
+pub(crate) mod settings;
+mod start;
 mod support;
 #[cfg(test)]
 mod tests;
@@ -52,6 +53,9 @@ pub struct HubDeps {
     /// Renders the process-wide metrics recorder the binary installed, for `/metrics`.
     /// `None` serves an empty page.
     pub metrics: Option<MetricsRender>,
+    /// Where saved settings go to be applied: the `hub run` supervisor. `None` stores
+    /// them for the next start.
+    pub apply: Option<tokio::sync::mpsc::Sender<crate::settings::ApplyRequest>>,
 }
 
 /// Why the hub could not be built, served or stopped.
@@ -89,6 +93,9 @@ pub enum RuntimeError {
     /// Another hub process holds this data directory.
     #[error(transparent)]
     Locked(#[from] LockError),
+    /// The settings could not be loaded.
+    #[error(transparent)]
+    Settings(#[from] crate::settings::LoadError),
     /// The runtime exceeded its shutdown budget.
     #[error("hub shutdown did not complete within 15 seconds")]
     ShutdownTimeout,
@@ -134,16 +141,36 @@ impl HubRuntime {
     }
 
     pub(crate) async fn build_with(
-        mut config: HubConfig,
+        config: HubConfig,
         deps: HubDeps,
         overrides: AdapterOverrides,
     ) -> Result<Self, RuntimeError> {
         let lock = HubLock::acquire(&config.hub.data_dir)?;
+        let store = Arc::new(adapters::open_store(&config, &*deps.clock).await?);
+        let opened = start::Opened {
+            lock,
+            store,
+            settings: None,
+        };
+        Self::assemble(opened, config, deps, overrides).await
+    }
+
+    pub(crate) async fn assemble(
+        opened: start::Opened,
+        mut config: HubConfig,
+        deps: HubDeps,
+        overrides: AdapterOverrides,
+    ) -> Result<Self, RuntimeError> {
+        let start::Opened {
+            lock,
+            store,
+            settings,
+        } = opened;
         let mut secrets = Vec::new();
         config.secrets_mut(&mut |_, secret| secrets.push(secret.value().clone()));
         let redactor = Arc::new(PatternRedactor::new(secrets));
         let clock = deps.clock;
-        let store = Arc::new(adapters::open_store(&config, &*clock).await?);
+        let test_executor = deps.process_executor.clone();
         adapters::ensure_hub_host(&store, &config, clock.now()).await?;
         let hub_host = adapters::hub_host(&store).await?;
         let capacity = overrides.bus_capacity.unwrap_or(4096).max(1);
@@ -211,6 +238,19 @@ impl HubRuntime {
                 trusted_proxies: config.web.trusted_proxies.clone(),
             },
         ));
+        let settings = settings.map(|(key, sources)| {
+            server.use_check_overrides(store.clone());
+            crate::settings::SettingsService::new(crate::settings::SettingsDeps {
+                store: store.clone(),
+                key,
+                sources,
+                clock: clock.clone(),
+                auth: auth.clone(),
+                agents: server.clone(),
+                apply: deps.apply.clone(),
+                executor: test_executor,
+            })
+        });
         let api = ApiState::new(
             ApiDeps {
                 incidents: store.clone(),
@@ -230,6 +270,8 @@ impl HubRuntime {
                 config: Arc::new(config.clone()),
                 notifier: FanOut::over(&notifiers),
                 metrics: deps.metrics,
+                settings,
+                audit: store.clone(),
             },
             auth.clone(),
         )

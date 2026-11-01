@@ -72,3 +72,103 @@
 .advisories p {
   margin: 0.2rem 0 0;
 }
+
+.form {
+  display: grid;
+  gap: 0.9rem;
+  max-width: 40rem;
+}
+
+.field {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.field input[type="text"],
+.field input[type="password"],
+.field select,
+.field textarea {
+  max-width: 100%;
+  font: inherit;
+}
+
+.label {
+  font-weight: 600;
+}
+
+.hint,
+.locked {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.locked {
+  font-style: italic;
+}
+
+.fieldError {
+  margin: 0;
+  color: var(--danger);
+}
+
+.secretState {
+  margin: 0;
+}
+
+.secretRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.status {
+  margin: 0;
+}
+
+.alert {
+  color: var(--danger);
+}
+
+.statusHeading {
+  margin-top: 2rem;
+}
+
+.progress {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+}
+
+.progress li[aria-current="step"] {
+  color: var(--fg);
+  font-weight: 700;
+}
+
+.banner {
+  margin: 0 0 1rem;
+  padding: 0.6rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.dismiss {
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+}

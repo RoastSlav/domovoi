@@ -18,6 +18,7 @@ use domovoi_core::{HostKind, HostName, Signal, User, UserId};
 use domovoi_store::Store;
 use jiff::{SignedDuration, Timestamp};
 
+pub(crate) use notify::test_card;
 pub use notify::{NotifyOutcome, notify_test};
 
 use crate::agent_server::{

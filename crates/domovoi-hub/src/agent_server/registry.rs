@@ -6,7 +6,7 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use domovoi_core::ports::{LinkError, Presence};
 use domovoi_core::{HostId, RequestId, SkillSummary};
-use domovoi_proto::messages::SessionId;
+use domovoi_proto::messages::{CheckInfo, SessionId};
 use domovoi_proto::{Message, encode};
 use jiff::Timestamp;
 use tokio::sync::{mpsc, oneshot};
@@ -33,6 +33,7 @@ pub(crate) struct Live {
     pub since: Timestamp,
     pub version: String,
     pub skills: Vec<SkillSummary>,
+    pub checks: Vec<CheckInfo>,
     pub outbox: mpsc::Sender<String>,
     pub pending: HashMap<RequestId, oneshot::Sender<Message>>,
     pub cancel: CancellationToken,
@@ -189,6 +190,25 @@ impl Registry {
             },
             None => Presence::Disconnected { last_seen: None },
         }
+    }
+
+    /// The checks the host's agent reported when it connected; `None` while offline.
+    pub fn checks(&self, host: HostId) -> Option<Vec<CheckInfo>> {
+        self.lock()
+            .get(&host)
+            .and_then(|e| e.live.as_ref())
+            .map(|l| l.checks.clone())
+    }
+
+    /// Sends `message` to the host's agent without waiting for an answer. False when the
+    /// agent is offline or its queue is full.
+    pub fn push(&self, host: HostId, message: &Message) -> bool {
+        let hosts = self.lock();
+        let Some(live) = hosts.get(&host).and_then(|e| e.live.as_ref()) else {
+            return false;
+        };
+        encode(message, RequestId::new(), None)
+            .is_ok_and(|frame| live.outbox.try_send(frame).is_ok())
     }
 
     /// The skills the host's agent announced when it connected.

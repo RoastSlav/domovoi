@@ -49,7 +49,7 @@ export function SetupPage() {
     setup.mutate(
       { token: token.trim(), username: username.trim(), password },
       {
-        onSuccess: () => void navigate("/incidents", { replace: true }),
+        onSuccess: () => void navigate("/welcome", { replace: true }),
         onError: (error) => setProblem(failureText(error)),
       },
     );

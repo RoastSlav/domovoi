@@ -33,6 +33,7 @@ pub(crate) async fn run_session(
         since: inner.deps.clock.now(),
         version: hello.agent_version,
         skills: hello.skills,
+        checks: hello.checks,
         outbox,
         pending: HashMap::new(),
         cancel: cancel.clone(),

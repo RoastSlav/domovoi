@@ -220,6 +220,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/hosts/{name}/checks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A host's checks: what its agent reports and what the hub overrides. */
+        get: operations["host_checks"];
+        /** Replaces a host's check overrides and sends them to its agent; no restart. */
+        put: operations["set_host_checks"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/hosts/{name}/enrollment": {
         parameters: {
             query?: never;
@@ -485,6 +503,75 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
+        /** Saves a change and restarts the hub with it. */
+        patch: operations["update_settings"];
+        trace?: never;
+    };
+    "/api/v1/settings/schema": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The JSON schema of `hub.toml`, for field help and defaults. */
+        get: operations["settings_schema"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/test/discord": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Posts "Domovoi test message" with candidate Discord settings. */
+        post: operations["test_discord"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/test/heartbeat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** One GET of the candidate heartbeat URL. */
+        post: operations["test_heartbeat"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/test/llm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** One minimal call to the candidate primary model. */
+        post: operations["test_llm"];
+        delete?: never;
+        options?: never;
+        head?: never;
         patch?: never;
         trace?: never;
     };
@@ -612,6 +699,18 @@ export interface components {
             /** @description Whether the incident resolved. */
             resolved: boolean;
         };
+        /** @description One check's settings: on or off, interval, thresholds. */
+        CheckSettingsDto: {
+            /** @description Whether the check runs; `None` keeps the agent's value. */
+            enabled?: boolean | null;
+            /**
+             * Format: int32
+             * @description How often, in seconds; `None` keeps the agent's value.
+             */
+            interval_seconds?: number | null;
+            /** @description Thresholds merged over the agent's. */
+            thresholds?: Record<string, never>;
+        };
         /** @description The daily digest as it would be sent now. */
         DigestPreview: {
             /** @description The day it is for. */
@@ -632,10 +731,37 @@ export interface components {
             /** @description `[set]` or `[unset]`. */
             webhook_url: string;
         };
+        /** @description The settings as the UI edits them. */
+        EditableSettings: {
+            /**
+             * @description Where each field some layer set comes from: `ui`, `file` or `env:<VAR>`. A field
+             *     not listed uses its default. An entry for an array or a secret covers everything
+             *     under it. Fields from `file` or `env:` are locked in the UI.
+             */
+            fields: {
+                [key: string]: string;
+            };
+            /** @description Problems with the current settings, each with its path. */
+            issues: components["schemas"]["IssueDto"][];
+            /** @description How the last apply went: `{ ok, at, message? }`. */
+            last_apply?: Record<string, never> | null;
+            /**
+             * Format: int64
+             * @description The revision a save must name.
+             */
+            revision: number;
+            /**
+             * @description The merged values, shaped like `hub.toml`; every secret that has a value is
+             *     `"[set]"`, and a missing one is absent.
+             */
+            values: Record<string, never>;
+        };
         /** @description The body of every error response. */
         ErrorBody: {
             /** @description A stable machine-readable code, for example `not_found`. */
             error: string;
+            /** @description For `invalid`: every problem, each with the settings path it is about. */
+            issues?: components["schemas"]["IssueDto"][];
             /** @description One line for people. */
             message: string;
         };
@@ -671,6 +797,32 @@ export interface components {
             interval?: string | null;
             /** @description `[set]` or `[unset]`. */
             url: string;
+        };
+        /** @description One check on a host. */
+        HostCheckDto: {
+            /** @description The check key. */
+            key: string;
+            overrides?: components["schemas"]["CheckSettingsDto"] | null;
+            reported?: components["schemas"]["CheckSettingsDto"] | null;
+        };
+        /** @description A host's checks. */
+        HostChecksDto: {
+            /** @description Every check the agent reported or the hub overrides, by key. */
+            checks: components["schemas"]["HostCheckDto"][];
+            /** @description Whether the agent is connected. */
+            connected: boolean;
+        };
+        /** @description Whether the agent got the change now. */
+        HostChecksSaved: {
+            /** @description True when sent to the connected agent; false when it gets them on reconnect. */
+            delivered: boolean;
+        };
+        /** @description New overrides for a host's checks, replacing the previous ones. */
+        HostChecksUpdate: {
+            /** @description Overrides by check key. */
+            overrides: {
+                [key: string]: components["schemas"]["CheckSettingsDto"];
+            };
         };
         /** @description A host with its latest digest facts. */
         HostDetailDto: {
@@ -798,6 +950,15 @@ export interface components {
             /** @description The one-time enrollment token. */
             token: string;
         };
+        /** @description One problem with submitted settings. */
+        IssueDto: {
+            /** @description What is wrong and how to fix it. */
+            message: string;
+            /** @description The dotted settings path, for example `llm.primary.model`; empty for the whole. */
+            path: string;
+            /** @description `error` or `warning`. */
+            severity: string;
+        };
         /** @description One language model provider. */
         LlmSettings: {
             /** @description `[set]` or `[unset]`. */
@@ -915,6 +1076,16 @@ export interface components {
             /** @description `false` when the host had no live agent. */
             revoked: boolean;
         };
+        /** @description A saved change. */
+        SavedDto: {
+            /** @description Whether the hub restarted with the change. */
+            applied: boolean;
+            /**
+             * Format: int64
+             * @description The new revision.
+             */
+            revision: number;
+        };
         /** @description The current session. */
         SessionDto: {
             /** @description Send as `X-CSRF-Token` on every `POST`, `PUT`, `PATCH` and `DELETE`. */
@@ -925,6 +1096,7 @@ export interface components {
         /** @description The effective settings. */
         SettingsDto: {
             discord?: components["schemas"]["DiscordSettings"] | null;
+            editable?: components["schemas"]["EditableSettings"] | null;
             /** @description The heartbeat. */
             heartbeat: components["schemas"]["HeartbeatSettings"];
             /** @description The hub and web listener. */
@@ -937,6 +1109,24 @@ export interface components {
             usage: components["schemas"]["UsageSettings"];
             /** @description Inbound webhooks. */
             webhooks: components["schemas"]["WebhookSettings"][];
+        };
+        /** @description A change to the settings. */
+        SettingsPatch: {
+            /**
+             * Format: int64
+             * @description The revision the change was made on; a stale one answers 409.
+             */
+            base_revision: number;
+            /**
+             * @description The changes, shaped like `hub.toml`. `null` removes a value so the lower layers
+             *     apply. A secret takes `{ "keep": true }`, `{ "set": "…" }` or `{ "clear": true }`.
+             */
+            changes: Record<string, never>;
+            /**
+             * @description The admin's password, needed when the change touches chat approvers, trusted
+             *     proxies, webhooks or any secret.
+             */
+            password?: string | null;
         };
         /** @description Creating the admin account on first run. */
         SetupRequest: {
@@ -971,6 +1161,23 @@ export interface components {
             name: string;
             /** @description Why it was left out. */
             reason: string;
+        };
+        /** @description Candidate values for a connection test; nothing is saved. */
+        TestRequest: {
+            /** @description The same shape as a save; a secret left as `{ "keep": true }` uses the stored one. */
+            changes?: Record<string, never>;
+        };
+        /** @description The result of a connection test. */
+        TestResultDto: {
+            /**
+             * Format: int64
+             * @description How long it took, in milliseconds.
+             */
+            latency_ms: number;
+            /** @description What happened, in one line. */
+            message: string;
+            /** @description Whether it worked. */
+            ok: boolean;
         };
         /** @description One timeline line. */
         TimelineEntryDto: {
@@ -1510,6 +1717,101 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HostDetailDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such host */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    host_checks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Host name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The checks */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HostChecksDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such host */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    set_host_checks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Host name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HostChecksUpdate"];
+            };
+        };
+        responses: {
+            /** @description Saved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HostChecksSaved"];
+                };
+            };
+            /** @description Invalid; `issues` lists each problem */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
                 };
             };
             /** @description Not logged in */
@@ -2307,6 +2609,257 @@ export interface operations {
             };
             /** @description Not logged in */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    update_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SettingsPatch"];
+            };
+        };
+        responses: {
+            /** @description Saved and applied */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedDto"];
+                };
+            };
+            /** @description Invalid; `issues` lists each problem with its path */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Password missing or wrong for a sensitive change */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Stale revision, or a field set in hub.toml or the environment */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Too many wrong passwords */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    settings_schema: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The schema */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    test_discord: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TestRequest"];
+            };
+        };
+        responses: {
+            /** @description Tried */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TestResultDto"];
+                };
+            };
+            /** @description Invalid candidate */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description More than 10 tests a minute */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    test_heartbeat: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TestRequest"];
+            };
+        };
+        responses: {
+            /** @description Tried */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TestResultDto"];
+                };
+            };
+            /** @description Invalid candidate */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description More than 10 tests a minute */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    test_llm: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TestRequest"];
+            };
+        };
+        responses: {
+            /** @description Tried */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TestResultDto"];
+                };
+            };
+            /** @description Invalid candidate */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description More than 10 tests a minute */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };

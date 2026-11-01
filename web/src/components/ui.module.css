@@ -159,3 +159,29 @@
 .muted {
   color: var(--muted);
 }
+
+.tabs {
+  display: flex;
+  gap: 0.25rem;
+  border-bottom: 1px solid var(--border);
+  margin: 1rem 0;
+}
+
+.tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 0.4rem 0.8rem;
+  color: var(--fg);
+  cursor: pointer;
+  font: inherit;
+}
+
+.tab[aria-selected="true"] {
+  border-bottom-color: var(--accent);
+  font-weight: 700;
+}
+
+.tab:focus-visible {
+  outline: 2px solid var(--focus);
+}

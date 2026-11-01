@@ -44,6 +44,7 @@ secrecy = { version = "0.10.3", features = ["serde"] }
 sha2 = "0.11"
 hex = "0.4"
 base64 = "0.23.1"
+ring = "0.17.14"
 regex = "1.13.1"
 url = { version = "2", features = ["serde"] }
 schemars = { version = "1.2.3", features = ["derive", "url2"] }

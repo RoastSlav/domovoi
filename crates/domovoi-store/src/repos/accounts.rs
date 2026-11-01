@@ -32,6 +32,36 @@ impl SettingsRepo for Store {
             .map_err(db)?;
         Ok(())
     }
+
+    async fn set_many(&self, writes: &[(String, Option<Value>)]) -> Result<(), StoreError> {
+        const SET: &str = "INSERT INTO settings (key, value) VALUES (?, ?) \
+            ON CONFLICT (key) DO UPDATE SET value = excluded.value";
+        let mut tx = self.write.begin().await.map_err(db)?;
+        for (key, value) in writes {
+            match value {
+                Some(value) => sqlx::query(SET).bind(key).bind(json(value)?),
+                None => sqlx::query("DELETE FROM settings WHERE key = ?").bind(key),
+            }
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
+        }
+        tx.commit().await.map_err(db)
+    }
+
+    async fn list_prefix(&self, prefix: &str) -> Result<Vec<(String, Value)>, StoreError> {
+        // `substr` rather than LIKE, so `_` and `%` in a prefix match literally.
+        let rows: Vec<(String, String)> = sqlx::query_as(
+            "SELECT key, value FROM settings WHERE substr(key, 1, length(?1)) = ?1 ORDER BY key",
+        )
+        .bind(prefix)
+        .fetch_all(&self.read)
+        .await
+        .map_err(db)?;
+        rows.into_iter()
+            .map(|(key, value)| Ok((key, from_json(&value, "setting")?)))
+            .collect()
+    }
 }
 
 fn user(row: (String, String, String, i64)) -> Result<User, StoreError> {

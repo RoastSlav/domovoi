@@ -1,6 +1,6 @@
 # 0017. Manage settings from the web UI
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-01
 
 ## Context

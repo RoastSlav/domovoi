@@ -9,7 +9,7 @@ Global options, accepted by every command:
 | `--log-format human\|json` | How log lines look on standard error. Default `human`. |
 | `--log-level <filter>` | A filter such as `info` or `domovoi_hub=debug`. Overrides `RUST_LOG`. The default is `info` for `hub run` and `agent run`, and `warn` for every other command. |
 
-Hub commands read `--config` (short `-c`) or `DOMOVOI_HUB_CONFIG`, which defaults to `/etc/domovoi/hub.toml`. Agent commands read `--config`/`DOMOVOI_AGENT_CONFIG`, which defaults to `/etc/domovoi/agent.toml`.
+Hub commands read `--config` (short `-c`) or `DOMOVOI_HUB_CONFIG`. Both are optional: without them, `/etc/domovoi/hub.toml` is read when it exists, and otherwise the hub uses defaults, `DOMOVOI_*` variables and the settings saved in the web UI. Every hub command sees the settings saved in the UI, except `check config`, which checks only the file. See [Advanced: config as code](../install/config-as-code.md). Agent commands read `--config`/`DOMOVOI_AGENT_CONFIG`, which defaults to `/etc/domovoi/agent.toml`.
 
 Exit codes: `0` on success, `1` on failure (an invalid file, a failed stage, a refused command), `2` for a mistyped command line.
 
@@ -20,10 +20,13 @@ Exit codes: `0` on success, `1` on failure (an invalid file, a failed stage, a r
 Runs the hub until SIGINT or SIGTERM, then shuts down within 15 seconds.
 
 ```sh
+domovoi hub run
 domovoi hub run --config /etc/domovoi/hub.toml
 ```
 
-On a new hub with no account yet, it prints a setup link valid for 24 hours. Open it to create the admin account.
+On a new hub with no account yet, it prints a setup link valid for 24 hours. Open it to create the admin account and go through the guided first run.
+
+When settings are saved in the web UI, `hub run` checks them, answers the page, and then restarts the hub in the same process on the same data directory. The restart takes a few seconds; agents reconnect and flush what they queued. If the hub does not start with the new settings, it goes back to the previous ones and raises a `SettingsApplyFailed` advisory. The secret key for settings entered in the UI is created at first start as `<data_dir>/secret.key` (mode 0600); the hub refuses to start if others can read it.
 
 ### Single-box mode: `domovoi hub run --with-local-agent`
 
@@ -55,10 +58,10 @@ domovoi hub token create nas --ttl 30m
 
 ### `domovoi agent enroll`
 
-Run on the new host, with its `agent.toml` already in place. It trades the token for the agent's identity and pins the hub's certificate.
+Run on the new host with the command the hub printed. It trades the token for the agent's identity and pins the hub's certificate. When `agent.toml` does not exist yet, it writes one from `--name` and `--hub` (mode 0640), with defaults for the rest; an existing file is never changed.
 
 ```sh
-domovoi agent enroll --hub wss://hub.lan:7421 --token <token> --fingerprint AB:CD:…
+domovoi agent enroll --hub wss://hub.lan:7421 --token <token> --fingerprint AB:CD:… --name nas
 ```
 
 The fingerprint may be written with or without colons. The token can also come from `DOMOVOI_ENROLL_TOKEN`.

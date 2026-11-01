@@ -15,6 +15,30 @@ pub struct ErrorBody {
     pub error: String,
     /// One line for people.
     pub message: String,
+    /// For `invalid`: every problem, each with the settings path it is about.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub issues: Vec<IssueDto>,
+}
+
+/// One problem with submitted settings.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
+pub struct IssueDto {
+    /// The dotted settings path, for example `llm.primary.model`; empty for the whole.
+    pub path: String,
+    /// What is wrong and how to fix it.
+    pub message: String,
+    /// `error` or `warning`.
+    pub severity: String,
+}
+
+impl From<&domovoi_config::ConfigIssue> for IssueDto {
+    fn from(issue: &domovoi_config::ConfigIssue) -> Self {
+        Self {
+            path: issue.path.clone(),
+            message: issue.message.clone(),
+            severity: if issue.is_error() { "error" } else { "warning" }.to_owned(),
+        }
+    }
 }
 
 /// Why a request failed.
@@ -47,6 +71,9 @@ pub enum ApiError {
     /// A part the request needs is not configured or not running.
     #[error("{0}")]
     Unavailable(String),
+    /// Submitted settings are not valid; every issue has its path.
+    #[error("the settings are not valid")]
+    Invalid(Vec<IssueDto>),
     /// Something failed inside the hub; details are logged, not returned.
     #[error("internal error")]
     Internal,
@@ -61,6 +88,7 @@ impl ApiError {
             Self::Forbidden(_) => (StatusCode::FORBIDDEN, "forbidden"),
             Self::NotFound => (StatusCode::NOT_FOUND, "not_found"),
             Self::BadRequest(_) => (StatusCode::BAD_REQUEST, "bad_request"),
+            Self::Invalid(_) => (StatusCode::BAD_REQUEST, "invalid"),
             Self::Conflict(_) => (StatusCode::CONFLICT, "conflict"),
             Self::TooMany(_) => (StatusCode::TOO_MANY_REQUESTS, "too_many_requests"),
             Self::Unavailable(_) => (StatusCode::SERVICE_UNAVAILABLE, "unavailable"),
@@ -81,6 +109,10 @@ impl IntoResponse for ApiError {
         let body = ErrorBody {
             error: code.to_owned(),
             message: self.to_string(),
+            issues: match &self {
+                Self::Invalid(issues) => issues.clone(),
+                _ => Vec::new(),
+            },
         };
         let mut response = (status, Json(body)).into_response();
         if let Self::TooMany(secs) = self

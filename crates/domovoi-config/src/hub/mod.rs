@@ -253,9 +253,11 @@ pub struct DiscordSection {
     /// The bot token.
     pub bot_token: Secret,
     /// The channel incidents are posted to.
+    #[serde(deserialize_with = "crate::snowflake::one")]
     pub channel_id: u64,
     /// Discord users who may press buttons and run commands. Required when enabled.
     #[serde(default)]
+    #[serde(deserialize_with = "crate::snowflake::many")]
     pub allowed_user_ids: Vec<u64>,
     /// A channel webhook used when the bot is down. Optional.
     #[serde(default)]
@@ -451,4 +453,10 @@ fn default_keep() -> u32 {
 }
 fn default_true() -> bool {
     true
+}
+
+impl crate::env::OverrideScope for HubConfig {
+    fn foreign_sections() -> &'static [&'static str] {
+        &crate::env::AGENT_SECTIONS
+    }
 }

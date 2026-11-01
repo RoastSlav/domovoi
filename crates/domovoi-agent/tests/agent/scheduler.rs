@@ -41,7 +41,7 @@ fn start(checks: Vec<Box<dyn Check>>) -> Running {
         exec: Arc::new(FakeProcessExecutor::new()),
         commands: Arc::new(Commands::default()),
         clock: clock.clone(),
-        settings: Arc::new(BTreeMap::new()),
+        settings: domovoi_agent::overrides::fixed(BTreeMap::new()),
     };
     let (handle, outbox) = LinkHandle::channel(16);
     let checks: Arc<dyn CheckSet> = Arc::new(checks);
@@ -281,4 +281,97 @@ async fn check_state_persists_after_each_run() {
     assert!(reopened.firing(&key("test.check")).contains("a"));
     assert!(run.store.firing(&key("test.check")).contains("a"));
     run.shutdown.cancel();
+}
+
+/// A check shared with the test, so its run count can be read while it is scheduled.
+struct Shared(Arc<ScriptedCheck>);
+
+#[async_trait]
+impl Check for Shared {
+    fn key(&self) -> CheckKey {
+        self.0.key()
+    }
+
+    fn default_cadence(&self) -> SignedDuration {
+        self.0.default_cadence()
+    }
+
+    fn class(&self) -> SignalClass {
+        self.0.class()
+    }
+
+    async fn run(&self, ctx: &mut CheckContext<'_>) -> Result<CheckReport, CheckError> {
+        self.0.run(ctx).await
+    }
+}
+
+#[tokio::test]
+async fn config_update_applies_check_overrides_live() {
+    use domovoi_agent::overrides::EffectiveChecks;
+    use domovoi_proto::messages::CheckOverride;
+
+    let quiet = || (0..20).map(|_| report(vec![ok("x")])).collect::<Vec<_>>();
+    let a = Arc::new(ScriptedCheck::new("test.a", quiet()));
+    let b = Arc::new(ScriptedCheck::new("test.b", quiet()));
+    let runs = |c: &Arc<ScriptedCheck>| c.runs.load(Ordering::SeqCst);
+
+    let dir = tempfile::tempdir().unwrap();
+    let clock = clock();
+    let effective = EffectiveChecks::new(BTreeMap::new());
+    let env = CheckEnv {
+        host: HostId::new(),
+        fs: empty_fs(&dir),
+        exec: Arc::new(FakeProcessExecutor::new()),
+        commands: Arc::new(Commands::default()),
+        clock: clock.clone(),
+        settings: effective.view(),
+    };
+    let spool = Arc::new(SharedSpool::new(Spool::open(dir.path()).unwrap()));
+    let store = Arc::new(CheckStore::open(dir.path()).unwrap());
+    let (handle, _outbox) = LinkHandle::channel(16);
+    let checks: Arc<dyn CheckSet> = Arc::new(vec![
+        Box::new(Shared(a.clone())) as Box<dyn Check>,
+        Box::new(Shared(b.clone())),
+    ]);
+    let shutdown = CancellationToken::new();
+    tokio::spawn(Scheduler::new(checks, env, store, spool, handle).run(shutdown.clone()));
+    settle().await;
+    assert_eq!((runs(&a), runs(&b)), (1, 1), "both run at start");
+
+    effective.apply(&BTreeMap::from([
+        (
+            key("test.a"),
+            CheckOverride {
+                enabled: Some(false),
+                ..CheckOverride::default()
+            },
+        ),
+        (
+            key("test.b"),
+            CheckOverride {
+                interval_seconds: Some(300),
+                ..CheckOverride::default()
+            },
+        ),
+    ]));
+    settle().await;
+    clock.advance(SignedDuration::from_secs(60));
+    settle().await;
+    assert_eq!(
+        (runs(&a), runs(&b)),
+        (1, 1),
+        "a is off; b waits its new interval"
+    );
+    clock.advance(SignedDuration::from_secs(240));
+    settle().await;
+    assert_eq!(
+        (runs(&a), runs(&b)),
+        (1, 2),
+        "b runs 300 s after its last run"
+    );
+
+    effective.apply(&BTreeMap::new());
+    settle().await;
+    assert_eq!(runs(&a), 2, "turned back on, a is overdue and runs at once");
+    shutdown.cancel();
 }

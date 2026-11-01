@@ -18,11 +18,18 @@ fn examples_parse_and_validate() {
         .with("DOMOVOI_HEARTBEAT_URL", "https://hc.test/ping")
         .with("DOMOVOI_LOCAL_WEBHOOK_TOKEN", "local-test");
 
-    let (hub, warnings) = load_hub(&example("hub.toml"), &env).unwrap();
+    let (hub, warnings) = load_hub(&example("hub.full.toml"), &env).unwrap();
     assert!(warnings.is_empty(), "{warnings:#?}");
     assert!(hub.triage.enabled);
     assert_eq!(hub.probes.len(), 2);
     assert_eq!(hub.webhooks.len(), 1);
+
+    let (short, warnings) = load_hub(&example("hub.toml"), &MapEnv::new()).unwrap();
+    assert!(warnings.is_empty(), "{warnings:#?}");
+    assert!(
+        short.discord.is_none(),
+        "the short example only shows commented options"
+    );
 
     let (agent, warnings) = load_agent(&example("agent.toml"), &env).unwrap();
     assert!(warnings.is_empty(), "{warnings:#?}");

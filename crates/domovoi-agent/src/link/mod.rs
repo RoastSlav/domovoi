@@ -18,7 +18,9 @@ use std::sync::Arc;
 
 use domovoi_core::ports::{Clock, HostFs};
 use domovoi_core::{RequestId, SkillSummary};
-use domovoi_proto::messages::{Ping, Pong, RunCheck, RunSkill, RunTool, Signals, Unsupported};
+use domovoi_proto::messages::{
+    CheckInfo, Ping, Pong, RunCheck, RunSkill, RunTool, Signals, Unsupported,
+};
 use domovoi_proto::{Decoded, Message, Transport};
 use jiff::SignedDuration;
 use tokio::sync::mpsc;
@@ -102,6 +104,10 @@ pub struct LinkParts {
     pub fs: Arc<dyn HostFs>,
     /// The local catalogue, announced in `hello`.
     pub skills: Vec<SkillSummary>,
+    /// Every check with its local settings, announced in `hello`.
+    pub checks: Vec<CheckInfo>,
+    /// Where the hub's check overrides take effect; `None` ignores them.
+    pub overrides: Option<crate::overrides::EffectiveChecks>,
     /// Signal batches to send and replay.
     pub spool: Arc<SharedSpool>,
     /// Jitter factors for the reconnect delay.
@@ -182,6 +188,7 @@ impl Link {
         let announce = Announce {
             facts: host_facts(&*self.parts.fs).await,
             skills: &self.parts.skills,
+            checks: &self.parts.checks,
         };
         let shake = handshake(
             transport.as_mut(),
@@ -195,6 +202,9 @@ impl Link {
         };
         tracing::info!(session = ?welcome.session_id, "connected to the hub");
         let mut beat = heartbeat(&welcome.config);
+        if let Some(overrides) = &self.parts.overrides {
+            overrides.apply(&welcome.config.check_overrides);
+        }
         let mut sent = None;
         let mut missed = 0;
         let mut next_ping = clock.now().saturating_add(beat).unwrap_or(clock.now());
@@ -272,6 +282,9 @@ impl Link {
             }
             Message::ConfigUpdate(update) => {
                 *beat = heartbeat(&update.config);
+                if let Some(overrides) = &self.parts.overrides {
+                    overrides.apply(&update.config.check_overrides);
+                }
                 return Ok(());
             }
             Message::RunTool(run) => RequestKind::Tool(run),

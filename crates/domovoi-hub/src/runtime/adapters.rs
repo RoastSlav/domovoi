@@ -9,26 +9,39 @@ use domovoi_core::{Host, HostId, HostKind, HostName};
 use domovoi_store::{Store, StoreOptions};
 
 use super::{AdapterOverrides, RuntimeError};
+use crate::api::ApiState;
+use crate::auth::interactions::{ChatDeps, InteractionAuthorizer};
 
 /// Opens (and migrates) `<data_dir>/hub.db` with the configured backups.
 pub(crate) async fn open_store(
     config: &HubConfig,
     clock: &dyn Clock,
 ) -> Result<Store, RuntimeError> {
-    let database = config.hub.data_dir.join("hub.db");
+    open_store_at(
+        &config.hub.data_dir,
+        config.backup.dir.as_deref(),
+        config.backup.keep as usize,
+        clock,
+    )
+    .await
+}
+
+/// Opens (and migrates) `<data_dir>/hub.db`, keeping `keep` backups in `backup_dir`
+/// (default `<data_dir>/backups`).
+pub(crate) async fn open_store_at(
+    data_dir: &std::path::Path,
+    backup_dir: Option<&std::path::Path>,
+    keep: usize,
+    clock: &dyn Clock,
+) -> Result<Store, RuntimeError> {
     let options = StoreOptions {
-        backup_dir: config
-            .backup
-            .dir
-            .clone()
-            .unwrap_or_else(|| config.hub.data_dir.join("backups")),
-        keep_backups: config.backup.keep as usize,
+        backup_dir: backup_dir
+            .map_or_else(|| data_dir.join("backups"), std::path::Path::to_path_buf),
+        keep_backups: keep,
         now: clock.now(),
     };
-    Ok(Store::open(&database, options).await?)
+    Ok(Store::open(&data_dir.join("hub.db"), options).await?)
 }
-use crate::api::ApiState;
-use crate::auth::interactions::{ChatDeps, InteractionAuthorizer};
 
 pub(crate) async fn ensure_hub_host(
     store: &Store,

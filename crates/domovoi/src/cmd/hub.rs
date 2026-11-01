@@ -2,24 +2,19 @@
 
 use crate::ExitCode;
 use std::io::BufRead;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use clap::{Args, Subcommand};
-use domovoi_core::ports::{Clock, ProcessExecutor};
 use domovoi_hub::admin::OfflineAdmin;
-use domovoi_hub::runtime::{HubDeps, HubRuntime};
-use domovoi_runner::SandboxExecutor;
 
-use super::{HubConfigArg, load_hub, redactor, warn};
-use crate::init::{self, SystemClock};
-use crate::local_link;
+use super::HubConfigArg;
+use crate::init::SystemClock;
 
 /// Hub subcommands.
 #[derive(Debug, Subcommand)]
 pub enum HubCommand {
     /// Run the hub until SIGINT or SIGTERM.
-    Run(RunArgs),
+    Run(super::hub_run::RunArgs),
     /// Enrollment tokens.
     #[command(subcommand)]
     Token(TokenCommand),
@@ -28,16 +23,6 @@ pub enum HubCommand {
     Agent(AgentCommand),
     /// Set the web UI admin password; creates the admin account on a new hub.
     SetPassword(SetPasswordArgs),
-}
-
-/// `hub run`.
-#[derive(Debug, Args)]
-pub struct RunArgs {
-    #[command(flatten)]
-    config: HubConfigArg,
-    /// Also run an agent for this machine in the same process (single-box mode).
-    #[arg(long, value_name = "AGENT_TOML")]
-    with_local_agent: Option<PathBuf>,
 }
 
 /// `hub token`.
@@ -87,7 +72,7 @@ pub struct SetPasswordArgs {
 
 pub async fn run(command: HubCommand) -> anyhow::Result<ExitCode> {
     match command {
-        HubCommand::Run(args) => run_hub(args).await,
+        HubCommand::Run(args) => super::hub_run::run(args).await,
         HubCommand::Token(TokenCommand::Create { host, ttl, config }) => {
             let admin = open(&config).await?;
             let invite = admin.create_token(&host, ttl.as_signed()).await;
@@ -138,7 +123,7 @@ pub async fn run(command: HubCommand) -> anyhow::Result<ExitCode> {
 }
 
 async fn open(config: &HubConfigArg) -> anyhow::Result<OfflineAdmin> {
-    let config = load_hub(&config.config)?;
+    let config = config.effective().await?;
     Ok(OfflineAdmin::open(config, Arc::new(SystemClock)).await?)
 }
 
@@ -161,51 +146,5 @@ async fn set_password(args: SetPasswordArgs) -> anyhow::Result<ExitCode> {
         .await;
     admin.close().await;
     println!("Password set for {}.", result?);
-    Ok(ExitCode::SUCCESS)
-}
-
-async fn run_hub(args: RunArgs) -> anyhow::Result<ExitCode> {
-    let config = load_hub(&args.config.config)?;
-    let local_agent = args
-        .with_local_agent
-        .as_deref()
-        .map(super::load_agent)
-        .transpose()?;
-    let clock: Arc<dyn Clock> = Arc::new(SystemClock);
-    let executor: Arc<dyn ProcessExecutor> = Arc::new(SandboxExecutor::new(redactor(&config)));
-    let runtime = HubRuntime::build(
-        config,
-        HubDeps {
-            clock: clock.clone(),
-            process_executor: Some(executor.clone()),
-            metrics: Some(init::metrics()?),
-        },
-    )
-    .await?;
-    if let Some(link) = runtime.setup_link().await? {
-        println!("No account exists yet. Finish setup in the web UI within 24 hours:");
-        println!("  {link}");
-        println!("(or run `domovoi hub set-password` while the hub is stopped)");
-    }
-    let shutdown = init::shutdown_on_signals();
-    let agent = local_agent.map(|config| {
-        tokio::spawn(local_link::run_agent(
-            runtime.local_agents(),
-            config,
-            executor,
-            clock,
-            shutdown.clone(),
-        ))
-    });
-    let result = runtime.run(shutdown.clone()).await;
-    shutdown.cancel();
-    if let Some(agent) = agent {
-        match agent.await {
-            Ok(Ok(())) => {}
-            Ok(Err(err)) => warn(&format!("the local agent stopped: {err:#}")),
-            Err(err) => warn(&format!("the local agent task failed: {err}")),
-        }
-    }
-    result?;
     Ok(ExitCode::SUCCESS)
 }

@@ -4,12 +4,10 @@
 //! until the agent has signed a fresh challenge with its enrolled key over this
 //! connection's channel binding (INV-10).
 
-use std::collections::BTreeMap;
-
 use domovoi_core::ports::StoreError;
 use domovoi_core::{AgentId, AgentIdentity, RequestId};
 use domovoi_proto::messages::{
-    AgentSettings, Challenge, Enroll, Enrolled, Hello, Reject, RejectReason, SessionId, Welcome,
+    Challenge, Enroll, Enrolled, Hello, Reject, RejectReason, SessionId, Welcome,
 };
 use domovoi_proto::{
     CertFingerprint, Message, Nonce, PROTOCOL_VERSION, Transport, challenge_message, compatible,
@@ -179,14 +177,10 @@ async fn authenticate(
         hosts.put_agent(&agent).await?;
     }
     let session = SessionId::new();
-    let heartbeat_seconds = u32::try_from(inner.settings.heartbeat.as_secs()).unwrap_or(u32::MAX);
     let welcome = Message::Welcome(Welcome {
         session_id: session,
         hub_version: env!("CARGO_PKG_VERSION").to_owned(),
-        config: AgentSettings {
-            heartbeat_seconds,
-            check_overrides: BTreeMap::new(),
-        },
+        config: super::overrides::agent_settings(inner, agent.host).await,
     });
     send(transport, &welcome, Some(answer.id)).await?;
     Ok(Accepted {
