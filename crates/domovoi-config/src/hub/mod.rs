@@ -253,9 +253,11 @@ pub struct DiscordSection {
     /// The bot token.
     pub bot_token: Secret,
     /// The channel incidents are posted to.
+    #[serde(deserialize_with = "crate::snowflake::one")]
     pub channel_id: u64,
     /// Discord users who may press buttons and run commands. Required when enabled.
     #[serde(default)]
+    #[serde(deserialize_with = "crate::snowflake::many")]
     pub allowed_user_ids: Vec<u64>,
     /// A channel webhook used when the bot is down. Optional.
     #[serde(default)]

@@ -126,3 +126,23 @@ fn local_time_and_timezone_validate() {
     let errors = hub_errors("[hub]\ntimezone = \"Mars/Olympus\"\n");
     assert_issue(&errors, "hub.timezone", "IANA time zone");
 }
+
+#[test]
+fn discord_ids_load_from_numbers_or_strings() {
+    let text = "[discord]\nbot_token = { env = \"BOT\" }\nchannel_id = \"1234567890123456789\"\nallowed_user_ids = [234567890123456789, \"345678901234567890\"]\n";
+    let env = domovoi_config::MapEnv::new().with("BOT", "token");
+    let (config, _) = crate::helpers::hub_with(text, &env).unwrap();
+    let discord = config.discord.unwrap();
+    assert_eq!(discord.channel_id, 1_234_567_890_123_456_789);
+    assert_eq!(
+        discord.allowed_user_ids,
+        [234_567_890_123_456_789, 345_678_901_234_567_890]
+    );
+    let bad = crate::helpers::hub_errors(
+        "[discord]\nbot_token = { env = \"BOT\" }\nchannel_id = \"x1\"\n",
+    );
+    assert!(
+        bad.iter().any(|i| i.path == "discord.channel_id"),
+        "{bad:#?}"
+    );
+}

@@ -28,8 +28,6 @@ pub const PREVIOUS: &str = "config.previous";
 pub const SECRET_PREFIX: &str = "secret.";
 /// The outcome of the last apply.
 pub const LAST_APPLY: &str = "last_apply";
-/// UI-only first-run state; never part of the configuration.
-pub const FIRST_RUN: &str = "ui.first_run";
 
 /// The key of a host's check overrides.
 #[must_use]
@@ -177,6 +175,9 @@ pub(crate) fn json_to_toml(value: &Value) -> Result<Option<toml::Value>, String>
 pub(crate) fn toml_to_json(value: &toml::Value) -> Value {
     match value {
         toml::Value::String(s) => Value::String(s.clone()),
+        // Beyond 2^53 a JavaScript number loses digits (Discord ids), so send a string;
+        // the config accepts it back.
+        toml::Value::Integer(i) if i.unsigned_abs() > (1 << 53) => Value::String(i.to_string()),
         toml::Value::Integer(i) => json!(i),
         toml::Value::Float(f) => json!(f),
         toml::Value::Boolean(b) => Value::Bool(*b),

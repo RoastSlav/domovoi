@@ -14,6 +14,7 @@ pub mod layered;
 pub mod provenance;
 mod schema;
 pub mod secret;
+mod snowflake;
 pub mod time;
 pub mod validate;
 
