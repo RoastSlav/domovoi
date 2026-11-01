@@ -34,3 +34,4 @@ An ADR records one decision that shapes the codebase: the context, the decision 
 | [0014](0014-rehydrating-stored-approvals.md) | Only the store may rebuild a stored approval | Accepted |
 | [0015](0015-user-editable-message-templates.md) | Let users edit routine message templates | Proposed |
 | [0016](0016-improvement-suggestions.md) | Suggest improvements from history, never apply them | Proposed |
+| [0017](0017-settings-managed-from-the-web-ui.md) | Manage settings from the web UI | Proposed |
