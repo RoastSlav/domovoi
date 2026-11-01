@@ -9,15 +9,15 @@ mod fakes;
 
 use std::fmt;
 use std::sync::Arc;
-use std::time::Duration;
 
 use domovoi_config::hub::HubConfig;
-use domovoi_core::ports::{AdvisoryRepo, ChatGateway, LlmProvider, NotifyStateRepo};
+use domovoi_core::ports::{AdvisoryRepo, ChatGateway, Clock, LlmProvider, NotifyStateRepo};
 use domovoi_core::{
     AdvisoryKind, CheckKey, HostId, IncidentId, Severity, Signal, SignalClass, SourceKind,
     TriageOutcome,
 };
 use domovoi_engine::{DomainEvent, EventKind};
+use jiff::SignedDuration;
 use tokio::sync::broadcast;
 
 use crate::runtime::{AdapterOverrides, HubDeps, HubRuntime, adapters};
@@ -95,13 +95,17 @@ impl fmt::Display for SelftestReport {
 }
 
 /// How long the manager may take to open the incident.
-const MANAGER_WAIT: Duration = Duration::from_secs(10);
+const MANAGER_WAIT: SignedDuration = SignedDuration::from_secs(10);
 /// How long triage may take; a real model can be slow.
-const TRIAGE_WAIT: Duration = Duration::from_secs(120);
+const TRIAGE_WAIT: SignedDuration = SignedDuration::from_secs(120);
 /// How long delivery may take, retries included.
-const DELIVERY_WAIT: Duration = Duration::from_secs(60);
+const DELIVERY_WAIT: SignedDuration = SignedDuration::from_secs(60);
 /// How often delivery state is polled.
-const POLL: Duration = Duration::from_millis(100);
+const POLL: SignedDuration = SignedDuration::from_millis(100);
+/// How long the update after resolving may take to be delivered.
+const SETTLE: SignedDuration = SignedDuration::from_secs(1);
+/// How long the assembled hub may take to stop.
+const STOP_WAIT: SignedDuration = SignedDuration::from_secs(10);
 
 const AFTER_STORE: [&str; 4] = ["manager", "triage", "card", "gateway"];
 
@@ -153,20 +157,21 @@ pub async fn run(mut config: HubConfig, deps: HubDeps, mode: Mode) -> SelftestRe
         }
     };
     report.record("store", Outcome::Pass);
-    pipeline(&runtime, &mut report, triage_on).await;
+    let probe = (mode == Mode::Offline).then_some(&*recording);
+    pipeline(&runtime, &mut report, triage_on, probe).await;
     stop(runtime).await;
-    if mode == Mode::Offline {
-        tracing::debug!(
-            posted = recording.posted(),
-            updated = recording.updated(),
-            "selftest gateway"
-        );
-    }
     drop(dir);
     report
 }
 
-async fn pipeline(runtime: &HubRuntime, report: &mut SelftestReport, triage_on: bool) {
+/// `recording` is the offline gateway, whose counts are waited on directly; without it,
+/// delivery is read back from the store.
+async fn pipeline(
+    runtime: &HubRuntime,
+    report: &mut SelftestReport,
+    triage_on: bool,
+    recording: Option<&fakes::RecordingGateway>,
+) {
     let mut events = runtime.bus.subscribe();
     let dispatcher = tokio::spawn(
         runtime
@@ -193,7 +198,7 @@ async fn pipeline(runtime: &HubRuntime, report: &mut SelftestReport, triage_on: 
         }
     };
     let triage = if triage_on {
-        wait_for_triage(&mut events, incident).await
+        wait_for_triage(&*runtime.clock, &mut events, incident).await
     } else {
         Outcome::Skip("triage is disabled in [triage]".to_owned())
     };
@@ -202,14 +207,25 @@ async fn pipeline(runtime: &HubRuntime, report: &mut SelftestReport, triage_on: 
         dispatcher.abort();
         return;
     }
-    let card = if platforms.is_empty() {
-        Outcome::Fail("no chat gateway is enabled, so no card can be posted".to_owned())
-    } else {
-        wait_for_cards(runtime, incident, &platforms).await
+    let card = match (recording, platforms.is_empty()) {
+        (_, true) => {
+            Outcome::Fail("no chat gateway is enabled, so no card can be posted".to_owned())
+        }
+        (Some(recording), false) => {
+            let posted = recording.wait(|counts| counts.posted >= 1);
+            within(
+                &*runtime.clock,
+                DELIVERY_WAIT,
+                posted,
+                "no card was posted in time",
+            )
+            .await
+        }
+        (None, false) => wait_for_cards(runtime, incident, &platforms).await,
     };
     let card_ok = report.record("card", card);
     let gateway = if card_ok {
-        resolve_and_check(runtime, &mut events, incident).await
+        resolve_and_check(runtime, &mut events, incident, recording).await
     } else {
         Outcome::Skip("no card was posted".to_owned())
     };
@@ -229,7 +245,7 @@ async fn open_incident(
         .ingest(vec![signal(host, true, runtime)?])
         .await
         .map_err(|err| format!("the manager refused the signal: {err}"))?;
-    wait_for(events, MANAGER_WAIT, |event| {
+    wait_for(&*runtime.clock, events, MANAGER_WAIT, |event| {
         matches!(event.kind, EventKind::IncidentOpened).then(|| event.incident.id())
     })
     .await
@@ -263,10 +279,11 @@ fn signal(host: HostId, firing: bool, runtime: &HubRuntime) -> Result<Signal, St
 }
 
 async fn wait_for_triage(
+    clock: &dyn Clock,
     events: &mut broadcast::Receiver<DomainEvent>,
     incident: IncidentId,
 ) -> Outcome {
-    let outcome = wait_for(events, TRIAGE_WAIT, |event| match &event.kind {
+    let outcome = wait_for(clock, events, TRIAGE_WAIT, |event| match &event.kind {
         EventKind::TriageCompleted { outcome, .. } if event.incident.id() == incident => {
             Some(outcome.clone())
         }
@@ -286,7 +303,8 @@ async fn wait_for_cards(
     incident: IncidentId,
     platforms: &[String],
 ) -> Outcome {
-    let deadline = tokio::time::Instant::now() + DELIVERY_WAIT;
+    let clock = &*runtime.clock;
+    let deadline = after(clock, DELIVERY_WAIT);
     loop {
         match NotifyStateRepo::get(&*runtime.store, incident).await {
             Ok(Some(state)) if platforms.iter().all(|p| state.messages.contains_key(p)) => {
@@ -298,10 +316,10 @@ async fn wait_for_cards(
         if let Some(why) = delivery_failure(runtime).await {
             return Outcome::Fail(why);
         }
-        if tokio::time::Instant::now() >= deadline {
+        if clock.now() >= deadline {
             return Outcome::Fail(format!("no card reached {} in time", platforms.join(", ")));
         }
-        tokio::time::sleep(POLL).await;
+        clock.sleep_until(after(clock, POLL)).await;
     }
 }
 
@@ -311,7 +329,9 @@ async fn resolve_and_check(
     runtime: &HubRuntime,
     events: &mut broadcast::Receiver<DomainEvent>,
     incident: IncidentId,
+    recording: Option<&fakes::RecordingGateway>,
 ) -> Outcome {
+    let updates_before = recording.map(|r| r.counts().updated);
     let host = match adapters::hub_host(&runtime.store).await {
         Ok(host) => host,
         Err(err) => return Outcome::Fail(err.to_string()),
@@ -323,7 +343,7 @@ async fn resolve_and_check(
     if let Err(err) = runtime.manager.ingest(vec![signal]).await {
         return Outcome::Fail(format!("the manager refused the resolution: {err}"));
     }
-    let resolved = wait_for(events, MANAGER_WAIT, |event| {
+    let resolved = wait_for(&*runtime.clock, events, MANAGER_WAIT, |event| {
         (matches!(event.kind, EventKind::IncidentResolved) && event.incident.id() == incident)
             .then_some(())
     })
@@ -331,8 +351,27 @@ async fn resolve_and_check(
     if resolved.is_none() {
         return Outcome::Fail("the incident did not resolve".to_owned());
     }
-    // Give the dispatcher a moment to deliver the update before checking for failures.
-    tokio::time::sleep(Duration::from_secs(1)).await;
+    match (recording, updates_before) {
+        (Some(recording), Some(before)) => {
+            let updated = recording.wait(|counts| counts.updated > before);
+            let outcome = within(
+                &*runtime.clock,
+                DELIVERY_WAIT,
+                updated,
+                "the resolved card was not updated in time",
+            )
+            .await;
+            if outcome != Outcome::Pass {
+                return outcome;
+            }
+        }
+        _ => {
+            // Give the dispatcher a moment to deliver the update before checking for
+            // failures.
+            let settled = after(&*runtime.clock, SETTLE);
+            runtime.clock.sleep_until(settled).await;
+        }
+    }
     match delivery_failure(runtime).await {
         Some(why) => Outcome::Fail(why),
         None => Outcome::Pass,
@@ -349,12 +388,33 @@ async fn delivery_failure(runtime: &HubRuntime) -> Option<String> {
     }
 }
 
+/// [`Outcome::Pass`] when `done` finishes within `limit` on `clock`.
+async fn within(
+    clock: &dyn Clock,
+    limit: SignedDuration,
+    done: impl Future<Output = ()>,
+    late: &str,
+) -> Outcome {
+    tokio::select! {
+        () = done => Outcome::Pass,
+        () = clock.sleep_until(after(clock, limit)) => Outcome::Fail(late.to_owned()),
+    }
+}
+
+fn after(clock: &dyn Clock, wait: SignedDuration) -> jiff::Timestamp {
+    let now = clock.now();
+    now.checked_add(wait).unwrap_or(now)
+}
+
+/// The first event `matches` accepts, or `None` once `limit` has passed on `clock`.
 async fn wait_for<T>(
+    clock: &dyn Clock,
     events: &mut broadcast::Receiver<DomainEvent>,
-    limit: Duration,
+    limit: SignedDuration,
     mut matches: impl FnMut(&DomainEvent) -> Option<T>,
 ) -> Option<T> {
-    tokio::time::timeout(limit, async {
+    let deadline = after(clock, limit);
+    let found = async {
         loop {
             match events.recv().await {
                 Ok(event) => {
@@ -366,10 +426,11 @@ async fn wait_for<T>(
                 Err(broadcast::error::RecvError::Closed) => return None,
             }
         }
-    })
-    .await
-    .ok()
-    .flatten()
+    };
+    tokio::select! {
+        found = found => found,
+        () = clock.sleep_until(deadline) => None,
+    }
 }
 
 async fn stop(runtime: HubRuntime) {
@@ -385,11 +446,12 @@ async fn stop(runtime: HubRuntime) {
         let _ = runtime.actions_task.await;
         let _ = runtime.manager_task.await;
     };
-    if tokio::time::timeout(Duration::from_secs(10), tasks)
-        .await
-        .is_err()
-    {
-        tracing::warn!("selftest hub did not stop within 10 seconds");
+    let clock = runtime.clock.clone();
+    tokio::select! {
+        () = tasks => {}
+        () = clock.sleep_until(after(&*clock, STOP_WAIT)) => {
+            tracing::warn!("selftest hub did not stop within 10 seconds");
+        }
     }
     runtime.store.close().await;
 }

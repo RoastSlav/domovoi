@@ -2,7 +2,6 @@
 //! chat gateway that records cards instead of posting them. Never used by a real hub.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use async_trait::async_trait;
 use domovoi_core::Card;
@@ -10,6 +9,7 @@ use domovoi_core::ports::{
     ChatError, ChatGateway, InteractionSink, LlmError, LlmProvider, LlmRequest, LlmResponse,
     MessageRef, Part, StopReason, ThreadRef, Usage,
 };
+use tokio::sync::watch;
 
 /// The report the scripted model returns.
 pub(crate) const REPORT: &str = r#"{
@@ -42,20 +42,36 @@ impl LlmProvider for ScriptedProvider {
     }
 }
 
-/// Counts cards instead of posting them.
-#[derive(Default)]
+/// Cards posted and updated so far.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct Counts {
+    pub(crate) posted: usize,
+    pub(crate) updated: usize,
+}
+
+/// Counts cards instead of posting them, and lets the selftest wait for a count.
 pub(crate) struct RecordingGateway {
-    posted: AtomicUsize,
-    updated: AtomicUsize,
+    counts: watch::Sender<Counts>,
+}
+
+impl Default for RecordingGateway {
+    fn default() -> Self {
+        Self {
+            counts: watch::Sender::new(Counts::default()),
+        }
+    }
 }
 
 impl RecordingGateway {
-    pub(crate) fn posted(&self) -> usize {
-        self.posted.load(Ordering::SeqCst)
+    pub(crate) fn counts(&self) -> Counts {
+        *self.counts.borrow()
     }
 
-    pub(crate) fn updated(&self) -> usize {
-        self.updated.load(Ordering::SeqCst)
+    /// Waits until `reached` holds for the counts.
+    pub(crate) async fn wait(&self, reached: impl Fn(&Counts) -> bool) {
+        let mut rx = self.counts.subscribe();
+        // The sender lives as long as `self`, so this only ends early if it is dropped.
+        let _ = rx.wait_for(|counts| reached(counts)).await;
     }
 }
 
@@ -73,11 +89,16 @@ impl ChatGateway for RecordingGateway {
     }
 
     async fn post_card(&self, _card: &Card) -> Result<MessageRef, ChatError> {
-        Ok(reference(self.posted.fetch_add(1, Ordering::SeqCst)))
+        let mut n = 0;
+        self.counts.send_modify(|counts| {
+            n = counts.posted;
+            counts.posted += 1;
+        });
+        Ok(reference(n))
     }
 
     async fn update_card(&self, _msg: &MessageRef, _card: &Card) -> Result<(), ChatError> {
-        self.updated.fetch_add(1, Ordering::SeqCst);
+        self.counts.send_modify(|counts| counts.updated += 1);
         Ok(())
     }
 

@@ -238,7 +238,7 @@ flowchart LR
 
 ### 7.3 Single-box mode
 
-`domovoi hub run --with-local-agent agent.toml` runs both roles in one process. The hub and the agent talk through an in-memory transport pair that carries the same protocol messages and handshake as the WebSocket transport, so there is still one code path. The local agent is enrolled for the hub's own host without a token (it shares the process) and keeps its key under `[agent] state_dir` like any other agent.
+`domovoi hub --with-local-agent` runs both roles in one process. The hub and the agent talk through an in-memory `AgentLink` pair that carries the same protocol messages as the WebSocket transport, so there is still one code path.
 
 ## 8. Hub ↔ agent protocol (`domovoi-proto`)
 
