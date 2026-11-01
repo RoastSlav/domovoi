@@ -6,4 +6,5 @@
 //! `ARCHITECTURE.md` §7.1 and §10.
 
 pub mod agent_server;
+pub mod auth;
 pub mod ingest;

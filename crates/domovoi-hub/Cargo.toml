@@ -24,16 +24,20 @@ domovoi-store = { workspace = true }
 domovoi-llm = { workspace = true }
 domovoi-chat = { workspace = true }
 domovoi-checks = { workspace = true, features = ["net", "sources"] }
+argon2 = { workspace = true }
 async-trait = { workspace = true }
-axum = { workspace = true }
+axum = { workspace = true, features = ["macros"] }
 base64 = { workspace = true }
 ed25519-dalek = { workspace = true }
 futures = { workspace = true }
 hex = { workspace = true }
 hmac = { workspace = true }
 jiff = { workspace = true }
+metrics = { workspace = true }
 rand = { workspace = true }
 secrecy = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 rcgen = { workspace = true }
 rustls = { workspace = true }
 sha2 = { workspace = true }
@@ -43,13 +47,17 @@ tokio = { workspace = true, features = ["full"] }
 tokio-rustls = { workspace = true }
 tokio-tungstenite = { workspace = true }
 tokio-util = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true, features = ["trace", "set-header", "limit", "timeout", "compression-gzip", "sensitive-headers"] }
 tracing = { workspace = true }
 url = { workspace = true }
+utoipa = { workspace = true }
+utoipa-axum = { workspace = true }
 
 [dev-dependencies]
 domovoi-testkit = { workspace = true }
+insta = { workspace = true }
 tempfile = { workspace = true }
-tower = { workspace = true }
 
 [[test]]
 name = "agent_server"
