@@ -8,35 +8,30 @@ expression: value
       "components": [
         {
           "custom_id": "dv1:k:AaGXIV1Ycnej6_hm5O-5hg",
-          "disabled": false,
           "label": "Ack",
           "style": 2,
           "type": 2
         },
         {
           "custom_id": "dv1:m:AaGXIV1Ycnej6_hm5O-5hg",
-          "disabled": false,
           "label": "Mute 1h",
           "style": 2,
           "type": 2
         },
         {
           "custom_id": "dv1:d:AaGXIV1Ycnej6_hm5O-5hg",
-          "disabled": false,
           "label": "Details",
           "style": 2,
           "type": 2
         },
         {
           "custom_id": "dv1:a:AaGXIV1Ycnej6_hm5O-5hg:AaGXIWAAcACAAAAAAAAAAQ:qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqo",
-          "disabled": false,
           "label": "Approve",
           "style": 3,
           "type": 2
         },
         {
           "custom_id": "dv1:n:AaGXIV1Ycnej6_hm5O-5hg:AaGXIWAAcACAAAAAAAAAAQ:qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqo",
-          "disabled": false,
           "label": "Deny",
           "style": 4,
           "type": 2
@@ -48,14 +43,12 @@ expression: value
       "components": [
         {
           "custom_id": "dv1:a:AaGXIV1Ycnej6_hm5O-5hg:AaGXIWAAcACAAAAAAAAAAg:u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7s",
-          "disabled": false,
           "label": "Approve",
           "style": 3,
           "type": 2
         },
         {
           "custom_id": "dv1:n:AaGXIV1Ycnej6_hm5O-5hg:AaGXIWAAcACAAAAAAAAAAg:u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7s",
-          "disabled": false,
           "label": "Deny",
           "style": 4,
           "type": 2

@@ -1,91 +1,91 @@
-//! Slash commands. Each becomes [`InteractionKind::Command`] for the hub, which answers;
-//! the answer is shown only to the user who ran it.
+//! Slash commands: their definitions, and a command interaction as
+//! [`InteractionKind::Command`] for the hub, which answers.
 
 use domovoi_core::InteractionKind;
-use poise::CreateReply;
+use twilight_model::application::command::{Command, CommandType};
+use twilight_model::application::interaction::application_command::{
+    CommandData, CommandOptionValue,
+};
+use twilight_util::builder::command::{CommandBuilder, StringBuilder};
 
-use super::events::{Data, Error, reply_text};
+/// The command names, in the order they are registered.
+pub const NAMES: [&str; 4] = ["status", "incidents", "mute", "digest"];
 
-/// A poise command context.
-pub type Ctx<'a> = poise::Context<'a, Data, Error>;
+/// The `/mute` durations.
+pub const MUTE_DURATIONS: [&str; 3] = ["1h", "4h", "24h"];
 
-/// How long `/mute` mutes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, poise::ChoiceParameter)]
-pub enum MuteFor {
-    /// One hour.
-    #[name = "1h"]
-    OneHour,
-    /// Four hours.
-    #[name = "4h"]
-    FourHours,
-    /// A day.
-    #[name = "24h"]
-    Day,
-}
-
-impl MuteFor {
-    /// The duration as the hub reads it.
-    #[must_use]
-    pub const fn arg(self) -> &'static str {
-        match self {
-            Self::OneHour => "1h",
-            Self::FourHours => "4h",
-            Self::Day => "24h",
-        }
-    }
-}
-
-/// Sends `/name args…` to the hub and shows its answer privately.
-async fn forward(ctx: Ctx<'_>, name: &str, args: Vec<String>) -> Result<(), Error> {
-    ctx.defer_ephemeral().await?;
-    let shared = ctx.data();
-    let kind = InteractionKind::Command {
-        name: name.to_owned(),
-        args,
-    };
-    let reply = shared
-        .sink
-        .deliver(shared.interaction(ctx.author().id.get(), kind))
-        .await;
-    ctx.send(
-        CreateReply::default()
-            .content(reply_text(&reply))
-            .ephemeral(true),
-    )
-    .await?;
-    Ok(())
-}
-
-/// Hosts and their open incidents.
-#[poise::command(slash_command, guild_only)]
-pub async fn status(ctx: Ctx<'_>) -> Result<(), Error> {
-    forward(ctx, "status", Vec::new()).await
-}
-
-/// Open incidents, newest first.
-#[poise::command(slash_command, guild_only)]
-pub async fn incidents(ctx: Ctx<'_>) -> Result<(), Error> {
-    forward(ctx, "incidents", Vec::new()).await
-}
-
-/// Mutes an incident.
-#[poise::command(slash_command, guild_only)]
-pub async fn mute(
-    ctx: Ctx<'_>,
-    #[description = "The incident's short id, from its card"] incident: String,
-    #[description = "For how long"] duration: MuteFor,
-) -> Result<(), Error> {
-    forward(ctx, "mute", vec![incident, duration.arg().to_owned()]).await
-}
-
-/// Sends today's digest now.
-#[poise::command(slash_command, guild_only)]
-pub async fn digest(ctx: Ctx<'_>) -> Result<(), Error> {
-    forward(ctx, "digest", Vec::new()).await
-}
-
-/// Every command the bot registers.
+/// Every command the bot registers in the incident channel's server.
 #[must_use]
-pub fn all() -> Vec<poise::Command<Data, Error>> {
-    vec![status(), incidents(), mute(), digest()]
+pub fn definitions() -> Vec<Command> {
+    let mute = CommandBuilder::new("mute", "Mutes an incident", CommandType::ChatInput)
+        .option(
+            StringBuilder::new("incident", "The incident's short id, from its card").required(true),
+        )
+        .option(
+            StringBuilder::new("duration", "For how long")
+                .required(true)
+                .choices(MUTE_DURATIONS.map(|d| (d, d))),
+        )
+        .build();
+    vec![
+        CommandBuilder::new(
+            "status",
+            "Hosts and their open incidents",
+            CommandType::ChatInput,
+        )
+        .build(),
+        CommandBuilder::new(
+            "incidents",
+            "Open incidents, newest first",
+            CommandType::ChatInput,
+        )
+        .build(),
+        mute,
+        CommandBuilder::new("digest", "Sends today's digest now", CommandType::ChatInput).build(),
+    ]
+}
+
+/// A command interaction as the hub sees it: the name and its string arguments, in the
+/// order the command declares them. `None` for commands that are not ours.
+#[must_use]
+pub fn command_kind(data: &CommandData) -> Option<InteractionKind> {
+    if !NAMES.contains(&data.name.as_str()) {
+        return None;
+    }
+    let value = |name: &str| {
+        data.options
+            .iter()
+            .find_map(|o| match (&o.value, o.name == name) {
+                (CommandOptionValue::String(s), true) => Some(s.clone()),
+                _ => None,
+            })
+    };
+    let args = match data.name.as_str() {
+        "mute" => vec![value("incident")?, value("duration")?],
+        _ => Vec::new(),
+    };
+    Some(InteractionKind::Command {
+        name: data.name.clone(),
+        args,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn commands_are_defined_with_the_mute_choices() {
+        let defs = definitions();
+        let names: Vec<&str> = defs.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, NAMES);
+        let mute = serde_json::to_value(&defs[2]).unwrap();
+        let choices: Vec<&str> = mute["options"][1]["choices"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c["value"].as_str().unwrap())
+            .collect();
+        assert_eq!(choices, MUTE_DURATIONS);
+    }
 }

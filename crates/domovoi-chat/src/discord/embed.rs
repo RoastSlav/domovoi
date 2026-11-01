@@ -1,7 +1,8 @@
 //! A [`Card`] as a Discord embed.
 
 use domovoi_core::{Card, CardBadge, Severity, Verdict};
-use serenity::all::{Colour, CreateEmbed, CreateEmbedFooter};
+use twilight_model::channel::message::Embed;
+use twilight_util::builder::embed::{EmbedBuilder, EmbedFooterBuilder};
 
 use super::ids::short_id;
 use super::settings::DiscordSettings;
@@ -10,13 +11,13 @@ use super::settings::DiscordSettings;
 pub const MAX_TITLE: usize = 256;
 
 /// The colour of a resolved card, whatever its badge.
-pub const RESOLVED: Colour = Colour(0x0086_8E96);
+pub const RESOLVED: u32 = 0x0086_8E96;
 
 /// The colour of `badge`: ACTION NEEDED red, MONITOR amber, EXPECTED grey, FIXED green, and
 /// severity colours before triage.
 #[must_use]
-pub fn colour(badge: CardBadge) -> Colour {
-    Colour(match badge {
+pub fn colour(badge: CardBadge) -> u32 {
+    match badge {
         CardBadge::Verdict(Verdict::ActionNeeded) | CardBadge::Severity(Severity::Critical) => {
             0x00C9_2A2A
         }
@@ -26,7 +27,7 @@ pub fn colour(badge: CardBadge) -> Colour {
         CardBadge::Verdict(Verdict::Expected) => 0x006B_6B73,
         CardBadge::Verdict(Verdict::Fixed) => 0x002B_8A3E,
         CardBadge::Severity(Severity::Info) => 0x003B_5BDB,
-    })
+    }
 }
 
 /// The badge as the title shows it, for example `ACTION NEEDED` or `WARNING`.
@@ -84,17 +85,18 @@ pub fn description(card: &Card) -> String {
 
 /// `card` as an embed whose title links to the incident's web page. The link is also how
 /// the gateway finds the incident a thread belongs to.
-pub fn card_embed(card: &Card, settings: &DiscordSettings) -> CreateEmbed {
+#[must_use]
+pub fn card_embed(card: &Card, settings: &DiscordSettings) -> Embed {
     let colour = if card.resolved {
         RESOLVED
     } else {
         colour(card.badge)
     };
-    let mut embed = CreateEmbed::new()
+    let mut embed = EmbedBuilder::new()
         .title(title(card))
         .url(settings.incident_url(card.incident))
-        .colour(colour)
-        .footer(CreateEmbedFooter::new(format!(
+        .color(colour)
+        .footer(EmbedFooterBuilder::new(format!(
             "incident {}",
             short_id(card.incident)
         )));
@@ -102,5 +104,5 @@ pub fn card_embed(card: &Card, settings: &DiscordSettings) -> CreateEmbed {
     if !body.is_empty() {
         embed = embed.description(body);
     }
-    embed
+    embed.build()
 }

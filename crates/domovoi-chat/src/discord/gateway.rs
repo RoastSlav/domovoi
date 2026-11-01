@@ -7,9 +7,11 @@ use async_trait::async_trait;
 use domovoi_core::Card;
 use domovoi_core::ports::{ChatError, ChatGateway, Clock, InteractionSink, MessageRef, ThreadRef};
 use secrecy::{ExposeSecret, SecretString};
-use serenity::all::{
-    ChannelId, CreateMessage, CreateThread, EditMessage, Http, HttpError, MessageId,
-};
+use twilight_http::Client;
+use twilight_http::api_error::ApiError;
+use twilight_http::error::ErrorType;
+use twilight_model::id::Id;
+use twilight_model::id::marker::{ChannelMarker, MessageMarker};
 
 use super::components::card_buttons;
 use super::embed::card_embed;
@@ -24,13 +26,13 @@ pub const PLATFORM: &str = "discord";
 pub const MAX_THREAD_NAME: usize = 100;
 
 /// Discord's error code for "a thread has already been created for this message".
-const THREAD_EXISTS: isize = 160_004;
+const THREAD_EXISTS: u64 = 160_004;
 
 /// The Discord bot: cards in one channel, a thread per incident, and interactions handed to
 /// the hub's sink.
 pub struct DiscordGateway {
     token: SecretString,
-    http: Arc<Http>,
+    http: Arc<Client>,
     settings: DiscordSettings,
     clock: Arc<dyn Clock>,
 }
@@ -43,34 +45,38 @@ impl std::fmt::Debug for DiscordGateway {
     }
 }
 
-/// `err` as a [`ChatError`]. Discord's messages never contain the bot token.
-pub(crate) fn chat_error(err: &serenity::Error) -> ChatError {
-    if let serenity::Error::Http(HttpError::UnsuccessfulRequest(response)) = err {
-        let status = response.status_code.as_u16();
-        let message = &response.error.message;
-        return match status {
-            404 => ChatError::NotFound,
-            429 => ChatError::RateLimited { retry_after: None },
-            400..=499 => ChatError::Rejected(format!("discord {status}: {message}")),
-            _ => ChatError::Transport(format!("discord {status}: {message}")),
-        };
+/// `err` as a [`ChatError`]. Discord's error messages never contain the bot token.
+pub(crate) fn chat_error(err: &twilight_http::Error) -> ChatError {
+    match err.kind() {
+        ErrorType::Response { status, error, .. } => {
+            let status = status.get();
+            match status {
+                404 => ChatError::NotFound,
+                429 => ChatError::RateLimited { retry_after: None },
+                400..=499 => ChatError::Rejected(format!("discord {status}: {error}")),
+                _ => ChatError::Transport(format!("discord {status}: {error}")),
+            }
+        }
+        ErrorType::Unauthorized => ChatError::Rejected("discord rejected the bot token".to_owned()),
+        _ => ChatError::Transport(format!("discord request failed: {err}")),
     }
-    ChatError::Transport(err.to_string())
 }
 
-fn error_code(err: &serenity::Error) -> Option<isize> {
-    match err {
-        serenity::Error::Http(HttpError::UnsuccessfulRequest(response)) => {
-            Some(response.error.code)
-        }
+/// Discord's JSON error code, when the response carried one.
+fn error_code(err: &twilight_http::Error) -> Option<u64> {
+    match err.kind() {
+        ErrorType::Response {
+            error: ApiError::General(general),
+            ..
+        } => Some(general.code),
         _ => None,
     }
 }
 
-fn id_of(text: &str) -> Result<u64, ChatError> {
+fn id_of<T>(text: &str) -> Result<Id<T>, ChatError> {
     text.parse::<u64>()
         .ok()
-        .filter(|id| *id != 0)
+        .and_then(Id::new_checked)
         .ok_or_else(|| ChatError::Rejected(format!("{text:?} is not a Discord id")))
 }
 
@@ -82,10 +88,10 @@ fn thread_name(title: &str) -> String {
 
 impl DiscordGateway {
     /// A gateway posting to `settings.channel_id` as the bot with `token`. Nothing connects
-    /// until a call or [`ChatGateway::run`].
+    /// until a call or [`ChatGateway::run`]. TLS uses the process-wide rustls provider.
     #[must_use]
     pub fn new(token: SecretString, settings: DiscordSettings, clock: Arc<dyn Clock>) -> Self {
-        let http = Arc::new(Http::new(token.expose_secret()));
+        let http = Arc::new(Client::new(token.expose_secret().to_owned()));
         Self {
             token,
             http,
@@ -94,15 +100,9 @@ impl DiscordGateway {
         }
     }
 
-    fn channel(&self) -> ChannelId {
-        ChannelId::new(self.settings.channel_id)
-    }
-
-    fn message_ref(&self, id: MessageId) -> MessageRef {
-        MessageRef {
-            platform: PLATFORM.to_owned(),
-            id: id.get().to_string(),
-        }
+    fn channel(&self) -> Result<Id<ChannelMarker>, ChatError> {
+        Id::new_checked(self.settings.channel_id)
+            .ok_or_else(|| ChatError::Rejected("the channel id is 0".to_owned()))
     }
 }
 
@@ -113,39 +113,48 @@ impl ChatGateway for DiscordGateway {
     }
 
     async fn post_card(&self, card: &Card) -> Result<MessageRef, ChatError> {
-        let message = CreateMessage::new()
-            .embed(card_embed(card, &self.settings))
-            .components(card_buttons(card, &self.settings));
+        let embeds = [card_embed(card, &self.settings)];
+        let components = card_buttons(card, &self.settings);
         let sent = self
-            .channel()
-            .send_message(&self.http, message)
+            .http
+            .create_message(self.channel()?)
+            .embeds(&embeds)
+            .components(&components)
             .await
-            .map_err(|e| chat_error(&e))?;
-        Ok(self.message_ref(sent.id))
+            .map_err(|e| chat_error(&e))?
+            .model()
+            .await
+            .map_err(|e| ChatError::Transport(format!("discord response: {e}")))?;
+        Ok(MessageRef {
+            platform: PLATFORM.to_owned(),
+            id: sent.id.get().to_string(),
+        })
     }
 
     async fn update_card(&self, msg: &MessageRef, card: &Card) -> Result<(), ChatError> {
-        let id = MessageId::new(id_of(&msg.id)?);
-        let edit = EditMessage::new()
-            .embed(card_embed(card, &self.settings))
-            .components(card_buttons(card, &self.settings));
-        self.channel()
-            .edit_message(&self.http, id, edit)
+        let id: Id<MessageMarker> = id_of(&msg.id)?;
+        let embeds = [card_embed(card, &self.settings)];
+        let components = card_buttons(card, &self.settings);
+        self.http
+            .update_message(self.channel()?, id)
+            .embeds(Some(&embeds))
+            .components(Some(&components))
             .await
             .map_err(|e| chat_error(&e))?;
         Ok(())
     }
 
     async fn open_thread(&self, msg: &MessageRef, title: &str) -> Result<ThreadRef, ChatError> {
-        let id = MessageId::new(id_of(&msg.id)?);
+        let id: Id<MessageMarker> = id_of(&msg.id)?;
         // A thread started from a message has that message's id.
         let thread = ThreadRef {
             platform: PLATFORM.to_owned(),
             id: id.get().to_string(),
         };
+        let name = thread_name(title);
         match self
-            .channel()
-            .create_thread_from_message(&self.http, id, CreateThread::new(thread_name(title)))
+            .http
+            .create_thread_from_message(self.channel()?, id, &name)
             .await
         {
             Ok(_) => Ok(thread),
@@ -155,10 +164,11 @@ impl ChatGateway for DiscordGateway {
     }
 
     async fn reply(&self, thread: &ThreadRef, text: &str) -> Result<(), ChatError> {
-        let channel = ChannelId::new(id_of(&thread.id)?);
+        let channel: Id<ChannelMarker> = id_of(&thread.id)?;
         for part in split_message(text, MAX_MESSAGE) {
-            channel
-                .send_message(&self.http, CreateMessage::new().content(part))
+            self.http
+                .create_message(channel)
+                .content(&part)
                 .await
                 .map_err(|e| chat_error(&e))?;
         }
@@ -168,6 +178,7 @@ impl ChatGateway for DiscordGateway {
     async fn run(&self, sink: Arc<dyn InteractionSink>) -> Result<(), ChatError> {
         events::run(
             self.token.expose_secret(),
+            self.http.clone(),
             self.settings.clone(),
             sink,
             self.clock.clone(),
@@ -192,8 +203,8 @@ mod tests {
 
     #[test]
     fn ids_must_be_discord_snowflakes() {
-        assert_eq!(id_of("1234"), Ok(1234));
-        assert!(id_of("0").is_err());
-        assert!(id_of("abc").is_err());
+        assert_eq!(id_of::<MessageMarker>("1234").unwrap().get(), 1234);
+        assert!(id_of::<MessageMarker>("0").is_err());
+        assert!(id_of::<MessageMarker>("abc").is_err());
     }
 }

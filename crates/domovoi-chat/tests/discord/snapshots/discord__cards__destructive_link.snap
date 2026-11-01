@@ -8,27 +8,23 @@ expression: value
       "components": [
         {
           "custom_id": "dv1:k:AaGXIV1Ycnej6_hm5O-5hg",
-          "disabled": false,
           "label": "Ack",
           "style": 2,
           "type": 2
         },
         {
           "custom_id": "dv1:m:AaGXIV1Ycnej6_hm5O-5hg",
-          "disabled": false,
           "label": "Mute 1h",
           "style": 2,
           "type": 2
         },
         {
           "custom_id": "dv1:d:AaGXIV1Ycnej6_hm5O-5hg",
-          "disabled": false,
           "label": "Details",
           "style": 2,
           "type": 2
         },
         {
-          "disabled": false,
           "label": "Approve in web UI",
           "style": 5,
           "type": 2,

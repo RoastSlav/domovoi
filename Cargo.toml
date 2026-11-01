@@ -82,8 +82,10 @@ tokio-tungstenite = { version = "0.30.0", default-features = false, features = [
 sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "sqlite-bundled", "migrate", "derive", "macros"] }
 reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls-no-provider", "http2", "charset"] }
 bollard = "0.21.1"
-serenity = { version = "0.12.5", default-features = false, features = ["builder", "cache", "client", "gateway", "model", "http", "utils", "rustls_backend"] }
-poise = "0.7.1"
+twilight-gateway = { version = "0.18.0", default-features = false, features = ["rustls-webpki-roots", "twilight-http", "zlib"] }
+twilight-http = { version = "0.18.0", default-features = false, features = ["rustls-webpki-roots"] }
+twilight-model = "0.18.0"
+twilight-util = { version = "0.18.0", features = ["builder"] }
 metrics = "0.24"
 metrics-exporter-prometheus = { version = "0.17", default-features = false }
 

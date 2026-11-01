@@ -6,44 +6,55 @@ use std::sync::{Arc, Mutex};
 
 use domovoi_core::ports::{ChatError, Clock, InteractionSink};
 use domovoi_core::{IncidentId, Interaction, InteractionKind, InteractionReply};
-use serenity::all::{
-    Channel, ChannelId, ChannelType, ClientBuilder, ComponentInteraction, Context,
-    CreateInteractionResponse, CreateInteractionResponseFollowup, FullEvent, GatewayIntents,
-    GuildId, Message, MessageId,
+use twilight_gateway::{Event, EventTypeFlags, Intents, Shard, ShardId, StreamExt as _};
+use twilight_http::Client;
+use twilight_model::application::interaction::{
+    Interaction as DiscordInteraction, InteractionData,
 };
+use twilight_model::channel::message::MessageFlags;
+use twilight_model::channel::{ChannelType, Message};
+use twilight_model::gateway::payload::incoming::Ready;
+use twilight_model::http::interaction::{
+    InteractionResponse, InteractionResponseData, InteractionResponseType,
+};
+use twilight_model::id::Id;
+use twilight_model::id::marker::ChannelMarker;
 
-use super::commands;
-use super::gateway::{PLATFORM, chat_error};
+use super::commands::{command_kind, definitions};
+use super::gateway::PLATFORM;
 use super::ids::parse_custom_id;
 use super::settings::DiscordSettings;
 
 /// The most thread → incident lookups remembered.
 pub const THREAD_CACHE: usize = 1024;
 
-/// What a press of anything not ours, or a rejection, tells the user.
+/// What a press of anything not ours, or a rejection without a reason, tells the user.
 pub const NOT_ALLOWED: &str = "Not allowed";
 
-/// What event handlers and commands share.
+/// What the event loop shares.
 pub struct Shared {
-    /// Where interactions go.
-    pub sink: Arc<dyn InteractionSink>,
-    /// The channel and web address.
-    pub settings: DiscordSettings,
-    /// Time, for `received_at`.
-    pub clock: Arc<dyn Clock>,
+    sink: Arc<dyn InteractionSink>,
+    http: Arc<Client>,
+    settings: DiscordSettings,
+    clock: Arc<dyn Clock>,
     threads: Mutex<BTreeMap<u64, IncidentId>>,
 }
 
-/// The poise user data.
-pub type Data = Arc<Shared>;
-
-/// The error type of commands and handlers.
-pub type Error = Box<dyn std::error::Error + Send + Sync>;
+/// What to show the user for `reply`: the hub's message, "Done." when it has none, or the
+/// hub's reason for a refusal ("Not allowed" when it gives none).
+#[must_use]
+pub fn reply_text(reply: &InteractionReply) -> String {
+    match reply {
+        InteractionReply::Accepted { message } => {
+            message.clone().unwrap_or_else(|| "Done.".to_owned())
+        }
+        InteractionReply::Rejected { reason } if reason.trim().is_empty() => NOT_ALLOWED.to_owned(),
+        InteractionReply::Rejected { reason } => reason.clone(),
+    }
+}
 
 impl Shared {
-    /// An interaction by `user` received now.
-    #[must_use]
-    pub fn interaction(&self, user: u64, kind: InteractionKind) -> Interaction {
+    fn interaction(&self, user: u64, kind: InteractionKind) -> Interaction {
         Interaction {
             platform: PLATFORM.to_owned(),
             platform_user: user.to_string(),
@@ -70,187 +81,193 @@ impl Shared {
             .get(&thread)
             .copied()
     }
-}
 
-/// What to show the user for `reply`: the hub's message, "Done." when it has none, or the
-/// hub's reason for a refusal ("Not allowed" when it gives none).
-#[must_use]
-pub fn reply_text(reply: &InteractionReply) -> String {
-    match reply {
-        InteractionReply::Accepted { message } => {
-            message.clone().unwrap_or_else(|| "Done.".to_owned())
-        }
-        InteractionReply::Rejected { reason } if reason.trim().is_empty() => NOT_ALLOWED.to_owned(),
-        InteractionReply::Rejected { reason } => reason.clone(),
+    fn channel(&self) -> Option<Id<ChannelMarker>> {
+        Id::new_checked(self.settings.channel_id)
     }
-}
 
-async fn on_component(ctx: &Context, shared: &Shared, press: &ComponentInteraction) {
-    // Acknowledge within Discord's 3 seconds; the answer follows ephemerally.
-    if let Err(err) = press
-        .create_response(&ctx.http, CreateInteractionResponse::Acknowledge)
-        .await
-    {
-        tracing::warn!(%err, "could not acknowledge a button press");
-        return;
+    /// Registers the slash commands in the incident channel's server, so they appear at
+    /// once rather than after Discord's global propagation.
+    async fn register(&self, ready: &Ready) -> Result<(), String> {
+        let channel = self.channel().ok_or("the channel id is 0")?;
+        let guild = self
+            .http
+            .channel(channel)
+            .await
+            .map_err(|e| e.to_string())?
+            .model()
+            .await
+            .map_err(|e| e.to_string())?
+            .guild_id
+            .ok_or("the incident channel is not in a server")?;
+        self.http
+            .interaction(ready.application.id)
+            .set_guild_commands(guild, &definitions())
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(())
     }
-    let text = match parse_custom_id(&press.data.custom_id) {
-        Some((incident, button)) => {
-            let kind = InteractionKind::Button { button, incident };
-            let reply = shared
-                .sink
-                .deliver(shared.interaction(press.user.id.get(), kind))
-                .await;
-            reply_text(&reply)
-        }
-        None => NOT_ALLOWED.to_owned(),
-    };
-    let followup = CreateInteractionResponseFollowup::new()
-        .content(text)
-        .ephemeral(true);
-    if let Err(err) = press.create_followup(&ctx.http, followup).await {
-        tracing::warn!(%err, "could not answer a button press");
-    }
-}
 
-/// The incident whose card started `thread`, read from the card's title link.
-async fn incident_of_thread(
-    ctx: &Context,
-    shared: &Shared,
-    thread: ChannelId,
-) -> Option<IncidentId> {
-    if let Some(incident) = shared.cached(thread.get()) {
-        return Some(incident);
-    }
-    let parent = ChannelId::new(shared.settings.channel_id);
-    // A thread started from a message has that message's id.
-    let starter = parent
-        .message(&ctx.http, MessageId::new(thread.get()))
-        .await
-        .ok()?;
-    let incident = starter.embeds.iter().find_map(|e| {
-        e.url
-            .as_deref()
-            .and_then(|u| shared.settings.incident_of_url(u))
-    })?;
-    shared.remember(thread.get(), incident);
-    Some(incident)
-}
-
-async fn on_message(ctx: &Context, shared: &Shared, message: &Message) {
-    if message.author.bot || message.guild_id.is_none() || message.content.trim().is_empty() {
-        return;
-    }
-    let Ok(Channel::Guild(channel)) = message.channel_id.to_channel(&ctx.http).await else {
-        return;
-    };
-    let in_our_threads = matches!(
-        channel.kind,
-        ChannelType::PublicThread | ChannelType::PrivateThread
-    ) && channel.parent_id.map(ChannelId::get)
-        == Some(shared.settings.channel_id);
-    if !in_our_threads {
-        return;
-    }
-    let Some(incident) = incident_of_thread(ctx, shared, message.channel_id).await else {
-        return;
-    };
-    let kind = InteractionKind::ThreadMessage {
-        incident,
-        text: message.content.clone(),
-    };
-    // The hub posts its answer in the thread itself; a rejection stays silent.
-    let reply = shared
-        .sink
-        .deliver(shared.interaction(message.author.id.get(), kind))
-        .await;
-    if let InteractionReply::Rejected { reason } = reply {
-        tracing::info!(user = %message.author.id, %reason, "thread message not accepted");
-    }
-}
-
-/// Registers the slash commands in the guild of the incident channel, so they appear at
-/// once rather than after Discord's global propagation.
-async fn register(
-    ctx: &Context,
-    shared: &Shared,
-    framework: &poise::Framework<Data, Error>,
-) -> Result<(), Error> {
-    let channel = ChannelId::new(shared.settings.channel_id)
-        .to_channel(&ctx.http)
-        .await?;
-    let guild: GuildId = channel
-        .guild()
-        .map(|c| c.guild_id)
-        .ok_or("the incident channel is not in a server")?;
-    poise::builtins::register_in_guild(ctx, &framework.options().commands, guild).await?;
-    Ok(())
-}
-
-fn handle<'a>(
-    framework: poise::FrameworkContext<'a, Data, Error>,
-    event: &'a FullEvent,
-) -> poise::BoxFuture<'a, Result<(), Error>> {
-    let ctx = framework.serenity_context;
-    let shared = framework.user_data;
-    Box::pin(async move {
-        match event {
-            FullEvent::InteractionCreate { interaction } => {
-                if let Some(press) = interaction.as_message_component() {
-                    on_component(ctx, shared, press).await;
-                }
+    /// Acknowledges `i` within Discord's 3 seconds, asks the sink, and answers privately.
+    async fn answer(&self, i: &DiscordInteraction, kind: Option<InteractionKind>, update: bool) {
+        let response = if update {
+            InteractionResponse {
+                kind: InteractionResponseType::DeferredUpdateMessage,
+                data: None,
             }
-            FullEvent::Message { new_message } => on_message(ctx, shared, new_message).await,
-            FullEvent::ShardStageUpdate { event } => {
-                tracing::info!(stage = ?event.new, "discord connection");
+        } else {
+            InteractionResponse {
+                kind: InteractionResponseType::DeferredChannelMessageWithSource,
+                data: Some(InteractionResponseData {
+                    flags: Some(MessageFlags::EPHEMERAL),
+                    ..InteractionResponseData::default()
+                }),
+            }
+        };
+        let client = self.http.interaction(i.application_id);
+        if let Err(err) = client.create_response(i.id, &i.token, &response).await {
+            tracing::warn!(%err, "could not acknowledge an interaction");
+            return;
+        }
+        let text = match (kind, i.author_id()) {
+            (Some(kind), Some(user)) => {
+                let reply = self.sink.deliver(self.interaction(user.get(), kind)).await;
+                reply_text(&reply)
+            }
+            _ => NOT_ALLOWED.to_owned(),
+        };
+        if let Err(err) = client
+            .create_followup(&i.token)
+            .content(&text)
+            .flags(MessageFlags::EPHEMERAL)
+            .await
+        {
+            tracing::warn!(%err, "could not answer an interaction");
+        }
+    }
+
+    async fn on_interaction(&self, i: &DiscordInteraction) {
+        match &i.data {
+            Some(InteractionData::MessageComponent(data)) => {
+                let kind = parse_custom_id(&data.custom_id)
+                    .map(|(incident, button)| InteractionKind::Button { button, incident });
+                self.answer(i, kind, true).await;
+            }
+            Some(InteractionData::ApplicationCommand(data)) => {
+                self.answer(i, command_kind(data), false).await;
             }
             _ => {}
         }
-        Ok(())
-    })
+    }
+
+    /// The incident whose card started `thread`, read from the card's title link.
+    async fn incident_of_thread(&self, thread: Id<ChannelMarker>) -> Option<IncidentId> {
+        if let Some(incident) = self.cached(thread.get()) {
+            return Some(incident);
+        }
+        let channel = self.http.channel(thread).await.ok()?.model().await.ok()?;
+        let in_our_channel = matches!(
+            channel.kind,
+            ChannelType::PublicThread | ChannelType::PrivateThread
+        ) && channel.parent_id == self.channel();
+        if !in_our_channel {
+            return None;
+        }
+        // A thread started from a message has that message's id.
+        let starter = self
+            .http
+            .message(self.channel()?, thread.cast())
+            .await
+            .ok()?
+            .model()
+            .await
+            .ok()?;
+        let incident = starter.embeds.iter().find_map(|e| {
+            e.url
+                .as_deref()
+                .and_then(|u| self.settings.incident_of_url(u))
+        })?;
+        self.remember(thread.get(), incident);
+        Some(incident)
+    }
+
+    async fn on_message(&self, message: &Message) {
+        let ours = self.channel() == Some(message.channel_id);
+        if message.author.bot
+            || message.guild_id.is_none()
+            || ours
+            || message.content.trim().is_empty()
+        {
+            return;
+        }
+        let Some(incident) = self.incident_of_thread(message.channel_id).await else {
+            return;
+        };
+        let kind = InteractionKind::ThreadMessage {
+            incident,
+            text: message.content.clone(),
+        };
+        // The hub posts its answer in the thread itself; a rejection stays silent.
+        let reply = self
+            .sink
+            .deliver(self.interaction(message.author.id.get(), kind))
+            .await;
+        if let InteractionReply::Rejected { reason } = reply {
+            tracing::info!(user = %message.author.id, %reason, "thread message not accepted");
+        }
+    }
 }
 
 /// Connects as the bot with `token` and delivers events to `sink` until the connection
-/// ends for good. Reconnects and rate limits are handled by serenity.
+/// ends for good. The shard reconnects on its own and Twilight's HTTP client honours rate
+/// limits.
 pub async fn run(
     token: &str,
+    http: Arc<Client>,
     settings: DiscordSettings,
     sink: Arc<dyn InteractionSink>,
     clock: Arc<dyn Clock>,
 ) -> Result<(), ChatError> {
     let shared = Arc::new(Shared {
         sink,
+        http,
         settings,
         clock,
         threads: Mutex::new(BTreeMap::new()),
     });
-    let setup_shared = shared;
-    let options = poise::FrameworkOptions {
-        commands: commands::all(),
-        event_handler: handle,
-        ..Default::default()
-    };
-    let framework = poise::Framework::builder()
-        .options(options)
-        .setup(move |ctx, ready, framework| {
-            Box::pin(async move {
+    let intents = Intents::GUILDS | Intents::GUILD_MESSAGES | Intents::MESSAGE_CONTENT;
+    let mut shard = Shard::new(ShardId::ONE, token.to_owned(), intents);
+    let wanted = EventTypeFlags::READY
+        | EventTypeFlags::INTERACTION_CREATE
+        | EventTypeFlags::MESSAGE_CREATE
+        | EventTypeFlags::GATEWAY_RECONNECT;
+    while let Some(item) = shard.next_event(wanted).await {
+        let event = match item {
+            Ok(event) => event,
+            Err(err) => {
+                tracing::warn!(%err, "discord connection trouble");
+                continue;
+            }
+        };
+        let shared = shared.clone();
+        match event {
+            Event::Ready(ready) => {
                 tracing::info!(bot = %ready.user.name, "connected to discord");
-                if let Err(err) = register(ctx, &setup_shared, framework).await {
+                if let Err(err) = shared.register(&ready).await {
                     tracing::warn!(%err, "could not register slash commands");
                 }
-                Ok(setup_shared)
-            })
-        })
-        .build();
-    let intents =
-        GatewayIntents::GUILDS | GatewayIntents::GUILD_MESSAGES | GatewayIntents::MESSAGE_CONTENT;
-    let mut client = ClientBuilder::new(token, intents)
-        .framework(framework)
-        .await
-        .map_err(|e| chat_error(&e))?;
-    let result = client.start().await.map_err(|e| chat_error(&e));
-    if let Err(err) = &result {
-        tracing::warn!(%err, "discord connection ended");
+            }
+            Event::GatewayReconnect => tracing::warn!("discord asked to reconnect"),
+            Event::InteractionCreate(i) => {
+                tokio::spawn(async move { shared.on_interaction(&i.0).await });
+            }
+            Event::MessageCreate(m) => {
+                tokio::spawn(async move { shared.on_message(&m).await });
+            }
+            _ => {}
+        }
     }
-    result
+    Err(ChatError::Transport(
+        "the discord connection closed".to_owned(),
+    ))
 }
