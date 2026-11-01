@@ -107,11 +107,11 @@ pub fn run(root: &Path, fast: bool, web: bool) -> anyhow::Result<()> {
     }
     if web && !fast {
         let web_dir = root.join("web");
-        step(&web_dir, "web install", "npm", &["ci"])?;
-        step(&web_dir, "web lint", "npm", &["run", "lint"])?;
-        step(&web_dir, "web typecheck", "npm", &["run", "typecheck"])?;
-        step(&web_dir, "web test", "npm", &["test"])?;
-        step(&web_dir, "web build", "npm", &["run", "build"])?;
+        step(&web_dir, "web install", NPM, &["ci"])?;
+        step(&web_dir, "web lint", NPM, &["run", "lint"])?;
+        step(&web_dir, "web typecheck", NPM, &["run", "typecheck"])?;
+        step(&web_dir, "web test", NPM, &["test"])?;
+        step(&web_dir, "web build", NPM, &["run", "build"])?;
         // The hub with the built UI embedded, now that web/dist exists.
         step(
             root,
@@ -147,6 +147,9 @@ pub fn run(root: &Path, fast: bool, web: bool) -> anyhow::Result<()> {
     println!("ci: all gates passed");
     Ok(())
 }
+
+/// npm's launcher: a batch file on Windows, which `Command` does not find by bare name.
+const NPM: &str = if cfg!(windows) { "npm.cmd" } else { "npm" };
 
 fn has_nextest(root: &Path) -> bool {
     Command::new("cargo")
