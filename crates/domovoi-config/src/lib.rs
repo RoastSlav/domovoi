@@ -26,7 +26,9 @@ pub use duration::Duration;
 pub use env::{EnvSource, MapEnv, SystemEnv};
 pub use hub::HubConfig;
 pub use issue::{ConfigIssue, IssueSeverity};
-pub use layered::{Layered, LayeredError, LayeredResult, load_hub_layered};
+pub use layered::{
+    BOOTSTRAP_KEYS, Layered, LayeredError, LayeredResult, bootstrap_data_dir, load_hub_layered,
+};
 pub use provenance::{Provenance, Source};
 pub use secret::{NoStoredSecrets, Secret, SecretSource, Secrets, StoredSecrets};
 pub use time::{LocalTime, TimeZone};

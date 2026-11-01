@@ -235,6 +235,32 @@ expression: spec
         ],
         "type": "object"
       },
+      "CheckSettingsDto": {
+        "description": "One check's settings: on or off, interval, thresholds.",
+        "properties": {
+          "enabled": {
+            "description": "Whether the check runs; `None` keeps the agent's value.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "interval_seconds": {
+            "description": "How often, in seconds; `None` keeps the agent's value.",
+            "format": "int32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "thresholds": {
+            "description": "Thresholds merged over the agent's.",
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
       "DigestPreview": {
         "description": "The daily digest as it would be sent now.",
         "properties": {
@@ -289,12 +315,65 @@ expression: spec
         ],
         "type": "object"
       },
+      "EditableSettings": {
+        "description": "The settings as the UI edits them.",
+        "properties": {
+          "fields": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Where each field some layer set comes from: `ui`, `file` or `env:<VAR>`. A field\nnot listed uses its default. An entry for an array or a secret covers everything\nunder it. Fields from `file` or `env:` are locked in the UI.",
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "issues": {
+            "description": "Problems with the current settings, each with its path.",
+            "items": {
+              "$ref": "#/components/schemas/IssueDto"
+            },
+            "type": "array"
+          },
+          "last_apply": {
+            "description": "How the last apply went: `{ ok, at, message? }`.",
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "revision": {
+            "description": "The revision a save must name.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "values": {
+            "description": "The merged values, shaped like `hub.toml`; every secret that has a value is\n`\"[set]\"`, and a missing one is absent.",
+            "type": "object"
+          }
+        },
+        "required": [
+          "revision",
+          "values",
+          "fields",
+          "issues"
+        ],
+        "type": "object"
+      },
       "ErrorBody": {
         "description": "The body of every error response.",
         "properties": {
           "error": {
             "description": "A stable machine-readable code, for example `not_found`.",
             "type": "string"
+          },
+          "issues": {
+            "description": "For `invalid`: every problem, each with the settings path it is about.",
+            "items": {
+              "$ref": "#/components/schemas/IssueDto"
+            },
+            "type": "array"
           },
           "message": {
             "description": "One line for people.",
@@ -392,6 +471,94 @@ expression: spec
           "configured",
           "url",
           "failing"
+        ],
+        "type": "object"
+      },
+      "HostCheckDto": {
+        "description": "One check on a host.",
+        "properties": {
+          "key": {
+            "description": "The check key.",
+            "type": "string"
+          },
+          "overrides": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CheckSettingsDto",
+                "description": "What the hub overrides."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reported": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CheckSettingsDto",
+                "description": "What the agent's own config sets, while it is connected."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "key"
+        ],
+        "type": "object"
+      },
+      "HostChecksDto": {
+        "description": "A host's checks.",
+        "properties": {
+          "checks": {
+            "description": "Every check the agent reported or the hub overrides, by key.",
+            "items": {
+              "$ref": "#/components/schemas/HostCheckDto"
+            },
+            "type": "array"
+          },
+          "connected": {
+            "description": "Whether the agent is connected.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "connected",
+          "checks"
+        ],
+        "type": "object"
+      },
+      "HostChecksSaved": {
+        "description": "Whether the agent got the change now.",
+        "properties": {
+          "delivered": {
+            "description": "True when sent to the connected agent; false when it gets them on reconnect.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "delivered"
+        ],
+        "type": "object"
+      },
+      "HostChecksUpdate": {
+        "description": "New overrides for a host's checks, replacing the previous ones.",
+        "properties": {
+          "overrides": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/CheckSettingsDto"
+            },
+            "description": "Overrides by check key.",
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "overrides"
         ],
         "type": "object"
       },
@@ -745,6 +912,29 @@ expression: spec
         ],
         "type": "object"
       },
+      "IssueDto": {
+        "description": "One problem with submitted settings.",
+        "properties": {
+          "message": {
+            "description": "What is wrong and how to fix it.",
+            "type": "string"
+          },
+          "path": {
+            "description": "The dotted settings path, for example `llm.primary.model`; empty for the whole.",
+            "type": "string"
+          },
+          "severity": {
+            "description": "`error` or `warning`.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "message",
+          "severity"
+        ],
+        "type": "object"
+      },
       "LlmSettings": {
         "description": "One language model provider.",
         "properties": {
@@ -1056,6 +1246,26 @@ expression: spec
         ],
         "type": "object"
       },
+      "SavedDto": {
+        "description": "A saved change.",
+        "properties": {
+          "applied": {
+            "description": "Whether the hub restarted with the change.",
+            "type": "boolean"
+          },
+          "revision": {
+            "description": "The new revision.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "revision",
+          "applied"
+        ],
+        "type": "object"
+      },
       "SessionDto": {
         "description": "The current session.",
         "properties": {
@@ -1082,6 +1292,17 @@ expression: spec
               {
                 "$ref": "#/components/schemas/DiscordSettings",
                 "description": "Discord, if configured."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "editable": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EditableSettings",
+                "description": "Everything the settings page edits; `None` when the hub runs from a fixed\nconfiguration and settings are read-only."
               },
               {
                 "type": "null"
@@ -1140,6 +1361,33 @@ expression: spec
           "webhooks",
           "heartbeat",
           "usage"
+        ],
+        "type": "object"
+      },
+      "SettingsPatch": {
+        "description": "A change to the settings.",
+        "properties": {
+          "base_revision": {
+            "description": "The revision the change was made on; a stale one answers 409.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "changes": {
+            "description": "The changes, shaped like `hub.toml`. `null` removes a value so the lower layers\napply. A secret takes `{ \"keep\": true }`, `{ \"set\": \"…\" }` or `{ \"clear\": true }`.",
+            "type": "object"
+          },
+          "password": {
+            "description": "The admin's password, needed when the change touches chat approvers, trusted\nproxies, webhooks or any secret.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "base_revision",
+          "changes"
         ],
         "type": "object"
       },
@@ -1226,6 +1474,41 @@ expression: spec
         "required": [
           "name",
           "reason"
+        ],
+        "type": "object"
+      },
+      "TestRequest": {
+        "description": "Candidate values for a connection test; nothing is saved.",
+        "properties": {
+          "changes": {
+            "description": "The same shape as a save; a secret left as `{ \"keep\": true }` uses the stored one.",
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "TestResultDto": {
+        "description": "The result of a connection test.",
+        "properties": {
+          "latency_ms": {
+            "description": "How long it took, in milliseconds.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "message": {
+            "description": "What happened, in one line.",
+            "type": "string"
+          },
+          "ok": {
+            "description": "Whether it worked.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok",
+          "message",
+          "latency_ms"
         ],
         "type": "object"
       },
@@ -2005,6 +2288,128 @@ expression: spec
           }
         },
         "summary": "Host `name` with its agent and the latest value of each digest fact from the last day.",
+        "tags": [
+          "hosts"
+        ]
+      }
+    },
+    "/api/v1/hosts/{name}/checks": {
+      "get": {
+        "operationId": "host_checks",
+        "parameters": [
+          {
+            "description": "Host name",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HostChecksDto"
+                }
+              }
+            },
+            "description": "The checks"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such host"
+          }
+        },
+        "summary": "A host's checks: what its agent reports and what the hub overrides.",
+        "tags": [
+          "hosts"
+        ]
+      },
+      "put": {
+        "operationId": "set_host_checks",
+        "parameters": [
+          {
+            "description": "Host name",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HostChecksUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HostChecksSaved"
+                }
+              }
+            },
+            "description": "Saved"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Invalid; `issues` lists each problem"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such host"
+          }
+        },
+        "summary": "Replaces a host's check overrides and sends them to its agent; no restart.",
         "tags": [
           "hosts"
         ]
@@ -3009,6 +3414,299 @@ expression: spec
           }
         },
         "summary": "The effective configuration, secrets hidden.",
+        "tags": [
+          "system"
+        ]
+      },
+      "patch": {
+        "operationId": "update_settings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettingsPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedDto"
+                }
+              }
+            },
+            "description": "Saved and applied"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Invalid; `issues` lists each problem with its path"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Password missing or wrong for a sensitive change"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Stale revision, or a field set in hub.toml or the environment"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many wrong passwords"
+          }
+        },
+        "summary": "Saves a change and restarts the hub with it.",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/v1/settings/schema": {
+      "get": {
+        "operationId": "settings_schema",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The schema"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          }
+        },
+        "summary": "The JSON schema of `hub.toml`, for field help and defaults.",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/v1/settings/test/discord": {
+      "post": {
+        "operationId": "test_discord",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestResultDto"
+                }
+              }
+            },
+            "description": "Tried"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Invalid candidate"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "More than 10 tests a minute"
+          }
+        },
+        "summary": "Posts \"Domovoi test message\" with candidate Discord settings.",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/v1/settings/test/heartbeat": {
+      "post": {
+        "operationId": "test_heartbeat",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestResultDto"
+                }
+              }
+            },
+            "description": "Tried"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Invalid candidate"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "More than 10 tests a minute"
+          }
+        },
+        "summary": "One GET of the candidate heartbeat URL.",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/v1/settings/test/llm": {
+      "post": {
+        "operationId": "test_llm",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestResultDto"
+                }
+              }
+            },
+            "description": "Tried"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Invalid candidate"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "More than 10 tests a minute"
+          }
+        },
+        "summary": "One minimal call to the candidate primary model.",
         "tags": [
           "system"
         ]

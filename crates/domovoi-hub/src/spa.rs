@@ -61,6 +61,7 @@ fn not_found() -> Response {
     let body = ErrorBody {
         error: "not_found".to_owned(),
         message: "not found".to_owned(),
+        issues: Vec::new(),
     };
     (StatusCode::NOT_FOUND, Json(body)).into_response()
 }

@@ -135,6 +135,29 @@ pub struct SettingsDto {
     pub heartbeat: HeartbeatSettings,
     /// Model usage this month.
     pub usage: UsageSettings,
+    /// Everything the settings page edits; `None` when the hub runs from a fixed
+    /// configuration and settings are read-only.
+    pub editable: Option<EditableSettings>,
+}
+
+/// The settings as the UI edits them.
+#[derive(Debug, Clone, PartialEq, Serialize, ToSchema)]
+pub struct EditableSettings {
+    /// The revision a save must name.
+    pub revision: u64,
+    /// The merged values, shaped like `hub.toml`; every secret that has a value is
+    /// `"[set]"`, and a missing one is absent.
+    #[schema(value_type = Object)]
+    pub values: serde_json::Value,
+    /// Where each field some layer set comes from: `ui`, `file` or `env:<VAR>`. A field
+    /// not listed uses its default. An entry for an array or a secret covers everything
+    /// under it. Fields from `file` or `env:` are locked in the UI.
+    pub fields: std::collections::BTreeMap<String, String>,
+    /// Problems with the current settings, each with its path.
+    pub issues: Vec<super::error::IssueDto>,
+    /// How the last apply went: `{ ok, at, message? }`.
+    #[schema(value_type = Option<Object>)]
+    pub last_apply: Option<serde_json::Value>,
 }
 
 fn llm(provider: &LlmProvider) -> LlmSettings {
@@ -219,6 +242,26 @@ pub(super) async fn show(
         .await?
         .iter()
         .any(|a| a.kind == AdvisoryKind::HeartbeatMissing);
+    let editable = match &deps.settings {
+        Some(settings) => {
+            let view = settings
+                .view()
+                .await
+                .map_err(super::settings_write::api_error)?;
+            Some(EditableSettings {
+                revision: view.revision,
+                values: view.values,
+                fields: view.fields,
+                issues: view
+                    .issues
+                    .iter()
+                    .map(super::error::IssueDto::from)
+                    .collect(),
+                last_apply: view.last_apply,
+            })
+        }
+        None => None,
+    };
     let triage = &config.triage;
     let cost_usd = usage.cost_micros as f64 / 1_000_000.0;
     Ok(Json(SettingsDto {
@@ -244,5 +287,6 @@ pub(super) async fn show(
             tokens_out: usage.tokens_out,
             cost_usd,
         },
+        editable,
     }))
 }

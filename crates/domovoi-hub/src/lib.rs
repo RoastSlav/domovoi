@@ -15,6 +15,7 @@ pub mod middleware;
 pub mod router;
 pub mod runtime;
 pub mod selftest;
+pub mod settings;
 pub mod spa;
 
 pub use domovoi_engine::PatternRedactor;

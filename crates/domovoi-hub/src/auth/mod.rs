@@ -277,6 +277,34 @@ impl AuthState {
         }
     }
 
+    /// Checks the logged-in `user`'s password again before a change that widens trust.
+    /// Shares the login limit for `ip`, so it cannot be used to guess faster.
+    pub async fn confirm_password(
+        &self,
+        ip: IpAddr,
+        user: domovoi_core::UserId,
+        password: &str,
+    ) -> Result<(), AuthError> {
+        let now = self.clock.now();
+        if let Some(wait) = lock(&self.limiter).locked(ip, now) {
+            return Err(AuthError::LockedOut {
+                retry_after_secs: wait.as_secs().max(1),
+            });
+        }
+        let stored = self.users.get(user).await?;
+        let hash = stored
+            .as_ref()
+            .map_or(password::dummy_hash(), |u| u.password_hash.as_str());
+        if stored.is_some() && password::verify(password, hash) {
+            lock(&self.limiter).succeeded(ip);
+            Ok(())
+        } else {
+            lock(&self.limiter).failed(ip, now);
+            tracing::info!(%ip, "failed password confirmation");
+            Err(AuthError::InvalidCredentials)
+        }
+    }
+
     async fn start(&self, user: User) -> Result<NewSession, AuthError> {
         let now = self.clock.now();
         let id = session::new_id();

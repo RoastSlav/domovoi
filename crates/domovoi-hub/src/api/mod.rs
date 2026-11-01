@@ -16,7 +16,8 @@ mod events;
 pub(crate) mod hosts;
 pub(crate) mod incidents;
 mod notes;
-mod settings;
+pub(crate) mod settings;
+mod settings_write;
 pub(crate) mod system;
 mod version;
 
@@ -121,6 +122,11 @@ pub struct ApiDeps {
     pub notifier: Option<Arc<dyn Notifier>>,
     /// Renders `/metrics`; `None` serves an empty page.
     pub metrics: Option<MetricsRender>,
+    /// Settings managed from the UI; `None` when the hub was built from a fixed
+    /// configuration, where the settings page is read-only.
+    pub settings: Option<crate::settings::SettingsService>,
+    /// The audit log.
+    pub audit: Arc<dyn domovoi_core::ports::AuditLog>,
 }
 
 /// The state every handler gets.
@@ -276,7 +282,15 @@ pub fn routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(notes::list, notes::create))
         .routes(routes!(notes::search))
         .routes(routes!(notes::get, notes::replace, notes::delete))
-        .routes(routes!(settings::show))
+        .routes(routes!(settings::show, settings_write::update))
+        .routes(routes!(settings_write::schema))
+        .routes(routes!(settings_write::test_discord))
+        .routes(routes!(settings_write::test_llm))
+        .routes(routes!(settings_write::test_heartbeat))
+        .routes(routes!(
+            settings_write::host_checks,
+            settings_write::set_host_checks
+        ))
         .routes(routes!(system::advisories))
         .routes(routes!(system::digest_preview))
         .routes(routes!(system::digest_send))

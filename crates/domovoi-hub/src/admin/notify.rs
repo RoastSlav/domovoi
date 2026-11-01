@@ -34,22 +34,27 @@ pub async fn notify_test(
     Ok(send_all(&gateways, &notifiers, &host).await)
 }
 
-pub(crate) async fn send_all(
-    gateways: &[Arc<dyn ChatGateway>],
-    notifiers: &[Arc<dyn Notifier>],
-    host: &HostName,
-) -> Vec<NotifyOutcome> {
-    let card = Card {
+/// A resolved info card that says it is a test, with no buttons.
+pub(crate) fn test_card(host: &HostName, headline: &str) -> Card {
+    Card {
         incident: IncidentId::new(),
         host: host.clone(),
         badge: CardBadge::Severity(Severity::Info),
-        headline: "Test card from domovoi notify test".to_owned(),
+        headline: headline.to_owned(),
         bullets: vec!["If you can read this, cards reach this channel.".to_owned()],
         next_step: None,
         buttons: Vec::new(),
         details: None,
         resolved: true,
-    };
+    }
+}
+
+pub(crate) async fn send_all(
+    gateways: &[Arc<dyn ChatGateway>],
+    notifiers: &[Arc<dyn Notifier>],
+    host: &HostName,
+) -> Vec<NotifyOutcome> {
+    let card = test_card(host, "Test card from domovoi notify test");
     let message = OutboundMessage {
         title: "Domovoi test message".to_owned(),
         markdown: "If you can read this, notifications reach this channel.".to_owned(),

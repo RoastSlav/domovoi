@@ -338,6 +338,8 @@ async fn main() -> Result<()> {
         config: Arc::new(config),
         notifier: None,
         metrics: None,
+        settings: None,
+        audit: store.clone(),
     };
     let state = ApiState::new(deps, auth.clone());
     let app = router(state, None).into_make_service_with_connect_info::<SocketAddr>();

@@ -10,6 +10,8 @@ mod error;
 mod handshake;
 mod link;
 mod memory;
+mod overrides;
+pub(crate) use overrides::stored_overrides;
 mod presence;
 mod probes;
 mod registry;
@@ -19,8 +21,8 @@ mod tls;
 mod tokens;
 mod ws;
 
-use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, OnceLock};
 
 use domovoi_core::ports::{Clock, FactRepo, HostRepo, SignalSink};
 use domovoi_core::{HostId, HostKind, HostName};
@@ -71,6 +73,8 @@ struct Inner {
     link: Arc<WsAgentLink>,
     network_degraded: AtomicBool,
     shutdown: CancellationToken,
+    /// Where per-host check overrides are read from, once the runtime provides it.
+    overrides: OnceLock<Arc<dyn domovoi_core::ports::SettingsRepo>>,
 }
 
 /// The agent server. Cheap to clone; clones share one server.
@@ -100,6 +104,7 @@ impl AgentServer {
                 link,
                 network_degraded: AtomicBool::new(false),
                 shutdown: CancellationToken::new(),
+                overrides: OnceLock::new(),
             }),
         })
     }

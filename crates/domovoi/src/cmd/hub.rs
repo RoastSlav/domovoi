@@ -179,6 +179,7 @@ async fn run_hub(args: RunArgs) -> anyhow::Result<ExitCode> {
             clock: clock.clone(),
             process_executor: Some(executor.clone()),
             metrics: Some(init::metrics()?),
+            apply: None,
         },
     )
     .await?;

@@ -108,6 +108,30 @@ pub fn load_hub_layered(
     }
 }
 
+/// Where the hub keeps its data, from `file` and `env` only: the hub needs it before it can
+/// open the store that holds the UI layer. Nothing else is validated here.
+pub fn bootstrap_data_dir(
+    file: Option<&Path>,
+    env: &dyn EnvSource,
+) -> Result<std::path::PathBuf, Vec<ConfigIssue>> {
+    let mut table = match file {
+        Some(path) => read_file(path).map_err(|issue| vec![issue])?,
+        None => Table::new(),
+    };
+    let issues = env::apply_overrides(&mut table, env);
+    if issues.iter().any(ConfigIssue::is_error) {
+        return Err(issues);
+    }
+    match table.get("hub").and_then(|hub| hub.get("data_dir")) {
+        None => Ok(crate::hub::HubSection::default().data_dir),
+        Some(Value::String(dir)) if !dir.is_empty() => Ok(dir.into()),
+        Some(_) => Err(vec![ConfigIssue::error(
+            "hub.data_dir",
+            "must be a directory path",
+        )]),
+    }
+}
+
 fn read_file(path: &Path) -> Result<Table, ConfigIssue> {
     let text = std::fs::read_to_string(path)
         .map_err(|err| ConfigIssue::error("", format!("cannot read {}: {err}", path.display())))?;

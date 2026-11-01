@@ -17,14 +17,17 @@ use domovoi_engine::{
     ActionDeps, ActionService, ActionSettings, EnginePolicy, IncidentManager, ManagerDeps,
     ManagerHandle, PatternRedactor, TriageDeps, TriageService, TriageSettings,
 };
-use domovoi_hub::agent_server::{AgentServerError, EnrollmentInvite};
+use domovoi_hub::agent_server::{
+    AgentServer, AgentServerDeps, AgentServerError, EnrollmentInvite, RealNetProbes, ServerSettings,
+};
 use domovoi_hub::api::{AgentAdmin, ApiDeps, ApiState};
 use domovoi_hub::auth::{AuthState, WebIdentity};
 use domovoi_hub::router::router;
+use domovoi_hub::settings::{ConfigSources, SecretKey, SettingsDeps, SettingsService};
 use domovoi_proto::EnrollToken;
 use domovoi_store::{Store, StoreOptions};
 use domovoi_testkit::build::{host, manifest, open_incident};
-use domovoi_testkit::{FakeAgentLink, FakeClock, ScriptedLlm};
+use domovoi_testkit::{FakeAgentLink, FakeClock, RecordingSignalSink, ScriptedLlm};
 use jiff::{SignedDuration, Timestamp};
 use serde_json::Value;
 use tempfile::TempDir;
@@ -126,8 +129,24 @@ pub struct Api {
     pub incident: Incident,
     pub nas: domovoi_core::Host,
     pub shutdown: CancellationToken,
-    _dir: TempDir,
+    pub dir: TempDir,
 }
+
+/// The variable that locks `triage.concurrency` in the settings tests.
+pub const LOCKING_VAR: &str = "DOMOVOI_TRIAGE__CONCURRENCY";
+
+/// The environment of the settings layers: the example's secrets plus one override.
+pub fn settings_env() -> MapEnv {
+    let mut env = MapEnv::new().with(LOCKING_VAR, "3");
+    for (name, value) in SECRETS {
+        env = env.with(name, value);
+    }
+    env
+}
+
+/// The settings service's file layer: `hub.name` is locked by the file.
+pub const SETTINGS_FILE: &str =
+    "[hub]\nname = \"domovoi\"\n[web]\npublic_url = \"https://domovoi.example.net\"\n";
 
 impl Drop for Api {
     fn drop(&mut self) {
@@ -154,6 +173,8 @@ pub async fn api_with_triage() -> Api {
 }
 
 async fn build(triage: bool) -> Api {
+    // The binary installs the process-wide provider; connection tests build HTTP clients.
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("hub.db");
     let store = Arc::new(
@@ -231,6 +252,38 @@ async fn build(triage: bool) -> Api {
         clock.clone(),
         web,
     ));
+    let mut server_settings = ServerSettings::from_config(&config).unwrap();
+    server_settings.data_dir = dir.path().to_path_buf();
+    let server = AgentServer::new(
+        server_settings,
+        AgentServerDeps {
+            clock: clock.clone(),
+            hosts: store.clone(),
+            facts: store.clone(),
+            sink: Arc::new(RecordingSignalSink::new()),
+            probes: Arc::new(RealNetProbes::new(clock.clone())),
+            hub_host: nas.id,
+        },
+    )
+    .unwrap();
+    server.use_check_overrides(store.clone());
+    let settings = SettingsService::new(SettingsDeps {
+        store: store.clone(),
+        key: Arc::new(SecretKey::load_or_create(dir.path()).unwrap()),
+        sources: ConfigSources {
+            file: Some({
+                let path = dir.path().join("hub.toml");
+                std::fs::write(&path, SETTINGS_FILE).unwrap();
+                path
+            }),
+            env: Arc::new(settings_env()),
+        },
+        clock: clock.clone(),
+        auth: auth.clone(),
+        agents: server.clone(),
+        apply: None,
+        executor: None,
+    });
     let deps = ApiDeps {
         incidents: store.clone(),
         signals: store.clone(),
@@ -252,6 +305,8 @@ async fn build(triage: bool) -> Api {
         config: Arc::new(config),
         notifier: None,
         metrics: Some(Arc::new(|| "domovoi_up 1\n".to_owned())),
+        settings: Some(settings),
+        audit: store.clone(),
     };
     let state = ApiState::new(deps, auth);
     let app = router(state.clone(), None).layer(MockConnectInfo(peer()));
@@ -266,7 +321,7 @@ async fn build(triage: bool) -> Api {
         incident,
         nas,
         shutdown,
-        _dir: dir,
+        dir,
     }
 }
 

@@ -25,4 +25,6 @@ mod presence;
 #[cfg(test)]
 mod sessions;
 #[cfg(test)]
+mod settings;
+#[cfg(test)]
 mod spa;

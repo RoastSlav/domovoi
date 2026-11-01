@@ -36,6 +36,7 @@ pub async fn run(args: SelftestArgs) -> anyhow::Result<ExitCode> {
             clock: Arc::new(SystemClock),
             process_executor: Some(executor),
             metrics: None,
+            apply: None,
         },
         mode,
     )
