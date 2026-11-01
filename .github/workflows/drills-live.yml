@@ -1,0 +1,48 @@
+# Runs the triage drills against a real model and uploads the score report. Started by
+# hand; not required for merging. Scores are reported, not enforced; the gate probes are.
+name: Drills (live model)
+
+on:
+  workflow_dispatch:
+    inputs:
+      provider:
+        description: "anthropic or openai (any OpenAI-compatible server)"
+        required: true
+        default: anthropic
+        type: choice
+        options: [anthropic, openai]
+      model:
+        description: "Model name"
+        required: true
+      base_url:
+        description: "API base URL (optional; for OpenAI-compatible servers)"
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  drills-live:
+    name: Drills against ${{ inputs.provider }} ${{ inputs.model }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - name: Run the drills
+        env:
+          DOMOVOI_DRILLS_LIVE: "1"
+          DOMOVOI_DRILLS_PROVIDER: ${{ inputs.provider }}
+          DOMOVOI_DRILLS_MODEL: ${{ inputs.model }}
+          DOMOVOI_DRILLS_BASE_URL: ${{ inputs.base_url }}
+          DOMOVOI_DRILLS_API_KEY: ${{ inputs.provider == 'anthropic' && secrets.ANTHROPIC_API_KEY || secrets.OPENAI_API_KEY }}
+        run: cargo test --locked -p domovoi-engine --test drills -- --ignored drills_live --nocapture
+      - name: Add the scores to the run summary
+        if: always()
+        run: cat target/drills/report.md >> "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: drill-scores
+          path: target/drills/
+          if-no-files-found: warn
