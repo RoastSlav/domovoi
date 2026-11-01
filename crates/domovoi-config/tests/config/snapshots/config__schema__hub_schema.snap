@@ -140,7 +140,7 @@ expression: "HubConfig::json_schema()"
       "type": "object",
       "properties": {
         "args": {
-          "description": "Extra arguments passed to the program.",
+          "description": "Arguments that replace the preset's own when not empty. Check them against the\ninstalled CLI's `--help`.",
           "type": "array",
           "default": [],
           "items": {

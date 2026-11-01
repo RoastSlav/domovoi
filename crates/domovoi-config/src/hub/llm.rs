@@ -65,7 +65,8 @@ pub struct CliConfig {
     /// Absolute path of the program to run instead of a preset's default.
     #[serde(default)]
     pub command: Option<PathBuf>,
-    /// Extra arguments passed to the program.
+    /// Arguments that replace the preset's own when not empty. Check them against the
+    /// installed CLI's `--help`.
     #[serde(default)]
     pub args: Vec<String>,
 }

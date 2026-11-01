@@ -51,7 +51,7 @@ price = { input_per_mtok_usd = 3.0, output_per_mtok_usd = 15.0 }
 # A local command-line tool as the fallback (example; optional).
 kind = "cli"
 # preset = "claude" or "codex" supplies the right arguments. command overrides the
-# program path (absolute) and args are appended.
+# program path (absolute); args, when not empty, replace the preset's arguments.
 cli = { preset = "claude", command = "/usr/local/bin/claude", args = [] }
 
 [triage]
