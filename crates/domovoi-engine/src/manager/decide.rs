@@ -28,7 +28,8 @@ pub struct State {
     pub acks: Vec<AckRule>,
     /// Maintenance windows of the hosts involved.
     pub windows: Vec<MaintenanceWindow>,
-    /// For [`Command::AttachTriage`]: the incident, loaded even when resolved.
+    /// For [`Command::AttachTriage`] and [`Command::SetVerdict`]: the incident, loaded even
+    /// when resolved.
     pub triaged: Option<Incident>,
 }
 
@@ -472,16 +473,19 @@ pub fn decide(
             incident,
             outcome,
             tokens,
-        } => return super::triage::attach(state, *incident, outcome, tokens, now),
+        } => return super::annotate::attach(state, *incident, outcome, tokens, now),
         Command::RecordFollowUp {
             incident,
             asked_by,
             question,
             answer,
         } => {
-            return Ok(super::triage::follow_up(
+            return Ok(super::annotate::follow_up(
                 *incident, *asked_by, question, answer, now,
             ));
+        }
+        Command::SetVerdict { incident, verdict } => {
+            return super::annotate::set_verdict(state, *incident, *verdict, now);
         }
     }
     Ok(builder.out)

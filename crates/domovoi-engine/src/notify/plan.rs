@@ -1,6 +1,6 @@
 //! What to say about one domain event. Pure.
 
-use domovoi_core::{HeldItem, Incident, IncidentId, NotifyState, Severity};
+use domovoi_core::{ActionStatus, HeldItem, Incident, IncidentId, NotifyState, Severity};
 use jiff::Timestamp;
 
 use super::quiet::in_quiet_hours;
@@ -140,6 +140,19 @@ fn folded(
     }]
 }
 
+/// The thread reply for an action status that needs a person's attention.
+fn action_problem(status: &ActionStatus) -> Option<String> {
+    match status {
+        ActionStatus::Rejected { reason } => Some(format!("The action was not run: {reason}.")),
+        ActionStatus::Failed { reason } => Some(format!("The action failed: {reason}.")),
+        ActionStatus::VerifyFailed => Some(
+            "The action ran, but the check still fails. Look at the host before trying again."
+                .to_owned(),
+        ),
+        _ => None,
+    }
+}
+
 /// What to deliver for `event`, given what was said before (`state`).
 #[must_use]
 pub fn plan(
@@ -213,6 +226,31 @@ pub fn plan(
         }
         EventKind::TriageRequested => Vec::new(),
         EventKind::TriageCompleted { .. } => card_changed(incident, &state),
+        // The status change that follows updates the card.
+        EventKind::ActionApproved { .. } => Vec::new(),
+        EventKind::ActionChanged { status, .. } => {
+            let mut actions = Vec::new();
+            if let Some(text) = action_problem(status)
+                && posted(&state)
+            {
+                actions.push(NotifyAction::ThreadReply { incident: id, text });
+            }
+            actions.extend(card_changed(incident, &state));
+            actions
+        }
+        EventKind::ActionBlocked { reason, .. } => {
+            let mut actions = Vec::new();
+            if posted(&state) {
+                actions.push(NotifyAction::ThreadReply {
+                    incident: id,
+                    text: format!(
+                        "The action was not run: {reason}. Approve it again once the cause is clear."
+                    ),
+                });
+            }
+            actions.extend(card_changed(incident, &state));
+            actions
+        }
         EventKind::TriageDegraded { reason } => {
             if posted(&state) {
                 vec![NotifyAction::ThreadReply {

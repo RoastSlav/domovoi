@@ -1,14 +1,51 @@
-//! Attaching a triage outcome to its incident. Pure, like the rest of `decide`.
+//! Annotating an incident with what triage and actions found: outcomes, verdicts and
+//! follow-ups. Pure, like the rest of `decide`.
 
 use std::collections::BTreeMap;
 
 use domovoi_core::ports::IncidentTimelineEntry;
-use domovoi_core::{ActionId, Incident, IncidentId, TriageOutcome, UserId};
+use domovoi_core::{ActionId, Incident, IncidentId, TriageOutcome, UserId, Verdict};
 use jiff::Timestamp;
 
 use super::command::CommandError;
 use super::decide::{Decision, State, Write};
 use crate::events::{DomainEvent, EventKind};
+
+/// The incident with id `incident`, active or loaded for this command.
+fn loaded(state: &State, incident: IncidentId) -> Result<Incident, CommandError> {
+    state
+        .active
+        .iter()
+        .chain(state.triaged.iter())
+        .find(|i| i.id() == incident)
+        .cloned()
+        .ok_or(CommandError::UnknownIncident(incident))
+}
+
+/// Sets `verdict` on `incident`, for example `Fixed` after a verified action. No event:
+/// the action's own event updates the card.
+pub(crate) fn set_verdict(
+    state: &State,
+    incident: IncidentId,
+    verdict: Verdict,
+    now: Timestamp,
+) -> Result<Decision, CommandError> {
+    let mut found = loaded(state, incident)?;
+    let mut out = Decision::default();
+    if found.verdict() == Some(verdict) {
+        return Ok(out);
+    }
+    found.set_verdict(Some(verdict));
+    out.writes.push(Write::UpdateIncident(found));
+    out.writes.push(Write::Timeline(IncidentTimelineEntry {
+        incident,
+        at: now,
+        kind: "verdict".to_owned(),
+        summary: verdict.label().to_owned(),
+        detail: serde_json::Value::Null,
+    }));
+    Ok(out)
+}
 
 /// The timeline kind and summary for `outcome`.
 fn timeline_line(outcome: &TriageOutcome) -> (&'static str, String) {
@@ -33,13 +70,7 @@ pub(crate) fn attach(
     tokens: &BTreeMap<ActionId, String>,
     now: Timestamp,
 ) -> Result<Decision, CommandError> {
-    let mut found: Incident = state
-        .active
-        .iter()
-        .chain(state.triaged.iter())
-        .find(|i| i.id() == incident)
-        .cloned()
-        .ok_or(CommandError::UnknownIncident(incident))?;
+    let mut found = loaded(state, incident)?;
     let mut out = Decision::default();
     if let TriageOutcome::Report(report) | TriageOutcome::Cached { report, .. } = outcome {
         found.set_verdict(Some(report.verdict));

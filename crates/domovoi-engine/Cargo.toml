@@ -41,8 +41,8 @@ name = "notify"
 path = "tests/notify/main.rs"
 
 [[test]]
-name = "triage"
-path = "tests/triage/main.rs"
+name = "services"
+path = "tests/services/main.rs"
 
 [lints]
 workspace = true

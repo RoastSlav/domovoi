@@ -35,6 +35,8 @@ fn summary(risk: Risk) -> SkillSummary {
         }],
         applies_to: Vec::new(),
         manifest_hash: "ab".repeat(32).parse().unwrap(),
+        timeout: jiff::SignedDuration::from_secs(60),
+        verify: None,
     }
 }
 
@@ -337,4 +339,36 @@ fn action_request_json_snapshot() {
         0x0190_0000_0000_7000_8000_0000_0000_0004,
     )));
     insta::assert_json_snapshot!(req);
+}
+
+#[test]
+fn approved_is_rejected_before_dispatch_only() {
+    let mut req = approved(Risk::Write);
+    let change = req.reject("loop guard".to_owned(), at(120)).unwrap();
+    assert_eq!(
+        change.to,
+        ActionStatus::Rejected {
+            reason: "loop guard".to_owned()
+        }
+    );
+    assert!(matches!(
+        req.reject("again".to_owned(), at(130)),
+        Err(ActionError::NotAllowed {
+            operation: "reject",
+            ..
+        })
+    ));
+    for mut other in [proposed(Risk::Write), dispatched(), succeeded()] {
+        let before = other.status().clone();
+        assert!(other.reject("no".to_owned(), at(200)).is_err());
+        assert_eq!(other.status(), &before, "a refused reject changes nothing");
+    }
+}
+
+#[test]
+fn chat_token_hash_can_be_cleared() {
+    let mut req = proposed(Risk::Write).with_chat_token_hash([7; 32]);
+    assert_eq!(req.chat_token_hash(), Some(&[7; 32]));
+    req.clear_chat_token_hash();
+    assert_eq!(req.chat_token_hash(), None);
 }

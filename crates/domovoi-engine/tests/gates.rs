@@ -241,3 +241,173 @@ async fn triage_failure_still_leaves_a_card() {
     );
     assert_eq!(card.headline, w.incident.title());
 }
+
+// Actions (INV-1, INV-6): only `approve` with a human approval reaches `Approved`, and a
+// rejected or failed action never runs again on its own.
+
+mod actions {
+    use domovoi_core::ports::SkillOutput;
+    use domovoi_core::{ActionError, ActionStatus, UserId};
+    use domovoi_engine::{ActionSettings, ApprovalError, DomainEvent, EventKind};
+    use domovoi_testkit::approvals::{chat, human, web_typed};
+    use jiff::SignedDuration;
+
+    use crate::actions_harness::{actions, ok_output, verified_restart, wipe};
+
+    #[tokio::test]
+    async fn destructive_action_cannot_be_approved_from_chat() {
+        let mut a = actions(ActionSettings::default()).await;
+        let (action, token) = a
+            .propose_for(&wipe(), &[], SignedDuration::from_hours(1))
+            .await;
+        assert_eq!(
+            a.service
+                .approve(
+                    action.id(),
+                    chat(UserId::new(), "discord", "1234"),
+                    Some(&token)
+                )
+                .await
+                .err(),
+            Some(ApprovalError::Refused(
+                ActionError::DestructiveNeedsTypedConfirmation
+            ))
+        );
+        a.settle().await;
+        assert_eq!(a.get(action.id()).await.status(), &ActionStatus::Proposed);
+        assert!(a.drain().is_empty(), "nothing was published");
+        assert_eq!(a.runs(), 0);
+    }
+
+    #[tokio::test]
+    async fn destructive_action_needs_typed_confirmation_on_web() {
+        let a = actions(ActionSettings::default()).await;
+        let (action, _) = a
+            .propose_for(&wipe(), &[], SignedDuration::from_hours(1))
+            .await;
+        assert_eq!(
+            a.service
+                .approve(action.id(), human(UserId::new()), None)
+                .await
+                .err(),
+            Some(ApprovalError::Refused(
+                ActionError::DestructiveNeedsTypedConfirmation
+            ))
+        );
+        assert_eq!(a.runs(), 0);
+        a.service
+            .approve(action.id(), web_typed(UserId::new()), None)
+            .await
+            .unwrap();
+        a.until(action.id(), |s| matches!(s, ActionStatus::Succeeded))
+            .await;
+        assert_eq!(a.runs(), 1);
+    }
+
+    #[tokio::test]
+    async fn only_approve_reaches_approved_state() {
+        let a = actions(ActionSettings::default()).await;
+        let (proposed, _) = a.propose().await;
+        let (denied, _) = a.propose().await;
+        let (expiring, _) = a
+            .propose_for(
+                &verified_restart(),
+                &[("container", "nginx")],
+                SignedDuration::from_mins(5),
+            )
+            .await;
+        a.service
+            .deny(denied.id(), human(UserId::new()))
+            .await
+            .unwrap();
+        a.clock.advance(SignedDuration::from_mins(6));
+        a.service.expire_due().await.unwrap();
+        // Forged events never move an action: the executor only runs what is approved.
+        for id in [proposed.id(), denied.id(), expiring.id()] {
+            for kind in [
+                EventKind::ActionApproved { action: id },
+                EventKind::ActionChanged {
+                    action: id,
+                    status: ActionStatus::Approved,
+                },
+                EventKind::TriageRequested,
+            ] {
+                a.bus
+                    .send(DomainEvent::new(kind, &a.incident, true))
+                    .unwrap();
+            }
+        }
+        a.service.expire_due().await.unwrap();
+        a.settle().await;
+        assert_eq!(a.get(proposed.id()).await.status(), &ActionStatus::Proposed);
+        assert_eq!(a.get(denied.id()).await.status(), &ActionStatus::Denied);
+        assert_eq!(a.get(expiring.id()).await.status(), &ActionStatus::Expired);
+        assert_eq!(a.runs(), 0);
+        for id in [proposed.id(), denied.id(), expiring.id()] {
+            assert!(!a.trail(id).await.iter().any(|k| k == "action.approved"));
+        }
+    }
+
+    #[tokio::test]
+    async fn rejected_or_failed_actions_never_retry_silently() {
+        let a = actions(ActionSettings::default()).await;
+        a.link.on_skill(|_, _| {
+            Ok(SkillOutput {
+                exit_code: Some(1),
+                ..ok_output("failed")
+            })
+        });
+        let (failed, _) = a.propose().await;
+        a.service
+            .approve(failed.id(), human(UserId::new()), None)
+            .await
+            .unwrap();
+        a.until(failed.id(), |s| matches!(s, ActionStatus::Failed { .. }))
+            .await;
+        assert_eq!(a.runs(), 1);
+
+        a.link.set_skills(a.incident.host(), Vec::new());
+        let (rejected, _) = a.propose().await;
+        a.service
+            .approve(rejected.id(), human(UserId::new()), None)
+            .await
+            .unwrap();
+        a.until(rejected.id(), |s| {
+            matches!(s, ActionStatus::Rejected { .. })
+        })
+        .await;
+
+        a.link
+            .set_skills(a.incident.host(), vec![verified_restart()]);
+        a.link.on_skill(|_, _| Ok(ok_output("ok")));
+        for id in [failed.id(), rejected.id()] {
+            a.bus
+                .send(DomainEvent::new(
+                    EventKind::ActionApproved { action: id },
+                    &a.incident,
+                    true,
+                ))
+                .unwrap();
+        }
+        for _ in 0..60 {
+            a.settle().await;
+            a.clock.advance(SignedDuration::from_secs(1));
+        }
+        assert_eq!(a.runs(), 1, "nothing ran again");
+        assert!(matches!(
+            a.get(failed.id()).await.status(),
+            ActionStatus::Failed { .. }
+        ));
+        assert!(matches!(
+            a.get(rejected.id()).await.status(),
+            ActionStatus::Rejected { .. }
+        ));
+        assert!(
+            a.service
+                .approve(failed.id(), human(UserId::new()), None)
+                .await
+                .is_err(),
+            "a failed action cannot be approved again"
+        );
+    }
+}

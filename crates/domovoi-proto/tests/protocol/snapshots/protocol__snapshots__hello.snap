@@ -46,7 +46,9 @@ expression: "pretty(&message, reply)"
             "required": true
           }
         ],
-        "risk": "write"
+        "risk": "write",
+        "timeout": "1m",
+        "verify": null
       }
     ]
   },

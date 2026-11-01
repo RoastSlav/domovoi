@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use domovoi_core::{ActionId, IncidentId, Signal, TriageOutcome, UserId};
+use domovoi_core::{ActionId, IncidentId, Signal, TriageOutcome, UserId, Verdict};
 use jiff::Timestamp;
 
 /// One request to the incident manager. Everything that changes an incident is one of these
@@ -42,6 +42,14 @@ pub enum Command {
         outcome: TriageOutcome,
         /// Plain chat tokens of the proposed actions, passed on in the event.
         tokens: BTreeMap<ActionId, String>,
+    },
+    /// Sets the incident's verdict, for example `Fixed` once an action is verified. Works on
+    /// resolved incidents too; publishes nothing.
+    SetVerdict {
+        /// Which incident.
+        incident: IncidentId,
+        /// The new verdict.
+        verdict: Verdict,
     },
     /// A follow-up question and its answer, for the timeline. Publishes nothing.
     RecordFollowUp {

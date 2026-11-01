@@ -171,6 +171,11 @@ impl ActionRequest {
         self
     }
 
+    /// Forgets the chat token hash once the token was used, so it works only once.
+    pub fn clear_chat_token_hash(&mut self) {
+        self.chat_token_hash = None;
+    }
+
     /// Replaces the generated id, for rehydrating stored requests and fixed test ids.
     #[must_use]
     pub fn with_id(mut self, id: ActionId) -> Self {
