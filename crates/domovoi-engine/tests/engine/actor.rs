@@ -9,7 +9,8 @@ use domovoi_core::ports::{
 };
 use domovoi_core::{Fingerprint, HostId, Incident, IncidentId, IncidentStatus};
 use domovoi_engine::{
-    CommandError, DomainEvent, EnginePolicy, EventKind, IncidentManager, ManagerDeps, ManagerHandle,
+    CommandError, DomainEvent, EnginePolicy, EventKind, IncidentManager, ManagerDeps,
+    ManagerHandle, PatternRedactor,
 };
 use domovoi_testkit::build::T0;
 use domovoi_testkit::{FakeClock, InMemoryStore};
@@ -120,6 +121,7 @@ fn start(policy: EnginePolicy) -> Running {
         signals: store.clone(),
         acks: store.clone(),
         clock: clock.clone(),
+        redactor: Arc::new(PatternRedactor::default()),
         policy,
         bus,
         shutdown: shutdown.clone(),

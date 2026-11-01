@@ -67,7 +67,9 @@ pub(crate) async fn create(
         let (skill, args) = match check(&proposal, incident, skills) {
             Ok(found) => found,
             Err(why) => {
-                dropped.push(format!("{}: {why}", proposal.skill));
+                // The reason can quote an argument value.
+                let line = format!("{}: {why}", proposal.skill);
+                dropped.push(shared.deps.redactor.redact(&line));
                 continue;
             }
         };

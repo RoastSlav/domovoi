@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use domovoi_core::ports::{
-    AckRepo, Clock, IncidentFilter, IncidentRepo, Page, SignalRepo, StoreError,
+    AckRepo, Clock, IncidentFilter, IncidentRepo, Page, Redactor, SignalRepo, StoreError,
 };
 use domovoi_core::{HostId, Incident, IncidentStatus};
 use tokio::sync::{broadcast, mpsc};
@@ -15,6 +15,7 @@ use tokio_util::sync::CancellationToken;
 use super::command::{Command, CommandError};
 use super::decide::{State, Write, decide};
 use super::handle::{COMMAND_QUEUE, Envelope, ManagerHandle};
+use super::redact::redact_command;
 use crate::events::DomainEvent;
 use crate::policy::EnginePolicy;
 
@@ -32,6 +33,8 @@ pub struct ManagerDeps {
     pub acks: Arc<dyn AckRepo>,
     /// Time.
     pub clock: Arc<dyn Clock>,
+    /// Cleans signal summaries and text evidence before they are stored (INV-5).
+    pub redactor: Arc<dyn Redactor>,
     /// Confirmation, grouping and tick settings.
     pub policy: EnginePolicy,
     /// Where events go once stored.
@@ -91,11 +94,13 @@ impl IncidentManager {
                     None => break,
                 },
             };
-            let result = self.handle(&envelope.command).await;
+            let Envelope { command, reply } = envelope;
+            let command = redact_command(self.deps.redactor.as_ref(), command);
+            let result = self.handle(&command).await;
             if let Err(err) = &result {
                 tracing::warn!(%err, "an incident command failed");
             }
-            if let Some(reply) = envelope.reply {
+            if let Some(reply) = reply {
                 let _ = reply.send(result);
             }
         }

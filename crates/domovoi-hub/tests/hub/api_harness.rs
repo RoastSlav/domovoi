@@ -15,7 +15,7 @@ use domovoi_core::ports::{ActionRepo, HostRepo, IncidentRepo, Presence};
 use domovoi_core::{ActionRequest, HostId, HostName, Incident, Principal, Risk, SkillSummary};
 use domovoi_engine::{
     ActionDeps, ActionService, ActionSettings, EnginePolicy, IncidentManager, ManagerDeps,
-    PatternRedactor,
+    ManagerHandle, PatternRedactor,
 };
 use domovoi_hub::agent_server::{AgentServerError, EnrollmentInvite};
 use domovoi_hub::api::{AgentAdmin, ApiDeps, ApiState};
@@ -119,6 +119,8 @@ pub struct Api {
     pub store: Arc<Store>,
     pub clock: Arc<FakeClock>,
     pub link: Arc<FakeAgentLink>,
+    /// The running incident manager, for feeding signals in as the hub's ingest does.
+    pub manager: ManagerHandle,
     pub incident: Incident,
     pub nas: domovoi_core::Host,
     pub shutdown: CancellationToken,
@@ -162,6 +164,7 @@ pub async fn api() -> Api {
         signals: store.clone(),
         acks: store.clone(),
         clock: clock.clone(),
+        redactor: Arc::new(PatternRedactor::default()),
         policy: EnginePolicy::default(),
         bus: bus.clone(),
         shutdown: shutdown.clone(),
@@ -200,7 +203,7 @@ pub async fn api() -> Api {
         advisories: store.clone(),
         facts: store.clone(),
         usage: store.clone(),
-        manager,
+        manager: manager.clone(),
         actions_service,
         triage: None,
         agents: Arc::new(TestAgents {
@@ -221,6 +224,7 @@ pub async fn api() -> Api {
         store,
         clock,
         link,
+        manager,
         incident,
         nas,
         shutdown,
