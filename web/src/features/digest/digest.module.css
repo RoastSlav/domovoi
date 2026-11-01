@@ -1,0 +1,16 @@
+.preview {
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.date {
+  margin-top: 0;
+  color: var(--muted);
+}
+
+.error {
+  color: var(--danger);
+  font-weight: 600;
+}

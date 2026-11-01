@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useNavigate } from "react-router";
+import { Link, NavLink, Outlet, useNavigate } from "react-router";
 import { useLiveEvents, type LiveStatus } from "../api/events";
 import { useHosts } from "../api/hooks/hosts";
 import { useLogout, useSession } from "../api/hooks/session";
@@ -9,7 +9,9 @@ const NAV = [
   ["/incidents", "Incidents"],
   ["/approvals", "Approvals"],
   ["/hosts", "Hosts"],
+  ["/skills", "Skills"],
   ["/notes", "Notes"],
+  ["/digest", "Digest"],
   ["/settings", "Settings"],
 ] as const;
 
@@ -36,10 +38,12 @@ function HostPills() {
   return (
     <ul className={styles.pills} aria-label="Hosts">
       {hosts.data.map((host) => (
-        <li key={host.id} className={styles.pill} data-connected={host.connected}>
-          <span className={styles.dot} aria-hidden="true" />
-          {host.name}
-          <span className="visually-hidden">{host.connected ? " connected" : " offline"}</span>
+        <li key={host.id}>
+          <Link to={`/hosts/${host.name}`} className={styles.pill} data-connected={host.connected}>
+            <span className={styles.dot} aria-hidden="true" />
+            {host.name}
+            <span className="visually-hidden">{host.connected ? " connected" : " offline"}</span>
+          </Link>
         </li>
       ))}
     </ul>

@@ -7,9 +7,16 @@ import { Button } from "../components/Button";
 import { EmptyState } from "../components/EmptyState";
 import { ApprovalsPage } from "../features/approvals/ApprovalsPage";
 import { LoginPage } from "../features/auth/LoginPage";
+import { DigestPage } from "../features/digest/DigestPage";
+import { HostDetailPage } from "../features/hosts/HostDetailPage";
+import { HostsPage } from "../features/hosts/HostsPage";
 import { SetupPage } from "../features/auth/SetupPage";
 import { IncidentDetailPage } from "../features/incidents/IncidentDetailPage";
 import { IncidentListPage } from "../features/incidents/IncidentListPage";
+import { NoteEditorPage } from "../features/notes/NoteEditorPage";
+import { NotesPage } from "../features/notes/NotesPage";
+import { SettingsPage } from "../features/settings/SettingsPage";
+import { SkillsPage } from "../features/skills/SkillsPage";
 import { Layout } from "./Layout";
 import { Placeholder } from "./Placeholder";
 
@@ -52,9 +59,13 @@ export function AppRoutes() {
             <Route path="/incidents" element={<IncidentListPage />} />
             <Route path="/incidents/:id" element={<IncidentDetailPage />} />
             <Route path="/approvals" element={<ApprovalsPage />} />
-            <Route path="/hosts" element={<Placeholder title="Hosts" />} />
-            <Route path="/notes" element={<Placeholder title="Notes" />} />
-            <Route path="/settings" element={<Placeholder title="Settings" />} />
+            <Route path="/hosts" element={<HostsPage />} />
+            <Route path="/hosts/:name" element={<HostDetailPage />} />
+            <Route path="/skills" element={<SkillsPage />} />
+            <Route path="/notes" element={<NotesPage />} />
+            <Route path="/notes/:id" element={<NoteEditorPage />} />
+            <Route path="/digest" element={<DigestPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
             <Route path="*" element={<Placeholder title="Not found" />} />
           </Route>
         </Route>
