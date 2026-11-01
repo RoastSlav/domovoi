@@ -15,6 +15,7 @@ pub(super) async fn run(
     shutdown: CancellationToken,
 ) -> Result<(), RuntimeError> {
     let HubRuntime {
+        lock,
         config,
         clock,
         store,
@@ -123,6 +124,9 @@ pub(super) async fn run(
         () = &mut closing => {}
         () = clock.sleep_until(total) => clean = false,
     }
+    // Released only once the store is closed, so a CLI admin command never sees a
+    // half-closed database.
+    drop(lock);
     if clean {
         outcome
     } else {

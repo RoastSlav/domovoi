@@ -1,26 +1,24 @@
-//! Small pieces the runtime assembles: one notifier over many, the Prometheus recorder,
-//! and the hub's public address.
+//! Small pieces the runtime assembles: one notifier over many and the hub's public
+//! address.
 
 use std::net::IpAddr;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use domovoi_config::hub::HubConfig;
 use domovoi_core::ports::{ChatError, Notifier, OutboundMessage};
-use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
 
 use super::RuntimeError;
-use crate::api::MetricsRender;
 
 /// Every configured notifier behind one, for the API's "send the digest now". It succeeds
 /// when at least one notifier accepted the message.
-pub(super) struct FanOut {
+pub(crate) struct FanOut {
     notifiers: Vec<Arc<dyn Notifier>>,
 }
 
 impl FanOut {
     /// One notifier over `notifiers`, or `None` when there are none.
-    pub(super) fn over(notifiers: &[Arc<dyn Notifier>]) -> Option<Arc<dyn Notifier>> {
+    pub(crate) fn over(notifiers: &[Arc<dyn Notifier>]) -> Option<Arc<dyn Notifier>> {
         match notifiers {
             [] => None,
             [one] => Some(one.clone()),
@@ -50,30 +48,9 @@ impl Notifier for FanOut {
     }
 }
 
-/// The process-wide Prometheus recorder behind `/metrics`. Installed once; `None` when
-/// another recorder was installed first.
-pub(super) fn metrics() -> Option<MetricsRender> {
-    static HANDLE: OnceLock<Option<PrometheusHandle>> = OnceLock::new();
-    let handle = HANDLE.get_or_init(|| {
-        let recorder = PrometheusBuilder::new().build_recorder();
-        let handle = recorder.handle();
-        match metrics::set_global_recorder(recorder) {
-            Ok(()) => Some(handle),
-            Err(err) => {
-                tracing::warn!(%err, "metrics recorder already installed; /metrics stays empty");
-                None
-            }
-        }
-    });
-    handle.clone().map(|handle| {
-        let render: MetricsRender = Arc::new(move || handle.render());
-        render
-    })
-}
-
 /// Where people reach the hub: `[web] public_url`, or the listener address. A wildcard
 /// listener (`0.0.0.0`, `::`) becomes loopback, since a wildcard is no address to open.
-pub(super) fn public_url(config: &HubConfig) -> Result<url::Url, RuntimeError> {
+pub(crate) fn public_url(config: &HubConfig) -> Result<url::Url, RuntimeError> {
     if let Some(url) = &config.web.public_url {
         return Ok(url.clone());
     }

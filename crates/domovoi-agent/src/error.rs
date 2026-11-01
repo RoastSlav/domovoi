@@ -104,6 +104,9 @@ pub enum AgentError {
     /// The link stopped for good.
     #[error(transparent)]
     Link(#[from] LinkError),
+    /// The hub refused to register the local agent (single-box mode).
+    #[error("could not register the local agent: {0}")]
+    Local(String),
     /// The local webhook relay could not start or serve.
     #[error(transparent)]
     Relay(#[from] crate::relay::RelayError),

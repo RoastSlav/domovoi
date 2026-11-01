@@ -13,12 +13,15 @@
 //! - [`runtime::AgentRuntime`] wires it all together.
 
 pub mod checks;
+pub mod dry_run;
 pub mod enroll;
 pub mod error;
 pub mod facts;
 pub mod fs_atomic;
 pub mod identity;
 pub mod link;
+pub mod local;
+pub mod production;
 pub mod relay;
 pub mod requests;
 pub mod runtime;
@@ -27,6 +30,7 @@ pub mod spool;
 pub mod store;
 pub mod time;
 
+pub use domovoi_proto::EnrollToken;
 pub use enroll::{EnrollEnv, enroll};
 pub use error::{AgentError, EnrollError, LinkError, StateError};
 pub use identity::Identity;

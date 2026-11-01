@@ -1,0 +1,10 @@
+# Test timeouts, so a hung test fails the run instead of stalling it.
+# A test is reported slow after 30 s and killed after 4 periods (2 minutes).
+
+[profile.default]
+slow-timeout = { period = "30s", terminate-after = 4, grace-period = "5s" }
+fail-fast = false
+
+[profile.ci]
+slow-timeout = { period = "30s", terminate-after = 4, grace-period = "5s" }
+fail-fast = false

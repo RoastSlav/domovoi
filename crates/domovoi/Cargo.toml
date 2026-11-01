@@ -13,6 +13,8 @@ readme = "../../README.md"
 keywords = ["monitoring", "homelab", "self-hosted", "llm", "incident"]
 categories = ["command-line-utilities"]
 
+build = "build.rs"
+
 [[bin]]
 name = "domovoi"
 path = "src/main.rs"
@@ -29,20 +31,34 @@ domovoi-hub = { workspace = true }
 domovoi-agent = { workspace = true }
 domovoi-runner = { workspace = true }
 anyhow = { workspace = true }
+async-trait = { workspace = true }
 clap = { workspace = true }
+jiff = { workspace = true }
+metrics = { workspace = true }
+metrics-exporter-prometheus = { workspace = true }
+rpassword = { workspace = true }
+rustls = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+url = { workspace = true }
+
+[build-dependencies]
+jiff = { workspace = true }
 
 [dev-dependencies]
 assert_cmd = { workspace = true }
-async-trait = { workspace = true }
 domovoi-checks = { workspace = true, features = ["host"] }
 domovoi-proto = { workspace = true }
 domovoi-testkit = { workspace = true }
-jiff = { workspace = true }
 predicates = { workspace = true }
+reqwest = { workspace = true }
 tempfile = { workspace = true }
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "time"] }
-tokio-util = { workspace = true }
-url = { workspace = true }
+
+[target.'cfg(unix)'.dev-dependencies]
+nix = { workspace = true }
 
 [lints]
 workspace = true

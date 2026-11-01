@@ -100,6 +100,8 @@ impl Harness {
         env: MapEnv,
         notifier_on: bool,
     ) -> Self {
+        // The binary installs the process-wide provider; tests stand in for it.
+        let _ = rustls::crypto::ring::default_provider().install_default();
         let _ = tracing_subscriber::fmt().with_test_writer().try_init();
         let dir = tempfile::tempdir().unwrap();
         let gateway = gateways
@@ -172,6 +174,7 @@ secret = {{ env = "TEST_SECRET" }}
             HubDeps {
                 clock: self.clock.clone(),
                 process_executor: None,
+                metrics: None,
             },
             AdapterOverrides {
                 primary: Some(self.primary.clone()),
