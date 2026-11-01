@@ -20,8 +20,8 @@ mod tools;
 use std::sync::Arc;
 
 use domovoi_core::ports::{
-    ActionRepo, AdvisoryRepo, AgentLink, Clock, IncidentRepo, LlmError, LlmProvider, NoteRepo,
-    Redactor, SignalRepo, TriageCacheRepo, UsageRepo,
+    ActionRepo, AdvisoryRepo, AgentLink, AuditLog, Clock, IncidentRepo, LlmError, LlmProvider,
+    NoteRepo, Redactor, SignalRepo, TriageCacheRepo, UsageRepo,
 };
 use domovoi_core::{Incident, IncidentId, TriageBudget, TriageOutcome, UserId};
 use tokio::sync::broadcast;
@@ -35,6 +35,7 @@ pub use agent::{BUDGET_EXHAUSTED, NO_CALLS_LEFT, read_tools};
 pub use followup::{FOLLOW_UP_PROMPT, MAX_ANSWER_CHARS};
 pub use proposals::{PROPOSER, mint_token, token_hash};
 pub use report::parse_report;
+pub(crate) use tools::cut;
 pub use tools::{MAX_RESULT_BYTES, TOOL_DEADLINE};
 
 /// The system prompt for triage runs.
@@ -100,6 +101,8 @@ pub struct TriageDeps {
     pub notes: Arc<dyn NoteRepo>,
     /// Where proposed actions are stored.
     pub actions: Arc<dyn ActionRepo>,
+    /// Where `action.proposed` is recorded.
+    pub audit: Arc<dyn AuditLog>,
     /// Reports reused for repeat incidents.
     pub cache: Arc<dyn TriageCacheRepo>,
     /// Token use and cost per call.

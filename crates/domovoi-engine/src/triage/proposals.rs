@@ -84,6 +84,10 @@ pub(crate) async fn create(
         .with_chat_token_hash(token_hash(&token));
         match shared.deps.actions.insert(&action).await {
             Ok(()) => {
+                let entry = crate::actions::audit::proposed(&action, now);
+                if let Err(err) = shared.deps.audit.append(&entry).await {
+                    tracing::error!(%err, "could not write the audit log");
+                }
                 tokens.insert(action.id(), token);
                 kept.push(proposal);
             }
