@@ -10,7 +10,7 @@ The UI needs a hub to talk to. For UI work, the dev example hub is enough: it se
 cargo run -p domovoi-hub --example dev_hub   # from the repository root; listens on 127.0.0.1:7420
 ```
 
-It prints a one-time setup link. Press Enter in its terminal to fire another incident and watch it arrive live.
+It prints a one-time setup link. Press Enter in its terminal to fire another incident and watch it arrive live. It also runs the real agent server on 127.0.0.1:7421, so **Hosts → Add host** creates working enrollment invites with the hub's real fingerprint.
 
 Then, in `web/`:
 

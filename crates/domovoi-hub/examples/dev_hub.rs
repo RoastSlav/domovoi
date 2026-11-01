@@ -20,18 +20,19 @@ use domovoi_core::ports::{
     ActionRepo, Clock, HostRepo, IncidentFilter, IncidentRepo, Page, Presence, SkillOutput,
 };
 use domovoi_core::{
-    ActionRequest, CheckKey, Host, HostId, HostKind, HostName, Principal, Risk, Severity, Signal,
-    SignalClass, SkillSummary, SourceKind, TargetKey,
+    ActionRequest, CheckKey, HostId, HostName, Principal, Risk, Severity, Signal, SignalClass,
+    SkillSummary, SourceKind, TargetKey,
 };
 use domovoi_engine::{
     ActionDeps, ActionService, ActionSettings, EnginePolicy, IncidentManager, ManagerDeps,
     ManagerHandle, PatternRedactor,
 };
-use domovoi_hub::agent_server::{AgentServerError, EnrollmentInvite};
+use domovoi_hub::agent_server::{
+    AgentServer, AgentServerDeps, AgentServerError, EnrollmentInvite, RealNetProbes, ServerSettings,
+};
 use domovoi_hub::api::{AgentAdmin, ApiDeps, ApiState};
 use domovoi_hub::auth::{AuthState, WebIdentity};
 use domovoi_hub::router::router;
-use domovoi_proto::EnrollToken;
 use domovoi_store::{Store, StoreOptions};
 use domovoi_testkit::FakeAgentLink;
 use domovoi_testkit::build::{host, manifest};
@@ -44,6 +45,9 @@ use tokio_util::sync::CancellationToken;
 use url::Url;
 
 const ADDR: &str = "127.0.0.1:7420";
+
+/// Where agents connect.
+const AGENT_ADDR: &str = "127.0.0.1:7421";
 
 /// Prints one line for the person running the example.
 fn say(line: std::fmt::Arguments<'_>) {
@@ -68,10 +72,11 @@ impl Clock for WallClock {
     }
 }
 
-/// Fake agents: presence and catalogues from the fake link, invites that cannot enroll.
+/// Agents for the dev hub: real enrollment through the agent server, with the seeded
+/// hosts' presence and skills from the fake link until a real agent connects.
 struct DevAgents {
+    server: AgentServer,
     link: Arc<FakeAgentLink>,
-    store: Arc<Store>,
 }
 
 #[async_trait]
@@ -80,40 +85,57 @@ impl AgentAdmin for DevAgents {
         &self,
         name: &HostName,
     ) -> std::result::Result<EnrollmentInvite, AgentServerError> {
-        let host = match self.store.get_host_by_name(name).await? {
-            Some(host) => host,
-            None => {
-                let new = Host {
-                    id: HostId::new(),
-                    name: name.clone(),
-                    kind: HostKind::Remote,
-                    labels: BTreeMap::new(),
-                    created_at: Timestamp::now(),
-                };
-                self.store.upsert_host(&new).await?;
-                new
-            }
-        };
-        Ok(EnrollmentInvite {
-            host: host.id,
-            token: EnrollToken::new("dev-hub-token-enrolls-nothing"),
-            expires_at: Timestamp::now(),
-            fingerprint: "dev".to_owned(),
-            command: "domovoi agent enroll (dev hub: no agent server)".to_owned(),
-        })
+        self.server.create_token(name).await
     }
 
-    async fn revoke(&self, _host: HostId) -> std::result::Result<bool, AgentServerError> {
-        Ok(false)
+    async fn revoke(&self, host: HostId) -> std::result::Result<bool, AgentServerError> {
+        self.server.revoke_agent(host).await
     }
 
     fn presence(&self, host: HostId) -> Presence {
-        domovoi_core::ports::AgentLink::presence(&*self.link, host)
+        match AgentAdmin::presence(&self.server, host) {
+            connected @ Presence::Connected { .. } => connected,
+            Presence::Disconnected { .. } => {
+                domovoi_core::ports::AgentLink::presence(&*self.link, host)
+            }
+        }
     }
 
     fn skills(&self, host: HostId) -> Vec<SkillSummary> {
-        domovoi_core::ports::AgentLink::skills(&*self.link, host)
+        let real = AgentAdmin::skills(&self.server, host);
+        if real.is_empty() {
+            domovoi_core::ports::AgentLink::skills(&*self.link, host)
+        } else {
+            real
+        }
     }
+}
+
+/// The agent server on [`AGENT_ADDR`], keeping its TLS identity under `data_dir`.
+fn agent_server(
+    data_dir: &std::path::Path,
+    clock: Arc<dyn Clock>,
+    store: Arc<Store>,
+    sink: ManagerHandle,
+) -> Result<AgentServer> {
+    let settings = ServerSettings {
+        hub_name: "dev-hub".to_owned(),
+        data_dir: data_dir.to_path_buf(),
+        bind: AGENT_ADDR.parse()?,
+        public_url: Url::parse(&format!("wss://{AGENT_ADDR}"))?,
+        self_check: "1.1.1.1:53".to_owned(),
+        heartbeat: SignedDuration::from_secs(15),
+        probes: BTreeMap::new(),
+    };
+    let deps = AgentServerDeps {
+        clock: clock.clone(),
+        hosts: store.clone(),
+        facts: store,
+        sink: Arc::new(sink),
+        probes: Arc::new(RealNetProbes::new(clock)),
+        hub_host: HostId::new(),
+    };
+    Ok(AgentServer::new(settings, deps)?)
 }
 
 fn config() -> Result<HubConfig> {
@@ -283,6 +305,7 @@ async fn main() -> Result<()> {
     );
 
     let config = config()?;
+    let server = agent_server(dir.path(), clock.clone(), store.clone(), manager.clone())?;
     let web = WebIdentity {
         public_url: Url::parse(&format!("http://{ADDR}"))?,
         trusted_proxies: Vec::new(),
@@ -306,8 +329,8 @@ async fn main() -> Result<()> {
         actions_service,
         triage: None,
         agents: Arc::new(DevAgents {
+            server: server.clone(),
             link: link.clone(),
-            store: store.clone(),
         }),
         clock: clock.clone(),
         bus,
@@ -330,6 +353,13 @@ async fn main() -> Result<()> {
     seed_actions(&store, nas).await?;
 
     let listener = tokio::net::TcpListener::bind(ADDR).await?;
+    let agents = tokio::net::TcpListener::bind(AGENT_ADDR).await?;
+    let serving = server.clone();
+    tokio::spawn(async move { serving.serve(agents).await });
+    say(format_args!(
+        "Agents enroll against wss://{AGENT_ADDR}; hub fingerprint {}",
+        server.fingerprint_text()
+    ));
     if let Some(link) = auth.open_setup().await? {
         say(format_args!("Open {link}"));
     }
