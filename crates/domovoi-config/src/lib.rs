@@ -23,7 +23,7 @@ use serde::de::DeserializeOwned;
 
 pub use agent::AgentConfig;
 pub use duration::Duration;
-pub use env::{EnvSource, MapEnv, SystemEnv};
+pub use env::{EnvSource, MapEnv, OverrideScope, SystemEnv};
 pub use hub::HubConfig;
 pub use issue::{ConfigIssue, IssueSeverity};
 pub use layered::{
@@ -52,12 +52,12 @@ pub fn load_agent(path: &Path, env: &dyn EnvSource) -> LoadResult<AgentConfig> {
 /// [`load_agent`] do after reading the file.
 pub fn parse<T>(text: &str, env: &dyn EnvSource) -> LoadResult<T>
 where
-    T: DeserializeOwned + Validate + Secrets,
+    T: DeserializeOwned + Validate + Secrets + env::OverrideScope,
 {
     let mut table: toml::Table = text.parse().map_err(|err: toml::de::Error| {
         vec![ConfigIssue::error("", format!("invalid TOML: {err}"))]
     })?;
-    let issues = env::apply_overrides(&mut table, env);
+    let issues = env::apply_scoped(&mut table, env, T::foreign_sections());
     finish(table, env, None, issues)
 }
 
@@ -90,7 +90,7 @@ where
 
 fn load<T>(path: &Path, env: &dyn EnvSource) -> LoadResult<T>
 where
-    T: DeserializeOwned + Validate + Secrets,
+    T: DeserializeOwned + Validate + Secrets + env::OverrideScope,
 {
     let text = std::fs::read_to_string(path).map_err(|err| {
         vec![ConfigIssue::error(

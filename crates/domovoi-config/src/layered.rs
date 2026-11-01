@@ -91,7 +91,8 @@ pub fn load_hub_layered(
 
     prune_missing_secrets(&mut merged, stored_secrets, &mut issues);
 
-    let (env_issues, overridden) = env::apply_overrides_tracked(&mut merged, env);
+    let (env_issues, overridden) =
+        env::apply_overrides_tracked(&mut merged, env, &env::AGENT_SECTIONS);
     issues.extend(env_issues);
     for (path, var) in overridden {
         provenance.record(path, Source::Env(var));
@@ -118,7 +119,7 @@ pub fn bootstrap_data_dir(
         Some(path) => read_file(path).map_err(|issue| vec![issue])?,
         None => Table::new(),
     };
-    let issues = env::apply_overrides(&mut table, env);
+    let issues = env::apply_scoped(&mut table, env, &env::AGENT_SECTIONS);
     if issues.iter().any(ConfigIssue::is_error) {
         return Err(issues);
     }

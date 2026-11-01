@@ -199,3 +199,9 @@ fn default_local_bind() -> SocketAddr {
 fn default_true() -> bool {
     true
 }
+
+impl crate::env::OverrideScope for AgentConfig {
+    fn foreign_sections() -> &'static [&'static str] {
+        &crate::env::HUB_SECTIONS
+    }
+}

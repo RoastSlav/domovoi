@@ -9,6 +9,41 @@ use crate::issue::ConfigIssue;
 /// The prefix of override variables.
 pub const OVERRIDE_PREFIX: &str = "DOMOVOI_";
 
+/// The top-level tables of `hub.toml`.
+pub const HUB_SECTIONS: [&str; 13] = [
+    "hub",
+    "web",
+    "agent_server",
+    "llm",
+    "triage",
+    "incidents",
+    "notify",
+    "discord",
+    "webhooks",
+    "probes",
+    "heartbeat",
+    "backup",
+    "secrets",
+];
+
+/// The top-level tables of `agent.toml`.
+pub const AGENT_SECTIONS: [&str; 6] = [
+    "agent",
+    "policy",
+    "docker",
+    "checks",
+    "containers",
+    "local_webhooks",
+];
+
+/// Which `DOMOVOI_*` variables a config reads: one process can run the hub and an agent
+/// (single-box mode) with one environment, so each skips the other's sections. Any
+/// other unknown section is still reported, so typos are not silently ignored.
+pub trait OverrideScope {
+    /// Top-level sections that belong to the other role.
+    fn foreign_sections() -> &'static [&'static str];
+}
+
 /// A source of environment variables, so loading never depends on the process
 /// environment in tests.
 pub trait EnvSource {
@@ -67,20 +102,26 @@ impl EnvSource for MapEnv {
     }
 }
 
-/// Applies `DOMOVOI_<SECTION>__<KEY>` overrides to `table`.
+/// Applies `DOMOVOI_<SECTION>__<KEY>` overrides to `table`, skipping variables for the
+/// `foreign` top-level sections.
 ///
 /// Only variables with at least one `__` after the prefix are overrides; segments are
 /// lowercased and name nested keys. Only scalar values can be set. An existing value
 /// keeps its type (the variable is parsed as a bool, integer, float or string to match);
 /// a new value is inferred as bool, then integer, then float, then string.
-pub(crate) fn apply_overrides(table: &mut Table, env: &dyn EnvSource) -> Vec<ConfigIssue> {
-    apply_overrides_tracked(table, env).0
+pub(crate) fn apply_scoped(
+    table: &mut Table,
+    env: &dyn EnvSource,
+    foreign: &[&str],
+) -> Vec<ConfigIssue> {
+    apply_overrides_tracked(table, env, foreign).0
 }
 
-/// Like [`apply_overrides`], and also returns which variable set each dotted path.
+/// Like [`apply_scoped`], and also returns which variable set each dotted path.
 pub(crate) fn apply_overrides_tracked(
     table: &mut Table,
     env: &dyn EnvSource,
+    foreign: &[&str],
 ) -> (Vec<ConfigIssue>, BTreeMap<String, String>) {
     let mut vars = env.vars();
     vars.sort();
@@ -95,6 +136,12 @@ pub(crate) fn apply_overrides_tracked(
         }
         let segments: Vec<String> = rest.split("__").map(str::to_ascii_lowercase).collect();
         let path = segments.join(".");
+        if segments
+            .first()
+            .is_some_and(|first| foreign.contains(&first.as_str()))
+        {
+            continue;
+        }
         if segments.iter().any(String::is_empty) {
             issues.push(ConfigIssue::error(
                 path,
@@ -189,7 +236,7 @@ mod tests {
         let env = MapEnv::new()
             .with("DOMOVOI_TRIAGE__CONCURRENCY", "4")
             .with("DOMOVOI_DISCORD__NAME", "12");
-        assert!(apply_overrides(&mut t, &env).is_empty());
+        assert!(apply_scoped(&mut t, &env, &[]).is_empty());
         assert_eq!(t["triage"]["concurrency"], Value::Integer(4));
         assert_eq!(t["discord"]["name"], Value::String("12".into()));
     }
@@ -203,7 +250,7 @@ mod tests {
             .with("DOMOVOI_A__D", "text")
             .with("DOMOVOI_LOG", "debug")
             .with("PATH", "/bin");
-        assert!(apply_overrides(&mut t, &env).is_empty());
+        assert!(apply_scoped(&mut t, &env, &[]).is_empty());
         assert_eq!(t["a"]["b"], Value::Boolean(true));
         assert_eq!(t["a"]["c"], Value::Float(1.5));
         assert_eq!(t["a"]["d"], Value::String("text".into()));
@@ -211,10 +258,22 @@ mod tests {
     }
 
     #[test]
+    fn variables_for_the_other_role_are_skipped_but_typos_are_kept() {
+        let mut t = Table::new();
+        let env = MapEnv::new()
+            .with("DOMOVOI_AGENT_SERVER__BIND", "0.0.0.0:1")
+            .with("DOMOVOI_WEB__BIND", "0.0.0.0:2")
+            .with("DOMOVOI_AGNET__HOST_NAME", "typo");
+        assert!(apply_scoped(&mut t, &env, &HUB_SECTIONS).is_empty());
+        assert!(t.get("agent_server").is_none() && t.get("web").is_none());
+        assert_eq!(t["agnet"]["host_name"], Value::String("typo".into()));
+    }
+
+    #[test]
     fn mistyped_value_names_path_and_variable() {
         let mut t = table("[triage]\nenabled = true\n");
         let env = MapEnv::new().with("DOMOVOI_TRIAGE__ENABLED", "yes");
-        let issues = apply_overrides(&mut t, &env);
+        let issues = apply_scoped(&mut t, &env, &[]);
         assert_eq!(issues.len(), 1);
         assert_eq!(issues[0].path, "triage.enabled");
         assert!(issues[0].message.contains("DOMOVOI_TRIAGE__ENABLED"));

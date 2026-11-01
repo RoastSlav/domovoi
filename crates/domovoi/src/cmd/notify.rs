@@ -6,7 +6,7 @@ use std::sync::Arc;
 use clap::Subcommand;
 use domovoi_hub::admin::notify_test;
 
-use super::{HubConfigArg, load_hub};
+use super::HubConfigArg;
 use crate::init::SystemClock;
 
 /// Notification subcommands.
@@ -18,7 +18,7 @@ pub enum NotifyCommand {
 
 pub async fn run(command: NotifyCommand) -> anyhow::Result<ExitCode> {
     let NotifyCommand::Test(args) = command;
-    let config = load_hub(&args.config)?;
+    let config = args.effective().await?;
     let outcomes = notify_test(&config, Arc::new(SystemClock)).await?;
     if outcomes.is_empty() {
         println!("Nothing is configured to notify: enable [discord] or set a webhook_url.");

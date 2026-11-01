@@ -452,3 +452,9 @@ fn default_keep() -> u32 {
 fn default_true() -> bool {
     true
 }
+
+impl crate::env::OverrideScope for HubConfig {
+    fn foreign_sections() -> &'static [&'static str] {
+        &crate::env::AGENT_SECTIONS
+    }
+}

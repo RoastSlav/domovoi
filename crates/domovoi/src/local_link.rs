@@ -14,19 +14,23 @@ use domovoi_config::AgentConfig;
 use domovoi_core::ports::{Clock, ProcessExecutor};
 use domovoi_hub::agent_server::{LOCAL_SESSION_HINT, MemoryTransport};
 use domovoi_hub::runtime::LocalAgents;
+use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
 /// Dials the hub in this process: every connection is a fresh in-memory pair whose hub
-/// end is attached to the agent server.
+/// end is attached to the agent server of the runtime running now. While the hub
+/// restarts there is none, and the agent retries with its usual backoff.
 pub struct LocalConnector {
-    local: LocalAgents,
+    current: watch::Receiver<Option<LocalAgents>>,
 }
 
 #[async_trait]
 impl Connector for LocalConnector {
     async fn connect(&self) -> Result<Connected, LinkError> {
+        let Some(local) = self.current.borrow().clone() else {
+            return Err(LinkError::Connect("the hub is restarting".to_owned()));
+        };
         let (hub_end, agent_end) = MemoryTransport::pair();
-        let local = self.local.clone();
         tokio::spawn(async move { local.attach(Box::new(hub_end)).await });
         Ok(Connected {
             transport: Box::new(agent_end),
@@ -36,15 +40,19 @@ impl Connector for LocalConnector {
 }
 
 /// Registers this machine's agent with the hub (generating its key on first start) and
-/// runs it until `shutdown`.
+/// runs it until `shutdown`, following the hub across restarts through `current`.
 pub async fn run_agent(
-    local: LocalAgents,
+    mut current: watch::Receiver<Option<LocalAgents>>,
     config: AgentConfig,
     executor: Arc<dyn ProcessExecutor>,
     clock: Arc<dyn Clock>,
     shutdown: CancellationToken,
 ) -> anyhow::Result<()> {
-    let registrar = local.clone();
+    let registrar = current
+        .wait_for(Option::is_some)
+        .await?
+        .clone()
+        .ok_or_else(|| anyhow::anyhow!("the hub stopped before the local agent started"))?;
     local_identity(&config.agent.state_dir, |public_key| async move {
         registrar
             .register(public_key, env!("CARGO_PKG_VERSION"))
@@ -61,7 +69,7 @@ pub async fn run_agent(
     let deps = production::deps(&config, executor, clock, redactor)?;
     let agent = AgentRuntime::new(config, deps)
         .await?
-        .with_connector(Arc::new(LocalConnector { local }));
+        .with_connector(Arc::new(LocalConnector { current }));
     tracing::info!("local agent started");
     agent.run(shutdown).await?;
     Ok(())

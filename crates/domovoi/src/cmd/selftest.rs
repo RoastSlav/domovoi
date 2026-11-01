@@ -8,7 +8,7 @@ use domovoi_hub::runtime::HubDeps;
 use domovoi_hub::selftest::{self, Mode};
 use domovoi_runner::SandboxExecutor;
 
-use super::{HubConfigArg, load_hub, redactor};
+use super::{HubConfigArg, redactor};
 use crate::init::SystemClock;
 
 /// `selftest`.
@@ -23,7 +23,7 @@ pub struct SelftestArgs {
 }
 
 pub async fn run(args: SelftestArgs) -> anyhow::Result<ExitCode> {
-    let config = load_hub(&args.config.config)?;
+    let config = args.config.effective().await?;
     let mode = if args.offline {
         Mode::Offline
     } else {
