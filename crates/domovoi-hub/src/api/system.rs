@@ -46,7 +46,7 @@ pub(super) async fn advisories(
 }
 
 /// Today's digest, built now.
-async fn build(state: &ApiState) -> Result<DigestPreview, ApiError> {
+pub(crate) async fn build(state: &ApiState) -> Result<DigestPreview, ApiError> {
     let deps = &state.deps;
     let tz = deps.config.hub.timezone.zone().clone();
     let now = deps.clock.now();

@@ -1,7 +1,8 @@
-//! Web approvals: the only place the web surface constructs a [`HumanApproval`] (INV-1).
+//! Web and chat approvals: the only places the hub constructs a [`HumanApproval`] (INV-1).
 //!
-//! Callers reach this only after the session and CSRF checks passed, so the approval is
-//! always an authenticated human's.
+//! Web callers reach this only after the session and CSRF checks passed; chat callers only
+//! after the interaction authorizer found the platform user on the allowlist. Either way the
+//! approval is an authenticated human's.
 
 use domovoi_core::{ApprovalChannel, HumanApproval, SkillName, UserId};
 use jiff::Timestamp;
@@ -18,4 +19,23 @@ pub fn web_approval(
 ) -> HumanApproval {
     let typed_confirmation = confirm_text == Some(skill.as_str());
     HumanApproval::new(user, ApprovalChannel::Web { typed_confirmation }, now)
+}
+/// The approval by `user` (the hub account chat acts as) pressed by `platform_user` on
+/// `platform` at `now`. Never carries a typed confirmation, so destructive actions can't be
+/// approved this way (INV-6).
+#[must_use]
+pub fn chat_approval(
+    user: UserId,
+    platform: &str,
+    platform_user: &str,
+    now: Timestamp,
+) -> HumanApproval {
+    HumanApproval::new(
+        user,
+        ApprovalChannel::Chat {
+            platform: platform.to_owned(),
+            platform_user: platform_user.to_owned(),
+        },
+        now,
+    )
 }

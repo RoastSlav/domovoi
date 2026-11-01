@@ -1,0 +1,47 @@
+---
+source: crates/domovoi-chat/tests/discord/cards.rs
+expression: value
+---
+{
+  "components": [
+    {
+      "components": [
+        {
+          "custom_id": "dv1:k:AaGXIV1Ycnej6_hm5O-5hg",
+          "label": "Ack",
+          "style": 2,
+          "type": 2
+        },
+        {
+          "custom_id": "dv1:m:AaGXIV1Ycnej6_hm5O-5hg",
+          "label": "Mute 1h",
+          "style": 2,
+          "type": 2
+        },
+        {
+          "custom_id": "dv1:d:AaGXIV1Ycnej6_hm5O-5hg",
+          "label": "Details",
+          "style": 2,
+          "type": 2
+        },
+        {
+          "label": "Approve in web UI",
+          "style": 5,
+          "type": 2,
+          "url": "https://domovoi.example.net/incidents/01a19721-5d58-7277-a3eb-f866e4efb986"
+        }
+      ],
+      "type": 1
+    }
+  ],
+  "embed": {
+    "color": 13183530,
+    "description": "• 93% used, 70 GB free\n• Grew 40 GB since 02:00\n\n**Next:** Prune old snapshots",
+    "footer": {
+      "text": "incident e4efb986"
+    },
+    "title": "ACTION NEEDED · nas: Disk /srv is 93% full",
+    "type": "rich",
+    "url": "https://domovoi.example.net/incidents/01a19721-5d58-7277-a3eb-f866e4efb986"
+  }
+}

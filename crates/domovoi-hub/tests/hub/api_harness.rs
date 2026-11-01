@@ -11,11 +11,11 @@ use axum::body::Body;
 use axum::extract::connect_info::MockConnectInfo;
 use axum::http::{HeaderMap, Method, Request, StatusCode, header};
 use domovoi_config::{HubConfig, MapEnv};
-use domovoi_core::ports::{ActionRepo, HostRepo, IncidentRepo, Presence};
+use domovoi_core::ports::{ActionRepo, HostRepo, IncidentRepo, LlmProvider, Presence};
 use domovoi_core::{ActionRequest, HostId, HostName, Incident, Principal, Risk, SkillSummary};
 use domovoi_engine::{
     ActionDeps, ActionService, ActionSettings, EnginePolicy, IncidentManager, ManagerDeps,
-    ManagerHandle, PatternRedactor,
+    ManagerHandle, PatternRedactor, TriageDeps, TriageService, TriageSettings,
 };
 use domovoi_hub::agent_server::{AgentServerError, EnrollmentInvite};
 use domovoi_hub::api::{AgentAdmin, ApiDeps, ApiState};
@@ -24,7 +24,7 @@ use domovoi_hub::router::router;
 use domovoi_proto::EnrollToken;
 use domovoi_store::{Store, StoreOptions};
 use domovoi_testkit::build::{host, manifest, open_incident};
-use domovoi_testkit::{FakeAgentLink, FakeClock};
+use domovoi_testkit::{FakeAgentLink, FakeClock, ScriptedLlm};
 use jiff::{SignedDuration, Timestamp};
 use serde_json::Value;
 use tempfile::TempDir;
@@ -121,6 +121,8 @@ pub struct Api {
     pub link: Arc<FakeAgentLink>,
     /// The running incident manager, for feeding signals in as the hub's ingest does.
     pub manager: ManagerHandle,
+    /// The model triage asks, when built with [`api_with_triage`].
+    pub llm: Arc<ScriptedLlm>,
     pub incident: Incident,
     pub nas: domovoi_core::Host,
     pub shutdown: CancellationToken,
@@ -143,6 +145,15 @@ pub fn config() -> HubConfig {
 }
 
 pub async fn api() -> Api {
+    build(false).await
+}
+
+/// [`api`] with triage on, answering from [`Api::llm`].
+pub async fn api_with_triage() -> Api {
+    build(true).await
+}
+
+async fn build(triage: bool) -> Api {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("hub.db");
     let store = Arc::new(
@@ -183,6 +194,32 @@ pub async fn api() -> Api {
         },
         ActionSettings::default(),
     );
+    let llm = Arc::new(ScriptedLlm::new());
+    let triage = triage.then(|| {
+        let primary: Arc<dyn LlmProvider> = llm.clone();
+        TriageService::spawn(
+            TriageDeps {
+                primary,
+                secondary: None,
+                link: link.clone(),
+                incidents: store.clone(),
+                signals: store.clone(),
+                notes: store.clone(),
+                actions: store.clone(),
+                audit: store.clone(),
+                cache: store.clone(),
+                usage: store.clone(),
+                advisories: store.clone(),
+                redactor: Arc::new(PatternRedactor::default()),
+                clock: clock.clone(),
+                manager: manager.clone(),
+                bus: bus.clone(),
+                shutdown: shutdown.clone(),
+            },
+            TriageSettings::default(),
+        )
+        .0
+    });
     let config = config();
     let web = WebIdentity {
         public_url: config.web.public_url.clone().unwrap(),
@@ -205,7 +242,7 @@ pub async fn api() -> Api {
         usage: store.clone(),
         manager: manager.clone(),
         actions_service,
-        triage: None,
+        triage,
         agents: Arc::new(TestAgents {
             link: link.clone(),
             hosts: store.clone(),
@@ -225,6 +262,7 @@ pub async fn api() -> Api {
         clock,
         link,
         manager,
+        llm,
         incident,
         nas,
         shutdown,

@@ -6,6 +6,7 @@
 
 pub mod approval;
 pub mod csrf;
+pub mod interactions;
 pub mod limit;
 pub mod password;
 pub mod proxy;
