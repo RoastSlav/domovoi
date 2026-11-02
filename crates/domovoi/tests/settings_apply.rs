@@ -137,6 +137,25 @@ mod tests {
         panic!("the hub did not become healthy within 30 seconds");
     }
 
+    /// Waits for the restart a save starts. The runtime answers the save before it stops,
+    /// so a health check can still reach the old one; wait for its listener to close and
+    /// then for the new runtime to answer.
+    async fn wait_restarted(client: &reqwest::Client, base: &str) {
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while Instant::now() < deadline {
+            match client.get(format!("{base}/healthz")).send().await {
+                Err(err) if err.is_connect() => {
+                    wait_healthy(client, base).await;
+                    return;
+                }
+                Err(err) => panic!("{err}"),
+                Ok(_) => {}
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        panic!("the hub did not stop for the restart within 30 seconds");
+    }
+
     async fn eventually<T, F, Fut>(what: &str, mut check: F) -> T
     where
         F: FnMut() -> Fut,
@@ -303,7 +322,7 @@ mod tests {
         let (status, body) = hub.save(webhook, true).await;
         assert_eq!(status, 200, "{body}");
         assert_eq!(body["applied"], true);
-        wait_healthy(&hub.client, &hub.base).await;
+        wait_restarted(&hub.client, &hub.base).await;
 
         let hook = hub
             .client
@@ -328,7 +347,7 @@ mod tests {
             .save(json!({ "incidents": { "confirm_runs": 3 } }), false)
             .await;
         assert_eq!(status, 200, "{body}");
-        wait_healthy(&hub.client, &hub.base).await;
+        wait_restarted(&hub.client, &hub.base).await;
         let settings = hub.get("/api/v1/settings").await;
         assert_eq!(
             settings["editable"]["values"]["incidents"]["confirm_runs"],
@@ -354,7 +373,7 @@ mod tests {
             )
             .await;
         assert_eq!(status, 200);
-        wait_healthy(&hub.client, &hub.base).await;
+        wait_restarted(&hub.client, &hub.base).await;
 
         // Valid as settings, but the CLI model cannot be built: the preset's default
         // program is not an absolute path.
