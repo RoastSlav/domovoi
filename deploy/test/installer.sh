@@ -140,6 +140,7 @@ check "agent install succeeds" run_install --role agent
 check "latest resolved to v9.9.1" sh -c '/usr/local/bin/domovoi version | grep -q v9.9.1'
 check "/var/lib/domovoi-agent is 0700" test "$(mode_of /var/lib/domovoi-agent)" = 700
 check "/etc/domovoi kept its group" test "$(owner_of /etc/domovoi)" = "root:domovoi"
+check "empty skills directory created" test -d /etc/domovoi/skills
 check "no agent.toml written" test ! -e /etc/domovoi/agent.toml
 check "agent unit installed" cmp -s /etc/systemd/system/domovoi-agent.service "$root/deploy/systemd/domovoi-agent.service"
 check "agent next steps printed" grep -q "Add host" "$work/out"
@@ -154,6 +155,8 @@ check "edited unit kept" test "$(cat /etc/systemd/system/domovoi-hub.service)" =
 check "kept unit reported" grep -q "Kept /etc/systemd/system/domovoi-hub.service" "$work/out"
 check "new unit saved beside it" test -f /usr/local/share/domovoi/domovoi-hub.service
 check "hub.toml kept" test "$(cat /etc/domovoi/hub.toml)" = "[hub]"
+check "upgrade suggests restart" grep -q "systemctl restart domovoi-hub" "$work/out"
+check "upgrade does not suggest enable --now" test -z "$(grep "enable --now" "$work/out")"
 check "changed mode kept" test "$(mode_of /var/lib/domovoi)" = 700
 check "unchanged unit reported up to date" sh -c "sh '$installer' --role agent 2>&1 | grep -q 'domovoi-agent.service is up to date'"
 
