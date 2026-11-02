@@ -94,6 +94,25 @@ test("first_run_discord_test_sends_a_scalar_channel_id_and_shows_failures", asyn
     allowed_user_ids: ["234567890123456789"],
     enabled: true,
   });
+  expect(body.changes).not.toHaveProperty("triage");
+});
+
+test("first_run_test_sends_only_the_fields_of_the_step_being_tested", async () => {
+  const user = userEvent.setup();
+  route("POST /api/v1/settings/test/llm", () => ({ ok: true, message: "model answered" }));
+  renderAt("/welcome", "/welcome", <FirstRun />);
+  expect(await screen.findByRole("heading", { name: "Hub" })).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Next" }));
+  await user.click(screen.getByRole("button", { name: "Skip" }));
+  await user.selectOptions(screen.getByLabelText("Provider"), "openai_compatible");
+  await user.type(screen.getByLabelText("Base URL"), "http://localhost:11434/v1");
+  await user.click(screen.getByRole("button", { name: "Test" }));
+
+  expect(await screen.findByText(/model answered/)).toBeVisible();
+  const sent = calls.find((c) => c.route === "POST /api/v1/settings/test/llm");
+  const body = sent?.init.body as { changes: Record<string, unknown> };
+  expect(body.changes).not.toHaveProperty("discord");
+  expect(body.changes).not.toHaveProperty("hub");
 });
 
 test("first_run_secret_draft_survives_navigation_and_reports_pending", async () => {

@@ -181,8 +181,10 @@ function Wizard({ editable }: { editable: Editable }) {
   const tester = useTestConnection(STEPS[step]?.test ?? "heartbeat");
   const navigate = useNavigate();
 
-  const changes = (without: Set<number> = skipped) => {
-    const kept = STEPS.filter((_, i) => !without.has(i)).flatMap((s) => s.fields);
+  const changes = (without: Set<number> = skipped, only?: number) => {
+    const kept = STEPS.filter((_, i) =>
+      only === undefined ? !without.has(i) : i === only,
+    ).flatMap((s) => s.fields);
     const out = buildChanges(kept, baseline, inputs, secrets);
     const token = secrets["discord.bot_token"];
     if (!without.has(1) && token && "set" in token) {
@@ -190,6 +192,8 @@ function Wizard({ editable }: { editable: Editable }) {
     }
     return out;
   };
+
+  const testStep = () => tester.mutate(changes(skipped, step));
 
   const save = async (pending: ReturnType<typeof changes>, password?: string) => {
     setFailure(undefined);
@@ -314,7 +318,7 @@ function Wizard({ editable }: { editable: Editable }) {
           <div className={styles.actions}>
             {step > 0 && <Button onClick={() => setStep(step - 1)}>Back</Button>}
             {current.test && (
-              <Button disabled={tester.isPending} onClick={() => tester.mutate(changes())}>
+              <Button disabled={tester.isPending} onClick={testStep}>
                 Test
               </Button>
             )}

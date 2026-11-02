@@ -359,7 +359,8 @@ async fn advisories_digest_and_metrics() {
 
 #[test]
 fn openapi_snapshot() {
-    let spec: Value = serde_json::from_str(&domovoi_hub::router::openapi_json()).unwrap();
+    let mut spec: Value = serde_json::from_str(&domovoi_hub::router::openapi_json()).unwrap();
+    spec["info"]["version"] = json!("0.0.0");
     insta::assert_json_snapshot!("openapi", spec);
 }
 

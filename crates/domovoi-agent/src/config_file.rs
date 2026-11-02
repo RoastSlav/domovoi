@@ -1,5 +1,5 @@
 //! Writing `agent.toml` at enrollment, so nobody has to edit it (ADR 0017). An existing
-//! file is never touched.
+//! file keeps its settings; only its hub address can be pointed at a new hub.
 
 use std::fs::OpenOptions;
 use std::io::{ErrorKind, Write};
@@ -9,6 +9,7 @@ use domovoi_config::{AgentConfig, MapEnv};
 use url::Url;
 
 use crate::error::StateError;
+use crate::fs_atomic::write_atomic;
 
 /// Renders the `agent.toml` for `host_name` reaching the hub at `hub_url`. Check
 /// settings are left to their defaults, and to the overrides the hub manages.
@@ -86,12 +87,56 @@ pub fn write_if_absent(
     Ok(true)
 }
 
+/// Points an existing `agent.toml` at `hub_url`, changing only its `hub_url` line, so the
+/// rest of the file is kept. Returns whether the file changed. The result is checked as an
+/// `agent.toml` before it is written.
+pub fn set_hub_url(path: &Path, hub_url: &Url) -> Result<bool, StateError> {
+    let text = std::fs::read_to_string(path).map_err(|e| StateError::new(path, e))?;
+    let line = format!("hub_url = {}", quote(hub_url.as_str()));
+    let mut replaced = false;
+    let updated: Vec<String> = text
+        .lines()
+        .map(|current| {
+            if current.trim_start().starts_with("hub_url") {
+                replaced = true;
+                line.clone()
+            } else {
+                current.to_owned()
+            }
+        })
+        .collect();
+    if !replaced {
+        return Err(StateError::new(path, "has no hub_url line to change"));
+    }
+    let mut next = updated.join("\n");
+    if text.ends_with('\n') {
+        next.push('\n');
+    }
+    if next == text {
+        return Ok(false);
+    }
+    if let Err(issues) = domovoi_config::parse::<AgentConfig>(&next, &MapEnv::new()) {
+        let reason = issues
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join("; ");
+        return Err(StateError::new(path, reason));
+    }
+    #[cfg(unix)]
+    let mode = 0o640;
+    #[cfg(not(unix))]
+    let mode = 0o644;
+    write_atomic(path, next.as_bytes(), mode)?;
+    Ok(true)
+}
+
 #[cfg(test)]
 mod tests {
     use domovoi_config::{AgentConfig, MapEnv};
     use url::Url;
 
-    use super::write_if_absent;
+    use super::{set_hub_url, write_if_absent};
 
     #[test]
     fn enroll_writes_agent_toml_when_absent_and_never_overwrites() {
@@ -123,5 +168,39 @@ mod tests {
             "an invalid host name is refused before writing"
         );
         assert!(!dir.path().join("bad.toml").exists());
+    }
+
+    #[test]
+    fn set_hub_url_changes_only_the_hub_line() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("agent.toml");
+        let old = Url::parse("wss://chuchi:7421/").unwrap();
+        let new = Url::parse("wss://192.168.88.119:7421/").unwrap();
+        write_if_absent(&path, "tyron", &old, "AB:CD").unwrap();
+        let before = std::fs::read_to_string(&path).unwrap();
+
+        assert!(set_hub_url(&path, &new).unwrap());
+        let after = std::fs::read_to_string(&path).unwrap();
+        let (config, _) = domovoi_config::parse::<AgentConfig>(&after, &MapEnv::new()).unwrap();
+        assert_eq!(config.agent.hub_url, new);
+        assert_eq!(config.agent.host_name.as_str(), "tyron");
+        assert_eq!(
+            after,
+            before.replace(
+                &format!("\"{}\"", old.as_str()),
+                &format!("\"{}\"", new.as_str())
+            ),
+            "every other line is kept as it was"
+        );
+        assert!(
+            !set_hub_url(&path, &new).unwrap(),
+            "the same address changes nothing"
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o640);
+        }
     }
 }
