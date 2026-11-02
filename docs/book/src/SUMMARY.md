@@ -3,7 +3,7 @@
 [Introduction](introduction.md)
 [Quick start](quick-start.md)
 
-# Install
+# Installation (planned)
 
 - [Binary and systemd](install/binary.md)
 - [Docker](install/docker.md)

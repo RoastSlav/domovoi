@@ -1,7 +1,8 @@
 # agent.toml: configuration for a Domovoi agent.
 #
 # Every option is shown with its default unless marked "example". Only [agent] is
-# required. Validate this file with `domovoi check config agent.toml`.
+# required. The current `domovoi` binary does not yet include a config-check command;
+# the runtime loader validates this file when it starts.
 #
 # Secrets are never written here: use { env = "NAME" } or { file = "/path" }.
 # Scalars can be overridden with DOMOVOI_<SECTION>__<KEY>, for example
@@ -33,13 +34,13 @@ endpoint = "unix:///var/run/docker.sock"
 
 # Per-check settings, one table per check key (example; optional). Quote keys that
 # contain dots.
-[checks."disk.usage"]
+[checks."disk.free"]
 # Whether the check runs.
 enabled = true
 # How often it runs (default: the check's own interval).
 interval = "5m"
 # Check-specific thresholds; each check documents its keys.
-thresholds = { warning_percent = 85, critical_percent = 95 }
+thresholds = { warning_free_pct = 15, critical_free_pct = 6 }
 # Overrides how bad a failure is: "critical" or "warning" (default: decided by the check).
 criticality = "critical"
 

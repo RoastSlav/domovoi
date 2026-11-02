@@ -1,5 +1,8 @@
 # Verdicts, cards and threads
 
+> **Pre-alpha scope:** This chapter describes the planned delivery behavior in the runtime
+> libraries. The current binary does not yet provide a supported production hub or agent command.
+
 Every incident gets one card and one thread. Repeats, reminders and the resolution go into the thread, not into new messages.
 
 ## The card

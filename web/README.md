@@ -1,6 +1,10 @@
 # Domovoi web UI
 
-React + TypeScript + Vite. Built into `web/dist` and embedded in the hub binary with the `embed-ui` feature (ADR 0006).
+React + TypeScript + Vite. Built into `web/dist` and embedded in a hub runtime with the
+`embed-ui` feature (ADR 0006).
+
+The embedded UI is exercised by the development hub example. The `domovoi` binary does not yet
+start a supported production hub, so building it with `embed-ui` verifies packaging only.
 
 ## Develop
 
@@ -21,12 +25,12 @@ npm run dev          # http://localhost:5173, proxies /api and /hooks to the hub
 
 Open the setup link with port 5173 instead of 7420, then create the admin account. Point the proxy at another hub with `DOMOVOI_HUB_URL=http://host:7420 npm run dev`.
 
-## Embed in the hub
+## Build the embedded UI
 
 ```sh
 npm run build                                                           # writes web/dist
 cargo run -p domovoi-hub --example dev_hub --features embed-ui          # serves it on :7420
-cargo build -p domovoi --features embed-ui --release                    # the real binary
+cargo build -p domovoi --features embed-ui --release                    # verifies packaging; no production hub command yet
 ```
 
 Without `embed-ui` the hub serves a short page explaining how to build the UI. With it, files under `/assets/` are cached for a year (their names change with their content) and `index.html` is never cached. Unknown paths outside `/api` and `/hooks` load the app, so client routes like `/incidents/<id>` work on reload.

@@ -1,5 +1,9 @@
 # Actions and approvals
 
+> **Pre-alpha scope:** This chapter documents the intended action lifecycle and safeguards in
+> the runtime libraries. The current binary does not yet provide a supported production hub or
+> agent command.
+
 Triage may suggest up to three actions for an incident, such as restarting a container. An action is a skill installed on the agent's host, together with the arguments to run it with. Nothing runs until a person approves it, and each step afterwards is checked again and written to the audit log.
 
 ## Lifecycle

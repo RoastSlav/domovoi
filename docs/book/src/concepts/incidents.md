@@ -1,5 +1,8 @@
 # Signals and incidents
 
+> **Pre-alpha scope:** This is the intended incident model and runtime behavior. The current
+> binary does not yet provide a supported production hub or agent command.
+
 Checks, probes, agents and webhooks send **signals**: "this is firing" or "this is fine again", about one check on one host, optionally for one target such as a container or a mount. Domovoi turns signals into **incidents**, the problems you actually hear about.
 
 ## Fingerprints

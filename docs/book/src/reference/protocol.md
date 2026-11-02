@@ -1,6 +1,6 @@
 # Agent protocol
 
-Hub and agents talk over a single WebSocket connection that the agent opens to the hub's agent server (default port 7421). The connection uses TLS with the hub's self-signed certificate, which the agent pins at enrollment. Every frame is one JSON text message.
+Hub and agents talk over a single WebSocket connection that the agent opens to the hub's agent server (default port 7421). The connection uses TLS with the hub's self-signed certificate, which the agent pins at enrollment. Every frame is one JSON text message. The protocol is implemented in the libraries; the production CLI enrollment flow is not available yet.
 
 The protocol is a public contract. The JSON below is pinned by snapshot tests: any change that is not purely additive needs a new major version.
 
@@ -39,8 +39,8 @@ The current version is **1.0**. The hub accepts an agent with the same major ver
 
 ## Enrollment
 
-1. On the hub, `domovoi hub token create <host>` prints a single-use token valid for 15 minutes.
-2. On the host, `domovoi agent enroll --hub <url> --token <token>` generates an ed25519 key pair and sends `enroll` with the token and the public key.
+1. The planned hub command `domovoi hub token create <host>` prints a single-use token valid for 15 minutes.
+2. The planned host command `domovoi agent enroll --hub <url> --token <token>` generates an ed25519 key pair and sends `enroll` with the token and the public key.
 3. The hub replies `enrolled` with the agent id, host id and its certificate fingerprint, or `reject` with `bad_token`. The agent checks that the fingerprint matches the certificate it saw on this connection, then pins it.
 
 ## Handshake
@@ -233,11 +233,11 @@ Each example is a complete frame with fixed ids and times.
   "payload": {
     "config": {
       "check_overrides": {
-        "disk.usage": {
+        "disk.free": {
           "enabled": true,
           "interval_seconds": 300,
           "thresholds": {
-            "critical_percent": 95
+            "critical_free_pct": 6
           }
         }
       },
@@ -308,10 +308,10 @@ Each example is a complete frame with fixed ids and times.
     "batch_seq": 42,
     "signals": [
       {
-        "check": "disk.usage",
+        "check": "disk.free",
         "class": "normal",
         "evidence": {
-          "used_percent": 97.5
+          "free_pct": 2.5
         },
         "host": "01900000-0000-7000-8000-0000000000b1",
         "id": "01900000-0000-7000-8000-0000000000c1",
@@ -321,7 +321,7 @@ Each example is a complete frame with fixed ids and times.
           "type": "built_in"
         },
         "status": "firing",
-        "summary": "/srv is 97% full",
+        "summary": "/srv has 2.5% free",
         "target": "/srv"
       }
     ]
@@ -471,7 +471,7 @@ A successful run:
   "id": "01900000-0000-7000-8000-000000000001",
   "kind": "run_check",
   "payload": {
-    "check": "disk.usage",
+    "check": "disk.free",
     "deadline": "2023-11-14T22:14:50Z",
     "target": "/srv"
   },
@@ -489,11 +489,11 @@ A successful run:
     "observations": [
       {
         "evidence": {
-          "used_percent": 97.5
+          "free_pct": 2.5
         },
         "observed_at": "2023-11-14T22:13:20Z",
         "status": "firing",
-        "summary": "/srv is 97% full",
+        "summary": "/srv has 2.5% free",
         "target": "/srv"
       }
     ]
@@ -512,11 +512,11 @@ A successful run:
   "payload": {
     "config": {
       "check_overrides": {
-        "disk.usage": {
+        "disk.free": {
           "enabled": true,
           "interval_seconds": 300,
           "thresholds": {
-            "critical_percent": 95
+            "critical_free_pct": 6
           }
         }
       },

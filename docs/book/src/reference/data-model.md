@@ -1,5 +1,8 @@
 # Data model
 
+This is the target hub data model implemented by the runtime libraries. The current
+pre-alpha binary does not offer a supported persistent hub deployment yet.
+
 The hub keeps its state in one SQLite database in WAL mode, under `[hub] data_dir`. Migrations are embedded in the binary and run at start-up. They are append-only: a released migration is never edited, only followed by a new one.
 
 ## Conventions

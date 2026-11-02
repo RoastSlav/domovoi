@@ -1,5 +1,9 @@
 # LLM providers
 
+> **Availability:** These provider settings describe the hub runtime libraries. The current
+> pre-alpha binary has no supported hub command, so do not give real credentials to the
+> development preview.
+
 Triage needs a language model. Domovoi talks to it through one of three adapters:
 
 - `anthropic`: the Anthropic Messages API.

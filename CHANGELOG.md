@@ -6,4 +6,5 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
-- Repository scaffold: architecture, ADRs, architecture checker, CI/CD, web UI shell.
+- Pre-alpha hub, agent, checks, configuration, protocol, web UI and development tooling.
+  Production hub and agent commands, release archives and container images are not published yet.

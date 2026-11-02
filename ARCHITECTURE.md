@@ -1,6 +1,6 @@
 # Domovoi architecture
 
-Status: accepted for v0.1. Anything marked **Rule** or **Invariant** can only change through an ADR in [`docs/adr`](docs/adr). The rules in §4 are enforced by `cargo xtask arch-check`; the invariants in §15 are enforced by tests named in that section.
+Status: accepted target architecture for v0.1. It is the implementation contract, not a claim that every product entry point described here is already shipped; the current CLI and release status are in the README and user guide. Anything marked **Rule** or **Invariant** can only change through an ADR in [`docs/adr`](docs/adr). The rules in §4 are enforced by `cargo xtask arch-check`; the invariants in §15 are enforced by tests named in that section.
 
 ---
 

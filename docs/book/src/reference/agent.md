@@ -1,6 +1,10 @@
 # Agent runtime
 
-The agent runs on every guarded host. It keeps one outbound connection to the hub, runs the built-in checks, serves the hub's read tools and approved skills, and keeps signals on disk while the hub is out of reach. The wire format is in [Agent protocol](protocol.md).
+The agent runtime is implemented as a library; the pre-alpha binary does not yet expose a
+supported agent command. When the product entry point ships, the agent will run on every
+guarded host, keep one outbound connection to the hub, run built-in checks, serve the hub's
+read tools and approved skills, and keep signals on disk while the hub is out of reach. The
+wire format is in [Agent protocol](protocol.md).
 
 ## Trust
 
@@ -32,7 +36,11 @@ The agent stops retrying, with an error that says what to do, when the hub answe
 
 ## State directory
 
-Everything lives under `[agent] state_dir` (default `/var/lib/domovoi-agent`). Every file is written to a temporary file and renamed, so a crash never leaves half a file. Files are mode `0600`.
+Everything lives under `[agent] state_dir` (default `/var/lib/domovoi-agent`). Identity,
+check state and spool metadata are written to a temporary file and renamed. The signal spool
+is appended and synced before use; a truncated or malformed line is skipped and the remaining
+spool is repaired when it is next opened. Unreadable spool metadata stops startup rather than
+risk reusing an acknowledged batch number. Files are mode `0600`.
 
 | File | Contents |
 | --- | --- |
@@ -45,7 +53,9 @@ Everything lives under `[agent] state_dir` (default `/var/lib/domovoi-agent`). E
 
 Every batch of signals is written to the spool before it is sent. The hub acknowledges batches with `signals_ack`, and acknowledged batches are removed. After a reconnect, every unacknowledged batch is sent again, oldest first. Batch numbers keep rising across restarts.
 
-The spool holds at most 10 000 batches or 8 MiB. When it is full:
+The spool holds at most 10 000 batches or 8 MiB. Each batch also fits under the protocol's
+1 MiB frame limit. Older oversized batches are split when the agent loads the spool.
+When it is full:
 
 1. The oldest firing signals with `info` severity are dropped first.
 2. Then whole batches, oldest first.

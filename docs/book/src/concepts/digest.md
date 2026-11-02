@@ -1,5 +1,8 @@
 # Digest and advisories
 
+> **Pre-alpha scope:** This is the intended digest and advisory behavior. The current binary
+> does not yet provide a supported production hub or agent command.
+
 ## The daily digest
 
 Once a day, at `[notify.digest] time` in `[hub] timezone` (09:00 by default), Domovoi sends one message covering every host. The same lines every morning are noise, so:

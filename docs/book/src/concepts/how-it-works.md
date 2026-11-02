@@ -1,5 +1,9 @@
 # How it works
 
+> **Pre-alpha scope:** This chapter describes the intended product behavior and the runtime
+> components under active development. It is not a deployment guide: the current binary does
+> not provide supported production hub or agent commands.
+
 The hub assembles the store, incident engine, agent server, web API, chat adapters and language-model providers into one runtime. Building the runtime opens and migrates SQLite and starts the engine consumers. Running it opens the web and agent listeners and starts chat intake and scheduled jobs.
 
 ## From signal to action

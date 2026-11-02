@@ -1,5 +1,9 @@
 # HTTP API
 
+> **Availability:** The API is available from the development hub used by [Quick
+> start](../quick-start.md), but there is no supported production hub command or release
+> yet. Treat the endpoints below as a pre-alpha contract.
+
 The hub serves a JSON API under `/api/v1` on its web listener (`[web] bind`). The web UI uses the same API, so anything the UI can do, a script can do too.
 
 The full OpenAPI 3.1 document is committed as [`web/src/api/openapi.json`](https://github.com/RoastSlav/domovoi/blob/main/web/src/api/openapi.json). To print it from your hub's own binary, run `domovoi openapi`. It is generated from the hub's routes, so it always matches the version you run.

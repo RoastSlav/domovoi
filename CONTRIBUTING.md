@@ -14,11 +14,13 @@ You need Rust (the toolchain in `rust-toolchain.toml` installs automatically thr
 
 ```sh
 git clone https://github.com/RoastSlav/domovoi && cd domovoi
-cargo xtask ci          # fmt, clippy, tests, arch-check, cargo-deny
-cargo xtask ci --web    # also lint, typecheck, test and build the web UI
+cargo xtask ci          # fmt, clippy, tests and arch-check; cargo-deny when installed
+cargo xtask ci --web    # also format, lint, typecheck, test, regenerate and build the web UI
 ```
 
 Optional but recommended: `cargo install cargo-nextest cargo-deny cargo-insta --locked`.
+The local command runs `cargo-deny` only when it is installed. Hosted CI also checks
+MSRV, a static musl build and workflow syntax.
 
 ## Rules CI enforces
 
@@ -28,7 +30,7 @@ Optional but recommended: `cargo install cargo-nextest cargo-deny cargo-insta --
 | `cargo clippy -- -D warnings` | no `unwrap`/`panic` in library code, disallowed APIs (`Command::new`, `env::set_var`, `thread::sleep`) |
 | Gate tests (`tests/gates.rs`) | security invariants; never delete or weaken them |
 | `cargo deny check` | licenses, advisories, OpenSSL ban, unknown sources |
-| Web checks | ESLint (no `fetch` outside `src/api`), types, tests, build, fresh generated API types |
+| Web checks | Prettier, ESLint (no `fetch` outside `src/api`), types, tests, build, fresh generated API types |
 
 ## Pull requests
 

@@ -10,7 +10,8 @@ You will get an acknowledgement within 72 hours and a first assessment within 7 
 
 ## Supported versions
 
-Before 1.0, only the latest release receives security fixes.
+No release has been published yet. Security fixes for the pre-alpha source tree land on `main`.
+Once releases begin, only the latest release receives security fixes before 1.0.
 
 ## Scope
 

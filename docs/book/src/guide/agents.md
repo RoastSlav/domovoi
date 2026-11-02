@@ -1,5 +1,9 @@
 # Agents and enrollment
 
+> **Availability:** The hub and agent protocol libraries implement enrollment and
+> connection handling, but the current `domovoi` binary does not expose production
+> `hub` or `agent` commands. The command below describes the planned workflow.
+
 An agent runs on each host Domovoi watches. It connects out to the hub, so the host needs no open ports. The connection is TLS, and both sides prove who they are: the agent pins the hub's certificate, and the hub checks a signature made with the agent's own key.
 
 ## Enrolling a host

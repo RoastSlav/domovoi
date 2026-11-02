@@ -1,3 +1,8 @@
 # Migrating from cron scripts
 
-Coming in v0.1: moving a homegrown check-and-notify script to Domovoi: mapping checks, porting scripts to skills, importing your notes, and running both side by side until you trust it.
+Migration is not supported in the pre-alpha preview: there is no production hub or agent
+command to receive your checks, skills or notes.
+
+The first release guide will cover mapping checks, porting scripts to skills, importing notes
+and running both systems side by side. Keep existing monitoring and notification paths in
+place until that supported workflow is available.

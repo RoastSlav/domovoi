@@ -1,7 +1,8 @@
 # hub.toml: configuration for the Domovoi hub.
 #
 # Every option is shown with its default unless marked "example". Validate this file
-# with `domovoi check config hub.toml`; problems are reported with their TOML path.
+# The current `domovoi` binary does not yet include a config-check command; the runtime
+# loader validates this file when it starts and reports problems with their TOML path.
 #
 # Secrets are never written here. Each secret is a table naming where the value lives:
 #   { env = "NAME" }        read from an environment variable

@@ -1,7 +1,8 @@
-//! The `domovoi` binary: hub, agent and CLI tools in one executable.
+//! The `domovoi` developer binary and eventual product command line.
 //!
-//! This is the outer composition root (ARCHITECTURE.md R6). It parses the
-//! command line, selects the role and wires the hub and agent runtimes.
+//! The runtime composition roots are implemented in the hub and agent libraries. This
+//! binary currently exposes version information and the hidden OpenAPI generator hook;
+//! user-facing hub and agent commands are still planned.
 
 #![allow(clippy::print_stdout)]
 

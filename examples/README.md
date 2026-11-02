@@ -1,6 +1,10 @@
 # Examples
 
-- `hub.toml`, `agent.toml`: fully commented example configurations.
-- `skills/`: starter skills. Validate a skills folder with `domovoi check skills <dir>`.
+- [`hub.toml`](hub.toml) and [`agent.toml`](agent.toml) are commented configuration
+  examples. The configuration loader validates them when a runtime starts. The current
+  `domovoi` binary does not yet provide a standalone `check config` command.
 
-Release archives ship this folder next to the binary.
+This folder does not contain starter skills. Skill manifests are installed separately
+on each agent host; see [Writing skills](../docs/book/src/guide/skills.md).
+
+Release archives are not available yet.

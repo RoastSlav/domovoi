@@ -1,5 +1,9 @@
 # Discord
 
+> **Availability:** The Discord adapter is implemented in the hub runtime, but the current
+> pre-alpha binary does not expose a supported hub command. Do not configure a real bot for
+> the development preview.
+
 Domovoi posts each incident as a card in one Discord channel and opens a thread under it. From the card you can acknowledge, mute, read the details and approve or deny proposed actions. In the thread you can ask the triage agent follow-up questions.
 
 Only the Discord users you list can do anything. Everyone else who presses a button gets "Not allowed", and their messages in threads are ignored.
@@ -68,7 +72,7 @@ To create the webhook, open the channel's **Edit Channel → Integrations → We
 
 Every press and command is recorded in the audit log with your Discord user ID. Chat actions run as the hub's admin account, so the web UI must be set up first.
 
-Messages in an incident's thread are follow-up questions to the triage agent, which answers in the thread. It can only read: no message, whatever it says, approves anything. Approvals happen only through the buttons.
+Messages in an incident's thread are follow-up questions to the triage agent, which answers in the thread. The agent has read-only tools; no thread message can approve an action. Approvals happen only through the buttons.
 
 ## Commands
 

@@ -1,13 +1,18 @@
 # Repository setup (maintainers)
 
-Do these once after creating the GitHub repository and pushing the scaffold.
+Use this checklist when creating a fork or preparing this repository's first release. The
+canonical repository is already configured as `RoastSlav/domovoi`.
 
-## 1. Replace placeholders
+## 1. Verify repository metadata
 
-Replace `OWNER` with your GitHub user or organisation in: `Cargo.toml` (`repository`, `homepage`), `README.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md` (also set a real contact address), `.github/CODEOWNERS`, `.github/ISSUE_TEMPLATE/config.yml`, `docs/book/book.toml`.
+For a fork or rename, deliberately update the owner and contact details in `Cargo.toml`
+(`repository`, `homepage`), `README.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`,
+`.github/CODEOWNERS`, `.github/ISSUE_TEMPLATE/config.yml`, and `docs/book/book.toml`.
+Review each result rather than applying a repository-wide replacement.
 
 ```sh
-grep -rl OWNER --exclude-dir=target --exclude-dir=node_modules . | xargs sed -i 's/OWNER/your-github-name/g'
+rg -n 'RoastSlav/domovoi|RoastSlav' \
+  -g '!target' -g '!node_modules' -g '!docs/build-plan/**'
 ```
 
 ## 2. Repository settings

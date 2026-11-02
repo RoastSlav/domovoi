@@ -1,5 +1,8 @@
 # Security model
 
+> **Pre-alpha scope:** These are security invariants for the runtime under development, not a
+> claim that Domovoi is ready for production deployment. No release artifacts are published yet.
+
 Domovoi is designed so that a confused or manipulated model cannot cause harm on its own:
 
 1. The model only gets read-only tools, and everything it reads from logs and alerts is treated as untrusted data.

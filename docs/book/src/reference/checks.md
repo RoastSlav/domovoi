@@ -1,5 +1,9 @@
 # Built-in checks
 
+> **Availability:** Checks are implemented in the agent runtime library. The current
+> pre-alpha binary has no supported agent command, so this is a behavior reference rather
+> than an installation guide.
+
 Every agent check runs on its own cadence. A run reports one observation per target. An observation is either *firing* (the condition holds) or *ok* (the target is fine, so an open incident for it can resolve). Volatile values such as counts and measurements are evidence; they are never part of a target, so they never split one problem into several incidents.
 
 Checks read host files only through the agent's host filesystem (rooted at `/`, or `/host` in container mode). They run commands only through the fixed templates listed at the end of this page. A run that takes longer than 20 seconds is abandoned.

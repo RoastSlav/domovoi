@@ -33,7 +33,11 @@ flowchart LR
   H <--> UI[Web UI]
 ```
 
-One binary, two roles: the **hub** (web UI, API, correlation, triage, approvals, SQLite) and the **agent** (checks, skills, read tools). Run both on one machine to start; move the hub to another machine when you want it to survive the host it watches. See [ARCHITECTURE.md](ARCHITECTURE.md).
+The target product is one binary with two roles: the **hub** (web UI, API, correlation,
+triage, approvals, SQLite) and the **agent** (checks, skills, read tools). The runtime
+libraries exist, but the `domovoi` binary does not yet expose production hub or agent
+commands. See [Quick start](docs/book/src/quick-start.md) to preview the UI with seeded
+development data, and [ARCHITECTURE.md](ARCHITECTURE.md) for the accepted v0.1 design.
 
 ## Safety model
 
@@ -47,7 +51,10 @@ These are enforced by tests and by an architecture checker in CI, not just by co
 
 ## Quick start
 
-Coming with v0.1. The plan: download a static binary or pull `ghcr.io/RoastSlav/domovoi`, run `domovoi hub run --with-local-agent`, open the setup link, connect Discord and an LLM, and you are watching your first host in about ten minutes.
+There is no production installation path yet. The [quick start](docs/book/src/quick-start.md)
+starts a local development hub with fake hosts and incidents so you can explore the UI.
+Binary releases, container images, and the production hub and agent commands are planned
+for v0.1.
 
 ## Documentation
 

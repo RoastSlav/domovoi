@@ -1,5 +1,9 @@
 # Webhooks
 
+> **Availability:** Webhook intake is implemented in the hub runtime, but the current
+> pre-alpha binary does not provide a supported production hub. Do not expose a preview
+> instance or send it real alert traffic.
+
 Alertmanager, Uptime Kuma, cron jobs and other tools can turn their notifications into Domovoi signals. Send them directly to the hub, or to an agent's local relay when the service cannot reach the hub.
 
 Every request must authenticate. Bodies are limited to 1 MiB and 100 signals; evidence is limited to 32 entries per signal and 1024 characters per text value.
@@ -19,7 +23,9 @@ host_label = "node"         # optional Alertmanager label to use instead
 
 For Alertmanager, the host comes from `host_label` when configured. Otherwise Domovoi tries the `host` label, then `instance` with its port removed, then `default_host`. A valid name not already known to the hub becomes an `External` host. A host name Domovoi cannot use, such as one with capitals or underscores, falls back to `default_host`; without one, the payload is rejected.
 
-Keep the secret in an environment variable or a file, not in `hub.toml`. Check the file with `domovoi check config hub.toml` after editing it.
+Keep the secret in an environment variable or a file, not in `hub.toml`. The runtime
+configuration loader validates the file at startup. A standalone `domovoi check config`
+command is planned but not available in the current binary.
 
 ## HMAC or bearer
 
