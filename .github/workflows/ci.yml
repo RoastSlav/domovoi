@@ -118,16 +118,20 @@ jobs:
                   architecture=true
                 fi
                 case "$file" in
-                  crates/domovoi-hub/src/api/*|crates/domovoi-hub/src/router.rs|crates/domovoi/src/cmd/mod.rs)
+                  crates/domovoi-hub/src/api/*|crates/domovoi-hub/src/router.rs)
                     openapi=true
                     ;;
-                  crates/domovoi-config/*|crates/domovoi/src/cmd/mod.rs)
+                  crates/domovoi-config/*)
                     config_docs=true
                     ;;
                   crates/domovoi-hub/src/spa.rs|crates/domovoi-hub/Cargo.toml|crates/domovoi/Cargo.toml)
                     embedded_ui=true
                     ;;
                 esac
+                if [[ "$file" == crates/domovoi/src/cmd/mod.rs ]]; then
+                  openapi=true
+                  config_docs=true
+                fi
                 release_files_only=false
                 ;;
               xtask/*)
@@ -232,7 +236,25 @@ jobs:
           fi
 
           for output in "${outputs[@]}"; do
-            echo "$output=${!output}" >> "$GITHUB_OUTPUT"
+            case "$output" in
+              rust) value="$rust" ;;
+              web) value="$web" ;;
+              embedded_ui) value="$embedded_ui" ;;
+              architecture) value="$architecture" ;;
+              openapi) value="$openapi" ;;
+              config_docs) value="$config_docs" ;;
+              docs_links) value="$docs_links" ;;
+              metadata_only) value="$metadata_only" ;;
+              deny) value="$deny" ;;
+              msrv) value="$msrv" ;;
+              musl) value="$musl" ;;
+              workflow) value="$workflow" ;;
+              shell) value="$shell" ;;
+              installer) value="$installer" ;;
+              units) value="$units" ;;
+              coverage) value="$coverage" ;;
+            esac
+            echo "$output=$value" >> "$GITHUB_OUTPUT"
           done
 
   pr-title:
@@ -580,3 +602,4 @@ jobs:
           name: coverage-lcov
           path: lcov.info
           retention-days: 14
+
