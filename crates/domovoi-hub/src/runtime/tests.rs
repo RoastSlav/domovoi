@@ -184,6 +184,72 @@ async fn message_references_survive_restart() {
 }
 
 #[tokio::test]
+async fn card_update_repairs_a_missing_discussion_thread() {
+    let mut harness = Harness::new("", at("2026-10-31T12:00:00Z")).await;
+    harness.start_dispatcher();
+    assert_eq!(
+        harness.webhook(&firing("web-1", "disk.full")).await,
+        StatusCode::ACCEPTED
+    );
+    until(|| post_count(&harness.gateway) == 1).await;
+    let incident = harness.incidents().await[0].id();
+    harness
+        .put_notify_state(
+            incident,
+            &NotifyState {
+                messages: BTreeMap::from([(
+                    "discord".to_owned(),
+                    ChatRefs {
+                        message: MessageRef {
+                            platform: "discord".to_owned(),
+                            id: "msg-1".to_owned(),
+                        },
+                        thread: None,
+                    },
+                )]),
+                ..NotifyState::default()
+            },
+        )
+        .await;
+
+    assert_eq!(
+        harness.webhook(&resolving("web-1", "disk.full")).await,
+        StatusCode::ACCEPTED
+    );
+    until(|| {
+        harness
+            .gateway
+            .calls()
+            .iter()
+            .filter(
+                |call| matches!(call, GatewayCall::OpenThread(message, _) if message.id == "msg-1"),
+            )
+            .count()
+            == 2
+    })
+    .await;
+    guard(async {
+        loop {
+            let state = NotifyStateRepo::get(&*harness.runtime.as_ref().unwrap().store, incident)
+                .await
+                .unwrap()
+                .unwrap();
+            if state
+                .messages
+                .get("discord")
+                .and_then(|refs| refs.thread.as_ref())
+                .is_some()
+            {
+                return;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+    harness.stop().await;
+}
+
+#[tokio::test]
 async fn digest_sent_once_per_day_at_local_time() {
     let mut harness = Harness::new(
         "[notify.digest]\nenabled = true\ntime = \"09:00\"",
@@ -243,6 +309,66 @@ async fn quiet_hours_release_happens_at_end_time() {
     harness.runtime.as_ref().unwrap().schedulers.minute().await;
     until(|| harness.notifier.sent().len() == 1).await;
     assert!(harness.notifier.sent()[0].markdown.contains("disk.full"));
+    harness.stop().await;
+}
+
+#[tokio::test]
+async fn failed_quiet_hours_summary_stays_held_until_a_notifier_accepts_it() {
+    let mut harness = Harness::new(
+        "[notify]\nquiet_hours = { start = \"22:00\", end = \"07:00\" }\n[notify.digest]\nenabled = false",
+        at("2026-10-31T22:30:00Z"),
+    )
+    .await;
+    harness.start_dispatcher();
+    assert_eq!(
+        harness.webhook(&firing("web-1", "disk.full")).await,
+        StatusCode::ACCEPTED
+    );
+    guard(async {
+        loop {
+            let held = NotifyStateRepo::list_held(&*harness.runtime.as_ref().unwrap().store)
+                .await
+                .unwrap();
+            if !held.is_empty() {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+    for _ in 0..6 {
+        harness
+            .notifier
+            .fail_next(ChatError::Transport("offline".to_owned()));
+    }
+    harness.clock.set(at("2026-11-01T07:00:00Z"));
+
+    let dispatcher = harness.runtime.as_ref().unwrap().dispatcher.clone();
+    let failed = tokio::spawn(async move { dispatcher.tick().await });
+    guard(async {
+        while !failed.is_finished() {
+            harness.clock.advance(SignedDuration::from_secs(1));
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+    failed.await.unwrap();
+
+    let incident = harness.incidents().await[0].id();
+    let state = NotifyStateRepo::get(&*harness.runtime.as_ref().unwrap().store, incident)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(state.is_held(), "failed delivery remains retryable");
+    assert!(harness.notifier.sent().is_empty());
+
+    harness.runtime.as_ref().unwrap().dispatcher.tick().await;
+    let state = NotifyStateRepo::get(&*harness.runtime.as_ref().unwrap().store, incident)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!state.is_held());
+    assert_eq!(harness.notifier.sent().len(), 1);
     harness.stop().await;
 }
 
@@ -476,6 +602,21 @@ enabled = false",
         call,
         GatewayCall::PostCard(card) if card.host.as_str() == "web-1"
     )));
+    let incident = harness.incidents().await[0].id();
+    let state = guard(async {
+        loop {
+            let state = NotifyStateRepo::get(&*harness.runtime.as_ref().unwrap().store, incident)
+                .await
+                .unwrap()
+                .unwrap();
+            if !state.is_held() {
+                return state;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+    assert!(!state.is_held());
     harness.stop().await;
 }
 

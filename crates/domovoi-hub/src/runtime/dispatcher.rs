@@ -53,16 +53,17 @@ impl Sequencer {
 
 /// Runs `job` after `previous`, then signals `done`. A previous job that was cancelled
 /// still releases the next one.
-async fn after(
+async fn after<T>(
     previous: Option<oneshot::Receiver<()>>,
     done: oneshot::Sender<()>,
-    job: impl Future<Output = ()>,
-) {
+    job: impl Future<Output = T>,
+) -> T {
     if let Some(previous) = previous {
         let _ = previous.await;
     }
-    job.await;
+    let result = job.await;
     let _ = done.send(());
+    result
 }
 
 /// Delivers domain events and time-driven notification plans.
@@ -113,9 +114,9 @@ impl Dispatcher {
     }
 
     /// Runs `job` for `incident` now, behind that incident's earlier jobs.
-    async fn in_order(&self, incident: IncidentId, job: impl Future<Output = ()>) {
+    async fn in_order<T>(&self, incident: IncidentId, job: impl Future<Output = T>) -> T {
         let (previous, done) = self.sequencer.enqueue(incident);
-        after(previous, done, job).await;
+        after(previous, done, job).await
     }
 
     /// Consumes events until cancelled. Lag rebuilds open incidents' cards from the store.
@@ -204,6 +205,9 @@ impl Dispatcher {
             .map(|(id, _)| *id)
             .collect();
         for (incident, state) in &plan.states {
+            if released.contains(incident) {
+                continue;
+            }
             if let Err(err) =
                 NotifyStateRepo::put(&*self.store, *incident, state, self.clock.now()).await
             {
@@ -228,13 +232,20 @@ impl Dispatcher {
             return;
         };
         if self.delivery.has_notifiers() {
-            self.delivery
+            let sent = self
+                .delivery
                 .send_all(OutboundMessage {
                     title: "While you were away".to_owned(),
                     markdown: text,
                     severity: None,
                 })
-                .await;
+                .await
+                > 0;
+            if sent {
+                for id in &released {
+                    self.save_released_state(*id, &plan.states).await;
+                }
+            }
             return;
         }
         // No notifier for the summary: post a card for each held incident still open, so
@@ -243,15 +254,50 @@ impl Dispatcher {
             let Some((incident, _)) = items.iter().find(|(incident, _)| incident.id() == id) else {
                 continue;
             };
-            if incident.resolved_at().is_some() {
+            let state = items
+                .iter()
+                .find(|(item, _)| item.id() == id)
+                .map(|(_, state)| state);
+            let action = if state.is_some_and(|state| !state.messages.is_empty()) {
+                NotifyAction::UpdateCard { incident: id }
+            } else if incident.resolved_at().is_some() {
+                self.save_released_state(id, &plan.states).await;
                 continue;
+            } else {
+                NotifyAction::PostCard { incident: id }
+            };
+            let delivered = self
+                .in_order(
+                    id,
+                    self.delivery.tick_actions(incident.clone(), vec![action]),
+                )
+                .await;
+            if delivered {
+                self.save_released_state(id, &plan.states).await;
             }
-            let action = NotifyAction::PostCard { incident: id };
-            self.in_order(
-                id,
-                self.delivery.tick_actions(incident.clone(), vec![action]),
-            )
-            .await;
+        }
+    }
+
+    async fn save_released_state(&self, id: IncidentId, states: &[(IncidentId, NotifyState)]) {
+        let Some((_, planned)) = states.iter().find(|(incident, _)| *incident == id) else {
+            return;
+        };
+        let state = if self.delivery.has_notifiers() {
+            planned.clone()
+        } else {
+            let mut current = match NotifyStateRepo::get(&*self.store, id).await {
+                Ok(Some(state)) => state,
+                Ok(None) => planned.clone(),
+                Err(err) => {
+                    tracing::warn!(%err, %id, "could not reload notification state after quiet-hours delivery");
+                    return;
+                }
+            };
+            current.held = None;
+            current
+        };
+        if let Err(err) = NotifyStateRepo::put(&*self.store, id, &state, self.clock.now()).await {
+            tracing::warn!(%err, %id, "could not save quiet-hours release state");
         }
     }
 
@@ -289,8 +335,14 @@ impl Dispatcher {
                 }
             };
             for incident in got.items {
-                if let Ok(Some(state)) = NotifyStateRepo::get(&*self.store, incident.id()).await {
-                    items.insert(incident.id(), (incident, state));
+                match NotifyStateRepo::get(&*self.store, incident.id()).await {
+                    Ok(Some(state)) => {
+                        items.insert(incident.id(), (incident, state));
+                    }
+                    Ok(None) => {}
+                    Err(err) => {
+                        tracing::warn!(%err, incident = %incident.id(), "could not load notification state for reminders");
+                    }
                 }
             }
             match got.next_cursor {
@@ -298,12 +350,21 @@ impl Dispatcher {
                 None => break,
             }
         }
-        if let Ok(held) = NotifyStateRepo::list_held(&*self.store).await {
-            for (id, state) in held {
-                if let Ok(Some(incident)) = IncidentRepo::get(&*self.store, id).await {
-                    items.insert(id, (incident, state));
+        match NotifyStateRepo::list_held(&*self.store).await {
+            Ok(held) => {
+                for (id, state) in held {
+                    match IncidentRepo::get(&*self.store, id).await {
+                        Ok(Some(incident)) => {
+                            items.insert(id, (incident, state));
+                        }
+                        Ok(None) => {}
+                        Err(err) => {
+                            tracing::warn!(%err, %id, "could not load an incident with a held alert");
+                        }
+                    }
                 }
             }
+            Err(err) => tracing::warn!(%err, "could not load held alerts for quiet-hours release"),
         }
         items.into_values().collect()
     }

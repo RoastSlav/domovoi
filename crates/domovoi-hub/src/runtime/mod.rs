@@ -304,7 +304,12 @@ async fn ensure_hub_host(
     config: &HubConfig,
     now: jiff::Timestamp,
 ) -> Result<(), RuntimeError> {
-    if hub_host(store).await.is_ok() {
+    if let Some(value) = SettingsRepo::get(store, "hub_host_id").await? {
+        let text = value.as_str().ok_or_else(|| {
+            RuntimeError::Serve("the stored hub host id is not a string".to_owned())
+        })?;
+        text.parse::<HostId>()
+            .map_err(|err| RuntimeError::Serve(format!("invalid stored hub host id: {err}")))?;
         return Ok(());
     }
     let name = HostName::parse(&config.hub.name)

@@ -2,7 +2,7 @@
 //! answered through the same services as the API.
 
 use domovoi_chat::discord::ids::short_id;
-use domovoi_core::ports::{IncidentFilter, OutboundMessage, Page};
+use domovoi_core::ports::OutboundMessage;
 use domovoi_core::{Incident, IncidentId};
 use jiff::SignedDuration;
 use serde_json::json;
@@ -27,16 +27,8 @@ const TRY_AGAIN: &str = "Something went wrong; try again";
 
 impl InteractionAuthorizer {
     async fn active(&self) -> Result<Vec<Incident>, String> {
-        let filter = IncidentFilter {
-            active: Some(true),
-            ..IncidentFilter::default()
-        };
-        self.api
-            .deps()
-            .incidents
-            .list(&filter, &Page::first(Page::MAX_LIMIT))
+        crate::digest::all_active_incidents(self.api.deps().incidents.as_ref())
             .await
-            .map(|page| page.items)
             .map_err(|_| TRY_AGAIN.to_owned())
     }
 

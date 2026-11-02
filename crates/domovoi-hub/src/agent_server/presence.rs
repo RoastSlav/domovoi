@@ -127,17 +127,27 @@ async fn hub_network_ok(inner: &Inner) -> bool {
 async fn host_name(inner: &Inner, host: HostId) -> String {
     match inner.deps.hosts.get_host(host).await {
         Ok(Some(found)) => found.name.to_string(),
-        _ => host.to_string(),
+        Ok(None) => host.to_string(),
+        Err(err) => {
+            tracing::warn!(%err, %host, "could not load a host name for a liveness signal");
+            host.to_string()
+        }
     }
 }
 
 /// Where to look for the host: its `[[probes]]` TCP targets, else its last address on
 /// the SSH and HTTPS ports.
 async fn targets(inner: &Inner, watch: &Watch) -> Vec<String> {
-    if let Ok(Some(host)) = inner.deps.hosts.get_host(watch.host).await
-        && let Some(configured) = inner.settings.probes.get(&host.name)
-    {
-        return configured.clone();
+    match inner.deps.hosts.get_host(watch.host).await {
+        Ok(Some(host)) => {
+            if let Some(configured) = inner.settings.probes.get(&host.name) {
+                return configured.clone();
+            }
+        }
+        Ok(None) => {}
+        Err(err) => {
+            tracing::warn!(%err, host = %watch.host, "could not load configured liveness probes");
+        }
     }
     match watch.remote_ip {
         Some(ip) => [22, 443]

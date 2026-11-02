@@ -97,11 +97,19 @@ async fn load(state: &ApiState, id: &str) -> Result<Incident, ApiError> {
 pub(crate) fn latest_triage(
     timeline: &[domovoi_core::ports::IncidentTimelineEntry],
 ) -> Option<TriageOutcome> {
-    timeline
+    for entry in timeline
         .iter()
         .rev()
-        .filter(|e| e.kind.starts_with("triage.") && e.kind != "triage.followup")
-        .find_map(|e| serde_json::from_value(e.detail.clone()).ok())
+        .filter(|entry| entry.kind.starts_with("triage.") && entry.kind != "triage.followup")
+    {
+        match serde_json::from_value(entry.detail.clone()) {
+            Ok(outcome) => return Some(outcome),
+            Err(err) => {
+                tracing::warn!(%err, kind = %entry.kind, "could not decode a triage timeline entry")
+            }
+        }
+    }
+    None
 }
 
 /// Everything about one incident: report, card, timeline and actions.

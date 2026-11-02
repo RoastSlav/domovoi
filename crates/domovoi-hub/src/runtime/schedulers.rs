@@ -128,15 +128,20 @@ impl Schedulers {
         if retry_at.is_some_and(|at| now < at) {
             return;
         }
-        let last = SettingsRepo::get(&*self.store, DIGEST_LAST_SENT)
-            .await
-            .ok()
-            .flatten()
-            .and_then(|value| {
-                value
-                    .as_str()
-                    .and_then(|text| text.parse::<Timestamp>().ok())
-            });
+        let last = match SettingsRepo::get(&*self.store, DIGEST_LAST_SENT).await {
+            Ok(Some(value)) => match value.as_str().and_then(|text| text.parse().ok()) {
+                Some(at) => Some(at),
+                None => {
+                    tracing::warn!("saved digest timestamp is invalid; skipping this digest run");
+                    return;
+                }
+            },
+            Ok(None) => None,
+            Err(err) => {
+                tracing::warn!(%err, "could not load the last digest timestamp");
+                return;
+            }
+        };
         if !self.digest_service().due(now, last) {
             return;
         }
@@ -178,7 +183,13 @@ impl Schedulers {
                 return;
             }
         };
-        let hosts = self.store.list_hosts().await.unwrap_or_default();
+        let hosts = match self.store.list_hosts().await {
+            Ok(hosts) => hosts,
+            Err(err) => {
+                tracing::warn!(%err, "could not load hosts for advisory evaluation");
+                return;
+            }
+        };
         let since = now
             .checked_sub(SignedDuration::from_hours(24 * 200))
             .unwrap_or(Timestamp::MIN);
@@ -186,22 +197,37 @@ impl Schedulers {
         let mut agents = Vec::new();
         let mut expired = Vec::new();
         for host in &hosts {
-            if let Ok(facts) = self.store.facts_for_advisories(host.id, since, now).await {
-                for fact in facts {
-                    latest.insert((fact.host, fact.key.clone()), fact);
+            let facts = match self.store.facts_for_advisories(host.id, since, now).await {
+                Ok(facts) => facts,
+                Err(err) => {
+                    tracing::warn!(%err, host = %host.id, "could not load facts for advisory evaluation");
+                    return;
                 }
+            };
+            for fact in facts {
+                latest.insert((fact.host, fact.key.clone()), fact);
             }
-            if let Ok(Some(agent)) = self.store.live_agent(host.id).await {
-                agents.push(AgentVersion {
+            match self.store.live_agent(host.id).await {
+                Ok(Some(agent)) => agents.push(AgentVersion {
                     host: host.id,
                     version: agent.version,
-                });
+                }),
+                Ok(None) => {}
+                Err(err) => {
+                    tracing::warn!(%err, host = %host.id, "could not load the agent version for advisory evaluation");
+                    return;
+                }
             }
-            if let Ok(entries) = self.store.list(host.id).await {
-                expired.extend(entries.into_iter().filter(|entry| {
-                    now.duration_since(entry.last_seen_at) > SignedDuration::from_hours(24 * 7)
-                }));
-            }
+            let entries = match self.store.list(host.id).await {
+                Ok(entries) => entries,
+                Err(err) => {
+                    tracing::warn!(%err, host = %host.id, "could not load baselines for advisory evaluation");
+                    return;
+                }
+            };
+            expired.extend(entries.into_iter().filter(|entry| {
+                now.duration_since(entry.last_seen_at) > SignedDuration::from_hours(24 * 7)
+            }));
         }
         let facts: Vec<DigestFact> = latest.into_values().collect();
         let heartbeat = *self

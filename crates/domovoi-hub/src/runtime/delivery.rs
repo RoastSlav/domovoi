@@ -54,7 +54,13 @@ impl Delivery {
 
     pub(super) async fn event(&self, event: DomainEvent) {
         let id = event.incident.id();
-        let state = self.state(id).await;
+        let state = match self.state(id).await {
+            Ok(state) => state,
+            Err(err) => {
+                tracing::warn!(%err, %id, "could not load notification state; trying delivery without saved references");
+                NotifyState::default()
+            }
+        };
         let plan = notify::plan(&event, &state, &self.settings, self.clock.now());
         if let Err(err) =
             NotifyStateRepo::put(&*self.store, id, &plan.state, self.clock.now()).await
@@ -69,11 +75,21 @@ impl Delivery {
             .await;
     }
 
-    pub(super) async fn tick_actions(&self, incident: Incident, actions: Vec<NotifyAction>) {
+    pub(super) async fn tick_actions(
+        &self,
+        incident: Incident,
+        actions: Vec<NotifyAction>,
+    ) -> bool {
         let id = incident.id();
-        let state = self.state(id).await;
+        let state = match self.state(id).await {
+            Ok(state) => state,
+            Err(err) => {
+                tracing::warn!(%err, %id, "could not load notification state; skipping tick delivery");
+                return false;
+            }
+        };
         self.actions(incident, actions, state, BTreeMap::new())
-            .await;
+            .await
     }
 
     async fn actions(
@@ -82,12 +98,12 @@ impl Delivery {
         actions: Vec<NotifyAction>,
         state: NotifyState,
         tokens: BTreeMap<domovoi_core::ActionId, String>,
-    ) {
+    ) -> bool {
         if actions.is_empty() || self.gateways.is_empty() {
-            return;
+            return false;
         }
         let Some(card) = self.card(&incident, tokens).await else {
-            return;
+            return false;
         };
         let state = Arc::new(tokio::sync::Mutex::new(state));
         let jobs = self.gateways.iter().map(|gateway| {
@@ -96,13 +112,19 @@ impl Delivery {
             let card = card.clone();
             let incident = incident.clone();
             async move {
+                let mut delivered = true;
                 for action in actions {
-                    self.perform(gateway, &incident, &card, &state, action)
+                    delivered &= self
+                        .perform(gateway, &incident, &card, &state, action)
                         .await;
                 }
+                delivered
             }
         });
-        futures::future::join_all(jobs).await;
+        futures::future::join_all(jobs)
+            .await
+            .into_iter()
+            .any(|done| done)
     }
 
     async fn perform(
@@ -112,7 +134,7 @@ impl Delivery {
         card: &Card,
         state: &Arc<tokio::sync::Mutex<NotifyState>>,
         action: NotifyAction,
-    ) {
+    ) -> bool {
         let platform = gateway.platform().to_owned();
         let result = match action {
             NotifyAction::PostCard { .. } => {
@@ -125,10 +147,14 @@ impl Delivery {
             NotifyAction::Hold { .. } => Ok(()),
         };
         match result {
-            Ok(()) => self.succeeded(&platform).await,
+            Ok(()) => {
+                self.succeeded(&platform).await;
+                true
+            }
             Err(err) => {
                 tracing::warn!(%err, gateway = %platform, incident = %incident.id(), "delivery failed after retries");
                 self.failed(&platform).await;
+                false
             }
         }
     }
@@ -140,29 +166,24 @@ impl Delivery {
         card: &Card,
         state: &Arc<tokio::sync::Mutex<NotifyState>>,
     ) -> Result<MessageRef, ChatError> {
-        if let Some(message) = self.message(state, gateway.platform()).await {
-            return Ok(message);
-        }
-        let message = self.retry(|| gateway.post_card(card)).await?;
-        {
-            let mut current = state.lock().await;
-            current.messages.insert(
-                gateway.platform().to_owned(),
-                ChatRefs {
-                    message: message.clone(),
-                    thread: None,
-                },
-            );
-            self.save(incident.id(), &current).await;
-        }
-        let thread = self
-            .retry(|| gateway.open_thread(&message, incident.title()))
+        let message = match self.message(state, gateway.platform()).await {
+            Some(message) => message,
+            None => {
+                let message = self.retry(|| gateway.post_card(card)).await?;
+                let mut current = state.lock().await;
+                current.messages.insert(
+                    gateway.platform().to_owned(),
+                    ChatRefs {
+                        message: message.clone(),
+                        thread: None,
+                    },
+                );
+                self.save(incident.id(), &current).await;
+                message
+            }
+        };
+        self.ensure_thread(gateway, incident, &message, state)
             .await?;
-        let mut current = state.lock().await;
-        if let Some(refs) = current.messages.get_mut(gateway.platform()) {
-            refs.thread = Some(thread);
-        }
-        self.save(incident.id(), &current).await;
         Ok(message)
     }
 
@@ -177,7 +198,10 @@ impl Delivery {
             return self.post(gateway, incident, card, state).await.map(|_| ());
         };
         match self.retry(|| gateway.update_card(&message, card)).await {
-            Ok(()) => Ok(()),
+            Ok(()) => self
+                .ensure_thread(gateway, incident, &message, state)
+                .await
+                .map(|_| ()),
             Err(ChatError::NotFound) => {
                 state.lock().await.messages.remove(gateway.platform());
                 self.post(gateway, incident, card, state).await.map(|_| ())
@@ -195,27 +219,37 @@ impl Delivery {
         text: &str,
     ) -> Result<(), ChatError> {
         let message = self.post(gateway, incident, card, state).await?;
-        let existing = state
+        let thread = self
+            .ensure_thread(gateway, incident, &message, state)
+            .await?;
+        self.retry(|| gateway.reply(&thread, text)).await
+    }
+
+    async fn ensure_thread(
+        &self,
+        gateway: &Arc<dyn ChatGateway>,
+        incident: &Incident,
+        message: &MessageRef,
+        state: &Arc<tokio::sync::Mutex<NotifyState>>,
+    ) -> Result<domovoi_core::ports::ThreadRef, ChatError> {
+        if let Some(thread) = state
             .lock()
             .await
             .messages
             .get(gateway.platform())
-            .and_then(|refs| refs.thread.clone());
-        let thread = match existing {
-            Some(thread) => thread,
-            None => {
-                let thread = self
-                    .retry(|| gateway.open_thread(&message, incident.title()))
-                    .await?;
-                let mut current = state.lock().await;
-                if let Some(refs) = current.messages.get_mut(gateway.platform()) {
-                    refs.thread = Some(thread.clone());
-                }
-                self.save(incident.id(), &current).await;
-                thread
-            }
-        };
-        self.retry(|| gateway.reply(&thread, text)).await
+            .and_then(|refs| refs.thread.clone())
+        {
+            return Ok(thread);
+        }
+        let thread = self
+            .retry(|| gateway.open_thread(message, incident.title()))
+            .await?;
+        let mut current = state.lock().await;
+        if let Some(refs) = current.messages.get_mut(gateway.platform()) {
+            refs.thread = Some(thread.clone());
+        }
+        self.save(incident.id(), &current).await;
+        Ok(thread)
     }
 
     async fn message(
@@ -239,12 +273,10 @@ impl Delivery {
         }
     }
 
-    async fn state(&self, incident: IncidentId) -> NotifyState {
+    async fn state(&self, incident: IncidentId) -> Result<NotifyState, StoreError> {
         NotifyStateRepo::get(&*self.store, incident)
             .await
-            .ok()
-            .flatten()
-            .unwrap_or_default()
+            .map(|state| state.unwrap_or_default())
     }
 
     async fn card(
@@ -263,12 +295,13 @@ impl Delivery {
                 return None;
             }
         };
-        let latest = self
-            .store
-            .list_for_incident(incident.id(), 1)
-            .await
-            .ok()
-            .and_then(|signals| signals.into_iter().next());
+        let latest = match self.store.list_for_incident(incident.id(), 1).await {
+            Ok(signals) => signals.into_iter().next(),
+            Err(err) => {
+                tracing::warn!(%err, incident = %incident.id(), "could not load the latest signal for a card");
+                None
+            }
+        };
         let report = self.latest_report(incident.id()).await;
         let actions = ActionRepo::list(
             &*self.store,
@@ -278,9 +311,14 @@ impl Delivery {
             },
             &Page::first(Page::MAX_LIMIT),
         )
-        .await
-        .map(|page| page.items)
-        .unwrap_or_default();
+        .await;
+        let actions = match actions {
+            Ok(page) => page.items,
+            Err(err) => {
+                tracing::warn!(%err, incident = %incident.id(), "could not load action statuses for a card");
+                Vec::new()
+            }
+        };
         Some(build_card(
             incident,
             report.as_ref(),
@@ -295,18 +333,28 @@ impl Delivery {
     }
 
     async fn latest_report(&self, incident: IncidentId) -> Option<domovoi_core::TriageReport> {
-        let entries = self.store.timeline(incident).await.ok()?;
-        entries.into_iter().rev().find_map(|entry| {
-            if !matches!(entry.kind.as_str(), "triage.report" | "triage.cached") {
+        let entries = match self.store.timeline(incident).await {
+            Ok(entries) => entries,
+            Err(err) => {
+                tracing::warn!(%err, %incident, "could not load triage history for a card");
                 return None;
             }
-            match serde_json::from_value::<TriageOutcome>(entry.detail).ok()? {
-                TriageOutcome::Report(report) | TriageOutcome::Cached { report, .. } => {
-                    Some(report)
-                }
-                _ => None,
+        };
+        for entry in entries.into_iter().rev() {
+            if !matches!(entry.kind.as_str(), "triage.report" | "triage.cached") {
+                continue;
             }
-        })
+            match serde_json::from_value::<TriageOutcome>(entry.detail) {
+                Ok(TriageOutcome::Report(report) | TriageOutcome::Cached { report, .. }) => {
+                    return Some(report);
+                }
+                Ok(_) => {}
+                Err(err) => {
+                    tracing::warn!(%err, %incident, "could not decode a triage history entry for a card")
+                }
+            }
+        }
+        None
     }
 
     /// Brings `incident`'s card up to date after missed events: an existing card is updated,
@@ -392,13 +440,17 @@ impl Delivery {
             *count
         };
         let id = advisory_id(AdvisoryKind::DeliveryFailed, None, gateway);
-        let created_at = self
-            .store
-            .list_open()
-            .await
-            .ok()
-            .and_then(|open| open.into_iter().find(|a| a.id == id).map(|a| a.created_at))
-            .unwrap_or_else(|| self.clock.now());
+        let created_at = match self.store.list_open().await {
+            Ok(open) => open
+                .into_iter()
+                .find(|advisory| advisory.id == id)
+                .map(|advisory| advisory.created_at)
+                .unwrap_or_else(|| self.clock.now()),
+            Err(err) => {
+                tracing::warn!(%err, %gateway, "could not reload the existing delivery advisory");
+                self.clock.now()
+            }
+        };
         let advisory = Advisory {
             id,
             kind: AdvisoryKind::DeliveryFailed,

@@ -27,6 +27,8 @@ use domovoi_core::{HostId, HostKind, HostName};
 use domovoi_proto::Transport;
 use jiff::SignedDuration;
 use tokio::net::TcpListener;
+use tokio::sync::Semaphore;
+use tokio::task::JoinSet;
 use tokio_rustls::TlsAcceptor;
 use tokio_util::sync::CancellationToken;
 
@@ -45,6 +47,8 @@ use registry::Registry;
 
 /// What a local agent signs the challenge over: it has no TLS session to bind to.
 pub const LOCAL_SESSION_HINT: &str = "local";
+/// Most agent connections handled at once, including unauthenticated handshakes.
+pub const MAX_CONNECTIONS: usize = 128;
 
 /// The ports the agent server works through.
 pub struct AgentServerDeps {
@@ -68,6 +72,7 @@ struct Inner {
     tls: TlsIdentity,
     acceptor: TlsAcceptor,
     registry: Arc<Registry>,
+    connections: Arc<Semaphore>,
     link: Arc<WsAgentLink>,
     network_degraded: AtomicBool,
     shutdown: CancellationToken,
@@ -97,6 +102,7 @@ impl AgentServer {
                 tls,
                 acceptor: TlsAcceptor::from(Arc::new(config)),
                 registry,
+                connections: Arc::new(Semaphore::new(MAX_CONNECTIONS)),
                 link,
                 network_degraded: AtomicBool::new(false),
                 shutdown: CancellationToken::new(),
@@ -133,16 +139,36 @@ impl AgentServer {
     /// Accepts agents on `listener` until [`shutdown`](Self::shutdown). Run
     /// [`run_presence`](Self::run_presence) next to it.
     pub async fn serve(&self, listener: TcpListener) -> Result<(), AgentServerError> {
+        let mut connections = JoinSet::new();
         loop {
+            while let Some(result) = connections.try_join_next() {
+                if let Err(err) = result
+                    && !err.is_cancelled()
+                {
+                    tracing::warn!(%err, "agent connection task failed");
+                }
+            }
             let accepted = tokio::select! {
-                () = self.inner.shutdown.cancelled() => return Ok(()),
+                () = self.inner.shutdown.cancelled() => {
+                    connections.abort_all();
+                    while connections.join_next().await.is_some() {}
+                    return Ok(());
+                },
                 accepted = listener.accept() => accepted,
             };
             match accepted {
-                Ok((tcp, peer)) => {
-                    let server = self.clone();
-                    tokio::spawn(async move { conn::accept(&server.inner, tcp, peer).await });
-                }
+                Ok((tcp, peer)) => match self.inner.connections.clone().try_acquire_owned() {
+                    Ok(permit) => {
+                        let server = self.clone();
+                        connections.spawn(async move {
+                            let _permit = permit;
+                            conn::accept(&server.inner, tcp, peer).await;
+                        });
+                    }
+                    Err(_) => {
+                        tracing::debug!(%peer, "agent connection limit reached; dropping connection");
+                    }
+                },
                 Err(err) => tracing::warn!(%err, "could not accept an agent connection"),
             }
         }

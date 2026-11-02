@@ -109,7 +109,14 @@ impl InteractionAuthorizer {
     /// The thread of `incident` on the gateway's platform: the recorded one, or the card's
     /// own id (a thread started from a message shares its id).
     pub(crate) async fn thread_of(&self, incident: IncidentId) -> Option<ThreadRef> {
-        let state = self.chat.notify.get(incident).await.ok()??;
+        let state = match self.chat.notify.get(incident).await {
+            Ok(Some(state)) => state,
+            Ok(None) => return None,
+            Err(err) => {
+                tracing::warn!(%err, %incident, "could not load chat references for a follow-up");
+                return None;
+            }
+        };
         let refs = state.messages.get(self.chat.gateway.platform())?;
         Some(refs.thread.clone().unwrap_or_else(|| ThreadRef {
             platform: refs.message.platform.clone(),

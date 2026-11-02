@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use domovoi_config::HubConfig;
+use domovoi_core::Incident;
 use domovoi_core::ports::{
     AdvisoryRepo, Clock, FactRepo, HostRepo, IncidentFilter, IncidentRepo, Page, StoreError,
 };
@@ -26,6 +27,27 @@ pub(crate) struct DigestDeps {
 pub(crate) struct RenderedDigest {
     pub(crate) date: String,
     pub(crate) markdown: String,
+}
+
+/// Loads every active incident across the repository's keyset pages.
+pub(crate) async fn all_active_incidents(
+    incidents: &dyn IncidentRepo,
+) -> Result<Vec<Incident>, StoreError> {
+    let filter = IncidentFilter {
+        active: Some(true),
+        ..IncidentFilter::default()
+    };
+    let mut page = Page::first(Page::MAX_LIMIT);
+    let mut all = Vec::new();
+    loop {
+        let got = incidents.list(&filter, &page).await?;
+        all.extend(got.items);
+        match got.next_cursor {
+            Some(cursor) => page.cursor = Some(cursor),
+            None => break,
+        }
+    }
+    Ok(all)
 }
 
 /// Why a digest could not be assembled.
@@ -55,15 +77,7 @@ pub(crate) async fn build(deps: &DigestDeps) -> Result<RenderedDigest, DigestErr
         facts_today.extend(deps.facts.list(host.id, start, now).await?);
         facts_history.extend(deps.facts.list(host.id, history_start, start).await?);
     }
-    let active = IncidentFilter {
-        active: Some(true),
-        ..IncidentFilter::default()
-    };
-    let open_incidents = deps
-        .incidents
-        .list(&active, &Page::first(Page::MAX_LIMIT))
-        .await?
-        .items;
+    let open_incidents = all_active_incidents(deps.incidents.as_ref()).await?;
     let advisories = deps.advisories.list_open().await?;
     let digest = build_digest(&DigestInputs {
         date,
@@ -79,4 +93,31 @@ pub(crate) async fn build(deps: &DigestDeps) -> Result<RenderedDigest, DigestErr
         date: date.to_string(),
         markdown: domovoi_engine::render::digest(&digest),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use domovoi_core::HostId;
+    use domovoi_core::ports::IncidentRepo;
+    use domovoi_testkit::InMemoryStore;
+    use domovoi_testkit::build::incident;
+
+    use super::all_active_incidents;
+
+    #[tokio::test]
+    async fn active_incidents_include_items_after_the_first_page() {
+        let store = InMemoryStore::new();
+        let host = HostId::new();
+        for n in 0..=domovoi_core::ports::Page::MAX_LIMIT {
+            let incident = incident(host, &format!("test.check_{n}"), None).unwrap();
+            IncidentRepo::insert(&store, &incident).await.unwrap();
+        }
+
+        let all = all_active_incidents(&store).await.unwrap();
+
+        assert_eq!(
+            all.len(),
+            usize::from(domovoi_core::ports::Page::MAX_LIMIT) + 1
+        );
+    }
 }
