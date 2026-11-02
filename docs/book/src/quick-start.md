@@ -49,7 +49,8 @@ The host shows as connected within seconds, and its built-in checks start: disks
 Skills are the only things Domovoi can ever run on a host, and only after you approve. The release ships seven starter skills: read-only overviews, container and unit restarts, and a journal vacuum.
 
 ```sh
-sudo cp -R /usr/local/share/domovoi/examples/skills /etc/domovoi/skills
+sudo mkdir -p /etc/domovoi/skills
+sudo cp -R /usr/local/share/domovoi/examples/skills/. /etc/domovoi/skills/
 sudo chown -R root:root /etc/domovoi/skills
 sudo chmod -R go-w /etc/domovoi/skills
 sudo domovoi check skills /etc/domovoi/skills
