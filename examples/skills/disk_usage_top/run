@@ -1,0 +1,19 @@
+#!/bin/sh
+# The 20 largest directories directly under "$1", staying on one filesystem. Reads only.
+set -u
+
+path="$1"
+case "$path" in
+/var/log | /var/lib/docker | /home) ;;
+*)
+    echo "path must be /var/log, /var/lib/docker or /home" >&2
+    exit 2
+    ;;
+esac
+if [ ! -d "$path" ]; then
+    echo "$path does not exist on this host"
+    exit 0
+fi
+
+echo "== largest directories under $path (KiB)"
+du -x -k -d 1 -- "$path" 2>/dev/null | sort -rn | head -n 20

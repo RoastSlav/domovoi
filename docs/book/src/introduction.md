@@ -14,4 +14,18 @@ It is named after the domovoi, the Slavic household spirit who quietly keeps a h
 - Not a metrics database or dashboard. Keep Grafana, Netdata or Beszel for graphs; Domovoi links to them and exposes its own `/metrics`.
 - Not an autonomous agent that fixes things on its own. The model proposes; you approve.
 
-> This documentation is being written alongside v0.1. Pages marked "coming in v0.1" are filled in as features land.
+## When to use it
+
+Domovoi fits when you run a few machines yourself and want to hear about problems that matter, with an explanation and a safe way to fix the common ones, without watching dashboards. It is a good fit if:
+
+- you already have alerts, but each one means logging in to find out what happened;
+- you have cron scripts that check things and post to a chat, and want them to keep state and stop repeating themselves;
+- you want an LLM's help with incidents, but never want it to run commands on your servers by itself.
+
+It is not a good fit for large fleets, compliance auditing, or when you need long-term metrics and graphs.
+
+## Where to start
+
+- [Quick start](quick-start.md): one machine, about ten minutes.
+- [How it works](concepts/how-it-works.md): from a check to a card to an approved action.
+- [Security model](security.md): what the model can and cannot do.

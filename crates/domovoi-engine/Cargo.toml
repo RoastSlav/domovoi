@@ -27,7 +27,11 @@ tracing = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
+domovoi-llm = { workspace = true }
 domovoi-testkit = { workspace = true }
+serde_norway = { workspace = true }
+toml = { workspace = true }
+url = { workspace = true }
 insta = { workspace = true }
 proptest = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
@@ -35,6 +39,10 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
 [[test]]
 name = "engine"
 path = "tests/engine/main.rs"
+
+[[test]]
+name = "drills"
+path = "tests/drills/drills.rs"
 
 [[test]]
 name = "notify"

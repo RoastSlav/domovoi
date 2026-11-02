@@ -3,6 +3,8 @@
 //! - `cargo xtask arch-check [--base <ref>]`: enforce ARCHITECTURE.md rules.
 //! - `cargo xtask ci [--fast] [--web]`: run the same gates CI runs.
 //! - `cargo xtask openapi [--check]`: write (or check) `web/src/api/openapi.json`.
+//! - `cargo xtask docs-config [--check]`: write (or check) the configuration reference.
+//! - `cargo xtask docs-links`: check the book's links, anchors and pages.
 //!
 //! xtask is not part of the product; it may spawn processes (cargo, git, npm).
 
@@ -10,6 +12,8 @@
 
 mod arch;
 mod ci;
+mod docs_config;
+mod docs_links;
 mod openapi;
 
 use std::path::PathBuf;
@@ -47,6 +51,14 @@ enum Command {
         #[arg(long)]
         check: bool,
     },
+    /// Write the configuration reference in the book from the configuration schemas.
+    DocsConfig {
+        /// Fail if the committed page differs instead of writing it.
+        #[arg(long)]
+        check: bool,
+    },
+    /// Check every link, anchor and page in the book.
+    DocsLinks,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -56,6 +68,8 @@ fn main() -> anyhow::Result<()> {
         Command::ArchCheck { base } => arch::run(&root, base.as_deref()),
         Command::Ci { fast, web } => ci::run(&root, fast, web),
         Command::Openapi { check } => openapi::run(&root, check),
+        Command::DocsConfig { check } => docs_config::run(&root, check),
+        Command::DocsLinks => docs_links::run(&root),
     }
 }
 

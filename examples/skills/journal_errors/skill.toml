@@ -1,0 +1,17 @@
+name = "journal_errors"
+description = "Errors a systemd unit logged in the last few minutes."
+risk = "read"
+entry = "run"
+timeout = "30s"
+applies_to = ["unit.failed", "unit.watch", "kernel.errors"]
+max_output_bytes = 65536
+
+[[params]]
+name = "unit"
+description = "The unit, such as nginx.service"
+kind = { type = "string", pattern = '^[A-Za-z0-9][A-Za-z0-9@._:-]{0,127}$', max_len = 128 }
+
+[[params]]
+name = "minutes"
+description = "How far back to look, in minutes"
+kind = { type = "integer", min = 1, max = 1440 }

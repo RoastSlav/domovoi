@@ -1,0 +1,7 @@
+#!/bin/sh
+# Restarts unit "$1". The pattern in skill.toml already rules out options and spaces.
+set -eu
+
+unit="$1"
+systemctl restart -- "$unit"
+systemctl --no-pager --lines=0 status -- "$unit" || true

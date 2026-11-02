@@ -1,0 +1,8 @@
+#!/bin/sh
+# Errors (priority err and worse) that unit "$1" logged in the last "$2" minutes. Reads only.
+set -u
+
+unit="$1"
+minutes="$2"
+exec journalctl --no-pager --quiet --output=short-iso --priority=err \
+    --unit="$unit" --since="-${minutes}min" --lines=200

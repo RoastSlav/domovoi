@@ -1,0 +1,12 @@
+name = "disk_usage_top"
+description = "The largest directories directly under one of a few well-known paths."
+risk = "read"
+entry = "run"
+timeout = "2m"
+applies_to = ["disk.free"]
+max_output_bytes = 16384
+
+[[params]]
+name = "path"
+description = "Where to look"
+kind = { type = "enum", values = ["/var/log", "/var/lib/docker", "/home"] }

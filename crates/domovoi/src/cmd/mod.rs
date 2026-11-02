@@ -48,6 +48,13 @@ pub enum Command {
     /// Print the hub's OpenAPI document as JSON (used by `cargo xtask openapi`).
     #[command(hide = true)]
     Openapi,
+    /// Print the JSON schema of `hub.toml` or `agent.toml` (used by `cargo xtask docs-config`).
+    #[command(hide = true)]
+    Schema {
+        /// Which file's schema to print.
+        #[arg(value_enum)]
+        file: SchemaFile,
+    },
     /// Print version and build information.
     Version,
 }
@@ -62,12 +69,29 @@ impl Command {
     }
 }
 
+/// A configuration file whose schema `domovoi schema` prints.
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+pub enum SchemaFile {
+    /// `hub.toml`.
+    Hub,
+    /// `agent.toml`.
+    Agent,
+}
+
 /// Runs `command` and returns the process exit code.
 pub fn run(command: Command) -> anyhow::Result<ExitCode> {
     match command {
         Command::Version => version::run(),
         Command::Openapi => {
             print!("{}", domovoi_hub::router::openapi_json());
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::Schema { file } => {
+            let schema = match file {
+                SchemaFile::Hub => HubConfig::json_schema(),
+                SchemaFile::Agent => AgentConfig::json_schema(),
+            };
+            println!("{}", serde_json::to_string_pretty(&schema)?);
             Ok(ExitCode::SUCCESS)
         }
         Command::Check(command) => check::run(command),

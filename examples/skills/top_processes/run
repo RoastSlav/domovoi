@@ -1,0 +1,21 @@
+#!/bin/sh
+# The top 15 processes by CPU and by memory. Reads only.
+set -u
+
+fields=pid,user,%cpu,%mem,rss,etime,comm
+
+# procps ps sorts itself; busybox ps has no --sort, so fall back to sort(1).
+top() {
+    if ps -eo "$fields" --sort="-$1" >/dev/null 2>&1; then
+        ps -eo "$fields" --sort="-$1" | head -n 16
+    else
+        ps -o pid,user,vsz,rss,comm | head -n 16
+    fi
+}
+
+echo "== by CPU"
+top %cpu
+
+echo
+echo "== by memory"
+top %mem
