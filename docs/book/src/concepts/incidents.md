@@ -40,3 +40,5 @@ The incident still changes and is still stored, but its events are marked as not
 ## What triggers triage
 
 An incident asks for triage when it opens, when it reopens and when its severity rises.
+
+Open an incident and choose **Retry triage** to run it again now, for example after fixing the model's settings. A retry counts against the same hourly and monthly caps as any other run.

@@ -1,7 +1,7 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../client";
 import { keys } from "../queryClient";
-import { call, defined, type IncidentDetail, type IncidentPage } from "../types";
+import { call, defined, type IncidentDetail, type IncidentPage, type TriageState } from "../types";
 
 /** The incident list's filters, as kept in the URL. */
 export interface IncidentFilters {
@@ -69,6 +69,19 @@ export function useUnmute(id: string) {
   return useMutation({
     mutationFn: () => call(api.POST("/api/v1/incidents/{id}/unmute", { params: { path: { id } } })),
     onSuccess,
+  });
+}
+
+/** Runs triage again on the incident and reports how it went. */
+export function useRetryTriage(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      call<TriageState>(api.POST("/api/v1/incidents/{id}/triage", { params: { path: { id } } })),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: keys.incident(id) });
+      void client.invalidateQueries({ queryKey: keys.incidents });
+    },
   });
 }
 

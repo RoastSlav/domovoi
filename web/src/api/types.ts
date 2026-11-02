@@ -16,6 +16,8 @@ export type Card = Schemas["CardDto"];
 export type TimelineEntry = Schemas["TimelineEntryDto"];
 /** A triage report. */
 export type Report = Schemas["ReportDto"];
+/** How the latest triage run went. */
+export type TriageState = Schemas["TriageStateDto"];
 /** A proposed or finished action. */
 export type Action = Schemas["ActionDto"];
 /** One page of actions. */
