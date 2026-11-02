@@ -419,7 +419,7 @@ jobs:
     name: Hub with embedded web UI
     needs: [changes, web, web-build]
     if: >-
-      always() &&
+      !cancelled() &&
       needs.changes.result == 'success' &&
       needs.changes.outputs.embedded_ui == 'true' &&
       (needs.web.result == 'success' || needs.web.result == 'skipped') &&
@@ -454,7 +454,7 @@ jobs:
 
   rust:
     name: Rust (fmt, clippy, tests, docs, arch-check)
-    if: always()
+    if: ${{ !cancelled() }}
     needs: [changes, rust-core, architecture, openapi, config-docs, docs-links, embedded-ui, metadata]
     runs-on: ubuntu-24.04
     steps:
