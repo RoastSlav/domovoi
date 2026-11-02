@@ -880,7 +880,7 @@ dependencies = [
 
 [[package]]
 name = "domovoi"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -913,7 +913,7 @@ dependencies = [
 
 [[package]]
 name = "domovoi-agent"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "async-trait",
  "axum",
@@ -950,7 +950,7 @@ dependencies = [
 
 [[package]]
 name = "domovoi-chat"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
@@ -978,7 +978,7 @@ dependencies = [
 
 [[package]]
 name = "domovoi-checks"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "async-trait",
  "bollard",
@@ -1006,7 +1006,7 @@ dependencies = [
 
 [[package]]
 name = "domovoi-config"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "domovoi-core",
  "insta",
@@ -1023,7 +1023,7 @@ dependencies = [
 
 [[package]]
 name = "domovoi-core"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "async-trait",
  "hex",
@@ -1041,7 +1041,7 @@ dependencies = [
 
 [[package]]
 name = "domovoi-engine"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "async-trait",
  "domovoi-core",
@@ -1069,7 +1069,7 @@ dependencies = [
 
 [[package]]
 name = "domovoi-hub"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "argon2",
  "async-trait",
@@ -1121,7 +1121,7 @@ dependencies = [
 
 [[package]]
 name = "domovoi-llm"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "async-trait",
  "domovoi-core",
@@ -1143,7 +1143,7 @@ dependencies = [
 
 [[package]]
 name = "domovoi-proto"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
@@ -1158,7 +1158,7 @@ dependencies = [
 
 [[package]]
 name = "domovoi-runner"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "async-trait",
  "domovoi-core",
@@ -1178,7 +1178,7 @@ dependencies = [
 
 [[package]]
 name = "domovoi-store"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
@@ -1197,7 +1197,7 @@ dependencies = [
 
 [[package]]
 name = "domovoi-testkit"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "async-trait",
  "domovoi-core",
