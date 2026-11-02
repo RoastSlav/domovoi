@@ -985,6 +985,22 @@ expression: spec
         ],
         "type": "object"
       },
+      "ModelsDto": {
+        "description": "Models available to a candidate provider.",
+        "properties": {
+          "models": {
+            "description": "Sorted model IDs.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "models"
+        ],
+        "type": "object"
+      },
       "MuteRequest": {
         "description": "Muting an incident.",
         "properties": {
@@ -3493,6 +3509,77 @@ expression: spec
           }
         },
         "summary": "Saves a change and restarts the hub with it.",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/v1/settings/models": {
+      "post": {
+        "operationId": "list_models",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelsDto"
+                }
+              }
+            },
+            "description": "Available models"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Invalid candidate"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "More than 10 tests a minute"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Provider unavailable"
+          }
+        },
+        "summary": "Lists models available to the candidate primary provider.",
         "tags": [
           "system"
         ]

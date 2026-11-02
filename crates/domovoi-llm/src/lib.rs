@@ -15,6 +15,7 @@ pub mod cli;
 mod error;
 mod factory;
 mod http;
+mod models;
 pub mod openai;
 mod settings;
 
@@ -22,4 +23,5 @@ pub use cli::{CliOutput, CliPreset, PromptVia};
 pub use error::{EXCERPT_CHARS, LlmBuildError, excerpt};
 pub use factory::build;
 pub use http::CONNECT_TIMEOUT;
+pub use models::list_models;
 pub use settings::{DEFAULT_TIMEOUT, Price, ProviderKind, ProviderSettings, cost_micros};

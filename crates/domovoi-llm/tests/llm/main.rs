@@ -9,6 +9,8 @@ mod cost;
 #[cfg(test)]
 mod errors;
 #[cfg(test)]
+mod models;
+#[cfg(test)]
 mod openai;
 #[cfg(test)]
 mod support;

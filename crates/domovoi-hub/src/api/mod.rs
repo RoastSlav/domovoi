@@ -286,6 +286,7 @@ pub fn routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(settings_write::schema))
         .routes(routes!(settings_write::test_discord))
         .routes(routes!(settings_write::test_llm))
+        .routes(routes!(settings_write::list_models))
         .routes(routes!(settings_write::test_heartbeat))
         .routes(routes!(
             settings_write::host_checks,

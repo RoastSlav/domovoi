@@ -8,6 +8,8 @@ Triage needs a language model. Domovoi talks to it through one of three adapters
 
 Configure one provider as `[llm.primary]` and, optionally, a fallback as `[llm.secondary]` in `hub.toml`. Keep API keys in an environment variable or a file, never inline.
 
+In the web setup and **Settings → Models and triage**, choose the provider first. API providers show the model, base URL and API key fields; CLI providers show only the CLI options. **Fetch models** asks the provider for model IDs using the values and key currently in the form without saving them. You can also enter a model ID manually, which is useful when a compatible server has no model-list endpoint.
+
 ## Anthropic
 
 ```toml

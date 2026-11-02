@@ -290,6 +290,29 @@ async fn test_endpoints_persist_nothing_and_are_rate_limited() {
 }
 
 #[tokio::test]
+async fn model_discovery_uses_candidate_settings_before_a_model_is_chosen() {
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("GET"))
+        .and(wiremock::matchers::path("/v1/models"))
+        .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(json!({
+            "data": [{"id": "local-model"}]
+        })))
+        .mount(&server)
+        .await;
+    let a = api().await;
+    let login = a.admin().await;
+    let body = json!({ "changes": { "llm": { "primary": {
+        "kind": "openai_compatible",
+        "base_url": format!("{}/v1", server.uri())
+    }}}});
+
+    let reply = a.post("/api/v1/settings/models", &login, body).await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.text);
+    assert_eq!(reply.body, json!({ "models": ["local-model"] }));
+    assert!(a.store.list_prefix("").await.unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn host_check_overrides_are_stored_and_reported_offline() {
     let a = api().await;
     let login = a.admin().await;

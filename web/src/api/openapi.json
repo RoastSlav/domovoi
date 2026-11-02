@@ -1780,6 +1780,77 @@
         }
       }
     },
+    "/api/v1/settings/models": {
+      "post": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Lists models available to the candidate primary provider.",
+        "operationId": "list_models",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Available models",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelsDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid candidate",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "More than 10 tests a minute",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Provider unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/settings/schema": {
       "get": {
         "tags": [
@@ -3016,6 +3087,22 @@
           "username": {
             "type": "string",
             "description": "Login name."
+          }
+        }
+      },
+      "ModelsDto": {
+        "type": "object",
+        "description": "Models available to a candidate provider.",
+        "required": [
+          "models"
+        ],
+        "properties": {
+          "models": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Sorted model IDs."
           }
         }
       },

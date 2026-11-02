@@ -67,6 +67,44 @@ impl SettingsService {
         })
     }
 
+    /// Lists models for the candidate primary HTTP provider without saving its settings.
+    pub async fn models(&self, patch: &Map<String, Value>) -> Result<Vec<String>, SettingsError> {
+        let mut candidate = patch.clone();
+        if let Some(primary) = candidate
+            .get_mut("llm")
+            .and_then(Value::as_object_mut)
+            .and_then(|llm| llm.get_mut("primary"))
+            .and_then(Value::as_object_mut)
+        {
+            let model = primary.entry("model").or_insert(Value::Null);
+            if model.is_null() {
+                *model = Value::String("model-discovery-placeholder".to_owned());
+            }
+        }
+        let (config, secrets) = self.candidate(&candidate).await?;
+        let provider =
+            config.llm.primary.as_ref().ok_or_else(|| {
+                SettingsError::Unavailable("no model provider is set up".to_owned())
+            })?;
+        let settings = crate::runtime::settings::provider(provider);
+        let result = tokio::time::timeout(TEST_TIMEOUT, domovoi_llm::list_models(&settings))
+            .await
+            .map_err(|_| {
+                SettingsError::Unavailable(format!(
+                    "model discovery did not answer within {} s",
+                    TEST_TIMEOUT.as_secs()
+                ))
+            })?
+            .map_err(|e| {
+                SettingsError::Unavailable(scrub(
+                    &format!("could not list models: {e}"),
+                    &config,
+                    &secrets,
+                ))
+            })?;
+        Ok(result)
+    }
+
     async fn candidate(
         &self,
         patch: &Map<String, Value>,
