@@ -290,6 +290,21 @@ make_dir() {
     fi
 }
 
+# Copies each starter skill that is not in the agent's skills directory yet, so a new
+# install gets all of them and an upgrade adds the ones a release has added. A folder
+# that is already there is never touched, so edits to a skill are kept.
+add_starter_skills() {
+    for skill in "$1"/*/; do
+        [ -d "$skill" ] || continue
+        dest="/etc/domovoi/skills/$(basename "$skill")"
+        [ ! -e "$dest" ] || continue
+        cp -R "$skill" "$dest"
+        chown -R root:root "$dest"
+        chmod -R go-w "$dest"
+        say "Added the starter skill $dest"
+    done
+}
+
 if [ "$role" = "hub" ]; then
     if ! id domovoi >/dev/null 2>&1; then
         if command -v useradd >/dev/null 2>&1; then
@@ -308,12 +323,16 @@ if [ "$role" = "hub" ]; then
     make_dir /var/lib/domovoi 0750 domovoi:domovoi
 else
     make_dir /etc/domovoi 0750 root:root
+    make_dir /etc/domovoi/skills 0750 root:root
     make_dir /var/lib/domovoi-agent 0700 root:root
+    add_starter_skills "$prefix/share/domovoi/examples/skills"
 fi
 
 # The unit, with ExecStart pointing at this --prefix.
 unit_name="domovoi-$role.service"
 unit_path="/etc/systemd/system/$unit_name"
+upgrade=0
+[ -e "$unit_path" ] && upgrade=1
 "${role}_unit" | sed "s|/usr/local/bin/domovoi|$bin|" >"$tmp/$unit_name"
 if [ ! -e "$unit_path" ]; then
     mkdir -p /etc/systemd/system
@@ -333,7 +352,9 @@ fi
 
 say ""
 say "Next steps:"
-if [ "$role" = "hub" ]; then
+if [ "$upgrade" -eq 1 ]; then
+    say "  systemctl restart domovoi-$role    # runs the new binary; config and data are kept"
+elif [ "$role" = "hub" ]; then
     say "  systemctl enable --now domovoi-hub"
     say "  journalctl -u domovoi-hub | grep setup     # open this link to create the admin account"
     say "  sudo -u domovoi $bin selftest --offline    # optional: checks the pipeline end to end"

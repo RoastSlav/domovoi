@@ -44,16 +44,12 @@ sudo systemctl enable --now domovoi-agent
 
 The host shows as connected within seconds, and its built-in checks start: disks, memory, temperatures, containers, failed units, SMART, logins and more. See [Built-in checks](reference/checks.md).
 
-## 5. Install the starter skills
+## 5. Starter skills
 
-Skills are the only things Domovoi can ever run on a host, and only after you approve. The release ships seven starter skills: read-only overviews, container and unit restarts, and a journal vacuum.
+Skills are the only things Domovoi can ever run on a host, and only after you approve. The agent installer copies the seven starter skills into `/etc/domovoi/skills`, and on every later upgrade it adds any starter skill that is missing. Skills you edit are never overwritten. To check them:
 
 ```sh
-sudo cp -R /usr/local/share/domovoi/examples/skills /etc/domovoi/skills
-sudo chown -R root:root /etc/domovoi/skills
-sudo chmod -R go-w /etc/domovoi/skills
 sudo domovoi check skills /etc/domovoi/skills
-sudo systemctl restart domovoi-agent
 ```
 
 [Writing skills](guide/skills.md) explains each one and how to add your own.

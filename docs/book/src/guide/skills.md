@@ -20,7 +20,7 @@ The release archive includes seven skills in `examples/skills/` (installed to `/
 | `restart_unit` | write | `systemctl restart` one unit, then re-check | `unit` |
 | `vacuum_journal` | destructive | Delete journal files older than 7, 14 or 30 days | `keep`: `7d`, `14d` or `30d` |
 
-Install them as the [quick start](../quick-start.md#5-install-the-starter-skills) shows. Copy only the ones you want; each folder stands alone.
+The agent installer copies them into `/etc/domovoi/skills`. Each folder stands alone: to stop one from running, delete its folder and restart the agent. The installer adds a deleted starter skill back on the next upgrade, so to keep one removed, edit it instead (for example, set `risk` to a level your agent does not allow).
 
 ## Where skills live
 

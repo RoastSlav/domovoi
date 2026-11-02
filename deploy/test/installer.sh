@@ -63,17 +63,22 @@ esac
 # A release laid out like GitHub's: download/<tag>/<asset>, and latest -> tag/<tag>.
 release() {
     tag="$1"
+    skills="$2"
     name="domovoi-$tag-$target"
     dir="$work/srv/download/$tag"
     mkdir -p "$dir" "$work/build/$name/examples"
     printf '#!/bin/sh\necho "domovoi %s (test build)"\n' "$tag" >"$work/build/$name/domovoi"
     chmod 0755 "$work/build/$name/domovoi"
     echo "# example" >"$work/build/$name/examples/hub.toml"
+    for skill in $skills; do
+        mkdir -p "$work/build/$name/examples/skills/$skill"
+        printf 'name = "%s"\n' "$skill" >"$work/build/$name/examples/skills/$skill/skill.toml"
+    done
     tar -C "$work/build" -czf "$dir/$name.tar.gz" "$name"
     (cd "$dir" && sha256sum "$name.tar.gz" >"$name.tar.gz.sha256")
 }
-release v9.9.0
-release v9.9.1
+release v9.9.0 "alpha beta"
+release v9.9.1 "alpha beta gamma"
 
 port=18733
 cat >"$work/server.py" <<'PY'
@@ -140,9 +145,18 @@ check "agent install succeeds" run_install --role agent
 check "latest resolved to v9.9.1" sh -c '/usr/local/bin/domovoi version | grep -q v9.9.1'
 check "/var/lib/domovoi-agent is 0700" test "$(mode_of /var/lib/domovoi-agent)" = 700
 check "/etc/domovoi kept its group" test "$(owner_of /etc/domovoi)" = "root:domovoi"
+check "empty skills directory created" test -d /etc/domovoi/skills
+check "starter skills copied on first install" test -f /etc/domovoi/skills/alpha/skill.toml
+check "starter skill is not writable by others" sh -c "! find /etc/domovoi/skills/alpha -perm -022 | grep -q ."
 check "no agent.toml written" test ! -e /etc/domovoi/agent.toml
 check "agent unit installed" cmp -s /etc/systemd/system/domovoi-agent.service "$root/deploy/systemd/domovoi-agent.service"
 check "agent next steps printed" grep -q "Add host" "$work/out"
+check "skill added by the latest release copied" test -f /etc/domovoi/skills/gamma/skill.toml
+echo "# edited" >>/etc/domovoi/skills/alpha/skill.toml
+rm -rf /etc/domovoi/skills/gamma
+check "agent upgrade succeeds" run_install --role agent
+check "edited starter skill kept" grep -q "# edited" /etc/domovoi/skills/alpha/skill.toml
+check "missing starter skill copied again on upgrade" test -f /etc/domovoi/skills/gamma/skill.toml
 
 # Running again changes nothing but the binary; edits are kept.
 echo "# edited" >>/etc/systemd/system/domovoi-hub.service
@@ -154,6 +168,8 @@ check "edited unit kept" test "$(cat /etc/systemd/system/domovoi-hub.service)" =
 check "kept unit reported" grep -q "Kept /etc/systemd/system/domovoi-hub.service" "$work/out"
 check "new unit saved beside it" test -f /usr/local/share/domovoi/domovoi-hub.service
 check "hub.toml kept" test "$(cat /etc/domovoi/hub.toml)" = "[hub]"
+check "upgrade suggests restart" grep -q "systemctl restart domovoi-hub" "$work/out"
+check "upgrade does not suggest enable --now" test -z "$(grep "enable --now" "$work/out")"
 check "changed mode kept" test "$(mode_of /var/lib/domovoi)" = 700
 check "unchanged unit reported up to date" sh -c "sh '$installer' --role agent 2>&1 | grep -q 'domovoi-agent.service is up to date'"
 
