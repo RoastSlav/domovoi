@@ -48,50 +48,62 @@ git_release_name = "v{{ version }}"
 [[package]]
 name = "domovoi-core"
 version_group = "domovoi"
+git_tag_name = "v{{ version }}"
 
 [[package]]
 name = "domovoi-config"
 version_group = "domovoi"
+git_tag_name = "v{{ version }}"
 
 [[package]]
 name = "domovoi-proto"
 version_group = "domovoi"
+git_tag_name = "v{{ version }}"
 
 [[package]]
 name = "domovoi-engine"
 version_group = "domovoi"
+git_tag_name = "v{{ version }}"
 
 [[package]]
 name = "domovoi-store"
 version_group = "domovoi"
+git_tag_name = "v{{ version }}"
 
 [[package]]
 name = "domovoi-llm"
 version_group = "domovoi"
+git_tag_name = "v{{ version }}"
 
 [[package]]
 name = "domovoi-chat"
 version_group = "domovoi"
+git_tag_name = "v{{ version }}"
 
 [[package]]
 name = "domovoi-checks"
 version_group = "domovoi"
+git_tag_name = "v{{ version }}"
 
 [[package]]
 name = "domovoi-runner"
 version_group = "domovoi"
+git_tag_name = "v{{ version }}"
 
 [[package]]
 name = "domovoi-agent"
 version_group = "domovoi"
+git_tag_name = "v{{ version }}"
 
 [[package]]
 name = "domovoi-hub"
 version_group = "domovoi"
+git_tag_name = "v{{ version }}"
 
 [[package]]
 name = "domovoi-testkit"
 version_group = "domovoi"
+git_tag_name = "v{{ version }}"
 
 [[package]]
 name = "xtask"
