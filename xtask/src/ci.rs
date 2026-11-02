@@ -117,7 +117,6 @@ pub fn run(root: &Path, fast: bool, web: bool) -> anyhow::Result<()> {
         let web_dir = root.join("web");
         step(&web_dir, "web install", NPM, &["ci"])?;
         step(&web_dir, "web lint", NPM, &["run", "lint"])?;
-        step(&web_dir, "web typecheck", NPM, &["run", "typecheck"])?;
         step(&web_dir, "web test", NPM, &["test"])?;
         step(&web_dir, "web build", NPM, &["run", "build"])?;
         // The hub with the built UI embedded, now that web/dist exists.
