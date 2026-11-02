@@ -4,6 +4,48 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.0.3](https://github.com/RoastSlav/domovoi/compare/v0.0.2...v0.0.3) - 2026-11-02
+
+### Added
+
+- *(hub)* settings managed from the web UI with guided first run ([#32](https://github.com/RoastSlav/domovoi/pull/32))
+- *(hub)* assemble runtime lifecycle ([#30](https://github.com/RoastSlav/domovoi/pull/30))
+- *(chat)* Discord threads, buttons, follow-ups and webhook notifier ([#29](https://github.com/RoastSlav/domovoi/pull/29))
+- *(hub)* JSON API with sessions, CSRF, SSE and generated OpenAPI ([#23](https://github.com/RoastSlav/domovoi/pull/23))
+- *(engine)* human-only approvals, re-validated dispatch, verification and audit ([#22](https://github.com/RoastSlav/domovoi/pull/22))
+- *(hub)* agent server with enrollment, pinned TLS, presence and host-down detection ([#18](https://github.com/RoastSlav/domovoi/pull/18))
+- *(engine)* notification policy, cards, digest and advisories ([#17](https://github.com/RoastSlav/domovoi/pull/17))
+- *(engine)* single-writer incident manager with correlation and suppression ([#16](https://github.com/RoastSlav/domovoi/pull/16))
+- *(store)* SQLite repositories with FTS5, append-only audit log and backups ([#15](https://github.com/RoastSlav/domovoi/pull/15))
+- *(core)* ports and testkit fakes with contract suites ([#7](https://github.com/RoastSlav/domovoi/pull/7))
+- *(core)* skills, actions, approvals, triage reports and output models ([#6](https://github.com/RoastSlav/domovoi/pull/6))
+- *(core)* identifiers, signals, fingerprints and incident state machine ([#5](https://github.com/RoastSlav/domovoi/pull/5))
+- *(llm)* Anthropic, OpenAI-compatible and CLI providers ([#20](https://github.com/RoastSlav/domovoi/pull/20))
+- *(ingest)* signed webhooks for generic, Alertmanager and Uptime Kuma, plus agent relay ([#19](https://github.com/RoastSlav/domovoi/pull/19))
+- *(config)* typed hub and agent configuration with secret indirection ([#8](https://github.com/RoastSlav/domovoi/pull/8))
+- *(proto)* hub-agent wire protocol v1 ([#9](https://github.com/RoastSlav/domovoi/pull/9))
+- starter skills, triage drills and complete documentation ([#35](https://github.com/RoastSlav/domovoi/pull/35))
+- *(cli)* hub and agent commands, single-box mode, metrics and selftest ([#31](https://github.com/RoastSlav/domovoi/pull/31))
+- *(engine)* triage orchestrator with read-only tool loop, caching and fallbacks ([#21](https://github.com/RoastSlav/domovoi/pull/21))
+- *(setup)* improve LAN and integration configuration ([#43](https://github.com/RoastSlav/domovoi/pull/43))
+- *(agent)* enrollment, pinned TLS link, scheduler, spool and request handling ([#13](https://github.com/RoastSlav/domovoi/pull/13))
+- *(checks)* containers, units, SMART, security and network probes ([#12](https://github.com/RoastSlav/domovoi/pull/12))
+- *(checks)* check framework and system host checks ([#11](https://github.com/RoastSlav/domovoi/pull/11))
+- *(deploy)* installer, systemd units, container images and install guides ([#33](https://github.com/RoastSlav/domovoi/pull/33))
+- *(runner)* skill catalogue and sandboxed process executor ([#10](https://github.com/RoastSlav/domovoi/pull/10))
+- *(web)* hosts and enrollment, skills, notes, settings and digest pages ([#27](https://github.com/RoastSlav/domovoi/pull/27))
+- *(web)* app shell, auth, live incidents and approvals ([#25](https://github.com/RoastSlav/domovoi/pull/25))
+
+### Fixed
+
+- setup test and enroll hub address ([#46](https://github.com/RoastSlav/domovoi/pull/46))
+- *(engine)* redact triage reports and inbound signal text ([#26](https://github.com/RoastSlav/domovoi/pull/26))
+- *(checks)* journal and systemd checks are unavailable in container mode ([#34](https://github.com/RoastSlav/domovoi/pull/34))
+
+### Other
+
+- initial scaffold
+
 ## [0.0.2](https://github.com/RoastSlav/domovoi/compare/v0.0.1...v0.0.2) - 2026-11-02
 
 ### Added
