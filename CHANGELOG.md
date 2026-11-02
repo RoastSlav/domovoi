@@ -4,6 +4,26 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.0.1](https://github.com/RoastSlav/domovoi/releases/tag/v0.0.1) - 2026-11-02
+
+### Added
+
+- starter skills, triage drills and complete documentation ([#35](https://github.com/RoastSlav/domovoi/pull/35))
+- *(deploy)* installer, systemd units, container images and install guides ([#33](https://github.com/RoastSlav/domovoi/pull/33))
+- *(hub)* settings managed from the web UI with guided first run ([#32](https://github.com/RoastSlav/domovoi/pull/32))
+- *(cli)* hub and agent commands, single-box mode, metrics and selftest ([#31](https://github.com/RoastSlav/domovoi/pull/31))
+- *(hub)* JSON API with sessions, CSRF, SSE and generated OpenAPI ([#23](https://github.com/RoastSlav/domovoi/pull/23))
+- *(hub)* agent server with enrollment, pinned TLS, presence and host-down detection ([#18](https://github.com/RoastSlav/domovoi/pull/18))
+
+### Fixed
+
+- *(checks)* journal and systemd checks are unavailable in container mode ([#34](https://github.com/RoastSlav/domovoi/pull/34))
+
+### Other
+
+- replace OWNER placeholders with RoastSlav
+- initial scaffold
+
 ### Added
 
 - Repository scaffold: architecture, ADRs, architecture checker, CI/CD, web UI shell.
