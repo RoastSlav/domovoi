@@ -2,7 +2,8 @@ import type { Changes, SecretChange } from "../../api/hooks/settings";
 import { SECRET_SET, type Issue } from "../../api/types";
 
 /** How a field is edited. */
-export type FieldKind = "text" | "number" | "bool" | "select" | "list" | "ids" | "secret" | "json";
+export type FieldKind =
+  "text" | "number" | "bool" | "select" | "list" | "id" | "ids" | "secret" | "model" | "json";
 
 /** One editable setting. */
 export interface FieldSpec {
@@ -15,6 +16,8 @@ export interface FieldSpec {
   /** Overrides the help text from the schema. */
   hint?: string;
   placeholder?: string;
+  /** Show this field only when another input has one of these values. */
+  visibleWhen?: { path: string; values: string[] };
 }
 
 /** The value at a dotted `path` of `values`. */
@@ -101,6 +104,9 @@ export function inputProblem(input: string | boolean, kind: FieldKind): string |
   }
   if (kind === "number" && !Number.isFinite(Number(input))) {
     return "Enter a number.";
+  }
+  if (kind === "id" && !/^\d+$/.test(input.trim())) {
+    return "Enter a Discord ID using digits only.";
   }
   if (kind === "ids" && !input.split(/[\s,]+/).every((id) => id === "" || /^\d+$/.test(id))) {
     return "Enter Discord ids: digits, separated by commas.";

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useSettingsSchema } from "../../api/hooks/settings";
 import type { Editable } from "../../api/types";
 import { Button } from "../../components/Button";
+import { DiscordSetupHelp } from "./DiscordSetupHelp";
 import { SectionForm } from "./SectionForm";
 import { SECTIONS } from "./sections";
 import styles from "./settings.module.css";
@@ -46,7 +47,9 @@ export function EditableSettings({ editable }: { editable: Editable }) {
           {...(section.test ? { test: section.test } : {})}
           {...(section.title === "Webhooks"
             ? { intro: <AddWebhook onAdd={(name) => setAdded((a) => [...a, name])} /> }
-            : {})}
+            : section.title === "Discord"
+              ? { intro: <DiscordSetupHelp /> }
+              : {})}
         />
       ))}
     </>

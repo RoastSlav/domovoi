@@ -13,7 +13,7 @@ Only the Discord users you list can do anything. Everyone else who presses a but
 
 ## Invite it to your server
 
-Under **OAuth2 → URL Generator**, tick the scopes `bot` and `applications.commands`. Then tick these bot permissions:
+Under **OAuth2 → URL Generator**, tick the scopes `bot` and `applications.commands`. The latter enables the `/status`, `/incidents`, `/mute` and `/digest` slash commands; there is no separate application-commands bot permission to select. Then tick these bot permissions:
 
 | Permission | Why |
 | --- | --- |
@@ -23,12 +23,11 @@ Under **OAuth2 → URL Generator**, tick the scopes `bot` and `applications.comm
 | Read Message History | Find which incident a thread belongs to |
 | Create Public Threads | Open a thread per incident |
 | Send Messages in Threads | Answer follow-up questions |
-| Use Application Commands | `/status`, `/incidents`, `/mute`, `/digest` |
 
 Or use this link, with your application ID in place of `APP_ID`:
 
 ```text
-https://discord.com/oauth2/authorize?client_id=APP_ID&scope=bot+applications.commands&permissions=311385213952
+https://discord.com/oauth2/authorize?client_id=APP_ID&scope=bot+applications.commands&permissions=309237730304
 ```
 
 Open the link, pick your server, and authorize.
@@ -38,7 +37,9 @@ Open the link, pick your server, and authorize.
 In Discord, open **User Settings → Advanced** and turn on **Developer Mode**. Then:
 
 - **Channel ID:** right-click the channel incidents should go to, then **Copy Channel ID**.
-- **User IDs:** right-click each person who may act on incidents, then **Copy User ID**.
+- **User IDs:** right-click each person who may act on incidents, then **Copy User ID**. Enter these numeric IDs in **Users who may approve**, separated by commas. Usernames, display names and tags (such as `name#1234`) do not work.
+
+These are Discord's numeric snowflake IDs, not the names shown in the server member list. See Discord's [permissions reference](https://discord.com/developers/docs/topics/permissions) if you need to adjust the bot's access later.
 
 ## Configure
 

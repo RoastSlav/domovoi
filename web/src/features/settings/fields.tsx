@@ -1,5 +1,6 @@
 import { useId, useState } from "react";
-import type { SecretChange } from "../../api/hooks/settings";
+import { type Changes, type SecretChange, useModelDiscovery } from "../../api/hooks/settings";
+import { ApiFailure } from "../../api/types";
 import { Button } from "../../components/Button";
 import type { FieldSpec } from "./form";
 import styles from "./settings.module.css";
@@ -100,7 +101,7 @@ export function Field({
       <input
         id={id}
         type="text"
-        inputMode={spec.kind === "number" || spec.kind === "ids" ? "numeric" : undefined}
+        inputMode={["number", "id", "ids"].includes(spec.kind) ? "numeric" : undefined}
         value={String(value)}
         placeholder={spec.placeholder}
         readOnly={readOnly}
@@ -120,8 +121,8 @@ export function Field({
 }
 
 /**
- * A write-only secret: it shows whether a value is set, never the value. Replace types a
- * new one; Remove clears it. Left alone, it is kept.
+ * A write-only saved secret. Pending replacements stay local until the settings are saved;
+ * Remove clears the saved value. Left alone, it is kept.
  */
 export function SecretField({
   spec,
@@ -135,7 +136,8 @@ export function SecretField({
   onChange: (change: SecretChange) => void;
 }) {
   const id = useId();
-  const [replacing, setReplacing] = useState(false);
+  const hasDraft = "set" in change && change.set.length > 0;
+  const [replacing, setReplacing] = useState(hasDraft);
   const readOnly = Boolean(common.locked);
   const cleared = "clear" in change;
   return (
@@ -144,7 +146,7 @@ export function SecretField({
         {spec.label}
       </span>
       <p className={styles.secretState} aria-labelledby={`${id}-label`}>
-        {cleared ? "Will be removed" : isSet ? "Set" : "Not set"}
+        {cleared ? "Will be removed" : hasDraft ? "Will be set" : isSet ? "Set" : "Not set"}
       </p>
       {replacing ? (
         <span className={styles.secretRow}>
@@ -159,6 +161,9 @@ export function SecretField({
             onChange={(e) => onChange(e.target.value ? { set: e.target.value } : { keep: true })}
             aria-describedby={describedBy(id, common)}
           />
+          <Button variant="primary" disabled={!hasDraft} onClick={() => setReplacing(false)}>
+            Set
+          </Button>
           <Button
             onClick={() => {
               setReplacing(false);
@@ -176,13 +181,79 @@ export function SecretField({
             ) : (
               <>
                 <Button onClick={() => setReplacing(true)}>
-                  {isSet ? `Replace ${spec.label}` : `Set ${spec.label}`}
+                  {hasDraft
+                    ? `Edit ${spec.label}`
+                    : isSet
+                      ? `Replace ${spec.label}`
+                      : `Set ${spec.label}`}
                 </Button>
                 {isSet && <Button onClick={() => onChange({ clear: true })}>Remove</Button>}
               </>
             )}
           </span>
         )
+      )}
+      <Messages id={id} {...common} />
+    </div>
+  );
+}
+
+/** A model ID with provider-backed suggestions and a manual-entry fallback. */
+export function ModelField({
+  spec,
+  value,
+  onChange,
+  candidate,
+  ...common
+}: Common & {
+  value: string;
+  onChange: (value: string) => void;
+  candidate: () => Changes;
+}) {
+  const id = useId();
+  const discovery = useModelDiscovery();
+  const readOnly = Boolean(common.locked);
+  const models = discovery.data ?? [];
+  return (
+    <div className={styles.field}>
+      <label htmlFor={id}>{spec.label}</label>
+      <input
+        id={id}
+        type="text"
+        list={`${id}-models`}
+        value={value}
+        placeholder={spec.placeholder}
+        readOnly={readOnly}
+        autoComplete="off"
+        onChange={(e) => onChange(e.target.value)}
+        aria-describedby={describedBy(id, common)}
+        aria-invalid={Boolean(common.errors?.length) || undefined}
+      />
+      <datalist id={`${id}-models`}>
+        {models.map((model) => (
+          <option key={model} value={model} />
+        ))}
+      </datalist>
+      {!readOnly && (
+        <div className={styles.actions}>
+          <Button disabled={discovery.isPending} onClick={() => discovery.mutate(candidate())}>
+            {discovery.isPending ? "Fetching models…" : "Fetch models"}
+          </Button>
+        </div>
+      )}
+      {discovery.data && (
+        <p role="status" className={styles.status}>
+          {models.length > 0
+            ? `${models.length} ${models.length === 1 ? "model" : "models"} available. Choose one or enter another model ID.`
+            : "The provider returned no models. Enter a model ID manually."}
+        </p>
+      )}
+      {discovery.error && (
+        <p role="alert" className={styles.alert}>
+          {discovery.error instanceof ApiFailure
+            ? discovery.error.message
+            : "Could not fetch models. Enter a model ID manually."}
+        </p>
       )}
       <Messages id={id} {...common} />
     </div>

@@ -95,7 +95,8 @@ enabled = true
 bot_token = { env = "DISCORD_BOT_TOKEN" }
 # The channel incidents are posted to (example).
 channel_id = 123456789012345678
-# Discord users who may press buttons and run commands; required when enabled (example).
+# Numeric Discord user IDs (not usernames or tags) allowed to press buttons and run commands;
+# required when enabled (example). Enable Discord Developer Mode, then use Copy User ID.
 allowed_user_ids = [234567890123456789]
 # A channel webhook used when the bot is down (optional).
 webhook_url = { env = "DISCORD_WEBHOOK_URL" }

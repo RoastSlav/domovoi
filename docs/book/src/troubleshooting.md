@@ -12,9 +12,11 @@ The web UI's **Advisories** list problems the hub found with itself: a failing h
 
 ## The setup link
 
-**I lost the setup link.** It is printed once at startup while no account exists. Restart the hub and search the log again: `sudo journalctl -u domovoi-hub | grep -A1 setup`. A link is valid for 24 hours.
+**I lost the setup link.** It is printed once at startup while no account exists. Restart the hub and print the latest complete link without a pager: `journalctl -u domovoi-hub --no-pager -o cat | grep '/setup?token=' | tail -n 1`. A link is valid for 24 hours, but restarting replaces its token.
 
-**The link opens the wrong address.** It uses the hub's public URL, which is `http://127.0.0.1:7420` until you set one. Replace the host part with the hub machine's address, or open an SSH tunnel: `ssh -L 7420:127.0.0.1:7420 <host>`.
+**The link opens the wrong address.** It uses the hub's public URL, which is `http://127.0.0.1:7420` until you set one. For direct LAN access, set both `DOMOVOI_WEB__BIND` and `DOMOVOI_WEB__PUBLIC_URL` as shown in [Binary and systemd](install/binary.md#install-the-hub); merely replacing the hostname in the link causes a cross-origin error. Alternatively, open an SSH tunnel (`ssh -L 7420:127.0.0.1:7420 <host>`) and keep the link unchanged.
+
+**The setup page reports a cross-origin error.** Set `DOMOVOI_WEB__PUBLIC_URL` to the exact origin in the browser, including its scheme and port, then restart the hub and use the newly printed token.
 
 **I forgot the password.** Stop the hub and run `sudo -u domovoi domovoi hub set-password`, then start it again.
 

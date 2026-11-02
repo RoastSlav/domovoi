@@ -113,7 +113,7 @@ test("secret_inputs_never_prefill_and_send_keep_by_default", async () => {
   const discord = await screen.findByRole("region", { name: "Discord" });
   expect(within(discord).getByText("Set")).toBeVisible();
   expect(within(discord).queryByDisplayValue("[set]")).toBeNull();
-  expect(within(discord).getByLabelText("Channel id")).toHaveValue("1234567890123456789");
+  expect(within(discord).getByLabelText("Channel ID")).toHaveValue("1234567890123456789");
   await user.click(within(discord).getByLabelText("Run the bot"));
   await user.click(within(discord).getByRole("button", { name: "Save and apply" }));
   expect(await within(discord).findByText("Saved and applied.")).toBeVisible();
@@ -124,6 +124,44 @@ test("secret_inputs_never_prefill_and_send_keep_by_default", async () => {
   const input = within(discord).getByLabelText("New Bot token");
   expect(input).toHaveValue("");
   expect(input).toHaveAttribute("type", "password");
+});
+
+test("discord_setup_explains_permissions_and_numeric_user_ids", async () => {
+  route("GET /api/v1/settings", () => settings({}));
+  renderAt("/settings", "/settings", <SettingsPage />);
+  const discord = await screen.findByRole("region", { name: "Discord" });
+
+  expect(within(discord).getByRole("link", { name: "Discord developer portal" })).toHaveAttribute(
+    "href",
+    "https://discord.com/developers/applications",
+  );
+  expect(within(discord).getByRole("link", { name: "permissions documentation" })).toHaveAttribute(
+    "href",
+    "https://discord.com/developers/docs/topics/permissions",
+  );
+  expect(
+    within(discord).getByText(/Create Public Threads and Send Messages in Threads/),
+  ).toBeVisible();
+  expect(within(discord).getByText(/Message Content Intent/)).toBeVisible();
+  expect(within(discord).getByLabelText("Users who may approve")).toHaveAccessibleDescription(
+    /Numeric Discord user IDs.*usernames, display names and tags do not work/,
+  );
+});
+
+test("model_provider_fields_are_mutually_exclusive", async () => {
+  const user = userEvent.setup();
+  route("GET /api/v1/settings", () => settings({}));
+  renderAt("/settings", "/settings", <SettingsPage />);
+  const models = await screen.findByRole("region", { name: "Models and triage" });
+
+  await user.selectOptions(within(models).getByLabelText("Provider"), "openai_compatible");
+  expect(within(models).getByLabelText("Base URL")).toBeVisible();
+  expect(within(models).getByLabelText("Model")).toBeVisible();
+  expect(within(models).queryByLabelText("CLI preset")).toBeNull();
+  await user.selectOptions(within(models).getByLabelText("Provider"), "cli");
+  expect(within(models).getByLabelText("CLI preset")).toBeVisible();
+  expect(within(models).queryByLabelText("Base URL")).toBeNull();
+  expect(within(models).queryByLabelText("Model")).toBeNull();
 });
 
 test("sensitive_save_prompts_for_password", async () => {

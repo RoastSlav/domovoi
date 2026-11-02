@@ -51,6 +51,20 @@ test("setup_page_explains_a_spent_link", async () => {
   expect(await screen.findByRole("alert")).toHaveTextContent("wrong, used or expired");
 });
 
+test("setup_page_explains_a_public_url_mismatch", async () => {
+  const user = userEvent.setup();
+  route("POST /api/v1/auth/setup", () =>
+    failure(403, "forbidden", "cross-origin requests are not allowed"),
+  );
+  renderAt("/setup?token=tok-123", "/setup", <SetupPage />);
+  await user.type(screen.getByLabelText("Password"), "a long passphrase");
+  await user.type(screen.getByLabelText("Repeat password"), "a long passphrase");
+  await user.click(screen.getByRole("button", { name: "Create account" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "Set DOMOVOI_WEB__PUBLIC_URL to this page's origin",
+  );
+});
+
 test("login_page_shows_generic_error", async () => {
   const user = userEvent.setup();
   route("POST /api/v1/auth/login", () =>
