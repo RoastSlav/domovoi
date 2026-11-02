@@ -3,6 +3,7 @@
 pub(crate) mod adapters;
 mod delivery;
 mod dispatcher;
+mod every;
 mod local;
 mod lock;
 mod schedulers;

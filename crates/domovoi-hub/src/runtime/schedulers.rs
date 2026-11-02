@@ -19,6 +19,7 @@ use tokio_util::sync::CancellationToken;
 use crate::digest::{self, DigestDeps};
 
 use super::Dispatcher;
+use super::every::every;
 
 const DIGEST_LAST_SENT: &str = "digest_last_sent_at";
 
@@ -286,31 +287,29 @@ impl Schedulers {
 }
 
 fn spawn_minute(runtime: Schedulers, shutdown: CancellationToken) -> JoinHandle<()> {
-    tokio::spawn(async move {
-        loop {
-            runtime.minute().await;
-            let now = runtime.clock.now();
-            let next = now.checked_add(SignedDuration::from_mins(1)).unwrap_or(now);
-            tokio::select! {
-                () = shutdown.cancelled() => return,
-                () = runtime.clock.sleep_until(next) => {}
-            }
-        }
-    })
+    let clock = runtime.clock.clone();
+    tokio::spawn(every(
+        clock,
+        SignedDuration::from_mins(1),
+        shutdown,
+        move || {
+            let runtime = runtime.clone();
+            async move { runtime.minute().await }
+        },
+    ))
 }
 
 fn spawn_advisories(runtime: Schedulers, shutdown: CancellationToken) -> JoinHandle<()> {
-    tokio::spawn(async move {
-        loop {
-            runtime.advisories().await;
-            let now = runtime.clock.now();
-            let next = now.checked_add(SignedDuration::from_mins(5)).unwrap_or(now);
-            tokio::select! {
-                () = shutdown.cancelled() => return,
-                () = runtime.clock.sleep_until(next) => {}
-            }
-        }
-    })
+    let clock = runtime.clock.clone();
+    tokio::spawn(every(
+        clock,
+        SignedDuration::from_mins(5),
+        shutdown,
+        move || {
+            let runtime = runtime.clone();
+            async move { runtime.advisories().await }
+        },
+    ))
 }
 
 #[derive(Clone, Copy)]
@@ -360,23 +359,17 @@ fn spawn_daily(
 }
 
 fn spawn_heartbeat(runtime: Schedulers, shutdown: CancellationToken) -> JoinHandle<()> {
-    tokio::spawn(async move {
-        let interval = runtime
-            .config
-            .heartbeat
-            .as_ref()
-            .map(|heartbeat| heartbeat.interval.as_signed())
-            .unwrap_or(SignedDuration::from_mins(1));
-        loop {
-            runtime.heartbeat().await;
-            let now = runtime.clock.now();
-            let next = now.checked_add(interval).unwrap_or(now);
-            tokio::select! {
-                () = shutdown.cancelled() => return,
-                () = runtime.clock.sleep_until(next) => {}
-            }
-        }
-    })
+    let interval = runtime
+        .config
+        .heartbeat
+        .as_ref()
+        .map(|heartbeat| heartbeat.interval.as_signed())
+        .unwrap_or(SignedDuration::from_mins(1));
+    let clock = runtime.clock.clone();
+    tokio::spawn(every(clock, interval, shutdown, move || {
+        let runtime = runtime.clone();
+        async move { runtime.heartbeat().await }
+    }))
 }
 
 fn next_local(now: Timestamp, time: Time, tz: TimeZone) -> Timestamp {
