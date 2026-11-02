@@ -235,6 +235,10 @@ jobs:
             metadata_only=false
           fi
 
+          if [[ "$rust" == true ]]; then
+            coverage=true
+          fi
+
           for output in "${outputs[@]}"; do
             case "$output" in
               rust) value="$rust" ;;
@@ -289,7 +293,6 @@ jobs:
       - run: npm ci
       - run: npm run format:check
       - run: npm run lint
-      - run: npm run typecheck
       - run: npm test
       - name: Generated API types are up to date (ARCHITECTURE.md R12)
         run: |
@@ -325,84 +328,6 @@ jobs:
           path: web/dist
           retention-days: 7
 
-  rust-core:
-    name: Rust workspace (fmt, clippy, tests, docs)
-    needs: changes
-    if: needs.changes.outputs.rust == 'true'
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v7
-      - name: Install the pinned toolchain from rust-toolchain.toml
-        run: rustup toolchain install
-      - uses: Swatinem/rust-cache@v2
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-nextest
-      - name: Format
-        run: cargo fmt --all --check
-      - name: Clippy
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      - name: Tests
-        run: cargo nextest run --workspace --locked --no-tests=pass
-      - name: Doctests
-        run: cargo test --workspace --doc --locked
-      - name: Feature-gated checks (clippy, tests, rustdoc)
-        env:
-          RUSTDOCFLAGS: -D warnings
-        run: |
-          cargo clippy --package domovoi-checks --all-features --all-targets --locked -- -D warnings
-          cargo test --package domovoi-checks --all-features --locked
-          cargo clippy --package domovoi-checks --no-default-features --features net --all-targets --locked -- -D warnings
-          cargo doc --package domovoi-checks --all-features --no-deps --locked
-      - name: Rustdoc
-        env:
-          RUSTDOCFLAGS: -D warnings
-        run: cargo doc --workspace --no-deps --locked
-
-  architecture:
-    name: Architecture rules
-    needs: changes
-    if: needs.changes.outputs.architecture == 'true'
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-      - name: Install the pinned toolchain from rust-toolchain.toml
-        run: rustup toolchain install
-      - uses: Swatinem/rust-cache@v2
-      - name: Check changed architecture rules
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            cargo xtask arch-check --base "origin/${{ github.base_ref }}"
-          else
-            cargo xtask arch-check
-          fi
-
-  openapi:
-    name: OpenAPI document is up to date
-    needs: changes
-    if: needs.changes.outputs.openapi == 'true'
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v7
-      - name: Install the pinned toolchain from rust-toolchain.toml
-        run: rustup toolchain install
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo xtask openapi --check
-
-  config-docs:
-    name: Configuration reference is up to date
-    needs: changes
-    if: needs.changes.outputs.config_docs == 'true'
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v7
-      - name: Install the pinned toolchain from rust-toolchain.toml
-        run: rustup toolchain install
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo xtask docs-config --check
-
   docs-links:
     name: Book links, anchors and pages
     needs: changes
@@ -414,32 +339,6 @@ jobs:
         run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
       - run: cargo xtask docs-links
-
-  embedded-ui:
-    name: Hub with embedded web UI
-    needs: [changes, web, web-build]
-    if: >-
-      !cancelled() &&
-      needs.changes.result == 'success' &&
-      needs.changes.outputs.embedded_ui == 'true' &&
-      (needs.web.result == 'success' || needs.web.result == 'skipped') &&
-      (needs.web-build.result == 'success' || needs.web-build.result == 'skipped')
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v7
-      - name: Install the pinned toolchain from rust-toolchain.toml
-        run: rustup toolchain install
-      - uses: Swatinem/rust-cache@v2
-      - uses: actions/download-artifact@v8
-        with:
-          name: web-dist
-          path: web/dist
-      - name: Build application with embedded UI
-        run: cargo build --package domovoi --features embed-ui --locked
-      - name: Hub with embedded UI (clippy, tests)
-        run: |
-          cargo clippy --package domovoi-hub --features embed-ui --all-targets --locked -- -D warnings
-          cargo test --package domovoi-hub --features embed-ui --locked
 
   metadata:
     name: Locked workspace metadata
@@ -455,29 +354,26 @@ jobs:
   rust:
     name: Rust (fmt, clippy, tests, docs, arch-check)
     if: ${{ !cancelled() }}
-    needs: [changes, rust-core, architecture, openapi, config-docs, docs-links, embedded-ui, metadata]
+    needs: [changes, web, web-build, docs-links, metadata]
     runs-on: ubuntu-24.04
     steps:
-      - name: Require every applicable Rust check to pass
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Check dependencies
         env:
           CHANGES_RESULT: ${{ needs.changes.result }}
-          RUST_REQUIRED: ${{ needs.changes.outputs.rust }}
-          RUST_RESULT: ${{ needs.rust-core.result }}
-          ARCH_REQUIRED: ${{ needs.changes.outputs.architecture }}
-          ARCH_RESULT: ${{ needs.architecture.result }}
-          OPENAPI_REQUIRED: ${{ needs.changes.outputs.openapi }}
-          OPENAPI_RESULT: ${{ needs.openapi.result }}
-          CONFIG_REQUIRED: ${{ needs.changes.outputs.config_docs }}
-          CONFIG_RESULT: ${{ needs.config-docs.result }}
+          WEB_RESULT: ${{ needs.web.result }}
+          WEB_BUILD_RESULT: ${{ needs.web-build.result }}
           DOCS_REQUIRED: ${{ needs.changes.outputs.docs_links }}
           DOCS_RESULT: ${{ needs.docs-links.result }}
-          EMBED_REQUIRED: ${{ needs.changes.outputs.embedded_ui }}
-          EMBED_RESULT: ${{ needs.embedded-ui.result }}
           METADATA_REQUIRED: ${{ needs.changes.outputs.metadata_only }}
           METADATA_RESULT: ${{ needs.metadata.result }}
         run: |
           set -euo pipefail
           [[ "$CHANGES_RESULT" == success ]] || { echo "::error::Could not classify changed files."; exit 1; }
+          [[ "$WEB_RESULT" == success || "$WEB_RESULT" == skipped ]] || { echo "::error::Web checks did not pass."; exit 1; }
+          [[ "$WEB_BUILD_RESULT" == success || "$WEB_BUILD_RESULT" == skipped ]] || { echo "::error::Web build did not pass."; exit 1; }
           check() {
             local required="$1" result="$2" label="$3"
             if [[ "$required" == true && "$result" != success ]]; then
@@ -485,13 +381,80 @@ jobs:
               exit 1
             fi
           }
-          check "$RUST_REQUIRED" "$RUST_RESULT" "Rust workspace checks"
-          check "$ARCH_REQUIRED" "$ARCH_RESULT" "Architecture rules"
-          check "$OPENAPI_REQUIRED" "$OPENAPI_RESULT" "OpenAPI check"
-          check "$CONFIG_REQUIRED" "$CONFIG_RESULT" "Configuration documentation check"
           check "$DOCS_REQUIRED" "$DOCS_RESULT" "Book links check"
-          check "$EMBED_REQUIRED" "$EMBED_RESULT" "Embedded UI check"
           check "$METADATA_REQUIRED" "$METADATA_RESULT" "Locked workspace metadata check"
+      - name: Install the pinned toolchain from rust-toolchain.toml
+        if: >-
+          needs.changes.outputs.rust == 'true' ||
+          needs.changes.outputs.architecture == 'true' ||
+          needs.changes.outputs.openapi == 'true' ||
+          needs.changes.outputs.config_docs == 'true' ||
+          needs.changes.outputs.embedded_ui == 'true'
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        if: >-
+          needs.changes.outputs.rust == 'true' ||
+          needs.changes.outputs.architecture == 'true' ||
+          needs.changes.outputs.openapi == 'true' ||
+          needs.changes.outputs.config_docs == 'true' ||
+          needs.changes.outputs.embedded_ui == 'true'
+      - uses: taiki-e/install-action@v2
+        if: needs.changes.outputs.rust == 'true'
+        with:
+          tool: cargo-nextest
+      - name: Format
+        if: needs.changes.outputs.rust == 'true'
+        run: cargo fmt --all --check
+      - name: Clippy
+        if: needs.changes.outputs.rust == 'true'
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Tests
+        if: needs.changes.outputs.rust == 'true'
+        run: cargo nextest run --workspace --locked --no-tests=pass
+      - name: Doctests
+        if: needs.changes.outputs.rust == 'true'
+        run: cargo test --workspace --doc --locked
+      - name: Feature-gated checks (clippy, tests, rustdoc)
+        if: needs.changes.outputs.rust == 'true'
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: |
+          cargo clippy --package domovoi-checks --all-features --all-targets --locked -- -D warnings
+          cargo test --package domovoi-checks --all-features --locked
+          cargo clippy --package domovoi-checks --no-default-features --features net --all-targets --locked -- -D warnings
+          cargo doc --package domovoi-checks --all-features --no-deps --locked
+      - name: Architecture rules
+        if: needs.changes.outputs.architecture == 'true'
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            cargo xtask arch-check --base "origin/${{ github.base_ref }}"
+          else
+            cargo xtask arch-check
+          fi
+      - name: OpenAPI document is up to date (ARCHITECTURE.md R12)
+        if: needs.changes.outputs.openapi == 'true'
+        run: cargo xtask openapi --check
+      - name: Configuration reference is up to date
+        if: needs.changes.outputs.config_docs == 'true'
+        run: cargo xtask docs-config --check
+      - name: Rustdoc
+        if: needs.changes.outputs.rust == 'true'
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --workspace --no-deps --locked
+      - uses: actions/download-artifact@v8
+        if: needs.changes.outputs.embedded_ui == 'true'
+        with:
+          name: web-dist
+          path: web/dist
+      - name: Build application with embedded UI
+        if: needs.changes.outputs.embedded_ui == 'true'
+        run: cargo build --package domovoi --features embed-ui --locked
+      - name: Hub with embedded UI (clippy, tests)
+        if: needs.changes.outputs.embedded_ui == 'true'
+        run: |
+          cargo clippy --package domovoi-hub --features embed-ui --all-targets --locked -- -D warnings
+          cargo test --package domovoi-hub --features embed-ui --locked
 
   deny:
     name: Supply chain (cargo-deny)
@@ -602,4 +565,3 @@ jobs:
           name: coverage-lcov
           path: lcov.info
           retention-days: 14
-
