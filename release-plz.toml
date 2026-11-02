@@ -10,6 +10,10 @@
 
 [workspace]
 publish = false
+# Packages are not on crates.io; use Git tags as their version source.
+git_only = true
+# Create releases only when a release-plz PR is merged.
+release_always = false
 semver_check = false
 dependencies_update = false
 changelog_update = false
