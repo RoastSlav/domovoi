@@ -58,7 +58,7 @@ domovoi hub token create nas --ttl 30m
 
 ### `domovoi agent enroll`
 
-Run on the new host with the command the hub printed. It trades the token for the agent's identity and pins the hub's certificate. When `agent.toml` does not exist yet, it writes one from `--name` and `--hub` (mode 0640), with defaults for the rest; an existing file is never changed.
+Run on the new host with the command the hub printed. It trades the token for the agent's identity and pins the hub's certificate. When `agent.toml` does not exist yet, it writes one from `--name` and `--hub` (mode 0640), with defaults for the rest. When `agent.toml` already exists, only its `hub_url` is changed, to `--hub` if they differ; every other setting is kept.
 
 ```sh
 domovoi agent enroll --hub wss://hub.lan:7421 --token <token> --fingerprint AB:CD:… --name nas

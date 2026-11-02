@@ -42,7 +42,8 @@ pub struct EnrollArgs {
     #[arg(long)]
     fingerprint: String,
     /// This host's name in Domovoi, as printed with the token. Used to write
-    /// `agent.toml` when it does not exist yet; an existing file is never changed.
+    /// `agent.toml` when it does not exist yet. An existing file keeps everything except
+    /// its `hub_url`, which becomes `--hub` when they differ.
     #[arg(long)]
     name: Option<String>,
     #[command(flatten)]
@@ -77,6 +78,17 @@ pub async fn run(command: AgentCommand) -> anyhow::Result<ExitCode> {
                     &args.fingerprint,
                 )?;
                 println!("Wrote {}.", path.display());
+            } else {
+                let config = load_agent(path)?;
+                if config.agent.hub_url != args.hub
+                    && domovoi_agent::config_file::set_hub_url(path, &args.hub)?
+                {
+                    println!(
+                        "Changed the hub address in {} to {}.",
+                        path.display(),
+                        args.hub
+                    );
+                }
             }
             let config = load_agent(path)?;
             let fingerprint = production::parse_fingerprint(&args.fingerprint)
