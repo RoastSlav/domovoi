@@ -507,6 +507,23 @@ export interface paths {
         patch: operations["update_settings"];
         trace?: never;
     };
+    "/api/v1/settings/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Lists models available to the candidate primary provider. */
+        post: operations["list_models"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/settings/schema": {
         parameters: {
             query?: never;
@@ -976,6 +993,11 @@ export interface components {
             password: string;
             /** @description Login name. */
             username: string;
+        };
+        /** @description Models available to a candidate provider. */
+        ModelsDto: {
+            /** @description Sorted model IDs. */
+            models: string[];
         };
         /** @description Muting an incident. */
         MuteRequest: {
@@ -2678,6 +2700,66 @@ export interface operations {
             };
             /** @description Too many wrong passwords */
             429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_models: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TestRequest"];
+            };
+        };
+        responses: {
+            /** @description Available models */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelsDto"];
+                };
+            };
+            /** @description Invalid candidate */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description More than 10 tests a minute */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Provider unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

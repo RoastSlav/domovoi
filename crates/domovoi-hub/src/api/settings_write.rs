@@ -64,6 +64,13 @@ pub struct TestResultDto {
     pub latency_ms: u64,
 }
 
+/// Models available to a candidate provider.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
+pub struct ModelsDto {
+    /// Sorted model IDs.
+    pub models: Vec<String>,
+}
+
 /// One check's settings: on or off, interval, thresholds.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, ToSchema)]
 pub struct CheckSettingsDto {
@@ -246,6 +253,31 @@ pub(super) async fn test_llm(
     Json(req): Json<TestRequest>,
 ) -> Result<Json<TestResultDto>, ApiError> {
     run_test(&state, &current, Target::Llm, &req).await
+}
+
+/// Lists models available to the candidate primary provider.
+#[utoipa::path(
+    post, path = "/api/v1/settings/models", operation_id = "list_models", tag = "system",
+    request_body = TestRequest,
+    responses(
+        (status = 200, description = "Available models", body = ModelsDto),
+        (status = 400, description = "Invalid candidate", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 429, description = "More than 10 tests a minute", body = ErrorBody),
+        (status = 503, description = "Provider unavailable", body = ErrorBody),
+    )
+)]
+pub(super) async fn list_models(
+    State(state): State<ApiState>,
+    Authed(current): Authed,
+    Json(req): Json<TestRequest>,
+) -> Result<Json<ModelsDto>, ApiError> {
+    let settings = service(&state)?;
+    settings
+        .admit_test(current.session_hash)
+        .map_err(api_error)?;
+    let models = settings.models(&req.changes).await.map_err(api_error)?;
+    Ok(Json(ModelsDto { models }))
 }
 
 /// One GET of the candidate heartbeat URL.

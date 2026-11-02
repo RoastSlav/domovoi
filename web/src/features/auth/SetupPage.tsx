@@ -11,6 +11,9 @@ export const MIN_PASSWORD_CHARS = 12;
 function failureText(error: unknown): string {
   if (error instanceof ApiFailure) {
     if (error.status === 403) {
+      if (error.message === "cross-origin requests are not allowed") {
+        return "This address does not match the hub's public URL. Set DOMOVOI_WEB__PUBLIC_URL to this page's origin and restart the hub.";
+      }
       return "This setup link is wrong, used or expired. Use the latest link from the hub's log.";
     }
     if (error.status === 409) {

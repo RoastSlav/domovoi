@@ -5,7 +5,7 @@ import { keys } from "../../api/queryClient";
 import { ApiFailure, type Editable, type Issue } from "../../api/types";
 import { Button } from "../../components/Button";
 import { PasswordPrompt } from "../../components/PasswordPrompt";
-import { Field, SecretField } from "./fields";
+import { Field, ModelField, SecretField } from "./fields";
 import {
   buildChanges,
   describe,
@@ -77,8 +77,13 @@ export function SectionForm({ title, fields, editable, schema, test, intro }: Se
   const client = useQueryClient();
   const id = `section-${title.toLowerCase().replace(/\W+/g, "-")}`;
 
+  const visibleFields = fields.filter(
+    (field) =>
+      !field.visibleWhen ||
+      field.visibleWhen.values.includes(String(inputs[field.visibleWhen.path] ?? "")),
+  );
   const local = new Map<string, string[]>();
-  for (const field of fields) {
+  for (const field of visibleFields) {
     const input = inputs[field.path];
     const bad = input === undefined ? undefined : inputProblem(input, field.kind);
     if (bad) {
@@ -86,7 +91,7 @@ export function SectionForm({ title, fields, editable, schema, test, intro }: Se
     }
   }
   const fromHub = issuesByPath(problem?.issues ?? []);
-  const shown = new Set(fields.map((f) => f.path));
+  const shown = new Set(visibleFields.map((f) => f.path));
   const unplaced = (problem?.issues ?? []).filter((i) => !shown.has(i.path));
   const changes = () => buildChanges(fields, initial, inputs, secrets);
 
@@ -128,7 +133,7 @@ export function SectionForm({ title, fields, editable, schema, test, intro }: Se
       <h2 id={id}>{title}</h2>
       {intro}
       <form className={styles.form} onSubmit={onSubmit} noValidate>
-        {fields.map((spec) => {
+        {visibleFields.map((spec) => {
           const locked = lockedBy(sourceOf(editable.fields, spec.path));
           const hint = spec.hint ?? describe(schema, spec.path);
           const errors = [...(local.get(spec.path) ?? []), ...(fromHub.get(spec.path) ?? [])];
@@ -142,6 +147,17 @@ export function SectionForm({ title, fields, editable, schema, test, intro }: Se
               isSet={isSecretSet(values, spec.path)}
               change={secrets[spec.path] ?? { keep: true }}
               onChange={(change) => setSecrets((s) => ({ ...s, [spec.path]: change }))}
+            />
+          ) : spec.kind === "model" ? (
+            <ModelField
+              key={spec.path}
+              spec={spec}
+              hint={hint}
+              locked={locked}
+              errors={errors}
+              value={String(inputs[spec.path] ?? "")}
+              candidate={changes}
+              onChange={(value) => setInputs((s) => ({ ...s, [spec.path]: value }))}
             />
           ) : (
             <Field

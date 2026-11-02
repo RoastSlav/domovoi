@@ -48,6 +48,20 @@ export function useTestConnection(target: TestTarget) {
   });
 }
 
+/** Lists models for candidate provider settings without saving them. */
+export function useModelDiscovery() {
+  return useMutation({
+    mutationFn: async (changes: Changes) => {
+      const result = await call<{ models: string[] }>(
+        api.POST("/api/v1/settings/models", {
+          body: { changes: changes as Record<string, never> },
+        }),
+      );
+      return result.models;
+    },
+  });
+}
+
 /** The JSON schema of `hub.toml`, for field help. */
 export function useSettingsSchema() {
   return useQuery({

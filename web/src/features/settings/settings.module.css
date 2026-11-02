@@ -79,6 +79,14 @@
   max-width: 40rem;
 }
 
+.setupHelp {
+  max-width: 48rem;
+}
+
+.setupHelp p {
+  margin: 0.5rem 0;
+}
+
 .field {
   display: grid;
   gap: 0.25rem;

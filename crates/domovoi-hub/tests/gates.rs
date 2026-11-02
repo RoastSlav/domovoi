@@ -399,6 +399,7 @@ mod api {
             (Method::PATCH, "/api/v1/settings"),
             (Method::POST, "/api/v1/settings/test/discord"),
             (Method::POST, "/api/v1/settings/test/llm"),
+            (Method::POST, "/api/v1/settings/models"),
             (Method::POST, "/api/v1/settings/test/heartbeat"),
             (Method::PUT, "/api/v1/hosts/nas/checks"),
         ];

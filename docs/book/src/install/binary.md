@@ -15,7 +15,17 @@ sudo systemctl enable --now domovoi-hub
 sudo journalctl -u domovoi-hub | grep -A1 setup
 ```
 
-The link points at `http://127.0.0.1:7420` until you set the hub's address. From another machine, replace that part with this machine's address, or reach it through an SSH tunnel (`ssh -L 7420:127.0.0.1:7420 <host>`). The web UI listens only on loopback by default. Put it behind a reverse proxy with TLS, or set its listen address as described in [config as code](config-as-code.md#bootstrap-settings).
+The link points at `http://127.0.0.1:7420` until you set the hub's address. The web UI listens only on loopback by default. From another machine, either use an SSH tunnel (`ssh -L 7420:127.0.0.1:7420 <host>`) and keep the link unchanged, or put the UI behind a reverse proxy with TLS.
+
+To open the UI directly on a trusted LAN, set both its listen address and the exact URL users will open. Replace the example IP with the hub's numeric LAN address:
+
+```sh
+printf 'DOMOVOI_WEB__BIND=0.0.0.0:7420\nDOMOVOI_WEB__PUBLIC_URL=http://192.168.1.50:7420\n' | sudo tee /etc/domovoi/hub.env
+sudo systemctl restart domovoi-hub
+journalctl -u domovoi-hub --no-pager -o cat | grep '/setup?token=' | tail -n 1
+```
+
+Both settings are required: the bind address makes the listener reachable, and the public URL lets the hub accept requests from that address. Restarting replaces the setup token, so use the complete new link printed after the restart. Do not use a placeholder such as `SERVER_LOCAL_IP` in the configuration.
 
 Create the admin account. The guided first run then sets up the hub's name and addresses, Discord, a model, the daily digest and your first host. Every step except the first can be skipped and done later on the Settings page.
 

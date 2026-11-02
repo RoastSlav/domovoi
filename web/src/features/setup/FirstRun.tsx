@@ -7,7 +7,8 @@ import { Button } from "../../components/Button";
 import { EmptyState } from "../../components/EmptyState";
 import { PasswordPrompt } from "../../components/PasswordPrompt";
 import { EnrollDialog } from "../hosts/EnrollDialog";
-import { Field, SecretField } from "../settings/fields";
+import { DiscordSetupHelp } from "../settings/DiscordSetupHelp";
+import { Field, ModelField, SecretField } from "../settings/fields";
 import {
   buildChanges,
   getIn,
@@ -49,8 +50,18 @@ export const STEPS: Step[] = [
     test: "discord",
     fields: [
       { path: "discord.bot_token", label: "Bot token", kind: "secret" },
-      { path: "discord.channel_id", label: "Channel id", kind: "ids" },
-      { path: "discord.allowed_user_ids", label: "Users who may approve", kind: "ids" },
+      {
+        path: "discord.channel_id",
+        label: "Channel ID",
+        kind: "id",
+        hint: "Numeric channel ID. With Developer Mode enabled, right-click the channel and choose Copy Channel ID.",
+      },
+      {
+        path: "discord.allowed_user_ids",
+        label: "Users who may approve",
+        kind: "ids",
+        hint: "Numeric Discord user IDs, separated by commas. Use Copy User ID; usernames, display names and tags do not work.",
+      },
     ],
   },
   {
@@ -65,13 +76,41 @@ export const STEPS: Step[] = [
         kind: "select",
         options: ["", "anthropic", "openai_compatible", "cli"],
       },
-      { path: "llm.primary.model", label: "Model", kind: "text" },
-      { path: "llm.primary.api_key", label: "API key", kind: "secret" },
+      {
+        path: "llm.primary.model",
+        label: "Model",
+        kind: "model",
+        visibleWhen: {
+          path: "llm.primary.kind",
+          values: ["anthropic", "openai_compatible"],
+        },
+      },
+      {
+        path: "llm.primary.base_url",
+        label: "Base URL",
+        kind: "text",
+        placeholder: "http://localhost:11434/v1",
+        hint: "API root. Required for OpenAI-compatible providers; optional for Anthropic proxies.",
+        visibleWhen: {
+          path: "llm.primary.kind",
+          values: ["anthropic", "openai_compatible"],
+        },
+      },
+      {
+        path: "llm.primary.api_key",
+        label: "API key",
+        kind: "secret",
+        visibleWhen: {
+          path: "llm.primary.kind",
+          values: ["anthropic", "openai_compatible"],
+        },
+      },
       {
         path: "llm.primary.cli.preset",
         label: "CLI preset",
         kind: "select",
         options: ["", "claude", "codex"],
+        visibleWhen: { path: "llm.primary.kind", values: ["cli"] },
       },
       { path: "triage.monthly_budget_usd", label: "Monthly budget (USD)", kind: "number" },
       { path: "triage.enabled", label: "Triage incidents with this model", kind: "bool" },
@@ -217,30 +256,50 @@ function Wizard({ editable }: { editable: Editable }) {
         <section aria-labelledby="step-heading" className={styles.form}>
           <h2 id="step-heading">{current.title}</h2>
           <p>{current.intro}</p>
-          {current.fields.map((spec) => {
-            const locked = lockedBy(sourceOf(editable.fields, spec.path));
-            const errors = issues.filter((i) => i.path === spec.path).map((i) => i.message);
-            return spec.kind === "secret" ? (
-              <SecretField
-                key={spec.path}
-                spec={spec}
-                locked={locked}
-                errors={errors}
-                isSet={isSecretSet(values, spec.path)}
-                change={secrets[spec.path] ?? { keep: true }}
-                onChange={(change) => setSecrets((s) => ({ ...s, [spec.path]: change }))}
-              />
-            ) : (
-              <Field
-                key={spec.path}
-                spec={spec}
-                locked={locked}
-                errors={errors}
-                value={inputs[spec.path] ?? ""}
-                onChange={(value) => setInputs((s) => ({ ...s, [spec.path]: value }))}
-              />
-            );
-          })}
+          {current.title === "Discord" && <DiscordSetupHelp />}
+          {current.fields
+            .filter(
+              (spec) =>
+                !spec.visibleWhen ||
+                spec.visibleWhen.values.includes(String(inputs[spec.visibleWhen.path] ?? "")),
+            )
+            .map((spec) => {
+              const locked = lockedBy(sourceOf(editable.fields, spec.path));
+              const errors = issues.filter((i) => i.path === spec.path).map((i) => i.message);
+              return spec.kind === "secret" ? (
+                <SecretField
+                  key={spec.path}
+                  spec={spec}
+                  hint={spec.hint}
+                  locked={locked}
+                  errors={errors}
+                  isSet={isSecretSet(values, spec.path)}
+                  change={secrets[spec.path] ?? { keep: true }}
+                  onChange={(change) => setSecrets((s) => ({ ...s, [spec.path]: change }))}
+                />
+              ) : spec.kind === "model" ? (
+                <ModelField
+                  key={spec.path}
+                  spec={spec}
+                  hint={spec.hint}
+                  locked={locked}
+                  errors={errors}
+                  value={String(inputs[spec.path] ?? "")}
+                  candidate={changes}
+                  onChange={(value) => setInputs((s) => ({ ...s, [spec.path]: value }))}
+                />
+              ) : (
+                <Field
+                  key={spec.path}
+                  spec={spec}
+                  hint={spec.hint}
+                  locked={locked}
+                  errors={errors}
+                  value={inputs[spec.path] ?? ""}
+                  onChange={(value) => setInputs((s) => ({ ...s, [spec.path]: value }))}
+                />
+              );
+            })}
           {failure && (
             <div role="alert" className={styles.alert}>
               <p className={styles.status}>{failure}</p>
@@ -272,6 +331,13 @@ function Wizard({ editable }: { editable: Editable }) {
             <p role="status" className={styles.status}>
               {tester.data.ok ? "Worked: " : "Failed: "}
               {tester.data.message}
+            </p>
+          )}
+          {tester.error && (
+            <p role="alert" className={styles.alert}>
+              {tester.error instanceof ApiFailure
+                ? tester.error.message
+                : "The test could not run."}
             </p>
           )}
           {phaseText(apply.phase) && (
