@@ -1,7 +1,7 @@
 # release-plz configuration (ADR 0008).
 #
 # Every crate shares one version (version_group) so a single vX.Y.Z tag
-# describes the whole product. Only the `domovoi` package creates the tag, the
+# describes the whole product. Only the \`domovoi\` package creates the tag, the
 # GitHub release and the changelog; it includes commits from every library crate.
 # Nothing is published to crates.io yet.
 #
@@ -10,6 +10,10 @@
 
 [workspace]
 publish = false
+# Packages are not on crates.io; use Git tags as their version source.
+git_only = true
+# Create releases only when a release-plz PR is merged.
+release_always = false
 semver_check = false
 dependencies_update = false
 changelog_update = false
