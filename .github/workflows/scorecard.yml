@@ -6,6 +6,22 @@ on:
     - cron: "17 4 * * 1"
   push:
     branches: [main]
+    paths:
+      - "CODEOWNERS"
+      - ".github/CODEOWNERS"
+      - "docs/CODEOWNERS"
+      - ".github/dependabot.yml"
+      - ".github/workflows/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "deny.toml"
+      - "CODE_OF_CONDUCT.md"
+      - "LICENSE*"
+      - "SECURITY.md"
+      - "Dockerfile"
+      - "docker/**"
+      - "deploy/**"
+      - "install.sh"
 
 permissions: read-all
 

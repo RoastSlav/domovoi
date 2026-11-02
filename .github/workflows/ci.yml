@@ -18,6 +18,245 @@ env:
   CARGO_INCREMENTAL: 0
 
 jobs:
+  changes:
+    name: Select relevant checks
+    runs-on: ubuntu-24.04
+    outputs:
+      rust: ${{ steps.classify.outputs.rust }}
+      web: ${{ steps.classify.outputs.web }}
+      embedded_ui: ${{ steps.classify.outputs.embedded_ui }}
+      architecture: ${{ steps.classify.outputs.architecture }}
+      openapi: ${{ steps.classify.outputs.openapi }}
+      config_docs: ${{ steps.classify.outputs.config_docs }}
+      docs_links: ${{ steps.classify.outputs.docs_links }}
+      metadata_only: ${{ steps.classify.outputs.metadata_only }}
+      deny: ${{ steps.classify.outputs.deny }}
+      msrv: ${{ steps.classify.outputs.msrv }}
+      musl: ${{ steps.classify.outputs.musl }}
+      workflow: ${{ steps.classify.outputs.workflow }}
+      shell: ${{ steps.classify.outputs.shell }}
+      installer: ${{ steps.classify.outputs.installer }}
+      units: ${{ steps.classify.outputs.units }}
+      coverage: ${{ steps.classify.outputs.coverage }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: classify
+        name: Classify changed files
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          outputs=(rust web embedded_ui architecture openapi config_docs docs_links metadata_only deny msrv musl workflow shell installer units coverage)
+          fail_open() {
+            echo "::warning::Could not determine the changed files; running all CI checks."
+            for output in "${outputs[@]}"; do
+              echo "$output=true" >> "$GITHUB_OUTPUT"
+            done
+          }
+
+          case "$EVENT_NAME" in
+            pull_request|merge_group) base="$BASE_SHA" ;;
+            push) base="$BEFORE_SHA" ;;
+            *) base="" ;;
+          esac
+          head="$HEAD_SHA"
+
+          if [[ -z "$base" || "$base" =~ ^0+$ ]] || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+            fail_open
+            exit 0
+          fi
+          if ! git diff --name-only "$base" "$head" > "$RUNNER_TEMP/changed-files"; then
+            fail_open
+            exit 0
+          fi
+
+          rust=false
+          web=false
+          embedded_ui=false
+          architecture=false
+          openapi=false
+          config_docs=false
+          docs_links=false
+          metadata_only=false
+          deny=false
+          msrv=false
+          musl=false
+          workflow=false
+          shell=false
+          installer=false
+          units=false
+          coverage=false
+          ci_workflow=false
+          cargo_files=false
+          release_files_only=true
+
+          while IFS= read -r file; do
+            [[ -z "$file" ]] && continue
+            case "$file" in
+              Cargo.toml|Cargo.lock|rust-toolchain.toml|.cargo/config|.cargo/config.toml|.cargo/*)
+                rust=true
+                architecture=true
+                deny=true
+                msrv=true
+                musl=true
+                cargo_files=true
+                ;;
+              deny.toml)
+                deny=true
+                release_files_only=false
+                ;;
+              crates/*)
+                if [[ "$file" != *.md ]]; then
+                  rust=true
+                  architecture=true
+                fi
+                case "$file" in
+                  crates/domovoi-hub/src/api/*|crates/domovoi-hub/src/router.rs)
+                    openapi=true
+                    ;;
+                  crates/domovoi-config/*)
+                    config_docs=true
+                    ;;
+                  crates/domovoi-hub/src/spa.rs|crates/domovoi-hub/Cargo.toml|crates/domovoi/Cargo.toml)
+                    embedded_ui=true
+                    ;;
+                esac
+                if [[ "$file" == crates/domovoi/src/cmd/mod.rs ]]; then
+                  openapi=true
+                  config_docs=true
+                fi
+                release_files_only=false
+                ;;
+              xtask/*)
+                if [[ "$file" != *.md ]]; then
+                  rust=true
+                  architecture=true
+                fi
+                case "$file" in
+                  xtask/src/openapi.rs) openapi=true ;;
+                  xtask/src/docs_config.rs) config_docs=true ;;
+                  xtask/src/docs_links.rs) docs_links=true ;;
+                esac
+                release_files_only=false
+                ;;
+              ARCHITECTURE.md|docs/adr/*.md)
+                architecture=true
+                release_files_only=false
+                ;;
+              CHANGELOG.md)
+                ;;
+              docs/book/*)
+                docs_links=true
+                release_files_only=false
+                if [[ "$file" == docs/book/src/reference/configuration.md ]]; then
+                  config_docs=true
+                fi
+                ;;
+              web/*)
+                if [[ "$file" != *.md && "$file" != web/LICENSE* ]]; then
+                  web=true
+                  embedded_ui=true
+                fi
+                release_files_only=false
+                if [[ "$file" == web/src/api/openapi.json ]]; then
+                  openapi=true
+                fi
+                ;;
+              .github/workflows/*)
+                workflow=true
+                release_files_only=false
+                if [[ "$file" == .github/workflows/ci.yml ]]; then
+                  ci_workflow=true
+                fi
+                ;;
+              install.sh|deploy/test/*.sh|deploy/test/*/run|examples/skills/*/run)
+                shell=true
+                release_files_only=false
+                if [[ "$file" == install.sh || "$file" == deploy/test/installer.sh ]]; then
+                  installer=true
+                fi
+                ;;
+              deploy/systemd/*)
+                units=true
+                release_files_only=false
+                ;;
+              *)
+                release_files_only=false
+                ;;
+            esac
+          done < "$RUNNER_TEMP/changed-files"
+
+          if [[ "$cargo_files" == true && "$release_files_only" == true ]]; then
+            version_changes_only=true
+            while IFS= read -r line; do
+              [[ "$line" == ---* || "$line" == +++* || "$line" == @@* ]] && continue
+              if [[ "$line" =~ ^[+-][[:space:]]*version[[:space:]]*=[[:space:]]*\"[^\"[:space:]]+\"[[:space:]]*$ ]]; then
+                continue
+              fi
+              if [[ "$line" == +* || "$line" == -* ]]; then
+                version_changes_only=false
+              fi
+            done < <(git diff --unified=0 "$base" "$head" -- Cargo.toml Cargo.lock)
+
+            if [[ "$version_changes_only" == true && "$ci_workflow" == false ]]; then
+              rust=false
+              architecture=false
+              deny=false
+              msrv=false
+              musl=false
+              coverage=false
+              metadata_only=true
+            fi
+          fi
+
+          if [[ "$ci_workflow" == true ]]; then
+            rust=true
+            web=true
+            embedded_ui=true
+            architecture=true
+            openapi=true
+            config_docs=true
+            docs_links=true
+            deny=true
+            msrv=true
+            musl=true
+            workflow=true
+            shell=true
+            installer=true
+            units=true
+            coverage=true
+            metadata_only=false
+          fi
+
+          for output in "${outputs[@]}"; do
+            case "$output" in
+              rust) value="$rust" ;;
+              web) value="$web" ;;
+              embedded_ui) value="$embedded_ui" ;;
+              architecture) value="$architecture" ;;
+              openapi) value="$openapi" ;;
+              config_docs) value="$config_docs" ;;
+              docs_links) value="$docs_links" ;;
+              metadata_only) value="$metadata_only" ;;
+              deny) value="$deny" ;;
+              msrv) value="$msrv" ;;
+              musl) value="$musl" ;;
+              workflow) value="$workflow" ;;
+              shell) value="$shell" ;;
+              installer) value="$installer" ;;
+              units) value="$units" ;;
+              coverage) value="$coverage" ;;
+            esac
+            echo "$output=$value" >> "$GITHUB_OUTPUT"
+          done
+
   pr-title:
     name: PR title follows Conventional Commits
     if: github.event_name == 'pull_request'
@@ -34,6 +273,8 @@ jobs:
 
   web:
     name: Web (lint, typecheck, test, build)
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-24.04
     defaults:
       run:
@@ -61,24 +302,42 @@ jobs:
           path: web/dist
           retention-days: 7
 
-  rust:
-    name: Rust (fmt, clippy, tests, docs, arch-check)
+  web-build:
+    name: Build web UI for embedding
+    needs: changes
+    if: needs.changes.outputs.embedded_ui == 'true' && needs.changes.outputs.web != 'true'
     runs-on: ubuntu-24.04
-    needs: web
+    defaults:
+      run:
+        working-directory: web
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
-          fetch-depth: 0
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - uses: actions/upload-artifact@v7
+        with:
+          name: web-dist
+          path: web/dist
+          retention-days: 7
+
+  rust-core:
+    name: Rust workspace (fmt, clippy, tests, docs)
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
       - name: Install the pinned toolchain from rust-toolchain.toml
         run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest
-      - uses: actions/download-artifact@v8
-        with:
-          name: web-dist
-          path: web/dist
       - name: Format
         run: cargo fmt --all --check
       - name: Clippy
@@ -95,32 +354,149 @@ jobs:
           cargo test --package domovoi-checks --all-features --locked
           cargo clippy --package domovoi-checks --no-default-features --features net --all-targets --locked -- -D warnings
           cargo doc --package domovoi-checks --all-features --no-deps --locked
-      - name: Architecture rules
+      - name: Rustdoc
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --workspace --no-deps --locked
+
+  architecture:
+    name: Architecture rules
+    needs: changes
+    if: needs.changes.outputs.architecture == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Install the pinned toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - name: Check changed architecture rules
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             cargo xtask arch-check --base "origin/${{ github.base_ref }}"
           else
             cargo xtask arch-check
           fi
-      - name: OpenAPI document is up to date (ARCHITECTURE.md R12)
-        run: cargo xtask openapi --check
-      - name: Configuration reference is up to date
-        run: cargo xtask docs-config --check
-      - name: Book links, anchors and pages
-        run: cargo xtask docs-links
-      - name: Rustdoc
-        env:
-          RUSTDOCFLAGS: -D warnings
-        run: cargo doc --workspace --no-deps --locked
-      - name: Build with the embedded web UI
+
+  openapi:
+    name: OpenAPI document is up to date
+    needs: changes
+    if: needs.changes.outputs.openapi == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install the pinned toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo xtask openapi --check
+
+  config-docs:
+    name: Configuration reference is up to date
+    needs: changes
+    if: needs.changes.outputs.config_docs == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install the pinned toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo xtask docs-config --check
+
+  docs-links:
+    name: Book links, anchors and pages
+    needs: changes
+    if: needs.changes.outputs.docs_links == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install the pinned toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo xtask docs-links
+
+  embedded-ui:
+    name: Hub with embedded web UI
+    needs: [changes, web, web-build]
+    if: >-
+      !cancelled() &&
+      needs.changes.result == 'success' &&
+      needs.changes.outputs.embedded_ui == 'true' &&
+      (needs.web.result == 'success' || needs.web.result == 'skipped') &&
+      (needs.web-build.result == 'success' || needs.web-build.result == 'skipped')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install the pinned toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/download-artifact@v8
+        with:
+          name: web-dist
+          path: web/dist
+      - name: Build application with embedded UI
         run: cargo build --package domovoi --features embed-ui --locked
-      - name: Hub with the embedded web UI (clippy, tests)
+      - name: Hub with embedded UI (clippy, tests)
         run: |
           cargo clippy --package domovoi-hub --features embed-ui --all-targets --locked -- -D warnings
           cargo test --package domovoi-hub --features embed-ui --locked
 
+  metadata:
+    name: Locked workspace metadata
+    needs: changes
+    if: needs.changes.outputs.metadata_only == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install the pinned toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+      - run: cargo metadata --locked --no-deps --format-version 1 > /dev/null
+
+  rust:
+    name: Rust (fmt, clippy, tests, docs, arch-check)
+    if: ${{ !cancelled() }}
+    needs: [changes, rust-core, architecture, openapi, config-docs, docs-links, embedded-ui, metadata]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require every applicable Rust check to pass
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          RUST_REQUIRED: ${{ needs.changes.outputs.rust }}
+          RUST_RESULT: ${{ needs.rust-core.result }}
+          ARCH_REQUIRED: ${{ needs.changes.outputs.architecture }}
+          ARCH_RESULT: ${{ needs.architecture.result }}
+          OPENAPI_REQUIRED: ${{ needs.changes.outputs.openapi }}
+          OPENAPI_RESULT: ${{ needs.openapi.result }}
+          CONFIG_REQUIRED: ${{ needs.changes.outputs.config_docs }}
+          CONFIG_RESULT: ${{ needs.config-docs.result }}
+          DOCS_REQUIRED: ${{ needs.changes.outputs.docs_links }}
+          DOCS_RESULT: ${{ needs.docs-links.result }}
+          EMBED_REQUIRED: ${{ needs.changes.outputs.embedded_ui }}
+          EMBED_RESULT: ${{ needs.embedded-ui.result }}
+          METADATA_REQUIRED: ${{ needs.changes.outputs.metadata_only }}
+          METADATA_RESULT: ${{ needs.metadata.result }}
+        run: |
+          set -euo pipefail
+          [[ "$CHANGES_RESULT" == success ]] || { echo "::error::Could not classify changed files."; exit 1; }
+          check() {
+            local required="$1" result="$2" label="$3"
+            if [[ "$required" == true && "$result" != success ]]; then
+              echo "::error::$label did not pass (result: $result)."
+              exit 1
+            fi
+          }
+          check "$RUST_REQUIRED" "$RUST_RESULT" "Rust workspace checks"
+          check "$ARCH_REQUIRED" "$ARCH_RESULT" "Architecture rules"
+          check "$OPENAPI_REQUIRED" "$OPENAPI_RESULT" "OpenAPI check"
+          check "$CONFIG_REQUIRED" "$CONFIG_RESULT" "Configuration documentation check"
+          check "$DOCS_REQUIRED" "$DOCS_RESULT" "Book links check"
+          check "$EMBED_REQUIRED" "$EMBED_RESULT" "Embedded UI check"
+          check "$METADATA_REQUIRED" "$METADATA_RESULT" "Locked workspace metadata check"
+
   deny:
     name: Supply chain (cargo-deny)
+    needs: changes
+    if: needs.changes.outputs.deny == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -130,6 +506,8 @@ jobs:
 
   msrv:
     name: MSRV
+    needs: changes
+    if: needs.changes.outputs.msrv == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -141,6 +519,8 @@ jobs:
 
   musl:
     name: Static musl build check
+    needs: changes
+    if: needs.changes.outputs.musl == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -155,6 +535,8 @@ jobs:
 
   actionlint:
     name: Workflow lint
+    needs: changes
+    if: needs.changes.outputs.workflow == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -163,6 +545,8 @@ jobs:
 
   shellcheck:
     name: Shell scripts lint
+    needs: changes
+    if: needs.changes.outputs.shell == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -171,6 +555,8 @@ jobs:
 
   installer:
     name: Installer on ${{ matrix.image }}
+    needs: changes
+    if: needs.changes.outputs.installer == 'true'
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -186,6 +572,8 @@ jobs:
 
   units:
     name: systemd units verify
+    needs: changes
+    if: needs.changes.outputs.units == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -198,7 +586,8 @@ jobs:
 
   coverage:
     name: Coverage
-    if: github.event_name == 'push'
+    needs: changes
+    if: github.event_name == 'push' && needs.changes.outputs.coverage == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -213,3 +602,4 @@ jobs:
           name: coverage-lcov
           path: lcov.info
           retention-days: 14
+
