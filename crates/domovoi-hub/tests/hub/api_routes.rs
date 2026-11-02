@@ -5,7 +5,7 @@ use domovoi_testkit::build::{open_incident, resolved_incident};
 use futures::StreamExt;
 use serde_json::{Value, json};
 
-use crate::api_harness::{Login, api};
+use crate::api_harness::{Login, api, api_with_triage};
 
 async fn incidents_page(a: &crate::api_harness::Api, login: &Login, query: &str) -> Value {
     let reply = a.get(&format!("/api/v1/incidents{query}"), login).await;
@@ -397,4 +397,66 @@ async fn event_stream_ends_when_the_server_shuts_down() {
     shutdown.cancel();
     // Ends instead of hanging the test: graceful shutdown no longer waits on open tabs.
     while body.next().await.is_some() {}
+}
+
+/// A report the scripted model gives triage.
+const TRIAGE_REPORT: &str = r#"{
+  "headline": "disk filling",
+  "summary": "/srv grew by 8 GB in an hour.",
+  "cause": "Unrotated logs.",
+  "evidence": [],
+  "verdict": "ACTION_NEEDED",
+  "next_step": "Prune the logs.",
+  "proposals": [],
+  "details": "The logs under /srv are never rotated."
+}"#;
+
+#[tokio::test]
+async fn retrying_triage_runs_the_model_again_and_reports_how_it_went() {
+    let a = api_with_triage().await;
+    let login = a.admin().await;
+    a.llm.push_text(TRIAGE_REPORT);
+
+    let reply = a
+        .post(
+            &format!("/api/v1/incidents/{}/triage", a.incident.id()),
+            &login,
+            json!({}),
+        )
+        .await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.text);
+    assert_eq!(reply.body["kind"], "report", "{}", reply.text);
+    assert_eq!(a.llm.requests().len(), 1, "the model ran once");
+
+    let detail = a
+        .get(&format!("/api/v1/incidents/{}", a.incident.id()), &login)
+        .await;
+    assert_eq!(detail.body["triage"]["kind"], "report");
+    assert_eq!(detail.body["report"]["headline"], "disk filling");
+}
+
+#[tokio::test]
+async fn retrying_triage_without_a_model_is_503_and_unknown_incidents_are_404() {
+    let a = api().await;
+    let login = a.admin().await;
+    let reply = a
+        .post(
+            &format!("/api/v1/incidents/{}/triage", a.incident.id()),
+            &login,
+            json!({}),
+        )
+        .await;
+    assert_eq!(
+        reply.status,
+        StatusCode::SERVICE_UNAVAILABLE,
+        "{}",
+        reply.text
+    );
+
+    let triaged = api_with_triage().await;
+    let login = triaged.admin().await;
+    let reply = triaged
+        .post("/api/v1/incidents/not-an-id/triage", &login, json!({}))
+        .await;
+    assert_eq!(reply.status, StatusCode::NOT_FOUND, "{}", reply.text);
 }

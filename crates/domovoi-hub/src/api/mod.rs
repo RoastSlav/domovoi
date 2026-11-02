@@ -271,6 +271,7 @@ pub fn routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(incidents::mute))
         .routes(routes!(incidents::unmute))
         .routes(routes!(incidents::ask))
+        .routes(routes!(incidents::retry_triage))
         .routes(routes!(actions::list))
         .routes(routes!(actions::approve))
         .routes(routes!(actions::deny))

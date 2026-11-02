@@ -9,6 +9,7 @@ import approvals from "../approvals/approvals.module.css";
 import { AskBox } from "./AskBox";
 import { IncidentCard } from "./IncidentCard";
 import { IncidentControls } from "./IncidentControls";
+import { RetryTriage } from "./RetryTriage";
 import styles from "./incidents.module.css";
 
 function Timeline({ entries }: { entries: TimelineEntry[] }) {
@@ -53,6 +54,7 @@ export function IncidentDetailPage() {
         {summary.target ? ` ${summary.target}` : ""} · {summary.status}
       </p>
       <IncidentCard card={card} />
+      <RetryTriage incidentId={summary.id} triage={incident.data.triage} />
       <IncidentControls incident={summary} />
 
       {(card.details ?? report?.details) && (

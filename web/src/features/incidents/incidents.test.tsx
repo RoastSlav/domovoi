@@ -94,6 +94,21 @@ test("incident_detail_shows_card_fields_and_timeline", async () => {
   expect(screen.getByRole("button", { name: "Mute" })).toBeVisible();
 });
 
+test("incident_detail_retries_triage_and_shows_how_it_went", async () => {
+  const user = userEvent.setup();
+  route("GET /api/v1/incidents/{id}", () => detail());
+  route("POST /api/v1/incidents/{id}/triage", () => ({
+    kind: "failed",
+    reason: "the model is not available",
+  }));
+  renderAt("/incidents/inc-1", "/incidents/:id", <IncidentDetailPage />);
+
+  await user.click(await screen.findByRole("button", { name: "Retry triage" }));
+
+  expect(await screen.findByText(/Triage failed: the model is not available/)).toBeVisible();
+  expect(calls.map((call) => call.route)).toContain("POST /api/v1/incidents/{id}/triage");
+});
+
 test("incident_detail_ack_and_ask", async () => {
   const user = userEvent.setup();
   route("GET /api/v1/incidents/{id}", () => detail());
