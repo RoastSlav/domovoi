@@ -2934,6 +2934,68 @@ expression: spec
         ]
       }
     },
+    "/api/v1/incidents/{id}/triage": {
+      "post": {
+        "operationId": "retry_triage",
+        "parameters": [
+          {
+            "description": "Incident id",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TriageStateDto"
+                }
+              }
+            },
+            "description": "Triaged again; how it went"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such incident"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Triage is not enabled"
+          }
+        },
+        "summary": "Runs triage again on an incident, outside the queue but with the same caps, and reports\nhow it went. A report already cached for unchanged evidence is reused.",
+        "tags": [
+          "incidents"
+        ]
+      }
+    },
     "/api/v1/incidents/{id}/unmute": {
       "post": {
         "operationId": "unmute_incident",

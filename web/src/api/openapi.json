@@ -7,7 +7,7 @@
       "name": "MIT OR Apache-2.0",
       "identifier": "MIT OR Apache-2.0"
     },
-    "version": "0.0.1"
+    "version": "0.0.2"
   },
   "paths": {
     "/api/v1/actions": {
@@ -1189,6 +1189,68 @@
           },
           "404": {
             "description": "No active incident",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/incidents/{id}/triage": {
+      "post": {
+        "tags": [
+          "incidents"
+        ],
+        "summary": "Runs triage again on an incident, outside the queue but with the same caps, and reports\nhow it went. A report already cached for unchanged evidence is reused.",
+        "operationId": "retry_triage",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Incident id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Triaged again; how it went",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TriageStateDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such incident",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Triage is not enabled",
             "content": {
               "application/json": {
                 "schema": {

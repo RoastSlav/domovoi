@@ -104,6 +104,28 @@ pub(crate) fn latest_triage(
         .find_map(|e| serde_json::from_value(e.detail.clone()).ok())
 }
 
+/// How a triage run went, as the API shows it.
+fn triage_state(outcome: &TriageOutcome) -> TriageStateDto {
+    match outcome {
+        TriageOutcome::Report(_) => TriageStateDto {
+            kind: "report".to_owned(),
+            reason: None,
+        },
+        TriageOutcome::Cached { .. } => TriageStateDto {
+            kind: "cached".to_owned(),
+            reason: None,
+        },
+        TriageOutcome::Skipped { reason } => TriageStateDto {
+            kind: "skipped".to_owned(),
+            reason: Some(reason.clone()),
+        },
+        TriageOutcome::Failed { reason } => TriageStateDto {
+            kind: "failed".to_owned(),
+            reason: Some(reason.clone()),
+        },
+    }
+}
+
 /// Everything about one incident: report, card, timeline and actions.
 #[utoipa::path(
     get, path = "/api/v1/incidents/{id}", operation_id = "get_incident", tag = "incidents",
@@ -132,24 +154,7 @@ pub(super) async fn detail(
         Some(TriageOutcome::Report(r) | TriageOutcome::Cached { report: r, .. }) => Some(r.clone()),
         _ => None,
     };
-    let triage = outcome.as_ref().map(|o| match o {
-        TriageOutcome::Report(_) => TriageStateDto {
-            kind: "report".to_owned(),
-            reason: None,
-        },
-        TriageOutcome::Cached { .. } => TriageStateDto {
-            kind: "cached".to_owned(),
-            reason: None,
-        },
-        TriageOutcome::Skipped { reason } => TriageStateDto {
-            kind: "skipped".to_owned(),
-            reason: Some(reason.clone()),
-        },
-        TriageOutcome::Failed { reason } => TriageStateDto {
-            kind: "failed".to_owned(),
-            reason: Some(reason.clone()),
-        },
-    });
+    let triage = outcome.as_ref().map(triage_state);
     let filter = ActionFilter {
         incident: Some(incident.id()),
         ..ActionFilter::default()
@@ -313,4 +318,31 @@ pub(super) async fn ask(
             TriageError::Store(err) => ApiError::internal("follow-up failed", err),
         })?;
     Ok(Json(AskResponse { answer }))
+}
+
+/// Runs triage again on an incident, outside the queue but with the same caps, and reports
+/// how it went. A report already cached for unchanged evidence is reused.
+#[utoipa::path(
+    post, path = "/api/v1/incidents/{id}/triage", operation_id = "retry_triage", tag = "incidents",
+    params(("id" = String, Path, description = "Incident id")),
+    responses(
+        (status = 200, description = "Triaged again; how it went", body = TriageStateDto),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 404, description = "No such incident", body = ErrorBody),
+        (status = 503, description = "Triage is not enabled", body = ErrorBody),
+    )
+)]
+pub(super) async fn retry_triage(
+    State(state): State<ApiState>,
+    _auth: Authed,
+    Path(id): Path<String>,
+) -> Result<Json<TriageStateDto>, ApiError> {
+    let triage = state
+        .deps
+        .triage
+        .as_ref()
+        .ok_or_else(|| ApiError::Unavailable("triage is not enabled".to_owned()))?;
+    let incident = load(&state, &id).await?;
+    let outcome = triage.triage(&incident).await;
+    Ok(Json(triage_state(&outcome)))
 }
