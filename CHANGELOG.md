@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.0.4](https://github.com/RoastSlav/domovoi/compare/v0.0.3...v0.0.4) - 2026-11-02
+
+### Added
+
+- *(incidents)* retry triage from the incident page ([#47](https://github.com/RoastSlav/domovoi/pull/47))
+
 ## [0.0.3](https://github.com/RoastSlav/domovoi/compare/v0.0.2...v0.0.3) - 2026-11-02
 
 ### Added
