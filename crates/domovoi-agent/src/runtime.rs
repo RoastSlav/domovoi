@@ -79,7 +79,12 @@ impl AgentRuntime {
         let identity = Identity::load(state_dir)?
             .ok_or_else(|| AgentError::NotEnrolled(Identity::path(state_dir)))?;
         let settings = Arc::new(check_settings(&config).map_err(AgentError::Checks)?);
-        let containers = deps.container_source.clone().map(|source| ContainerDeps {
+        let container_source = config
+            .docker
+            .enabled
+            .then(|| deps.container_source.clone())
+            .flatten();
+        let containers = container_source.clone().map(|source| ContainerDeps {
             source,
             policy: policy(&config),
         });
@@ -111,7 +116,7 @@ impl AgentRuntime {
             fs: deps.hostfs.clone(),
             fs_stats: deps.fs_stats.clone(),
             commands,
-            containers: deps.container_source.clone(),
+            containers: container_source,
             checks: checks.clone(),
             check_env,
             store: store.clone(),

@@ -60,6 +60,14 @@ impl Registry {
             all.push(Box::new(RestartLoop::new(containers.clone())?));
             all.push(Box::new(NewContainers::new(containers)?));
         }
+        for key in settings.keys() {
+            if !all.iter().any(|check| check.key() == *key) {
+                return Err(ValidationError::new(
+                    "check settings",
+                    format!("unknown or unavailable check `{key}`"),
+                ));
+            }
+        }
         let mut checks: Vec<Box<dyn Check>> = all
             .into_iter()
             .filter(|c| settings.get(&c.key()).is_none_or(|s| s.enabled))

@@ -78,7 +78,7 @@ pub(crate) fn checks(generator: &mut SchemaGenerator) -> Schema {
     schema.insert(
         "propertyNames".to_owned(),
         string(
-            "A dotted check key such as `disk.usage`.",
+            "A dotted check key such as `disk.free`.",
             Some(CHECK_KEY_PATTERN),
         )
         .into(),

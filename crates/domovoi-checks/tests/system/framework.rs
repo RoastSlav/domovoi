@@ -273,6 +273,21 @@ fn registry_builds_enabled_checks_in_key_order() {
     );
 }
 
+#[test]
+fn registry_rejects_settings_for_unknown_checks() {
+    let deps = HostDeps {
+        fs_stats: Arc::new(RealFsStats::new("/")),
+        containers: None,
+    };
+    let key = CheckKey::parse("disk.usage").unwrap();
+    let error = Registry::build(&BTreeMap::from([(key, CheckSettings::default())]), deps)
+        .err()
+        .expect("unknown check settings are rejected");
+
+    assert_eq!(error.field, "check settings");
+    assert!(error.reason.contains("disk.usage"));
+}
+
 #[tokio::test]
 async fn real_hostfs_rejects_relative_and_dotdot_paths() {
     let dir = tempfile::tempdir().unwrap();

@@ -13,13 +13,13 @@ expression: "AgentConfig::json_schema()"
       "$ref": "#/$defs/AgentSection"
     },
     "checks": {
-      "description": "Per-check settings, keyed by check key such as `disk.usage`.",
+      "description": "Per-check settings, keyed by check key such as `disk.free`.",
       "type": "object",
       "additionalProperties": {
         "$ref": "#/$defs/CheckConfig"
       },
       "propertyNames": {
-        "description": "A dotted check key such as `disk.usage`.",
+        "description": "A dotted check key such as `disk.free`.",
         "type": "string",
         "pattern": "^[a-z0-9_]+(\\.[a-z0-9_]+){0,7}$"
       }

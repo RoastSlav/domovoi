@@ -16,6 +16,7 @@ use domovoi_core::{CheckKey, HostId, Severity, SignalClass, SignalStatus};
 use domovoi_proto::Message;
 use domovoi_testkit::{FakeClock, FakeProcessExecutor};
 use jiff::SignedDuration;
+use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 
 use crate::harness::{ScriptedCheck, clock, empty_fs, firing, key, ok, report, settle};
@@ -280,5 +281,52 @@ async fn check_state_persists_after_each_run() {
     assert_eq!(reopened.state(&key("test.check")).get("runs"), Some("2"));
     assert!(reopened.firing(&key("test.check")).contains("a"));
     assert!(run.store.firing(&key("test.check")).contains("a"));
+    run.shutdown.cancel();
+}
+
+struct MutatingTimeout {
+    started: Arc<Notify>,
+}
+
+#[async_trait]
+impl Check for MutatingTimeout {
+    fn key(&self) -> CheckKey {
+        key("test.timeout")
+    }
+
+    fn default_cadence(&self) -> SignedDuration {
+        SignedDuration::from_hours(1)
+    }
+
+    fn class(&self) -> SignalClass {
+        SignalClass::Normal
+    }
+
+    async fn run(&self, ctx: &mut CheckContext<'_>) -> Result<CheckReport, CheckError> {
+        ctx.state.set("cursor", "partially-advanced");
+        self.started.notify_one();
+        let until = ctx
+            .clock
+            .now()
+            .saturating_add(SignedDuration::from_secs(30))
+            .unwrap_or(ctx.clock.now());
+        ctx.clock.sleep_until(until).await;
+        Ok(report(Vec::new()))
+    }
+}
+
+#[tokio::test]
+async fn timed_out_check_does_not_commit_partial_state() {
+    let started = Arc::new(Notify::new());
+    let run = start(vec![Box::new(MutatingTimeout {
+        started: started.clone(),
+    })]);
+    guard(started.notified()).await;
+
+    run.clock.advance(SignedDuration::from_secs(20));
+    settle().await;
+
+    assert_eq!(run.store.state(&key("test.timeout")).get("cursor"), None);
+    assert!(run.spool.lock().await.is_empty());
     run.shutdown.cancel();
 }

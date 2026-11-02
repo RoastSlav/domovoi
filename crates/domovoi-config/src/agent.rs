@@ -24,7 +24,7 @@ pub struct AgentConfig {
     /// The Docker integration.
     #[serde(default)]
     pub docker: DockerSection,
-    /// Per-check settings, keyed by check key such as `disk.usage`.
+    /// Per-check settings, keyed by check key such as `disk.free`.
     #[serde(default)]
     #[schemars(schema_with = "crate::schema::checks")]
     pub checks: BTreeMap<CheckKey, CheckConfig>,

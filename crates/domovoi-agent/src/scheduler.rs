@@ -5,7 +5,8 @@
 //! - A firing observation becomes a `firing` signal on every run; the hub folds repeats.
 //! - A target that was firing and is now fine, or no longer reported, gets one `resolved`
 //!   signal. A check that errors changes nothing, so its incidents stay as they were.
-//! - Each run's signals are one spool batch; check state is saved after each run.
+//! - Each run's signals are spooled before check state is saved; oversized runs are split to
+//!   respect the spool byte limit.
 //! - Digest facts (latest per key) go to the hub once an hour.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -13,7 +14,7 @@ use std::sync::Arc;
 
 use domovoi_checks::commands::Commands;
 use domovoi_checks::framework::{
-    Check, CheckContext, CheckReport, CheckSettings, number_fact, run_bounded,
+    Check, CheckContext, CheckReport, CheckSettings, CheckState, number_fact, run_bounded,
 };
 use domovoi_core::ports::{Clock, HostFs, ProcessExecutor};
 use domovoi_core::{CheckKey, DigestFact, HostId, Signal, SourceKind, TargetKey};
@@ -64,6 +65,17 @@ impl CheckEnv {
         check: &dyn Check,
         store: &CheckStore,
     ) -> Result<CheckReport, domovoi_checks::framework::CheckError> {
+        let (report, state) = self.run_candidate(check, store).await?;
+        store.put_state(&check.key(), state);
+        Ok(report)
+    }
+
+    /// Runs `check` against a copy of its stored state without committing that state.
+    async fn run_candidate(
+        &self,
+        check: &dyn Check,
+        store: &CheckStore,
+    ) -> Result<(CheckReport, CheckState), domovoi_checks::framework::CheckError> {
         let key = check.key();
         let settings = self.settings_for(&key);
         let mut state = store.state(&key);
@@ -76,9 +88,8 @@ impl CheckEnv {
             settings: &settings,
             state: &mut state,
         };
-        let report = run_bounded(check, &mut ctx).await;
-        store.put_state(&key, state);
-        report
+        let report = run_bounded(check, &mut ctx).await?;
+        Ok((report, state))
     }
 }
 
@@ -151,9 +162,9 @@ async fn run_one<'a>(
     check: &'a dyn Check,
 ) -> (
     &'a dyn Check,
-    Result<CheckReport, domovoi_checks::framework::CheckError>,
+    Result<(CheckReport, CheckState), domovoi_checks::framework::CheckError>,
 ) {
-    (check, env.run(check, store).await)
+    (check, env.run_candidate(check, store).await)
 }
 
 /// Runs checks until shutdown.
@@ -270,9 +281,10 @@ impl Scheduler {
         drop(running);
         let now = self.env.clock.now();
         let mut batch = Vec::new();
+        let mut updates = Vec::new();
         for (check, report) in reports {
             let key = check.key();
-            let report = match report {
+            let (report, state) = match report {
                 Ok(report) => report,
                 Err(err) => {
                     tracing::warn!(check = %key, %err, "check failed");
@@ -281,16 +293,29 @@ impl Scheduler {
             };
             let previous = self.store.firing(&key);
             let (signals, firing) = signals_for(self.env.host, check, &report, &previous, now);
-            self.store.set_firing(&key, firing);
             batch.extend(signals);
+            updates.push((key, state, firing));
             for fact in report.facts {
                 self.facts.insert(fact.key.clone(), fact);
             }
         }
-        if !batch.is_empty()
-            && let Err(err) = self.spool.push(batch).await
-        {
-            tracing::error!(%err, "could not spool signals");
+
+        let spooled = if batch.is_empty() {
+            true
+        } else {
+            match self.spool.push(batch).await {
+                Ok(_) => true,
+                Err(err) => {
+                    tracing::error!(%err, "could not spool signals; check state was not committed");
+                    false
+                }
+            }
+        };
+        if spooled {
+            for (key, state, firing) in updates {
+                self.store.put_state(&key, state);
+                self.store.set_firing(&key, firing);
+            }
         }
         if let Err(err) = self.store.save() {
             tracing::error!(%err, "could not save check state");

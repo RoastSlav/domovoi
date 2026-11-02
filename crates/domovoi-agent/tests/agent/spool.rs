@@ -2,10 +2,11 @@
 
 use std::sync::Arc;
 
-use domovoi_agent::spool::{MAX_BYTES, SharedSpool, Spool};
-use domovoi_core::{HostId, Severity, Signal, SignalStatus, SourceKind};
-use domovoi_proto::Message;
+use domovoi_agent::spool::{Batch, MAX_BYTES, SPOOL_META_FILE, SharedSpool, Spool};
+use domovoi_core::{HostId, RequestId, Severity, Signal, SignalStatus, SourceKind};
+use domovoi_proto::messages::Signals;
 use domovoi_proto::messages::{Ping, SignalsAck};
+use domovoi_proto::{MAX_FRAME_BYTES, Message, encode};
 use domovoi_testkit::build::T0;
 use jiff::SignedDuration;
 
@@ -173,5 +174,185 @@ fn batch_seq_survives_restart() {
             .permissions()
             .mode();
         assert_eq!(mode & 0o777, 0o600, "{file}");
+    }
+}
+
+#[test]
+fn oversized_batch_is_split_and_spool_stays_within_byte_limit() {
+    let dir = tempfile::tempdir().unwrap();
+    let max_bytes = 1_024;
+    let mut spool = Spool::open(dir.path()).unwrap().with_limits(10, max_bytes);
+    let signals = (0..40)
+        .map(|index| signal(&format!("target-{index}"), Severity::Warning))
+        .collect();
+
+    spool.push(signals).unwrap();
+
+    let bytes = std::fs::metadata(dir.path().join("spool.jsonl"))
+        .unwrap()
+        .len();
+    assert!(bytes <= max_bytes as u64);
+    assert!(!spool.is_empty());
+    assert!(spool.dropped() > 0);
+    let pending = spool.pending_after(None);
+    assert!(
+        pending
+            .windows(2)
+            .all(|pair| { pair[0].batch_seq.saturating_add(1) == pair[1].batch_seq })
+    );
+}
+
+#[test]
+fn signal_larger_than_spool_limit_is_rejected_without_mutation() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut spool = Spool::open(dir.path()).unwrap().with_limits(3, 1);
+
+    assert!(
+        spool
+            .push(vec![signal("too-large", Severity::Critical)])
+            .is_err()
+    );
+
+    assert!(spool.is_empty());
+    assert_eq!(spool.dropped(), 0);
+    assert!(!dir.path().join("spool.jsonl").exists());
+}
+
+#[test]
+fn reopening_splits_legacy_batches_to_fit_protocol_frames() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("spool.jsonl");
+    let batch = Batch {
+        batch_seq: 7,
+        signals: (0..8_000)
+            .map(|index| signal(&format!("target-{index:05}"), Severity::Warning))
+            .collect(),
+    };
+    let mut legacy = serde_json::to_string(&batch).unwrap();
+    legacy.push('\n');
+    assert!(legacy.len() > MAX_FRAME_BYTES);
+    std::fs::write(&path, legacy).unwrap();
+
+    let spool = Spool::open(dir.path()).unwrap();
+
+    let batches = spool.pending_after(None);
+    assert!(batches.len() > 1);
+    assert_eq!(batches[0].batch_seq, 7);
+    assert!(
+        batches
+            .windows(2)
+            .all(|pair| pair[0].batch_seq.saturating_add(1) == pair[1].batch_seq)
+    );
+    for batch in batches {
+        let frame = encode(
+            &Message::Signals(Signals {
+                batch_seq: batch.batch_seq,
+                signals: batch.signals,
+            }),
+            RequestId::new(),
+            None,
+        )
+        .unwrap();
+        assert!(frame.len() <= MAX_FRAME_BYTES);
+    }
+    assert!(std::fs::metadata(path).unwrap().len() <= MAX_BYTES as u64);
+}
+
+#[test]
+fn reopening_repairs_duplicate_legacy_batch_sequences_on_disk() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("spool.jsonl");
+    let first = Batch {
+        batch_seq: 7,
+        signals: vec![signal("first", Severity::Warning)],
+    };
+    let second = Batch {
+        batch_seq: 7,
+        signals: vec![signal("second", Severity::Warning)],
+    };
+    std::fs::write(
+        &path,
+        format!(
+            "{}\n{}\n",
+            serde_json::to_string(&first).unwrap(),
+            serde_json::to_string(&second).unwrap()
+        ),
+    )
+    .unwrap();
+
+    let reopened = Spool::open(dir.path()).unwrap();
+    let sequences: Vec<u64> = reopened
+        .pending_after(None)
+        .iter()
+        .map(|batch| batch.batch_seq)
+        .collect();
+    assert_eq!(sequences, [7, 8]);
+    drop(reopened);
+
+    let reopened = Spool::open(dir.path()).unwrap();
+    let sequences: Vec<u64> = reopened
+        .pending_after(None)
+        .iter()
+        .map(|batch| batch.batch_seq)
+        .collect();
+    assert_eq!(sequences, [7, 8]);
+}
+
+#[test]
+fn unreadable_sequence_metadata_stops_the_agent_before_a_batch_number_is_reused() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join(SPOOL_META_FILE), "not json").unwrap();
+
+    let err = Spool::open(dir.path()).expect_err("corrupt sequence metadata must not be reset");
+
+    assert!(err.reason.contains("refusing to reuse"), "{err}");
+}
+
+#[test]
+fn failed_spool_write_does_not_commit_a_batch_or_reuse_its_sequence() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut spool = Spool::open(dir.path()).unwrap();
+    let path = dir.path().join("spool.jsonl");
+    std::fs::create_dir(&path).unwrap();
+
+    assert!(
+        spool
+            .push(vec![signal("write-fails", Severity::Critical)])
+            .is_err()
+    );
+    assert!(spool.is_empty());
+
+    std::fs::remove_dir(path).unwrap();
+    assert_eq!(
+        spool
+            .push(vec![signal("retry", Severity::Critical)])
+            .unwrap(),
+        1
+    );
+}
+
+#[test]
+fn every_spooled_signal_batch_fits_in_one_protocol_frame() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut spool = Spool::open(dir.path()).unwrap();
+    let signals = (0..8_000)
+        .map(|index| signal(&format!("target-{index:05}"), Severity::Warning))
+        .collect();
+
+    spool.push(signals).unwrap();
+
+    let batches = spool.pending_after(None);
+    assert!(batches.len() > 1);
+    for batch in batches {
+        let frame = encode(
+            &Message::Signals(Signals {
+                batch_seq: batch.batch_seq,
+                signals: batch.signals,
+            }),
+            RequestId::new(),
+            None,
+        )
+        .unwrap();
+        assert!(frame.len() <= MAX_FRAME_BYTES);
     }
 }
