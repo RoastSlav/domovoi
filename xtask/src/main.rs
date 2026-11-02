@@ -1,7 +1,7 @@
 //! Developer tasks for the Domovoi workspace.
 //!
 //! - `cargo xtask arch-check [--base <ref>]`: enforce ARCHITECTURE.md rules.
-//! - `cargo xtask ci [--fast] [--web]`: run the same gates CI runs.
+//! - `cargo xtask ci [--fast] [--web]`: run local Rust gates and optional web gates.
 //! - `cargo xtask openapi [--check]`: write (or check) `web/src/api/openapi.json`.
 //!
 //! xtask is not part of the product; it may spawn processes (cargo, git, npm).
@@ -32,7 +32,7 @@ enum Command {
         #[arg(long)]
         base: Option<String>,
     },
-    /// Run the local CI pipeline: fmt, clippy, tests, arch-check, deny.
+    /// Run the local CI pipeline: fmt, clippy, tests, arch-check and, when installed, deny.
     Ci {
         /// Skip cargo-deny and the web checks.
         #[arg(long)]

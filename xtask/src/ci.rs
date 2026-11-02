@@ -1,4 +1,5 @@
-//! `cargo xtask ci`: run the same gates as CI, in order, stopping at the first failure.
+//! `cargo xtask ci`: run the local Rust gates and optional web gates, stopping at the first
+//! failure. Hosted CI adds platform-specific checks such as MSRV and musl builds.
 
 use std::path::Path;
 use std::process::Command;
@@ -108,9 +109,17 @@ pub fn run(root: &Path, fast: bool, web: bool) -> anyhow::Result<()> {
     if web && !fast {
         let web_dir = root.join("web");
         step(&web_dir, "web install", NPM, &["ci"])?;
+        step(&web_dir, "web format", NPM, &["run", "format:check"])?;
         step(&web_dir, "web lint", NPM, &["run", "lint"])?;
         step(&web_dir, "web typecheck", NPM, &["run", "typecheck"])?;
         step(&web_dir, "web test", NPM, &["test"])?;
+        step(&web_dir, "web API types", NPM, &["run", "gen:api"])?;
+        step(
+            root,
+            "web API types are current",
+            "git",
+            &["diff", "--exit-code", "--", "web/src/api"],
+        )?;
         step(&web_dir, "web build", NPM, &["run", "build"])?;
         // The hub with the built UI embedded, now that web/dist exists.
         step(
