@@ -90,11 +90,11 @@ pub(super) async fn digest_send(
     State(state): State<ApiState>,
     _auth: Authed,
 ) -> Result<Json<DigestPreview>, ApiError> {
-    let notifier = state
-        .deps
-        .notifier
-        .clone()
-        .ok_or_else(|| ApiError::Unavailable("no notifier is configured".to_owned()))?;
+    let notifier = state.deps.notifier.clone().ok_or_else(|| {
+        ApiError::Unavailable(
+            "no notifier is configured (set discord.webhook_url or discord.bot_token)".to_owned(),
+        )
+    })?;
     let digest = build(&state).await?;
     let message = OutboundMessage {
         title: format!("Daily digest for {}", digest.date),

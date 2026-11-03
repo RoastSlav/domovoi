@@ -5,7 +5,10 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use domovoi_core::Card;
-use domovoi_core::ports::{ChatError, ChatGateway, Clock, InteractionSink, MessageRef, Notifier, OutboundMessage, ThreadRef};
+use domovoi_core::ports::{
+    ChatError, ChatGateway, Clock, InteractionSink, MessageRef, Notifier, OutboundMessage,
+    ThreadRef,
+};
 use secrecy::{ExposeSecret, SecretString};
 use twilight_http::Client;
 use twilight_http::api_error::ApiError;

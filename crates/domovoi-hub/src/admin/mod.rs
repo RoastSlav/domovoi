@@ -215,7 +215,9 @@ impl OfflineAdmin {
             &AdapterOverrides::default(),
         )?;
         let notifier = FanOut::over(&notifiers).ok_or_else(|| {
-            AdminError::Delivery("no notifier is configured ([discord] webhook_url)".to_owned())
+            AdminError::Delivery(
+                "no notifier is configured ([discord] webhook_url or bot_token)".to_owned(),
+            )
         })?;
         let digest = crate::digest::build(&DigestDeps {
             config: self.config.clone(),
