@@ -109,6 +109,17 @@ pub(crate) fn build_chat(
                 )
                 .map_err(|err| RuntimeError::Chat(err.to_string()))?,
             ));
+        } else if discord.enabled {
+            notifiers.push(Arc::new(
+                domovoi_chat::discord::DiscordGateway::new(
+                    discord.bot_token.value().clone(),
+                    domovoi_chat::discord::DiscordSettings {
+                        channel_id: discord.channel_id,
+                        web_base: public_url.clone(),
+                    },
+                    clock.clone(),
+                ),
+            ));
         }
         if discord.enabled {
             gateways.push(Arc::new(domovoi_chat::discord::DiscordGateway::new(

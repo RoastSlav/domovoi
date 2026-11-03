@@ -5,13 +5,14 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use domovoi_core::Card;
-use domovoi_core::ports::{ChatError, ChatGateway, Clock, InteractionSink, MessageRef, ThreadRef};
+use domovoi_core::ports::{ChatError, ChatGateway, Clock, InteractionSink, MessageRef, Notifier, OutboundMessage, ThreadRef};
 use secrecy::{ExposeSecret, SecretString};
 use twilight_http::Client;
 use twilight_http::api_error::ApiError;
 use twilight_http::error::ErrorType;
 use twilight_model::id::Id;
 use twilight_model::id::marker::{ChannelMarker, MessageMarker};
+use twilight_util::builder::embed::EmbedBuilder;
 
 use super::components::card_buttons;
 use super::embed::card_embed;
@@ -184,6 +185,31 @@ impl ChatGateway for DiscordGateway {
             self.clock.clone(),
         )
         .await
+    }
+}
+
+#[async_trait]
+impl Notifier for DiscordGateway {
+    fn id(&self) -> &str {
+        "discord-gateway"
+    }
+
+    async fn send(&self, msg: &OutboundMessage) -> Result<(), ChatError> {
+        let channel = self.channel()?;
+        let title: String = msg.title.chars().take(super::embed::MAX_TITLE).collect();
+        let severity = msg.severity.unwrap_or(domovoi_core::Severity::Info);
+        let colour = super::embed::colour(domovoi_core::CardBadge::Severity(severity));
+        let embed = EmbedBuilder::new()
+            .title(title)
+            .color(colour)
+            .description(msg.markdown.clone())
+            .build();
+        self.http
+            .create_message(channel)
+            .embeds(&[embed])
+            .await
+            .map_err(|e| chat_error(&e))?;
+        Ok(())
     }
 }
 
