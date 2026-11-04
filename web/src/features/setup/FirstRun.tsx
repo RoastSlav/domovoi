@@ -187,13 +187,18 @@ function Wizard({ editable }: { editable: Editable }) {
     ).flatMap((s) => s.fields);
     const out = buildChanges(kept, baseline, inputs, secrets);
     const token = secrets["discord.bot_token"];
-    if (!without.has(1) && token && "set" in token) {
+    const discordKept = only === undefined ? !without.has(1) : only === 1;
+    if (discordKept && token && "set" in token) {
       setIn(out, "discord.enabled", true);
     }
     return out;
   };
 
-  const testStep = () => tester.mutate(changes(skipped, step));
+  const testStep = () => {
+    const current = changes(skipped, step);
+    const isDiscord = STEPS[step]?.test === "discord";
+    tester.mutate(isDiscord ? { ...changes(skipped, 0), ...current } : current);
+  };
 
   const save = async (pending: ReturnType<typeof changes>, password?: string) => {
     setFailure(undefined);
@@ -338,11 +343,20 @@ function Wizard({ editable }: { editable: Editable }) {
             </p>
           )}
           {tester.error && (
-            <p role="alert" className={styles.alert}>
-              {tester.error instanceof ApiFailure
-                ? tester.error.message
-                : "The test could not run."}
-            </p>
+            <>
+              <p role="alert" className={styles.alert}>
+                {tester.error instanceof ApiFailure
+                  ? tester.error.message
+                  : "The test could not run."}
+              </p>
+              {tester.error instanceof ApiFailure &&
+                tester.error.issues.map((i) => (
+                  <p key={`${i.path}:${i.message}`} className={styles.status}>
+                    {i.path ? `${i.path}: ` : ""}
+                    {i.message}
+                  </p>
+                ))}
+            </>
           )}
           {phaseText(apply.phase) && (
             <p role="status" className={styles.status}>
