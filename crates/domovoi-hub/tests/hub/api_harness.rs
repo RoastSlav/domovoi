@@ -11,7 +11,7 @@ use axum::body::Body;
 use axum::extract::connect_info::MockConnectInfo;
 use axum::http::{HeaderMap, Method, Request, StatusCode, header};
 use domovoi_config::{HubConfig, MapEnv};
-use domovoi_core::ports::{ActionRepo, HostRepo, IncidentRepo, LlmProvider, Presence};
+use domovoi_core::ports::{ActionRepo, HostRepo, IncidentRepo, LlmProvider, Notifier, Presence};
 use domovoi_core::{ActionRequest, HostId, HostName, Incident, Principal, Risk, SkillSummary};
 use domovoi_engine::{
     ActionDeps, ActionService, ActionSettings, EnginePolicy, IncidentManager, ManagerDeps,
@@ -164,15 +164,20 @@ pub fn config() -> HubConfig {
 }
 
 pub async fn api() -> Api {
-    build(false).await
+    build(false, None).await
+}
+
+/// [`api`] with `notifier` taking digests.
+pub async fn api_with_notifier(notifier: Arc<dyn Notifier>) -> Api {
+    build(false, Some(notifier)).await
 }
 
 /// [`api`] with triage on, answering from [`Api::llm`].
 pub async fn api_with_triage() -> Api {
-    build(true).await
+    build(true, None).await
 }
 
-async fn build(triage: bool) -> Api {
+async fn build(triage: bool, notifier: Option<Arc<dyn Notifier>>) -> Api {
     // The binary installs the process-wide provider; connection tests build HTTP clients.
     let _ = rustls::crypto::ring::default_provider().install_default();
     let dir = tempfile::tempdir().unwrap();
@@ -303,7 +308,7 @@ async fn build(triage: bool) -> Api {
         clock: clock.clone(),
         bus: bus.clone(),
         config: Arc::new(config),
-        notifier: None,
+        notifier,
         metrics: Some(Arc::new(|| "domovoi_up 1\n".to_owned())),
         settings: Some(settings),
         audit: store.clone(),

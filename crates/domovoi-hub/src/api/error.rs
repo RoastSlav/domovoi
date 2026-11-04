@@ -71,6 +71,9 @@ pub enum ApiError {
     /// A part the request needs is not configured or not running.
     #[error("{0}")]
     Unavailable(String),
+    /// A configured chat platform did not take a message.
+    #[error("{0}")]
+    Delivery(String),
     /// Submitted settings are not valid; every issue has its path.
     #[error("the settings are not valid")]
     Invalid(Vec<IssueDto>),
@@ -92,6 +95,7 @@ impl ApiError {
             Self::Conflict(_) => (StatusCode::CONFLICT, "conflict"),
             Self::TooMany(_) => (StatusCode::TOO_MANY_REQUESTS, "too_many_requests"),
             Self::Unavailable(_) => (StatusCode::SERVICE_UNAVAILABLE, "unavailable"),
+            Self::Delivery(_) => (StatusCode::BAD_GATEWAY, "delivery_failed"),
             Self::Internal => (StatusCode::INTERNAL_SERVER_ERROR, "internal"),
         }
     }

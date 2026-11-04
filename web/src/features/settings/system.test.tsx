@@ -80,6 +80,23 @@ test("settings_never_render_secret_values", async () => {
   expect(within(advisories).getByText(/nas/)).toBeVisible();
 });
 
+test("digest_send_failure_shows_why_discord_refused", async () => {
+  const user = userEvent.setup();
+  route("GET /api/v1/digest/preview", () => ({ date: "2026-11-01", markdown: "all quiet" }));
+  route("POST /api/v1/digest/send", () =>
+    failure(502, "delivery_failed", "rejected: discord 403: Missing Access"),
+  );
+  renderAt("/digest", "/digest", <DigestPage />);
+
+  await screen.findByRole("article", { name: "Digest for 2026-11-01" });
+  await user.click(screen.getByRole("button", { name: "Send now" }));
+  await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Send" }));
+  const alert = await screen.findByRole("alert");
+  expect(alert).toHaveTextContent("Discord did not take the digest");
+  expect(alert).toHaveTextContent("Missing Access");
+  expect(alert).not.toHaveTextContent("No chat is configured");
+});
+
 test("digest_preview_and_send_now", async () => {
   const user = userEvent.setup();
   route("GET /api/v1/digest/preview", () => ({

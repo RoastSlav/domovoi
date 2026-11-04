@@ -2175,6 +2175,16 @@ expression: spec
             },
             "description": "Not logged in"
           },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The chat platform did not take the digest"
+          },
           "503": {
             "content": {
               "application/json": {
@@ -2183,7 +2193,7 @@ expression: spec
                 }
               }
             },
-            "description": "No notifier is configured, or sending failed"
+            "description": "No notifier is configured"
           }
         },
         "summary": "Sends today's digest now.",
