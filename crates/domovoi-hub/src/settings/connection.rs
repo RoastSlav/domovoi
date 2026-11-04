@@ -232,7 +232,9 @@ fn scrub(message: &str, config: &HubConfig, stored: &StoredState) -> String {
 }
 
 /// `patch` for a Discord test: `discord.allowed_user_ids` becomes `["1"]` when the patch
-/// lists none (missing, `null` or an empty list). Only the test candidate gets it, so
+/// lists none (missing, `null` or an empty list). A patch that removes the section with
+/// `discord: null` instead gets a section holding only the placeholder approvers, so the
+/// test runs against the saved Discord settings. Only the test candidate gets it, so
 /// saving still needs the real approvers.
 fn with_test_approver(patch: &Map<String, Value>) -> Map<String, Value> {
     let mut candidate = patch.clone();
