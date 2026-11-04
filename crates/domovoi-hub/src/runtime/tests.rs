@@ -486,6 +486,58 @@ enabled = false",
 }
 
 #[tokio::test]
+async fn quiet_hours_release_through_the_bot_still_posts_held_cards() {
+    let mut harness = Harness::with_bot_notifier(
+        "[notify]
+quiet_hours = { start = \"22:00\", end = \"07:00\" }
+[notify.digest]
+enabled = false",
+        at("2026-10-31T22:30:00Z"),
+    )
+    .await;
+    harness.start_dispatcher();
+    harness.start_schedulers();
+    assert_eq!(
+        harness.webhook(&firing("web-1", "disk.full")).await,
+        StatusCode::ACCEPTED
+    );
+    guard(async {
+        loop {
+            let held = NotifyStateRepo::list_held(&*harness.runtime.as_ref().unwrap().store)
+                .await
+                .unwrap();
+            if !held.is_empty() {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+
+    harness.clock.set(at("2026-11-01T07:00:00Z"));
+    until(|| post_count(&harness.gateway) == 1).await;
+    assert!(
+        harness.notifier.sent().is_empty(),
+        "a card, not a summary: the incident keeps its buttons and reminders"
+    );
+    harness.stop().await;
+}
+
+#[tokio::test]
+async fn daily_digest_goes_out_through_the_bot_notifier() {
+    let mut harness = Harness::with_bot_notifier(
+        "[notify.digest]\nenabled = true\ntime = \"08:00\"",
+        at("2026-11-01T07:59:00Z"),
+    )
+    .await;
+    harness.start_schedulers();
+    harness.clock.set(at("2026-11-01T08:00:00Z"));
+    until(|| harness.notifier.sent().len() == 1).await;
+    assert!(harness.notifier.sent()[0].title.starts_with("Daily digest"));
+    harness.stop().await;
+}
+
+#[tokio::test]
 async fn shutdown_completes_within_15_seconds_with_inflight_triage() {
     let provider = Arc::new(BlockingLlm::new());
     let started = provider.started.clone();

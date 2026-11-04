@@ -1,5 +1,6 @@
 //! A [`Card`] as a Discord embed.
 
+use domovoi_core::ports::OutboundMessage;
 use domovoi_core::{Card, CardBadge, Severity, Verdict};
 use twilight_model::channel::message::Embed;
 use twilight_util::builder::embed::{EmbedBuilder, EmbedFooterBuilder};
@@ -81,6 +82,17 @@ pub fn description(card: &Card) -> String {
         lines.push(format!("**Next:** {next}"));
     }
     lines.join("\n")
+}
+
+/// The title of a one-way message as an embed, coloured by its severity. The body travels
+/// as message text, which is split to fit, so it is not part of the embed.
+#[must_use]
+pub fn message_embed(msg: &OutboundMessage) -> Embed {
+    let severity = msg.severity.unwrap_or(Severity::Info);
+    EmbedBuilder::new()
+        .title(clip(&msg.title, MAX_TITLE))
+        .color(colour(CardBadge::Severity(severity)))
+        .build()
 }
 
 /// `card` as an embed whose title links to the incident's web page. The link is also how

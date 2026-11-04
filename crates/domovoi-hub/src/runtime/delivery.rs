@@ -333,6 +333,11 @@ impl Delivery {
         !self.notifiers.is_empty()
     }
 
+    /// Whether a notifier can take the quiet-hours summary in place of the held cards.
+    pub(super) fn can_replace_held_cards(&self) -> bool {
+        self.notifiers.iter().any(|n| n.replaces_held_cards())
+    }
+
     /// Sends `message` through every notifier and returns how many accepted it.
     pub(super) async fn send_all(&self, message: OutboundMessage) -> usize {
         let jobs = self.notifiers.iter().map(|notifier| async {

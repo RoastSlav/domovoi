@@ -1,5 +1,6 @@
 //! Discord: incident cards as embeds with buttons, a thread per incident, follow-up
-//! messages, slash commands, and a one-way webhook notifier for digests (ADR 0010).
+//! messages, slash commands, and one-way messages such as digests, through a webhook or
+//! the bot (ADR 0010).
 //!
 //! The gateway only translates. Every press, thread message and command goes to the
 //! [`InteractionSink`](domovoi_core::ports::InteractionSink), which decides whether the

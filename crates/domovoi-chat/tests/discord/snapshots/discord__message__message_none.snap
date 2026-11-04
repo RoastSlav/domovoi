@@ -1,0 +1,9 @@
+---
+source: crates/domovoi-chat/tests/discord/message.rs
+expression: embed
+---
+{
+  "color": 3890139,
+  "type": "rich",
+  "title": "Daily digest for 2026-11-01"
+}

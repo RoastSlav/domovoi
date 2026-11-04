@@ -227,7 +227,7 @@ impl Dispatcher {
         let Some(text) = plan.release else {
             return;
         };
-        if self.delivery.has_notifiers() {
+        if self.delivery.can_replace_held_cards() {
             self.delivery
                 .send_all(OutboundMessage {
                     title: "While you were away".to_owned(),
@@ -237,8 +237,8 @@ impl Dispatcher {
                 .await;
             return;
         }
-        // No notifier for the summary: post a card for each held incident still open, so
-        // nothing raised during quiet hours is lost (INV-11).
+        // No notifier apart from the bot for the summary: post a card for each held incident
+        // still open, so nothing raised during quiet hours is lost (INV-11).
         for id in released {
             let Some((incident, _)) = items.iter().find(|(incident, _)| incident.id() == id) else {
                 continue;
