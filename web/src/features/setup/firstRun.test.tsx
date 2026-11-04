@@ -117,7 +117,10 @@ test("first_run_test_sends_only_the_fields_of_the_step_being_tested", async () =
 
 test("first_run_discord_test_includes_the_public_url", async () => {
   const user = userEvent.setup();
-  route("POST /api/v1/settings/test/discord", () => ({ ok: true, message: "posted a test message" }));
+  route("POST /api/v1/settings/test/discord", () => ({
+    ok: true,
+    message: "posted a test message",
+  }));
   renderAt("/welcome", "/welcome", <FirstRun />);
   expect(await screen.findByRole("heading", { name: "Hub" })).toBeVisible();
   await user.click(screen.getByRole("button", { name: "Next" }));
@@ -140,16 +143,10 @@ test("first_run_discord_test_includes_the_public_url", async () => {
 
 test("first_run_test_failure_lists_each_issue", async () => {
   const user = userEvent.setup();
-  route(
-    "POST /api/v1/settings/test/discord",
-    () =>
-      failure(
-        400,
-        "invalid",
-        "the settings are not valid",
-        undefined,
-        [{ path: "discord.channel_id", message: "bad id", severity: "error" }],
-      ),
+  route("POST /api/v1/settings/test/discord", () =>
+    failure(400, "invalid", "the settings are not valid", undefined, [
+      { path: "discord.channel_id", message: "bad id", severity: "error" },
+    ]),
   );
   renderAt("/welcome", "/welcome", <FirstRun />);
   expect(await screen.findByRole("heading", { name: "Hub" })).toBeVisible();

@@ -213,7 +213,9 @@ export function SectionForm({ title, fields, editable, schema, test, intro }: Se
         {tester.error && (
           <>
             <p role="alert" className={styles.alert}>
-              {tester.error instanceof ApiFailure ? tester.error.message : "The test could not run."}
+              {tester.error instanceof ApiFailure
+                ? tester.error.message
+                : "The test could not run."}
             </p>
             {tester.error instanceof ApiFailure &&
               tester.error.issues.map((issue) => (
