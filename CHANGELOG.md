@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.0.5](https://github.com/RoastSlav/domovoi/compare/v0.0.4...v0.0.5) - 2026-11-04
+
+### Fixed
+
+- *(hub)* post cards for open incidents when quiet hours end with a webhook ([#52](https://github.com/RoastSlav/domovoi/pull/52))
+- *(hub)* send digests and one-way messages through the Discord bot ([#50](https://github.com/RoastSlav/domovoi/pull/50))
+
 ## [0.0.4](https://github.com/RoastSlav/domovoi/compare/v0.0.3...v0.0.4) - 2026-11-02
 
 ### Added
