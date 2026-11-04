@@ -211,9 +211,18 @@ export function SectionForm({ title, fields, editable, schema, test, intro }: Se
           </p>
         )}
         {tester.error && (
-          <p role="alert" className={styles.alert}>
-            {tester.error instanceof ApiFailure ? tester.error.message : "The test could not run."}
-          </p>
+          <>
+            <p role="alert" className={styles.alert}>
+              {tester.error instanceof ApiFailure ? tester.error.message : "The test could not run."}
+            </p>
+            {tester.error instanceof ApiFailure &&
+              tester.error.issues.map((issue) => (
+                <p key={`${issue.path}:${issue.message}`} className={styles.status}>
+                  {issue.path ? `${issue.path}: ` : ""}
+                  {issue.message}
+                </p>
+              ))}
+          </>
         )}
       </form>
       {asking && (
