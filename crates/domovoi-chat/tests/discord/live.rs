@@ -25,6 +25,7 @@ async fn live_card_thread_and_reply() {
     };
     let _ = rustls::crypto::ring::default_provider().install_default();
     let gateway = DiscordGateway::new(
+        "discord-gateway",
         SecretString::from(token),
         DiscordSettings {
             channel_id: channel.parse().unwrap(),

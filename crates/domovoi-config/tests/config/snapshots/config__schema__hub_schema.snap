@@ -230,7 +230,7 @@ expression: "HubConfig::json_schema()"
           "default": true
         },
         "webhook_url": {
-          "description": "A channel webhook used when the bot is down. Optional.",
+          "description": "A webhook that carries digests and quiet-hours summaries instead of the bot. Optional.",
           "anyOf": [
             {
               "$ref": "#/$defs/Secret"

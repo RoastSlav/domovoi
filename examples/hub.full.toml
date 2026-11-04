@@ -98,7 +98,8 @@ channel_id = 123456789012345678
 # Numeric Discord user IDs (not usernames or tags) allowed to press buttons and run commands;
 # required when enabled (example). Enable Discord Developer Mode, then use Copy User ID.
 allowed_user_ids = [234567890123456789]
-# A channel webhook used when the bot is down (optional).
+# A channel webhook that carries digests and quiet-hours summaries instead of the bot
+# (optional).
 webhook_url = { env = "DISCORD_WEBHOOK_URL" }
 
 # Inbound webhooks, one table per name; the name appears in the URL

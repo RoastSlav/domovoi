@@ -109,7 +109,12 @@ export const SECTIONS: SectionSpec[] = [
         kind: "ids",
         hint: "Numeric Discord user IDs, separated by commas. Use Copy User ID; usernames, display names and tags do not work.",
       },
-      { path: "discord.webhook_url", label: "Fallback webhook URL", kind: "secret" },
+      {
+        path: "discord.webhook_url",
+        label: "Digest webhook URL",
+        kind: "secret",
+        hint: "Digests and quiet-hours summaries go here instead of through the bot. Leave empty to use the bot.",
+      },
     ]),
   },
   {

@@ -61,7 +61,7 @@ impl Harness {
             Vec::new(),
             4096,
             MapEnv::new().with("HEARTBEAT_URL", url),
-            true,
+            Some(RecordingNotifier::new("webhook")),
         )
         .await
     }
@@ -69,7 +69,14 @@ impl Harness {
     /// A hub with the chat gateway only: no notifier for digests or quiet-hours summaries.
     pub async fn without_notifier(extra: &str, start: Timestamp) -> Self {
         let llm = Arc::new(ScriptedLlm::new());
-        Self::with_all(extra, start, llm, Vec::new(), 4096, MapEnv::new(), false).await
+        Self::with_all(extra, start, llm, Vec::new(), 4096, MapEnv::new(), None).await
+    }
+
+    /// A hub whose only notifier is the chat bot, as with Discord and no webhook.
+    pub async fn with_bot_notifier(extra: &str, start: Timestamp) -> Self {
+        let llm = Arc::new(ScriptedLlm::new());
+        let bot = Some(RecordingNotifier::chat_bot("discord-gateway"));
+        Self::with_all(extra, start, llm, Vec::new(), 4096, MapEnv::new(), bot).await
     }
 
     pub async fn with_adapters(
@@ -86,7 +93,7 @@ impl Harness {
             gateways,
             bus_capacity,
             MapEnv::new(),
-            true,
+            Some(RecordingNotifier::new("webhook")),
         )
         .await
     }
@@ -98,7 +105,7 @@ impl Harness {
         gateways: Vec<Arc<RecordingGateway>>,
         bus_capacity: usize,
         env: MapEnv,
-        notifier_on: bool,
+        notifier: Option<RecordingNotifier>,
     ) -> Self {
         // The binary installs the process-wide provider; tests stand in for it.
         let _ = rustls::crypto::ring::default_provider().install_default();
@@ -146,10 +153,11 @@ secret = {{ env = "TEST_SECRET" }}
         let env = env.with("TEST_SECRET", SECRET);
         let (config, _) = domovoi_config::parse(&config_text, &env).unwrap();
         let clock = Arc::new(FakeClock::new(start));
+        let notifier_on = notifier.is_some();
         let mut harness = Self {
             clock,
             gateway,
-            notifier: Arc::new(RecordingNotifier::new("webhook")),
+            notifier: Arc::new(notifier.unwrap_or_else(|| RecordingNotifier::new("webhook"))),
             runtime: None,
             config,
             primary,

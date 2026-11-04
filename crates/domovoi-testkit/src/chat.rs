@@ -131,6 +131,7 @@ impl ChatGateway for RecordingGateway {
 #[derive(Debug)]
 pub struct RecordingNotifier {
     id: String,
+    replaces_held_cards: bool,
     sent: Mutex<Vec<OutboundMessage>>,
     failures: Mutex<VecDeque<ChatError>>,
 }
@@ -141,8 +142,18 @@ impl RecordingNotifier {
     pub fn new(id: impl Into<String>) -> Self {
         Self {
             id: id.into(),
+            replaces_held_cards: true,
             sent: Mutex::new(Vec::new()),
             failures: Mutex::new(VecDeque::new()),
+        }
+    }
+
+    /// A notifier with id `id` that stands for the chat bot, like the Discord gateway.
+    #[must_use]
+    pub fn chat_bot(id: impl Into<String>) -> Self {
+        Self {
+            replaces_held_cards: false,
+            ..Self::new(id)
         }
     }
 
@@ -162,6 +173,10 @@ impl RecordingNotifier {
 impl Notifier for RecordingNotifier {
     fn id(&self) -> &str {
         &self.id
+    }
+
+    fn replaces_held_cards(&self) -> bool {
+        self.replaces_held_cards
     }
 
     async fn send(&self, msg: &OutboundMessage) -> Result<(), ChatError> {

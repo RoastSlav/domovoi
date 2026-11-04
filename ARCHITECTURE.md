@@ -301,7 +301,7 @@ flowchart LR
 
 - `ChatGateway` maps `Card` to the platform's message format, creates one thread per incident, posts follow-ups in that thread and turns button presses and thread messages into `Interaction`s.
 - Discord (v0.1): one channel, one thread per incident, buttons for Ack, Mute 1 h, Approve, Deny, Details. The chat adapter only translates platform events into `Interaction`s; the hub's interaction authorizer accepts them only from allowlisted user IDs. Approval buttons carry a single-use token that expires with the action. Thread messages from allowlisted users become follow-up questions to the triage agent (read tools only).
-- `Notifier` adapters send one-way messages: Discord webhook and generic JSON webhook in v0.1.
+- `Notifier` adapters send one-way messages: Discord webhook and generic JSON webhook in v0.1. With no webhook configured, `DiscordGateway` is the Discord notifier too, so the same bot posts digests. The webhook or the bot carries them, never both, so a message is not posted twice. The bot does not replace cards: incidents held during quiet hours still get theirs when quiet hours end.
 - Quiet hours hold non-critical notifications and release them as one batch when they end.
 
 ## 14. Configuration (`domovoi-config`)

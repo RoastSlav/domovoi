@@ -83,18 +83,19 @@ pub(super) async fn digest_preview(
     responses(
         (status = 200, description = "Sent", body = DigestPreview),
         (status = 401, description = "Not logged in", body = ErrorBody),
-        (status = 503, description = "No notifier is configured, or sending failed", body = ErrorBody),
+        (status = 502, description = "The chat platform did not take the digest", body = ErrorBody),
+        (status = 503, description = "No notifier is configured", body = ErrorBody),
     )
 )]
 pub(super) async fn digest_send(
     State(state): State<ApiState>,
     _auth: Authed,
 ) -> Result<Json<DigestPreview>, ApiError> {
-    let notifier = state
-        .deps
-        .notifier
-        .clone()
-        .ok_or_else(|| ApiError::Unavailable("no notifier is configured".to_owned()))?;
+    let notifier = state.deps.notifier.clone().ok_or_else(|| {
+        ApiError::Unavailable(
+            "no notifier is configured (enable [discord] or set discord.webhook_url)".to_owned(),
+        )
+    })?;
     let digest = build(&state).await?;
     let message = OutboundMessage {
         title: format!("Daily digest for {}", digest.date),
@@ -104,7 +105,7 @@ pub(super) async fn digest_send(
     notifier
         .send(&message)
         .await
-        .map_err(|e| ApiError::Unavailable(format!("sending failed: {e}")))?;
+        .map_err(|e| ApiError::Delivery(e.to_string()))?;
     Ok(Json(digest))
 }
 

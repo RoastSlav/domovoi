@@ -98,6 +98,13 @@ pub trait Notifier: Send + Sync {
     /// Stable notifier id from config.
     fn id(&self) -> &str;
 
+    /// Whether a summary sent here can stand in for the cards of incidents held during
+    /// quiet hours. It cannot when the notifier is the chat bot itself: those incidents
+    /// still need their cards, because buttons and reminders hang off them.
+    fn replaces_held_cards(&self) -> bool {
+        true
+    }
+
     /// Sends one message. Does not retry failures; it may wait out a rate limit the
     /// platform announces before giving up.
     async fn send(&self, msg: &OutboundMessage) -> Result<(), ChatError>;

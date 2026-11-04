@@ -100,6 +100,19 @@ pub(crate) fn build_chat(
     let mut gateways: Vec<Arc<dyn ChatGateway>> = Vec::new();
     let mut notifiers: Vec<Arc<dyn Notifier>> = Vec::new();
     if let Some(discord) = &config.discord {
+        let bot = discord.enabled.then(|| {
+            Arc::new(domovoi_chat::discord::DiscordGateway::new(
+                "discord-gateway",
+                discord.bot_token.value().clone(),
+                domovoi_chat::discord::DiscordSettings {
+                    channel_id: discord.channel_id,
+                    web_base: public_url.clone(),
+                },
+                clock.clone(),
+            ))
+        });
+        // The webhook or the bot, never both: every notifier gets every message, so with
+        // both each digest would land in the channel twice.
         if let Some(url) = &discord.webhook_url {
             notifiers.push(Arc::new(
                 domovoi_chat::discord::DiscordWebhookNotifier::new(
@@ -109,16 +122,11 @@ pub(crate) fn build_chat(
                 )
                 .map_err(|err| RuntimeError::Chat(err.to_string()))?,
             ));
+        } else if let Some(bot) = &bot {
+            notifiers.push(bot.clone());
         }
-        if discord.enabled {
-            gateways.push(Arc::new(domovoi_chat::discord::DiscordGateway::new(
-                discord.bot_token.value().clone(),
-                domovoi_chat::discord::DiscordSettings {
-                    channel_id: discord.channel_id,
-                    web_base: public_url.clone(),
-                },
-                clock.clone(),
-            )));
+        if let Some(bot) = bot {
+            gateways.push(bot);
         }
     }
     Ok((gateways, notifiers))
@@ -157,4 +165,77 @@ pub(crate) fn gateway_sinks(
             (gateway, sink)
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use domovoi_config::MapEnv;
+    use domovoi_config::hub::HubConfig;
+    use domovoi_core::ports::{Clock, Notifier};
+    use domovoi_testkit::FakeClock;
+
+    use super::{ChatAdapters, build_chat};
+    use crate::runtime::AdapterOverrides;
+
+    fn config(discord: &str) -> HubConfig {
+        let text = format!(
+            r#"
+[hub]
+name = "adapters-hub"
+data_dir = "/nonexistent/never-used"
+
+[web]
+bind = "127.0.0.1:0"
+
+[agent_server]
+bind = "127.0.0.1:0"
+
+[discord]
+bot_token = {{ env = "BOT_TOKEN" }}
+channel_id = 1234
+allowed_user_ids = [5678]
+{discord}
+"#
+        );
+        let env = MapEnv::new()
+            .with("BOT_TOKEN", "bot-token")
+            .with("HOOK", "https://discord.com/api/webhooks/1/x");
+        domovoi_config::parse(&text, &env).unwrap().0
+    }
+
+    fn adapters(discord: &str) -> ChatAdapters {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let start = "2026-11-01T08:00:00Z".parse().unwrap();
+        let clock: Arc<dyn Clock> = Arc::new(FakeClock::new(start));
+        let url = url::Url::parse("https://domovoi.example.net").unwrap();
+        build_chat(&config(discord), &clock, &url, &AdapterOverrides::default()).unwrap()
+    }
+
+    fn ids(notifiers: &[Arc<dyn Notifier>]) -> Vec<&str> {
+        notifiers.iter().map(|notifier| notifier.id()).collect()
+    }
+
+    #[tokio::test]
+    async fn bot_mode_registers_gateway_notifier_for_digests() {
+        let (gateways, notifiers) = adapters("");
+        assert_eq!(gateways.len(), 1);
+        assert_eq!(ids(&notifiers), ["discord-gateway"]);
+        assert!(!notifiers[0].replaces_held_cards());
+    }
+
+    #[tokio::test]
+    async fn webhook_carries_one_way_messages_instead_of_the_bot() {
+        let (gateways, notifiers) = adapters("webhook_url = { env = \"HOOK\" }");
+        assert_eq!(gateways.len(), 1, "the bot still posts cards");
+        assert_eq!(ids(&notifiers), ["discord-webhook"]);
+    }
+
+    #[tokio::test]
+    async fn disabled_bot_is_neither_gateway_nor_notifier() {
+        let (gateways, notifiers) = adapters("enabled = false");
+        assert!(gateways.is_empty());
+        assert!(notifiers.is_empty());
+    }
 }

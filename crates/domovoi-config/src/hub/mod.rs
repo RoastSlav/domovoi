@@ -259,7 +259,7 @@ pub struct DiscordSection {
     #[serde(default)]
     #[serde(deserialize_with = "crate::snowflake::many")]
     pub allowed_user_ids: Vec<u64>,
-    /// A channel webhook used when the bot is down. Optional.
+    /// A webhook that carries digests and quiet-hours summaries instead of the bot. Optional.
     #[serde(default)]
     pub webhook_url: Option<Secret>,
 }

@@ -10,7 +10,10 @@ import styles from "./digest.module.css";
 
 function sendFailureText(error: unknown): string {
   if (error instanceof ApiFailure && error.status === 503) {
-    return "No chat is configured to send to.";
+    return "No chat is configured to send to. Enable the Discord bot or set a webhook URL.";
+  }
+  if (error instanceof ApiFailure && error.status === 502) {
+    return `Discord did not take the digest: ${error.message}`;
   }
   return "Could not send the digest. Try again.";
 }

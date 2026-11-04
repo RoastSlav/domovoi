@@ -140,6 +140,7 @@ impl SettingsService {
                 let web_base =
                     crate::runtime::support_public_url(config).map_err(|e| e.to_string())?;
                 let gateway = domovoi_chat::discord::DiscordGateway::new(
+                    "discord-gateway",
                     discord.bot_token.value().clone(),
                     domovoi_chat::discord::DiscordSettings {
                         channel_id: discord.channel_id,

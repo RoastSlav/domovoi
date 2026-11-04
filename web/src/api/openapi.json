@@ -7,7 +7,7 @@
       "name": "MIT OR Apache-2.0",
       "identifier": "MIT OR Apache-2.0"
     },
-    "version": "0.0.3"
+    "version": "0.0.4"
   },
   "paths": {
     "/api/v1/actions": {
@@ -445,8 +445,18 @@
               }
             }
           },
+          "502": {
+            "description": "The chat platform did not take the digest",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
           "503": {
-            "description": "No notifier is configured, or sending failed",
+            "description": "No notifier is configured",
             "content": {
               "application/json": {
                 "schema": {

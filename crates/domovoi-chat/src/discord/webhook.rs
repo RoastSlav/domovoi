@@ -1,5 +1,5 @@
 //! [`DiscordWebhookNotifier`]: one-way messages such as the digest, posted to a channel
-//! webhook. Used for digests, and as the fallback when the bot is down.
+//! webhook. When a webhook is configured it carries them instead of the bot.
 
 use std::sync::Arc;
 use std::time::Duration;

@@ -49,7 +49,7 @@ The Discord bot. Omit to run without Discord.
 | `bot_token` | secret | The bot token. |
 | `channel_id` | integer | The channel incidents are posted to. |
 | `enabled` | boolean | Whether the bot runs. Default `true`. |
-| `webhook_url` | secret | A channel webhook used when the bot is down. Optional. |
+| `webhook_url` | secret | A webhook that carries digests and quiet-hours summaries instead of the bot. Optional. |
 
 ### `[heartbeat]`
 

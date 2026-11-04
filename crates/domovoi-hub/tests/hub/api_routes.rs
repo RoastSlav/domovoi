@@ -1,11 +1,14 @@
+use std::sync::Arc;
+
 use axum::http::{Method, StatusCode};
 use domovoi_core::Risk;
-use domovoi_core::ports::{AuditFilter, AuditLog, IncidentRepo, Page};
+use domovoi_core::ports::{AuditFilter, AuditLog, ChatError, IncidentRepo, Page};
+use domovoi_testkit::RecordingNotifier;
 use domovoi_testkit::build::{open_incident, resolved_incident};
 use futures::StreamExt;
 use serde_json::{Value, json};
 
-use crate::api_harness::{Login, api, api_with_triage};
+use crate::api_harness::{Login, api, api_with_notifier, api_with_triage};
 
 async fn incidents_page(a: &crate::api_harness::Api, login: &Login, query: &str) -> Value {
     let reply = a.get(&format!("/api/v1/incidents{query}"), login).await;
@@ -355,6 +358,30 @@ async fn advisories_digest_and_metrics() {
         a.send(Method::GET, "/metrics", None, None).await.text,
         "domovoi_up 1\n"
     );
+}
+
+#[tokio::test]
+async fn digest_send_tells_a_refused_send_from_a_missing_notifier() {
+    let notifier = Arc::new(RecordingNotifier::new("discord-gateway"));
+    let a = api_with_notifier(notifier.clone()).await;
+    let login = a.admin().await;
+
+    notifier.fail_next(ChatError::Rejected(
+        "discord 403: Missing Access".to_owned(),
+    ));
+    let refused = a.post("/api/v1/digest/send", &login, json!({})).await;
+    assert_eq!(refused.status, StatusCode::BAD_GATEWAY, "{}", refused.text);
+    assert_eq!(refused.body["error"], "delivery_failed");
+    assert!(
+        refused.body["message"]
+            .as_str()
+            .unwrap()
+            .contains("Missing Access")
+    );
+
+    let sent = a.post("/api/v1/digest/send", &login, json!({})).await;
+    assert_eq!(sent.status, StatusCode::OK, "{}", sent.text);
+    assert_eq!(notifier.sent().len(), 1);
 }
 
 #[test]
