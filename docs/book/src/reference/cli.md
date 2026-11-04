@@ -143,7 +143,7 @@ The run uses a temporary data directory, so it never touches the hub's database 
 
 ### `domovoi digest now`
 
-Builds today's digest and sends it to every notifier (`[discord] webhook_url`). The hub must be stopped; with it running, use **Send now** on the web UI's Digest page.
+Builds today's digest and sends it to every notifier: the `[discord] webhook_url` if set, otherwise the bot. The hub must be stopped; with it running, use **Send now** on the web UI's Digest page.
 
 ```sh
 domovoi digest now --config /etc/domovoi/hub.toml
