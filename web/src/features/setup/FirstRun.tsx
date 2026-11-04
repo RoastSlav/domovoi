@@ -8,6 +8,7 @@ import { EmptyState } from "../../components/EmptyState";
 import { PasswordPrompt } from "../../components/PasswordPrompt";
 import { EnrollDialog } from "../hosts/EnrollDialog";
 import { DiscordSetupHelp } from "../settings/DiscordSetupHelp";
+import { TestIssues } from "../settings/TestIssues";
 import { Field, ModelField, SecretField } from "../settings/fields";
 import {
   buildChanges,
@@ -342,22 +343,7 @@ function Wizard({ editable }: { editable: Editable }) {
               {tester.data.message}
             </p>
           )}
-          {tester.error && (
-            <>
-              <p role="alert" className={styles.alert}>
-                {tester.error instanceof ApiFailure
-                  ? tester.error.message
-                  : "The test could not run."}
-              </p>
-              {tester.error instanceof ApiFailure &&
-                tester.error.issues.map((i) => (
-                  <p key={`${i.path}:${i.message}`} className={styles.status}>
-                    {i.path ? `${i.path}: ` : ""}
-                    {i.message}
-                  </p>
-                ))}
-            </>
-          )}
+          <TestIssues error={tester.error} />
           {phaseText(apply.phase) && (
             <p role="status" className={styles.status}>
               {phaseText(apply.phase)}

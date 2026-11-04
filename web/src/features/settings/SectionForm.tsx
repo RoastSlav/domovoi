@@ -20,6 +20,7 @@ import {
   type FieldSpec,
 } from "./form";
 import styles from "./settings.module.css";
+import { TestIssues } from "./TestIssues";
 import { phaseText, useApplySettings } from "./useApply";
 
 /** What a section edits and offers. */
@@ -210,22 +211,7 @@ export function SectionForm({ title, fields, editable, schema, test, intro }: Se
             {tester.data.message} ({tester.data.latency_ms} ms)
           </p>
         )}
-        {tester.error && (
-          <>
-            <p role="alert" className={styles.alert}>
-              {tester.error instanceof ApiFailure
-                ? tester.error.message
-                : "The test could not run."}
-            </p>
-            {tester.error instanceof ApiFailure &&
-              tester.error.issues.map((issue) => (
-                <p key={`${issue.path}:${issue.message}`} className={styles.status}>
-                  {issue.path ? `${issue.path}: ` : ""}
-                  {issue.message}
-                </p>
-              ))}
-          </>
-        )}
+        <TestIssues error={tester.error} />
       </form>
       {asking && (
         <PasswordPrompt
