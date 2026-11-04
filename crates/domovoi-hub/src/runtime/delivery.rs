@@ -333,7 +333,7 @@ impl Delivery {
         !self.notifiers.is_empty()
     }
 
-    /// Whether a notifier can take the quiet-hours summary in place of the held cards.
+    /// Whether a notifier takes the quiet-hours summary.
     pub(super) fn can_replace_held_cards(&self) -> bool {
         self.notifiers.iter().any(|n| n.replaces_held_cards())
     }

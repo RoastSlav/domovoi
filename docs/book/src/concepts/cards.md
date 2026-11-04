@@ -43,7 +43,7 @@ While you were away: 2 alerts
 - [info] backup.service failed (resolved)
 ```
 
-Alerts that resolved while held are listed as resolved instead of being posted. An alert that escalates to critical during quiet hours goes out at once. Quiet hours use `[hub] timezone`, may span midnight, and follow daylight-saving changes.
+Alerts still open also get their cards, so they have buttons and reminders. Alerts that resolved while held are listed as resolved instead of being posted, unless that message cannot be delivered, in which case they get cards too. An alert that escalates to critical during quiet hours goes out at once. Quiet hours use `[hub] timezone`, may span midnight, and follow daylight-saving changes.
 
 ## Not notified
 

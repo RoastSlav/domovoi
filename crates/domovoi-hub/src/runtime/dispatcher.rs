@@ -227,23 +227,26 @@ impl Dispatcher {
         let Some(text) = plan.release else {
             return;
         };
-        if self.delivery.can_replace_held_cards() {
-            self.delivery
+        let summary_due = self.delivery.can_replace_held_cards();
+        let summary_sent = summary_due
+            && self
+                .delivery
                 .send_all(OutboundMessage {
                     title: "While you were away".to_owned(),
                     markdown: text,
                     severity: None,
                 })
-                .await;
-            return;
-        }
-        // No notifier apart from the bot for the summary: post a card for each held incident
-        // still open, so nothing raised during quiet hours is lost (INV-11).
+                .await
+                > 0;
+        // Every incident still open gets a card, because its buttons and reminders hang off
+        // it. One that resolved while held needs a card only when its summary failed, or
+        // nothing would say it happened (INV-11).
+        let summary_failed = summary_due && !summary_sent;
         for id in released {
             let Some((incident, _)) = items.iter().find(|(incident, _)| incident.id() == id) else {
                 continue;
             };
-            if incident.resolved_at().is_some() {
+            if incident.resolved_at().is_some() && !summary_failed {
                 continue;
             }
             let action = NotifyAction::PostCard { incident: id };

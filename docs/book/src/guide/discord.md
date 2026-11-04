@@ -55,7 +55,9 @@ webhook_url = { env = "DISCORD_WEBHOOK_URL" }
 
 Set `[web] public_url` too. Card titles link to the incident's page in the web UI, and the bot reads that link to know which incident a thread is about.
 
-Without `webhook_url`, the bot posts the daily digest and the `/digest` command's digest in `channel_id`, and incidents held during quiet hours get their cards when quiet hours end. With `webhook_url`, digests and the quiet-hours summary go to the webhook's channel instead. Only one of them carries these messages, so nothing is posted twice, and neither stands in for the other: if the webhook fails, the bot does not step in.
+Without `webhook_url`, the bot posts the daily digest and the `/digest` command's digest in `channel_id`. With `webhook_url`, digests and the quiet-hours summary go to the webhook's channel instead. Only one of them carries these messages, so nothing is posted twice, and the bot does not repost a digest the webhook failed to deliver.
+
+Incidents held during quiet hours that are still open get their cards when quiet hours end, with or without `webhook_url`, so they have buttons and reminders. If the webhook fails to deliver the summary, the bot also posts cards for the incidents that resolved while held, so no alert is lost.
 
 To create the webhook, open the channel's **Edit Channel → Integrations → Webhooks → New Webhook**, then **Copy Webhook URL**. Treat the URL like a password: anyone who has it can post in the channel.
 

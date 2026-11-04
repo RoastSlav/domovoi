@@ -523,6 +523,149 @@ enabled = false",
     harness.stop().await;
 }
 
+/// Starts a harness in quiet hours with two held alerts: `web-1` still open and `web-2`
+/// resolved while held.
+async fn harness_with_held_open_and_resolved() -> Harness {
+    let mut harness = Harness::new(
+        "[notify]
+quiet_hours = { start = \"22:00\", end = \"07:00\" }
+[notify.digest]
+enabled = false",
+        at("2026-10-31T22:30:00Z"),
+    )
+    .await;
+    harness.start_dispatcher();
+    harness.start_schedulers();
+    for body in [
+        firing("web-1", "disk.full"),
+        firing("web-2", "backup.failed"),
+        resolving("web-2", "backup.failed"),
+    ] {
+        assert_eq!(harness.webhook(&body).await, StatusCode::ACCEPTED);
+    }
+    guard(async {
+        loop {
+            let held = NotifyStateRepo::list_held(&*harness.runtime.as_ref().unwrap().store)
+                .await
+                .unwrap();
+            let resolved = held
+                .iter()
+                .filter(|(_, state)| state.held.as_ref().is_some_and(|item| item.resolved))
+                .count();
+            if held.len() == 2 && resolved == 1 {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+    harness
+}
+
+fn card_hosts(gateway: &RecordingGateway) -> Vec<String> {
+    let mut hosts: Vec<String> = gateway
+        .calls()
+        .iter()
+        .filter_map(|call| match call {
+            GatewayCall::PostCard(card) => Some(card.host.as_str().to_owned()),
+            _ => None,
+        })
+        .collect();
+    hosts.sort();
+    hosts
+}
+
+#[tokio::test]
+async fn quiet_hours_release_posts_cards_for_open_incidents_alongside_the_summary() {
+    let harness = harness_with_held_open_and_resolved().await;
+
+    harness.clock.set(at("2026-11-01T07:00:00Z"));
+    until(|| harness.notifier.sent().len() == 1).await;
+    until(|| post_count(&harness.gateway) >= 1).await;
+
+    let summary = &harness.notifier.sent()[0].markdown;
+    assert!(summary.contains("2 alerts"), "{summary}");
+    assert!(summary.contains("(resolved)"), "{summary}");
+    // Stopping first lets a release still in flight finish, so a stray card would show.
+    let gateway = harness.gateway.clone();
+    harness.stop().await;
+    assert_eq!(
+        card_hosts(&gateway),
+        ["web-1"],
+        "the summary covers the resolved incident"
+    );
+}
+
+#[tokio::test]
+async fn open_incident_released_with_a_summary_gets_reminders() {
+    let harness = harness_with_held_open_and_resolved().await;
+    harness.clock.set(at("2026-11-01T07:00:00Z"));
+    until(|| post_count(&harness.gateway) == 1).await;
+
+    harness.clock.set(at("2026-11-02T07:00:00Z"));
+    until(|| {
+        harness.gateway.calls().iter().any(
+            |call| matches!(call, GatewayCall::Reply(_, text) if text.starts_with("Still ongoing")),
+        )
+    })
+    .await;
+    harness.stop().await;
+}
+
+#[tokio::test]
+async fn failed_quiet_hours_summary_falls_back_to_held_cards() {
+    let harness = harness_with_held_open_and_resolved().await;
+    // The first attempt and every retry.
+    for _ in 0..6 {
+        harness
+            .notifier
+            .fail_next(ChatError::Transport("offline".to_owned()));
+    }
+
+    harness.clock.set(at("2026-11-01T07:00:00Z"));
+    guard(async {
+        while post_count(&harness.gateway) < 2 {
+            harness.clock.advance(SignedDuration::from_secs(1));
+            for _ in 0..20 {
+                tokio::task::yield_now().await;
+            }
+        }
+    })
+    .await;
+
+    assert!(harness.notifier.sent().is_empty());
+    assert_eq!(
+        card_hosts(&harness.gateway),
+        ["web-1", "web-2"],
+        "nothing held is lost, resolved or not"
+    );
+    harness.stop().await;
+}
+
+#[tokio::test]
+async fn summary_sent_after_a_retry_needs_no_fallback_cards() {
+    let harness = harness_with_held_open_and_resolved().await;
+    harness
+        .notifier
+        .fail_next(ChatError::Transport("offline".to_owned()));
+
+    harness.clock.set(at("2026-11-01T07:00:00Z"));
+    guard(async {
+        while harness.notifier.sent().is_empty() {
+            harness.clock.advance(SignedDuration::from_secs(1));
+            for _ in 0..20 {
+                tokio::task::yield_now().await;
+            }
+        }
+    })
+    .await;
+    until(|| post_count(&harness.gateway) >= 1).await;
+
+    let gateway = harness.gateway.clone();
+    harness.stop().await;
+    assert_eq!(card_hosts(&gateway), ["web-1"]);
+}
+
 #[tokio::test]
 async fn daily_digest_goes_out_through_the_bot_notifier() {
     let mut harness = Harness::with_bot_notifier(
