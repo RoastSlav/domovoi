@@ -42,13 +42,20 @@ pub struct TestResult {
 
 impl SettingsService {
     /// Tests `target` with the current settings changed by `patch`, which has the same
-    /// shape as a save; a secret left as `{ keep: true }` uses the stored value.
+    /// shape as a save; a secret left as `{ keep: true }` uses the stored value. A
+    /// Discord test whose patch lists no approvers is tried with a placeholder approver,
+    /// so pressing Test works before "Users who may approve" is filled.
     pub async fn test(
         &self,
         target: Target,
         patch: &Map<String, Value>,
     ) -> Result<TestResult, SettingsError> {
-        let (config, secrets) = self.candidate(patch).await?;
+        let test_patch = if target == Target::Discord {
+            with_test_approver(patch)
+        } else {
+            patch.clone()
+        };
+        let (config, secrets) = self.candidate(&test_patch).await?;
         let started = Instant::now();
         let outcome = tokio::time::timeout(TEST_TIMEOUT, self.run_test(target, &config)).await;
         let latency_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
@@ -222,4 +229,68 @@ fn scrub(message: &str, config: &HubConfig, stored: &StoredState) -> String {
         }
     }
     out
+}
+
+/// `patch` for a Discord test: `discord.allowed_user_ids` becomes `["1"]` when the patch
+/// lists none (missing, `null` or an empty list). A patch that removes the section with
+/// `discord: null` instead gets a section holding only the placeholder approvers, so the
+/// test runs against the saved Discord settings. Only the test candidate gets it, so
+/// saving still needs the real approvers.
+fn with_test_approver(patch: &Map<String, Value>) -> Map<String, Value> {
+    let mut candidate = patch.clone();
+    let listed = candidate
+        .get("discord")
+        .and_then(Value::as_object)
+        .and_then(|discord| discord.get("allowed_user_ids"))
+        .and_then(Value::as_array)
+        .is_some_and(|ids| !ids.is_empty());
+    if listed {
+        return candidate;
+    }
+    let approvers = Value::Array(vec![Value::String("1".to_owned())]);
+    if let Some(discord) = candidate.get_mut("discord").and_then(Value::as_object_mut) {
+        discord.insert("allowed_user_ids".to_owned(), approvers);
+    } else {
+        let mut members = Map::new();
+        members.insert("allowed_user_ids".to_owned(), approvers);
+        candidate.insert("discord".to_owned(), Value::Object(members));
+    }
+    candidate
+}
+
+#[cfg(test)]
+mod tests {
+    use super::with_test_approver;
+    use serde_json::{Map, Value, json};
+
+    fn approver_of(patch: &Map<String, Value>) -> Value {
+        let found = patch
+            .get("discord")
+            .and_then(Value::as_object)
+            .and_then(|discord| discord.get("allowed_user_ids"));
+        found.cloned().unwrap_or(json!([]))
+    }
+
+    fn as_map(object: Value) -> Map<String, Value> {
+        object.as_object().unwrap().clone()
+    }
+
+    #[test]
+    fn discord_test_patch_fills_placeholder_approver_for_absent_null_and_empty_approvers() {
+        let expected = json!(["1"]);
+        for case in [
+            json!({}),
+            json!({"discord": Value::Null}),
+            json!({"discord": {"channel_id": 7, "allowed_user_ids": []}}),
+        ] {
+            let patch = as_map(case);
+            assert_eq!(approver_of(&with_test_approver(&patch)), expected);
+        }
+    }
+
+    #[test]
+    fn discord_test_patch_keeps_approvers_already_listed() {
+        let patch = as_map(json!({"discord": {"allowed_user_ids": ["42"]}}));
+        assert_eq!(approver_of(&with_test_approver(&patch)), json!(["42"]));
+    }
 }

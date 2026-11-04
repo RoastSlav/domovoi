@@ -115,6 +115,53 @@ test("first_run_test_sends_only_the_fields_of_the_step_being_tested", async () =
   expect(body.changes).not.toHaveProperty("hub");
 });
 
+test("first_run_discord_test_includes_the_public_url", async () => {
+  const user = userEvent.setup();
+  route("POST /api/v1/settings/test/discord", () => ({
+    ok: true,
+    message: "posted a test message",
+  }));
+  renderAt("/welcome", "/welcome", <FirstRun />);
+  expect(await screen.findByRole("heading", { name: "Hub" })).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Next" }));
+
+  await user.click(screen.getByRole("button", { name: "Set Bot token" }));
+  await user.type(screen.getByLabelText("New Bot token"), "test-token");
+  await user.type(screen.getByLabelText("Channel ID"), "123456789012345678");
+  await user.click(screen.getByRole("button", { name: "Test" }));
+
+  expect(await screen.findByText(/Worked: /)).toBeVisible();
+  const sent = calls.find((c) => c.route === "POST /api/v1/settings/test/discord");
+  const body = sent?.init.body as { changes: Record<string, unknown> };
+  expect(body.changes.web).toEqual({ public_url: window.location.origin });
+  expect(body.changes.discord).toEqual({
+    bot_token: { set: "test-token" },
+    channel_id: "123456789012345678",
+    enabled: true,
+  });
+});
+
+test("first_run_test_failure_lists_each_issue", async () => {
+  const user = userEvent.setup();
+  route("POST /api/v1/settings/test/discord", () =>
+    failure(400, "invalid", "the settings are not valid", undefined, [
+      { path: "discord.channel_id", message: "bad id", severity: "error" },
+    ]),
+  );
+  renderAt("/welcome", "/welcome", <FirstRun />);
+  expect(await screen.findByRole("heading", { name: "Hub" })).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Next" }));
+
+  await user.click(screen.getByRole("button", { name: "Set Bot token" }));
+  await user.type(screen.getByLabelText("New Bot token"), "test-token");
+  await user.type(screen.getByLabelText("Channel ID"), "123456789012345678");
+  await user.click(screen.getByRole("button", { name: "Test" }));
+
+  const alert = await screen.findByRole("alert");
+  expect(alert).toHaveTextContent("the settings are not valid");
+  expect(screen.getByText("discord.channel_id: bad id")).toBeVisible();
+});
+
 test("first_run_secret_draft_survives_navigation_and_reports_pending", async () => {
   const user = userEvent.setup();
   renderAt("/welcome", "/welcome", <FirstRun />);
