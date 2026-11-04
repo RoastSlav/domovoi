@@ -41,6 +41,7 @@ to search the repository.
 | 21 | [Incident follow-ups as a real chat](21-incident-chat.md) | 21a engine/API, 21b UI, 21c proposals (optional) | M + M + M | |
 | 22 | [General chat, not tied to an incident](22-general-chat.md) | 22a engine, 22b API + UI | M + M | 21a, 21b |
 | 23 | [Denser, modern, faster UI with a host selector](23-ui-refresh.md) | 23a shell, 23b layouts, 23c performance | M + M + S | |
+| 24 | [Baseline profile of each machine on first connect](24-host-baseline-profile.md) | 24a skills, 24b hub collect + UI, 24c triage/chat use + changes | S + L + M | 11a helps |
 
 ## Suggested order
 
@@ -48,7 +49,7 @@ to search the repository.
 2. Shell first, so new pages fit it: **23a**.
 3. Small wins: **05, 06, 12**.
 4. Known conditions: **07 → 08 → 09**.
-5. Triage insight: **10, 11a, 11b**.
+5. Triage insight: **10, 11a, 11b, 24a → 24b → 24c**.
 6. Skills: **13 → 14**.
 7. Versions and logs: **17 → 16a → 16b**.
 8. Models: **19 → 20**.
@@ -82,5 +83,10 @@ to search the repository.
   hub-level problems (such as losing its network) against it.
 - **19**: the fallback provider already exists in config and the engine; it was missing
   from the UI and only kicked in for network, rate-limit and outage errors.
+- **24**: every agent already sends OS, kernel, CPU and RAM in its handshake, but the hub
+  discards them. The profile is built on the hub from read tools the agent already
+  serves (overview, containers, ports, kernel log) plus read skills, so it needs no
+  protocol change. It is stored as a generated note, which makes it visible, searchable
+  and readable by triage without a new table.
 - Several Rust files are close to the 500-line limit (`engine/src/manager/decide.rs` is
   at 492). The prompts that touch them say where to put new code instead.

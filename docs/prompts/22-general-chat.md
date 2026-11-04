@@ -84,8 +84,10 @@ hosts" it answers from a summary of every host. It never changes anything.
    `ChatResponse { answer }`. Build `overview` in the handler: one line per host (name,
    kind, connected or last seen, version, open incidents from `host_dto()`), then the 20
    newest active incidents (host, check, title, status, verdict, last fired). With a
-   host, add that host's latest digest facts (as `hosts::detail()` reads them). 503 when
-   triage is off. Map errors like `incidents::ask`. Add the route to the `writes` list
+   host, add that host's latest digest facts (as `hosts::detail()` reads them) and, if
+   prompt 24 is done, its host profile summary (the generated note tagged
+   `host-profile`, text before `## Details`). Without a host, add one line per host from
+   its profile (OS, RAM, container count) when available. 503 when triage is off. Map errors like `incidents::ask`. Add the route to the `writes` list
    in `crates/domovoi-hub/tests/gates.rs`. Regenerate OpenAPI.
 2. **Web.** Hook `useChat()` (mutation). New page `web/src/features/chat/ChatPage.tsx`
    at `/chat` (nav "Chat"):

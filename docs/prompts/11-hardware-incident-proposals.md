@@ -47,14 +47,19 @@ Two independent prompts. Run 11a, then 11b.
      counters from `/sys/devices/system/edac/mc/mc*/{ce_count,ue_count}` if present;
      `smartctl -H` for each `/dev/sd?` and `/dev/nvme?n1` if `smartctl` is installed.
      Label each block with `== <title>` like `system_overview/run`.
-3. Update the table and the count ("seven" → "nine") in `docs/book/src/guide/skills.md`.
+3. Add both to the table in `docs/book/src/guide/skills.md` and make the count in that
+   page ("seven") match the number of folders in `examples/skills/` (prompt 24a adds two
+   more).
 4. Run `cargo run -p domovoi -- check skills examples/skills` and fix every problem it
    reports (file modes, name matching the folder).
+
+Both skills are also picked up by the host baseline profile (prompt 24b) when installed.
 
 ### Done when
 
 - `cargo test -p domovoi --test cli` passes (it loads every starter skill).
-- `domovoi check skills examples/skills` lists nine valid skills.
+- `domovoi check skills examples/skills` lists every starter skill as valid, including
+  the two new ones.
 
 ---
 

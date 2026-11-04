@@ -53,7 +53,8 @@ chat may propose actions). Run in order.
    the result with `cut(.., 8 * 1024)` and redact it.
 4. **Conversation.** In `followup::answer()`:
    - First user message: `bundle` + `about()` + "Answer the operator's questions about
-     this incident.".
+     this incident.". (`bundle` comes from `context::build`, so once prompt 24c is done it
+     already includes the host profile.)
    - Then, for the last 10 turns of `since_clear(timeline)`: a `Role::User` message with
      the question and a `Role::Assistant` message with the answer (as `Part::Text`).
    - Then the new question as the last `Role::User` message. Keep the total of the
