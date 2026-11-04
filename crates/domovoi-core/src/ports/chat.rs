@@ -98,9 +98,9 @@ pub trait Notifier: Send + Sync {
     /// Stable notifier id from config.
     fn id(&self) -> &str;
 
-    /// Whether a summary sent here can stand in for the cards of incidents held during
-    /// quiet hours. It cannot when the notifier is the chat bot itself: those incidents
-    /// still need their cards, because buttons and reminders hang off them.
+    /// Whether the quiet-hours summary goes here, standing in for the cards of incidents
+    /// that resolved while held. Incidents still open get cards either way, because buttons
+    /// and reminders hang off them, so the chat bot itself answers no and only posts those.
     fn replaces_held_cards(&self) -> bool {
         true
     }
