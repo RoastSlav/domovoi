@@ -135,5 +135,5 @@ The reply counts what happened: `{"created": 2, "skipped": 0, "skipped_files": [
 
 - `GET /healthz` answers `ok` and needs no login.
 - `GET /metrics` serves Prometheus text.
-- Bodies are limited to 1 MiB, and requests other than the event stream to 30 seconds.
+- Bodies are limited to 1 MiB, and requests other than the event stream to 120 seconds. The retry-triage endpoint runs a full triage inside its response, so a local model needs the request to outlive the per-run triage budget (default 90 seconds).
 - Every response carries a strict `Content-Security-Policy` and the other security headers.

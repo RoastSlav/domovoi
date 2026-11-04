@@ -12,8 +12,11 @@ use tower_http::set_header::SetResponseHeaderLayer;
 /// The largest API request body.
 pub const MAX_BODY_BYTES: usize = 1 << 20;
 
-/// How long a request may take; the event stream is exempt.
-pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+/// How long a request may take; the event stream is exempt. The retry-triage
+/// endpoint runs a full triage inside its response, so this stays wider than the
+/// default 90 s per-run triage budget in `hub.toml`; raising the budget further
+/// means raising this with it.
+pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// The path exempt from the timeout.
 pub const EVENTS_PATH: &str = "/api/v1/events";
