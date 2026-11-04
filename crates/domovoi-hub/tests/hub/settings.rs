@@ -290,6 +290,44 @@ async fn test_endpoints_persist_nothing_and_are_rate_limited() {
 }
 
 #[tokio::test]
+async fn discord_connection_test_passes_validation_before_approvers_are_saved() {
+    let a = api().await;
+    let login = a.admin().await;
+    let body = json!({ "changes": { "discord": {
+        "enabled": true,
+        "channel_id": 42,
+        "bot_token": { "set": DISCORD_SECRET }
+    } } });
+    let reply = a
+        .post("/api/v1/settings/test/discord", &login, body.clone())
+        .await;
+    assert_eq!(
+        reply.status,
+        StatusCode::OK,
+        "enabled Discord with no approvers must run, not be rejected: {}",
+        reply.text,
+    );
+    assert_eq!(
+        reply.body["ok"], false,
+        "the test token cannot reach Discord"
+    );
+    assert!(
+        !reply.text.contains("must list at least one Discord"),
+        "the endpoint still rejects a test without approvers: {}",
+        reply.text,
+    );
+    assert!(
+        reply.text.contains("Discord refused"),
+        "the test reached Discord: {}",
+        reply.text,
+    );
+    assert!(
+        a.store.list_prefix("").await.unwrap().is_empty(),
+        "nothing stored"
+    );
+}
+
+#[tokio::test]
 async fn model_discovery_uses_candidate_settings_before_a_model_is_chosen() {
     let server = wiremock::MockServer::start().await;
     wiremock::Mock::given(wiremock::matchers::method("GET"))
