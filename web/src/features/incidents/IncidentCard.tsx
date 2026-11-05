@@ -2,12 +2,17 @@ import type { Card } from "../../api/types";
 import { Badge, badgeLabel } from "../../components/Badge";
 import styles from "./incidents.module.css";
 
-/** The incident's card as chat shows it: badge, headline, key facts and the next step. */
-export function IncidentCard({ card }: { card: Card }) {
+/**
+ * The incident's card like the chat card shows it, except a resolved incident wears a
+ * Resolved badge and keeps its verdict as secondary text.
+ */
+export function IncidentCard({ card, verdict }: { card: Card; verdict?: string | null }) {
   return (
     <section className={styles.card} data-resolved={card.resolved} aria-label="Summary">
       <Badge value={card.resolved ? "resolved" : card.badge} />
-      {card.resolved && <span className={styles.meta}>Triage said {badgeLabel(card.badge)}</span>}
+      {card.resolved && verdict && (
+        <span className={styles.meta}> Triage said {badgeLabel(verdict)}</span>
+      )}
       <h1>{card.headline}</h1>
       {card.bullets.length > 0 && (
         <ul>
