@@ -11,7 +11,9 @@ use jiff::{SignedDuration, Timestamp};
 use super::agent::{self, text_of};
 use super::cache::evidence_digest;
 use super::report::{parse_report, redact_report};
-use super::{DEGRADED_AFTER, FAILED_RETRY, SYSTEM_PROMPT, Shared, context, proposals, tools};
+use super::{
+    DEGRADED_AFTER, FAILED_RETRY, RetryReason, SYSTEM_PROMPT, Shared, context, proposals, tools,
+};
 use crate::advisories::triage_degraded;
 use crate::events::{DomainEvent, EventKind};
 
@@ -53,7 +55,7 @@ async fn outcome(
             Cap::Monthly => "the monthly triage budget is spent".to_owned(),
             Cap::Hourly { retry_at } => {
                 if let Some(at) = retry_at {
-                    shared.defer(incident.id(), at);
+                    shared.defer(incident.id(), at, RetryReason::Cap);
                     format!(
                         "the limit of {} triage runs per hour is reached; it tries again from {}",
                         shared.settings.per_hour_runs,
@@ -102,7 +104,7 @@ async fn outcome(
             if !limits(shared).degraded
                 && let Some(at) = deps.clock.now().checked_add(FAILED_RETRY).ok()
             {
-                shared.defer(incident.id(), at);
+                shared.defer(incident.id(), at, RetryReason::Failed);
             }
             (TriageOutcome::Failed { reason }, BTreeMap::new())
         }

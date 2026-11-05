@@ -371,6 +371,62 @@ async fn failed_retries_stop_at_the_limit_when_other_timeline_entries_land_betwe
 }
 
 #[tokio::test]
+async fn cap_retry_runs_even_after_an_old_failed_retry_chain() {
+    let settings = TriageSettings {
+        per_hour_runs: 1,
+        ..TriageSettings::default()
+    };
+    let w = world(Setup {
+        settings,
+        ..Setup::default()
+    })
+    .await;
+
+    // Three failed runs exhaust the incident's failure retries.
+    w.primary.push_err(LlmError::Unavailable("down".to_owned()));
+    assert!(matches!(w.run().await, TriageOutcome::Failed { .. }));
+    for _ in 0..2 {
+        w.primary.push_err(LlmError::Unavailable("down".to_owned()));
+        w.clock.advance(SignedDuration::from_mins(61));
+        settle().await;
+    }
+    let failed = count(&w, w.incident.id(), "triage.failed").await;
+    assert_eq!(failed, FAILED_RETRY_LIMIT);
+
+    // A non-triage entry lands, and a much later cap skip must still retry.
+    IncidentRepo::append_event(
+        &*w.store,
+        &IncidentTimelineEntry {
+            incident: w.incident.id(),
+            at: w.now(),
+            kind: "severity.changed".to_owned(),
+            summary: "warning → critical".to_owned(),
+            detail: serde_json::Value::Null,
+        },
+    )
+    .await
+    .unwrap();
+    w.clock.advance(SignedDuration::from_hours(24));
+    let other = open_incident(host_id(), "docker.container", Some("redis")).unwrap();
+    IncidentRepo::insert(&*w.store, &other).await.unwrap();
+    w.primary.push_text(report());
+    assert!(matches!(
+        w.triage.triage(&other).await,
+        TriageOutcome::Report(_)
+    ));
+    assert!(matches!(w.run().await, TriageOutcome::Skipped { .. }));
+
+    w.primary.push_text(report());
+    w.clock.advance(SignedDuration::from_mins(61));
+    settle().await;
+    let reports = count(&w, w.incident.id(), "triage.report").await;
+    assert_eq!(
+        reports, 1,
+        "the cap retry is not blocked by the old failure chain"
+    );
+}
+
+#[tokio::test]
 async fn muted_incident_is_not_retried() {
     let w = world(Setup::default()).await;
     w.primary.push_err(LlmError::Unavailable("down".to_owned()));
@@ -478,6 +534,12 @@ async fn waiting_incidents_take_the_next_slot_that_frees() {
         (3, 4),
         "the slot freed at T+90 is used instead of waiting another hour"
     );
+
+    w.primary.push_text(report());
+    w.clock.advance(SignedDuration::from_mins(31)); // T+122: the last waiter's slot is due
+    settle().await;
+    let last = w.primary.requests().len();
+    assert_eq!(last, 5, "the last waiter runs when its slot frees");
     let skipped = total_skips(&w, &others[1..]).await;
     assert_eq!(skipped, 3, "the waiters add no new skips");
 }

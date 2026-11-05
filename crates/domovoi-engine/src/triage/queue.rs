@@ -9,7 +9,7 @@ use jiff::Timestamp;
 use tokio::sync::{Notify, broadcast};
 use tokio::task::JoinSet;
 
-use super::{FAILED_RETRY_LIMIT, Shared, run};
+use super::{FAILED_RETRY_LIMIT, RetryReason, Shared, run};
 use crate::events::{DomainEvent, EventKind};
 
 /// Incidents waiting for a worker, oldest first. A full queue drops the oldest.
@@ -110,14 +110,14 @@ async fn retry_deferred(shared: Arc<Shared>) {
         }
         let now = shared.deps.clock.now();
         let mut free = run::free_slots(&shared, now);
-        for id in take_due(&shared, now) {
+        for (id, reason) in take_due(&shared, now) {
             if free == 0 {
                 if let Some(at) = run::next_slot(&shared).or(run::slot_after(now)) {
-                    shared.defer(id, at);
+                    shared.defer(id, at, reason);
                 }
                 continue;
             }
-            if retry(&shared, id).await {
+            if retry(&shared, id, reason).await {
                 free -= 1;
             }
         }
@@ -135,18 +135,18 @@ async fn retry_deferred(shared: Arc<Shared>) {
     }
 }
 
-/// Takes the incidents deferred at or before `now`, keeping the later ones in place.
-fn take_due(shared: &Shared, now: Timestamp) -> Vec<IncidentId> {
+/// Takes the retries deferred at or before `now`, keeping the later ones in place.
+fn take_due(shared: &Shared, now: Timestamp) -> Vec<(IncidentId, RetryReason)> {
     let mut deferred = shared
         .deferred
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let due = deferred
         .iter()
-        .filter(|(at, _)| *at <= now)
-        .map(|(_, id)| *id)
+        .filter(|(at, _, _)| *at <= now)
+        .map(|(_, id, reason)| (*id, *reason))
         .collect();
-    deferred.retain(|(at, _)| *at > now);
+    deferred.retain(|(at, _, _)| *at > now);
     due
 }
 
@@ -157,14 +157,14 @@ fn earliest(shared: &Shared) -> Option<Timestamp> {
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .iter()
-        .map(|(at, _)| *at)
+        .map(|(at, _, _)| *at)
         .min()
 }
 
 /// Re-queues a deferred incident unless it is gone, still `Pending`, resolved, muted, or
 /// was triaged into a state other than skipped or failed since the deferral. Returns
 /// whether the incident was queued.
-async fn retry(shared: &Arc<Shared>, id: IncidentId) -> bool {
+async fn retry(shared: &Arc<Shared>, id: IncidentId, reason: RetryReason) -> bool {
     let incident = match shared.deps.incidents.get(id).await {
         Ok(Some(incident)) => incident,
         Ok(None) => return false,
@@ -186,29 +186,32 @@ async fn retry(shared: &Arc<Shared>, id: IncidentId) -> bool {
             return false;
         }
     };
-    // Walk the triage history newest first. A finished run means a newer request already
-    // triaged the incident; any other entry that is not a skip or failure ends the failure
-    // count. Non-triage entries say nothing about the run, so they are walked over. The
-    // limit is per incident, so successes elsewhere do not refresh it.
-    let mut triaged = false;
-    let mut failures = 0usize;
-    let mut first = true;
-    for entry in entries.iter().rev() {
-        let kind = entry.kind.as_str();
-        if !kind.starts_with("triage.") || kind == "triage.followup" {
-            continue;
-        }
-        if kind != "triage.skipped" && kind != "triage.failed" {
-            triaged = first;
-            break;
-        }
-        first = false;
-        if kind == "triage.failed" {
-            failures += 1;
-        }
-    }
-    if triaged || failures >= FAILED_RETRY_LIMIT {
+    // The newest triage entry decides whether a newer request already triaged the
+    // incident. A finished run means there is nothing left to retry.
+    let newest = entries
+        .iter()
+        .rev()
+        .map(|entry| entry.kind.as_str())
+        .find(|kind| kind.starts_with("triage.") && *kind != "triage.followup");
+    if newest.is_some_and(|kind| kind != "triage.skipped" && kind != "triage.failed") {
         return false;
+    }
+    // Only a failure retry is limited: count the failed chain newest first, walking over
+    // non-triage entries and stopping at the end of the chain. The limit is per incident,
+    // so successes elsewhere do not refresh it. A cap retry may still run after an old
+    // failed chain, since it was the cap that deferred it.
+    if reason == RetryReason::Failed {
+        let failures = entries
+            .iter()
+            .rev()
+            .map(|entry| entry.kind.as_str())
+            .filter(|kind| kind.starts_with("triage.") && *kind != "triage.followup")
+            .take_while(|kind| *kind == "triage.skipped" || *kind == "triage.failed")
+            .filter(|kind| *kind == "triage.failed")
+            .count();
+        if failures >= FAILED_RETRY_LIMIT {
+            return false;
+        }
     }
     if let Some(dropped) = shared.queue.push(incident) {
         skip_dropped(shared, &dropped).await;

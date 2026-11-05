@@ -142,27 +142,36 @@ pub enum TriageError {
     Store(String),
 }
 
+/// Why a triage run was deferred for a retry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RetryReason {
+    /// The hourly cap skipped the run; it retries once a slot frees.
+    Cap,
+    /// The run failed; it retries after the failure delay, within the failure limit.
+    Failed,
+}
+
 /// The triage service's state shared by its workers and handles.
 pub(crate) struct Shared {
     pub(crate) deps: TriageDeps,
     pub(crate) settings: TriageSettings,
     pub(crate) limits: std::sync::Mutex<run::Limits>,
     pub(crate) queue: queue::Queue,
-    pub(crate) deferred: std::sync::Mutex<Vec<(jiff::Timestamp, IncidentId)>>,
+    pub(crate) deferred: std::sync::Mutex<Vec<(jiff::Timestamp, IncidentId, RetryReason)>>,
     pub(crate) deferred_ready: tokio::sync::Notify,
 }
 
 impl Shared {
-    /// Schedules a triage of `id` at `at`. The newest call wins, so the reason in the
-    /// last skip or failure is the one the retry matches.
-    pub(crate) fn defer(&self, id: IncidentId, at: jiff::Timestamp) {
+    /// Schedules a triage of `id` at `at` for `reason`. The newest call wins, so the
+    /// reason in the last skip or failure is the one the retry matches.
+    pub(crate) fn defer(&self, id: IncidentId, at: jiff::Timestamp, reason: RetryReason) {
         let mut deferred = self
             .deferred
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        match deferred.iter().position(|(_, entry_id)| *entry_id == id) {
-            Some(index) => deferred[index] = (at, id),
-            None => deferred.push((at, id)),
+        match deferred.iter().position(|(_, entry_id, _)| *entry_id == id) {
+            Some(index) => deferred[index] = (at, id, reason),
+            None => deferred.push((at, id, reason)),
         }
         self.deferred_ready.notify_one();
     }
