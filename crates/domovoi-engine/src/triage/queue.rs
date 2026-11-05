@@ -64,8 +64,7 @@ impl Queue {
 
 /// Feeds `TriageRequested` events into the queue and runs the workers until shutdown.
 /// Requests for incidents in a maintenance window or under an ack rule (`notify == false`)
-/// are not triaged: nobody is told about them, and neither are retries of incidents that
-/// were deferred while silenced.
+/// are not triaged: nobody is told about them.
 pub(crate) async fn serve(shared: Arc<Shared>, mut events: broadcast::Receiver<DomainEvent>) {
     let mut workers = JoinSet::new();
     for _ in 0..shared.settings.concurrency.max(1) {
@@ -187,25 +186,28 @@ async fn retry(shared: &Arc<Shared>, id: IncidentId) -> bool {
             return false;
         }
     };
-    let triaged = entries
-        .iter()
-        .map(|entry| entry.kind.clone())
-        .rfind(|kind| kind.starts_with("triage.") && kind != "triage.followup")
-        .is_some_and(|kind| kind != "triage.skipped" && kind != "triage.failed");
-    if triaged {
-        return false;
+    // Walk the triage history newest first. A finished run means a newer request already
+    // triaged the incident; any other entry that is not a skip or failure ends the failure
+    // count. Non-triage entries say nothing about the run, so they are walked over. The
+    // limit is per incident, so successes elsewhere do not refresh it.
+    let mut triaged = false;
+    let mut failures = 0usize;
+    let mut first = true;
+    for entry in entries.iter().rev() {
+        let kind = entry.kind.as_str();
+        if !kind.starts_with("triage.") || kind == "triage.followup" {
+            continue;
+        }
+        if kind != "triage.skipped" && kind != "triage.failed" {
+            triaged = first;
+            break;
+        }
+        first = false;
+        if kind == "triage.failed" {
+            failures += 1;
+        }
     }
-    // Walk the triage history newest first, stopping at a finished run, and count the
-    // failures. This limit is per incident, so successes elsewhere do not refresh it.
-    let failures = entries
-        .iter()
-        .map(|entry| entry.kind.clone())
-        .rev()
-        .filter(|kind| kind != "triage.followup")
-        .take_while(|kind| kind == "triage.skipped" || kind == "triage.failed")
-        .filter(|kind| kind == "triage.failed")
-        .count();
-    if failures >= FAILED_RETRY_LIMIT {
+    if triaged || failures >= FAILED_RETRY_LIMIT {
         return false;
     }
     if let Some(dropped) = shared.queue.push(incident) {

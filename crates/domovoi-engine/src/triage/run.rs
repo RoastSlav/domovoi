@@ -55,13 +55,13 @@ async fn outcome(
                 if let Some(at) = retry_at {
                     shared.defer(incident.id(), at);
                     format!(
-                        "the limit of {} triage runs per hour is reached; it runs again at {}",
+                        "the limit of {} triage runs per hour is reached; it tries again from {}",
                         shared.settings.per_hour_runs,
                         at.strftime("%H:%M UTC"),
                     )
                 } else {
                     format!(
-                        "the limit of {} triage runs per hour is reached.",
+                        "the limit of {} triage runs per hour is reached",
                         shared.settings.per_hour_runs,
                     )
                 }
@@ -163,26 +163,26 @@ async fn over_cap(shared: &Shared) -> Option<Cap> {
     None
 }
 
+/// How many recorded run starts have already left the rolling hour.
+fn expired_runs(starts: &VecDeque<Timestamp>, since: Timestamp) -> usize {
+    starts.iter().take_while(|t| **t <= since).count()
+}
+
 /// Free run slots in the current hour.
 pub(crate) fn free_slots(shared: &Shared, now: Timestamp) -> usize {
     let since = hour_ago(now);
     let window = limits(shared);
-    let expired = window.starts.iter().take_while(|t| **t <= since).count();
-    let used = window.starts.len() - expired;
+    let used = window.starts.len() - expired_runs(&window.starts, since);
     let capacity = shared.settings.per_hour_runs as usize;
     capacity.saturating_sub(used)
 }
 
-/// When the next run slot frees, if the current hour is full and can still free one.
+/// When the oldest run still in the window frees its slot, if any run is.
 pub(crate) fn next_slot(shared: &Shared) -> Option<Timestamp> {
     let now = shared.deps.clock.now();
     let since = hour_ago(now);
     let window = limits(shared);
-    let expired = window.starts.iter().take_while(|t| **t <= since).count();
-    let capacity = shared.settings.per_hour_runs as usize;
-    if window.starts.len() - expired < capacity {
-        return None;
-    }
+    let expired = expired_runs(&window.starts, since);
     window.starts.get(expired).and_then(|t| slot_after(*t))
 }
 

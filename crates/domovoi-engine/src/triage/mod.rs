@@ -53,8 +53,8 @@ pub const DEGRADED_AFTER: u32 = 3;
 /// How long a failed triage waits before it runs again.
 pub const FAILED_RETRY: jiff::SignedDuration = jiff::SignedDuration::from_hours(1);
 
-/// How many times one incident retries a failed triage. The limit is per incident, so a
-/// success elsewhere does not refresh it.
+/// Consecutive failed runs after which one incident stops retrying. The limit is per
+/// incident, so a success elsewhere does not refresh it.
 pub const FAILED_RETRY_LIMIT: usize = 3;
 
 /// How triage runs are limited. The hub fills it from `[triage]` in `hub.toml`.
