@@ -9,6 +9,7 @@ export const nas: Host = {
   name: "nas",
   kind: "remote",
   connected: true,
+  agent_enrolled: true,
   version: "0.0.1",
   outdated: false,
   open_incidents: 1,
