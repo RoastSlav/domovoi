@@ -31,11 +31,16 @@ export function RetryTriage({
   // A report is already on the card; only a skip or a failure is worth a line of its own.
   const state =
     retry.data ?? (triage?.kind === "skipped" || triage?.kind === "failed" ? triage : undefined);
+  const fresh = triage?.kind === "report" || triage?.kind === "cached";
   return (
     <div className={styles.toolbar}>
-      <Button onClick={() => retry.mutate()} disabled={retry.isPending}>
-        {retry.isPending ? "Triaging…" : "Retry triage"}
+      <Button onClick={() => retry.mutate(fresh)} disabled={retry.isPending}>
+        {retry.isPending ? "Triaging…" : fresh ? "Run triage again" : "Retry triage"}
       </Button>
+      <p className={styles.triage}>
+        Runs the model again with the current skills, notes and evidence. Counts against the hourly
+        triage limit.
+      </p>
       {state && (
         <p role="status" className={styles.triage}>
           {describe(state)}
