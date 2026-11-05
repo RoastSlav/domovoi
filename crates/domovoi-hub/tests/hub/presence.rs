@@ -2,9 +2,13 @@
 
 use std::sync::atomic::Ordering;
 
-use domovoi_core::{Severity, SignalClass, SignalStatus, SourceKind};
+use domovoi_core::ports::HostRepo;
+use domovoi_core::{
+    AgentId, AgentIdentity, HostKind, Severity, SignalClass, SignalStatus, SourceKind,
+};
 use domovoi_proto::Message;
 use domovoi_proto::messages::Ping;
+use domovoi_testkit::build::host;
 use jiff::SignedDuration;
 
 use crate::agent::online;
@@ -120,4 +124,41 @@ async fn configured_probes_decide_for_hosts_and_known_hosts_are_watched() {
     assert_eq!(signals.len(), 1);
     assert_eq!(signals[0].host(), ident.host);
     assert_eq!(hub.probes.asked(), ["1.1.1.1:53", "nas.lan:8080"]);
+}
+
+/// The hub restarted with an agent enrolled for its own host in the store, but no
+/// session: the watchdog still watches that host, so the silence becomes a signal.
+#[tokio::test]
+async fn local_agent_enrolled_but_never_connected_raises_agent_down() {
+    let hub = Hub::start().await;
+    let row = domovoi_core::Host {
+        id: hub.hub_host,
+        kind: HostKind::Local,
+        ..host("testhub").unwrap()
+    };
+    HostRepo::upsert_host(&*hub.store, &row).await.unwrap();
+    let agent = AgentIdentity {
+        agent: AgentId::new(),
+        host: hub.hub_host,
+        public_key: [0; 32],
+        version: "0.1.0".to_owned(),
+        enrolled_at: t0(),
+        revoked_at: None,
+    };
+    HostRepo::put_agent(&*hub.store, &agent).await.unwrap();
+    hub.server.watch_known_hosts().await.unwrap();
+    hub.clock.advance(SILENT);
+    hub.server.check_presence().await;
+    let signals = hub.signals();
+    assert_eq!(signals.len(), 1);
+    let down = &signals[0];
+    assert_eq!(down.check().as_str(), "agent.down");
+    assert_eq!(down.host(), hub.hub_host);
+    assert_eq!(down.severity(), Severity::Warning);
+    assert!(
+        down.summary().contains("add a [[probes]]"),
+        "{}",
+        down.summary(),
+    );
+    assert_eq!(hub.probes.asked(), ["1.1.1.1:53"]);
 }

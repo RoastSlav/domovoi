@@ -7,7 +7,7 @@
       "name": "MIT OR Apache-2.0",
       "identifier": "MIT OR Apache-2.0"
     },
-    "version": "0.0.4"
+    "version": "0.0.5"
   },
   "paths": {
     "/api/v1/actions": {
@@ -2768,10 +2768,15 @@
           "name",
           "kind",
           "connected",
+          "agent_enrolled",
           "outdated",
           "open_incidents"
         ],
         "properties": {
+          "agent_enrolled": {
+            "type": "boolean",
+            "description": "Whether the host has an enrolled, not revoked agent. The hub loses sight of agents\nwhen it restarts, so this is what tells the UI an agent exists at all."
+          },
           "connected": {
             "type": "boolean",
             "description": "Whether the agent is connected now."

@@ -41,6 +41,10 @@
   background: var(--ok);
 }
 
+.status[data-connected="hub"]::before {
+  background: var(--muted);
+}
+
 .version {
   display: inline-flex;
   flex-wrap: wrap;

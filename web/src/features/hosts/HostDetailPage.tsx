@@ -9,7 +9,7 @@ import { Tabs } from "../../components/Tabs";
 import { incidentBadge } from "../incidents/badge";
 import { SkillList } from "../skills/SkillList";
 import { ChecksTab } from "./ChecksTab";
-import { HostStatus, VersionCell } from "./HostStatus";
+import { HostStatus, isHubOnly, VersionCell } from "./HostStatus";
 import styles from "./hosts.module.css";
 
 function Facts({ facts }: { facts: Fact[] }) {
@@ -79,6 +79,16 @@ export function HostDetailPage() {
         <Link to="/hosts">Hosts</Link>
       </p>
       <h1>{detail.host.name}</h1>
+      {isHubOnly(detail.host) && (
+        <p className={styles.hint}>
+          This is the hub&rsquo;s own machine. Domovoi records hub problems here, such as the hub
+          losing its network. To also watch this machine&rsquo;s disks, services and containers,
+          install an agent on it and enroll it under the name <strong>{detail.host.name}</strong>.
+          The hub can also run the agent in its own process with{" "}
+          <code>--with-local-agent /etc/domovoi/agent.toml</code>, where checks that need root
+          report errors.
+        </p>
+      )}
       <p>
         <HostStatus host={detail.host} /> · agent <VersionCell host={detail.host} /> ·{" "}
         {detail.host.kind}

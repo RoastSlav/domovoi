@@ -218,13 +218,15 @@ impl AgentServer {
         presence::check(&self.inner).await;
     }
 
-    /// Starts watching every remote host with an enrolled agent, so one that never
-    /// reconnects after a hub restart is still noticed.
+    /// Starts watching every host that is not External and has an enrolled agent, so
+    /// one that never reconnects after a hub restart is still noticed. The hub's own
+    /// machine counts too: its local agent can be enrolled in the store while the
+    /// process starts without one.
     pub async fn watch_known_hosts(&self) -> Result<(), AgentServerError> {
         let inner = &self.inner;
         let now = inner.deps.clock.now();
         for host in inner.deps.hosts.list_hosts().await? {
-            if host.kind == HostKind::Remote
+            if host.kind != HostKind::External
                 && inner.deps.hosts.live_agent(host.id).await?.is_some()
             {
                 inner.registry.track(host.id, now);

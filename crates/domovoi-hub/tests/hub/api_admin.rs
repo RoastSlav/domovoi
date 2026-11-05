@@ -1,7 +1,7 @@
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode, header};
-use domovoi_core::ports::{FactRepo, NoteRepo, Presence};
-use domovoi_core::{DigestFact, FactValue};
+use domovoi_core::ports::{FactRepo, HostRepo, NoteRepo, Presence};
+use domovoi_core::{AgentIdentity, DigestFact, FactValue};
 use domovoi_hub::api::notes_import::{MAX_FILE_BYTES, MAX_FILES};
 use jiff::SignedDuration;
 use serde_json::Value;
@@ -240,5 +240,84 @@ async fn hosts_report_open_incidents_and_outdated_agents() {
     assert_eq!(
         nas(&a.get("/api/v1/hosts", &login).await)["outdated"],
         false
+    );
+}
+
+/// A hub that restarted and has not seen its host's agent again still reports the
+/// agent as enrolled, so the UI does not mistake the host for a hub-only machine.
+#[tokio::test]
+async fn enrolled_agent_offline_after_restart_keeps_agent_enrolled() {
+    let a = api().await;
+    let login = a.admin().await;
+    let agent = AgentIdentity {
+        agent: domovoi_core::AgentId::new(),
+        host: a.nas.id,
+        public_key: [0; 32],
+        version: "0.0.1".to_owned(),
+        enrolled_at: a.now(),
+        revoked_at: None,
+    };
+    HostRepo::put_agent(&*a.store, &agent).await.unwrap();
+    let hosts = a.get("/api/v1/hosts", &login).await;
+    assert_eq!(
+        hosts.body[0]["agent_enrolled"], true,
+        "enrolled before the restart"
+    );
+    assert_eq!(
+        hosts.body[0]["connected"], false,
+        "the restarted hub has not seen it"
+    );
+    assert_eq!(
+        hosts.body[0]["last_seen"],
+        Value::Null,
+        "the fake link never saw this agent either"
+    );
+}
+
+/// The flag follows the agent table: off before enrolling, on once enrolled, and
+/// back off when the agent is revoked.
+#[tokio::test]
+async fn agent_enrolled_flag_tracks_enroll_and_revoke() {
+    let a = api().await;
+    let login = a.admin().await;
+    let nas = |reply: &Reply| -> Value {
+        reply
+            .body
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|host| host["name"] == "nas")
+            .unwrap()
+            .clone()
+    };
+    let before = a.get("/api/v1/hosts", &login).await;
+    assert_eq!(
+        nas(&before)["agent_enrolled"],
+        false,
+        "no agent has enrolled yet"
+    );
+    let agent = AgentIdentity {
+        agent: domovoi_core::AgentId::new(),
+        host: a.nas.id,
+        public_key: [0; 32],
+        version: "0.0.1".to_owned(),
+        enrolled_at: a.now(),
+        revoked_at: None,
+    };
+    HostRepo::put_agent(&*a.store, &agent).await.unwrap();
+    let enrolled = a.get("/api/v1/hosts", &login).await;
+    assert_eq!(
+        nas(&enrolled)["agent_enrolled"],
+        true,
+        "the enrolled agent is reported"
+    );
+    HostRepo::revoke_agent(&*a.store, agent.agent, a.now())
+        .await
+        .unwrap();
+    let revoked = a.get("/api/v1/hosts", &login).await;
+    assert_eq!(
+        nas(&revoked)["agent_enrolled"],
+        false,
+        "revoking the agent flips the flag"
     );
 }

@@ -79,6 +79,10 @@
   background: var(--danger);
 }
 
+.pill[data-connected="hub"] .dot {
+  background: var(--muted);
+}
+
 .live {
   display: inline-flex;
   align-items: center;
