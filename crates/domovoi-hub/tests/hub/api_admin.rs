@@ -273,3 +273,38 @@ async fn enrolled_agent_offline_after_restart_keeps_agent_enrolled() {
         "the fake link never saw this agent either"
     );
 }
+
+/// The flag follows the agent table: off before enrolling, on once enrolled, and
+/// back off when the agent is revoked.
+#[tokio::test]
+async fn agent_enrolled_flag_tracks_enroll_and_revoke() {
+    let a = api().await;
+    let login = a.admin().await;
+    assert_eq!(
+        a.get("/api/v1/hosts", &login).await.body[0]["agent_enrolled"],
+        false,
+        "no agent has enrolled yet"
+    );
+    let agent = AgentIdentity {
+        agent: domovoi_core::AgentId::new(),
+        host: a.nas.id,
+        public_key: [0; 32],
+        version: "0.0.1".to_owned(),
+        enrolled_at: a.now(),
+        revoked_at: None,
+    };
+    HostRepo::put_agent(&*a.store, &agent).await.unwrap();
+    assert_eq!(
+        a.get("/api/v1/hosts", &login).await.body[0]["agent_enrolled"],
+        true,
+        "the enrolled agent is reported"
+    );
+    HostRepo::revoke_agent(&*a.store, agent.agent, a.now())
+        .await
+        .unwrap();
+    assert_eq!(
+        a.get("/api/v1/hosts", &login).await.body[0]["agent_enrolled"],
+        false,
+        "revoking the agent flips the flag"
+    );
+}
