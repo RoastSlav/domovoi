@@ -1,5 +1,5 @@
 use domovoi_core::ports::LlmError;
-use domovoi_core::ports::{AdvisoryRepo, IncidentRepo, UsageRepo};
+use domovoi_core::ports::{AdvisoryRepo, IncidentRepo, IncidentTimelineEntry, UsageRepo};
 use domovoi_core::{Incident, IncidentId, TriageOutcome, UserId};
 use domovoi_engine::EventKind;
 use domovoi_engine::triage::{FAILED_RETRY_LIMIT, TriageSettings};
@@ -90,7 +90,7 @@ async fn hourly_cap_skip_runs_again_when_a_slot_frees() {
         w.run().await,
         TriageOutcome::Skipped {
             reason,
-        } if reason.contains("per hour") && reason.contains("runs again at")
+        } if reason.contains("per hour") && reason.contains("tries again from")
     ));
 
     // The retry runs through the queue, so give the service's tasks turns to reach it.
@@ -324,6 +324,109 @@ async fn failed_retries_stop_at_the_limit_even_when_other_incidents_succeed() {
 }
 
 #[tokio::test]
+async fn failed_retries_stop_at_the_limit_when_other_timeline_entries_land_between_them() {
+    let settings = TriageSettings {
+        per_hour_runs: 100,
+        ..TriageSettings::default()
+    };
+    let w = world(Setup {
+        settings,
+        ..Setup::default()
+    })
+    .await;
+    let other = open_incident(host_id(), "docker.container", Some("redis")).unwrap();
+    IncidentRepo::insert(&*w.store, &other).await.unwrap();
+    w.primary.push_err(LlmError::Unavailable("bad".to_owned()));
+    assert!(matches!(w.run().await, TriageOutcome::Failed { .. }));
+    for i in 0..8 {
+        w.primary.push_text(report());
+        assert!(matches!(
+            w.triage.triage(&other).await,
+            TriageOutcome::Report(_)
+        ));
+        if i < 2 {
+            w.primary.push_err(LlmError::Unavailable("bad".to_owned()));
+        }
+        // What the manager writes each time the severity moves.
+        IncidentRepo::append_event(
+            &*w.store,
+            &IncidentTimelineEntry {
+                incident: w.incident.id(),
+                at: w.now(),
+                kind: "severity.changed".to_owned(),
+                summary: "warning → critical".to_owned(),
+                detail: serde_json::Value::Null,
+            },
+        )
+        .await
+        .unwrap();
+        w.clock.advance(SignedDuration::from_mins(61));
+        settle().await;
+    }
+    let failed = count(&w, w.incident.id(), "triage.failed").await;
+    assert_eq!(
+        failed, FAILED_RETRY_LIMIT,
+        "non-triage entries do not reset the chain"
+    );
+}
+
+#[tokio::test]
+async fn cap_retry_runs_even_after_an_old_failed_retry_chain() {
+    let settings = TriageSettings {
+        per_hour_runs: 1,
+        ..TriageSettings::default()
+    };
+    let w = world(Setup {
+        settings,
+        ..Setup::default()
+    })
+    .await;
+
+    // Three failed runs exhaust the incident's failure retries.
+    w.primary.push_err(LlmError::Unavailable("down".to_owned()));
+    assert!(matches!(w.run().await, TriageOutcome::Failed { .. }));
+    for _ in 0..2 {
+        w.primary.push_err(LlmError::Unavailable("down".to_owned()));
+        w.clock.advance(SignedDuration::from_mins(61));
+        settle().await;
+    }
+    let failed = count(&w, w.incident.id(), "triage.failed").await;
+    assert_eq!(failed, FAILED_RETRY_LIMIT);
+
+    // A non-triage entry lands, and a much later cap skip must still retry.
+    IncidentRepo::append_event(
+        &*w.store,
+        &IncidentTimelineEntry {
+            incident: w.incident.id(),
+            at: w.now(),
+            kind: "severity.changed".to_owned(),
+            summary: "warning → critical".to_owned(),
+            detail: serde_json::Value::Null,
+        },
+    )
+    .await
+    .unwrap();
+    w.clock.advance(SignedDuration::from_hours(24));
+    let other = open_incident(host_id(), "docker.container", Some("redis")).unwrap();
+    IncidentRepo::insert(&*w.store, &other).await.unwrap();
+    w.primary.push_text(report());
+    assert!(matches!(
+        w.triage.triage(&other).await,
+        TriageOutcome::Report(_)
+    ));
+    assert!(matches!(w.run().await, TriageOutcome::Skipped { .. }));
+
+    w.primary.push_text(report());
+    w.clock.advance(SignedDuration::from_mins(61));
+    settle().await;
+    let reports = count(&w, w.incident.id(), "triage.report").await;
+    assert_eq!(
+        reports, 1,
+        "the cap retry is not blocked by the old failure chain"
+    );
+}
+
+#[tokio::test]
 async fn muted_incident_is_not_retried() {
     let w = world(Setup::default()).await;
     w.primary.push_err(LlmError::Unavailable("down".to_owned()));
@@ -383,6 +486,62 @@ async fn one_free_slot_retries_one_incident_without_new_skips() {
     assert_eq!(later, 3, "the next incident retries in order");
     let waited = total_skips(&w, &others).await;
     assert_eq!(waited, 4, "waiting incidents are not skipped again");
+}
+
+#[tokio::test]
+async fn waiting_incidents_take_the_next_slot_that_frees() {
+    let settings = TriageSettings {
+        per_hour_runs: 2,
+        ..TriageSettings::default()
+    };
+    let w = world(Setup {
+        settings,
+        ..Setup::default()
+    })
+    .await;
+    let mut others = Vec::new();
+    for name in ["b", "c", "d", "e"] {
+        let other = open_incident(host_id(), "docker.container", Some(name)).unwrap();
+        IncidentRepo::insert(&*w.store, &other).await.unwrap();
+        others.push(other);
+    }
+    w.primary.push_text(report());
+    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+    w.clock.advance(SignedDuration::from_mins(30));
+    w.primary.push_text(report());
+    assert!(matches!(
+        w.triage.triage(&others[0]).await,
+        TriageOutcome::Report(_)
+    ));
+    for other in &others[1..] {
+        assert!(matches!(
+            w.triage.triage(other).await,
+            TriageOutcome::Skipped { .. }
+        ));
+    }
+
+    for _ in 0..4 {
+        w.primary.push_text(report());
+    }
+    w.clock.advance(SignedDuration::from_mins(31)); // T+61: the first slot frees
+    settle().await;
+    let first = w.primary.requests().len();
+    w.clock.advance(SignedDuration::from_mins(30)); // T+91: the slot freed at T+90 is due
+    settle().await;
+    let second = w.primary.requests().len();
+    assert_eq!(
+        (first, second),
+        (3, 4),
+        "the slot freed at T+90 is used instead of waiting another hour"
+    );
+
+    w.primary.push_text(report());
+    w.clock.advance(SignedDuration::from_mins(31)); // T+122: the last waiter's slot is due
+    settle().await;
+    let last = w.primary.requests().len();
+    assert_eq!(last, 5, "the last waiter runs when its slot frees");
+    let skipped = total_skips(&w, &others[1..]).await;
+    assert_eq!(skipped, 3, "the waiters add no new skips");
 }
 
 #[tokio::test]

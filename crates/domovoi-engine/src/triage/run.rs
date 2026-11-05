@@ -11,7 +11,9 @@ use jiff::{SignedDuration, Timestamp};
 use super::agent::{self, text_of};
 use super::cache::evidence_digest;
 use super::report::{parse_report, redact_report};
-use super::{DEGRADED_AFTER, FAILED_RETRY, SYSTEM_PROMPT, Shared, context, proposals, tools};
+use super::{
+    DEGRADED_AFTER, FAILED_RETRY, RetryReason, SYSTEM_PROMPT, Shared, context, proposals, tools,
+};
 use crate::advisories::triage_degraded;
 use crate::events::{DomainEvent, EventKind};
 
@@ -53,15 +55,15 @@ async fn outcome(
             Cap::Monthly => "the monthly triage budget is spent".to_owned(),
             Cap::Hourly { retry_at } => {
                 if let Some(at) = retry_at {
-                    shared.defer(incident.id(), at);
+                    shared.defer(incident.id(), at, RetryReason::Cap);
                     format!(
-                        "the limit of {} triage runs per hour is reached; it runs again at {}",
+                        "the limit of {} triage runs per hour is reached; it tries again from {}",
                         shared.settings.per_hour_runs,
                         at.strftime("%H:%M UTC"),
                     )
                 } else {
                     format!(
-                        "the limit of {} triage runs per hour is reached.",
+                        "the limit of {} triage runs per hour is reached",
                         shared.settings.per_hour_runs,
                     )
                 }
@@ -102,7 +104,7 @@ async fn outcome(
             if !limits(shared).degraded
                 && let Some(at) = deps.clock.now().checked_add(FAILED_RETRY).ok()
             {
-                shared.defer(incident.id(), at);
+                shared.defer(incident.id(), at, RetryReason::Failed);
             }
             (TriageOutcome::Failed { reason }, BTreeMap::new())
         }
@@ -163,26 +165,26 @@ async fn over_cap(shared: &Shared) -> Option<Cap> {
     None
 }
 
+/// How many recorded run starts have already left the rolling hour.
+fn expired_runs(starts: &VecDeque<Timestamp>, since: Timestamp) -> usize {
+    starts.iter().take_while(|t| **t <= since).count()
+}
+
 /// Free run slots in the current hour.
 pub(crate) fn free_slots(shared: &Shared, now: Timestamp) -> usize {
     let since = hour_ago(now);
     let window = limits(shared);
-    let expired = window.starts.iter().take_while(|t| **t <= since).count();
-    let used = window.starts.len() - expired;
+    let used = window.starts.len() - expired_runs(&window.starts, since);
     let capacity = shared.settings.per_hour_runs as usize;
     capacity.saturating_sub(used)
 }
 
-/// When the next run slot frees, if the current hour is full and can still free one.
+/// When the oldest run still in the window frees its slot, if any run is.
 pub(crate) fn next_slot(shared: &Shared) -> Option<Timestamp> {
     let now = shared.deps.clock.now();
     let since = hour_ago(now);
     let window = limits(shared);
-    let expired = window.starts.iter().take_while(|t| **t <= since).count();
-    let capacity = shared.settings.per_hour_runs as usize;
-    if window.starts.len() - expired < capacity {
-        return None;
-    }
+    let expired = expired_runs(&window.starts, since);
     window.starts.get(expired).and_then(|t| slot_after(*t))
 }
 
