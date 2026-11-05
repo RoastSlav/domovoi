@@ -6,6 +6,7 @@ import { Badge } from "../../components/Badge";
 import { EmptyState } from "../../components/EmptyState";
 import { RelativeTime } from "../../components/RelativeTime";
 import { Tabs } from "../../components/Tabs";
+import { incidentBadge } from "../incidents/badge";
 import { SkillList } from "../skills/SkillList";
 import { ChecksTab } from "./ChecksTab";
 import { HostStatus, VersionCell } from "./HostStatus";
@@ -46,7 +47,7 @@ function RecentIncidents({ host }: { host: string }) {
     <ul>
       {items.map((incident) => (
         <li key={incident.id}>
-          <Badge value={incident.verdict ?? incident.severity} />{" "}
+          <Badge value={incidentBadge(incident)} />{" "}
           <Link to={`/incidents/${incident.id}`}>{incident.title}</Link> · {incident.status} ·{" "}
           <RelativeTime at={incident.last_firing_at} />
         </li>
