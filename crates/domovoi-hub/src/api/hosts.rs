@@ -55,6 +55,7 @@ pub(crate) async fn host_dto(
         name: host.name.to_string(),
         kind: kind(host.kind).to_owned(),
         connected: false,
+        agent_enrolled: state.deps.hosts.live_agent(host.id).await?.is_some(),
         version: None,
         connected_since: None,
         last_seen: None,

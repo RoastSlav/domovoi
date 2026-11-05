@@ -36,6 +36,10 @@ The web UI's **Advisories** list problems the hub found with itself: a failing h
 
 **A check reports "journalctl is not installed" or "systemctl is not installed".** The agent runs in a container, where those tools are not available. Install the agent on the host for unit and journal checks.
 
+### The hub's own host says Hub only
+
+The host named after the hub is its own machine, shown as "Hub only, no agent" while no agent has ever enrolled there; it is not broken, since the hub records its own problems (like `hub.network_degraded`) against it. An enrolled agent that is merely offline still shows as offline; after a hub restart the hub keeps watching enrolled hosts, so an agent that never reconnects is reported as an `agent.down` incident on that host (see [Host down, agent down, or the hub's own network](guide/agents.md#host-down-agent-down-or-the-hubs-own-network)). If you stopped running the local agent, revoke it with `sudo -u domovoi domovoi hub agent revoke <hub name>` while the hub is stopped, or with **Revoke** on the host's row in the web UI. To also watch that machine's disks, services and containers, enroll a separate agent on it under the hub's name. The hub can instead run the agent inside its own process with `--with-local-agent /etc/domovoi/agent.toml`, but then the two share the hub's unprivileged sandbox, and checks that need root report errors (see [Binary and systemd](install/binary.md)).
+
 ## Skills
 
 **A skill is not offered.** Run `sudo domovoi check skills /etc/domovoi/skills`: it explains each problem, such as a group-writable script or a folder name that differs from the manifest's. Then restart the agent; it reads skills when it starts.

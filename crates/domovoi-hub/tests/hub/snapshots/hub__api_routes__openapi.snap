@@ -586,6 +586,10 @@ expression: spec
       "HostDto": {
         "description": "A host and its agent's presence.",
         "properties": {
+          "agent_enrolled": {
+            "description": "Whether the host has an enrolled, not revoked agent. The hub loses sight of agents\nwhen it restarts, so this is what tells the UI an agent exists at all.",
+            "type": "boolean"
+          },
           "connected": {
             "description": "Whether the agent is connected now.",
             "type": "boolean"
@@ -639,6 +643,7 @@ expression: spec
           "name",
           "kind",
           "connected",
+          "agent_enrolled",
           "outdated",
           "open_incidents"
         ],
