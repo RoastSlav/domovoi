@@ -66,6 +66,20 @@ test("incident_list_shows_empty_state", async () => {
   expect(await screen.findByText("No incidents")).toBeVisible();
 });
 
+test("resolved_incidents_show_a_resolved_badge", async () => {
+  route("GET /api/v1/incidents", () => ({
+    items: [incident({ status: "resolved", verdict: "ACTION_NEEDED" })],
+    next_cursor: null,
+  }));
+  renderAt("/incidents", "/incidents", <IncidentListPage />);
+
+  expect(await screen.findByText("Resolved")).toBeVisible();
+  expect(screen.queryByText("Action needed")).toBeNull();
+  expect(screen.getByText(/nas · resolved · last fired/)).toHaveTextContent(
+    "triage said Action needed",
+  );
+});
+
 test("incident_detail_shows_card_fields_and_timeline", async () => {
   route("GET /api/v1/incidents/{id}", () => detail());
   renderAt("/incidents/inc-1", "/incidents/:id", <IncidentDetailPage />);
