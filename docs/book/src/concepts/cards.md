@@ -14,7 +14,7 @@ plex is crash-looping after the 1.41 image update
 Next: Pin the previous image tag and restart.
 ```
 
-- **Badge:** the triage verdict (ACTION NEEDED, MONITOR, EXPECTED, FIXED) or, before triage, the severity.
+- **Badge:** the triage verdict (ACTION NEEDED, MONITOR, EXPECTED, FIXED) or, before triage, the severity. A resolved card keeps its badge and is marked as resolved; the web UI shows a Resolved badge instead, with the verdict as secondary text.
 - **Headline:** one line, at most 120 characters.
 - **Up to three bullets:** evidence from triage, or from the latest signal when there is no triage yet.
 - **One next step,** when triage suggests one.

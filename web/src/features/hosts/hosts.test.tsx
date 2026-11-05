@@ -1,7 +1,7 @@
 import { act, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { calls, resetApi, route } from "../../test/apiMock";
-import { nas } from "../../test/fixtures";
+import { incident, nas } from "../../test/fixtures";
 import { renderAt } from "../../test/render";
 import { HostsPage } from "./HostsPage";
 import { HostDetailPage } from "./HostDetailPage";
@@ -222,4 +222,20 @@ test("host_detail_page_has_no_hint_when_an_agent_is_enrolled", async () => {
   await screen.findByRole("heading", { name: "hub" });
   expect(screen.queryByText(/^This is the hub/)).toBeNull();
   expect(screen.getByText("Never connected")).toHaveAttribute("data-connected", "false");
+});
+
+test("recent_incidents_show_resolved_badge_and_triage_note", async () => {
+  route("GET /api/v1/hosts/{name}", () => ({ host: nas, facts: [] }));
+  route("GET /api/v1/incidents", () => ({
+    items: [incident({ status: "resolved", verdict: "ACTION_NEEDED" })],
+    next_cursor: null,
+  }));
+  route("GET /api/v1/hosts/{name}/skills", () => []);
+  renderAt("/hosts/nas", "/hosts/:name", <HostDetailPage />);
+
+  const rows = await screen.findAllByRole("listitem");
+  const row = rows.find((li) => within(li).queryByRole("link", { name: "Disk /srv is 93% full" }));
+  expect(within(row as HTMLElement).getByText("Resolved")).toBeVisible();
+  expect(within(row as HTMLElement).getByText(/triage said Action needed/)).toBeVisible();
+  expect(screen.queryByText("Action needed")).toBeNull();
 });

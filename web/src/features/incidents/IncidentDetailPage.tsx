@@ -53,7 +53,7 @@ export function IncidentDetailPage() {
         <Link to="/incidents">Incidents</Link> · {host} · {summary.check}
         {summary.target ? ` ${summary.target}` : ""} · {summary.status}
       </p>
-      <IncidentCard card={card} />
+      <IncidentCard card={card} verdict={report?.verdict ?? summary.verdict ?? null} />
       <RetryTriage incidentId={summary.id} triage={incident.data.triage} />
       <IncidentControls incident={summary} />
 

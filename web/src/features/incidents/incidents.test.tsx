@@ -66,6 +66,59 @@ test("incident_list_shows_empty_state", async () => {
   expect(await screen.findByText("No incidents")).toBeVisible();
 });
 
+test("resolved_incidents_show_a_resolved_badge", async () => {
+  route("GET /api/v1/incidents", () => ({
+    items: [incident({ status: "resolved", verdict: "ACTION_NEEDED" })],
+    next_cursor: null,
+  }));
+  renderAt("/incidents", "/incidents", <IncidentListPage />);
+
+  expect(await screen.findByText("Resolved")).toBeVisible();
+  expect(screen.queryByText("Action needed")).toBeNull();
+  expect(screen.getByText(/nas · resolved · last fired/)).toHaveTextContent(
+    "triage said Action needed",
+  );
+});
+
+test("resolved_incident_without_verdict_has_no_triage_note", async () => {
+  route("GET /api/v1/incidents", () => ({
+    items: [incident({ status: "resolved", verdict: null })],
+    next_cursor: null,
+  }));
+  renderAt("/incidents", "/incidents", <IncidentListPage />);
+
+  expect(await screen.findByText("Resolved")).toBeVisible();
+  expect(screen.queryByText(/triage said/)).toBeNull();
+});
+
+test("resolved_card_shows_resolved_badge_and_keeps_the_verdict", async () => {
+  const d = detail();
+  route("GET /api/v1/incidents/{id}", () => ({
+    ...d,
+    incident: { ...d.incident, status: "resolved" },
+    card: { ...d.card, resolved: true },
+  }));
+  renderAt("/incidents/inc-1", "/incidents/:id", <IncidentDetailPage />);
+
+  const card = await screen.findByRole("region", { name: "Summary" });
+  expect(card).toHaveTextContent("Resolved Triage said Action needed");
+});
+
+test("resolved_card_without_triage_claims_no_verdict", async () => {
+  const d = detail();
+  route("GET /api/v1/incidents/{id}", () => ({
+    ...d,
+    incident: incident({ status: "resolved", verdict: null }),
+    report: null,
+    card: { ...d.card, badge: "warning", resolved: true },
+  }));
+  renderAt("/incidents/inc-1", "/incidents/:id", <IncidentDetailPage />);
+
+  const card = await screen.findByRole("region", { name: "Summary" });
+  expect(within(card).getByText("Resolved")).toBeVisible();
+  expect(within(card).queryByText(/Triage said/)).toBeNull();
+});
+
 test("incident_detail_shows_card_fields_and_timeline", async () => {
   route("GET /api/v1/incidents/{id}", () => detail());
   renderAt("/incidents/inc-1", "/incidents/:id", <IncidentDetailPage />);
