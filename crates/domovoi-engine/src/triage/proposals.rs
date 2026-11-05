@@ -5,6 +5,7 @@
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
+use domovoi_core::ports::{ActionFilter, Page};
 use domovoi_core::{
     ActionId, ActionProposal, ActionRequest, Incident, Principal, SkillSummary, TriageReport,
     ValidatedArgs,
@@ -63,6 +64,25 @@ pub(crate) async fn create(
     let mut tokens = BTreeMap::new();
     let mut kept = Vec::new();
     let mut dropped = Vec::new();
+    let existing = match shared
+        .deps
+        .actions
+        .list(
+            &ActionFilter {
+                incident: Some(incident.id()),
+                status: Some("proposed".to_owned()),
+                ..ActionFilter::default()
+            },
+            &Page::first(50),
+        )
+        .await
+    {
+        Ok(page) => page.items,
+        Err(err) => {
+            tracing::warn!(%err, "could not list proposed actions");
+            Vec::new()
+        }
+    };
     for proposal in std::mem::take(&mut report.proposals) {
         let (skill, args) = match check(&proposal, incident, skills) {
             Ok(found) => found,
@@ -73,6 +93,14 @@ pub(crate) async fn create(
                 continue;
             }
         };
+        // An identical action is already waiting for a human; do not offer it twice.
+        let wanted = args.to_map();
+        let duplicate = existing
+            .iter()
+            .any(|a| a.skill() == &skill.name && a.args() == &wanted);
+        if duplicate {
+            continue;
+        }
         let token = mint_token();
         let action = ActionRequest::propose(
             incident.id(),

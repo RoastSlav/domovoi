@@ -189,6 +189,39 @@ async fn repeat_incident_uses_cache_without_model_call() {
 }
 
 #[tokio::test]
+async fn fresh_retriage_skips_the_repeat_cache_and_calls_the_model_again() {
+    let mut w = world(Setup::default()).await;
+    w.primary.push_text(report());
+    let TriageOutcome::Report(first) = w.run().await else {
+        panic!("the first run calls the model");
+    };
+
+    let earlier = resolved_incident(host_id(), "docker.container", Some("nginx"), w.now()).unwrap();
+    IncidentRepo::insert(&*w.store, &earlier).await.unwrap();
+    w.signal(disk(92.1)).await;
+    w.drain();
+    assert_eq!(
+        w.run().await,
+        TriageOutcome::Cached {
+            report: first,
+            from: earlier.id()
+        }
+    );
+    assert_eq!(w.primary.requests().len(), 1, "the repeat uses the cache");
+
+    w.primary.push_text(report());
+    assert!(matches!(
+        w.triage.retriage(&w.incident).await,
+        TriageOutcome::Report(_)
+    ));
+    assert_eq!(
+        w.primary.requests().len(),
+        2,
+        "a fresh retriage calls the model again"
+    );
+}
+
+#[tokio::test]
 async fn fallback_to_secondary_then_failed() {
     let w = world(Setup {
         secondary: true,

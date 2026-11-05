@@ -218,7 +218,12 @@ impl TriageHandle {
     /// Triages `incident` now, outside the queue but with the same caps, and attaches the
     /// outcome. The service does this for every `TriageRequested`.
     pub async fn triage(&self, incident: &Incident) -> TriageOutcome {
-        run::triage(&self.shared, incident).await
+        run::triage(&self.shared, incident, false).await
+    }
+
+    /// Triages `incident` again from scratch: no repeat cache, same caps.
+    pub async fn retriage(&self, incident: &Incident) -> TriageOutcome {
+        run::triage(&self.shared, incident, true).await
     }
 
     /// Answers `question` about `incident` in plain text, with the same read tools and
