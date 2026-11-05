@@ -52,12 +52,19 @@ async fn outcome(
         let reason = match cap {
             Cap::Monthly => "the monthly triage budget is spent".to_owned(),
             Cap::Hourly { retry_at } => {
-                shared.defer(incident.id(), retry_at);
-                format!(
-                    "the limit of {} triage runs per hour is reached; it runs again at {}",
-                    shared.settings.per_hour_runs,
-                    retry_at.strftime("%H:%M"),
-                )
+                if let Some(at) = retry_at {
+                    shared.defer(incident.id(), at);
+                    format!(
+                        "the limit of {} triage runs per hour is reached; it runs again at {}",
+                        shared.settings.per_hour_runs,
+                        at.strftime("%H:%M UTC"),
+                    )
+                } else {
+                    format!(
+                        "the limit of {} triage runs per hour is reached.",
+                        shared.settings.per_hour_runs,
+                    )
+                }
             }
         };
         return (TriageOutcome::Skipped { reason }, BTreeMap::new());
@@ -92,14 +99,10 @@ async fn outcome(
         Err(reason) => {
             let reason = deps.redactor.redact(&reason);
             failed(shared, incident, &reason).await;
-            if !limits(shared).degraded {
-                shared.defer(
-                    incident.id(),
-                    deps.clock
-                        .now()
-                        .checked_add(FAILED_RETRY)
-                        .unwrap_or(deps.clock.now()),
-                );
+            if !limits(shared).degraded
+                && let Some(at) = deps.clock.now().checked_add(FAILED_RETRY).ok()
+            {
+                shared.defer(incident.id(), at);
             }
             (TriageOutcome::Failed { reason }, BTreeMap::new())
         }
@@ -111,8 +114,24 @@ async fn outcome(
 pub(crate) enum Cap {
     /// The monthly model budget is spent; nothing retries it before the next month.
     Monthly,
-    /// The hourly run limit is reached; `retry_at` is when a run slot frees.
-    Hourly { retry_at: Timestamp },
+    /// The hourly run limit is reached; `retry_at` is when a run slot frees, and `None`
+    /// when the limit is zero and no slot ever will.
+    Hourly { retry_at: Option<Timestamp> },
+}
+
+/// The start of the rolling hour that the hourly run limit counts.
+fn hour_ago(now: Timestamp) -> Timestamp {
+    now.checked_sub(SignedDuration::from_hours(1))
+        .unwrap_or(now)
+}
+
+/// When a run that started at `oldest` frees its slot, or `None` when the arithmetic
+/// leaves the timestamp range.
+pub(crate) fn slot_after(oldest: Timestamp) -> Option<Timestamp> {
+    oldest
+        .checked_add(SignedDuration::from_hours(1))
+        .and_then(|at| at.checked_add(SignedDuration::from_secs(1)))
+        .ok()
 }
 
 /// Why this run may not start, or `None` after recording its start.
@@ -130,28 +149,41 @@ async fn over_cap(shared: &Shared) -> Option<Cap> {
             Err(err) => tracing::warn!(%err, "could not read model spending; triaging anyway"),
         }
     }
-    let hour_ago = now
-        .checked_sub(SignedDuration::from_hours(1))
-        .unwrap_or(now);
+    let since = hour_ago(now);
     let mut limits = limits(shared);
-    while limits.starts.front().is_some_and(|t| *t <= hour_ago) {
+    while limits.starts.front().is_some_and(|t| *t <= since) {
         limits.starts.pop_front();
     }
     if limits.starts.len() >= settings.per_hour_runs as usize {
-        let retry_at = limits
-            .starts
-            .front()
-            .map_or(now, |oldest| {
-                oldest
-                    .checked_add(SignedDuration::from_hours(1))
-                    .unwrap_or(now)
-            })
-            .checked_add(SignedDuration::from_secs(1))
-            .unwrap_or(now);
-        return Some(Cap::Hourly { retry_at });
+        return Some(Cap::Hourly {
+            retry_at: limits.starts.front().and_then(|t| slot_after(*t)),
+        });
     }
     limits.starts.push_back(now);
     None
+}
+
+/// Free run slots in the current hour.
+pub(crate) fn free_slots(shared: &Shared, now: Timestamp) -> usize {
+    let since = hour_ago(now);
+    let window = limits(shared);
+    let expired = window.starts.iter().take_while(|t| **t <= since).count();
+    let used = window.starts.len() - expired;
+    let capacity = shared.settings.per_hour_runs as usize;
+    capacity.saturating_sub(used)
+}
+
+/// When the next run slot frees, if the current hour is full and can still free one.
+pub(crate) fn next_slot(shared: &Shared) -> Option<Timestamp> {
+    let now = shared.deps.clock.now();
+    let since = hour_ago(now);
+    let window = limits(shared);
+    let expired = window.starts.iter().take_while(|t| **t <= since).count();
+    let capacity = shared.settings.per_hour_runs as usize;
+    if window.starts.len() - expired < capacity {
+        return None;
+    }
+    window.starts.get(expired).and_then(|t| slot_after(*t))
 }
 
 /// A cached report for the same fingerprint and evidence, and the resolved incident it

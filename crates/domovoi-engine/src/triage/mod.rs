@@ -53,6 +53,10 @@ pub const DEGRADED_AFTER: u32 = 3;
 /// How long a failed triage waits before it runs again.
 pub const FAILED_RETRY: jiff::SignedDuration = jiff::SignedDuration::from_hours(1);
 
+/// How many times one incident retries a failed triage. The limit is per incident, so a
+/// success elsewhere does not refresh it.
+pub const FAILED_RETRY_LIMIT: usize = 3;
+
 /// How triage runs are limited. The hub fills it from `[triage]` in `hub.toml`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TriageSettings {
@@ -149,15 +153,14 @@ pub(crate) struct Shared {
 }
 
 impl Shared {
-    /// Schedules a triage of `id` at `at`, keeping the later time if it is already
-    /// scheduled.
+    /// Schedules a triage of `id` at `at`. The newest call wins, so the reason in the
+    /// last skip or failure is the one the retry matches.
     pub(crate) fn defer(&self, id: IncidentId, at: jiff::Timestamp) {
         let mut deferred = self
             .deferred
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         match deferred.iter().position(|(_, entry_id)| *entry_id == id) {
-            Some(index) if deferred[index].0 >= at => {}
             Some(index) => deferred[index] = (at, id),
             None => deferred.push((at, id)),
         }

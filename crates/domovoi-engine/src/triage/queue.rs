@@ -9,7 +9,7 @@ use jiff::Timestamp;
 use tokio::sync::{Notify, broadcast};
 use tokio::task::JoinSet;
 
-use super::{Shared, run};
+use super::{FAILED_RETRY_LIMIT, Shared, run};
 use crate::events::{DomainEvent, EventKind};
 
 /// Incidents waiting for a worker, oldest first. A full queue drops the oldest.
@@ -64,7 +64,8 @@ impl Queue {
 
 /// Feeds `TriageRequested` events into the queue and runs the workers until shutdown.
 /// Requests for incidents in a maintenance window or under an ack rule (`notify == false`)
-/// are not triaged: nobody is told about them.
+/// are not triaged: nobody is told about them, and neither are retries of incidents that
+/// were deferred while silenced.
 pub(crate) async fn serve(shared: Arc<Shared>, mut events: broadcast::Receiver<DomainEvent>) {
     let mut workers = JoinSet::new();
     for _ in 0..shared.settings.concurrency.max(1) {
@@ -98,8 +99,10 @@ pub(crate) async fn serve(shared: Arc<Shared>, mut events: broadcast::Receiver<D
 }
 
 /// Re-triages incidents that the hourly cap deferred or that failed, once their retry
-/// time passes. An incident already resolved, still `Pending` or triaged by a newer
-/// request is left alone.
+/// time passes. A retry only takes a free run slot: when the hour is full the incident
+/// waits for the next slot instead of triaging and skipping again. An incident already
+/// resolved, still `Pending`, muted or triaged by a newer request is left alone. Pending
+/// retries live in memory, so they are dropped when the hub restarts.
 async fn retry_deferred(shared: Arc<Shared>) {
     let shutdown = shared.deps.shutdown.clone();
     loop {
@@ -107,14 +110,28 @@ async fn retry_deferred(shared: Arc<Shared>) {
             return;
         }
         let now = shared.deps.clock.now();
+        let mut free = run::free_slots(&shared, now);
         for id in take_due(&shared, now) {
-            retry(&shared, id).await;
+            if free == 0 {
+                if let Some(at) = run::next_slot(&shared).or(run::slot_after(now)) {
+                    shared.defer(id, at);
+                }
+                continue;
+            }
+            if retry(&shared, id).await {
+                free -= 1;
+            }
         }
-        let at = earliest(&shared);
-        tokio::select! {
-            () = shutdown.cancelled() => return,
-            () = shared.deferred_ready.notified() => {},
-            () = sleep_until_deferred(&shared, at.unwrap_or(now)), if at.is_some() => {},
+        match earliest(&shared) {
+            Some(at) => tokio::select! {
+                () = shutdown.cancelled() => return,
+                () = shared.deferred_ready.notified() => {},
+                () = shared.deps.clock.sleep_until(at) => {},
+            },
+            None => tokio::select! {
+                () = shutdown.cancelled() => return,
+                () = shared.deferred_ready.notified() => {},
+            },
         }
     }
 }
@@ -145,46 +162,56 @@ fn earliest(shared: &Shared) -> Option<Timestamp> {
         .min()
 }
 
-/// Waits until the earliest deferred retry time.
-async fn sleep_until_deferred(shared: &Arc<Shared>, at: Timestamp) {
-    shared.deps.clock.sleep_until(at).await;
-}
-
-/// Re-queues a deferred incident unless it is gone, still `Pending`, resolved, or was
-/// triaged into a state other than skipped or failed since the deferral.
-async fn retry(shared: &Arc<Shared>, id: IncidentId) {
+/// Re-queues a deferred incident unless it is gone, still `Pending`, resolved, muted, or
+/// was triaged into a state other than skipped or failed since the deferral. Returns
+/// whether the incident was queued.
+async fn retry(shared: &Arc<Shared>, id: IncidentId) -> bool {
     let incident = match shared.deps.incidents.get(id).await {
         Ok(Some(incident)) => incident,
-        Ok(None) => return,
+        Ok(None) => return false,
         Err(err) => {
             tracing::warn!(%err, %id, "could not read the deferred incident");
-            return;
+            return false;
         }
     };
     if matches!(
         incident.status(),
-        IncidentStatus::Pending | IncidentStatus::Resolved
+        IncidentStatus::Pending | IncidentStatus::Resolved | IncidentStatus::Muted { .. }
     ) {
-        return;
+        return false;
     }
     let entries = match shared.deps.incidents.timeline(id).await {
         Ok(entries) => entries,
         Err(err) => {
             tracing::warn!(%err, %id, "could not read the deferred incident's timeline");
-            return;
+            return false;
         }
     };
     let triaged = entries
-        .into_iter()
-        .map(|entry| entry.kind)
+        .iter()
+        .map(|entry| entry.kind.clone())
         .rfind(|kind| kind.starts_with("triage.") && kind != "triage.followup")
         .is_some_and(|kind| kind != "triage.skipped" && kind != "triage.failed");
     if triaged {
-        return;
+        return false;
+    }
+    // Walk the triage history newest first, stopping at a finished run, and count the
+    // failures. This limit is per incident, so successes elsewhere do not refresh it.
+    let failures = entries
+        .iter()
+        .map(|entry| entry.kind.clone())
+        .rev()
+        .filter(|kind| kind != "triage.followup")
+        .take_while(|kind| kind == "triage.skipped" || kind == "triage.failed")
+        .filter(|kind| kind == "triage.failed")
+        .count();
+    if failures >= FAILED_RETRY_LIMIT {
+        return false;
     }
     if let Some(dropped) = shared.queue.push(incident) {
         skip_dropped(shared, &dropped).await;
     }
+    true
 }
 
 async fn reload(shared: &Arc<Shared>) {
