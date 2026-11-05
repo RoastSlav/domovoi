@@ -3,11 +3,11 @@ import { Link, useSearchParams } from "react-router";
 import { useHostNames, useHosts } from "../../api/hooks/hosts";
 import { useIncidents, type IncidentFilters } from "../../api/hooks/incidents";
 import type { IncidentSummary } from "../../api/types";
-import { Badge, badgeLabel } from "../../components/Badge";
+import { Badge } from "../../components/Badge";
 import { Button } from "../../components/Button";
 import { EmptyState } from "../../components/EmptyState";
 import { RelativeTime } from "../../components/RelativeTime";
-import { incidentBadge } from "./badge";
+import { incidentBadge, triageNote } from "./badge";
 import styles from "./incidents.module.css";
 
 const STATUSES = ["pending", "open", "acked", "muted", "resolved"];
@@ -44,6 +44,7 @@ function Filter({
 }
 
 function IncidentRow({ incident, host }: { incident: IncidentSummary; host: string | undefined }) {
+  const note = triageNote(incident);
   return (
     <li className={styles.row}>
       <div className={styles.rowHead}>
@@ -56,9 +57,7 @@ function IncidentRow({ incident, host }: { incident: IncidentSummary; host: stri
         {host ?? "unknown host"} · {incident.status} · last fired{" "}
         <RelativeTime at={incident.last_firing_at} />
         {incident.occurrences > 1 && ` · ${incident.occurrences} times`}
-        {incident.status === "resolved" &&
-          incident.verdict &&
-          ` · triage said ${badgeLabel(incident.verdict)}`}
+        {note && ` · ${note}`}
       </p>
     </li>
   );
