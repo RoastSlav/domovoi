@@ -280,8 +280,19 @@ async fn enrolled_agent_offline_after_restart_keeps_agent_enrolled() {
 async fn agent_enrolled_flag_tracks_enroll_and_revoke() {
     let a = api().await;
     let login = a.admin().await;
+    let nas = |reply: &Reply| -> Value {
+        reply
+            .body
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|host| host["name"] == "nas")
+            .unwrap()
+            .clone()
+    };
+    let before = a.get("/api/v1/hosts", &login).await;
     assert_eq!(
-        a.get("/api/v1/hosts", &login).await.body[0]["agent_enrolled"],
+        nas(&before)["agent_enrolled"],
         false,
         "no agent has enrolled yet"
     );
@@ -294,16 +305,18 @@ async fn agent_enrolled_flag_tracks_enroll_and_revoke() {
         revoked_at: None,
     };
     HostRepo::put_agent(&*a.store, &agent).await.unwrap();
+    let enrolled = a.get("/api/v1/hosts", &login).await;
     assert_eq!(
-        a.get("/api/v1/hosts", &login).await.body[0]["agent_enrolled"],
+        nas(&enrolled)["agent_enrolled"],
         true,
         "the enrolled agent is reported"
     );
     HostRepo::revoke_agent(&*a.store, agent.agent, a.now())
         .await
         .unwrap();
+    let revoked = a.get("/api/v1/hosts", &login).await;
     assert_eq!(
-        a.get("/api/v1/hosts", &login).await.body[0]["agent_enrolled"],
+        nas(&revoked)["agent_enrolled"],
         false,
         "revoking the agent flips the flag"
     );
