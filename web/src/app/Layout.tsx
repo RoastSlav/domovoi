@@ -32,28 +32,32 @@ function LiveIndicator({ status }: { status: LiveStatus }) {
   );
 }
 
-function HostPills() {
+/** The pill per host, for the top bar: the hub's own machine reads "hub only". */
+export function HostPills() {
   const hosts = useHosts();
   if (!hosts.data?.length) {
     return null;
   }
   return (
     <ul className={styles.pills} aria-label="Hosts">
-      {hosts.data.map((host) => (
-        <li key={host.id}>
-          <Link
-            to={`/hosts/${host.name}`}
-            className={styles.pill}
-            data-connected={isHubOnly(host) ? "hub" : host.connected}
-          >
-            <span className={styles.dot} aria-hidden="true" />
-            {host.name}
-            <span className="visually-hidden">
-              {isHubOnly(host) ? " hub only" : host.connected ? " connected" : " offline"}
-            </span>
-          </Link>
-        </li>
-      ))}
+      {hosts.data.map((host) => {
+        const hubOnly = isHubOnly(host);
+        return (
+          <li key={host.id}>
+            <Link
+              to={`/hosts/${host.name}`}
+              className={styles.pill}
+              data-connected={hubOnly ? "hub" : host.connected}
+            >
+              <span className={styles.dot} aria-hidden="true" />
+              {host.name}
+              <span className="visually-hidden">
+                {hubOnly ? " hub only" : host.connected ? " connected" : " offline"}
+              </span>
+            </Link>
+          </li>
+        );
+      })}
     </ul>
   );
 }

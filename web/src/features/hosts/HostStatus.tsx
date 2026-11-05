@@ -42,9 +42,11 @@ export function HostStatus({ host }: { host: Host }) {
   );
 }
 
-/** Whether the host is the hub's own machine with no agent ever enrolled. */
+/** Whether the host is the hub's own machine and no agent was ever enrolled on it.
+ * The hub keeps its own host as `local`; enrolled agents survive restarts, so the
+ * missing flag, not the lost presence, marks the hub-only state. */
 export function isHubOnly(host: Host): boolean {
-  return host.kind === "local" && !host.connected && !host.last_seen;
+  return host.kind === "local" && !host.agent_enrolled;
 }
 
 /** The agent's version, marked when it is older than the hub. */

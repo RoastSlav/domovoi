@@ -870,6 +870,11 @@ export interface components {
         };
         /** @description A host and its agent's presence. */
         HostDto: {
+            /**
+             * @description Whether the host has an enrolled, not revoked agent. The hub loses sight of agents
+             *     when it restarts, so this is what tells the UI an agent exists at all.
+             */
+            agent_enrolled: boolean;
             /** @description Whether the agent is connected now. */
             connected: boolean;
             /** @description Since when it is connected. */
