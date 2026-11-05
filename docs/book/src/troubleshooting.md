@@ -36,6 +36,10 @@ The web UI's **Advisories** list problems the hub found with itself: a failing h
 
 **A check reports "journalctl is not installed" or "systemctl is not installed".** The agent runs in a container, where those tools are not available. Install the agent on the host for unit and journal checks.
 
+### The hub's own host says Hub only
+
+The host named after the hub is its own machine, shown as "Hub only, no agent" when no agent runs there; it is not broken, since the hub records its own problems (like `hub.network_degraded`) against it. To also watch that machine's disks, services and containers, enroll an agent on it under the hub's name, or run the hub with `--with-local-agent /etc/domovoi/agent.toml` (see [Binary and systemd](install/binary.md) and `deploy/systemd/single-box.conf`).
+
 ## Skills
 
 **A skill is not offered.** Run `sudo domovoi check skills /etc/domovoi/skills`: it explains each problem, such as a group-writable script or a folder name that differs from the manifest's. Then restart the agent; it reads skills when it starts.

@@ -9,6 +9,7 @@ import { Tabs } from "../../components/Tabs";
 import { SkillList } from "../skills/SkillList";
 import { ChecksTab } from "./ChecksTab";
 import { HostStatus, VersionCell } from "./HostStatus";
+import { isHubOnly } from "./HostStatus";
 import styles from "./hosts.module.css";
 
 function Facts({ facts }: { facts: Fact[] }) {
@@ -78,6 +79,15 @@ export function HostDetailPage() {
         <Link to="/hosts">Hosts</Link>
       </p>
       <h1>{detail.host.name}</h1>
+      {isHubOnly(detail.host) && (
+        <p className={styles.hint}>
+          This is the hub&rsquo;s own machine. Domovoi records hub problems here, such as the hub
+          losing its network. To also watch this machine&rsquo;s disks, services and containers,
+          install an agent on it and enroll it with the name <strong>{detail.host.name}</strong>, or
+          run the hub with <code>--with-local-agent /etc/domovoi/agent.toml</code> (see
+          <code>deploy/systemd/single-box.conf</code>).
+        </p>
+      )}
       <p>
         <HostStatus host={detail.host} /> · agent <VersionCell host={detail.host} /> ·{" "}
         {detail.host.kind}

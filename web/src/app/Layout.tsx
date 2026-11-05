@@ -4,6 +4,7 @@ import { useHosts } from "../api/hooks/hosts";
 import { useLogout, useSession } from "../api/hooks/session";
 import { Button } from "../components/Button";
 import { SetupBanner } from "../features/setup/SetupBanner";
+import { isHubOnly } from "../features/hosts/HostStatus";
 import styles from "./Layout.module.css";
 
 const NAV = [
@@ -40,10 +41,16 @@ function HostPills() {
     <ul className={styles.pills} aria-label="Hosts">
       {hosts.data.map((host) => (
         <li key={host.id}>
-          <Link to={`/hosts/${host.name}`} className={styles.pill} data-connected={host.connected}>
+          <Link
+            to={`/hosts/${host.name}`}
+            className={styles.pill}
+            data-connected={isHubOnly(host) ? "hub" : host.connected}
+          >
             <span className={styles.dot} aria-hidden="true" />
             {host.name}
-            <span className="visually-hidden">{host.connected ? " connected" : " offline"}</span>
+            <span className="visually-hidden">
+              {isHubOnly(host) ? " hub only" : host.connected ? " connected" : " offline"}
+            </span>
           </Link>
         </li>
       ))}

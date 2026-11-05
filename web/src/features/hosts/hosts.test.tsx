@@ -4,6 +4,7 @@ import { calls, resetApi, route } from "../../test/apiMock";
 import { nas } from "../../test/fixtures";
 import { renderAt } from "../../test/render";
 import { HostsPage } from "./HostsPage";
+import { HostStatus } from "./HostStatus";
 
 vi.mock("../../api/client", () => import("../../test/apiMock"));
 
@@ -125,4 +126,38 @@ test("outdated_agent_badge_shown", async () => {
     "/incidents?host=nas",
   );
   expect(within(current as HTMLElement).queryByText("Outdated")).toBeNull();
+});
+
+test("hub_host_without_agent_is_shown_as_hub_only", async () => {
+  const hub = {
+    ...nas,
+    id: "host-hub",
+    name: "hub",
+    kind: "local",
+    connected: false,
+    last_seen: null,
+  };
+  const remote = {
+    ...nas,
+    id: "host-remote",
+    name: "remote",
+    kind: "remote",
+    connected: false,
+    last_seen: null,
+  };
+  renderAt(
+    "/status",
+    "/status",
+    <>
+      <HostStatus host={hub} />
+      <HostStatus host={remote} />
+    </>,
+  );
+  const hubSpan = screen.getByText("Hub only, no agent");
+  expect(hubSpan).toHaveAttribute("data-connected", "hub");
+  expect(within(hubSpan).queryByText("Never connected")).toBeNull();
+
+  const offlineSpan = screen.getByText("Never connected");
+  expect(offlineSpan).toHaveAttribute("data-connected", "false");
+  expect(within(offlineSpan).queryByText("Hub only, no agent")).toBeNull();
 });
