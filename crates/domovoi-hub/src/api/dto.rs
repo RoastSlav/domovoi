@@ -98,6 +98,14 @@ pub struct IncidentQuery {
     pub limit: Option<u16>,
 }
 
+/// Options for running triage again.
+#[derive(Debug, Clone, Default, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub struct RetryQuery {
+    /// Run the model again even when a cached report would fit. Default false.
+    pub fresh: Option<bool>,
+}
+
 /// One piece of evidence in a report.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
 pub struct EvidenceDto {
