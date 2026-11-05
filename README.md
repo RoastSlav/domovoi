@@ -70,7 +70,7 @@ No config file is needed: the guided first run sets up Discord, a model and your
 
 ## Contributing
 
-Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) first; it explains the architecture rules CI enforces. Please report security issues privately as described in [SECURITY.md](SECURITY.md).
+Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) first; it explains the architecture rules CI enforces. [TESTING.md](TESTING.md) shows how to run the checks and the app locally. Please report security issues privately as described in [SECURITY.md](SECURITY.md).
 
 ## License
 

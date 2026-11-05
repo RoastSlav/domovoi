@@ -20,6 +20,8 @@ cargo xtask ci --web    # also lint, typecheck, test and build the web UI
 
 Optional but recommended: `cargo install cargo-nextest cargo-deny cargo-insta --locked`.
 
+[TESTING.md](TESTING.md) shows how to run every CI job locally and how to run the hub, agents and web UI on your machine.
+
 ## Rules CI enforces
 
 | Check | What it protects |
