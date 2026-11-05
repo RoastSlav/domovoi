@@ -4,6 +4,7 @@ import { calls, resetApi, route } from "../../test/apiMock";
 import { nas } from "../../test/fixtures";
 import { renderAt } from "../../test/render";
 import { HostsPage } from "./HostsPage";
+import { HostDetailPage } from "./HostDetailPage";
 import { HostStatus } from "./HostStatus";
 
 vi.mock("../../api/client", () => import("../../test/apiMock"));
@@ -135,6 +136,7 @@ test("hub_host_without_agent_is_shown_as_hub_only", async () => {
     name: "hub",
     kind: "local",
     connected: false,
+    agent_enrolled: false,
     last_seen: null,
   };
   const remote = {
@@ -143,6 +145,8 @@ test("hub_host_without_agent_is_shown_as_hub_only", async () => {
     name: "remote",
     kind: "remote",
     connected: false,
+    agent_enrolled: false,
+    version: null,
     last_seen: null,
   };
   renderAt(
@@ -153,11 +157,69 @@ test("hub_host_without_agent_is_shown_as_hub_only", async () => {
       <HostStatus host={remote} />
     </>,
   );
-  const hubSpan = screen.getByText("Hub only, no agent");
-  expect(hubSpan).toHaveAttribute("data-connected", "hub");
-  expect(within(hubSpan).queryByText("Never connected")).toBeNull();
+  expect(screen.getByText("Hub only, no agent")).toHaveAttribute("data-connected", "hub");
+  expect(screen.getByText("Never connected")).toHaveAttribute("data-connected", "false");
+  expect(screen.queryAllByText("Hub only, no agent")).toHaveLength(1);
+  expect(screen.queryAllByText("Never connected")).toHaveLength(1);
+});
 
-  const offlineSpan = screen.getByText("Never connected");
-  expect(offlineSpan).toHaveAttribute("data-connected", "false");
-  expect(within(offlineSpan).queryByText("Hub only, no agent")).toBeNull();
+test("hub_machine_with_a_never_seen_agent_still_shows_an_agent", async () => {
+  const hub = {
+    ...nas,
+    id: "host-hub",
+    name: "hub",
+    kind: "local",
+    connected: false,
+    agent_enrolled: true,
+    version: null,
+    last_seen: null,
+  };
+  renderAt("/status", "/status", <HostStatus host={hub} />);
+  const offline = screen.getByText("Never connected");
+  expect(offline).toHaveAttribute("data-connected", "false");
+  expect(screen.queryByText("Hub only, no agent")).toBeNull();
+});
+
+test("host_detail_page_hints_how_to_cover_the_hub_machine", async () => {
+  const hub = {
+    ...nas,
+    id: "host-hub",
+    name: "hub",
+    kind: "local",
+    connected: false,
+    agent_enrolled: false,
+    version: null,
+    open_incidents: 0,
+  };
+  route("GET /api/v1/hosts/{name}", () => ({ host: hub, facts: [] }));
+  route("GET /api/v1/incidents", () => ({ pages: [] }));
+  route("GET /api/v1/hosts/{name}/skills", () => []);
+  renderAt("/hosts/hub", "/hosts/:name", <HostDetailPage />);
+  const hint = await screen.findByText(/^This is the hub/);
+  expect(hint).toHaveTextContent(
+    "install an agent on it and enroll it under the name hub. The hub can also run the agent " +
+      "in its own process with --with-local-agent /etc/domovoi/agent.toml, where checks that " +
+      "need root report errors.",
+  );
+  expect(within(hint).getByText("--with-local-agent /etc/domovoi/agent.toml")).toBeVisible();
+});
+
+test("host_detail_page_has_no_hint_when_an_agent_is_enrolled", async () => {
+  const hub = {
+    ...nas,
+    id: "host-hub",
+    name: "hub",
+    kind: "local",
+    connected: false,
+    agent_enrolled: true,
+    version: null,
+    open_incidents: 0,
+  };
+  route("GET /api/v1/hosts/{name}", () => ({ host: hub, facts: [] }));
+  route("GET /api/v1/incidents", () => ({ pages: [] }));
+  route("GET /api/v1/hosts/{name}/skills", () => []);
+  renderAt("/hosts/hub", "/hosts/:name", <HostDetailPage />);
+  await screen.findByRole("heading", { name: "hub" });
+  expect(screen.queryByText(/^This is the hub/)).toBeNull();
+  expect(screen.getByText("Never connected")).toHaveAttribute("data-connected", "false");
 });
