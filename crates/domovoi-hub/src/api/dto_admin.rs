@@ -53,6 +53,9 @@ pub struct HostDto {
     pub kind: String,
     /// Whether the agent is connected now.
     pub connected: bool,
+    /// Whether the host has an enrolled, not revoked agent. The hub loses sight of agents
+    /// when it restarts, so this is what tells the UI an agent exists at all.
+    pub agent_enrolled: bool,
     /// The agent's version, while connected.
     pub version: Option<String>,
     /// Since when it is connected.
