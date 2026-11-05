@@ -41,6 +41,6 @@ The incident still changes and is still stored, but its events are marked as not
 
 An incident asks for triage when it opens, when it reopens and when its severity rises.
 
-Open an incident and choose **Retry triage** to run it again now, for example after fixing the model's settings. A retry counts against the same hourly and monthly caps as any other run.
+Open an incident with a report and choose **Run triage again** to run the model from scratch with the current skills, notes and evidence, even when a cached report would fit. Before a report exists, the button says **Retry triage**. Both count against the same hourly and monthly caps as any other run.
 
 A run deferred by the hourly cap may re-run on its own once a run slot frees, as long as the incident is still open, unmuted, and not already triaged by a newer request. A failed run retries after an hour; retries for one incident stop after three failed runs, and once the triage-degraded advisory is up, newly failed runs are not deferred at all. Muted incidents are never retried; acknowledged ones still are. Pending retries live in memory, so they are dropped when the hub restarts.
