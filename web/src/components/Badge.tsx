@@ -16,20 +16,20 @@ const TONES: Record<string, string> = {
   MONITOR: "monitor",
   EXPECTED: "expected",
   FIXED: "fixed",
-  resolved: "resolved",
+  resolved: "fixed",
   critical: "critical",
   warning: "warning",
   info: "info",
 };
 
-/** The text a badge shows for a verdict or severity name. */
+/** The text a badge shows for a verdict, severity or resolved state name. */
 export function badgeLabel(value: string): string {
   return LABELS[value] ?? value;
 }
 
 /**
- * A verdict or severity as the chat cards show it: a coloured label that always carries
- * its text, so colour is never the only signal.
+ * A verdict, severity or resolved state as the cards show it: a coloured label that always
+ * carries its text, so colour is never the only signal.
  */
 export function Badge({ value }: { value: string }) {
   return (

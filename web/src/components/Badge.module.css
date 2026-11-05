@@ -22,10 +22,6 @@
   background: var(--fixed);
 }
 
-.badge[data-tone="resolved"] {
-  background: var(--fixed);
-}
-
 .badge[data-tone="critical"] {
   background: var(--critical);
 }
