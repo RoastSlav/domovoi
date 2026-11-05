@@ -11,7 +11,7 @@ use jiff::{SignedDuration, Timestamp};
 use super::agent::{self, text_of};
 use super::cache::evidence_digest;
 use super::report::{parse_report, redact_report};
-use super::{DEGRADED_AFTER, SYSTEM_PROMPT, Shared, context, proposals, tools};
+use super::{DEGRADED_AFTER, FAILED_RETRY, SYSTEM_PROMPT, Shared, context, proposals, tools};
 use crate::advisories::triage_degraded;
 use crate::events::{DomainEvent, EventKind};
 
@@ -48,7 +48,18 @@ async fn outcome(
     shared: &Shared,
     incident: &Incident,
 ) -> (TriageOutcome, BTreeMap<ActionId, String>) {
-    if let Some(reason) = over_cap(shared).await {
+    if let Some(cap) = over_cap(shared).await {
+        let reason = match cap {
+            Cap::Monthly => "the monthly triage budget is spent".to_owned(),
+            Cap::Hourly { retry_at } => {
+                shared.defer(incident.id(), retry_at);
+                format!(
+                    "the limit of {} triage runs per hour is reached; it runs again at {}",
+                    shared.settings.per_hour_runs,
+                    retry_at.strftime("%H:%M"),
+                )
+            }
+        };
         return (TriageOutcome::Skipped { reason }, BTreeMap::new());
     }
     let deps = &shared.deps;
@@ -81,13 +92,31 @@ async fn outcome(
         Err(reason) => {
             let reason = deps.redactor.redact(&reason);
             failed(shared, incident, &reason).await;
+            if !limits(shared).degraded {
+                shared.defer(
+                    incident.id(),
+                    deps.clock
+                        .now()
+                        .checked_add(FAILED_RETRY)
+                        .unwrap_or(deps.clock.now()),
+                );
+            }
             (TriageOutcome::Failed { reason }, BTreeMap::new())
         }
     }
 }
 
+/// Why a run may not start.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Cap {
+    /// The monthly model budget is spent; nothing retries it before the next month.
+    Monthly,
+    /// The hourly run limit is reached; `retry_at` is when a run slot frees.
+    Hourly { retry_at: Timestamp },
+}
+
 /// Why this run may not start, or `None` after recording its start.
-async fn over_cap(shared: &Shared) -> Option<String> {
+async fn over_cap(shared: &Shared) -> Option<Cap> {
     let deps = &shared.deps;
     let settings = &shared.settings;
     let now = deps.clock.now();
@@ -95,7 +124,7 @@ async fn over_cap(shared: &Shared) -> Option<String> {
         let month = now.to_zoned(jiff::tz::TimeZone::UTC).date();
         match deps.usage.month_total(month).await {
             Ok(total) if total.cost_micros >= budget => {
-                return Some("the monthly triage budget is spent".to_owned());
+                return Some(Cap::Monthly);
             }
             Ok(_) => {}
             Err(err) => tracing::warn!(%err, "could not read model spending; triaging anyway"),
@@ -109,10 +138,17 @@ async fn over_cap(shared: &Shared) -> Option<String> {
         limits.starts.pop_front();
     }
     if limits.starts.len() >= settings.per_hour_runs as usize {
-        return Some(format!(
-            "the limit of {} triage runs per hour is reached",
-            settings.per_hour_runs
-        ));
+        let retry_at = limits
+            .starts
+            .front()
+            .map_or(now, |oldest| {
+                oldest
+                    .checked_add(SignedDuration::from_hours(1))
+                    .unwrap_or(now)
+            })
+            .checked_add(SignedDuration::from_secs(1))
+            .unwrap_or(now);
+        return Some(Cap::Hourly { retry_at });
     }
     limits.starts.push_back(now);
     None

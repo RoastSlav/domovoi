@@ -4,7 +4,8 @@ use std::collections::{BTreeMap, VecDeque};
 use std::sync::{Arc, Mutex};
 
 use domovoi_core::ports::{IncidentFilter, Page};
-use domovoi_core::{Incident, IncidentStatus, TriageOutcome};
+use domovoi_core::{Incident, IncidentId, IncidentStatus, TriageOutcome};
+use jiff::Timestamp;
 use tokio::sync::{Notify, broadcast};
 use tokio::task::JoinSet;
 
@@ -69,6 +70,7 @@ pub(crate) async fn serve(shared: Arc<Shared>, mut events: broadcast::Receiver<D
     for _ in 0..shared.settings.concurrency.max(1) {
         workers.spawn(worker(shared.clone()));
     }
+    workers.spawn(retry_deferred(shared.clone()));
     let shutdown = shared.deps.shutdown.clone();
     loop {
         let event = tokio::select! {
@@ -93,6 +95,96 @@ pub(crate) async fn serve(shared: Arc<Shared>, mut events: broadcast::Receiver<D
     }
     shutdown.cancel();
     while workers.join_next().await.is_some() {}
+}
+
+/// Re-triages incidents that the hourly cap deferred or that failed, once their retry
+/// time passes. An incident already resolved, still `Pending` or triaged by a newer
+/// request is left alone.
+async fn retry_deferred(shared: Arc<Shared>) {
+    let shutdown = shared.deps.shutdown.clone();
+    loop {
+        if shutdown.is_cancelled() {
+            return;
+        }
+        let now = shared.deps.clock.now();
+        for id in take_due(&shared, now) {
+            retry(&shared, id).await;
+        }
+        let at = earliest(&shared);
+        tokio::select! {
+            () = shutdown.cancelled() => return,
+            () = shared.deferred_ready.notified() => {},
+            () = sleep_until_deferred(&shared, at.unwrap_or(now)), if at.is_some() => {},
+        }
+    }
+}
+
+/// Takes the incidents deferred at or before `now`, keeping the later ones in place.
+fn take_due(shared: &Shared, now: Timestamp) -> Vec<IncidentId> {
+    let mut deferred = shared
+        .deferred
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let due = deferred
+        .iter()
+        .filter(|(at, _)| *at <= now)
+        .map(|(_, id)| *id)
+        .collect();
+    deferred.retain(|(at, _)| *at > now);
+    due
+}
+
+/// The soonest deferred retry, if anything is deferred.
+fn earliest(shared: &Shared) -> Option<Timestamp> {
+    shared
+        .deferred
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .iter()
+        .map(|(at, _)| *at)
+        .min()
+}
+
+/// Waits until the earliest deferred retry time.
+async fn sleep_until_deferred(shared: &Arc<Shared>, at: Timestamp) {
+    shared.deps.clock.sleep_until(at).await;
+}
+
+/// Re-queues a deferred incident unless it is gone, still `Pending`, resolved, or was
+/// triaged into a state other than skipped or failed since the deferral.
+async fn retry(shared: &Arc<Shared>, id: IncidentId) {
+    let incident = match shared.deps.incidents.get(id).await {
+        Ok(Some(incident)) => incident,
+        Ok(None) => return,
+        Err(err) => {
+            tracing::warn!(%err, %id, "could not read the deferred incident");
+            return;
+        }
+    };
+    if matches!(
+        incident.status(),
+        IncidentStatus::Pending | IncidentStatus::Resolved
+    ) {
+        return;
+    }
+    let entries = match shared.deps.incidents.timeline(id).await {
+        Ok(entries) => entries,
+        Err(err) => {
+            tracing::warn!(%err, %id, "could not read the deferred incident's timeline");
+            return;
+        }
+    };
+    let triaged = entries
+        .into_iter()
+        .map(|entry| entry.kind)
+        .rfind(|kind| kind.starts_with("triage.") && kind != "triage.followup")
+        .is_some_and(|kind| kind != "triage.skipped" && kind != "triage.failed");
+    if triaged {
+        return;
+    }
+    if let Some(dropped) = shared.queue.push(incident) {
+        skip_dropped(shared, &dropped).await;
+    }
 }
 
 async fn reload(shared: &Arc<Shared>) {

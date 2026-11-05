@@ -42,3 +42,5 @@ The incident still changes and is still stored, but its events are marked as not
 An incident asks for triage when it opens, when it reopens and when its severity rises.
 
 Open an incident and choose **Retry triage** to run it again now, for example after fixing the model's settings. A retry counts against the same hourly and monthly caps as any other run.
+
+A run skipped by the hourly cap is not lost: it waits for the next free slot and runs again on its own. A failed run retries after an hour. Neither retries once the incident has resolved or a newer request already triaged it.

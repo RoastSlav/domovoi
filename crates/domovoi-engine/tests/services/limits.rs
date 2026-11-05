@@ -5,6 +5,7 @@ use domovoi_engine::EventKind;
 use domovoi_engine::triage::TriageSettings;
 use domovoi_testkit::build::resolved_incident;
 use jiff::SignedDuration;
+use tokio::task::yield_now;
 
 use crate::harness::{Setup, disk, host_id, report, world};
 
@@ -42,6 +43,93 @@ async fn per_hour_cap_and_monthly_budget_skip_without_model_call() {
         1,
         "no model call when over a cap"
     );
+}
+
+#[tokio::test]
+async fn hourly_cap_skip_runs_again_when_a_slot_frees() {
+    let settings = TriageSettings {
+        per_hour_runs: 1,
+        ..TriageSettings::default()
+    };
+    let w = world(Setup {
+        settings,
+        ..Setup::default()
+    })
+    .await;
+    w.primary.push_text(report());
+    w.primary.push_text(report());
+    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+    assert!(matches!(
+        w.run().await,
+        TriageOutcome::Skipped {
+            reason,
+        } if reason.contains("per hour") && reason.contains("runs again at")
+    ));
+
+    // The retry runs through the queue, so give the service's tasks turns to reach it.
+    w.clock.advance(SignedDuration::from_mins(61));
+    let mut yields = 0;
+    while yields < 200 && w.primary.requests().len() < 2 {
+        yield_now().await;
+        yields += 1;
+    }
+    assert_eq!(
+        w.primary.requests().len(),
+        2,
+        "the skipped triage runs when a slot frees",
+    );
+    let timeline = IncidentRepo::timeline(&*w.store, w.incident.id())
+        .await
+        .unwrap();
+    let last = timeline
+        .iter()
+        .rfind(|e| e.kind.starts_with("triage.") && e.kind != "triage.followup")
+        .unwrap()
+        .kind
+        .clone();
+    assert_eq!(
+        last, "triage.report",
+        "the retry ends the timeline with a report"
+    );
+}
+
+#[tokio::test]
+async fn failed_triage_runs_again_after_the_retry_delay() {
+    let settings = TriageSettings {
+        per_hour_runs: 10,
+        ..TriageSettings::default()
+    };
+    let w = world(Setup {
+        settings,
+        ..Setup::default()
+    })
+    .await;
+    w.primary.push_err(LlmError::Unavailable("down".to_owned()));
+    w.primary.push_text(report());
+    assert!(matches!(w.run().await, TriageOutcome::Failed { .. }));
+    assert_eq!(w.primary.requests().len(), 1);
+
+    w.clock.advance(SignedDuration::from_mins(61));
+    let mut yields = 0;
+    while yields < 200 && w.primary.requests().len() < 2 {
+        yield_now().await;
+        yields += 1;
+    }
+    assert_eq!(
+        w.primary.requests().len(),
+        2,
+        "a failed triage runs again after the retry delay",
+    );
+    let timeline = IncidentRepo::timeline(&*w.store, w.incident.id())
+        .await
+        .unwrap();
+    let last = timeline
+        .iter()
+        .rfind(|e| e.kind.starts_with("triage.") && e.kind != "triage.followup")
+        .unwrap()
+        .kind
+        .clone();
+    assert_eq!(last, "triage.report", "the retry produced the report");
 }
 
 #[tokio::test]
