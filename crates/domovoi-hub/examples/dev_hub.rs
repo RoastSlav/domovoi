@@ -326,6 +326,7 @@ async fn main() -> Result<()> {
         advisories: store.clone(),
         facts: store.clone(),
         usage: store.clone(),
+        acks: store.clone(),
         manager: manager.clone(),
         actions_service,
         triage: None,

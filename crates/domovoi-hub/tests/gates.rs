@@ -402,6 +402,11 @@ mod api {
             (Method::POST, "/api/v1/settings/models"),
             (Method::POST, "/api/v1/settings/test/heartbeat"),
             (Method::PUT, "/api/v1/hosts/nas/checks"),
+            (Method::POST, "/api/v1/ack-rules"),
+            (
+                Method::DELETE,
+                "/api/v1/ack-rules/0196ac01-0000-7000-8000-000000000000",
+            ),
         ];
         for (method, uri) in writes {
             let anonymous = send(&a, method.clone(), uri, "", None, None).await;

@@ -7,6 +7,7 @@ export const keys = {
   incidents: ["incidents"] as const,
   incidentList: (filters: object) => ["incidents", "list", filters] as const,
   incident: (id: string) => ["incidents", "detail", id] as const,
+  ackRules: ["ack-rules"] as const,
   actions: ["actions"] as const,
   actionList: (status: string | undefined) => ["actions", "list", status ?? "all"] as const,
   hosts: ["hosts"] as const,

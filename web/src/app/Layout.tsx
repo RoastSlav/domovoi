@@ -9,6 +9,7 @@ import styles from "./Layout.module.css";
 
 const NAV = [
   ["/incidents", "Incidents"],
+  ["/rules", "Known conditions"],
   ["/approvals", "Approvals"],
   ["/hosts", "Hosts"],
   ["/skills", "Skills"],

@@ -37,6 +37,16 @@ The incident still changes and is still stored, but its events are marked as not
 - **Maintenance windows:** while a window covers the host.
 - **Ack rules:** while an ack rule matches the signal by host, check, target pattern and evidence, for example "`disk.free` on `/backup`, where filling up is expected".
 
+## Known conditions
+
+A known condition says "this firing is expected, so leave it alone". Add one under **Known conditions** in the web UI: the check key, the host it applies to (any host, or one named host), a target pattern (`*` allowed at the ends), why it is acceptable (the note), conditions on the evidence, and how long it lives — 1 hour, 1 day, 1 week, 30 days, or never. Each condition compares one evidence key with a value: equals, contains, is at most, is at least. All of them must hold for the rule to match.
+
+Signals that match a known condition are stored, incidents still change, and the history stays complete; nothing is notified and triage does not run for them. The page lists every rule, soonest expiry first, rules that never expire last, and shows expired rules so you can delete them. A rule stops applying on its own when it expires.
+
+A new rule applies to signals that arrive after it is created. An incident that is already open keeps its card and its thread: a rule only holds back the notifications the next signal would cause.
+
+A value that looks like a number in an **equals** condition is compared as a number. `port equals 22` matches a check reporting the number 22; `user equals 1000` does not match evidence stored as the text `1000`. Built-in checks report numbers as numbers, so this is mostly about webhook evidence, where a number arriving as a string needs **contains** rather than **equals**.
+
 ## What triggers triage
 
 An incident asks for triage when it opens, when it reopens and when its severity rises.

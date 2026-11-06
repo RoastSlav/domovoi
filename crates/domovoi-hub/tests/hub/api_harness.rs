@@ -11,11 +11,14 @@ use axum::body::Body;
 use axum::extract::connect_info::MockConnectInfo;
 use axum::http::{HeaderMap, Method, Request, StatusCode, header};
 use domovoi_config::{HubConfig, MapEnv};
-use domovoi_core::ports::{ActionRepo, HostRepo, IncidentRepo, LlmProvider, Notifier, Presence};
+use domovoi_core::ports::{
+    ActionRepo, AuditEvent, AuditFilter, AuditLog, HostRepo, IncidentRepo, LlmProvider, Notifier,
+    Page, Presence,
+};
 use domovoi_core::{ActionRequest, HostId, HostName, Incident, Principal, Risk, SkillSummary};
 use domovoi_engine::{
-    ActionDeps, ActionService, ActionSettings, EnginePolicy, IncidentManager, ManagerDeps,
-    ManagerHandle, PatternRedactor, TriageDeps, TriageService, TriageSettings,
+    ActionDeps, ActionService, ActionSettings, DomainEvent, EnginePolicy, IncidentManager,
+    ManagerDeps, ManagerHandle, PatternRedactor, TriageDeps, TriageService, TriageSettings,
 };
 use domovoi_hub::agent_server::{
     AgentServer, AgentServerDeps, AgentServerError, EnrollmentInvite, RealNetProbes, ServerSettings,
@@ -124,8 +127,12 @@ pub struct Api {
     pub link: Arc<FakeAgentLink>,
     /// The running incident manager, for feeding signals in as the hub's ingest does.
     pub manager: ManagerHandle,
+    /// The bus the manager publishes events on, for watching what a signal tells people about.
+    pub bus: broadcast::Sender<DomainEvent>,
     /// The model triage asks, when built with [`api_with_triage`].
     pub llm: Arc<ScriptedLlm>,
+    /// The audit log the API and the services write to, for reading back what a call recorded.
+    pub audit: Arc<dyn AuditLog>,
     pub incident: Incident,
     pub nas: domovoi_core::Host,
     pub shutdown: CancellationToken,
@@ -298,6 +305,7 @@ async fn build(triage: bool, notifier: Option<Arc<dyn Notifier>>) -> Api {
         advisories: store.clone(),
         facts: store.clone(),
         usage: store.clone(),
+        acks: store.clone(),
         manager: manager.clone(),
         actions_service,
         triage,
@@ -316,12 +324,14 @@ async fn build(triage: bool, notifier: Option<Arc<dyn Notifier>>) -> Api {
     let state = ApiState::new(deps, auth);
     let app = router(state.clone(), None).layer(MockConnectInfo(peer()));
     Api {
+        audit: store.clone(),
         app,
         state,
         store,
         clock,
         link,
         manager,
+        bus,
         llm,
         incident,
         nas,
@@ -409,6 +419,21 @@ impl Api {
 
     pub async fn post(&self, uri: &str, login: &Login, body: Value) -> Reply {
         self.send(Method::POST, uri, Some(login), Some(body)).await
+    }
+
+    /// The audit events of `kind`, newest first: what a write recorded.
+    pub async fn audit_events(&self, kind: &str) -> Vec<AuditEvent> {
+        self.audit
+            .list(
+                &AuditFilter {
+                    kind: Some(kind.to_owned()),
+                    ..AuditFilter::default()
+                },
+                &Page::first(100),
+            )
+            .await
+            .unwrap()
+            .items
     }
 
     /// The setup token from the link the hub would log.
