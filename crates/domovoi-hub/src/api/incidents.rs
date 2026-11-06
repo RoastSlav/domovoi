@@ -1,20 +1,25 @@
-//! Incidents: list, detail, ack, mute, unmute and follow-up questions.
+//! Incidents: list, detail, ack, mute, unmute, dismiss and follow-up questions.
 
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use domovoi_core::ports::{ActionFilter, IncidentFilter, Page};
-use domovoi_core::{Incident, IncidentId, IncidentStatus, Severity, TriageOutcome};
+use domovoi_core::{
+    AckRule, AckRuleId, Incident, IncidentId, IncidentStatus, Severity, TargetPattern,
+    TriageOutcome,
+};
 use domovoi_engine::CommandError;
 use domovoi_engine::cards::{CardLinks, build_card};
 use domovoi_engine::triage::TriageError;
 use jiff::SignedDuration;
 
 use super::dto::{
-    ActionDto, AskRequest, AskResponse, CardDto, IncidentDetail, IncidentPage, IncidentQuery,
-    IncidentSummary, MuteRequest, ReportDto, RetryQuery, TimelineEntryDto, TriageStateDto,
+    ActionDto, AskRequest, AskResponse, CardDto, DismissRequest, IncidentDetail, IncidentPage,
+    IncidentQuery, IncidentSummary, MuteRequest, ReportDto, RetryQuery, TimelineEntryDto,
+    TriageStateDto,
 };
 use super::error::{ApiError, ErrorBody};
+use super::rules;
 use super::{ApiState, Authed, host_named, page};
 
 /// The longest follow-up question, in characters.
@@ -275,6 +280,112 @@ pub(super) async fn unmute(
         .unmute(parse_id(&id)?)
         .await
         .map_err(command)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Dismisses an incident as a known condition: closes it now with the verdict `EXPECTED`,
+/// and when `ignore_for_minutes` is given, creates the rule that keeps the check quiet
+/// (0 means always). The rule is stored before the incident closes, so a check firing in
+/// the moment between the two is already silenced, and a dismiss that fails afterwards
+/// leaves a rule that a human can see and delete on the Known conditions page. The rule
+/// matches the incident's host, check and target; `note` is the reason, so a human can
+/// read later what it covers. A target with `*` in it cannot be matched exactly by a rule
+/// pattern, so dismissing such an incident with a period is refused.
+#[utoipa::path(
+    post, path = "/api/v1/incidents/{id}/dismiss", operation_id = "dismiss_incident", tag = "incidents",
+    params(("id" = String, Path, description = "Incident id")),
+    request_body = DismissRequest,
+    responses(
+        (status = 204, description = "Dismissed"),
+        (status = 400, description = "Empty reason, too long, too many minutes, or a target a rule cannot match", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 404, description = "No active incident", body = ErrorBody),
+        (status = 409, description = "Not possible now", body = ErrorBody),
+    )
+)]
+pub(super) async fn dismiss(
+    State(state): State<ApiState>,
+    Authed(current): Authed,
+    Path(id): Path<String>,
+    Json(req): Json<DismissRequest>,
+) -> Result<StatusCode, ApiError> {
+    let reason = req.reason.trim();
+    if reason.is_empty() || reason.chars().count() > rules::MAX_NOTE_CHARS {
+        return Err(ApiError::BadRequest(format!(
+            "the reason must have 1 to {} characters",
+            rules::MAX_NOTE_CHARS
+        )));
+    }
+    if req
+        .ignore_for_minutes
+        .is_some_and(|mins| mins > rules::MAX_EXPIRY_MINUTES)
+    {
+        return Err(ApiError::BadRequest(format!(
+            "minutes must be between 0 and {}",
+            rules::MAX_EXPIRY_MINUTES
+        )));
+    }
+    // The incident is loaded first: the rule copies its host, check and target. A resolved
+    // incident is not active, so there is nothing to dismiss; checking that before the rule
+    // is stored means a 404 stores nothing.
+    let incident = load(&state, &id).await?;
+    if incident.status() == IncidentStatus::Resolved {
+        return Err(ApiError::NotFound);
+    }
+    // The rule is stored before the incident closes, so a check firing in the moment
+    // between the two is already silenced, which is what "keep this quiet" asks for. A
+    // dismiss that fails after this leaves the rule in place: it shows on the Known
+    // conditions page with its note, where a human can read it and delete it.
+    let now = state.deps.clock.now();
+    let rule = match req.ignore_for_minutes {
+        None => None,
+        Some(mins) => {
+            // A target key allows `*` anywhere, a rule pattern only at the ends, so the
+            // target of this incident may not be expressible. Silencing more than this one
+            // condition is not what the dialog promises, so the dismiss is refused.
+            if incident
+                .target()
+                .is_some_and(|target| target.as_str().contains('*'))
+            {
+                return Err(ApiError::BadRequest(
+                    "the target contains `*`, which a rule cannot match exactly; dismiss with no period, \
+                     or write the rule yourself on the Known conditions page"
+                        .to_owned(),
+                ));
+            }
+            let expires_at = match mins {
+                0 => None,
+                mins => Some(
+                    now.checked_add(SignedDuration::from_mins(i64::from(mins)))
+                        .map_err(|e| ApiError::BadRequest(e.to_string()))?,
+                ),
+            };
+            let rule = AckRule {
+                id: AckRuleId::new(),
+                host: Some(incident.host()),
+                check: incident.check().clone(),
+                target_pattern: incident
+                    .target()
+                    .map(|target| TargetPattern::parse(target.as_str()))
+                    .transpose()
+                    .map_err(|e| ApiError::internal("target pattern", e))?,
+                predicates: Vec::new(),
+                note: reason.to_owned(),
+                expires_at,
+            };
+            state.deps.acks.put_rule(&rule).await?;
+            Some(rule)
+        }
+    };
+    state
+        .deps
+        .manager
+        .dismiss(incident.id(), current.user.id, reason.to_owned())
+        .await
+        .map_err(command)?;
+    if let Some(rule) = &rule {
+        rules::audit_rule_created(&state, &current, rule, now).await?;
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 

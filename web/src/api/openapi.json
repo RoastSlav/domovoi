@@ -1273,6 +1273,81 @@
         }
       }
     },
+    "/api/v1/incidents/{id}/dismiss": {
+      "post": {
+        "tags": [
+          "incidents"
+        ],
+        "summary": "Dismisses an incident as a known condition: closes it now with the verdict `EXPECTED`,\nand when `ignore_for_minutes` is given, creates the rule that keeps the check quiet\n(0 means always). The rule is stored before the incident closes, so a check firing in\nthe moment between the two is already silenced, and a dismiss that fails afterwards\nleaves a rule that a human can see and delete on the Known conditions page. The rule\nmatches the incident's host, check and target; `note` is the reason, so a human can\nread later what it covers. A target with `*` in it cannot be matched exactly by a rule\npattern, so dismissing such an incident with a period is refused.",
+        "operationId": "dismiss_incident",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Incident id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DismissRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Dismissed"
+          },
+          "400": {
+            "description": "Empty reason, too long, too many minutes, or a target a rule cannot match",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No active incident",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Not possible now",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/incidents/{id}/mute": {
       "post": {
         "tags": [
@@ -2727,6 +2802,28 @@
           "webhook_url": {
             "type": "string",
             "description": "`[set]` or `[unset]`."
+          }
+        }
+      },
+      "DismissRequest": {
+        "type": "object",
+        "description": "Dismissing an incident as a known condition.",
+        "required": [
+          "reason"
+        ],
+        "properties": {
+          "ignore_for_minutes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Minutes to keep the check quiet, 1 to 525600; 0 means always; null dismisses\nwithout creating a rule, so the check alerts again.",
+            "minimum": 0
+          },
+          "reason": {
+            "type": "string",
+            "description": "Why this is not a real problem, 1 to 500 characters."
           }
         }
       },

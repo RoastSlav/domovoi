@@ -14,6 +14,7 @@ use utoipa::ToSchema;
 
 use super::error::{ApiError, ErrorBody};
 use super::{ApiState, Authed, host_named};
+use crate::auth::Current;
 
 /// The longest note of a rule, in characters.
 pub const MAX_NOTE_CHARS: usize = 500;
@@ -251,6 +252,32 @@ pub(super) async fn list(
     Ok(Json(dtos))
 }
 
+/// Audits that `actor` created `rule` at `at`. The hub creates rules from the ack-rule
+/// page and from dismissing an incident, so both write the same event.
+pub(crate) async fn audit_rule_created(
+    state: &ApiState,
+    actor: &Current,
+    rule: &AckRule,
+    at: Timestamp,
+) -> Result<(), ApiError> {
+    state
+        .deps
+        .audit
+        .append(&AuditEvent {
+            at,
+            actor: format!("user:{}", actor.user.id),
+            kind: "ack_rule.created".to_owned(),
+            subject: format!("ack_rule:{}", rule.id),
+            detail: json!({
+                "check": rule.check.as_str(),
+                "note": rule.note,
+                "expires_at": rule.expires_at.map(|at| at.to_string()),
+            }),
+        })
+        .await?;
+    Ok(())
+}
+
 /// Creates a rule.
 #[utoipa::path(
     post, path = "/api/v1/ack-rules", operation_id = "create_ack_rule", tag = "incidents",
@@ -315,21 +342,7 @@ pub(super) async fn create(
         expires_at,
     };
     state.deps.acks.put_rule(&rule).await?;
-    state
-        .deps
-        .audit
-        .append(&AuditEvent {
-            at: now,
-            actor: format!("user:{}", current.user.id),
-            kind: "ack_rule.created".to_owned(),
-            subject: format!("ack_rule:{}", rule.id),
-            detail: json!({
-                "check": rule.check.as_str(),
-                "note": rule.note,
-                "expires_at": rule.expires_at.map(|at| at.to_string()),
-            }),
-        })
-        .await?;
+    audit_rule_created(&state, &current, &rule, now).await?;
     Ok((StatusCode::CREATED, Json(rule_to_dto(&state, &rule).await?)))
 }
 

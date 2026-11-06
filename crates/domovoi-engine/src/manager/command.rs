@@ -32,6 +32,15 @@ pub enum Command {
         /// Which incident.
         incident: IncidentId,
     },
+    /// A human closed the incident as a known condition: it is not a real problem.
+    Dismiss {
+        /// Which incident.
+        incident: IncidentId,
+        /// Who.
+        by: UserId,
+        /// Why it is not a real problem.
+        reason: String,
+    },
     /// Time passed: expire mutes and resolve incidents quiet past their TTL.
     Tick,
     /// Triage finished for an incident, which may have resolved meanwhile.

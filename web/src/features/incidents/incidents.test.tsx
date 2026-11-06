@@ -139,7 +139,9 @@ test("incident_list_groups_by_state", async () => {
   await screen.findByRole("heading", { name: "Needs attention (1)" });
   expect(group("Needs attention (1)").getByRole("link", { name: "Open one" })).toBeVisible();
   expect(
-    group("Needs attention (1)").getByText("New problems nobody has acknowledged."),
+    group("Needs attention (1)").getByText(
+      "New problems nobody has acknowledged. Expected ones are under Being handled.",
+    ),
   ).toBeVisible();
 
   await screen.findByRole("heading", { name: "Being handled (2)" });
@@ -165,6 +167,48 @@ test("incident_list_groups_by_state", async () => {
     "href",
     "/incidents?status=resolved",
   );
+});
+
+test("dismissed_incidents_are_being_handled", async () => {
+  routeByStatus({
+    open: [
+      incident({
+        id: "inc-dismissed",
+        title: "Dismissed one",
+        verdict: "EXPECTED",
+        last_firing_at: "2026-11-01T12:00:00Z",
+      }),
+      incident({
+        id: "inc-open",
+        title: "Open one",
+        last_firing_at: "2026-10-30T12:00:00Z",
+      }),
+    ],
+    acked: [incident({ id: "inc-acked", title: "Acked one", status: "acked" })],
+  });
+  renderAt("/incidents", "/incidents", <IncidentListPage />);
+
+  await screen.findByRole("heading", { name: "Needs attention (1)" });
+  expect(group("Needs attention (1)").getByRole("link", { name: "Open one" })).toBeVisible();
+  expect(
+    group("Needs attention (1)").queryByRole("link", { name: "Dismissed one" }),
+    "a dismissed incident is not asking for attention",
+  ).toBeNull();
+
+  await screen.findByRole("heading", { name: "Being handled (2)" });
+  expect(
+    group("Being handled (2)").getByText(
+      "Acknowledged, muted, or expected: dismissed as a known condition, or judged expected by triage. " +
+        "A condition that returns after the reopen window is a new incident, and lands under Needs attention.",
+    ),
+    "the hint says what the grouping means, and what happens when the condition comes back late",
+  ).toBeVisible();
+  expect(
+    group("Being handled (2)")
+      .getAllByRole("link")
+      .map((link) => link.textContent),
+    "the dismissed incident joins the handled ones, newest firing first",
+  ).toEqual(["Dismissed one", "Acked one"]);
 });
 
 test("incident_list_says_nothing_needs_attention", async () => {
@@ -400,4 +444,82 @@ test("incident_detail_ack_and_ask", async () => {
   await user.click(screen.getByRole("button", { name: "Ask" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("Triage is off");
   expect(calls.at(-1)?.init.body).toEqual({ question: "Why now?" });
+});
+
+test("dismiss_dialog_sends_the_reason_and_the_period", async () => {
+  const user = userEvent.setup();
+  route("GET /api/v1/incidents/{id}", () => detail());
+  route("POST /api/v1/incidents/{id}/dismiss", () => undefined);
+  renderAt("/incidents/inc-1", "/incidents/:id", <IncidentDetailPage />);
+
+  await user.click(await screen.findByRole("button", { name: "Dismiss" }));
+  const dialog = screen.getByRole("dialog", { name: "Dismiss as a known condition" });
+  expect(
+    within(dialog).getByText(
+      "The incident closes as an expected condition, so it stops alerting and no triage runs. If the check keeps failing, the incident reopens quietly: no alert and no triage. The rule covers every severity of this check on this target, so a critical later on the same mount is quiet too.",
+    ),
+    "saying what a dismissal does to the alerts",
+  ).toBeVisible();
+
+  await user.type(
+    within(dialog).getByLabelText("Why is this not a real problem?"),
+    "Backups fill it, and it clears afterwards.",
+  );
+  await user.selectOptions(within(dialog).getByLabelText("Keep the check quiet for"), "1 day");
+  await user.click(within(dialog).getByRole("button", { name: "Dismiss" }));
+
+  const dismiss = calls.find((call) => call.route === "POST /api/v1/incidents/{id}/dismiss");
+  expect(dismiss?.init.params?.path).toEqual({ id: "inc-1" });
+  expect(dismiss?.init.body).toEqual({
+    reason: "Backups fill it, and it clears afterwards.",
+    ignore_for_minutes: 1440,
+  });
+  expect(
+    screen.queryByRole("dialog", { name: "Dismiss as a known condition" }),
+    "the dialog closes once the hub takes the dismissal",
+  ).toBeNull();
+});
+
+test("dismiss_dialog_without_a_period_sends_no_rule", async () => {
+  const user = userEvent.setup();
+  route("GET /api/v1/incidents/{id}", () => detail());
+  route("POST /api/v1/incidents/{id}/dismiss", () => undefined);
+  renderAt("/incidents/inc-1", "/incidents/:id", <IncidentDetailPage />);
+
+  await user.click(await screen.findByRole("button", { name: "Dismiss" }));
+  const dialog = screen.getByRole("dialog", { name: "Dismiss as a known condition" });
+  expect(
+    within(dialog).getByRole("button", { name: "Dismiss" }),
+    "an empty reason cannot be sent",
+  ).toBeDisabled();
+
+  await user.type(
+    within(dialog).getByLabelText("Why is this not a real problem?"),
+    "The nightly backup fills it, and it clears on its own.",
+  );
+  await user.selectOptions(within(dialog).getByLabelText("Keep the check quiet for"), "No");
+  await user.click(within(dialog).getByRole("button", { name: "Dismiss" }));
+
+  const dismiss = calls.find((call) => call.route === "POST /api/v1/incidents/{id}/dismiss");
+  expect(dismiss?.init.body).toEqual({
+    reason: "The nightly backup fills it, and it clears on its own.",
+    ignore_for_minutes: null,
+  });
+});
+
+test("dismiss_is_offered_only_after_the_incident_is_confirmed", async () => {
+  route("GET /api/v1/incidents/{id}", () => ({
+    ...detail(),
+    incident: incident({ status: "pending" }),
+  }));
+  renderAt("/incidents/inc-1", "/incidents/:id", <IncidentDetailPage />);
+
+  expect(
+    await screen.findByRole("heading", { name: "Backups filled /srv" }),
+    "the page shows the pending incident",
+  ).toBeVisible();
+  expect(
+    screen.queryByRole("button", { name: "Dismiss" }),
+    "dismissing a pending incident is refused, so the page offers no refusal",
+  ).toBeNull();
 });

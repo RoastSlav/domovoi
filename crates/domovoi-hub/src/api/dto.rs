@@ -363,6 +363,16 @@ pub struct MuteRequest {
     pub minutes: u32,
 }
 
+/// Dismissing an incident as a known condition.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, ToSchema)]
+pub struct DismissRequest {
+    /// Why this is not a real problem, 1 to 500 characters.
+    pub reason: String,
+    /// Minutes to keep the check quiet, 1 to 525600; 0 means always; null dismisses
+    /// without creating a rule, so the check alerts again.
+    pub ignore_for_minutes: Option<u32>,
+}
+
 /// A follow-up question.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, ToSchema)]
 pub struct AskRequest {

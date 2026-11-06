@@ -219,6 +219,7 @@ impl IncidentManager {
             Command::Ack { .. }
             | Command::Mute { .. }
             | Command::Unmute { .. }
+            | Command::Dismiss { .. }
             | Command::RecordFollowUp { .. } => {}
             Command::AttachTriage { incident, .. } | Command::SetVerdict { incident, .. } => {
                 if !self.active.iter().any(|i| i.id() == *incident) {

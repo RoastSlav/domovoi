@@ -12,6 +12,8 @@ mod api_harness;
 #[cfg(test)]
 mod api_routes;
 #[cfg(test)]
+mod dismiss;
+#[cfg(test)]
 mod enrollment;
 #[cfg(test)]
 #[path = "../gates.rs"]

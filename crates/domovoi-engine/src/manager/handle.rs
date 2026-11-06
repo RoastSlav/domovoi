@@ -83,6 +83,22 @@ impl ManagerHandle {
         self.send(Command::Unmute { incident }).await
     }
 
+    /// Closes `incident` as a known condition on behalf of `by`, with `reason` in its
+    /// timeline.
+    pub async fn dismiss(
+        &self,
+        incident: IncidentId,
+        by: UserId,
+        reason: String,
+    ) -> Result<(), CommandError> {
+        self.send(Command::Dismiss {
+            incident,
+            by,
+            reason,
+        })
+        .await
+    }
+
     /// Expires mutes and resolves quiet incidents now; the ticker does this on its own.
     pub async fn tick(&self) -> Result<(), CommandError> {
         self.send(Command::Tick).await

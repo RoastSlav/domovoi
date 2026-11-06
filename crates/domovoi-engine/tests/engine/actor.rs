@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use domovoi_core::ports::{
     IncidentFilter, IncidentRepo, IncidentTimelineEntry, Page, Paged, SignalSink, StoreError,
 };
-use domovoi_core::{Fingerprint, HostId, Incident, IncidentId, IncidentStatus};
+use domovoi_core::{Fingerprint, HostId, Incident, IncidentId, IncidentStatus, UserId, Verdict};
 use domovoi_engine::{
     CommandError, DomainEvent, EnginePolicy, EventKind, IncidentManager, ManagerDeps,
     ManagerHandle, PatternRedactor,
@@ -278,5 +278,47 @@ async fn ticker_drives_ttl_with_fake_clock() {
     .await;
     assert!(resolved.is_ok(), "the ticker never resolved the incident");
     assert!(active(&run.store).await.is_empty());
+    run.shutdown.cancel();
+}
+
+#[tokio::test]
+async fn dismiss_closes_the_incident_in_the_store() {
+    let mut run = start(EnginePolicy::default());
+    let disk = Sig::new(HostId::new(), "disk.free", Some("/")).immediate();
+    run.handle.ingest(vec![disk.firing(0)]).await.unwrap();
+    drain(&mut run.events);
+    let id = active(&run.store).await[0].id();
+
+    run.handle
+        .dismiss(
+            id,
+            UserId::new(),
+            "the backup fills the disk and clears it".to_owned(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(drain(&mut run.events), [EventKind::IncidentResolved]);
+    assert!(
+        active(&run.store).await.is_empty(),
+        "the incident is closed"
+    );
+    let stored = IncidentRepo::get(&*run.store, id).await.unwrap().unwrap();
+    assert_eq!(stored.verdict(), Some(Verdict::Expected));
+    let timeline = run.store.timeline(id).await.unwrap();
+    assert!(
+        timeline.iter().any(|e| e.kind == "human.dismissed"),
+        "the reason is in the timeline"
+    );
+
+    // The cache does not know the incident, so dismissing it again says there is none.
+    let again = run
+        .handle
+        .dismiss(id, UserId::new(), "again".to_owned())
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(again, CommandError::UnknownIncident(_)),
+        "{again:?}"
+    );
     run.shutdown.cancel();
 }

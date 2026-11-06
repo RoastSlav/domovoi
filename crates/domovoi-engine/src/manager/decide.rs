@@ -59,7 +59,7 @@ pub struct Decision {
     pub flaps: u32,
 }
 
-fn status_name(status: IncidentStatus) -> &'static str {
+pub(super) fn status_name(status: IncidentStatus) -> &'static str {
     match status {
         IncidentStatus::Pending => "pending",
         IncidentStatus::Open => "open",
@@ -468,6 +468,11 @@ pub fn decide(
             EventKind::IncidentUnmuted,
             "unmuted",
         )?,
+        Command::Dismiss {
+            incident,
+            by,
+            reason,
+        } => return super::dismiss::dismiss(state, *incident, *by, reason, policy, now),
         Command::Tick => builder.tick(),
         Command::AttachTriage {
             incident,
