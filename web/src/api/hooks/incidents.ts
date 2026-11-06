@@ -1,7 +1,14 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../client";
 import { keys } from "../queryClient";
-import { call, defined, type IncidentDetail, type IncidentPage, type TriageState } from "../types";
+import {
+  call,
+  defined,
+  type DismissInput,
+  type IncidentDetail,
+  type IncidentPage,
+  type TriageState,
+} from "../types";
 
 /** The incident list's filters, as kept in the URL. */
 export interface IncidentFilters {
@@ -73,6 +80,21 @@ export function useUnmute(id: string) {
   return useMutation({
     mutationFn: () => call(api.POST("/api/v1/incidents/{id}/unmute", { params: { path: { id } } })),
     onSuccess,
+  });
+}
+
+/** Closes the incident as a known condition, with the reason the human gives. `ignore_for_minutes`
+ * keeps the check quiet for that many minutes, 0 means always, and null creates no rule, so the
+ * check alerts again the next time it fires. The rule list changes, so it refreshes with the incidents. */
+export function useDismiss(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body: DismissInput) =>
+      call(api.POST("/api/v1/incidents/{id}/dismiss", { params: { path: { id } }, body })),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: keys.incidents });
+      void client.invalidateQueries({ queryKey: keys.ackRules });
+    },
   });
 }
 

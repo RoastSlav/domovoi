@@ -70,6 +70,8 @@ export type Predicate = Schemas["PredicateDto"];
 export type PredicateOp = Schemas["PredicateOpDto"];
 /** A new rule. */
 export type AckRuleInput = Schemas["AckRuleInput"];
+/** Dismissing an incident as a known condition: the reason, and how long the check stays quiet. */
+export type DismissInput = Schemas["DismissRequest"];
 
 /** How the API shows a secret that has a value. */
 export const SECRET_SET = "[set]";

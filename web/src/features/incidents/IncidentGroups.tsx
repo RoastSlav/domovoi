@@ -23,6 +23,9 @@ interface GroupDef {
   collapsed?: boolean;
   /** What to say when the group is empty; a group without this hides itself. */
   empty?: string;
+  /** Which of the group's loaded rows it shows. A dismissed incident reopened by its rule lives in
+   * Being handled, not Needs attention, because nothing is expected of anyone about it. */
+  accept?: (incident: IncidentSummary) => boolean;
 }
 
 const GROUPS: GroupDef[] = [
@@ -31,11 +34,13 @@ const GROUPS: GroupDef[] = [
     statuses: ["open"],
     hint: "New problems nobody has acknowledged.",
     empty: "Nothing needs attention.",
+    accept: (incident) => incident.verdict !== "EXPECTED",
   },
   {
     title: "Being handled",
-    statuses: ["acked", "muted"],
-    hint: "Acknowledged or muted. Muted ones return when the mute ends.",
+    statuses: ["acked", "muted", "open"],
+    hint: "Acknowledged, muted, or dismissed as a known condition. Muted ones return when the mute ends.",
+    accept: (incident) => incident.status !== "open" || incident.verdict === "EXPECTED",
   },
   {
     title: "Waiting for confirmation",
@@ -50,30 +55,45 @@ const GROUPS: GroupDef[] = [
   },
 ];
 
-/** A group's loaded incidents, newest firing first, and whether the hub has more than it gave. */
-function load(pages: IncidentPage[]): { items: IncidentSummary[]; more: boolean } {
+/**
+ * A group's loaded incidents, newest firing first, and whether it has more than the hub gave.
+ * A source counts as having more only when it already has rows in the group: rows the group
+ * does not show say nothing about its size, so the count stays exact for a group whose rows
+ * come from a fully loaded status.
+ */
+function load(
+  sources: IncidentPage[][],
+  accept: (incident: IncidentSummary) => boolean,
+): { items: IncidentSummary[]; more: boolean } {
+  const items = sources
+    .flat()
+    .flatMap((page) => page.items)
+    .filter(accept)
+    // Fractional seconds vary in length ("…:45Z" and "…:45.5Z"), so string order is not time order.
+    .sort((a, b) => Date.parse(b.last_firing_at) - Date.parse(a.last_firing_at));
   return {
-    items: pages
-      .flatMap((page) => page.items)
-      // Fractional seconds vary in length ("…:45Z" and "…:45.5Z"), so string order is not time order.
-      .sort((a, b) => Date.parse(b.last_firing_at) - Date.parse(a.last_firing_at)),
-    more: pages.some((page) => page.next_cursor != null),
+    items,
+    more: sources.some(
+      (pages) =>
+        pages.some((page) => page.next_cursor != null) &&
+        pages.some((page) => page.items.some(accept)),
+    ),
   };
 }
 
 /** One group: its heading, hint, rows, and a link to all of them when it is closed. */
 function Group({
   def,
-  pages,
+  sources,
   pending,
   hostNames,
 }: {
   def: GroupDef;
-  pages: IncidentPage[];
+  sources: IncidentPage[][];
   pending: boolean;
   hostNames: Map<string, string>;
 }) {
-  const { items, more } = load(pages);
+  const { items, more } = load(sources, def.accept ?? (() => true));
   if (items.length === 0 && (pending || !def.empty)) {
     return null;
   }
@@ -154,7 +174,7 @@ export function IncidentGroups({
         <Group
           key={def.title}
           def={def}
-          pages={def.statuses.flatMap((status) => byStatus[status]?.data?.pages ?? [])}
+          sources={def.statuses.map((status) => byStatus[status]?.data?.pages ?? [])}
           pending={def.statuses.some((status) => byStatus[status]?.isPending ?? false)}
           hostNames={hostNames}
         />

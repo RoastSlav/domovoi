@@ -398,6 +398,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/incidents/{id}/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Dismisses an incident as a known condition: closes it now with the verdict `EXPECTED`,
+         *     and when `ignore_for_minutes` is given, creates the rule that keeps the check quiet
+         *     (0 means always). The rule matches the incident's host, check and target exactly, so
+         *     only this condition stops alerting; `note` is the reason, so a human can see later what
+         *     it covers, and the list shows it.
+         */
+        post: operations["dismiss_incident"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/incidents/{id}/mute": {
         parameters: {
             query?: never;
@@ -841,6 +864,17 @@ export interface components {
             enabled: boolean;
             /** @description `[set]` or `[unset]`. */
             webhook_url: string;
+        };
+        /** @description Dismissing an incident as a known condition. */
+        DismissRequest: {
+            /**
+             * Format: int32
+             * @description Minutes to keep the check quiet, 1 to 525600; 0 means always; null dismisses
+             *     without creating a rule, so the check alerts again.
+             */
+            ignore_for_minutes?: number | null;
+            /** @description Why this is not a real problem, 1 to 500 characters. */
+            reason: string;
         };
         /** @description The settings as the UI edits them. */
         EditableSettings: {
@@ -2406,6 +2440,67 @@ export interface operations {
             };
             /** @description Triage is off or the model is unavailable */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    dismiss_incident: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Incident id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DismissRequest"];
+            };
+        };
+        responses: {
+            /** @description Dismissed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Empty reason or too long */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No active incident */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not possible now */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
