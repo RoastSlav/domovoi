@@ -49,7 +49,7 @@ A value that looks like a number in an **equals** condition is compared as a num
 
 You can dismiss an incident instead of writing a rule by hand: on the incident, choose **Dismiss**, say why this is not a real problem, and pick how long the check should stay quiet — 1 day, 1 week, 30 days, always, or **No** to close the incident without a rule, so the check alerts again next time it fires. Dismissal closes the incident right away with the verdict Expected, and the rule it creates matches that incident's host, check and target exactly, so only this one condition goes quiet. Your reason becomes the rule's note, so the **Known conditions** page can say later what it covers.
 
-A dismissed incident that keeps firing reopens within the reopen window, quietly: no alert, no triage, and no notification. It sits under **Being handled**, because nothing is expected of anyone about it.
+A dismissed incident that keeps firing reopens within the reopen window, quietly: no alert, no triage, and no notification. It keeps the Expected verdict, so it sits under **Being handled** — nothing is expected of anyone about it. After the reopen window passes, the condition starts a **new** incident: the rule keeps it silent, it has no verdict, and it shows under **Needs attention**. A nightly condition that is dismissed as always-quiet shows a new incident there every night, which is what "quiet" means: not told about it, not counted as something you have triaged.
 
 ## What triggers triage
 
@@ -63,11 +63,11 @@ A run deferred by the hourly cap may re-run on its own once a run slot frees, as
 
 The **Incidents** page groups what you have by state, newest firing first inside each group:
 
-- **Needs attention** — open incidents nobody has acknowledged. Dismissed ones are not here, because nothing is expected of anyone about them.
-- **Being handled** — acknowledged, muted, and dismissed incidents. Muted ones return when the mute ends; dismissed ones stay quiet while their rule holds.
+- **Needs attention** — open incidents nobody has acknowledged, apart from the ones with the verdict Expected. The rule-silenced incidents that a known condition makes are here too, silent and untriaged, with nothing said about them.
+- **Being handled** — acknowledged, muted, and open incidents judged expected: dismissed as a known condition, or expected by triage. Muted ones return when the mute ends; dismissed ones stay quiet while their rule holds.
 - **Waiting for confirmation** — pending incidents, not confirmed yet. Domovoi alerts if the check keeps failing.
 - **Resolved** — the 20 most recently cleared problems, newest first. The group starts closed; **All resolved incidents** opens the rest.
 
 Empty groups are hidden, and **Needs attention** says "Nothing needs attention." when there is nothing to see. If a request fails with nothing on screen, the page says the incidents could not be loaded and shows no groups, so a hub that cannot be read never looks like a quiet night. A refetch that fails over rows already shown keeps them and notes "Could not refresh." The host and severity filters apply to every group. Choose a status in the filters to get one state as a single page with paging.
 
-An incident's own page offers **Ack** (stops reminders), **Mute** (silence for the time you pick), **Unmute** (lift the mute) and **Dismiss** (close it as a known condition, with your reason and how long to keep the check quiet). Dismissed incidents show up under **Being handled**, and their rule appears on the **Known conditions** page.
+An incident's own page offers **Ack** (stops reminders), **Mute** (silence for the time you pick), **Unmute** (lift the mute) and **Dismiss** (close it as a known condition, with your reason and how long to keep the check quiet). **Dismiss** appears once the incident is confirmed; a pending incident is not dismissible. The rule a dismiss writes matches the target exactly, so a target containing `*` cannot be given a period: dismiss with **No**, and write the rule by hand under **Known conditions**. Dismissed incidents show up under **Being handled**, and their rule appears on the **Known conditions** page.
