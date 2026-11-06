@@ -1,5 +1,6 @@
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { IncidentSummary } from "../../api/types";
 import { calls, failure, resetApi, route } from "../../test/apiMock";
 import { detail, incident, nas } from "../../test/fixtures";
 import { renderAt } from "../../test/render";
@@ -17,6 +18,20 @@ function incidentQueries() {
   return calls
     .filter((call) => call.route === "GET /api/v1/incidents")
     .map((call) => call.init.params?.query);
+}
+
+/** One page of incidents for each status, so each one lands in its own group. */
+function routeByStatus(incidents: Record<string, IncidentSummary[]>) {
+  route("GET /api/v1/incidents", ({ params }) => ({
+    items: incidents[String(params?.query?.status)] ?? [],
+    next_cursor: null,
+  }));
+}
+
+/** The group whose heading is `heading`, as a query scope. */
+function group(heading: string) {
+  const section = screen.getByRole("heading", { name: heading }).closest("section");
+  return within(section as HTMLElement);
 }
 
 test("incident_list_renders_filters_from_url_and_paginates", async () => {
@@ -57,38 +72,148 @@ test("incident_list_renders_filters_from_url_and_paginates", async () => {
   await user.selectOptions(screen.getByLabelText("Status"), "");
   expect(screen.getByTestId("location")).toHaveTextContent("/incidents?severity=critical&host=pi");
   await screen.findAllByRole("link");
-  expect(incidentQueries().at(-1)).toEqual({ severity: "critical", host: "pi", limit: 50 });
+  expect(incidentQueries().slice(-5)).toEqual(
+    ["open", "acked", "muted", "pending", "resolved"].map((status) => ({
+      status,
+      severity: "critical",
+      host: "pi",
+      limit: 50,
+    })),
+  );
 });
 
-test("incident_list_shows_empty_state", async () => {
-  route("GET /api/v1/incidents", () => ({ items: [], next_cursor: null }));
+test("incident_list_groups_by_state", async () => {
+  routeByStatus({
+    open: [incident({ id: "inc-open", title: "Open one", status: "open" })],
+    acked: [incident({ id: "inc-acked", title: "Acked one", status: "acked" })],
+    muted: [
+      incident({
+        id: "inc-muted",
+        title: "Muted one",
+        status: "muted",
+        last_firing_at: "2026-11-01T12:00:00Z",
+      }),
+    ],
+    pending: [incident({ id: "inc-pending", title: "Pending one", status: "pending" })],
+    resolved: [incident({ id: "inc-resolved", title: "Resolved one", status: "resolved" })],
+  });
   renderAt("/incidents", "/incidents", <IncidentListPage />);
-  expect(await screen.findByText("No incidents")).toBeVisible();
+
+  await screen.findByRole("heading", { name: "Needs attention (1)" });
+  expect(group("Needs attention (1)").getByRole("link", { name: "Open one" })).toBeVisible();
+  expect(
+    group("Needs attention (1)").getByText("New problems nobody has acknowledged."),
+  ).toBeVisible();
+
+  await screen.findByRole("heading", { name: "Being handled (2)" });
+  expect(
+    group("Being handled (2)")
+      .getAllByRole("link")
+      .map((link) => link.textContent),
+    "acked and muted merge into one group, newest firing first",
+  ).toEqual(["Muted one", "Acked one"]);
+
+  await screen.findByRole("heading", { name: "Waiting for confirmation (1)" });
+  expect(
+    group("Waiting for confirmation (1)").getByRole("link", { name: "Pending one" }),
+  ).toBeVisible();
+
+  await screen.findByRole("heading", { name: "Resolved (1)" });
+  const details = screen
+    .getByRole("heading", { name: "Resolved (1)" })
+    .closest("details") as HTMLElement;
+  expect(details, "the resolved group starts closed").not.toHaveAttribute("open");
+  expect(within(details).getByRole("link", { name: "Resolved one" })).not.toBeVisible();
+  expect(within(details).getByRole("link", { name: "All resolved incidents" })).toHaveAttribute(
+    "href",
+    "/incidents?status=resolved",
+  );
+});
+
+test("incident_list_says_nothing_needs_attention", async () => {
+  routeByStatus({});
+  renderAt("/incidents", "/incidents", <IncidentListPage />);
+
+  expect(await screen.findByText("Nothing needs attention.")).toBeVisible();
+  expect(screen.getByRole("heading", { name: "Needs attention (0)" })).toBeVisible();
+  expect(
+    screen.queryByRole("heading", { name: "Being handled (0)" }),
+    "empty groups hide",
+  ).toBeNull();
+  expect(
+    screen.queryByRole("heading", { name: "Resolved (0)" }),
+    "no empty resolved group",
+  ).toBeNull();
+});
+
+test("incident_list_says_it_could_not_load_incidents", async () => {
+  route("GET /api/v1/incidents", () => failure(500, "internal", "the hub is sick"));
+  renderAt("/incidents", "/incidents", <IncidentListPage />);
+
+  expect(await screen.findByText("Could not load incidents")).toBeVisible();
+  expect(
+    screen.queryByRole("heading", { name: "Needs attention (0)" }),
+    "no group behind a failed request",
+  ).toBeNull();
+  expect(
+    screen.queryByText("Nothing needs attention."),
+    "a failed load is never read as all clear",
+  ).toBeNull();
+});
+
+test("incident_list_keeps_its_groups_when_a_refresh_fails", async () => {
+  const requests = new Map<string, number>();
+  route("GET /api/v1/incidents", ({ params }) => {
+    const status = String(params?.query?.status);
+    const seen = (requests.get(status) ?? 0) + 1;
+    requests.set(status, seen);
+    if (seen > 1) {
+      return failure(500, "internal", "the hub is sick");
+    }
+    return status === "open"
+      ? {
+          items: [incident({ id: "inc-open", title: "Open one", status: "open" })],
+          next_cursor: null,
+        }
+      : { items: [], next_cursor: null };
+  });
+  const { client } = renderAt("/incidents", "/incidents", <IncidentListPage />);
+
+  await screen.findByRole("heading", { name: "Needs attention (1)" });
+
+  client.invalidateQueries({ queryKey: ["incidents"] });
+
+  expect(await screen.findByText("Could not refresh.")).toBeVisible();
+  expect(
+    group("Needs attention (1)").getByRole("link", { name: "Open one" }),
+    "the rows stay over a failed refetch",
+  ).toBeVisible();
 });
 
 test("resolved_incidents_show_a_resolved_badge", async () => {
-  route("GET /api/v1/incidents", () => ({
-    items: [incident({ status: "resolved", verdict: "ACTION_NEEDED" })],
-    next_cursor: null,
-  }));
+  routeByStatus({ resolved: [incident({ status: "resolved", verdict: "ACTION_NEEDED" })] });
   renderAt("/incidents", "/incidents", <IncidentListPage />);
 
-  expect(await screen.findByText("Resolved")).toBeVisible();
-  expect(screen.queryByText("Action needed")).toBeNull();
-  expect(screen.getByText(/nas · resolved · last fired/)).toHaveTextContent(
+  const heading = await screen.findByRole("heading", { name: "Resolved (1)" });
+  const details = heading.closest("details") as HTMLElement;
+  expect(heading).toBeVisible();
+  expect(within(details).getByText("Resolved")).toBeInTheDocument();
+  expect(within(details).queryByText("Action needed")).toBeNull();
+  expect(within(details).getByText(/nas · resolved · last fired/)).toHaveTextContent(
     "triage said Action needed",
   );
 });
 
 test("resolved_incident_without_verdict_has_no_triage_note", async () => {
-  route("GET /api/v1/incidents", () => ({
-    items: [incident({ status: "resolved", verdict: null })],
-    next_cursor: null,
-  }));
+  routeByStatus({ resolved: [incident({ status: "resolved", verdict: null })] });
   renderAt("/incidents", "/incidents", <IncidentListPage />);
 
-  expect(await screen.findByText("Resolved")).toBeVisible();
-  expect(screen.queryByText(/triage said/)).toBeNull();
+  const heading = await screen.findByRole("heading", { name: "Resolved (1)" });
+  const details = heading.closest("details") as HTMLElement;
+  expect(within(details).getByText(/nas · resolved · last fired/)).toHaveTextContent(
+    "nas · resolved · last fired",
+  );
+  expect(within(details).queryByText(/triage said/)).toBeNull();
 });
 
 test("resolved_card_shows_resolved_badge_and_keeps_the_verdict", async () => {

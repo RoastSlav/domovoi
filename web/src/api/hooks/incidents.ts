@@ -13,10 +13,14 @@ export interface IncidentFilters {
 /** The page size of the incident list. */
 export const INCIDENT_PAGE = 50;
 
-/** Incidents matching `filters`, newest first, a page at a time. */
-export function useIncidents(filters: IncidentFilters) {
+/**
+ * Incidents matching `filters`, newest first, a page at a time.
+ * Stays idle while `enabled` is false, for a list the page is not showing.
+ */
+export function useIncidents(filters: IncidentFilters, enabled = true) {
   return useInfiniteQuery({
     queryKey: keys.incidentList(filters),
+    enabled,
     queryFn: ({ pageParam }) =>
       call<IncidentPage>(
         api.GET("/api/v1/incidents", {
