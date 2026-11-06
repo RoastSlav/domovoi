@@ -1,13 +1,11 @@
 import { useEffect, useRef } from "react";
-import { Link, useSearchParams } from "react-router";
+import { useSearchParams } from "react-router";
 import { useHostNames, useHosts } from "../../api/hooks/hosts";
 import { useIncidents, type IncidentFilters } from "../../api/hooks/incidents";
-import type { IncidentSummary } from "../../api/types";
-import { Badge } from "../../components/Badge";
 import { Button } from "../../components/Button";
 import { EmptyState } from "../../components/EmptyState";
-import { RelativeTime } from "../../components/RelativeTime";
-import { incidentBadge, triageNote } from "./badge";
+import { IncidentGroups } from "./IncidentGroups";
+import { IncidentRow } from "./IncidentRow";
 import styles from "./incidents.module.css";
 
 const STATUSES = ["pending", "open", "acked", "muted", "resolved"];
@@ -43,26 +41,6 @@ function Filter({
   );
 }
 
-function IncidentRow({ incident, host }: { incident: IncidentSummary; host: string | undefined }) {
-  const note = triageNote(incident);
-  return (
-    <li className={styles.row}>
-      <div className={styles.rowHead}>
-        <Badge value={incidentBadge(incident)} />
-        <Link to={`/incidents/${incident.id}`} className={styles.title}>
-          {incident.title}
-        </Link>
-      </div>
-      <p className={styles.meta}>
-        {host ?? "unknown host"} · {incident.status} · last fired{" "}
-        <RelativeTime at={incident.last_firing_at} />
-        {incident.occurrences > 1 && ` · ${incident.occurrences} times`}
-        {note && ` · ${note}`}
-      </p>
-    </li>
-  );
-}
-
 /** Loads the next page when the end of the list scrolls into view. */
 function useLoadWhenVisible(load: () => void, enabled: boolean) {
   const sentinel = useRef<HTMLDivElement>(null);
@@ -82,7 +60,10 @@ function useLoadWhenVisible(load: () => void, enabled: boolean) {
   return sentinel;
 }
 
-/** Incidents, newest first, filtered by status, host and severity from the URL. */
+/**
+ * Incidents, newest first, filtered by status, host and severity from the URL.
+ * With no status filter the page groups the incidents by state; with one it lists them.
+ */
 export function IncidentListPage() {
   const [params, setParams] = useSearchParams();
   const filters: IncidentFilters = {
@@ -90,7 +71,8 @@ export function IncidentListPage() {
     host: params.get("host") ?? undefined,
     severity: params.get("severity") ?? undefined,
   };
-  const incidents = useIncidents(filters);
+  const grouped = !filters.status;
+  const incidents = useIncidents(filters, !grouped);
   const hosts = useHosts();
   const hostNames = useHostNames();
   const { fetchNextPage, hasNextPage, isFetchingNextPage } = incidents;
@@ -134,30 +116,36 @@ export function IncidentListPage() {
           onChange={(v) => setFilter("severity", v)}
         />
       </form>
-      {incidents.isPending && <p>Loading…</p>}
-      {incidents.error && <EmptyState title="Could not load incidents" />}
-      {incidents.data && items.length === 0 && (
-        <EmptyState title="No incidents">
-          <p>Nothing matches these filters.</p>
-        </EmptyState>
-      )}
-      {items.length > 0 && (
-        <ul className={styles.list}>
-          {items.map((incident) => (
-            <IncidentRow
-              key={incident.id}
-              incident={incident}
-              host={hostNames.get(incident.host_id)}
-            />
-          ))}
-        </ul>
-      )}
-      {hasNextPage && (
-        <div className={styles.more} ref={sentinel}>
-          <Button onClick={loadMore} disabled={isFetchingNextPage}>
-            {isFetchingNextPage ? "Loading…" : "Load more"}
-          </Button>
-        </div>
+      {grouped ? (
+        <IncidentGroups filters={filters} hostNames={hostNames} />
+      ) : (
+        <>
+          {incidents.isPending && <p>Loading…</p>}
+          {incidents.error && <EmptyState title="Could not load incidents" />}
+          {incidents.data && items.length === 0 && (
+            <EmptyState title="No incidents">
+              <p>Nothing matches these filters.</p>
+            </EmptyState>
+          )}
+          {items.length > 0 && (
+            <ul className={styles.list}>
+              {items.map((incident) => (
+                <IncidentRow
+                  key={incident.id}
+                  incident={incident}
+                  host={hostNames.get(incident.host_id)}
+                />
+              ))}
+            </ul>
+          )}
+          {hasNextPage && (
+            <div className={styles.more} ref={sentinel}>
+              <Button onClick={loadMore} disabled={isFetchingNextPage}>
+                {isFetchingNextPage ? "Loading…" : "Load more"}
+              </Button>
+            </div>
+          )}
+        </>
       )}
     </>
   );
