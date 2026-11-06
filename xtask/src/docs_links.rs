@@ -1,8 +1,11 @@
-//! `cargo xtask docs-links`: checks the book in `docs/book/src`.
+//! `cargo xtask docs-links`: checks the book in `docs/book/src` and the UI's "Learn more" links.
 //!
 //! - every page `SUMMARY.md` lists exists and is not a "coming in v0.1" stub;
 //! - every relative link points at a file inside the book;
-//! - every `#anchor` names a heading in its target page, using mdBook's heading ids.
+//! - every `#anchor` names a heading in its target page, using mdBook's heading ids;
+//! - every `docs="..."` in `web/src` is a book page `SUMMARY.md` lists, and its `#anchor` names a
+//!   heading there: the UI's links are book paths, so renaming a heading breaks them, and the UI
+//!   is the only place the hub's book pages are linked from.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path, PathBuf};
@@ -10,14 +13,24 @@ use std::path::{Component, Path, PathBuf};
 /// The book's sources.
 pub const BOOK_SRC: &str = "docs/book/src";
 
+/// The UI sources that carry `docs="..."` links. The values there are book paths with the `.html`
+/// the hub serves, so `concepts/incidents.html` is the page `concepts/incidents.md`.
+pub const UI_SRC: &str = "web/src";
+
 /// Runs every check and fails with the list of problems.
 pub fn run(root: &Path) -> anyhow::Result<()> {
     let src = root.join(BOOK_SRC);
     let mut pages = BTreeMap::new();
     collect(&src, &src, &mut pages)?;
-    let problems = check(&pages);
+    let ui = ui_links(&root.join(UI_SRC))?;
+    let mut problems = check(&pages);
+    problems.extend(check_ui(&ui, &pages));
     if problems.is_empty() {
-        println!("docs-links: {} pages, all links resolve", pages.len());
+        println!(
+            "docs-links: {} pages and {} UI docs links resolve",
+            pages.len(),
+            ui.values().map(Vec::len).sum::<usize>()
+        );
         Ok(())
     } else {
         for problem in &problems {
@@ -36,6 +49,35 @@ fn collect(src: &Path, dir: &Path, pages: &mut BTreeMap<PathBuf, String>) -> any
         } else if path.extension().is_some_and(|e| e == "md") {
             let relative = path.strip_prefix(src)?.to_path_buf();
             pages.insert(relative, std::fs::read_to_string(&path)?);
+        }
+    }
+    Ok(())
+}
+
+/// Every `docs="..."` target under `dir`, keyed by the file containing it.
+fn ui_links(src: &Path) -> anyhow::Result<BTreeMap<PathBuf, Vec<String>>> {
+    let mut files = BTreeMap::new();
+    if src.is_dir() {
+        collect_ui(src, src, &mut files)?;
+    }
+    Ok(files)
+}
+
+/// Every `docs="..."` target in the TypeScript sources under `dir`.
+fn collect_ui(
+    src: &Path,
+    dir: &Path,
+    files: &mut BTreeMap<PathBuf, Vec<String>>,
+) -> anyhow::Result<()> {
+    for entry in std::fs::read_dir(dir)? {
+        let path = entry?.path();
+        if path.is_dir() {
+            collect_ui(src, &path, files)?;
+        } else if path.extension().is_some_and(|e| e == "ts" || e == "tsx") {
+            let targets = docs_targets(&std::fs::read_to_string(&path)?);
+            if !targets.is_empty() {
+                files.insert(path.strip_prefix(src)?.to_path_buf(), targets);
+            }
         }
     }
     Ok(())
@@ -104,6 +146,85 @@ pub fn check(pages: &BTreeMap<PathBuf, String>) -> Vec<String> {
         }
     }
     problems
+}
+
+/// Every problem in the UI's `docs="..."` targets, as `file: message` lines. A target must be a
+/// page `SUMMARY.md` lists, so a page the book does not build is a broken link, and its `#anchor`
+/// must name a heading in that page.
+pub fn check_ui(
+    ui: &BTreeMap<PathBuf, Vec<String>>,
+    pages: &BTreeMap<PathBuf, String>,
+) -> Vec<String> {
+    let listed = listed_pages(pages);
+    let anchors: BTreeMap<&PathBuf, BTreeSet<String>> = pages
+        .iter()
+        .map(|(path, text)| (path, heading_ids(text)))
+        .collect();
+    let mut problems = Vec::new();
+    for (file, targets) in ui {
+        for target in targets {
+            let (page, anchor) = match target.split_once('#') {
+                Some((page, anchor)) => (page, Some(anchor)),
+                None => (target.as_str(), None),
+            };
+            let Some(md) = book_page(page) else {
+                problems.push(format!("{}: {target} is not a .html page", file.display()));
+                continue;
+            };
+            if !listed.contains(&md) {
+                problems.push(format!(
+                    "{}: {target} is not a page in SUMMARY.md",
+                    file.display()
+                ));
+                continue;
+            }
+            if let Some(anchor) = anchor
+                && !anchors.get(&md).is_some_and(|ids| ids.contains(anchor))
+            {
+                problems.push(format!(
+                    "{}: {target} names no heading in {}",
+                    file.display(),
+                    md.display()
+                ));
+            }
+        }
+    }
+    problems
+}
+
+/// The page a UI `docs="..."` target points at, as its path in the book's `src`, or `None` when it
+/// is not a hub-served page (only `.html` targets are).
+fn book_page(page: &str) -> Option<PathBuf> {
+    Some(PathBuf::from(format!("{}.md", page.strip_suffix(".html")?)))
+}
+
+/// The pages `SUMMARY.md` lists, as paths in the book's `src`.
+fn listed_pages(pages: &BTreeMap<PathBuf, String>) -> BTreeSet<PathBuf> {
+    let summary = PathBuf::from("SUMMARY.md");
+    let Some(text) = pages.get(&summary) else {
+        return BTreeSet::new();
+    };
+    links(text)
+        .iter()
+        .filter_map(|target| target.split('#').next())
+        .filter(|page| !page.is_empty())
+        .map(PathBuf::from)
+        .collect()
+}
+
+/// The `docs="..."` values in `text`, in the order they appear. `topic="..."` is not a docs path.
+fn docs_targets(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = text;
+    while let Some(at) = rest.find("docs=\"") {
+        let after = &rest[at + 6..];
+        let Some(end) = after.find('"') else { break };
+        if !after[..end].is_empty() {
+            out.push(after[..end].to_owned());
+        }
+        rest = &after[end + 1..];
+    }
+    out
 }
 
 fn is_external(target: &str) -> bool {
@@ -216,14 +337,26 @@ fn heading_id(title: &str) -> String {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
-    use super::{check, heading_id};
+    use super::{check, check_ui, docs_targets, heading_id, run};
 
     fn book(pages: &[(&str, &str)]) -> BTreeMap<PathBuf, String> {
         pages
             .iter()
             .map(|(path, text)| (PathBuf::from(path), (*text).to_owned()))
+            .collect()
+    }
+
+    fn ui(targets: &[(&str, &[&str])]) -> BTreeMap<PathBuf, Vec<String>> {
+        targets
+            .iter()
+            .map(|(file, list)| {
+                (
+                    PathBuf::from(file),
+                    list.iter().map(|target| (*target).to_owned()).collect(),
+                )
+            })
             .collect()
     }
 
@@ -264,5 +397,86 @@ mod tests {
         assert!(!joined.contains("sub/b.md#top"), "{joined}");
         assert!(!joined.contains("x.md"), "code is skipped: {joined}");
         assert_eq!(problems.len(), 4, "{joined}");
+    }
+
+    #[test]
+    fn ui_docs_links_must_be_pages_the_summary_lists() {
+        let pages = book(&[
+            ("SUMMARY.md", "- [Incidents](concepts/incidents.md)"),
+            (
+                "concepts/incidents.md",
+                "# Signals and incidents\n\n## Known conditions",
+            ),
+            ("guide/skills.md", "# Writing skills"),
+        ]);
+        let ok = ui(&[(
+            "components/PageIntro.tsx",
+            &["concepts/incidents.html#known-conditions"],
+        )]);
+        assert_eq!(check_ui(&ok, &pages), Vec::<String>::new());
+
+        let bad = ui(&[(
+            "features/skills/SkillsPage.tsx",
+            &["guide/unlisted.html", "guide/skills.md", "#top"],
+        )]);
+        let joined = check_ui(&bad, &pages).join("\n");
+        assert!(
+            joined.contains("SkillsPage.tsx: guide/unlisted.html is not a page in SUMMARY.md"),
+            "{joined}"
+        );
+        assert!(
+            joined.contains("guide/skills.md is not a .html page"),
+            "{joined}"
+        );
+        assert!(joined.contains("#top is not a .html page"), "{joined}");
+        assert_eq!(joined.split('\n').count(), 3, "{joined}");
+    }
+
+    #[test]
+    fn ui_doc_link_anchors_must_name_a_heading() {
+        let pages = book(&[
+            ("SUMMARY.md", "- [Incidents](concepts/incidents.md)"),
+            (
+                "concepts/incidents.md",
+                "# Signals and incidents\n\n## Known conditions",
+            ),
+        ]);
+        let targets = ui(&[(
+            "features/rules/RulesPage.tsx",
+            &[
+                "concepts/incidents.html#known-conditions",
+                "concepts/incidents.html#no-such-heading",
+                "concepts/incidents.html",
+            ],
+        )]);
+        let problems = check_ui(&targets, &pages);
+        let joined = problems.join("\n");
+        assert_eq!(problems.len(), 1, "{joined}");
+        assert!(
+            joined.contains(
+                "RulesPage.tsx: concepts/incidents.html#no-such-heading names no heading in concepts/incidents.md"
+            ),
+            "{joined}"
+        );
+    }
+
+    #[test]
+    fn docs_paths_are_read_from_the_ui_sources() {
+        let text = r#"<PageIntro topic="skills" docs="guide/skills.html">
+        <PageIntro topic="incidents" docs="concepts/incidents.html#known-conditions">
+        <PageIntro topic="x" docs="">
+        "#;
+        assert_eq!(
+            docs_targets(text),
+            [
+                "guide/skills.html",
+                "concepts/incidents.html#known-conditions"
+            ]
+        );
+    }
+
+    #[test]
+    fn the_book_and_the_ui_links_in_this_repo_resolve() -> anyhow::Result<()> {
+        run(&Path::new(env!("CARGO_MANIFEST_DIR")).join(".."))
     }
 }
