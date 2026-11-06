@@ -4,6 +4,7 @@ import { useNoteSearch, useNotes } from "../../api/hooks/notes";
 import { useSelectedHost } from "../../app/HostContext";
 import { Button } from "../../components/Button";
 import { EmptyState } from "../../components/EmptyState";
+import { PageIntro } from "../../components/PageIntro";
 import { RelativeTime } from "../../components/RelativeTime";
 import ui from "../../components/ui.module.css";
 import { useDebounced } from "../../components/useDebounced";
@@ -93,6 +94,10 @@ export function NotesPage() {
           </Link>
         </div>
       </div>
+      <PageIntro topic="notes" docs="guide/migrating.html#4-bring-your-notes">
+        Runbooks in Markdown: how your setup works and how you fixed things before. Triage searches
+        them and gives the relevant ones to the model.
+      </PageIntro>
       <div className={styles.toolbar} role="search">
         <div className={`${styles.field} ${styles.search}`}>
           <label htmlFor="notes-search">Search</label>

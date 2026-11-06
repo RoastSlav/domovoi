@@ -21,6 +21,21 @@ beforeEach(resetApi);
 /** The skill-catalogue requests made so far. */
 const skillCalls = () => calls.filter((c) => c.route === "GET /api/v1/hosts/{name}/skills");
 
+test("skills_page_explains_which_skills_need_approval", async () => {
+  route("GET /api/v1/hosts", () => [nas]);
+  route("GET /api/v1/hosts/{name}/skills", () => []);
+  renderAt("/skills", "/skills", <SkillsPage />);
+
+  expect(await screen.findByText(/^Scripts an agent can run\./)).toBeVisible();
+  // Says what a write skill means.
+  expect(
+    screen.getByText(/Write and destructive skills change things and need your approval\./),
+  ).toBeVisible();
+  expect(
+    screen.getByRole("link", { name: "Learn more about skills (opens in a new tab)" }),
+  ).toHaveAttribute("href", "https://RoastSlav.github.io/domovoi/guide/skills.html");
+});
+
 test("skills_follow_the_host_selected_in_the_sidebar", async () => {
   route("GET /api/v1/hosts", () => [nas, { ...nas, id: "host-pi", name: "pi" }]);
   route("GET /api/v1/hosts/{name}/skills", () => [skill("docker_ps", "read")]);

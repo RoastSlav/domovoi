@@ -77,6 +77,17 @@ test("write_approval_uses_simple_confirm", async () => {
   });
 });
 
+test("approvals_page_explains_that_nothing_runs_until_approved", async () => {
+  route("GET /api/v1/actions", () => ({ items: [], next_cursor: null }));
+  renderAt("/approvals", "/approvals", <ApprovalsPage />);
+
+  // Shows even when there is nothing to approve.
+  expect(await screen.findByText(/^Actions the model suggested\./)).toBeVisible();
+  expect(
+    screen.getByRole("link", { name: "Learn more about approvals (opens in a new tab)" }),
+  ).toHaveAttribute("href", "https://RoastSlav.github.io/domovoi/concepts/actions.html");
+});
+
 test("deny_sends_no_confirmation", async () => {
   const user = userEvent.setup();
   route("GET /api/v1/actions", () => ({ items: [action()], next_cursor: null }));

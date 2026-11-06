@@ -4,7 +4,7 @@
 //! - `cargo xtask ci [--fast] [--web]`: run the same gates CI runs.
 //! - `cargo xtask openapi [--check]`: write (or check) `web/src/api/openapi.json`.
 //! - `cargo xtask docs-config [--check]`: write (or check) the configuration reference.
-//! - `cargo xtask docs-links`: check the book's links, anchors and pages.
+//! - `cargo xtask docs-links`: check the book's links, anchors and pages, and the UI's docs links.
 //!
 //! xtask is not part of the product; it may spawn processes (cargo, git, npm).
 

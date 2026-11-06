@@ -82,11 +82,18 @@ test("lists_the_stored_known_conditions", async () => {
   expect(screen.getByText("every signal")).toBeVisible();
   expect(screen.getByText("expired")).toBeVisible();
   expect(screen.getByRole("heading", { level: 1, name: "Known conditions" })).toBeVisible();
+  // The page explains what a known condition does.
   expect(
     screen.getByText(
-      "Incidents that match a known condition are kept in the history but never alert you and are not triaged.",
+      /^Incidents that match a known condition are kept in the history but never alert you\b/,
     ),
   ).toBeVisible();
+  expect(
+    screen.getByRole("link", { name: "Learn more about known conditions (opens in a new tab)" }),
+  ).toHaveAttribute(
+    "href",
+    "https://RoastSlav.github.io/domovoi/concepts/incidents.html#known-conditions",
+  );
 });
 
 test("adds_a_known_condition_from_the_form", async () => {

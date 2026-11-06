@@ -84,6 +84,7 @@ export function IncidentDetailPage() {
 
       <section className={styles.section} aria-labelledby="timeline-heading">
         <h2 id="timeline-heading">Timeline</h2>
+        <p className={styles.hint}>Everything that happened to this incident, oldest first.</p>
         <Timeline entries={timeline} />
       </section>
     </>

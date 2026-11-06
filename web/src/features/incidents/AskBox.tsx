@@ -35,8 +35,12 @@ export function AskBox({ incidentId }: { incidentId: string }) {
   return (
     <form className={styles.ask} onSubmit={onSubmit}>
       <label htmlFor="ask-question">Ask about this incident</label>
+      <p className={styles.hint} id="ask-hint">
+        The model answers with read-only tools. It cannot change anything.
+      </p>
       <textarea
         id="ask-question"
+        aria-describedby="ask-hint"
         value={question}
         maxLength={MAX_QUESTION_CHARS}
         onChange={(e) => setQuestion(e.target.value)}

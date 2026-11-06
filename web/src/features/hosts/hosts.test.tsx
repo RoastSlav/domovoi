@@ -21,6 +21,19 @@ function posts(path: string) {
   return calls.filter((c) => c.route === `POST ${path}`);
 }
 
+test("hosts_page_explains_which_hosts_it_knows", async () => {
+  route("GET /api/v1/hosts", () => [nas]);
+  renderAt("/hosts", "/hosts", <HostsPage />);
+
+  expect(await screen.findByText(/^Machines Domovoi knows about:/)).toBeVisible();
+  expect(
+    screen.getByText(/hosts running an agent, and hosts that webhooks report on\./),
+  ).toBeVisible();
+  expect(
+    screen.getByRole("link", { name: "Learn more about hosts (opens in a new tab)" }),
+  ).toHaveAttribute("href", "https://RoastSlav.github.io/domovoi/concepts/hub-and-agent.html");
+});
+
 test("enrollment_flow_shows_command_fingerprint_and_countdown_then_connected", async () => {
   vi.useFakeTimers({ now: NOW, shouldAdvanceTime: true });
   const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });

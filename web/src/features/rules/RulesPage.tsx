@@ -4,6 +4,7 @@ import type { AckRule, Predicate } from "../../api/types";
 import { Button } from "../../components/Button";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { EmptyState } from "../../components/EmptyState";
+import { PageIntro } from "../../components/PageIntro";
 import { RelativeTime } from "../../components/RelativeTime";
 import ui from "../../components/ui.module.css";
 import { AddRuleForm, opLabel } from "./AddRuleForm";
@@ -85,10 +86,10 @@ export function RulesPage() {
       <div className={ui.pageHead}>
         <h1>Known conditions</h1>
       </div>
-      <p className={ui.muted}>
+      <PageIntro topic="known conditions" docs="concepts/incidents.html#known-conditions">
         Incidents that match a known condition are kept in the history but never alert you and are
         not triaged.
-      </p>
+      </PageIntro>
       {rules.isPending && <p>Loading…</p>}
       {rules.error && <EmptyState title="Could not load the known conditions" />}
       {rules.data && items.length === 0 && (

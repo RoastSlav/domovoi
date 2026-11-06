@@ -1,6 +1,7 @@
 import { useActions } from "../../api/hooks/actions";
 import { useHostNames } from "../../api/hooks/hosts";
 import { EmptyState } from "../../components/EmptyState";
+import { PageIntro } from "../../components/PageIntro";
 import { ActionItem } from "./ActionItem";
 import styles from "./approvals.module.css";
 
@@ -13,6 +14,10 @@ export function ApprovalsPage() {
   return (
     <>
       <h1>Approvals</h1>
+      <PageIntro topic="approvals" docs="concepts/actions.html">
+        Actions the model suggested. Nothing runs until you approve it; requests expire after an
+        hour.
+      </PageIntro>
       {actions.isPending && <p>Loading…</p>}
       {actions.error && <EmptyState title="Could not load approvals" />}
       {actions.data && items.length === 0 && (

@@ -82,6 +82,20 @@ test("incident_list_renders_filters_from_url_and_paginates", async () => {
   expect(grouped.every((query) => query.severity === "critical" && !("host" in query))).toBe(true);
 });
 
+test("incident_list_explains_what_the_page_is", async () => {
+  route("GET /api/v1/incidents", () => ({ items: [incident()], next_cursor: null }));
+  renderAt("/incidents?status=open", "/incidents", <IncidentListPage />);
+
+  expect(await screen.findByText(/^Problems Domovoi found on your hosts\./)).toBeVisible();
+  const link = screen.getByRole("link", {
+    name: "Learn more about incidents (opens in a new tab)",
+  });
+  expect(link).toHaveAttribute(
+    "href",
+    "https://RoastSlav.github.io/domovoi/concepts/incidents.html",
+  );
+});
+
 test("incident_list_follows_the_host_in_the_url_and_keeps_it_when_a_filter_changes", async () => {
   const user = userEvent.setup();
   route("GET /api/v1/incidents", () => ({ items: [incident()], next_cursor: null }));
@@ -293,6 +307,44 @@ test("incident_detail_shows_card_fields_and_timeline", async () => {
   expect(within(actions).getByRole("button", { name: "Approve" })).toBeVisible();
   expect(screen.getByRole("button", { name: "Ack" })).toBeVisible();
   expect(screen.getByRole("button", { name: "Mute" })).toBeVisible();
+});
+
+test("ack_and_mute_say_what_they_do", async () => {
+  route("GET /api/v1/incidents/{id}", () => detail());
+  renderAt("/incidents/inc-1", "/incidents/:id", <IncidentDetailPage />);
+
+  const ack = await screen.findByRole("button", { name: "Ack" });
+  expect(ack).toHaveAttribute(
+    "title",
+    "Stops reminders; the incident stays listed until the problem clears.",
+  );
+  expect(screen.getByRole("button", { name: "Mute" })).toHaveAttribute(
+    "title",
+    "No alerts or reminders until the time you pick.",
+  );
+});
+
+test("ask_box_says_the_model_cannot_change_anything", async () => {
+  route("GET /api/v1/incidents/{id}", () => detail());
+  renderAt("/incidents/inc-1", "/incidents/:id", <IncidentDetailPage />);
+
+  const hint = await screen.findByText(
+    "The model answers with read-only tools. It cannot change anything.",
+  );
+  expect(hint).toBeVisible();
+  expect(screen.getByLabelText("Ask about this incident")).toHaveAccessibleDescription(
+    "The model answers with read-only tools. It cannot change anything.",
+  );
+});
+
+test("timeline_says_it_starts_with_the_oldest_entry", async () => {
+  route("GET /api/v1/incidents/{id}", () => detail());
+  renderAt("/incidents/inc-1", "/incidents/:id", <IncidentDetailPage />);
+
+  const timeline = await screen.findByRole("region", { name: "Timeline" });
+  expect(
+    within(timeline).getByText("Everything that happened to this incident, oldest first."),
+  ).toBeVisible();
 });
 
 test("incident_detail_retries_triage_and_shows_how_it_went", async () => {
