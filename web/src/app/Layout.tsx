@@ -1,113 +1,25 @@
-import { Link, NavLink, Outlet, useNavigate } from "react-router";
-import { useLiveEvents, type LiveStatus } from "../api/events";
-import { useHosts } from "../api/hooks/hosts";
-import { useLogout, useSession } from "../api/hooks/session";
-import { Button } from "../components/Button";
+import { Outlet } from "react-router";
+import { useLiveEvents } from "../api/events";
 import { SetupBanner } from "../features/setup/SetupBanner";
-import { isHubOnly } from "../features/hosts/HostStatus";
+import { HostProvider } from "./HostContext";
 import styles from "./Layout.module.css";
+import { Sidebar } from "./Sidebar";
 
-const NAV = [
-  ["/incidents", "Incidents"],
-  ["/rules", "Known conditions"],
-  ["/approvals", "Approvals"],
-  ["/hosts", "Hosts"],
-  ["/skills", "Skills"],
-  ["/notes", "Notes"],
-  ["/digest", "Digest"],
-  ["/settings", "Settings"],
-] as const;
-
-const LIVE_TEXT: Record<LiveStatus, string> = {
-  live: "Live",
-  connecting: "Connecting",
-  offline: "Offline",
-};
-
-function LiveIndicator({ status }: { status: LiveStatus }) {
-  return (
-    <span className={styles.live} data-status={status} role="status" aria-live="polite">
-      <span className={styles.dot} aria-hidden="true" />
-      {LIVE_TEXT[status]}
-    </span>
-  );
-}
-
-/** The pill per host, for the top bar: the hub's own machine reads "hub only". */
-export function HostPills() {
-  const hosts = useHosts();
-  if (!hosts.data?.length) {
-    return null;
-  }
-  return (
-    <ul className={styles.pills} aria-label="Hosts">
-      {hosts.data.map((host) => {
-        const hubOnly = isHubOnly(host);
-        return (
-          <li key={host.id}>
-            <Link
-              to={`/hosts/${host.name}`}
-              className={styles.pill}
-              data-connected={hubOnly ? "hub" : host.connected}
-            >
-              <span className={styles.dot} aria-hidden="true" />
-              {host.name}
-              <span className="visually-hidden">
-                {hubOnly ? " hub only" : host.connected ? " connected" : " offline"}
-              </span>
-            </Link>
-          </li>
-        );
-      })}
-    </ul>
-  );
-}
-
-/** The frame of every logged-in page: top bar, navigation and the page itself. */
+/** The frame of every logged-in page: sidebar (a top bar on narrow screens) and the page. */
 export function Layout() {
   const live = useLiveEvents();
-  const session = useSession();
-  const logout = useLogout();
-  const navigate = useNavigate();
-
-  const onLogout = () =>
-    logout.mutate(undefined, { onSettled: () => void navigate("/login", { replace: true }) });
-
   return (
-    <div className={styles.shell}>
-      <a className={styles.skip} href="#main">
-        Skip to content
-      </a>
-      <header className={styles.header}>
-        <div className={styles.bar}>
-          <NavLink to="/incidents" className={styles.brand ?? ""}>
-            Domovoi
-          </NavLink>
-          <HostPills />
-          <LiveIndicator status={live} />
-          <span className={styles.user}>
-            {session.data?.user.username}
-            <Button onClick={onLogout} disabled={logout.isPending}>
-              Log out
-            </Button>
-          </span>
-        </div>
-        <nav aria-label="Main" className={styles.nav}>
-          {NAV.map(([to, label]) => (
-            <NavLink
-              key={to}
-              to={to}
-              className={({ isActive }) => (isActive ? styles.active : undefined)}
-            >
-              {label}
-            </NavLink>
-          ))}
-        </nav>
-      </header>
-      <main id="main" className={styles.main} tabIndex={-1}>
-        <SetupBanner />
-        <Outlet />
-      </main>
-    </div>
+    <HostProvider>
+      <div className={styles.shell}>
+        <a className={styles.skip} href="#main">
+          Skip to content
+        </a>
+        <Sidebar live={live} />
+        <main id="main" className={styles.main} tabIndex={-1}>
+          <SetupBanner />
+          <Outlet />
+        </main>
+      </div>
+    </HostProvider>
   );
 }
