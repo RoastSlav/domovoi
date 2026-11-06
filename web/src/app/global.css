@@ -17,7 +17,20 @@
   --critical: #b42318;
   --warning: #a14f00;
   --info: #3b5bdb;
-  --radius: 6px;
+  --surface-2: #ececf0;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --radius: 8px;
+  --radius-sm: 6px;
+  --shadow-1: 0 1px 2px rgb(0 0 0 / 0.06), 0 1px 3px rgb(0 0 0 / 0.1);
+  --sidebar-width: 15rem;
+  --content-max: 1400px;
+  --text-sm: 0.875rem;
+  --text-base: 0.95rem;
   font-family:
     system-ui,
     -apple-system,
@@ -34,6 +47,7 @@
   :root {
     --bg: #141417;
     --surface: #1d1d22;
+    --surface-2: #26262d;
     --fg: #ececf1;
     --muted: #a8a8b3;
     --border: #34343c;
