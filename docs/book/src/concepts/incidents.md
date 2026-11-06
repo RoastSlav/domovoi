@@ -44,3 +44,14 @@ An incident asks for triage when it opens, when it reopens and when its severity
 Open an incident and choose **Retry triage** to run it again now, for example after fixing the model's settings. A retry counts against the same hourly and monthly caps as any other run.
 
 A run deferred by the hourly cap may re-run on its own once a run slot frees, as long as the incident is still open, unmuted, and not already triaged by a newer request. A failed run retries after an hour; retries for one incident stop after three failed runs, and once the triage-degraded advisory is up, newly failed runs are not deferred at all. Muted incidents are never retried; acknowledged ones still are. Pending retries live in memory, so they are dropped when the hub restarts.
+
+## In the web UI
+
+The **Incidents** page groups what you have by state, newest firing first inside each group:
+
+- **Needs attention** — open incidents nobody has acknowledged.
+- **Being handled** — acknowledged and muted incidents. Muted ones return when the mute ends.
+- **Waiting for confirmation** — pending incidents, not confirmed yet. Domovoi alerts if the check keeps failing.
+- **Resolved** — cleared problems. The group starts closed with the newest 20; **All resolved incidents** opens the rest.
+
+Empty groups are hidden, and **Needs attention** says "Nothing needs attention." when there is nothing to see. If a group's request fails, the page says the incidents could not be loaded and shows no groups, so a hub that cannot be read never looks like a quiet night. The host and severity filters apply to every group. Choose a status in the filters to get one state as a single page with paging.
