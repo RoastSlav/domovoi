@@ -39,6 +39,11 @@ pub enum IncidentEvent {
     },
     /// A human lifted a mute early.
     Unmute,
+    /// A human dismissed the incident: it is not a real problem, so it closes now.
+    Dismiss {
+        /// Who dismissed it.
+        by: UserId,
+    },
     /// Time passed; expires mutes and applies the TTL.
     Tick,
 }
@@ -156,6 +161,10 @@ pub fn apply(
         (
             IncidentStatus::Open | IncidentStatus::Acked | IncidentStatus::Muted { .. },
             IncidentEvent::Resolved { .. },
+        ) => resolve(incident, now, &mut changes),
+        (
+            IncidentStatus::Open | IncidentStatus::Acked | IncidentStatus::Muted { .. },
+            IncidentEvent::Dismiss { .. },
         ) => resolve(incident, now, &mut changes),
         (
             IncidentStatus::Resolved,

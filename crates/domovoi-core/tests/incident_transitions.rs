@@ -47,6 +47,10 @@ fn ack() -> IncidentEvent {
     IncidentEvent::Ack { by: UserId::new() }
 }
 
+fn dismiss() -> IncidentEvent {
+    IncidentEvent::Dismiss { by: UserId::new() }
+}
+
 #[cfg(test)]
 fn run(
     inc: &mut Incident,
@@ -275,6 +279,43 @@ fn open_acked_and_muted_resolve_on_resolved_signal() {
 }
 
 #[test]
+fn open_acked_and_muted_dismiss_resolve_immediately() {
+    let policy = IncidentPolicy::default();
+    for prepare in 0..3 {
+        let mut inc = open_incident(&policy);
+        match prepare {
+            1 => {
+                run(&mut inc, ack(), &policy, at(100));
+            }
+            2 => {
+                run(
+                    &mut inc,
+                    IncidentEvent::Mute { until: at(3600) },
+                    &policy,
+                    at(100),
+                );
+            }
+            _ => {}
+        }
+        let changes = run(&mut inc, dismiss(), &policy, at(200));
+        assert_eq!(
+            changes,
+            vec![IncidentChange::StatusChanged {
+                from: match prepare {
+                    1 => IncidentStatus::Acked,
+                    2 => IncidentStatus::Muted { until: at(3600) },
+                    _ => IncidentStatus::Open,
+                },
+                to: IncidentStatus::Resolved
+            }],
+            "prepare {prepare}"
+        );
+        assert_eq!(inc.status(), IncidentStatus::Resolved);
+        assert_eq!(inc.resolved_at(), Some(at(200)));
+    }
+}
+
+#[test]
 fn ttl_resolves_quiet_incident() {
     let policy = IncidentPolicy {
         ttl: Some(hours(1)),
@@ -380,6 +421,7 @@ fn illegal_transitions_leave_incident_unchanged() {
             IncidentEvent::Mute { until: at(9000) },
         ),
         ("pending unmute", pending(at(0)), IncidentEvent::Unmute),
+        ("pending dismiss", pending(at(0)), dismiss()),
         ("open unmute", open_incident(&policy), IncidentEvent::Unmute),
         ("acked ack", acked.clone(), ack()),
         ("acked unmute", acked, IncidentEvent::Unmute),
@@ -391,7 +433,8 @@ fn illegal_transitions_leave_incident_unchanged() {
             done.clone(),
             IncidentEvent::Mute { until: at(9000) },
         ),
-        ("resolved unmute", done, IncidentEvent::Unmute),
+        ("resolved unmute", done.clone(), IncidentEvent::Unmute),
+        ("resolved dismiss", done, dismiss()),
     ];
     for (name, base, event) in cases {
         let mut inc = base.clone();
@@ -419,6 +462,7 @@ enum Step {
     Ack,
     Mute(u32),
     Unmute,
+    Dismiss,
     Tick,
 }
 
@@ -434,6 +478,7 @@ fn arb_step() -> impl Strategy<Value = (Step, u32)> {
         Just(Step::Ack),
         (1..20_000u32).prop_map(Step::Mute),
         Just(Step::Unmute),
+        Just(Step::Dismiss),
         Just(Step::Tick),
     ];
     (step, 0..8_000u32)
@@ -468,6 +513,7 @@ proptest! {
                 Step::Ack => ack(),
                 Step::Mute(secs) => IncidentEvent::Mute { until: at(clock + i64::from(secs)) },
                 Step::Unmute => IncidentEvent::Unmute,
+                Step::Dismiss => dismiss(),
                 Step::Tick => IncidentEvent::Tick,
             };
             let was_resolved = inc.status() == IncidentStatus::Resolved;
