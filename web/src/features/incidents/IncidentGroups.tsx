@@ -1,6 +1,7 @@
 import { Link } from "react-router";
-import { useIncidents, type IncidentFilters } from "../../api/hooks/incidents";
+import { INCIDENT_PAGE, useIncidents, type IncidentFilters } from "../../api/hooks/incidents";
 import type { IncidentPage, IncidentSummary } from "../../api/types";
+import { EmptyState } from "../../components/EmptyState";
 import { IncidentRow } from "./IncidentRow";
 import styles from "./incidents.module.css";
 
@@ -34,17 +35,17 @@ const GROUPS: GroupDef[] = [
   {
     title: "Being handled",
     statuses: ["acked", "muted"],
-    hint: "Acknowledged or muted; they close when the problem clears.",
+    hint: "Acknowledged or muted. Muted ones return when the mute ends.",
   },
   {
     title: "Waiting for confirmation",
     statuses: ["pending"],
-    hint: "Seen once. Domovoi alerts if the check fails again.",
+    hint: "Not confirmed yet. Domovoi alerts if the check keeps failing.",
   },
   {
     title: "Resolved",
     statuses: ["resolved"],
-    hint: "Cleared problems, newest first.",
+    hint: `Cleared problems, newest ${RESOLVED_PREVIEW} first.`,
     collapsed: true,
   },
 ];
@@ -54,7 +55,8 @@ function load(pages: IncidentPage[]): { items: IncidentSummary[]; more: boolean 
   return {
     items: pages
       .flatMap((page) => page.items)
-      .sort((a, b) => b.last_firing_at.localeCompare(a.last_firing_at)),
+      // Fractional seconds vary in length ("…:45Z" and "…:45.5Z"), so string order is not time order.
+      .sort((a, b) => Date.parse(b.last_firing_at) - Date.parse(a.last_firing_at)),
     more: pages.some((page) => page.next_cursor != null),
   };
 }
@@ -78,7 +80,7 @@ function Group({
   const headingId = `group-${def.statuses.join("-")}`;
   const heading = (
     <h2 id={headingId} className={styles.groupHeading}>
-      {def.title} ({more ? "50+" : items.length})
+      {def.title} ({more ? `${INCIDENT_PAGE}+` : items.length})
     </h2>
   );
   const rows = def.collapsed ? items.slice(0, RESOLVED_PREVIEW) : items;
@@ -131,11 +133,19 @@ export function IncidentGroups({
     pending: useIncidents({ ...filters, status: "pending" }),
     resolved: useIncidents({ ...filters, status: "resolved" }),
   };
-  const loading = Object.values(byStatus).some((incidents) => incidents.isPending);
+  const queries = Object.values(byStatus);
+  const loading = queries.some((incidents) => incidents.isPending);
+  const loaded = queries.some((incidents) => incidents.data);
+
+  // A failed request is never read as an empty group: "nothing needs attention" must
+  // never be said about incidents the hub could not be asked about.
+  if (queries.some((incidents) => incidents.error)) {
+    return <EmptyState title="Could not load incidents" />;
+  }
 
   return (
     <>
-      {loading && <p>Loading…</p>}
+      {loading && !loaded && <p>Loading…</p>}
       {GROUPS.map((def) => (
         <Group
           key={def.title}

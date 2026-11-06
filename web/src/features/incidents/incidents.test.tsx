@@ -146,6 +146,21 @@ test("incident_list_says_nothing_needs_attention", async () => {
   ).toBeNull();
 });
 
+test("incident_list_says_it_could_not_load_incidents", async () => {
+  route("GET /api/v1/incidents", () => failure(500, "internal", "the hub is sick"));
+  renderAt("/incidents", "/incidents", <IncidentListPage />);
+
+  expect(await screen.findByText("Could not load incidents")).toBeVisible();
+  expect(
+    screen.queryByRole("heading", { name: "Needs attention (0)" }),
+    "no group behind a failed request",
+  ).toBeNull();
+  expect(
+    screen.queryByText("Nothing needs attention."),
+    "a failed load is never read as all clear",
+  ).toBeNull();
+});
+
 test("resolved_incidents_show_a_resolved_badge", async () => {
   routeByStatus({ resolved: [incident({ status: "resolved", verdict: "ACTION_NEEDED" })] });
   renderAt("/incidents", "/incidents", <IncidentListPage />);
