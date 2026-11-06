@@ -165,6 +165,11 @@ jobs:
                   embedded_ui=true
                 fi
                 release_files_only=false
+                # cargo xtask docs-links checks the UI's docs="..." targets against the book, so a
+                # UI source change has to run it, not just the web job.
+                if [[ "$file" == web/src/* ]]; then
+                  docs_links=true
+                fi
                 if [[ "$file" == web/src/api/openapi.json ]]; then
                   openapi=true
                 fi

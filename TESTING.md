@@ -58,7 +58,7 @@ CI (`.github/workflows/ci.yml`) only runs a job when files it covers change. The
 | Rust (fmt, clippy, tests, docs, arch-check) | `crates/`, `xtask/`, `Cargo.*`, `ARCHITECTURE.md`, `docs/adr/` | `cargo xtask ci`, plus `arch-check --base` and rustdoc above |
 | Web (lint, typecheck, test, build) | `web/` | `cargo xtask ci --web`, plus `format:check` and `gen:api` above |
 | Build web UI for embedding | hub UI embedding files | `cd web && npm ci && npm run build` |
-| Book links, anchors and pages | `docs/book/` | `cargo xtask docs-links` |
+| Book links, anchors and pages | `docs/book/`, `web/src/` | `cargo xtask docs-links` |
 | Locked workspace metadata | version-only `Cargo.*` bumps | `cargo metadata --locked --no-deps --format-version 1 > /dev/null` |
 | Supply chain (cargo-deny) | `Cargo.*`, `deny.toml` | `cargo deny check` |
 | MSRV | `Cargo.*`, `rust-toolchain.toml` | `rustup toolchain install 1.94 --profile minimal && cargo +1.94 check --workspace --locked` (the version is `rust-version` in `Cargo.toml`) |
