@@ -9,6 +9,7 @@ mod actor;
 mod annotate;
 mod command;
 mod decide;
+mod dismiss;
 mod handle;
 mod redact;
 

@@ -8,6 +8,8 @@ mod correlate;
 #[cfg(test)]
 mod decide;
 #[cfg(test)]
+mod dismiss;
+#[cfg(test)]
 mod harness;
 #[cfg(test)]
 mod properties;
