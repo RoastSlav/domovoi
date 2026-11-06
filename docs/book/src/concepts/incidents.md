@@ -52,6 +52,6 @@ The **Incidents** page groups what you have by state, newest firing first inside
 - **Needs attention** — open incidents nobody has acknowledged.
 - **Being handled** — acknowledged and muted incidents. Muted ones return when the mute ends.
 - **Waiting for confirmation** — pending incidents, not confirmed yet. Domovoi alerts if the check keeps failing.
-- **Resolved** — cleared problems. The group starts closed with the newest 20; **All resolved incidents** opens the rest.
+- **Resolved** — the 20 most recently cleared problems, newest first. The group starts closed; **All resolved incidents** opens the rest.
 
-Empty groups are hidden, and **Needs attention** says "Nothing needs attention." when there is nothing to see. If a group's request fails, the page says the incidents could not be loaded and shows no groups, so a hub that cannot be read never looks like a quiet night. The host and severity filters apply to every group. Choose a status in the filters to get one state as a single page with paging.
+Empty groups are hidden, and **Needs attention** says "Nothing needs attention." when there is nothing to see. If a request fails with nothing on screen, the page says the incidents could not be loaded and shows no groups, so a hub that cannot be read never looks like a quiet night. A refetch that fails over rows already shown keeps them and notes "Could not refresh." The host and severity filters apply to every group. Choose a status in the filters to get one state as a single page with paging.

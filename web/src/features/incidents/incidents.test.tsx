@@ -161,6 +161,35 @@ test("incident_list_says_it_could_not_load_incidents", async () => {
   ).toBeNull();
 });
 
+test("incident_list_keeps_its_groups_when_a_refresh_fails", async () => {
+  const requests = new Map<string, number>();
+  route("GET /api/v1/incidents", ({ params }) => {
+    const status = String(params?.query?.status);
+    const seen = (requests.get(status) ?? 0) + 1;
+    requests.set(status, seen);
+    if (seen > 1) {
+      return failure(500, "internal", "the hub is sick");
+    }
+    return status === "open"
+      ? {
+          items: [incident({ id: "inc-open", title: "Open one", status: "open" })],
+          next_cursor: null,
+        }
+      : { items: [], next_cursor: null };
+  });
+  const { client } = renderAt("/incidents", "/incidents", <IncidentListPage />);
+
+  await screen.findByRole("heading", { name: "Needs attention (1)" });
+
+  client.invalidateQueries({ queryKey: ["incidents"] });
+
+  expect(await screen.findByText("Could not refresh.")).toBeVisible();
+  expect(
+    group("Needs attention (1)").getByRole("link", { name: "Open one" }),
+    "the rows stay over a failed refetch",
+  ).toBeVisible();
+});
+
 test("resolved_incidents_show_a_resolved_badge", async () => {
   routeByStatus({ resolved: [incident({ status: "resolved", verdict: "ACTION_NEEDED" })] });
   renderAt("/incidents", "/incidents", <IncidentListPage />);

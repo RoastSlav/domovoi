@@ -45,7 +45,7 @@ const GROUPS: GroupDef[] = [
   {
     title: "Resolved",
     statuses: ["resolved"],
-    hint: `Cleared problems, newest ${RESOLVED_PREVIEW} first.`,
+    hint: `The ${RESOLVED_PREVIEW} most recently cleared problems.`,
     collapsed: true,
   },
 ];
@@ -136,16 +136,20 @@ export function IncidentGroups({
   const queries = Object.values(byStatus);
   const loading = queries.some((incidents) => incidents.isPending);
   const loaded = queries.some((incidents) => incidents.data);
-
   // A failed request is never read as an empty group: "nothing needs attention" must
-  // never be said about incidents the hub could not be asked about.
-  if (queries.some((incidents) => incidents.error)) {
+  // never be said about incidents the hub could not be asked about. With data on screen
+  // the rows stay, since a refetch that failed only means they may be stale.
+  const unreadable = queries.some((incidents) => incidents.error && !incidents.data);
+  const stale = queries.some((incidents) => incidents.error && incidents.data);
+
+  if (unreadable) {
     return <EmptyState title="Could not load incidents" />;
   }
 
   return (
     <>
       {loading && !loaded && <p>Loading…</p>}
+      {stale && <p className={styles.groupHint}>Could not refresh.</p>}
       {GROUPS.map((def) => (
         <Group
           key={def.title}
