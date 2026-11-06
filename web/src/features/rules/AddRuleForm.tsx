@@ -18,7 +18,7 @@ export const EXPIRIES: [string, string][] = [
   ["60", "1 hour"],
   ["1440", "1 day"],
   ["10080", "1 week"],
-  ["44640", "30 days"],
+  ["43200", "30 days"],
   ["", "never"],
 ];
 
@@ -210,6 +210,7 @@ export function AddRuleForm() {
               onChange={(e) => setCondition(index, { value: e.target.value })}
             />
             <Button
+              aria-label={`Remove condition ${index + 1}`}
               onClick={() =>
                 change({
                   conditions: fields.conditions.filter((_, i) => i !== index),

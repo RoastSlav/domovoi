@@ -144,3 +144,35 @@ test("asks_before_deleting", async () => {
   expect(screen.getByText("disk.usage")).toBeVisible();
   expect(calls.some((call) => call.route === "DELETE /api/v1/ack-rules/{id}")).toBe(false);
 });
+
+test("the_thirty_day_option_is_thirty_days", async () => {
+  const user = userEvent.setup();
+  renderAt("/rules", "/rules", <RulesPage />);
+  await screen.findByText("disk.usage");
+
+  await user.type(screen.getByLabelText("Check key"), "backup.nightly");
+  await user.type(screen.getByLabelText("Note"), "a monthly note");
+  await user.selectOptions(screen.getByLabelText("Expires in"), "43200");
+  await user.click(screen.getByRole("button", { name: "Add" }));
+
+  const post = calls.find((call) => call.route === "POST /api/v1/ack-rules");
+  expect(post?.init.body).toMatchObject({ expires_in_minutes: 43200 });
+});
+
+test("removing_a_condition_row_leaves_it_out_of_the_body", async () => {
+  const user = userEvent.setup();
+  renderAt("/rules", "/rules", <RulesPage />);
+  await screen.findByText("disk.usage");
+
+  await user.type(screen.getByLabelText("Check key"), "disk.usage");
+  await user.type(screen.getByLabelText("Note"), "no conditions");
+  await user.click(screen.getByRole("button", { name: "Add condition" }));
+  await user.type(screen.getByLabelText("Condition 1 key"), "used_percent");
+  await user.type(screen.getByLabelText("Condition 1 value"), "90");
+  await user.click(screen.getByRole("button", { name: "Remove condition 1" }));
+  expect(screen.queryByLabelText("Condition 1 key")).not.toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Add" }));
+
+  const post = calls.find((call) => call.route === "POST /api/v1/ack-rules");
+  expect(post?.init.body).toMatchObject({ predicates: [] });
+});
