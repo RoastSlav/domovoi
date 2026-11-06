@@ -17,6 +17,7 @@ const NAS: Host = {
   name: "nas",
   kind: "agent",
   connected: true,
+  agent_enrolled: true,
   open_incidents: 0,
   outdated: false,
 };
