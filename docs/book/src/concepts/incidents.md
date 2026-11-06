@@ -43,6 +43,10 @@ A known condition says "this firing is expected, so leave it alone". Add one und
 
 Signals that match a known condition are stored, incidents still change, and the history stays complete; nothing is notified and triage does not run for them. The page lists every rule, soonest expiry first, rules that never expire last, and shows expired rules so you can delete them. A rule stops applying on its own when it expires.
 
+A new rule applies to signals that arrive after it is created. An incident that is already open keeps its card and its thread: a rule only holds back the notifications the next signal would cause.
+
+A value that looks like a number in an **equals** condition is compared as a number. `port equals 22` matches a check reporting the number 22; `user equals 1000` does not match evidence stored as the text `1000`. Built-in checks report numbers as numbers, so this is mostly about webhook evidence, where a number arriving as a string needs **contains** rather than **equals**.
+
 ## What triggers triage
 
 An incident asks for triage when it opens, when it reopens and when its severity rises.
