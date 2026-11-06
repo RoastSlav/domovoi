@@ -1278,7 +1278,7 @@
         "tags": [
           "incidents"
         ],
-        "summary": "Dismisses an incident as a known condition: closes it now with the verdict `EXPECTED`,\nand when `ignore_for_minutes` is given, creates the rule that keeps the check quiet\n(0 means always). The rule matches the incident's host, check and target exactly, so\nonly this condition stops alerting; `note` is the reason, so a human can see later what\nit covers, and the list shows it.",
+        "summary": "Dismisses an incident as a known condition: closes it now with the verdict `EXPECTED`,\nand when `ignore_for_minutes` is given, creates the rule that keeps the check quiet\n(0 means always). The rule is stored before the incident closes, so a check firing in\nthe moment between the two is already silenced, and a dismiss that fails afterwards\nleaves a rule that a human can see and delete on the Known conditions page. The rule\nmatches the incident's host, check and target; `note` is the reason, so a human can\nread later what it covers. A target with `*` in it cannot be matched exactly by a rule\npattern, so dismissing such an incident with a period is refused.",
         "operationId": "dismiss_incident",
         "parameters": [
           {
@@ -1306,7 +1306,7 @@
             "description": "Dismissed"
           },
           "400": {
-            "description": "Empty reason or too long",
+            "description": "Empty reason, too long, too many minutes, or a target a rule cannot match",
             "content": {
               "application/json": {
                 "schema": {

@@ -4,8 +4,8 @@ use axum::body::Body;
 use axum::http::{Method, Request, StatusCode, header};
 use domovoi_core::ports::{AckRepo, IncidentRepo};
 use domovoi_core::{
-    AckRule, CheckKey, Incident, IncidentId, IncidentStatus, Severity, Signal, SourceKind,
-    TargetKey, TargetPattern, Verdict,
+    AckRule, CheckKey, Incident, IncidentId, IncidentStatus, Severity, Signal, SignalClass,
+    SourceKind, TargetKey, TargetPattern, Verdict,
 };
 use domovoi_engine::EventKind;
 use jiff::SignedDuration;
@@ -276,6 +276,72 @@ async fn dismissing_refuses_an_empty_reason_and_too_many_minutes() {
     assert!(
         a.audit_events("ack_rule.created").await.is_empty(),
         "a refused dismiss is not audited"
+    );
+}
+
+#[tokio::test]
+async fn dismissing_a_target_with_a_star_is_refused_before_anything_is_stored() {
+    let a = api().await;
+    let login = a.admin().await;
+    // A target key allows `*` anywhere, so this condition has no rule pattern that matches
+    // it exactly. A pattern for it would silence more than this one condition.
+    // `Immediate` opens the incident at once, as a check that reports a hard failure does.
+    let signal = Signal::firing(
+        SourceKind::Agent,
+        a.nas.id,
+        CheckKey::parse("disk.usage").unwrap(),
+        Some(TargetKey::parse("a*b").unwrap()),
+        Severity::Warning,
+        "disk.usage firing on a*b".to_owned(),
+        a.now(),
+    )
+    .with_class(SignalClass::Immediate);
+    a.manager.ingest(vec![signal.clone()]).await.unwrap();
+    let starred = IncidentRepo::find_active_by_fingerprint(&*a.store, &signal.fingerprint())
+        .await
+        .unwrap()
+        .unwrap();
+
+    let reply = a
+        .post(
+            &dismiss_uri(&starred),
+            &login,
+            json!({ "reason": REASON, "ignore_for_minutes": 1440 }),
+        )
+        .await;
+    assert_eq!(reply.status, StatusCode::BAD_REQUEST, "{}", reply.text);
+    assert!(
+        reply.body["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("target"),
+        "the message names the target: {}",
+        reply.text
+    );
+    assert_eq!(
+        stored(&a, &starred).await.status(),
+        IncidentStatus::Open,
+        "the incident is not closed by a refused dismiss"
+    );
+    assert!(stored_rules(&a).await.is_empty(), "no rule was stored");
+
+    // Without a period, dismissing needs no rule, so the same incident can be dismissed.
+    let reply = a
+        .post(
+            &dismiss_uri(&starred),
+            &login,
+            json!({ "reason": REASON, "ignore_for_minutes": null }),
+        )
+        .await;
+    assert_eq!(reply.status, StatusCode::NO_CONTENT, "{}", reply.text);
+    assert_eq!(
+        stored(&a, &starred).await.status(),
+        IncidentStatus::Resolved,
+        "the dismiss closed it"
+    );
+    assert!(
+        stored_rules(&a).await.is_empty(),
+        "no rule, so no wildcards"
     );
 }
 
