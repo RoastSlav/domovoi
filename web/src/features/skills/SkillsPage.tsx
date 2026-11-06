@@ -1,35 +1,27 @@
-import { useSearchParams } from "react-router";
 import { useHosts } from "../../api/hooks/hosts";
+import { useSelectedHost } from "../../app/HostContext";
 import { EmptyState } from "../../components/EmptyState";
+import ui from "../../components/ui.module.css";
 import { SkillList } from "./SkillList";
-import styles from "./skills.module.css";
 
-/** The skill catalogue of one host, chosen in the URL (`?host=`), grouped by risk. */
+/**
+ * The skill catalogue of the host selected in the sidebar, grouped by risk. With "all hosts"
+ * selected it shows the first host's skills, since a catalogue belongs to one host.
+ */
 export function SkillsPage() {
-  const [params, setParams] = useSearchParams();
+  const [selected] = useSelectedHost();
   const hosts = useHosts();
   const names = (hosts.data ?? []).map((h) => h.name);
-  const host = params.get("host") ?? names[0] ?? "";
+  const host = selected ?? names[0] ?? "";
 
   return (
     <>
       <h1>Skills</h1>
       {hosts.data && names.length === 0 && <EmptyState title="No hosts yet" />}
-      {names.length > 0 && (
-        <div className={styles.picker}>
-          <label htmlFor="skills-host">Host</label>
-          <select
-            id="skills-host"
-            value={host}
-            onChange={(e) => setParams({ host: e.target.value })}
-          >
-            {names.map((name) => (
-              <option key={name} value={name}>
-                {name}
-              </option>
-            ))}
-          </select>
-        </div>
+      {host && selected === undefined && (
+        <p className={ui.muted}>
+          Showing the skills of {host}. Choose a host in the sidebar to see another.
+        </p>
       )}
       {host && <SkillList host={host} />}
     </>

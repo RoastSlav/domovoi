@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { Link, useSearchParams } from "react-router";
+import { Link } from "react-router";
 import { useNoteSearch, useNotes } from "../../api/hooks/notes";
+import { useSelectedHost } from "../../app/HostContext";
 import { Button } from "../../components/Button";
 import { EmptyState } from "../../components/EmptyState";
 import { RelativeTime } from "../../components/RelativeTime";
@@ -66,15 +67,17 @@ function NoteList({ host }: { host: string | undefined }) {
   );
 }
 
-/** Notes, global or per host: search, browse, write and import. */
+/** Notes, global or per host: search, browse, write and import. Starts on the selected host. */
 export function NotesPage() {
-  const [params, setParams] = useSearchParams();
-  const host = params.get("host") || undefined;
+  const [selected] = useSelectedHost();
+  // A pick made here lasts only while the sidebar's selection stays what it was.
+  const [pick, setPick] = useState<{ base: string | undefined; host: string } | null>(null);
+  const host = pick && pick.base === selected ? pick.host || undefined : selected;
   const [query, setQuery] = useState("");
   const settled = useDebounced(query.trim(), SEARCH_DEBOUNCE_MS);
   const [importing, setImporting] = useState(false);
 
-  const setHost = (next: string) => setParams(next ? { host: next } : {});
+  const setHost = (next: string) => setPick({ base: selected, host: next });
 
   return (
     <>

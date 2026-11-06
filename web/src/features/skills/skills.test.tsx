@@ -18,6 +18,30 @@ const skill = (name: string, risk: string, extra = {}) => ({
 
 beforeEach(resetApi);
 
+/** The skill-catalogue requests made so far. */
+const skillCalls = () => calls.filter((c) => c.route === "GET /api/v1/hosts/{name}/skills");
+
+test("skills_follow_the_host_selected_in_the_sidebar", async () => {
+  route("GET /api/v1/hosts", () => [nas, { ...nas, id: "host-pi", name: "pi" }]);
+  route("GET /api/v1/hosts/{name}/skills", () => [skill("docker_ps", "read")]);
+  renderAt("/skills?host=pi", "/skills", <SkillsPage />);
+
+  await screen.findByText("docker_ps");
+  expect(skillCalls().map((c) => c.init.params?.path)).toEqual([{ name: "pi" }]);
+  expect(screen.queryByLabelText("Host"), "the sidebar owns the host choice").toBeNull();
+  expect(screen.queryByText(/Showing the skills of/)).toBeNull();
+});
+
+test("skills_show_the_first_host_when_all_hosts_are_selected", async () => {
+  route("GET /api/v1/hosts", () => [nas, { ...nas, id: "host-pi", name: "pi" }]);
+  route("GET /api/v1/hosts/{name}/skills", () => [skill("docker_ps", "read")]);
+  renderAt("/skills", "/skills", <SkillsPage />);
+
+  await screen.findByText("docker_ps");
+  expect(skillCalls().map((c) => c.init.params?.path)).toEqual([{ name: "nas" }]);
+  expect(screen.getByText(/Showing the skills of nas/)).toBeVisible();
+});
+
 test("skills_grouped_by_risk_with_destructive_marked", async () => {
   route("GET /api/v1/hosts", () => [nas]);
   route("GET /api/v1/hosts/{name}/skills", () => [
