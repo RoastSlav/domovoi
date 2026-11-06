@@ -17,8 +17,8 @@ use domovoi_core::ports::{
 };
 use domovoi_core::{ActionRequest, HostId, HostName, Incident, Principal, Risk, SkillSummary};
 use domovoi_engine::{
-    ActionDeps, ActionService, ActionSettings, EnginePolicy, IncidentManager, ManagerDeps,
-    ManagerHandle, PatternRedactor, TriageDeps, TriageService, TriageSettings,
+    ActionDeps, ActionService, ActionSettings, DomainEvent, EnginePolicy, IncidentManager,
+    ManagerDeps, ManagerHandle, PatternRedactor, TriageDeps, TriageService, TriageSettings,
 };
 use domovoi_hub::agent_server::{
     AgentServer, AgentServerDeps, AgentServerError, EnrollmentInvite, RealNetProbes, ServerSettings,
@@ -127,6 +127,8 @@ pub struct Api {
     pub link: Arc<FakeAgentLink>,
     /// The running incident manager, for feeding signals in as the hub's ingest does.
     pub manager: ManagerHandle,
+    /// The bus the manager publishes events on, for watching what a signal tells people about.
+    pub bus: broadcast::Sender<DomainEvent>,
     /// The model triage asks, when built with [`api_with_triage`].
     pub llm: Arc<ScriptedLlm>,
     /// The audit log the API and the services write to, for reading back what a call recorded.
@@ -329,6 +331,7 @@ async fn build(triage: bool, notifier: Option<Arc<dyn Notifier>>) -> Api {
         clock,
         link,
         manager,
+        bus,
         llm,
         incident,
         nas,

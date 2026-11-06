@@ -1,6 +1,12 @@
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode, header};
+use domovoi_core::ports::{AckRepo, IncidentRepo};
+use domovoi_core::{
+    AckRule, AckRuleId, CheckKey, Evidence, EvidenceValue, HostId, Severity, Signal, SourceKind,
+};
+use domovoi_engine::{DomainEvent, EventKind};
 use serde_json::{Value, json};
+use tokio::sync::broadcast;
 
 use crate::api_harness::{Api, Login, api};
 
@@ -28,6 +34,35 @@ async fn listed_rules(a: &Api, login: &Login) -> Vec<Value> {
     let reply = a.get("/api/v1/ack-rules", login).await;
     assert_eq!(reply.status, StatusCode::OK, "{}", reply.text);
     reply.body.as_array().unwrap().clone()
+}
+
+/// A firing warning for `check` on the harness's `nas` host, now, with `evidence`.
+fn firing(a: &Api, check: &str, evidence: Vec<(&str, EvidenceValue)>) -> Signal {
+    let mut all = Evidence::new();
+    for (key, value) in evidence {
+        all.insert(key, value);
+    }
+    Signal::firing(
+        SourceKind::Agent,
+        a.nas.id,
+        CheckKey::parse(check).unwrap(),
+        None,
+        Severity::Warning,
+        format!("{check} firing"),
+        a.now(),
+    )
+    .with_evidence(all)
+}
+
+/// The next incident the manager confirms, skipping the triage request that comes with it.
+/// Two firing signals in one ingest confirm it: the default policy needs two.
+async fn next_opened(events: &mut broadcast::Receiver<DomainEvent>) -> DomainEvent {
+    loop {
+        let event = events.recv().await.expect("the manager publishes events");
+        if event.kind == EventKind::IncidentOpened {
+            return event;
+        }
+    }
 }
 
 #[tokio::test]
@@ -292,5 +327,114 @@ async fn creating_a_rule_without_the_csrf_token_is_refused() {
         .status,
         StatusCode::NOT_FOUND,
         "deleting needs the CSRF token too"
+    );
+}
+
+#[tokio::test]
+async fn a_rule_whose_host_is_gone_is_still_listed_and_deletable() {
+    let a = api().await;
+    let login = a.admin().await;
+    let ghost = HostId::new();
+    let rule = AckRule {
+        id: AckRuleId::new(),
+        host: Some(ghost),
+        check: CheckKey::parse("disk.usage").unwrap(),
+        target_pattern: None,
+        predicates: Vec::new(),
+        note: "the host row was edited away by hand".to_owned(),
+        expires_at: None,
+    };
+    AckRepo::put_rule(&*a.store, &rule).await.unwrap();
+
+    let rules = listed_rules(&a, &login).await;
+    assert_eq!(
+        rules.len(),
+        1,
+        "a rule with a broken host reference cannot fail the whole list"
+    );
+    assert_eq!(
+        rules[0]["host"],
+        format!("unknown host {ghost}"),
+        "the row names the host that is missing"
+    );
+
+    let deleted = a
+        .send(
+            Method::DELETE,
+            &format!("/api/v1/ack-rules/{}", rule.id),
+            Some(&login),
+            None,
+        )
+        .await;
+    assert_eq!(deleted.status, StatusCode::NO_CONTENT, "{}", deleted.text);
+    assert!(
+        listed_rules(&a, &login).await.is_empty(),
+        "the rule can be deleted from the page"
+    );
+}
+
+#[tokio::test]
+async fn a_matching_known_condition_silences_the_next_incident() {
+    let a = api().await;
+    let login = a.admin().await;
+    let mut events = a.bus.subscribe();
+
+    created_rule(
+        &a,
+        &login,
+        json!({
+            "host": "nas",
+            "check": "disk.usage",
+            "target_pattern": null,
+            "predicates": [{ "key": "used_pct", "op": "at_most", "value": "90" }],
+            "note": "the nightly backup fills the pool",
+            "expires_in_minutes": 60,
+        }),
+    )
+    .await;
+
+    // One firing keeps a normal incident pending; the second confirms it, which is
+    // the point where a card would go out.
+    a.manager
+        .ingest(vec![
+            firing(&a, "disk.usage", vec![("used_pct", EvidenceValue::Int(85))]),
+            firing(&a, "disk.usage", vec![("used_pct", EvidenceValue::Int(85))]),
+        ])
+        .await
+        .unwrap();
+    let opened = next_opened(&mut events).await;
+    assert_eq!(
+        opened.incident.check().as_str(),
+        "disk.usage",
+        "the signal the rule is about"
+    );
+    assert!(
+        !opened.notify,
+        "a matching rule holds the card back: {opened:?}"
+    );
+    assert!(
+        IncidentRepo::get(&*a.store, opened.incident.id())
+            .await
+            .unwrap()
+            .is_some(),
+        "the incident is stored, only the notification is held back"
+    );
+
+    a.manager
+        .ingest(vec![
+            firing(&a, "security.ssh_login", vec![]),
+            firing(&a, "security.ssh_login", vec![]),
+        ])
+        .await
+        .unwrap();
+    let opened = next_opened(&mut events).await;
+    assert_eq!(
+        opened.incident.check().as_str(),
+        "security.ssh_login",
+        "the rule covers one check, not every signal"
+    );
+    assert!(
+        opened.notify,
+        "a signal the rule does not cover still gets a card"
     );
 }
