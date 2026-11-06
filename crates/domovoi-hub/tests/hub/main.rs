@@ -23,6 +23,8 @@ mod interactions;
 #[cfg(test)]
 mod presence;
 #[cfg(test)]
+mod rules;
+#[cfg(test)]
 mod sessions;
 #[cfg(test)]
 mod settings;

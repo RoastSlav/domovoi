@@ -5,6 +5,107 @@ expression: spec
 {
   "components": {
     "schemas": {
+      "AckRuleDto": {
+        "description": "A known condition: incidents that match it stay in the history and never notify.",
+        "properties": {
+          "check": {
+            "description": "The check the rule matches, for example `security.ssh_login`.",
+            "type": "string"
+          },
+          "expires_at": {
+            "description": "When the rule stops applying; null means it never expires.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "host": {
+            "description": "The host the rule is limited to, by name; null means every host.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "description": "Rule id.",
+            "type": "string"
+          },
+          "note": {
+            "description": "Why the condition is acceptable.",
+            "type": "string"
+          },
+          "predicates": {
+            "description": "Conditions, all of which must hold.",
+            "items": {
+              "$ref": "#/components/schemas/PredicateDto"
+            },
+            "type": "array"
+          },
+          "target_pattern": {
+            "description": "Target pattern with `*` allowed at the ends; null means any target.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "check",
+          "predicates",
+          "note"
+        ],
+        "type": "object"
+      },
+      "AckRuleInput": {
+        "description": "A new rule.",
+        "properties": {
+          "check": {
+            "description": "The check to match, for example `security.ssh_login`.",
+            "type": "string"
+          },
+          "expires_in_minutes": {
+            "description": "Minutes from now until the rule stops applying; null means it never expires.",
+            "format": "int32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "host": {
+            "description": "Host by name; null matches every host.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "note": {
+            "description": "Why the condition is acceptable, 1 to 500 characters.",
+            "type": "string"
+          },
+          "predicates": {
+            "description": "Conditions, all of which must hold; at most 10.",
+            "items": {
+              "$ref": "#/components/schemas/PredicateDto"
+            },
+            "type": "array"
+          },
+          "target_pattern": {
+            "description": "Target pattern with `*` allowed at the ends; null matches any target.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "check",
+          "predicates",
+          "note"
+        ],
+        "type": "object"
+      },
       "ActionDto": {
         "description": "An action.",
         "properties": {
@@ -1171,6 +1272,39 @@ expression: spec
         ],
         "type": "object"
       },
+      "PredicateDto": {
+        "description": "One condition on a signal's evidence. `value` is text, a number, `true` or `false`;\n`at_most` and `at_least` need a number.",
+        "properties": {
+          "key": {
+            "description": "Evidence key, for example `value` or `user`.",
+            "type": "string"
+          },
+          "op": {
+            "$ref": "#/components/schemas/PredicateOpDto",
+            "description": "How the evidence compares with `value`."
+          },
+          "value": {
+            "description": "What the evidence must compare with, as text.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "op",
+          "value"
+        ],
+        "type": "object"
+      },
+      "PredicateOpDto": {
+        "description": "How a condition compares an evidence value with its `value`.",
+        "enum": [
+          "equals",
+          "contains",
+          "at_most",
+          "at_least"
+        ],
+        "type": "string"
+      },
       "ProposalDto": {
         "description": "An action triage suggested.",
         "properties": {
@@ -1749,6 +1883,134 @@ expression: spec
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/ack-rules": {
+      "get": {
+        "operationId": "list_ack_rules",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AckRuleDto"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Every rule, soonest expiry first; rules that never expire come last"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          }
+        },
+        "summary": "Every rule, expired ones included. Rules that never expire come last.",
+        "tags": [
+          "incidents"
+        ]
+      },
+      "post": {
+        "operationId": "create_ack_rule",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AckRuleInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AckRuleDto"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Invalid rule"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          }
+        },
+        "summary": "Creates a rule.",
+        "tags": [
+          "incidents"
+        ]
+      }
+    },
+    "/api/v1/ack-rules/{id}": {
+      "delete": {
+        "operationId": "delete_ack_rule",
+        "parameters": [
+          {
+            "description": "Rule id",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such rule"
+          }
+        },
+        "summary": "Deletes a rule.",
+        "tags": [
+          "incidents"
+        ]
+      }
+    },
     "/api/v1/actions": {
       "get": {
         "operationId": "list_actions",
