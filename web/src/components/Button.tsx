@@ -2,7 +2,7 @@ import type { ButtonHTMLAttributes } from "react";
 import styles from "./ui.module.css";
 
 /** How prominent a button is. */
-export type ButtonVariant = "primary" | "secondary" | "danger";
+export type ButtonVariant = "primary" | "secondary" | "danger" | "ghost";
 
 /** A button; `type="button"` unless given, so it never submits a form by accident. */
 export function Button({

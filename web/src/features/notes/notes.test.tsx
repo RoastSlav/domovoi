@@ -69,6 +69,26 @@ test("notes_search_debounces_and_renders_snippets", async () => {
   expect(await screen.findByRole("list", { name: "Notes" })).toBeVisible();
 });
 
+test("notes_page_starts_on_the_selected_host_and_a_pick_here_overrides_it", async () => {
+  const user = userEvent.setup();
+  renderAt("/notes?host=nas", "/notes", <NotesPage />);
+  const scope = await screen.findByLabelText("Notes about");
+  await screen.findByRole("option", { name: "nas" });
+  expect(scope).toHaveValue("nas");
+  const noteQueries = () =>
+    calls.filter((c) => c.route === "GET /api/v1/notes").map((c) => c.init.params?.query);
+  expect(noteQueries().at(-1)).toEqual({ host: "nas" });
+
+  await user.selectOptions(scope, "Global");
+
+  expect(scope).toHaveValue("");
+  await screen.findByRole("list", { name: "Notes" });
+  expect(noteQueries().at(-1) ?? {}).not.toHaveProperty("host");
+  expect(screen.getByTestId("location"), "the sidebar's choice is untouched").toHaveTextContent(
+    "/notes?host=nas",
+  );
+});
+
 test("notes_editor_previews_markdown_without_raw_html", async () => {
   const user = userEvent.setup();
   route("POST /api/v1/notes", ({ body }) => ({ ...note("n9", "x"), ...(body as object) }));

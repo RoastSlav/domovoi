@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
+import { HostProvider } from "../app/HostContext";
 
 /** Shows the current location, so tests can check where a page navigated. */
 export function Location() {
@@ -18,7 +19,7 @@ export function renderAt(url: string, path: string, element: ReactNode) {
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[url]}>
         <Routes>
-          <Route path={path} element={element} />
+          <Route path={path} element={<HostProvider>{element}</HostProvider>} />
           <Route path="*" element={<p>other page</p>} />
         </Routes>
         <Location />

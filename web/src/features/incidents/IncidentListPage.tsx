@@ -1,7 +1,8 @@
 import { useEffect, useRef } from "react";
 import { useSearchParams } from "react-router";
-import { useHostNames, useHosts } from "../../api/hooks/hosts";
+import { useHostNames } from "../../api/hooks/hosts";
 import { useIncidents, type IncidentFilters } from "../../api/hooks/incidents";
+import { useSelectedHost } from "../../app/HostContext";
 import { Button } from "../../components/Button";
 import { EmptyState } from "../../components/EmptyState";
 import { IncidentGroups } from "./IncidentGroups";
@@ -10,7 +11,6 @@ import styles from "./incidents.module.css";
 
 const STATUSES = ["pending", "open", "acked", "muted", "resolved"];
 const SEVERITIES = ["critical", "warning", "info"];
-type FilterName = keyof IncidentFilters;
 
 function Filter({
   name,
@@ -61,26 +61,27 @@ function useLoadWhenVisible(load: () => void, enabled: boolean) {
 }
 
 /**
- * Incidents, newest first, filtered by status, host and severity from the URL.
+ * Incidents, newest first, filtered by status and severity from the URL and by the host
+ * selected in the sidebar.
  * With no status filter the page groups the incidents by state; with one it lists them.
  */
 export function IncidentListPage() {
   const [params, setParams] = useSearchParams();
+  const [host] = useSelectedHost();
   const filters: IncidentFilters = {
     status: params.get("status") ?? undefined,
-    host: params.get("host") ?? undefined,
+    host,
     severity: params.get("severity") ?? undefined,
   };
   const grouped = !filters.status;
   const incidents = useIncidents(filters, !grouped);
-  const hosts = useHosts();
   const hostNames = useHostNames();
   const { fetchNextPage, hasNextPage, isFetchingNextPage } = incidents;
   const loadMore = () => void fetchNextPage();
   const sentinel = useLoadWhenVisible(loadMore, hasNextPage && !isFetchingNextPage);
   const items = incidents.data?.pages.flatMap((page) => page.items) ?? [];
 
-  const setFilter = (name: FilterName, value: string) => {
+  const setFilter = (name: "status" | "severity", value: string) => {
     const next = new URLSearchParams(params);
     if (value) {
       next.set(name, value);
@@ -100,13 +101,6 @@ export function IncidentListPage() {
           options={STATUSES}
           value={filters.status ?? ""}
           onChange={(v) => setFilter("status", v)}
-        />
-        <Filter
-          name="host"
-          label="Host"
-          options={(hosts.data ?? []).map((h) => h.name)}
-          value={filters.host ?? ""}
-          onChange={(v) => setFilter("host", v)}
         />
         <Filter
           name="severity"

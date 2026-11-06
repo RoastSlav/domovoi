@@ -52,7 +52,7 @@ test("incident_list_renders_filters_from_url_and_paginates", async () => {
   );
   expect(screen.getByLabelText("Status")).toHaveValue("open");
   expect(screen.getByLabelText("Severity")).toHaveValue("critical");
-  expect(screen.getByLabelText("Host")).toHaveValue("");
+  expect(screen.queryByLabelText("Host"), "the sidebar owns the host choice").toBeNull();
   expect(screen.getByText("Monitor")).toBeVisible();
   expect(screen.getByText(/nas · open · last fired/)).toHaveTextContent("3 times");
   expect(incidentQueries()).toEqual([{ status: "open", severity: "critical", limit: 50 }]);
@@ -67,19 +67,42 @@ test("incident_list_renders_filters_from_url_and_paginates", async () => {
   });
   expect(screen.queryByRole("button", { name: "Load more" }), "last page").toBeNull();
 
-  await screen.findByRole("option", { name: "pi" });
-  await user.selectOptions(screen.getByLabelText("Host"), "pi");
   await user.selectOptions(screen.getByLabelText("Status"), "");
-  expect(screen.getByTestId("location")).toHaveTextContent("/incidents?severity=critical&host=pi");
+  expect(screen.getByTestId("location")).toHaveTextContent("/incidents?severity=critical");
   await screen.findAllByRole("link");
-  expect(incidentQueries().slice(-5)).toEqual(
-    ["open", "acked", "muted", "pending", "resolved"].map((status) => ({
-      status,
-      severity: "critical",
-      host: "pi",
-      limit: 50,
-    })),
+  // Grouping asks once per state; "open" may also refetch the page it already holds.
+  const grouped = incidentQueries().slice(-5) as { status: string; severity: string }[];
+  expect(grouped.map((query) => query.status).sort()).toEqual([
+    "acked",
+    "muted",
+    "open",
+    "pending",
+    "resolved",
+  ]);
+  expect(grouped.every((query) => query.severity === "critical" && !("host" in query))).toBe(true);
+});
+
+test("incident_list_follows_the_host_in_the_url_and_keeps_it_when_a_filter_changes", async () => {
+  const user = userEvent.setup();
+  route("GET /api/v1/incidents", () => ({ items: [incident()], next_cursor: null }));
+  renderAt("/incidents?status=open&host=pi", "/incidents", <IncidentListPage />);
+
+  await screen.findByRole("link", { name: "Disk /srv is 93% full" });
+  expect(incidentQueries()).toEqual([{ status: "open", host: "pi", limit: 50 }]);
+
+  await user.selectOptions(screen.getByLabelText("Severity"), "critical");
+  expect(screen.getByTestId("location")).toHaveTextContent(
+    "/incidents?status=open&host=pi&severity=critical",
   );
+});
+
+test("incident_list_uses_the_remembered_host_when_the_url_has_none", async () => {
+  localStorage.setItem("selected-host", "pi");
+  route("GET /api/v1/incidents", () => ({ items: [incident()], next_cursor: null }));
+  renderAt("/incidents?status=open", "/incidents", <IncidentListPage />);
+
+  await screen.findByRole("link", { name: "Disk /srv is 93% full" });
+  expect(incidentQueries()).toEqual([{ status: "open", host: "pi", limit: 50 }]);
 });
 
 test("incident_list_groups_by_state", async () => {
