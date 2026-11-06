@@ -1,20 +1,25 @@
-//! Incidents: list, detail, ack, mute, unmute and follow-up questions.
+//! Incidents: list, detail, ack, mute, unmute, dismiss and follow-up questions.
 
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use domovoi_core::ports::{ActionFilter, IncidentFilter, Page};
-use domovoi_core::{Incident, IncidentId, IncidentStatus, Severity, TriageOutcome};
+use domovoi_core::{
+    AckRule, AckRuleId, Incident, IncidentId, IncidentStatus, Severity, TargetPattern,
+    TriageOutcome,
+};
 use domovoi_engine::CommandError;
 use domovoi_engine::cards::{CardLinks, build_card};
 use domovoi_engine::triage::TriageError;
 use jiff::SignedDuration;
 
 use super::dto::{
-    ActionDto, AskRequest, AskResponse, CardDto, IncidentDetail, IncidentPage, IncidentQuery,
-    IncidentSummary, MuteRequest, ReportDto, RetryQuery, TimelineEntryDto, TriageStateDto,
+    ActionDto, AskRequest, AskResponse, CardDto, DismissRequest, IncidentDetail, IncidentPage,
+    IncidentQuery, IncidentSummary, MuteRequest, ReportDto, RetryQuery, TimelineEntryDto,
+    TriageStateDto,
 };
 use super::error::{ApiError, ErrorBody};
+use super::rules;
 use super::{ApiState, Authed, host_named, page};
 
 /// The longest follow-up question, in characters.
@@ -275,6 +280,83 @@ pub(super) async fn unmute(
         .unmute(parse_id(&id)?)
         .await
         .map_err(command)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Dismisses an incident as a known condition: closes it now with the verdict `EXPECTED`,
+/// and when `ignore_for_minutes` is given, creates the rule that keeps the check quiet
+/// (0 means always). The rule matches the incident's host, check and target exactly, so
+/// only this condition stops alerting; `note` is the reason, so a human can see later what
+/// it covers, and the list shows it.
+#[utoipa::path(
+    post, path = "/api/v1/incidents/{id}/dismiss", operation_id = "dismiss_incident", tag = "incidents",
+    params(("id" = String, Path, description = "Incident id")),
+    request_body = DismissRequest,
+    responses(
+        (status = 204, description = "Dismissed"),
+        (status = 400, description = "Empty reason or too long", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 404, description = "No active incident", body = ErrorBody),
+        (status = 409, description = "Not possible now", body = ErrorBody),
+    )
+)]
+pub(super) async fn dismiss(
+    State(state): State<ApiState>,
+    Authed(current): Authed,
+    Path(id): Path<String>,
+    Json(req): Json<DismissRequest>,
+) -> Result<StatusCode, ApiError> {
+    let reason = req.reason.trim();
+    if reason.is_empty() || reason.chars().count() > rules::MAX_NOTE_CHARS {
+        return Err(ApiError::BadRequest(format!(
+            "the reason must have 1 to {} characters",
+            rules::MAX_NOTE_CHARS
+        )));
+    }
+    if req
+        .ignore_for_minutes
+        .is_some_and(|mins| mins > rules::MAX_EXPIRY_MINUTES)
+    {
+        return Err(ApiError::BadRequest(format!(
+            "minutes must be between 0 and {}",
+            rules::MAX_EXPIRY_MINUTES
+        )));
+    }
+    // The incident is loaded first: the rule copies its host, check and target.
+    let incident = load(&state, &id).await?;
+    state
+        .deps
+        .manager
+        .dismiss(incident.id(), current.user.id, reason.to_owned())
+        .await
+        .map_err(command)?;
+    let Some(mins) = req.ignore_for_minutes else {
+        return Ok(StatusCode::NO_CONTENT);
+    };
+    // Nothing is stored until the incident is closed, so a failed dismiss creates no rule.
+    let now = state.deps.clock.now();
+    let expires_at = match mins {
+        0 => None,
+        mins => Some(
+            now.checked_add(SignedDuration::from_mins(i64::from(mins)))
+                .map_err(|e| ApiError::BadRequest(e.to_string()))?,
+        ),
+    };
+    let rule = AckRule {
+        id: AckRuleId::new(),
+        host: Some(incident.host()),
+        check: incident.check().clone(),
+        target_pattern: incident
+            .target()
+            .map(|target| TargetPattern::parse(target.as_str()))
+            .transpose()
+            .map_err(|e| ApiError::internal("target pattern", e))?,
+        predicates: Vec::new(),
+        note: reason.to_owned(),
+        expires_at,
+    };
+    state.deps.acks.put_rule(&rule).await?;
+    rules::audit_rule_created(&state, &current, &rule, now).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 

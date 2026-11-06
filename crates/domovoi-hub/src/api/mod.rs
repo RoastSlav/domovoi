@@ -273,6 +273,7 @@ pub fn routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(incidents::ack))
         .routes(routes!(incidents::mute))
         .routes(routes!(incidents::unmute))
+        .routes(routes!(incidents::dismiss))
         .routes(routes!(incidents::ask))
         .routes(routes!(incidents::retry_triage))
         .routes(routes!(actions::list))

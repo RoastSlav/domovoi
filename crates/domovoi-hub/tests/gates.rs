@@ -396,26 +396,30 @@ mod api {
         let a = api().await;
         let login = a.admin().await;
         let writes = [
-            (Method::PATCH, "/api/v1/settings"),
-            (Method::POST, "/api/v1/settings/test/discord"),
-            (Method::POST, "/api/v1/settings/test/llm"),
-            (Method::POST, "/api/v1/settings/models"),
-            (Method::POST, "/api/v1/settings/test/heartbeat"),
-            (Method::PUT, "/api/v1/hosts/nas/checks"),
-            (Method::POST, "/api/v1/ack-rules"),
+            (Method::PATCH, "/api/v1/settings".to_owned()),
+            (Method::POST, "/api/v1/settings/test/discord".to_owned()),
+            (Method::POST, "/api/v1/settings/test/llm".to_owned()),
+            (Method::POST, "/api/v1/settings/models".to_owned()),
+            (Method::POST, "/api/v1/settings/test/heartbeat".to_owned()),
+            (Method::PUT, "/api/v1/hosts/nas/checks".to_owned()),
+            (Method::POST, "/api/v1/ack-rules".to_owned()),
             (
                 Method::DELETE,
-                "/api/v1/ack-rules/0196ac01-0000-7000-8000-000000000000",
+                "/api/v1/ack-rules/0196ac01-0000-7000-8000-000000000000".to_owned(),
+            ),
+            (
+                Method::POST,
+                format!("/api/v1/incidents/{}/dismiss", a.incident.id()),
             ),
         ];
         for (method, uri) in writes {
-            let anonymous = send(&a, method.clone(), uri, "", None, None).await;
+            let anonymous = send(&a, method.clone(), &uri, "", None, None).await;
             assert_eq!(
                 anonymous,
                 StatusCode::UNAUTHORIZED,
                 "{method} {uri} without a session"
             );
-            let no_csrf = send(&a, method.clone(), uri, &login.cookie, None, None).await;
+            let no_csrf = send(&a, method.clone(), &uri, &login.cookie, None, None).await;
             assert_eq!(
                 no_csrf,
                 StatusCode::FORBIDDEN,
