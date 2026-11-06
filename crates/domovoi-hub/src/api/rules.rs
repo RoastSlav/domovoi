@@ -55,7 +55,8 @@ pub struct PredicateDto {
 pub struct AckRuleDto {
     /// Rule id.
     pub id: String,
-    /// The host the rule is limited to, by name; null means every host.
+    /// The host the rule is limited to, by name; null means every host. A host missing
+    /// from the store shows as `unknown host` with its id, so the list still works.
     pub host: Option<String>,
     /// The check the rule matches, for example `security.ssh_login`.
     pub check: String,
@@ -191,19 +192,17 @@ fn predicate_to_dto(predicate: &EvidencePredicate) -> PredicateDto {
     PredicateDto { key, op, value }
 }
 
-/// The rule as a DTO, with the host's name.
+/// The rule as a DTO, with the host's name. A host that is not in the store shows as
+/// `unknown host` with its id, so a hand-edited database cannot make the whole list fail.
 async fn rule_to_dto(state: &ApiState, rule: &AckRule) -> Result<AckRuleDto, ApiError> {
     let host = match rule.host {
-        Some(id) => Some(
-            state
-                .deps
-                .hosts
-                .get_host(id)
-                .await?
-                .ok_or(ApiError::NotFound)?
-                .name
-                .to_string(),
-        ),
+        Some(id) => {
+            let host = state.deps.hosts.get_host(id).await?;
+            Some(
+                host.map(|host| host.name.to_string())
+                    .unwrap_or(format!("unknown host {id}")),
+            )
+        }
         None => None,
     };
     Ok(AckRuleDto {

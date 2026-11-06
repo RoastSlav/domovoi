@@ -692,7 +692,10 @@ export interface components {
             check: string;
             /** @description When the rule stops applying; null means it never expires. */
             expires_at?: string | null;
-            /** @description The host the rule is limited to, by name; null means every host. */
+            /**
+             * @description The host the rule is limited to, by name; null means every host. A host missing
+             *     from the store shows as `unknown host` with its id, so the list still works.
+             */
             host?: string | null;
             /** @description Rule id. */
             id: string;
