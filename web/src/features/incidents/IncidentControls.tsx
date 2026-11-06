@@ -78,7 +78,9 @@ function DismissDialog({ incident, onClose }: { incident: IncidentSummary; onClo
         </div>
         <p className={styles.hint} id="dismiss-hint">
           The incident closes as an expected condition, so it stops alerting and no triage runs. If
-          the check keeps failing, the incident reopens quietly: no alert and no triage.
+          the check keeps failing, the incident reopens quietly: no alert and no triage. The rule
+          covers every severity of this check on this target, so a critical later on the same mount
+          is quiet too.
         </p>
         {dismiss.error && (
           <p className={styles.error} role="alert">
@@ -146,12 +148,16 @@ export function IncidentControls({ incident }: { incident: IncidentSummary }) {
           </Button>
         </>
       )}
-      <Button
-        title="Closes the incident as a known condition, so it stops alerting."
-        onClick={() => setDismissing(true)}
-      >
-        Dismiss
-      </Button>
+      {/* A pending incident is not confirmed yet, and core refuses dismissing it, so the
+          button would only offer a refusal. It appears once the incident is open. */}
+      {incident.status !== "pending" && (
+        <Button
+          title="Closes the incident as a known condition, so it stops alerting."
+          onClick={() => setDismissing(true)}
+        >
+          Dismiss
+        </Button>
+      )}
       {error && (
         <p className={styles.error} role="alert">
           {error instanceof ApiFailure ? error.message : "Something went wrong."}

@@ -410,9 +410,12 @@ export interface paths {
         /**
          * Dismisses an incident as a known condition: closes it now with the verdict `EXPECTED`,
          *     and when `ignore_for_minutes` is given, creates the rule that keeps the check quiet
-         *     (0 means always). The rule matches the incident's host, check and target exactly, so
-         *     only this condition stops alerting; `note` is the reason, so a human can see later what
-         *     it covers, and the list shows it.
+         *     (0 means always). The rule is stored before the incident closes, so a check firing in
+         *     the moment between the two is already silenced, and a dismiss that fails afterwards
+         *     leaves a rule that a human can see and delete on the Known conditions page. The rule
+         *     matches the incident's host, check and target; `note` is the reason, so a human can
+         *     read later what it covers. A target with `*` in it cannot be matched exactly by a rule
+         *     pattern, so dismissing such an incident with a period is refused.
          */
         post: operations["dismiss_incident"];
         delete?: never;
@@ -2472,7 +2475,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Empty reason or too long */
+            /** @description Empty reason, too long, too many minutes, or a target a rule cannot match */
             400: {
                 headers: {
                     [name: string]: unknown;

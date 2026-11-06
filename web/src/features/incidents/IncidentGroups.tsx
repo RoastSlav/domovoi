@@ -23,8 +23,9 @@ interface GroupDef {
   collapsed?: boolean;
   /** What to say when the group is empty; a group without this hides itself. */
   empty?: string;
-  /** Which of the group's loaded rows it shows. A dismissed incident reopened by its rule lives in
-   * Being handled, not Needs attention, because nothing is expected of anyone about it. */
+  /** Which of the group's loaded rows it shows. Being handled takes the open incidents whose
+   * verdict says nothing is expected of anyone: dismissed ones, and ones triage itself judged
+   * expected. The list has no record of a dismissal, so the verdict is what the grouping has. */
   accept?: (incident: IncidentSummary) => boolean;
 }
 
@@ -32,14 +33,16 @@ const GROUPS: GroupDef[] = [
   {
     title: "Needs attention",
     statuses: ["open"],
-    hint: "New problems nobody has acknowledged.",
+    hint: "New problems nobody has acknowledged. Expected ones are under Being handled.",
     empty: "Nothing needs attention.",
     accept: (incident) => incident.verdict !== "EXPECTED",
   },
   {
     title: "Being handled",
     statuses: ["acked", "muted", "open"],
-    hint: "Acknowledged, muted, or dismissed as a known condition. Muted ones return when the mute ends.",
+    hint:
+      "Acknowledged, muted, or expected: dismissed as a known condition, or judged expected by triage. " +
+      "A condition that returns after the reopen window is a new incident, and lands under Needs attention.",
     accept: (incident) => incident.status !== "open" || incident.verdict === "EXPECTED",
   },
   {

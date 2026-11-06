@@ -139,7 +139,9 @@ test("incident_list_groups_by_state", async () => {
   await screen.findByRole("heading", { name: "Needs attention (1)" });
   expect(group("Needs attention (1)").getByRole("link", { name: "Open one" })).toBeVisible();
   expect(
-    group("Needs attention (1)").getByText("New problems nobody has acknowledged."),
+    group("Needs attention (1)").getByText(
+      "New problems nobody has acknowledged. Expected ones are under Being handled.",
+    ),
   ).toBeVisible();
 
   await screen.findByRole("heading", { name: "Being handled (2)" });
@@ -194,6 +196,13 @@ test("dismissed_incidents_are_being_handled", async () => {
   ).toBeNull();
 
   await screen.findByRole("heading", { name: "Being handled (2)" });
+  expect(
+    group("Being handled (2)").getByText(
+      "Acknowledged, muted, or expected: dismissed as a known condition, or judged expected by triage. " +
+        "A condition that returns after the reopen window is a new incident, and lands under Needs attention.",
+    ),
+    "the hint says what the grouping means, and what happens when the condition comes back late",
+  ).toBeVisible();
   expect(
     group("Being handled (2)")
       .getAllByRole("link")
@@ -447,7 +456,7 @@ test("dismiss_dialog_sends_the_reason_and_the_period", async () => {
   const dialog = screen.getByRole("dialog", { name: "Dismiss as a known condition" });
   expect(
     within(dialog).getByText(
-      "The incident closes as an expected condition, so it stops alerting and no triage runs. If the check keeps failing, the incident reopens quietly: no alert and no triage.",
+      "The incident closes as an expected condition, so it stops alerting and no triage runs. If the check keeps failing, the incident reopens quietly: no alert and no triage. The rule covers every severity of this check on this target, so a critical later on the same mount is quiet too.",
     ),
     "saying what a dismissal does to the alerts",
   ).toBeVisible();
@@ -496,4 +505,21 @@ test("dismiss_dialog_without_a_period_sends_no_rule", async () => {
     reason: "The nightly backup fills it, and it clears on its own.",
     ignore_for_minutes: null,
   });
+});
+
+test("dismiss_is_offered_only_after_the_incident_is_confirmed", async () => {
+  route("GET /api/v1/incidents/{id}", () => ({
+    ...detail(),
+    incident: incident({ status: "pending" }),
+  }));
+  renderAt("/incidents/inc-1", "/incidents/:id", <IncidentDetailPage />);
+
+  expect(
+    await screen.findByRole("heading", { name: "Backups filled /srv" }),
+    "the page shows the pending incident",
+  ).toBeVisible();
+  expect(
+    screen.queryByRole("button", { name: "Dismiss" }),
+    "dismissing a pending incident is refused, so the page offers no refusal",
+  ).toBeNull();
 });
