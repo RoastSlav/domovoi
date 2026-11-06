@@ -62,6 +62,14 @@ export type HostCheck = Schemas["HostCheckDto"];
 export type CheckSettings = Schemas["CheckSettingsDto"];
 /** One problem with submitted settings, with its path. */
 export type Issue = Schemas["IssueDto"];
+/** A known condition: incidents that match it are kept in the history and never notify. */
+export type AckRule = Schemas["AckRuleDto"];
+/** One condition on a signal's evidence. */
+export type Predicate = Schemas["PredicateDto"];
+/** How a condition compares an evidence value with its value. */
+export type PredicateOp = Schemas["PredicateOpDto"];
+/** A new rule. */
+export type AckRuleInput = Schemas["AckRuleInput"];
 
 /** How the API shows a secret that has a value. */
 export const SECRET_SET = "[set]";

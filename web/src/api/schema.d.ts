@@ -4,6 +4,41 @@
  */
 
 export interface paths {
+    "/api/v1/ack-rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every rule, expired ones included. Rules that never expire come last. */
+        get: operations["list_ack_rules"];
+        put?: never;
+        /** Creates a rule. */
+        post: operations["create_ack_rule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ack-rules/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Deletes a rule. */
+        delete: operations["delete_ack_rule"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/actions": {
         parameters: {
             query?: never;
@@ -651,6 +686,41 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @description A known condition: incidents that match it stay in the history and never notify. */
+        AckRuleDto: {
+            /** @description The check the rule matches, for example `security.ssh_login`. */
+            check: string;
+            /** @description When the rule stops applying; null means it never expires. */
+            expires_at?: string | null;
+            /** @description The host the rule is limited to, by name; null means every host. */
+            host?: string | null;
+            /** @description Rule id. */
+            id: string;
+            /** @description Why the condition is acceptable. */
+            note: string;
+            /** @description Conditions, all of which must hold. */
+            predicates: components["schemas"]["PredicateDto"][];
+            /** @description Target pattern with `*` allowed at the ends; null means any target. */
+            target_pattern?: string | null;
+        };
+        /** @description A new rule. */
+        AckRuleInput: {
+            /** @description The check to match, for example `security.ssh_login`. */
+            check: string;
+            /**
+             * Format: int32
+             * @description Minutes from now until the rule stops applying; null means it never expires.
+             */
+            expires_in_minutes?: number | null;
+            /** @description Host by name; null matches every host. */
+            host?: string | null;
+            /** @description Why the condition is acceptable, 1 to 500 characters. */
+            note: string;
+            /** @description Conditions, all of which must hold; at most 10. */
+            predicates: components["schemas"]["PredicateDto"][];
+            /** @description Target pattern with `*` allowed at the ends; null matches any target. */
+            target_pattern?: string | null;
+        };
         /** @description An action. */
         ActionDto: {
             /** @description Who approved it, if anyone. */
@@ -1089,6 +1159,23 @@ export interface components {
             /** @description Whether it must be given. */
             required: boolean;
         };
+        /**
+         * @description One condition on a signal's evidence. `value` is text, a number, `true` or `false`;
+         *     `at_most` and `at_least` need a number.
+         */
+        PredicateDto: {
+            /** @description Evidence key, for example `value` or `user`. */
+            key: string;
+            /** @description How the evidence compares with `value`. */
+            op: components["schemas"]["PredicateOpDto"];
+            /** @description What the evidence must compare with, as text. */
+            value: string;
+        };
+        /**
+         * @description How a condition compares an evidence value with its `value`.
+         * @enum {string}
+         */
+        PredicateOpDto: "equals" | "contains" | "at_most" | "at_least";
         /** @description An action triage suggested. */
         ProposalDto: {
             /** @description Arguments by parameter name. */
@@ -1323,6 +1410,116 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    list_ack_rules: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every rule, soonest expiry first; rules that never expire come last */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AckRuleDto"][];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    create_ack_rule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AckRuleInput"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AckRuleDto"];
+                };
+            };
+            /** @description Invalid rule */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    delete_ack_rule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Rule id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such rule */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     list_actions: {
         parameters: {
             query?: {

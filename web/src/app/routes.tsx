@@ -15,6 +15,7 @@ import { IncidentDetailPage } from "../features/incidents/IncidentDetailPage";
 import { IncidentListPage } from "../features/incidents/IncidentListPage";
 import { NoteEditorPage } from "../features/notes/NoteEditorPage";
 import { NotesPage } from "../features/notes/NotesPage";
+import { RulesPage } from "../features/rules/RulesPage";
 import { SettingsPage } from "../features/settings/SettingsPage";
 import { FirstRun } from "../features/setup/FirstRun";
 import { SkillsPage } from "../features/skills/SkillsPage";
@@ -59,6 +60,7 @@ export function AppRoutes() {
             <Route index element={<Navigate to="/incidents" replace />} />
             <Route path="/incidents" element={<IncidentListPage />} />
             <Route path="/incidents/:id" element={<IncidentDetailPage />} />
+            <Route path="/rules" element={<RulesPage />} />
             <Route path="/approvals" element={<ApprovalsPage />} />
             <Route path="/hosts" element={<HostsPage />} />
             <Route path="/hosts/:name" element={<HostDetailPage />} />
