@@ -5,6 +5,7 @@ import type { Host } from "../../api/types";
 import { Button } from "../../components/Button";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { EmptyState } from "../../components/EmptyState";
+import { PageIntro } from "../../components/PageIntro";
 import ui from "../../components/ui.module.css";
 import { EnrollDialog } from "./EnrollDialog";
 import { HostStatus, VersionCell } from "./HostStatus";
@@ -60,6 +61,9 @@ export function HostsPage() {
           Add host
         </Button>
       </div>
+      <PageIntro docs="concepts/hub-and-agent.html">
+        Machines Domovoi watches. Each runs an agent that sends checks to this hub.
+      </PageIntro>
       {hosts.isPending && <p>Loading…</p>}
       {hosts.error && <EmptyState title="Could not load hosts" />}
       {hosts.data && items.length === 0 && (

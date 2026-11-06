@@ -5,6 +5,7 @@ import { Button } from "../../components/Button";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { EmptyState } from "../../components/EmptyState";
 import { Markdown } from "../../components/Markdown";
+import { PageIntro } from "../../components/PageIntro";
 import ui from "../../components/ui.module.css";
 import styles from "./digest.module.css";
 
@@ -36,6 +37,9 @@ export function DigestPage() {
           Send now
         </Button>
       </div>
+      <PageIntro docs="concepts/digest.html">
+        One summary of every host per day: what changed, trends and open incidents.
+      </PageIntro>
       {send.isSuccess && <p role="status">Sent.</p>}
       {send.error && (
         <p className={styles.error} role="alert">

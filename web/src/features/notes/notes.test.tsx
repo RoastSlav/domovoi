@@ -31,6 +31,19 @@ function searches() {
   return calls.filter((c) => c.route === "GET /api/v1/notes/search");
 }
 
+test("notes_page_explains_that_triage_reads_the_notes", async () => {
+  renderAt("/notes", "/notes", <NotesPage />);
+
+  expect(await screen.findByText(/^Runbooks in Markdown:/)).toBeVisible();
+  expect(
+    screen.getByText(/Triage searches them and gives the relevant ones to the model\./),
+  ).toBeVisible();
+  expect(screen.getByRole("link", { name: "Learn more" })).toHaveAttribute(
+    "href",
+    "https://RoastSlav.github.io/domovoi/concepts/how-it-works.html",
+  );
+});
+
 test("notes_search_debounces_and_renders_snippets", async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });

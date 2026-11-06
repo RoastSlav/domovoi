@@ -3,6 +3,7 @@ import { useHostNames } from "../../api/hooks/hosts";
 import { useAdvisories, useSettings } from "../../api/hooks/system";
 import { SECRET_SET, type Settings } from "../../api/types";
 import { EmptyState } from "../../components/EmptyState";
+import { PageIntro } from "../../components/PageIntro";
 import { RelativeTime } from "../../components/RelativeTime";
 import { EditableSettings } from "./EditableSettings";
 import styles from "./settings.module.css";
@@ -132,6 +133,9 @@ export function SettingsPage() {
     return (
       <>
         <h1>Settings</h1>
+        <PageIntro docs="reference/configuration.html">
+          How this hub runs. Values set in hub.toml or the environment are shown but locked.
+        </PageIntro>
         <p className={styles.note}>
           Changes apply right away: the hub restarts in a few seconds. Fields set in hub.toml or the
           environment are read-only here.
@@ -153,6 +157,9 @@ export function SettingsPage() {
   return (
     <>
       <h1>Settings</h1>
+      <PageIntro docs="reference/configuration.html">
+        How this hub runs. Values set in hub.toml or the environment are shown but locked.
+      </PageIntro>
       <p className={styles.note}>Read-only. Change settings in hub.toml and restart the hub.</p>
       <Section title="Hub">
         <Rows

@@ -91,6 +91,20 @@ test("settings_form_shows_field_errors_from_api_paths", async () => {
   });
 });
 
+test("settings_page_explains_that_file_values_are_locked", async () => {
+  route("GET /api/v1/settings", () => settings({}));
+  renderAt("/settings", "/settings", <SettingsPage />);
+
+  expect(await screen.findByText(/^How this hub runs\./)).toBeVisible();
+  expect(
+    screen.getByText(/Values set in hub\.toml or the environment are shown but locked\./),
+  ).toBeVisible();
+  expect(screen.getByRole("link", { name: "Learn more" })).toHaveAttribute(
+    "href",
+    "https://RoastSlav.github.io/domovoi/reference/configuration.html",
+  );
+});
+
 test("locked_fields_are_read_only_with_source_label", async () => {
   route("GET /api/v1/settings", () => settings({}));
   renderAt("/settings", "/settings", <SettingsPage />);

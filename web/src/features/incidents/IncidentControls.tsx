@@ -25,12 +25,20 @@ export function IncidentControls({ incident }: { incident: IncidentSummary }) {
   return (
     <div className={styles.toolbar}>
       {incident.status !== "acked" && (
-        <Button onClick={() => ack.mutate()} disabled={ack.isPending}>
+        <Button
+          title="Stops reminders; the incident stays open until the problem clears."
+          onClick={() => ack.mutate()}
+          disabled={ack.isPending}
+        >
           Ack
         </Button>
       )}
       {incident.status === "muted" ? (
-        <Button onClick={() => unmute.mutate()} disabled={unmute.isPending}>
+        <Button
+          title="Lifts the mute, so alerts and reminders start again."
+          onClick={() => unmute.mutate()}
+          disabled={unmute.isPending}
+        >
           Unmute
         </Button>
       ) : (
@@ -49,7 +57,11 @@ export function IncidentControls({ incident }: { incident: IncidentSummary }) {
               ))}
             </select>
           </div>
-          <Button onClick={() => mute.mutate(minutes)} disabled={mute.isPending}>
+          <Button
+            title="No alerts or reminders until the time you pick."
+            onClick={() => mute.mutate(minutes)}
+            disabled={mute.isPending}
+          >
             Mute
           </Button>
         </>

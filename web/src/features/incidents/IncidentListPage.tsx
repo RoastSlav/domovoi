@@ -5,6 +5,7 @@ import { useIncidents, type IncidentFilters } from "../../api/hooks/incidents";
 import { useSelectedHost } from "../../app/HostContext";
 import { Button } from "../../components/Button";
 import { EmptyState } from "../../components/EmptyState";
+import { PageIntro } from "../../components/PageIntro";
 import { IncidentGroups } from "./IncidentGroups";
 import { IncidentRow } from "./IncidentRow";
 import styles from "./incidents.module.css";
@@ -94,6 +95,9 @@ export function IncidentListPage() {
   return (
     <>
       <h1>Incidents</h1>
+      <PageIntro docs="concepts/incidents.html">
+        Problems Domovoi found on your hosts. Each one is triaged by the model and posted to chat.
+      </PageIntro>
       <form className={styles.filters} role="search" aria-label="Filter incidents">
         <Filter
           name="status"

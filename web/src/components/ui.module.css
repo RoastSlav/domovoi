@@ -194,6 +194,17 @@
   gap: 0.5rem;
 }
 
+.intro {
+  color: var(--muted);
+  max-width: 70ch;
+  margin-bottom: 1rem;
+}
+
+.intro a {
+  /* The link follows the text with no space in the markup, so spacing comes from here. */
+  margin-left: 0.35rem;
+}
+
 .muted {
   color: var(--muted);
 }

@@ -1,6 +1,7 @@
 import { useHosts } from "../../api/hooks/hosts";
 import { useSelectedHost } from "../../app/HostContext";
 import { EmptyState } from "../../components/EmptyState";
+import { PageIntro } from "../../components/PageIntro";
 import ui from "../../components/ui.module.css";
 import { SkillList } from "./SkillList";
 
@@ -17,6 +18,10 @@ export function SkillsPage() {
   return (
     <>
       <h1>Skills</h1>
+      <PageIntro docs="guide/skills.html">
+        Scripts an agent can run. Read skills only look, and triage may run them on its own. Write
+        and destructive skills change things and need your approval.
+      </PageIntro>
       {hosts.data && names.length === 0 && <EmptyState title="No hosts yet" />}
       {host && selected === undefined && (
         <p className={ui.muted}>
