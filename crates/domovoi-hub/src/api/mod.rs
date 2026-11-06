@@ -16,6 +16,7 @@ mod events;
 pub(crate) mod hosts;
 pub(crate) mod incidents;
 mod notes;
+mod rules;
 pub(crate) mod settings;
 mod settings_write;
 pub(crate) mod system;
@@ -28,8 +29,8 @@ use axum::extract::{DefaultBodyLimit, FromRef, FromRequestParts};
 use axum::http::request::Parts;
 use domovoi_config::HubConfig;
 use domovoi_core::ports::{
-    ActionRepo, AdvisoryRepo, Clock, FactRepo, HostRepo, IncidentRepo, NoteRepo, Notifier, Page,
-    Presence, SignalRepo, UsageRepo,
+    AckRepo, ActionRepo, AdvisoryRepo, Clock, FactRepo, HostRepo, IncidentRepo, NoteRepo, Notifier,
+    Page, Presence, SignalRepo, UsageRepo,
 };
 use domovoi_core::{HostId, HostName, SkillSummary};
 use domovoi_engine::triage::TriageHandle;
@@ -104,6 +105,8 @@ pub struct ApiDeps {
     pub facts: Arc<dyn FactRepo>,
     /// Model usage for the settings page.
     pub usage: Arc<dyn UsageRepo>,
+    /// Ack rules ("known conditions"), read for the list and written by the UI.
+    pub acks: Arc<dyn AckRepo>,
     /// The incident manager.
     pub manager: ManagerHandle,
     /// Approvals.
@@ -283,6 +286,8 @@ pub fn routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(notes::list, notes::create))
         .routes(routes!(notes::search))
         .routes(routes!(notes::get, notes::replace, notes::delete))
+        .routes(routes!(rules::list, rules::create))
+        .routes(routes!(rules::delete))
         .routes(routes!(settings::show, settings_write::update))
         .routes(routes!(settings_write::schema))
         .routes(routes!(settings_write::test_discord))

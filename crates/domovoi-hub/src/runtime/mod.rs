@@ -262,6 +262,7 @@ impl HubRuntime {
                 advisories: store.clone(),
                 facts: store.clone(),
                 usage: store.clone(),
+                acks: store.clone(),
                 manager: manager.clone(),
                 actions_service: actions_service.clone(),
                 triage: triage.0,
