@@ -1215,7 +1215,7 @@
         "tags": [
           "incidents"
         ],
-        "summary": "Runs triage again on an incident, outside the queue but with the same caps, and reports\nhow it went. A report already cached for unchanged evidence is reused.",
+        "summary": "Runs triage again on an incident, outside the queue but with the same caps, and reports\nhow it went. A report already cached for unchanged evidence is reused unless `fresh` is\ntrue.",
         "operationId": "retry_triage",
         "parameters": [
           {
@@ -1225,6 +1225,15 @@
             "required": true,
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "fresh",
+            "in": "query",
+            "description": "Run the model again even when a cached report would fit. Default false.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
             }
           }
         ],

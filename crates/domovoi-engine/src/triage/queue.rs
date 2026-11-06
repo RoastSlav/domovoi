@@ -281,7 +281,7 @@ async fn worker(shared: Arc<Shared>) {
             return;
         }
         if let Some(incident) = shared.queue.pop() {
-            run::triage(&shared, &incident).await;
+            run::triage(&shared, &incident, false).await;
             continue;
         }
         tokio::select! {

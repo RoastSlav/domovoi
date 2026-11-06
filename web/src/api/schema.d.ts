@@ -391,7 +391,8 @@ export interface paths {
         put?: never;
         /**
          * Runs triage again on an incident, outside the queue but with the same caps, and reports
-         *     how it went. A report already cached for unchanged evidence is reused.
+         *     how it went. A report already cached for unchanged evidence is reused unless `fresh` is
+         *     true.
          */
         post: operations["retry_triage"];
         delete?: never;
@@ -2268,7 +2269,10 @@ export interface operations {
     };
     retry_triage: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Run the model again even when a cached report would fit. Default false. */
+                fresh?: boolean;
+            };
             header?: never;
             path: {
                 /** @description Incident id */

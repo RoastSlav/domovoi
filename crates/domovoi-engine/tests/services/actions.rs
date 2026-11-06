@@ -74,6 +74,43 @@ async fn valid_proposal_creates_proposed_action_with_hashed_chat_token() {
 }
 
 #[tokio::test]
+async fn running_triage_twice_with_the_same_proposal_leaves_one_proposed_action() {
+    let w = world(Setup::default()).await;
+    w.link.set_skills(host_id(), vec![restart_skill()]);
+    let answer = report_json(
+        "ACTION_NEEDED",
+        json!([{"skill": "restart_container", "args": {"container": "nginx"}, "reason": "It is stuck."}]),
+    );
+    w.primary.push_text(answer.clone());
+    w.primary.push_text(answer);
+
+    let TriageOutcome::Report(first) = w.run().await else {
+        panic!("a report");
+    };
+    assert_eq!(first.proposals.len(), 1);
+    assert_eq!(w.actions().await.len(), 1);
+
+    let TriageOutcome::Report(second) = w.triage.retriage(&w.incident).await else {
+        panic!("a report");
+    };
+    assert_eq!(w.primary.requests().len(), 2, "the model ran again");
+    assert!(
+        second.proposals.is_empty(),
+        "the duplicate is not offered again"
+    );
+    assert!(
+        !second.details.contains("restart_container"),
+        "a duplicate is not an error: {}",
+        second.details
+    );
+    assert_eq!(
+        w.actions().await.len(),
+        1,
+        "only one proposed action is stored"
+    );
+}
+
+#[tokio::test]
 async fn proposal_for_unknown_skill_or_bad_args_is_dropped() {
     let w = world(Setup::default()).await;
     let mut only_disks = restart_skill();

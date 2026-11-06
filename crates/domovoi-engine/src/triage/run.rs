@@ -32,9 +32,10 @@ fn limits(shared: &Shared) -> std::sync::MutexGuard<'_, Limits> {
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-/// Triages `incident`, attaches the outcome and returns it.
-pub(crate) async fn triage(shared: &Shared, incident: &Incident) -> TriageOutcome {
-    let (outcome, tokens) = outcome(shared, incident).await;
+/// Triages `incident`, attaches the outcome and returns it. With `fresh`, the repeat cache
+/// is skipped.
+pub(crate) async fn triage(shared: &Shared, incident: &Incident, fresh: bool) -> TriageOutcome {
+    let (outcome, tokens) = outcome(shared, incident, fresh).await;
     if let Err(err) = shared
         .deps
         .manager
@@ -49,6 +50,7 @@ pub(crate) async fn triage(shared: &Shared, incident: &Incident) -> TriageOutcom
 async fn outcome(
     shared: &Shared,
     incident: &Incident,
+    fresh: bool,
 ) -> (TriageOutcome, BTreeMap<ActionId, String>) {
     if let Some(cap) = over_cap(shared).await {
         let reason = match cap {
@@ -79,7 +81,7 @@ async fn outcome(
         .ok()
         .and_then(|s| s.into_iter().next());
     let digest = evidence_digest(incident, latest.as_ref());
-    if let Some((report, from)) = cached(shared, incident, &digest).await {
+    if !fresh && let Some((report, from)) = cached(shared, incident, &digest).await {
         return (TriageOutcome::Cached { report, from }, BTreeMap::new());
     }
     let skills = deps.link.skills(incident.host());

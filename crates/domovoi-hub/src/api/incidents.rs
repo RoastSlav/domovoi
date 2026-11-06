@@ -12,7 +12,7 @@ use jiff::SignedDuration;
 
 use super::dto::{
     ActionDto, AskRequest, AskResponse, CardDto, IncidentDetail, IncidentPage, IncidentQuery,
-    IncidentSummary, MuteRequest, ReportDto, TimelineEntryDto, TriageStateDto,
+    IncidentSummary, MuteRequest, ReportDto, RetryQuery, TimelineEntryDto, TriageStateDto,
 };
 use super::error::{ApiError, ErrorBody};
 use super::{ApiState, Authed, host_named, page};
@@ -321,10 +321,11 @@ pub(super) async fn ask(
 }
 
 /// Runs triage again on an incident, outside the queue but with the same caps, and reports
-/// how it went. A report already cached for unchanged evidence is reused.
+/// how it went. A report already cached for unchanged evidence is reused unless `fresh` is
+/// true.
 #[utoipa::path(
     post, path = "/api/v1/incidents/{id}/triage", operation_id = "retry_triage", tag = "incidents",
-    params(("id" = String, Path, description = "Incident id")),
+    params(("id" = String, Path, description = "Incident id"), RetryQuery),
     responses(
         (status = 200, description = "Triaged again; how it went", body = TriageStateDto),
         (status = 401, description = "Not logged in", body = ErrorBody),
@@ -336,6 +337,7 @@ pub(super) async fn retry_triage(
     State(state): State<ApiState>,
     _auth: Authed,
     Path(id): Path<String>,
+    Query(query): Query<RetryQuery>,
 ) -> Result<Json<TriageStateDto>, ApiError> {
     let triage = state
         .deps
@@ -343,6 +345,10 @@ pub(super) async fn retry_triage(
         .as_ref()
         .ok_or_else(|| ApiError::Unavailable("triage is not enabled".to_owned()))?;
     let incident = load(&state, &id).await?;
-    let outcome = triage.triage(&incident).await;
+    let outcome = if query.fresh == Some(true) {
+        triage.retriage(&incident).await
+    } else {
+        triage.triage(&incident).await
+    };
     Ok(Json(triage_state(&outcome)))
 }

@@ -156,10 +156,32 @@ test("incident_detail_retries_triage_and_shows_how_it_went", async () => {
   }));
   renderAt("/incidents/inc-1", "/incidents/:id", <IncidentDetailPage />);
 
-  await user.click(await screen.findByRole("button", { name: "Retry triage" }));
+  await user.click(await screen.findByRole("button", { name: "Run triage again" }));
 
   expect(await screen.findByText(/Triage failed: the model is not available/)).toBeVisible();
-  expect(calls.map((call) => call.route)).toContain("POST /api/v1/incidents/{id}/triage");
+  const retry = calls.find((call) => call.route === "POST /api/v1/incidents/{id}/triage");
+  expect(retry?.init.params?.query).toEqual({ fresh: true });
+  expect(screen.getByText(/Counts against the hourly triage limit/)).toBeVisible();
+});
+
+test("incident_detail_retries_triage_without_a_report_without_forcing_fresh", async () => {
+  const user = userEvent.setup();
+  const d = detail();
+  route("GET /api/v1/incidents/{id}", () => ({
+    ...d,
+    report: null,
+    triage: { kind: "failed", reason: "the model is not available" },
+  }));
+  route("POST /api/v1/incidents/{id}/triage", () => ({
+    kind: "failed",
+    reason: "the model is not available",
+  }));
+  renderAt("/incidents/inc-1", "/incidents/:id", <IncidentDetailPage />);
+
+  await user.click(await screen.findByRole("button", { name: "Retry triage" }));
+
+  const retry = calls.find((call) => call.route === "POST /api/v1/incidents/{id}/triage");
+  expect(retry?.init.params?.query).toEqual({ fresh: false });
 });
 
 test("incident_detail_ack_and_ask", async () => {

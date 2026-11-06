@@ -2961,6 +2961,15 @@ expression: spec
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "Run the model again even when a cached report would fit. Default false.",
+            "in": "query",
+            "name": "fresh",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -3005,7 +3014,7 @@ expression: spec
             "description": "Triage is not enabled"
           }
         },
-        "summary": "Runs triage again on an incident, outside the queue but with the same caps, and reports\nhow it went. A report already cached for unchanged evidence is reused.",
+        "summary": "Runs triage again on an incident, outside the queue but with the same caps, and reports\nhow it went. A report already cached for unchanged evidence is reused unless `fresh` is\ntrue.",
         "tags": [
           "incidents"
         ]

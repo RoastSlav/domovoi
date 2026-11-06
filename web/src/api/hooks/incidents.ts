@@ -72,12 +72,17 @@ export function useUnmute(id: string) {
   });
 }
 
-/** Runs triage again on the incident and reports how it went. */
+/** Runs triage again on the incident and reports how it went. With `fresh`, the model runs
+ * even when a cached report would fit. */
 export function useRetryTriage(id: string) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: () =>
-      call<TriageState>(api.POST("/api/v1/incidents/{id}/triage", { params: { path: { id } } })),
+    mutationFn: (fresh: boolean) =>
+      call<TriageState>(
+        api.POST("/api/v1/incidents/{id}/triage", {
+          params: { path: { id }, query: { fresh } },
+        }),
+      ),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: keys.incident(id) });
       void client.invalidateQueries({ queryKey: keys.incidents });
