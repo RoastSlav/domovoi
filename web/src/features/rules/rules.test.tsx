@@ -88,9 +88,11 @@ test("lists_the_stored_known_conditions", async () => {
       /^Incidents that match a known condition are kept in the history but never alert you\b/,
     ),
   ).toBeVisible();
-  expect(screen.getByRole("link", { name: "Learn more" })).toHaveAttribute(
+  expect(
+    screen.getByRole("link", { name: "Learn more about known conditions (opens in a new tab)" }),
+  ).toHaveAttribute(
     "href",
-    "https://RoastSlav.github.io/domovoi/concepts/incidents.html",
+    "https://RoastSlav.github.io/domovoi/concepts/incidents.html#known-conditions",
   );
 });
 

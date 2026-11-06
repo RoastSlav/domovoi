@@ -37,7 +37,7 @@ export function DigestPage() {
           Send now
         </Button>
       </div>
-      <PageIntro docs="concepts/digest.html">
+      <PageIntro topic="the digest" docs="concepts/digest.html">
         One summary of every host per day: what changed, trends and open incidents.
       </PageIntro>
       {send.isSuccess && <p role="status">Sent.</p>}

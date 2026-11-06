@@ -19,8 +19,7 @@ test("digest_page_explains_that_it_is_one_summary_per_day", async () => {
   // The page says what a digest is and what is in it.
   expect(await screen.findByText(/^One summary of every host per day:/)).toBeVisible();
   expect(screen.getByText(/what changed, trends and open incidents\./)).toBeVisible();
-  expect(screen.getByRole("link", { name: "Learn more" })).toHaveAttribute(
-    "href",
-    "https://RoastSlav.github.io/domovoi/concepts/digest.html",
-  );
+  expect(
+    screen.getByRole("link", { name: "Learn more about the digest (opens in a new tab)" }),
+  ).toHaveAttribute("href", "https://RoastSlav.github.io/domovoi/concepts/digest.html");
 });

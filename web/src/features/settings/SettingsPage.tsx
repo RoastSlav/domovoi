@@ -133,8 +133,8 @@ export function SettingsPage() {
     return (
       <>
         <h1>Settings</h1>
-        <PageIntro docs="reference/configuration.html">
-          How this hub runs. Values set in hub.toml or the environment are shown but locked.
+        <PageIntro topic="settings" docs="install/config-as-code.html">
+          How this hub runs.
         </PageIntro>
         <p className={styles.note}>
           Changes apply right away: the hub restarts in a few seconds. Fields set in hub.toml or the
@@ -157,8 +157,8 @@ export function SettingsPage() {
   return (
     <>
       <h1>Settings</h1>
-      <PageIntro docs="reference/configuration.html">
-        How this hub runs. Values set in hub.toml or the environment are shown but locked.
+      <PageIntro topic="settings" docs="install/config-as-code.html">
+        How this hub runs.
       </PageIntro>
       <p className={styles.note}>Read-only. Change settings in hub.toml and restart the hub.</p>
       <Section title="Hub">

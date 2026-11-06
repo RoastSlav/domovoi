@@ -25,7 +25,7 @@ const TONES: Record<string, string> = {
 const HINTS: Record<string, string> = {
   ACTION_NEEDED: "Something is broken or will break soon; act now.",
   MONITOR: "Off but not urgent; keep an eye on it.",
-  EXPECTED: "Explained by something intended, like an update or a known condition.",
+  EXPECTED: "Explained by something intended, like a planned update or a nightly job.",
   FIXED: "Already recovered.",
   resolved: "The problem cleared.",
 };

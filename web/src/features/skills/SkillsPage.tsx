@@ -18,7 +18,7 @@ export function SkillsPage() {
   return (
     <>
       <h1>Skills</h1>
-      <PageIntro docs="guide/skills.html">
+      <PageIntro topic="skills" docs="guide/skills.html">
         Scripts an agent can run. Read skills only look, and triage may run them on its own. Write
         and destructive skills change things and need your approval.
       </PageIntro>

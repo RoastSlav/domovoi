@@ -83,10 +83,9 @@ test("approvals_page_explains_that_nothing_runs_until_approved", async () => {
 
   // Shows even when there is nothing to approve.
   expect(await screen.findByText(/^Actions the model suggested\./)).toBeVisible();
-  expect(screen.getByRole("link", { name: "Learn more" })).toHaveAttribute(
-    "href",
-    "https://RoastSlav.github.io/domovoi/concepts/actions.html",
-  );
+  expect(
+    screen.getByRole("link", { name: "Learn more about approvals (opens in a new tab)" }),
+  ).toHaveAttribute("href", "https://RoastSlav.github.io/domovoi/concepts/actions.html");
 });
 
 test("deny_sends_no_confirmation", async () => {

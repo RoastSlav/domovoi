@@ -86,7 +86,7 @@ export function RulesPage() {
       <div className={ui.pageHead}>
         <h1>Known conditions</h1>
       </div>
-      <PageIntro docs="concepts/incidents.html">
+      <PageIntro topic="known conditions" docs="concepts/incidents.html#known-conditions">
         Incidents that match a known condition are kept in the history but never alert you and are
         not triaged.
       </PageIntro>

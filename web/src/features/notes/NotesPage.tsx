@@ -94,7 +94,7 @@ export function NotesPage() {
           </Link>
         </div>
       </div>
-      <PageIntro docs="concepts/how-it-works.html">
+      <PageIntro topic="notes" docs="guide/migrating.html#4-bring-your-notes">
         Runbooks in Markdown: how your setup works and how you fixed things before. Triage searches
         them and gives the relevant ones to the model.
       </PageIntro>

@@ -95,14 +95,31 @@ test("settings_page_explains_that_file_values_are_locked", async () => {
   route("GET /api/v1/settings", () => settings({}));
   renderAt("/settings", "/settings", <SettingsPage />);
 
+  // The intro is one sentence, and the note under it is the only copy about file values.
   expect(await screen.findByText(/^How this hub runs\./)).toBeVisible();
-  expect(
-    screen.getByText(/Values set in hub\.toml or the environment are shown but locked\./),
-  ).toBeVisible();
-  expect(screen.getByRole("link", { name: "Learn more" })).toHaveAttribute(
-    "href",
-    "https://RoastSlav.github.io/domovoi/reference/configuration.html",
+  const intro = screen.getByText(/^How this hub runs\./);
+  expect(intro.textContent, "the intro does not repeat the note").toBe(
+    "How this hub runs.Learn more",
   );
+  const note = screen.getByText(/Fields set in hub\.toml or the environment are read-only here\./);
+  expect(note).toBeVisible();
+  expect(
+    screen.getByRole("link", { name: "Learn more about settings (opens in a new tab)" }),
+  ).toHaveAttribute("href", "https://RoastSlav.github.io/domovoi/install/config-as-code.html");
+});
+
+test("read_only_settings_point_at_the_file_to_change", async () => {
+  route("GET /api/v1/settings", () => ({ ...settings({}), editable: null }));
+  renderAt("/settings", "/settings", <SettingsPage />);
+
+  expect(
+    await screen.findByText("Read-only. Change settings in hub.toml and restart the hub."),
+    "the page says how to change what it shows",
+  ).toBeVisible();
+  expect(screen.getByText(/^How this hub runs\./)).toBeVisible();
+  expect(
+    screen.getByRole("link", { name: "Learn more about settings (opens in a new tab)" }),
+  ).toHaveAttribute("href", "https://RoastSlav.github.io/domovoi/install/config-as-code.html");
 });
 
 test("locked_fields_are_read_only_with_source_label", async () => {

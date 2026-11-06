@@ -14,7 +14,7 @@ export function ApprovalsPage() {
   return (
     <>
       <h1>Approvals</h1>
-      <PageIntro docs="concepts/actions.html">
+      <PageIntro topic="approvals" docs="concepts/actions.html">
         Actions the model suggested. Nothing runs until you approve it; requests expire after an
         hour.
       </PageIntro>

@@ -26,7 +26,7 @@ export function IncidentControls({ incident }: { incident: IncidentSummary }) {
     <div className={styles.toolbar}>
       {incident.status !== "acked" && (
         <Button
-          title="Stops reminders; the incident stays open until the problem clears."
+          title="Stops reminders; the incident stays listed until the problem clears."
           onClick={() => ack.mutate()}
           disabled={ack.isPending}
         >

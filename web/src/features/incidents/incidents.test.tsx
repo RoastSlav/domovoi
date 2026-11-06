@@ -86,11 +86,11 @@ test("incident_list_explains_what_the_page_is", async () => {
   route("GET /api/v1/incidents", () => ({ items: [incident()], next_cursor: null }));
   renderAt("/incidents?status=open", "/incidents", <IncidentListPage />);
 
-  expect(
-    await screen.findByText(/^Problems Domovoi found on your hosts\./),
-    "the page says what it is for",
-  ).toBeVisible();
-  expect(screen.getByRole("link", { name: "Learn more" })).toHaveAttribute(
+  expect(await screen.findByText(/^Problems Domovoi found on your hosts\./)).toBeVisible();
+  const link = screen.getByRole("link", {
+    name: "Learn more about incidents (opens in a new tab)",
+  });
+  expect(link).toHaveAttribute(
     "href",
     "https://RoastSlav.github.io/domovoi/concepts/incidents.html",
   );
@@ -316,7 +316,7 @@ test("ack_and_mute_say_what_they_do", async () => {
   const ack = await screen.findByRole("button", { name: "Ack" });
   expect(ack).toHaveAttribute(
     "title",
-    "Stops reminders; the incident stays open until the problem clears.",
+    "Stops reminders; the incident stays listed until the problem clears.",
   );
   expect(screen.getByRole("button", { name: "Mute" })).toHaveAttribute(
     "title",

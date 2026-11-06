@@ -76,7 +76,7 @@ test("badges_explain_their_verdicts_in_tooltips", () => {
   );
   expect(screen.getByText("Expected")).toHaveAttribute(
     "title",
-    "Explained by something intended, like an update or a known condition.",
+    "Explained by something intended, like a planned update or a nightly job.",
   );
   expect(screen.getByText("Fixed")).toHaveAttribute("title", "Already recovered.");
   expect(screen.getByText("Resolved")).toHaveAttribute("title", "The problem cleared.");
@@ -84,10 +84,14 @@ test("badges_explain_their_verdicts_in_tooltips", () => {
 
 test("page_intro_shows_its_text_and_a_link_to_the_docs", () => {
   render(
-    <PageIntro docs="concepts/incidents.html">Problems Domovoi found on your hosts.</PageIntro>,
+    <PageIntro topic="incidents" docs="concepts/incidents.html">
+      Problems Domovoi found on your hosts.
+    </PageIntro>,
   );
   expect(screen.getByText(/^Problems Domovoi found on your hosts\./)).toBeVisible();
-  const link = screen.getByRole("link", { name: "Learn more" });
+  const link = screen.getByRole("link", {
+    name: "Learn more about incidents (opens in a new tab)",
+  });
   expect(link).toHaveAttribute(
     "href",
     "https://RoastSlav.github.io/domovoi/concepts/incidents.html",
@@ -97,7 +101,7 @@ test("page_intro_shows_its_text_and_a_link_to_the_docs", () => {
 });
 
 test("page_intro_with_no_docs_path_shows_no_link", () => {
-  render(<PageIntro>Problems Domovoi found on your hosts.</PageIntro>);
+  render(<PageIntro topic="incidents">Problems Domovoi found on your hosts.</PageIntro>);
   expect(screen.getByText("Problems Domovoi found on your hosts.")).toBeVisible();
   expect(screen.queryByRole("link")).toBeNull();
 });

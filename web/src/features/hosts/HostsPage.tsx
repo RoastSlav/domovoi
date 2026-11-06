@@ -61,8 +61,8 @@ export function HostsPage() {
           Add host
         </Button>
       </div>
-      <PageIntro docs="concepts/hub-and-agent.html">
-        Machines Domovoi watches. Each runs an agent that sends checks to this hub.
+      <PageIntro topic="hosts" docs="concepts/hub-and-agent.html">
+        Machines Domovoi knows about: hosts running an agent, and hosts that webhooks report on.
       </PageIntro>
       {hosts.isPending && <p>Loading…</p>}
       {hosts.error && <EmptyState title="Could not load hosts" />}

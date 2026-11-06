@@ -95,8 +95,9 @@ export function IncidentListPage() {
   return (
     <>
       <h1>Incidents</h1>
-      <PageIntro docs="concepts/incidents.html">
-        Problems Domovoi found on your hosts. Each one is triaged by the model and posted to chat.
+      <PageIntro topic="incidents" docs="concepts/incidents.html">
+        Problems Domovoi found on your hosts. Confirmed ones are posted to chat, and triaged when a
+        model is set up.
       </PageIntro>
       <form className={styles.filters} role="search" aria-label="Filter incidents">
         <Filter

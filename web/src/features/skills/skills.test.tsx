@@ -31,10 +31,9 @@ test("skills_page_explains_which_skills_need_approval", async () => {
   expect(
     screen.getByText(/Write and destructive skills change things and need your approval\./),
   ).toBeVisible();
-  expect(screen.getByRole("link", { name: "Learn more" })).toHaveAttribute(
-    "href",
-    "https://RoastSlav.github.io/domovoi/guide/skills.html",
-  );
+  expect(
+    screen.getByRole("link", { name: "Learn more about skills (opens in a new tab)" }),
+  ).toHaveAttribute("href", "https://RoastSlav.github.io/domovoi/guide/skills.html");
 });
 
 test("skills_follow_the_host_selected_in_the_sidebar", async () => {
