@@ -141,8 +141,10 @@ mod tests {
             .arg(&skills)
             .assert()
             .success()
+            .stdout(contains("ok     power_status (read)"))
+            .stdout(contains("ok     hardware_health (read)"))
             .stdout(contains("ok     vacuum_journal (destructive)"))
-            .stdout(contains("7 valid, 0 with issues"));
+            .stdout(contains("9 valid, 0 with issues"));
     }
 
     fn copy_tree(from: &Path, to: &Path) {
