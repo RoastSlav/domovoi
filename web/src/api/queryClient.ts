@@ -20,6 +20,7 @@ export const keys = {
   settings: ["settings"] as const,
   settingsSchema: ["settings", "schema"] as const,
   hostChecks: (name: string) => ["hosts", "checks", name] as const,
+  hostDocker: (name: string) => ["hosts", "docker", name] as const,
   advisories: ["advisories"] as const,
   digest: ["digest"] as const,
 };

@@ -9,6 +9,7 @@ import { Tabs } from "../../components/Tabs";
 import { incidentBadge, triageNote } from "../incidents/badge";
 import { SkillList } from "../skills/SkillList";
 import { ChecksTab } from "./ChecksTab";
+import { DockerPanel } from "./DockerPanel";
 import { HostStatus, isHubOnly, VersionCell } from "./HostStatus";
 import { SshLoginsTab } from "./SshLoginsTab";
 import styles from "./hosts.module.css";
@@ -103,7 +104,15 @@ export function HostDetailPage() {
         label={`${detail.host.name} details`}
         tabs={[
           { label: "Overview", content: <Overview name={detail.host.name} facts={detail.facts} /> },
-          { label: "Checks", content: <ChecksTab host={detail.host.name} /> },
+          {
+            label: "Checks",
+            content: (
+              <>
+                <DockerPanel host={detail.host.name} />
+                <ChecksTab host={detail.host.name} />
+              </>
+            ),
+          },
           { label: "SSH logins", content: <SshLoginsTab host={detail.host.name} /> },
         ]}
       />

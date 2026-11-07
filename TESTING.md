@@ -166,7 +166,7 @@ state_dir = "./data/agent"
 skills_dir = "./examples/skills"
 
 [docker]
-enabled = false                    # set to true if Docker runs here and you can use its socket
+enabled = false                    # "auto" looks for Docker or Podman; true or false fixes it
 ```
 
 Then:

@@ -26,10 +26,12 @@ host_root = "/"
 allow_risk = ["read", "write"]
 
 [docker]
-# Whether container checks and skills are enabled (default false).
-enabled = true
-# unix:///path/to/docker.sock, or tcp://host:port for a socket proxy.
-endpoint = "unix:///var/run/docker.sock"
+# "auto" (the default) looks for Docker or Podman on every start and lets the web UI switch
+# it on or off for this host. true or false fixes it here; the UI cannot change it.
+enabled = "auto"
+# Optional: unix:///path/to/engine.sock, or tcp://host:port for a socket proxy. Without it
+# the usual Docker and Podman sockets are tried.
+# endpoint = "unix:///var/run/docker.sock"
 
 # Per-check settings, one table per check key (example; optional). Quote keys that
 # contain dots.

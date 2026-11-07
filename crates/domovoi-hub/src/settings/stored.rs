@@ -35,6 +35,12 @@ pub fn host_checks_key(host: &str) -> String {
     format!("host.{host}.checks")
 }
 
+/// The key of the hub's choice about a host's container runtime (ADR 0018).
+#[must_use]
+pub fn host_docker_key(host: &str) -> String {
+    format!("host.{host}.docker")
+}
+
 /// A stored document and its revision. Revision 0 is "nothing saved yet".
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct StoredDoc {

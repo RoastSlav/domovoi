@@ -95,6 +95,7 @@ impl HubConn {
             config: AgentSettings {
                 heartbeat_seconds,
                 check_overrides: Default::default(),
+                docker: None,
             },
         };
         self.send(Message::Welcome(welcome), None).await;

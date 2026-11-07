@@ -16,6 +16,7 @@ expression: "pretty(&message, reply)"
           }
         }
       },
+      "docker": false,
       "heartbeat_seconds": 30
     }
   },

@@ -14,6 +14,7 @@
 
 pub mod checks;
 pub mod config_file;
+pub mod docker;
 pub mod dry_run;
 pub mod enroll;
 pub mod error;
@@ -32,6 +33,7 @@ pub mod spool;
 pub mod store;
 pub mod time;
 
+pub use docker::DockerControl;
 pub use domovoi_proto::EnrollToken;
 pub use enroll::{EnrollEnv, enroll};
 pub use error::{AgentError, EnrollError, LinkError, StateError};

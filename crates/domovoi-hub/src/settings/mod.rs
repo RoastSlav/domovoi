@@ -22,6 +22,7 @@
 pub mod apply;
 pub mod connection;
 pub mod crypto;
+pub mod host_docker;
 pub mod patch;
 pub mod service;
 pub mod stored;
@@ -29,5 +30,6 @@ pub mod stored;
 pub use apply::{ApplyRequest, ConfigSources, LoadError, load_effective, rollback};
 pub use connection::{Target, TestResult};
 pub use crypto::{CryptoError, SecretKey};
+pub use host_docker::HostDocker;
 pub use service::{HostChecks, Saved, SettingsDeps, SettingsError, SettingsService, View};
-pub use stored::host_checks_key;
+pub use stored::{host_checks_key, host_docker_key};

@@ -104,6 +104,7 @@ pub fn hello(agent: AgentId, protocol: ProtocolVersion) -> Message {
         capabilities: Vec::new(),
         skills: Vec::new(),
         checks: Vec::new(),
+        docker: None,
     })
 }
 

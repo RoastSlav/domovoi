@@ -34,6 +34,7 @@ pub(crate) async fn run_session(
         version: hello.agent_version,
         skills: hello.skills,
         checks: hello.checks,
+        docker: hello.docker,
         outbox,
         pending: HashMap::new(),
         cancel: cancel.clone(),

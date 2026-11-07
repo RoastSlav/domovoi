@@ -56,6 +56,7 @@ export type Saved = Schemas["SavedDto"];
 export type TestResult = Schemas["TestResultDto"];
 /** A host's checks: what its agent reports and what the hub overrides. */
 export type HostChecks = Schemas["HostChecksDto"];
+export type HostDocker = Schemas["HostDockerDto"];
 /** One check on a host. */
 export type HostCheck = Schemas["HostCheckDto"];
 /** One check's settings. */

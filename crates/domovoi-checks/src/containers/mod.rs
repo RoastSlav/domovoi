@@ -8,6 +8,7 @@
 //!   throwaway `docker run --rm` never becomes expected.
 //! - Names in [`ContainerPolicy::ignore`] are skipped by every container check.
 
+mod detect;
 mod docker;
 mod expected;
 mod health;
@@ -22,6 +23,7 @@ use jiff::{SignedDuration, Timestamp};
 
 use crate::framework::CheckError;
 
+pub use detect::{Detection, candidates, detect, engine_name};
 pub use docker::DockerSource;
 pub use expected::{EVENTS_STATE, EventLog, ExpectedContainers};
 pub use health::UnhealthyContainers;

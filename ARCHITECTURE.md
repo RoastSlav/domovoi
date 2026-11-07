@@ -258,7 +258,7 @@ flowchart LR
 | hub → agent | `run_tool` | a read tool request with typed arguments and a deadline |
 | hub → agent | `run_skill` | action id, skill name, args, plan hash, deadline |
 | agent → hub | `tool_result`, `skill_result` | exit status, redacted output (capped), duration |
-| hub → agent | `config_update` | check schedules and thresholds managed from the hub |
+| hub → agent | `config_update` | check schedules, thresholds and the container runtime switch managed from the hub |
 | both | `error`, `unsupported` | structured errors |
 
 ## 9. Persistence (`domovoi-store`)

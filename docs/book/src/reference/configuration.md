@@ -283,8 +283,8 @@ The Docker integration.
 
 | Key | Type | Meaning |
 | --- | --- | --- |
-| `enabled` | boolean | Whether container checks and skills are enabled. Default `false`. |
-| `endpoint` | string | `unix:///path/to/docker.sock` or `tcp://host:port` (for a socket proxy). Default `unix:///var/run/docker.sock`. |
+| `enabled` | value | `"auto"`, `true` or `false`. `"auto"` (the default) uses an engine that answers on the usual sockets and lets the hub switch it on or off for this host; `true` and `false` fix the choice here and the hub cannot change it. |
+| `endpoint` | string | `unix:///path/to/engine.sock` or `tcp://host:port` (for a socket proxy). Default: the first of Docker's socket, rootless Docker's, Podman's and rootless Podman's that answers. |
 
 ### `[local_webhooks]`
 

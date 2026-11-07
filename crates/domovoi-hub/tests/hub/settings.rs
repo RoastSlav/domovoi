@@ -383,3 +383,40 @@ async fn host_check_overrides_are_stored_and_reported_offline() {
         .await;
     assert_eq!(reply.status, StatusCode::BAD_REQUEST);
 }
+
+#[tokio::test]
+async fn host_docker_choice_is_stored_and_reported_offline() {
+    let a = api().await;
+    let login = a.admin().await;
+    let reply = a
+        .send(
+            Method::PUT,
+            "/api/v1/hosts/nas/docker",
+            Some(&login),
+            Some(json!({ "enabled": false })),
+        )
+        .await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.text);
+    assert_eq!(reply.body["delivered"], false, "the agent is offline");
+    let state = a.get("/api/v1/hosts/nas/docker", &login).await;
+    assert_eq!(state.body["connected"], false);
+    assert_eq!(state.body["reported"], false);
+    assert_eq!(state.body["choice"], false);
+    assert_eq!(state.body["enabled"], false);
+
+    let back = a
+        .send(
+            Method::PUT,
+            "/api/v1/hosts/nas/docker",
+            Some(&login),
+            Some(json!({ "enabled": null })),
+        )
+        .await;
+    assert_eq!(back.status, StatusCode::OK, "{}", back.text);
+    let state = a.get("/api/v1/hosts/nas/docker", &login).await;
+    assert_eq!(
+        state.body["choice"],
+        Value::Null,
+        "back to the agent's decision"
+    );
+}
