@@ -20,12 +20,16 @@ pub const NO_CALLS_LEFT: &str = "error: the tool-call budget is spent; answer no
 /// One tool call the model made.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ToolUse {
-    /// The tool name, such as `journal` or `run_read_skill`.
+    /// The tool name, validated against [`ReadTool::ALL`], or `unknown tool`.
     pub tool: String,
-    /// For `run_read_skill`, the skill.
+    /// For `run_read_skill`, the skill, only when the host catalogues it.
     pub skill: Option<String>,
-    /// Whether the call failed.
+    /// Whether the call was run and failed.
     pub failed: bool,
+    /// The call was not run because the tool-call budget was spent.
+    pub refused: bool,
+    /// The model-supplied target, cut short, that matched neither.
+    pub raw: Option<String>,
 }
 
 /// The tools offered to a provider that supports them: every read tool and nothing else.
@@ -41,6 +45,38 @@ fn read_skill_of(name: &str, input: &serde_json::Value) -> Option<String> {
         return None;
     }
     input.get("skill")?.as_str().map(str::to_owned)
+}
+
+/// Longest model-supplied target stored in a timeline entry: the names are untrusted
+/// text, so only a short piece of an unknown one is worth keeping.
+const MAX_RAW_TOOL_USE: usize = 96;
+
+/// Recorded shape `(tool, skill, raw)` of a model call. A name outside the closed
+/// [`ReadTool::ALL`] collapses into one `unknown tool` row; a skill counts only when
+/// the host catalogues it. The rejected target is kept cut short for the audit.
+fn target_of(
+    name: &str,
+    skill: Option<String>,
+    skills: &[SkillSummary],
+) -> (String, Option<String>, Option<String>) {
+    if !ReadTool::ALL.iter().any(|tool| tool.name() == name) {
+        return (
+            "unknown tool".to_owned(),
+            None,
+            Some(name.chars().take(MAX_RAW_TOOL_USE).collect()),
+        );
+    }
+    match skill {
+        None => (name.to_owned(), None, None),
+        Some(candidate) if skills.iter().any(|s| s.name.as_str() == candidate) => {
+            (name.to_owned(), Some(candidate), None)
+        }
+        Some(candidate) => (
+            name.to_owned(),
+            None,
+            Some(candidate.chars().take(MAX_RAW_TOOL_USE).collect()),
+        ),
+    }
 }
 
 /// The text parts of `parts`, joined.
@@ -140,7 +176,8 @@ pub(crate) async fn converse(
         let mut results = Vec::with_capacity(calls.len() + 1);
         for (id, name, input) in calls {
             let skill = read_skill_of(&name, &input);
-            let result = if calls_used >= budget.max_tool_calls {
+            let refused = calls_used >= budget.max_tool_calls;
+            let result = if refused {
                 tools::ToolResult {
                     content: NO_CALLS_LEFT.to_owned(),
                     is_error: true,
@@ -149,10 +186,13 @@ pub(crate) async fn converse(
                 calls_used += 1;
                 tools::call(shared, incident, skills, &name, input).await
             };
+            let (tool, used_skill, raw) = target_of(&name, skill, skills);
             used.push(ToolUse {
-                tool: name,
-                skill,
-                failed: result.is_error,
+                tool,
+                skill: used_skill,
+                failed: !refused && result.is_error,
+                refused,
+                raw,
             });
             results.push(Part::ToolResult {
                 id,

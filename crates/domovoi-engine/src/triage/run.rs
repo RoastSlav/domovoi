@@ -299,6 +299,8 @@ async fn opening(
                 tool: name.to_owned(),
                 skill,
                 failed: result.is_error,
+                refused: false,
+                raw: None,
             });
             text.push_str(&format!("\n### {name}\n\n{}\n", result.content));
         }
