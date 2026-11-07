@@ -102,6 +102,7 @@ pub fn report(verdict: Verdict) -> TriageReport {
         ],
         verdict,
         next_step: "Pin the previous image tag and restart.".to_owned(),
+        manual_steps: Vec::new(),
         proposals: Vec::new(),
         details: String::new(),
     }
