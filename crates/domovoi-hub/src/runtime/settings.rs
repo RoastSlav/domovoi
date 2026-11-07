@@ -79,7 +79,9 @@ pub(crate) fn provider(config: &LlmProvider) -> ProviderSettings {
             input_per_mtok_usd: price.input_per_mtok_usd,
             output_per_mtok_usd: price.output_per_mtok_usd,
         }),
-        timeout: domovoi_llm::DEFAULT_TIMEOUT,
+        timeout: config
+            .timeout
+            .map_or(domovoi_llm::DEFAULT_TIMEOUT, |timeout| timeout.as_signed()),
     }
 }
 

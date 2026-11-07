@@ -422,11 +422,16 @@ pub(super) async fn ask(
     let triage = state
         .deps
         .triage
-        .as_ref()
+        .clone()
         .ok_or_else(|| ApiError::Unavailable("triage is not enabled".to_owned()))?;
-    let answer = triage
-        .follow_up(parse_id(&id)?, question, current.user.id)
+    let incident = parse_id(&id)?;
+    let question = question.to_owned();
+    let user = current.user.id;
+    // A task of its own, so that a closed tab or a navigation does not cancel the model
+    // call halfway through the conversation.
+    let answer = tokio::spawn(async move { triage.follow_up(incident, &question, user).await })
         .await
+        .map_err(|e| ApiError::internal("follow-up failed", e))?
         .map_err(|e| match e {
             TriageError::UnknownIncident(_) => ApiError::NotFound,
             TriageError::Provider(err) => ApiError::Unavailable(err.to_string()),
@@ -457,13 +462,20 @@ pub(super) async fn retry_triage(
     let triage = state
         .deps
         .triage
-        .as_ref()
+        .clone()
         .ok_or_else(|| ApiError::Unavailable("triage is not enabled".to_owned()))?;
     let incident = load(&state, &id).await?;
-    let outcome = if query.fresh == Some(true) {
-        triage.retriage(&incident).await
-    } else {
-        triage.triage(&incident).await
-    };
+    let fresh = query.fresh == Some(true);
+    // A task of its own, so that a closed tab or a navigation does not cancel the run; the
+    // outcome is attached to the incident either way.
+    let outcome = tokio::spawn(async move {
+        if fresh {
+            triage.retriage(&incident).await
+        } else {
+            triage.triage(&incident).await
+        }
+    })
+    .await
+    .map_err(|e| ApiError::internal("triage failed", e))?;
     Ok(Json(triage_state(&outcome)))
 }

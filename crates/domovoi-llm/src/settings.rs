@@ -7,7 +7,7 @@ use url::Url;
 
 use crate::cli::CliPreset;
 
-/// The total time one request may take when the caller sets nothing else.
+/// How long the model may stay silent when the caller sets nothing else.
 pub const DEFAULT_TIMEOUT: SignedDuration = SignedDuration::from_secs(120);
 
 /// Which adapter talks to the model.
@@ -37,7 +37,8 @@ pub struct ProviderSettings {
     pub cli: Option<CliPreset>,
     /// Prices for computing [`Usage::cost_micros`]; without them cost is unknown.
     pub price: Option<Price>,
-    /// Total time one request (or CLI run) may take.
+    /// Longest an HTTP provider may stay silent (the clock restarts with every streamed
+    /// chunk), or the total time a CLI run may take.
     pub timeout: SignedDuration,
 }
 

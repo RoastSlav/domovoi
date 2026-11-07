@@ -401,6 +401,17 @@ expression: "HubConfig::json_schema()"
               "type": "null"
             }
           ]
+        },
+        "timeout": {
+          "description": "The longest the model may stay silent, such as `2m`. Answers are streamed, so the\nclock restarts with every token; it covers loading and reading the prompt too. For\n`cli` it is the whole run. Default `2m`.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Duration"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "additionalProperties": false,

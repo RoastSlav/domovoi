@@ -11,13 +11,16 @@
 //! The library installs no rustls crypto provider; the binary does that once at startup.
 
 pub mod anthropic;
+mod anthropic_stream;
 pub mod cli;
 mod error;
 mod factory;
 mod http;
 mod models;
 pub mod openai;
+mod openai_stream;
 mod settings;
+mod sse;
 
 pub use cli::{CliOutput, CliPreset, PromptVia};
 pub use error::{EXCERPT_CHARS, LlmBuildError, excerpt};

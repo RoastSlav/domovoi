@@ -9,8 +9,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use url::Url;
 
+use crate::anthropic_stream;
 use crate::error::LlmBuildError;
-use crate::http;
+use crate::http::{self, Reply};
 use crate::settings::{Price, cost_micros};
 
 /// Where the API lives when no base URL is configured.
@@ -63,7 +64,8 @@ impl LlmProvider for Anthropic {
     }
 
     async fn complete(&self, req: LlmRequest) -> Result<LlmResponse, LlmError> {
-        let body = request_body(&self.model, &req);
+        let mut body = request_body(&self.model, &req);
+        body["stream"] = Value::Bool(true);
         tracing::debug!(model = %self.model, messages = req.messages.len(), "anthropic turn");
         let request = self
             .client
@@ -71,7 +73,11 @@ impl LlmProvider for Anthropic {
             .header("x-api-key", self.api_key.expose_secret())
             .header("anthropic-version", API_VERSION)
             .json(&body);
-        let response: WireResponse = http::send(request, Some(&self.api_key)).await?;
+        let secret = Some(&self.api_key);
+        let response = match http::send_streaming::<WireResponse>(request, secret).await? {
+            Reply::Whole(response) => response,
+            Reply::Stream(mut events) => anthropic_stream::assemble(&mut events, secret).await?,
+        };
         Ok(into_response(response, self.price.as_ref()))
     }
 }
@@ -166,16 +172,16 @@ fn wire_message(message: &LlmMessage) -> WireMessage<'_> {
 }
 
 #[derive(Deserialize)]
-struct WireResponse {
-    content: Vec<WireContent>,
-    stop_reason: Option<String>,
+pub(crate) struct WireResponse {
+    pub(crate) content: Vec<WireContent>,
+    pub(crate) stop_reason: Option<String>,
     #[serde(default)]
-    usage: WireUsage,
+    pub(crate) usage: WireUsage,
 }
 
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
-enum WireContent {
+pub(crate) enum WireContent {
     Text {
         text: String,
     },
@@ -189,11 +195,11 @@ enum WireContent {
 }
 
 #[derive(Deserialize, Default)]
-struct WireUsage {
+pub(crate) struct WireUsage {
     #[serde(default)]
-    input_tokens: u32,
+    pub(crate) input_tokens: u32,
     #[serde(default)]
-    output_tokens: u32,
+    pub(crate) output_tokens: u32,
 }
 
 fn into_response(response: WireResponse, price: Option<&Price>) -> LlmResponse {

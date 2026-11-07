@@ -51,6 +51,7 @@ expression: body
     }
   ],
   "model": "claude-test",
+  "stream": true,
   "system": "You triage incidents.",
   "tools": [
     {

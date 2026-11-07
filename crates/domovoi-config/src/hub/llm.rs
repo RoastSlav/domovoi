@@ -6,6 +6,7 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use url::Url;
 
+use crate::duration::Duration;
 use crate::secret::Secret;
 
 /// `[llm]`.
@@ -41,6 +42,11 @@ pub struct LlmProvider {
     /// Prices used for the monthly budget. Optional.
     #[serde(default)]
     pub price: Option<Price>,
+    /// The longest the model may stay silent, such as `2m`. Answers are streamed, so the
+    /// clock restarts with every token; it covers loading and reading the prompt too. For
+    /// `cli` it is the whole run. Default `2m`.
+    #[serde(default)]
+    pub timeout: Option<Duration>,
 }
 
 /// The kind of language model adapter.
