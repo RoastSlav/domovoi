@@ -104,20 +104,6 @@ export const SECTIONS: SectionSpec[] = [
         placeholder: "127.0.0.1",
       },
       {
-        path: "web.bind",
-        label: "Web listen address",
-        kind: "text",
-        placeholder: "127.0.0.1:7420",
-        hint: "Where this UI listens. After a change the UI is reachable at the new address only.",
-      },
-      {
-        path: "agent_server.bind",
-        label: "Agent server listen address",
-        kind: "text",
-        placeholder: "0.0.0.0:7421",
-        hint: "Where agents connect. Agents that dial another port disconnect until it matches.",
-      },
-      {
         path: "agent_server.public_url",
         label: "Agent server URL",
         kind: "text",
