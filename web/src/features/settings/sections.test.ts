@@ -28,3 +28,17 @@ test("the fallback model has the same settings as the main one", () => {
   const secondary = paths("Fallback model").map((path) => path.replace("llm.secondary.", ""));
   expect(secondary).toEqual(primary);
 });
+
+test("every hub setting that can change at runtime has a field", () => {
+  const all = SECTIONS.flatMap((section) => section.fields({}).map((field) => field.path));
+  for (const path of [
+    "web.bind",
+    "agent_server.bind",
+    "agent_server.heartbeat",
+    "agent_server.self_check",
+    "llm.primary.cli.args",
+    "secrets.exposed",
+  ]) {
+    expect(all).toContain(path);
+  }
+});

@@ -55,6 +55,13 @@ function providerFields(prefix: string): FieldSpec[] {
       visibleWhen: cli,
     },
     {
+      path: `${prefix}.cli.args`,
+      label: "CLI arguments",
+      kind: "list",
+      hint: "Replace the preset's own arguments when not empty. Separate with commas.",
+      visibleWhen: cli,
+    },
+    {
       path: `${prefix}.timeout`,
       label: "Longest silence",
       kind: "text",
@@ -97,10 +104,38 @@ export const SECTIONS: SectionSpec[] = [
         placeholder: "127.0.0.1",
       },
       {
+        path: "web.bind",
+        label: "Web listen address",
+        kind: "text",
+        placeholder: "127.0.0.1:7420",
+        hint: "Where this UI listens. After a change the UI is reachable at the new address only.",
+      },
+      {
+        path: "agent_server.bind",
+        label: "Agent server listen address",
+        kind: "text",
+        placeholder: "0.0.0.0:7421",
+        hint: "Where agents connect. Agents that dial another port disconnect until it matches.",
+      },
+      {
         path: "agent_server.public_url",
         label: "Agent server URL",
         kind: "text",
         placeholder: "wss://hub.lan:7421",
+      },
+      {
+        path: "agent_server.heartbeat",
+        label: "Agent heartbeat",
+        kind: "text",
+        placeholder: "10s",
+        hint: "How often agents report in. Three missed heartbeats make an agent silent.",
+      },
+      {
+        path: "agent_server.self_check",
+        label: "Outside address to check",
+        kind: "text",
+        placeholder: "1.1.1.1:53",
+        hint: "The hub tries this host:port before it blames a silent host, to tell a host outage from its own network.",
       },
     ]),
   },
@@ -227,12 +262,29 @@ export const SECTIONS: SectionSpec[] = [
         },
         { path: `webhooks.${name}.secret`, label: `${name}: secret`, kind: "secret" as const },
         {
+          path: `webhooks.${name}.host_label`,
+          label: `${name}: host label`,
+          kind: "text" as const,
+          hint: "For Alertmanager, the label that names the host.",
+        },
+        {
           path: `webhooks.${name}.default_host`,
           label: `${name}: default host`,
           kind: "text" as const,
         },
       ]);
     },
+  },
+  {
+    title: "Exposed secrets",
+    fields: fixed([
+      {
+        path: "secrets.exposed",
+        label: "Secrets known to be exposed",
+        kind: "list",
+        hint: "Names of secrets you know leaked. Each raises an advisory until you remove it here.",
+      },
+    ]),
   },
   {
     title: "Probes",
