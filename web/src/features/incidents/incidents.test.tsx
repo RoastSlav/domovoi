@@ -362,13 +362,15 @@ test("incident_detail_lists_skills_and_tools_used_with_counts", async () => {
         kind: "tool",
         calls: 3,
         failures: 1,
+        refused: 2,
         last_used: "2026-10-31T12:05:00Z",
       },
       {
         name: "disk_usage",
         kind: "skill",
-        calls: 1,
+        calls: 2,
         failures: 0,
+        refused: 1,
         last_used: "2026-10-31T12:04:00Z",
       },
     ],
@@ -382,13 +384,19 @@ test("incident_detail_lists_skills_and_tools_used_with_counts", async () => {
   expect(within(used).getByText("Skills proposed: restart_container.")).toBeVisible();
 
   const rows = within(used).getAllByRole("row");
+  expect(within(rows[0] as HTMLElement).getByText("Not run")).toBeVisible();
   expect(within(rows[1] as HTMLElement).getByText("journal")).toBeVisible();
   expect(within(rows[1] as HTMLElement).getByText("tool")).toBeVisible();
   expect(within(rows[1] as HTMLElement).getByText("3")).toBeVisible();
   expect(within(rows[1] as HTMLElement).getByText("1"), "one failed call").toBeVisible();
+  expect(
+    within(rows[1] as HTMLElement).getByText("2"),
+    "two calls not run on budget",
+  ).toBeVisible();
   expect(within(rows[2] as HTMLElement).getByText("disk_usage")).toBeVisible();
   expect(within(rows[2] as HTMLElement).getByText("skill")).toBeVisible();
   expect(within(rows[2] as HTMLElement).getByText("0"), "no failed calls").toBeVisible();
+  expect(within(rows[2] as HTMLElement).getByText("1"), "one call not run").toBeVisible();
 });
 
 test("incident_detail_says_nothing_was_used_yet", async () => {

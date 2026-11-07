@@ -96,6 +96,7 @@ export function IncidentDetailPage() {
                       <th scope="col">Kind</th>
                       <th scope="col">Calls</th>
                       <th scope="col">Failures</th>
+                      <th scope="col">Not run</th>
                       <th scope="col">Last used</th>
                     </tr>
                   </thead>
@@ -106,6 +107,7 @@ export function IncidentDetailPage() {
                         <td>{tool.kind}</td>
                         <td>{tool.calls}</td>
                         <td>{tool.failures}</td>
+                        <td>{tool.refused}</td>
                         <td>
                           <RelativeTime at={tool.last_used} />
                         </td>
