@@ -28,6 +28,52 @@ async fn tool_use_is_recorded_on_the_timeline() {
 }
 
 #[tokio::test]
+async fn failed_skill_call_keeps_the_skill_name() {
+    let w = world(Setup::default()).await;
+    w.primary.push_ok(calls(&[(
+        "c1",
+        "run_read_skill",
+        json!({"skill": "logs", "bogus": 1}),
+    )]));
+    w.primary.push_text(report());
+
+    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+
+    let entries = w.store.timeline(w.incident.id()).await.expect("timeline");
+    let entry = entries
+        .iter()
+        .find(|e| e.kind == "triage.tools")
+        .expect("a triage.tools entry");
+    assert_eq!(entry.summary, "triage used logs");
+    assert_eq!(entry.detail["tools"][0]["skill"], "logs");
+    assert_eq!(entry.detail["tools"][0]["failed"], true);
+}
+
+#[tokio::test]
+async fn prefetched_tools_are_recorded_for_a_provider_without_tools() {
+    let w = world(Setup {
+        cli: true,
+        ..Setup::default()
+    })
+    .await;
+    w.primary.push_text(report());
+
+    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+
+    let entries = w.store.timeline(w.incident.id()).await.expect("timeline");
+    let entry = entries
+        .iter()
+        .find(|e| e.kind == "triage.tools")
+        .expect("a triage.tools entry");
+    assert_eq!(
+        entry.summary,
+        "triage used docker_ps, docker_logs, journal, host_overview"
+    );
+    assert_eq!(entry.detail["tools"][0]["tool"], "docker_ps");
+    assert_eq!(entry.detail["tools"][0]["failed"], false);
+}
+
+#[tokio::test]
 async fn tool_calls_are_routed_to_agent_and_store() {
     let w = world(Setup::default()).await;
     w.note("nginx config", "nginx reads /etc/nginx/conf.d on start")

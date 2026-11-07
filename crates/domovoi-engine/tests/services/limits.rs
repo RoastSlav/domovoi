@@ -404,6 +404,49 @@ async fn failed_retries_stop_at_the_limit_when_other_timeline_entries_land_betwe
 }
 
 #[tokio::test]
+async fn a_tool_use_entry_does_not_stop_a_failed_retry() {
+    let settings = TriageSettings {
+        per_hour_runs: 100,
+        ..TriageSettings::default()
+    };
+    let w = world(Setup {
+        settings,
+        ..Setup::default()
+    })
+    .await;
+    w.primary.push_err(LlmError::Unavailable("bad".to_owned()));
+    assert!(matches!(w.run().await, TriageOutcome::Failed { .. }));
+
+    // A follow-up that used tools lands after the failed run.
+    IncidentRepo::append_event(
+        &*w.store,
+        &IncidentTimelineEntry {
+            incident: w.incident.id(),
+            at: w.now(),
+            kind: "triage.tools".to_owned(),
+            summary: "follow-up used journal".to_owned(),
+            detail: serde_json::json!({
+                "during": "follow-up",
+                "tools": [{"tool": "journal", "skill": null, "failed": false}],
+            }),
+        },
+    )
+    .await
+    .unwrap();
+
+    w.primary.push_text(report());
+    w.clock.advance(SignedDuration::from_mins(61));
+    settle().await;
+
+    assert_eq!(count(&w, w.incident.id(), "triage.failed").await, 1);
+    assert_eq!(
+        count(&w, w.incident.id(), "triage.report").await,
+        1,
+        "the failure retry still runs after a tool-use entry"
+    );
+}
+
+#[tokio::test]
 async fn cap_retry_runs_even_after_an_old_failed_retry_chain() {
     let settings = TriageSettings {
         per_hour_runs: 1,
