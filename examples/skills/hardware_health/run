@@ -50,10 +50,14 @@ if command -v smartctl >/dev/null 2>&1; then
         [ -b "$dev" ] || continue
         found=1
         echo "device $dev:"
-        smartctl -H "$dev" || :
+        smartctl -n standby -H "$dev"
+        rc=$?
+        if [ "$rc" -eq 2 ]; then
+            echo "standby, not checked"
+        fi
     done
     if [ "$found" -eq 0 ]; then
-        echo "no /dev/sd? or /dev/nvme?n1 disks"
+        echo "none visible here under /dev/sd? or /dev/nvme?n1"
     fi
 else
     echo "smartctl not installed"
