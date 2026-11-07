@@ -1,8 +1,10 @@
-//! Address ranges in CIDR form, such as `192.168.1.0/24` or `fd00::/8`.
+//! Address ranges in CIDR form, such as `192.168.1.0/24` or `fd00::/8`, and single addresses.
 //!
 //! The core crate is pure (R2), so addresses are parsed and compared by hand: IPv4 as four
-//! decimal octets, IPv6 as up to eight hexadecimal groups with one `::` run of zeros. An
-//! IPv6 address written with an IPv4 tail, such as `::ffff:192.168.1.20`, is an IPv6 address.
+//! decimal octets, IPv6 as up to eight hexadecimal groups with one `::` run of zeros. A bare
+//! address is the range of that one machine, and an IPv4-mapped IPv6 address, such as
+//! `::ffff:192.168.1.20`, is read as the IPv4 address it maps, the way the SSH check's
+//! network classification reads it.
 
 /// An address as the bits a range compares, and whether it is IPv4 (whose ranges are 32 bits
 /// wide, so the address sits in the low 32 bits).
@@ -44,23 +46,40 @@ pub fn in_cidr(ip: &str, cidr: &str) -> bool {
 }
 
 /// The address and prefix of a `cidr`; `None` when the text is not an address range.
+/// A bare address with no `/` is the range of that one machine: `192.168.1.20` is
+/// `192.168.1.20/32`, and `fd00::20` is `fd00::20/128`.
 fn split_cidr(cidr: &str) -> Option<(Address, u8)> {
-    let (text, prefix) = cidr.trim().split_once('/')?;
-    let address = parse_address(text)?;
-    let prefix = prefix.parse::<u8>().ok()?;
-    if u32::from(prefix) > width(&address) {
-        return None;
+    let text = cidr.trim();
+    match text.split_once('/') {
+        Some((address, prefix)) => {
+            let address = parse_address(address)?;
+            let prefix = prefix.parse::<u8>().ok()?;
+            if u32::from(prefix) > width(&address) {
+                return None;
+            }
+            Some((address, prefix))
+        }
+        None => {
+            let address = parse_address(text)?;
+            let full = u8::try_from(width(&address)).ok()?;
+            Some((address, full))
+        }
     }
-    Some((address, prefix))
 }
 
-/// An address from text: IPv4 when it has dots, IPv6 when it has `:`.
+/// An address from text: IPv4 when it has dots, IPv6 when it has `:`. An IPv4-mapped IPv6
+/// address, such as `::ffff:192.168.1.20`, is read as the IPv4 address it maps, the way the
+/// SSH check's network classification reads it.
 fn parse_address(text: &str) -> Option<Address> {
     let text = text.trim();
     if text.contains(':') {
+        let bits = bits_of(parse_ipv6_groups(text)?);
+        // The `::ffff:` block: the top 80 bits are zero and the next 16 are `ffff`, so the
+        // address is the IPv4 one in the low 32 bits.
+        let mapped = bits >> 32 == 0xffff;
         Some(Address {
-            bits: bits_of(parse_ipv6_groups(text)?),
-            v4: false,
+            bits: if mapped { bits & 0xffff_ffff } else { bits },
+            v4: mapped,
         })
     } else {
         Some(Address {
@@ -189,12 +208,15 @@ mod tests {
             ("2001:db8::1", "2001:db8::/32", true),
             ("1:2:3:4:5:6:7:8", "1::/16", true),
             // A range of the other family never matches, and neither does text that is
-            // not an address, a range, or a prefix out of range.
+            // not an address, a range, or a prefix out of range. An IPv4-mapped IPv6
+            // address is read as the IPv4 address it maps, so it matches IPv4 ranges and
+            // not IPv6 ones.
             ("192.168.1.20", "fd00::/8", false),
             ("fd00::20", "192.168.1.0/24", false),
-            ("::ffff:192.168.1.20", "192.168.1.0/24", false),
+            ("::ffff:192.168.1.20", "fd00::/8", false),
+            ("::ffff:192.168.1.20", "::/0", false),
+            ("::ffff:192.168.1.20", "192.168.1.0/24", true),
             ("not-an-address", "192.168.1.0/24", false),
-            ("192.168.1.20", "192.168.1.0", false),
             ("192.168.1.20", "192.168.1.0/33", false),
             ("192.168.1.20", "192.168.1.0/abc", false),
             ("192.168.1.20", "", false),
@@ -202,6 +224,14 @@ mod tests {
             ("192.168.01.20", "192.168.1.0/24", false),
             ("192.168.1.20", "192.168.01.0/24", false),
             ("192.168.1.256", "192.168.1.0/24", false),
+            // A single address is the range of that one machine.
+            ("192.168.1.20", "192.168.1.20", true),
+            ("192.168.1.21", "192.168.1.20", false),
+            ("192.168.1.20", "192.168.1.0", false),
+            ("fd00::20", "fd00::20", true),
+            ("fd00::21", "fd00::20", false),
+            ("::ffff:192.168.1.20", "192.168.1.20", true),
+            ("192.168.1.20", "not-an-address", false),
             ("1:2:3:4:5:6:7", "1::/16", false),
             ("1:2:3:4:5:6:7:8:9", "1::/16", false),
             ("1:2:3:4:5:6:7::8:9", "1::/16", false),
@@ -223,13 +253,15 @@ mod tests {
             "fe80::1/128",
             "fe80:1::1/64",
             "::/0",
-            "::ffff:192.168.1.20/128",
+            "::ffff:192.168.1.20/32",
+            "192.168.1.20",
+            "fd00::20",
+            "::ffff:192.168.1.20",
         ] {
             assert!(valid_cidr(ok), "{ok}");
         }
         for bad in [
             "",
-            "192.168.1.0",
             "192.168.1.0/",
             "/24",
             "192.168.1.0/33",
@@ -237,6 +269,10 @@ mod tests {
             "192.168.01.0/24",
             "fe80::1/abc",
             "fe80:1::1/129",
+            "not-an-address",
+            // An IPv4-mapped IPv6 address is read as the IPv4 address it maps, so its
+            // prefix is the IPv4 width, and `/128` is out of range.
+            "::ffff:192.168.1.20/128",
         ] {
             assert!(!valid_cidr(bad), "{bad}");
         }

@@ -1201,8 +1201,8 @@ export interface components {
         };
         /**
          * @description One condition on a signal's evidence. `value` is text, a number, `true` or `false`;
-         *     `at_most` and `at_least` need a number, and `in_network` an address range such as
-         *     `192.168.1.0/24`.
+         *     `at_most` and `at_least` need a number, and `in_network` an address such as
+         *     `192.168.1.20` or an address range such as `192.168.1.0/24`.
          */
         PredicateDto: {
             /** @description Evidence key, for example `value` or `user`. */

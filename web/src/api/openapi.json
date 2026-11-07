@@ -3685,7 +3685,7 @@
       },
       "PredicateDto": {
         "type": "object",
-        "description": "One condition on a signal's evidence. `value` is text, a number, `true` or `false`;\n`at_most` and `at_least` need a number, and `in_network` an address range such as\n`192.168.1.0/24`.",
+        "description": "One condition on a signal's evidence. `value` is text, a number, `true` or `false`;\n`at_most` and `at_least` need a number, and `in_network` an address such as\n`192.168.1.20` or an address range such as `192.168.1.0/24`.",
         "required": [
           "key",
           "op",

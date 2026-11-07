@@ -546,3 +546,66 @@ async fn a_login_from_an_expected_address_range_never_alerts() {
         "a login from outside the expected range alerts"
     );
 }
+
+#[tokio::test]
+async fn a_login_from_the_one_expected_address_is_known() {
+    let a = api().await;
+    let login = a.admin().await;
+    let mut events = a.bus.subscribe();
+
+    // The form offers a single address, so one must be accepted and mean that one machine.
+    let expected = created_rule(
+        &a,
+        &login,
+        json!({
+            "host": "nas",
+            "check": "security.ssh_login",
+            "target_pattern": "alice",
+            "predicates": [{ "key": "ip", "op": "in_network", "value": "192.168.1.20" }],
+            "note": "alice logs in from her laptop",
+            "expires_in_minutes": null,
+        }),
+    )
+    .await;
+    assert_eq!(
+        expected["predicates"][0]["value"], "192.168.1.20",
+        "a single address is stored as it was typed"
+    );
+
+    a.manager
+        .ingest(vec![
+            ssh_login(&a, "alice", "192.168.1.20", "lan"),
+            ssh_login(&a, "alice", "192.168.1.20", "lan"),
+        ])
+        .await
+        .unwrap();
+    let opened = next_opened(&mut events).await;
+    assert_eq!(
+        opened.incident.check().as_str(),
+        "security.ssh_login",
+        "the login the rule is about"
+    );
+    assert!(
+        !opened.notify,
+        "the expected address is recorded without a card: {opened:?}"
+    );
+
+    // The neighbouring address is a different machine, so it is not expected.
+    a.manager
+        .ingest(vec![
+            ssh_login(&a, "alice", "192.168.1.21", "lan"),
+            ssh_login(&a, "alice", "192.168.1.21", "lan"),
+        ])
+        .await
+        .unwrap();
+    let change = next_change(&mut events).await;
+    assert_eq!(
+        change.incident.check().as_str(),
+        "security.ssh_login",
+        "the login the rule is about"
+    );
+    assert!(
+        change.notify,
+        "a login from an address the rule does not name alerts"
+    );
+}
