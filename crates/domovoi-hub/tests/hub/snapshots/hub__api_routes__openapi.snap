@@ -1295,7 +1295,7 @@ expression: spec
         "type": "object"
       },
       "PredicateDto": {
-        "description": "One condition on a signal's evidence. `value` is text, a number, `true` or `false`;\n`at_most` and `at_least` need a number.",
+        "description": "One condition on a signal's evidence. `value` is text, a number, `true` or `false`;\n`at_most` and `at_least` need a number, and `in_network` an address range such as\n`192.168.1.0/24`.",
         "properties": {
           "key": {
             "description": "Evidence key, for example `value` or `user`.",
@@ -1323,7 +1323,8 @@ expression: spec
           "equals",
           "contains",
           "at_most",
-          "at_least"
+          "at_least",
+          "in_network"
         ],
         "type": "string"
       },

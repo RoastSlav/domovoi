@@ -3,6 +3,7 @@ use axum::http::{Method, Request, StatusCode, header};
 use domovoi_core::ports::{AckRepo, IncidentRepo};
 use domovoi_core::{
     AckRule, AckRuleId, CheckKey, Evidence, EvidenceValue, HostId, Severity, Signal, SourceKind,
+    TargetKey,
 };
 use domovoi_engine::{DomainEvent, EventKind};
 use serde_json::{Value, json};
@@ -54,12 +55,41 @@ fn firing(a: &Api, check: &str, evidence: Vec<(&str, EvidenceValue)>) -> Signal 
     .with_evidence(all)
 }
 
+/// A successful SSH login by `user` from `ip`, firing on the harness's `nas` now.
+fn ssh_login(a: &Api, user: &str, ip: &str, network: &str) -> Signal {
+    let mut evidence = Evidence::new();
+    evidence.insert("ip", EvidenceValue::Text(ip.to_owned()));
+    evidence.insert("network", EvidenceValue::Text(network.to_owned()));
+    evidence.insert("count", EvidenceValue::Int(1));
+    Signal::firing(
+        SourceKind::Agent,
+        a.nas.id,
+        CheckKey::parse("security.ssh_login").unwrap(),
+        Some(TargetKey::parse(user).unwrap()),
+        Severity::Warning,
+        format!("ssh login by {user} from {ip}"),
+        a.now(),
+    )
+    .with_evidence(evidence)
+}
+
 /// The next incident the manager confirms, skipping the triage request that comes with it.
 /// Two firing signals in one ingest confirm it: the default policy needs two.
 async fn next_opened(events: &mut broadcast::Receiver<DomainEvent>) -> DomainEvent {
     loop {
         let event = events.recv().await.expect("the manager publishes events");
         if event.kind == EventKind::IncidentOpened {
+            return event;
+        }
+    }
+}
+
+/// The next change to an incident, triage requests skipped. A signal for an incident that is
+/// already open changes it, so no `IncidentOpened` follows.
+async fn next_change(events: &mut broadcast::Receiver<DomainEvent>) -> DomainEvent {
+    loop {
+        let event = events.recv().await.expect("the manager publishes events");
+        if event.kind != EventKind::TriageRequested {
             return event;
         }
     }
@@ -238,6 +268,20 @@ async fn invalid_rule_fields_are_refused() {
                 json!([{ "key": "user", "op": "contains", "value": "" }]),
             ),
             "contains",
+        ),
+        (
+            rule_body(
+                "predicates",
+                json!([{ "key": "ip", "op": "in_network", "value": "192.168.1.0/33" }]),
+            ),
+            "address range",
+        ),
+        (
+            rule_body(
+                "predicates",
+                json!([{ "key": "ip", "op": "in_network", "value": "not a range" }]),
+            ),
+            "address range",
         ),
         (
             rule_body(
@@ -436,5 +480,69 @@ async fn a_matching_known_condition_silences_the_next_incident() {
     assert!(
         opened.notify,
         "a signal the rule does not cover still gets a card"
+    );
+}
+
+#[tokio::test]
+async fn a_login_from_an_expected_address_range_never_alerts() {
+    let a = api().await;
+    let login = a.admin().await;
+    let mut events = a.bus.subscribe();
+
+    let expected = created_rule(
+        &a,
+        &login,
+        json!({
+            "host": "nas",
+            "check": "security.ssh_login",
+            "target_pattern": "alice",
+            "predicates": [{ "key": "ip", "op": "in_network", "value": "192.168.1.0/24" }],
+            "note": "alice logs in from the office",
+            "expires_in_minutes": null,
+        }),
+    )
+    .await;
+    assert_eq!(
+        expected["predicates"][0]["op"], "in_network",
+        "the address range comes back as it was sent"
+    );
+    assert_eq!(expected["predicates"][0]["value"], "192.168.1.0/24");
+
+    // Two logins inside the range: the incident is kept, and no card goes out.
+    a.manager
+        .ingest(vec![
+            ssh_login(&a, "alice", "192.168.1.20", "lan"),
+            ssh_login(&a, "alice", "192.168.1.20", "lan"),
+        ])
+        .await
+        .unwrap();
+    let opened = next_opened(&mut events).await;
+    assert_eq!(
+        opened.incident.check().as_str(),
+        "security.ssh_login",
+        "the login the rule is about"
+    );
+    assert!(
+        !opened.notify,
+        "an expected login is recorded without a card: {opened:?}"
+    );
+
+    // The same user from outside the range is not expected, so the card goes out.
+    a.manager
+        .ingest(vec![
+            ssh_login(&a, "alice", "203.0.113.9", "wan"),
+            ssh_login(&a, "alice", "203.0.113.9", "wan"),
+        ])
+        .await
+        .unwrap();
+    let change = next_change(&mut events).await;
+    assert_eq!(
+        change.incident.check().as_str(),
+        "security.ssh_login",
+        "the login the rule is about"
+    );
+    assert!(
+        change.notify,
+        "a login from outside the expected range alerts"
     );
 }
