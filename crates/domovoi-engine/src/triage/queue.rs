@@ -192,7 +192,9 @@ async fn retry(shared: &Arc<Shared>, id: IncidentId, reason: RetryReason) -> boo
         .iter()
         .rev()
         .map(|entry| entry.kind.as_str())
-        .find(|kind| kind.starts_with("triage.") && *kind != "triage.followup");
+        .find(|kind| {
+            kind.starts_with("triage.") && *kind != "triage.followup" && *kind != "triage.tools"
+        });
     if newest.is_some_and(|kind| kind != "triage.skipped" && kind != "triage.failed") {
         return false;
     }
@@ -205,7 +207,9 @@ async fn retry(shared: &Arc<Shared>, id: IncidentId, reason: RetryReason) -> boo
             .iter()
             .rev()
             .map(|entry| entry.kind.as_str())
-            .filter(|kind| kind.starts_with("triage.") && *kind != "triage.followup")
+            .filter(|kind| {
+                kind.starts_with("triage.") && *kind != "triage.followup" && *kind != "triage.tools"
+            })
             .take_while(|kind| *kind == "triage.skipped" || *kind == "triage.failed")
             .filter(|kind| *kind == "triage.failed")
             .count();

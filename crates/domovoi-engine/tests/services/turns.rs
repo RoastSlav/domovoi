@@ -1,4 +1,4 @@
-use domovoi_core::ports::{Part, ToolOutput};
+use domovoi_core::ports::{IncidentRepo, Part, ToolOutput};
 use domovoi_core::{ReadToolCall, TriageBudget, TriageOutcome};
 use domovoi_engine::triage::{BUDGET_EXHAUSTED, MAX_RESULT_BYTES, TriageSettings};
 use domovoi_testkit::link::LinkRequest;
@@ -6,6 +6,26 @@ use jiff::SignedDuration;
 use serde_json::json;
 
 use crate::harness::{SECRET, Setup, calls, host_id, report, results, world};
+
+#[tokio::test]
+async fn tool_use_is_recorded_on_the_timeline() {
+    let w = world(Setup::default()).await;
+    w.primary
+        .push_ok(calls(&[("c1", "journal", json!({"unit": "nginx"}))]));
+    w.primary.push_text(report());
+
+    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+
+    let entries = w.store.timeline(w.incident.id()).await.expect("timeline");
+    let entry = entries
+        .iter()
+        .find(|e| e.kind == "triage.tools")
+        .expect("a triage.tools entry");
+    assert_eq!(entry.summary, "triage used journal");
+    assert_eq!(entry.detail["during"], "triage");
+    assert_eq!(entry.detail["tools"][0]["tool"], "journal");
+    assert_eq!(entry.detail["tools"][0]["failed"], false);
+}
 
 #[tokio::test]
 async fn tool_calls_are_routed_to_agent_and_store() {

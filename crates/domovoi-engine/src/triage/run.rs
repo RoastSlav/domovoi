@@ -8,7 +8,7 @@ use domovoi_core::ports::{LlmError, LlmMessage, LlmProvider, LlmRequest, Part, R
 use domovoi_core::{ActionId, Incident, IncidentId, SkillSummary, TriageOutcome, TriageReport};
 use jiff::{SignedDuration, Timestamp};
 
-use super::agent::{self, text_of};
+use super::agent::{self, ToolUse, text_of};
 use super::cache::evidence_digest;
 use super::report::{parse_report, redact_report};
 use super::{
@@ -86,7 +86,8 @@ async fn outcome(
     }
     let skills = deps.link.skills(incident.host());
     let bundle = context::build(shared, incident, &skills).await;
-    match providers(shared, incident, &skills, &bundle).await {
+    let mut tool_use: Vec<ToolUse> = Vec::new();
+    let outcome = match providers(shared, incident, &skills, &bundle, &mut tool_use).await {
         Ok(mut report) => {
             redact_report(deps.redactor.as_ref(), &mut report);
             let tokens = proposals::create(shared, incident, &skills, &mut report).await;
@@ -110,7 +111,16 @@ async fn outcome(
             }
             (TriageOutcome::Failed { reason }, BTreeMap::new())
         }
+    };
+    if !tool_use.is_empty()
+        && let Err(err) = deps
+            .manager
+            .record_tool_use(incident.id(), "triage".to_owned(), tool_use)
+            .await
+    {
+        tracing::warn!(%err, incident = %incident.id(), "could not record the triage tool use");
     }
+    outcome
 }
 
 /// Why a run may not start.
@@ -222,12 +232,14 @@ fn falls_back(err: &LlmError) -> bool {
     )
 }
 
-/// The primary, then the secondary when the primary is unavailable.
+/// The primary, then the secondary when the primary is unavailable. Tool calls from
+/// every attempt end up in `used`.
 async fn providers(
     shared: &Shared,
     incident: &Incident,
     skills: &[SkillSummary],
     bundle: &str,
+    used: &mut Vec<ToolUse>,
 ) -> Result<TriageReport, String> {
     let deps = &shared.deps;
     let chain: Vec<&Arc<dyn LlmProvider>> = std::iter::once(&deps.primary)
@@ -235,7 +247,7 @@ async fn providers(
         .collect();
     let mut last = String::from("no provider is configured");
     for (i, provider) in chain.iter().enumerate() {
-        match attempt(shared, provider, incident, skills, bundle).await {
+        match attempt(shared, provider, incident, skills, bundle, used).await {
             Ok(report) => return Ok(report),
             Err(Failure::Provider(err)) => {
                 last = format!("{} failed: {err}", provider.id());
@@ -290,6 +302,7 @@ async fn attempt(
     incident: &Incident,
     skills: &[SkillSummary],
     bundle: &str,
+    used: &mut Vec<ToolUse>,
 ) -> Result<TriageReport, Failure> {
     let first = opening(shared, provider, incident, skills, bundle).await;
     let mut messages = vec![LlmMessage {
@@ -303,6 +316,7 @@ async fn attempt(
         skills,
         SYSTEM_PROMPT,
         &mut messages,
+        used,
     )
     .await?;
     let error = match parse_report(&answer) {

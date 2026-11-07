@@ -6,7 +6,7 @@ use std::sync::Arc;
 use domovoi_core::ports::{
     LlmError, LlmMessage, LlmProvider, LlmRequest, LlmResponse, Part, Role, ToolSpec,
 };
-use domovoi_core::{Incident, ReadTool, SkillSummary};
+use domovoi_core::{Incident, ReadTool, ReadToolCall, SkillSummary};
 use jiff::SignedDuration;
 
 use super::{Shared, tools};
@@ -17,10 +17,32 @@ pub const BUDGET_EXHAUSTED: &str = "Budget exhausted. Reply now with the JSON re
 /// What a tool call gets once no calls are left.
 pub const NO_CALLS_LEFT: &str = "error: the tool-call budget is spent; answer now";
 
+/// One tool call the model made.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ToolUse {
+    /// The tool name, such as `journal` or `run_read_skill`.
+    pub tool: String,
+    /// For `run_read_skill`, the skill.
+    pub skill: Option<String>,
+    /// Whether the call failed.
+    pub failed: bool,
+}
+
 /// The tools offered to a provider that supports them: every read tool and nothing else.
 #[must_use]
 pub fn read_tools() -> Vec<ToolSpec> {
     ReadTool::ALL.into_iter().map(ToolSpec::from).collect()
+}
+
+/// The skill for a `run_read_skill` call's input, `None` for the other tools.
+fn read_skill_of(name: &str, input: serde_json::Value) -> Option<String> {
+    if name != "run_read_skill" {
+        return None;
+    }
+    match ReadToolCall::from_json(name, input) {
+        Ok(ReadToolCall::RunReadSkill { skill, .. }) => Some(skill.to_string()),
+        _ => None,
+    }
 }
 
 /// The text parts of `parts`, joined.
@@ -69,7 +91,8 @@ pub(crate) async fn complete(
 /// Continues `messages` with `provider` until the model answers without tool calls, and
 /// returns that answer's text. Tool calls are answered through [`tools::call`] within the
 /// run budget; once it is spent the model is told to answer and further calls are not
-/// run. Providers without tool support get exactly one turn.
+/// run. Providers without tool support get exactly one turn. Every call the model makes,
+/// run or refused, is pushed onto `used`.
 pub(crate) async fn converse(
     shared: &Shared,
     provider: &Arc<dyn LlmProvider>,
@@ -77,6 +100,7 @@ pub(crate) async fn converse(
     skills: &[SkillSummary],
     system: &str,
     messages: &mut Vec<LlmMessage>,
+    used: &mut Vec<ToolUse>,
 ) -> Result<String, LlmError> {
     let budget = shared.settings.budget;
     let specs = if provider.supports_tools() {
@@ -88,7 +112,7 @@ pub(crate) async fn converse(
     let deadline = start
         .checked_add(SignedDuration::from_secs(i64::from(budget.max_seconds)))
         .unwrap_or(start);
-    let mut used: u16 = 0;
+    let mut calls_used: u16 = 0;
     let mut told_to_answer = false;
     loop {
         let req = LlmRequest {
@@ -117,22 +141,28 @@ pub(crate) async fn converse(
         }
         let mut results = Vec::with_capacity(calls.len() + 1);
         for (id, name, input) in calls {
-            let result = if used >= budget.max_tool_calls {
+            let skill = read_skill_of(&name, input.clone());
+            let result = if calls_used >= budget.max_tool_calls {
                 tools::ToolResult {
                     content: NO_CALLS_LEFT.to_owned(),
                     is_error: true,
                 }
             } else {
-                used += 1;
+                calls_used += 1;
                 tools::call(shared, incident, skills, &name, input).await
             };
+            used.push(ToolUse {
+                tool: name,
+                skill,
+                failed: result.is_error,
+            });
             results.push(Part::ToolResult {
                 id,
                 content: result.content,
                 is_error: result.is_error,
             });
         }
-        if used >= budget.max_tool_calls || shared.deps.clock.now() >= deadline {
+        if calls_used >= budget.max_tool_calls || shared.deps.clock.now() >= deadline {
             results.push(Part::Text(BUDGET_EXHAUSTED.to_owned()));
             told_to_answer = true;
         }

@@ -64,6 +64,7 @@ pub(crate) async fn answer(
         .collect();
     let mut last = LlmError::Unavailable("no provider is configured".to_owned());
     let mut text = None;
+    let mut tool_use: Vec<agent::ToolUse> = Vec::new();
     for (i, provider) in chain.iter().enumerate() {
         let mut messages = vec![LlmMessage {
             role: Role::User,
@@ -76,6 +77,7 @@ pub(crate) async fn answer(
             &skills,
             FOLLOW_UP_PROMPT,
             &mut messages,
+            &mut tool_use,
         )
         .await
         {
@@ -108,6 +110,14 @@ pub(crate) async fn answer(
         .await
     {
         tracing::warn!(%err, incident = %id, "could not record the follow-up");
+    }
+    if !tool_use.is_empty()
+        && let Err(err) = deps
+            .manager
+            .record_tool_use(id, "follow-up".to_owned(), tool_use)
+            .await
+    {
+        tracing::warn!(%err, incident = %id, "could not record the follow-up tool use");
     }
     Ok(answer)
 }
