@@ -89,7 +89,7 @@ twilight-http = { version = "0.18.0", default-features = false, features = ["rus
 twilight-model = "0.18.0"
 twilight-util = { version = "0.18.0", features = ["builder"] }
 metrics = "0.24"
-metrics-exporter-prometheus = { version = "0.17", default-features = false }
+metrics-exporter-prometheus = { version = "0.18", default-features = false }
 rpassword = "7.4"
 
 # Testing
