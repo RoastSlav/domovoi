@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { calls, resetApi, route } from "../../test/apiMock";
 import { incident, nas } from "../../test/fixtures";
 import { renderAt } from "../../test/render";
+import type { AckRule, AckRuleInput, Predicate } from "../../api/types";
 import { HostsPage } from "./HostsPage";
 import { HostDetailPage } from "./HostDetailPage";
 import { HostStatus } from "./HostStatus";
@@ -251,4 +252,316 @@ test("recent_incidents_show_resolved_badge_and_triage_note", async () => {
   expect(within(row as HTMLElement).getByText("Resolved")).toBeVisible();
   expect(within(row as HTMLElement).getByText(/triage said Action needed/)).toBeVisible();
   expect(screen.queryByText("Action needed")).toBeNull();
+});
+
+/** An expected SSH login as the API returns it, overridable. */
+function loginRule(
+  id: string,
+  user: string,
+  predicates: Predicate[],
+  expires: string | null,
+  overrides: Partial<AckRule> = {},
+): AckRule {
+  return {
+    id,
+    host: "nas",
+    check: "security.ssh_login",
+    target_pattern: user,
+    predicates,
+    note: "Expected SSH login",
+    expires_at: expires,
+    ...overrides,
+  };
+}
+
+/** The host page routes, with `rules` as the stored known conditions. */
+function loginsRoutes(rules: AckRule[]) {
+  route("GET /api/v1/hosts/{name}", () => ({ host: nas, facts: [] }));
+  route("GET /api/v1/incidents", () => ({ items: [], next_cursor: null }));
+  route("GET /api/v1/hosts/{name}/skills", () => []);
+  route("GET /api/v1/ack-rules", () => [...rules]);
+  route("POST /api/v1/ack-rules", (init) => {
+    const body = init.body as AckRuleInput;
+    const created: AckRule = {
+      id: "rule-new",
+      host: body.host ?? null,
+      check: body.check,
+      target_pattern: body.target_pattern ?? null,
+      predicates: body.predicates,
+      note: body.note,
+      expires_at:
+        body.expires_in_minutes == null
+          ? null
+          : new Date(NOW.getTime() + body.expires_in_minutes * 60_000).toISOString(),
+    };
+    rules.push(created);
+    return created;
+  });
+  route("DELETE /api/v1/ack-rules/{id}", (init) => {
+    const at = rules.findIndex((rule) => rule.id === init.params?.path?.id);
+    rules.splice(at, 1);
+    return null;
+  });
+}
+
+/** Open the SSH logins tab of the host page. */
+async function openLogins(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(await screen.findByRole("tab", { name: "SSH logins" }));
+}
+
+test("ssh_logins_tab_shows_only_the_expected_logins_of_this_host", async () => {
+  vi.useFakeTimers({ now: NOW, shouldAdvanceTime: true });
+  const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
+  loginsRoutes([
+    loginRule(
+      "r-1",
+      "alice",
+      [{ key: "ip", op: "in_network", value: "192.168.1.0/24" }],
+      "2026-11-04T12:00:00Z",
+    ),
+    loginRule("r-2", "bob", [{ key: "network", op: "equals", value: "lan" }], null),
+    loginRule("r-3", "carol", [], null, { check: "disk.usage" }),
+    loginRule("r-4", "dave", [], null, { host: "pi" }),
+    loginRule("r-5", "erin", [], null, { host: null }),
+  ]);
+  renderAt("/hosts/nas", "/hosts/:name", <HostDetailPage />);
+  await openLogins(user);
+
+  const list = screen.getByRole("region", { name: "Expected logins" });
+  const items = within(list).getAllByRole("listitem");
+  // A rule for any host silences logins on this host too, so it is listed and labelled.
+  expect(items.map((item) => item.textContent)).toEqual([
+    "alice from the range 192.168.1.0/24, in 3 days Remove",
+    "bob from the local network, always Remove",
+    "erin from anywhere on any host, always Remove",
+  ]);
+  expect(within(list).queryByText(/carol/)).toBeNull();
+  expect(screen.queryByText(/dave/)).toBeNull();
+});
+
+test("login_window_asks_first_and_expects_local_network_logins_for_an_hour", async () => {
+  vi.useFakeTimers({ now: NOW, shouldAdvanceTime: true });
+  const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
+  loginsRoutes([]);
+  renderAt("/hosts/nas", "/hosts/:name", <HostDetailPage />);
+  await openLogins(user);
+
+  await user.click(screen.getByRole("button", { name: "I’m logging in now" }));
+  expect(posts("/api/v1/ack-rules")).toHaveLength(0);
+
+  await user.click(screen.getByRole("button", { name: "Open the window" }));
+  expect(posts("/api/v1/ack-rules")[0]?.init.body).toEqual({
+    host: "nas",
+    check: "security.ssh_login",
+    target_pattern: null,
+    predicates: [{ key: "network", op: "equals", value: "lan" }],
+    note: "Login window opened from the web UI",
+    expires_in_minutes: 60,
+  });
+  const windowSection = screen.getByRole("region", { name: "Logging in now" });
+  expect(await within(windowSection).findByRole("status")).toHaveTextContent(
+    "A login window is open on nas, so logins from the local network are expected. " +
+      "It expires in 1 hour.",
+  );
+});
+
+test("cancelling_the_login_window_opens_nothing", async () => {
+  const user = userEvent.setup();
+  loginsRoutes([]);
+  renderAt("/hosts/nas", "/hosts/:name", <HostDetailPage />);
+  await openLogins(user);
+
+  await user.click(screen.getByRole("button", { name: "I’m logging in now" }));
+  await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+  expect(posts("/api/v1/ack-rules")).toHaveLength(0);
+  expect(
+    within(screen.getByRole("region", { name: "Logging in now" })).queryByRole("status"),
+  ).toBeNull();
+});
+
+test("login_window_includes_internet_logins_only_when_asked", async () => {
+  vi.useFakeTimers({ now: NOW, shouldAdvanceTime: true });
+  const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
+  loginsRoutes([]);
+  renderAt("/hosts/nas", "/hosts/:name", <HostDetailPage />);
+  await openLogins(user);
+
+  await user.click(screen.getByRole("button", { name: "I’m logging in now" }));
+  await user.click(screen.getByRole("checkbox", { name: "Include logins from the internet" }));
+  await user.click(screen.getByRole("button", { name: "Open the window" }));
+
+  expect(posts("/api/v1/ack-rules")[0]?.init.body).toMatchObject({ predicates: [] });
+  expect(
+    await within(screen.getByRole("region", { name: "Logging in now" })).findByRole("status"),
+  ).toHaveTextContent(
+    "A login window is open on nas, so any login, including from the internet, is expected. " +
+      "It expires in 1 hour.",
+  );
+});
+
+test("the_login_window_status_shows_after_a_reload", async () => {
+  vi.useFakeTimers({ now: NOW, shouldAdvanceTime: true });
+  const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
+  loginsRoutes([]);
+  const { unmount } = renderAt("/hosts/nas", "/hosts/:name", <HostDetailPage />);
+  await openLogins(user);
+  await user.click(screen.getByRole("button", { name: "I’m logging in now" }));
+  await user.click(screen.getByRole("button", { name: "Open the window" }));
+
+  // A reload reads the window from the stored rules, not from local state.
+  unmount();
+  renderAt("/hosts/nas", "/hosts/:name", <HostDetailPage />);
+  await openLogins(user);
+  expect(
+    await within(screen.getByRole("region", { name: "Logging in now" })).findByRole("status"),
+  ).toHaveTextContent(
+    "A login window is open on nas, so logins from the local network are expected. " +
+      "It expires in 1 hour.",
+  );
+});
+
+test("the_login_window_status_is_not_shown_after_the_window_expires", async () => {
+  vi.useFakeTimers({ now: NOW, shouldAdvanceTime: true });
+  const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
+  loginsRoutes([
+    loginRule(
+      "r-1",
+      "alice",
+      [{ key: "network", op: "equals", value: "lan" }],
+      "2026-10-31T13:00:00Z",
+      {
+        target_pattern: null,
+      },
+    ),
+  ]);
+  renderAt("/hosts/nas", "/hosts/:name", <HostDetailPage />);
+  await openLogins(user);
+
+  expect(
+    within(screen.getByRole("region", { name: "Logging in now" })).queryByRole("status"),
+  ).toBeNull();
+});
+
+test("expected_login_form_expects_the_user_from_the_local_network", async () => {
+  const user = userEvent.setup();
+  loginsRoutes([]);
+  renderAt("/hosts/nas", "/hosts/:name", <HostDetailPage />);
+  await openLogins(user);
+
+  await user.type(screen.getByLabelText("User"), "alice");
+  await user.selectOptions(screen.getByLabelText("From"), "lan");
+  await user.selectOptions(screen.getByLabelText("For"), "1440");
+  await user.click(screen.getByRole("button", { name: "Add expected login" }));
+
+  expect(posts("/api/v1/ack-rules")[0]?.init.body).toEqual({
+    host: "nas",
+    check: "security.ssh_login",
+    target_pattern: "alice",
+    predicates: [{ key: "network", op: "equals", value: "lan" }],
+    note: "Expected SSH login",
+    expires_in_minutes: 1440,
+  });
+});
+
+test("expected_login_form_expects_an_address_range", async () => {
+  const user = userEvent.setup();
+  loginsRoutes([]);
+  renderAt("/hosts/nas", "/hosts/:name", <HostDetailPage />);
+  await openLogins(user);
+
+  await user.type(screen.getByLabelText("User"), "alice");
+  await user.selectOptions(screen.getByLabelText("From"), "range");
+  await user.type(screen.getByLabelText("Address or range"), "192.168.1.0/24");
+  await user.click(screen.getByRole("button", { name: "Add expected login" }));
+
+  expect(posts("/api/v1/ack-rules")[0]?.init.body).toMatchObject({
+    target_pattern: "alice",
+    predicates: [{ key: "ip", op: "in_network", value: "192.168.1.0/24" }],
+    expires_in_minutes: 60,
+  });
+});
+
+test("expected_login_form_expects_the_single_address_it_is_given", async () => {
+  vi.useFakeTimers({ now: NOW, shouldAdvanceTime: true });
+  const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
+  loginsRoutes([]);
+  renderAt("/hosts/nas", "/hosts/:name", <HostDetailPage />);
+  await openLogins(user);
+
+  await user.type(screen.getByLabelText("User"), "alice");
+  await user.selectOptions(screen.getByLabelText("From"), "range");
+  await user.type(screen.getByLabelText("Address or range"), "192.168.1.20");
+  await user.click(screen.getByRole("button", { name: "Add expected login" }));
+
+  // One address is sent as typed, and the hub accepts it as that one machine.
+  expect(posts("/api/v1/ack-rules")[0]?.init.body).toMatchObject({
+    target_pattern: "alice",
+    predicates: [{ key: "ip", op: "in_network", value: "192.168.1.20" }],
+    expires_in_minutes: 60,
+  });
+  const list = screen.getByRole("region", { name: "Expected logins" });
+  expect(within(list).getAllByRole("listitem")[0]?.textContent).toBe(
+    "alice from the address 192.168.1.20, in 1 hour Remove",
+  );
+});
+
+test("the_address_or_range_is_needed_before_a_login_is_expected", async () => {
+  const user = userEvent.setup();
+  loginsRoutes([]);
+  renderAt("/hosts/nas", "/hosts/:name", <HostDetailPage />);
+  await openLogins(user);
+
+  await user.type(screen.getByLabelText("User"), "alice");
+  await user.selectOptions(screen.getByLabelText("From"), "range");
+  await user.click(screen.getByRole("button", { name: "Add expected login" }));
+
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "Type the address, or the range in CIDR form, for example 192.168.1.0/24.",
+  );
+  expect(posts("/api/v1/ack-rules")).toHaveLength(0);
+});
+
+test("removing_an_expected_login_asks_then_deletes_its_rule", async () => {
+  const user = userEvent.setup();
+  loginsRoutes([
+    loginRule("r-1", "alice", [{ key: "ip", op: "in_network", value: "192.168.1.0/24" }], null),
+  ]);
+  renderAt("/hosts/nas", "/hosts/:name", <HostDetailPage />);
+  await openLogins(user);
+
+  await user.click(
+    screen.getByRole("button", {
+      name: "Remove the expected login alice from the range 192.168.1.0/24",
+    }),
+  );
+  expect(calls.filter((c) => c.route === "DELETE /api/v1/ack-rules/{id}")).toHaveLength(0);
+
+  await user.click(screen.getByRole("button", { name: "Remove" }));
+
+  expect(calls.find((c) => c.route === "DELETE /api/v1/ack-rules/{id}")?.init.params?.path).toEqual(
+    { id: "r-1" },
+  );
+  expect(await screen.findByText("No logins are marked as expected on nas.")).toBeVisible();
+});
+
+test("cancelling_the_removal_keeps_the_expected_login", async () => {
+  const user = userEvent.setup();
+  loginsRoutes([
+    loginRule("r-1", "alice", [{ key: "ip", op: "in_network", value: "192.168.1.0/24" }], null),
+  ]);
+  renderAt("/hosts/nas", "/hosts/:name", <HostDetailPage />);
+  await openLogins(user);
+
+  await user.click(
+    screen.getByRole("button", {
+      name: "Remove the expected login alice from the range 192.168.1.0/24",
+    }),
+  );
+  await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+  expect(calls.filter((c) => c.route === "DELETE /api/v1/ack-rules/{id}")).toHaveLength(0);
+  expect(screen.getByRole("region", { name: "Expected logins" })).toHaveTextContent(
+    "alice from the range 192.168.1.0/24, always",
+  );
 });

@@ -39,7 +39,9 @@ The incident still changes and is still stored, but its events are marked as not
 
 ## Known conditions
 
-A known condition says "this firing is expected, so leave it alone". Add one under **Known conditions** in the web UI: the check key, the host it applies to (any host, or one named host), a target pattern (`*` allowed at the ends), why it is acceptable (the note), conditions on the evidence, and how long it lives — 1 hour, 1 day, 1 week, 30 days, or never. Each condition compares one evidence key with a value: equals, contains, is at most, is at least. All of them must hold for the rule to match.
+A known condition says "this firing is expected, so leave it alone". Add one under **Known conditions** in the web UI: the check key, the host it applies to (any host, or one named host), a target pattern (`*` allowed at the ends), why it is acceptable (the note), conditions on the evidence, and how long it lives — 1 hour, 1 day, 1 week, 30 days, or never. Each condition compares one evidence key with a value: equals, contains, is at most, is at least,
+or is in network, whose value is one address, such as `192.168.1.20`, or a range in CIDR form,
+such as `192.168.1.0/24`. All of them must hold for the rule to match.
 
 Signals that match a known condition are stored, incidents still change, and the history stays complete; nothing is notified and triage does not run for them. The page lists every rule, soonest expiry first, rules that never expire last, and shows expired rules so you can delete them. A rule stops applying on its own when it expires.
 

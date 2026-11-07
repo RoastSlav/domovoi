@@ -7,6 +7,56 @@
   margin: 0;
 }
 
+.form h2 {
+  margin-bottom: 0.4rem;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 0.6rem;
+}
+
+.field {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.field input,
+.field select {
+  width: 100%;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.check input {
+  width: auto;
+}
+
+.actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.logins {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.logins li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .hint {
   font-size: 0.85rem;
   color: var(--muted);

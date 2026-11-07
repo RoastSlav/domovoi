@@ -6,6 +6,7 @@ use axum::http::StatusCode;
 use domovoi_core::ports::AuditEvent;
 use domovoi_core::{
     AckRule, AckRuleId, CheckKey, EvidencePredicate, EvidenceValue, HostId, TargetPattern,
+    valid_cidr,
 };
 use jiff::{SignedDuration, Timestamp};
 use serde::{Deserialize, Serialize};
@@ -37,10 +38,15 @@ pub enum PredicateOpDto {
     AtMost,
     /// A number is at least it.
     AtLeast,
+    /// A text IP address is inside the range, which is given in CIDR form, such as
+    /// `192.168.1.0/24` or `fd00::/8`, or as a single address, such as `192.168.1.20`,
+    /// which is that one machine.
+    InNetwork,
 }
 
 /// One condition on a signal's evidence. `value` is text, a number, `true` or `false`;
-/// `at_most` and `at_least` need a number.
+/// `at_most` and `at_least` need a number, and `in_network` an address such as
+/// `192.168.1.20` or an address range such as `192.168.1.0/24`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct PredicateDto {
     /// Evidence key, for example `value` or `user`.
@@ -98,6 +104,7 @@ fn op_name(op: PredicateOpDto) -> &'static str {
         PredicateOpDto::Contains => "contains",
         PredicateOpDto::AtMost => "at_most",
         PredicateOpDto::AtLeast => "at_least",
+        PredicateOpDto::InNetwork => "in_network",
     }
 }
 
@@ -165,6 +172,19 @@ fn predicate_to_core(dto: PredicateDto) -> Result<EvidencePredicate, ApiError> {
                 _ => Ok(EvidencePredicate::GreaterOrEqual { key, value: bound }),
             }
         }
+        PredicateOpDto::InNetwork => {
+            if !valid_cidr(value) {
+                return Err(ApiError::BadRequest(format!(
+                    "the value of an {} condition is an address range, such as 192.168.1.20 \
+                     or 192.168.1.0/24",
+                    op_name(dto.op)
+                )));
+            }
+            Ok(EvidencePredicate::InNetwork {
+                key,
+                cidr: value.to_owned(),
+            })
+        }
     }
 }
 
@@ -188,6 +208,9 @@ fn predicate_to_dto(predicate: &EvidencePredicate) -> PredicateDto {
         }
         EvidencePredicate::GreaterOrEqual { key, value } => {
             (key.clone(), PredicateOpDto::AtLeast, value.to_string())
+        }
+        EvidencePredicate::InNetwork { key, cidr } => {
+            (key.clone(), PredicateOpDto::InNetwork, cidr.clone())
         }
     };
     PredicateDto { key, op, value }
