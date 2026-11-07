@@ -123,6 +123,10 @@ pub(crate) fn follow_up(
 /// The decision for a command that only appends to an incident's timeline. These need no
 /// state; any other command gets an empty decision and is handled by the main match.
 pub(crate) fn record(command: &Command, now: Timestamp) -> Decision {
+    debug_assert!(matches!(
+        command,
+        Command::RecordFollowUp { .. } | Command::RecordToolUse { .. }
+    ));
     match command {
         Command::RecordFollowUp {
             incident,
