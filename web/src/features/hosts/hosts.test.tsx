@@ -329,16 +329,17 @@ test("ssh_logins_tab_shows_only_the_expected_logins_of_this_host", async () => {
 
   const list = screen.getByRole("region", { name: "Expected logins" });
   const items = within(list).getAllByRole("listitem");
+  // A rule for any host silences logins on this host too, so it is listed and labelled.
   expect(items.map((item) => item.textContent)).toEqual([
     "alice from the range 192.168.1.0/24, in 3 days Remove",
     "bob from the local network, always Remove",
+    "erin from anywhere on any host, always Remove",
   ]);
   expect(within(list).queryByText(/carol/)).toBeNull();
   expect(screen.queryByText(/dave/)).toBeNull();
-  expect(screen.queryByText(/erin/)).toBeNull();
 });
 
-test("login_window_button_expects_any_login_on_the_host_for_an_hour", async () => {
+test("login_window_asks_first_and_expects_local_network_logins_for_an_hour", async () => {
   vi.useFakeTimers({ now: NOW, shouldAdvanceTime: true });
   const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
   loginsRoutes([]);
@@ -346,18 +347,100 @@ test("login_window_button_expects_any_login_on_the_host_for_an_hour", async () =
   await openLogins(user);
 
   await user.click(screen.getByRole("button", { name: "I’m logging in now" }));
+  expect(posts("/api/v1/ack-rules")).toHaveLength(0);
+
+  await user.click(screen.getByRole("button", { name: "Open the window" }));
   expect(posts("/api/v1/ack-rules")[0]?.init.body).toEqual({
     host: "nas",
     check: "security.ssh_login",
     target_pattern: null,
-    predicates: [],
+    predicates: [{ key: "network", op: "equals", value: "lan" }],
     note: "Login window opened from the web UI",
     expires_in_minutes: 60,
   });
   const windowSection = screen.getByRole("region", { name: "Logging in now" });
-  expect(within(windowSection).getByRole("status")).toHaveTextContent(
-    "A login window is open on nas, so any login is expected. It expires in 1 hour.",
+  expect(await within(windowSection).findByRole("status")).toHaveTextContent(
+    "A login window is open on nas, so logins from the local network are expected. " +
+      "It expires in 1 hour.",
   );
+});
+
+test("cancelling_the_login_window_opens_nothing", async () => {
+  const user = userEvent.setup();
+  loginsRoutes([]);
+  renderAt("/hosts/nas", "/hosts/:name", <HostDetailPage />);
+  await openLogins(user);
+
+  await user.click(screen.getByRole("button", { name: "I’m logging in now" }));
+  await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+  expect(posts("/api/v1/ack-rules")).toHaveLength(0);
+  expect(
+    within(screen.getByRole("region", { name: "Logging in now" })).queryByRole("status"),
+  ).toBeNull();
+});
+
+test("login_window_includes_internet_logins_only_when_asked", async () => {
+  vi.useFakeTimers({ now: NOW, shouldAdvanceTime: true });
+  const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
+  loginsRoutes([]);
+  renderAt("/hosts/nas", "/hosts/:name", <HostDetailPage />);
+  await openLogins(user);
+
+  await user.click(screen.getByRole("button", { name: "I’m logging in now" }));
+  await user.click(screen.getByRole("checkbox", { name: "Include logins from the internet" }));
+  await user.click(screen.getByRole("button", { name: "Open the window" }));
+
+  expect(posts("/api/v1/ack-rules")[0]?.init.body).toMatchObject({ predicates: [] });
+  expect(
+    await within(screen.getByRole("region", { name: "Logging in now" })).findByRole("status"),
+  ).toHaveTextContent(
+    "A login window is open on nas, so any login, including from the internet, is expected. " +
+      "It expires in 1 hour.",
+  );
+});
+
+test("the_login_window_status_shows_after_a_reload", async () => {
+  vi.useFakeTimers({ now: NOW, shouldAdvanceTime: true });
+  const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
+  loginsRoutes([]);
+  const { unmount } = renderAt("/hosts/nas", "/hosts/:name", <HostDetailPage />);
+  await openLogins(user);
+  await user.click(screen.getByRole("button", { name: "I’m logging in now" }));
+  await user.click(screen.getByRole("button", { name: "Open the window" }));
+
+  // A reload reads the window from the stored rules, not from local state.
+  unmount();
+  renderAt("/hosts/nas", "/hosts/:name", <HostDetailPage />);
+  await openLogins(user);
+  expect(
+    await within(screen.getByRole("region", { name: "Logging in now" })).findByRole("status"),
+  ).toHaveTextContent(
+    "A login window is open on nas, so logins from the local network are expected. " +
+      "It expires in 1 hour.",
+  );
+});
+
+test("the_login_window_status_is_not_shown_after_the_window_expires", async () => {
+  vi.useFakeTimers({ now: NOW, shouldAdvanceTime: true });
+  const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
+  loginsRoutes([
+    loginRule(
+      "r-1",
+      "alice",
+      [{ key: "network", op: "equals", value: "lan" }],
+      "2026-10-31T13:00:00Z",
+      {
+        target_pattern: null,
+      },
+    ),
+  ]);
+  renderAt("/hosts/nas", "/hosts/:name", <HostDetailPage />);
+  await openLogins(user);
+
+  expect(
+    within(screen.getByRole("region", { name: "Logging in now" })).queryByRole("status"),
+  ).toBeNull();
 });
 
 test("expected_login_form_expects_the_user_from_the_local_network", async () => {
@@ -399,6 +482,30 @@ test("expected_login_form_expects_an_address_range", async () => {
   });
 });
 
+test("expected_login_form_expects_the_single_address_it_is_given", async () => {
+  vi.useFakeTimers({ now: NOW, shouldAdvanceTime: true });
+  const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
+  loginsRoutes([]);
+  renderAt("/hosts/nas", "/hosts/:name", <HostDetailPage />);
+  await openLogins(user);
+
+  await user.type(screen.getByLabelText("User"), "alice");
+  await user.selectOptions(screen.getByLabelText("From"), "range");
+  await user.type(screen.getByLabelText("Address or range"), "192.168.1.20");
+  await user.click(screen.getByRole("button", { name: "Add expected login" }));
+
+  // One address is sent as typed, and the hub accepts it as that one machine.
+  expect(posts("/api/v1/ack-rules")[0]?.init.body).toMatchObject({
+    target_pattern: "alice",
+    predicates: [{ key: "ip", op: "in_network", value: "192.168.1.20" }],
+    expires_in_minutes: 60,
+  });
+  const list = screen.getByRole("region", { name: "Expected logins" });
+  expect(within(list).getAllByRole("listitem")[0]?.textContent).toBe(
+    "alice from the address 192.168.1.20, in 1 hour Remove",
+  );
+});
+
 test("the_address_or_range_is_needed_before_a_login_is_expected", async () => {
   const user = userEvent.setup();
   loginsRoutes([]);
@@ -415,7 +522,7 @@ test("the_address_or_range_is_needed_before_a_login_is_expected", async () => {
   expect(posts("/api/v1/ack-rules")).toHaveLength(0);
 });
 
-test("removing_an_expected_login_deletes_its_rule", async () => {
+test("removing_an_expected_login_asks_then_deletes_its_rule", async () => {
   const user = userEvent.setup();
   loginsRoutes([
     loginRule("r-1", "alice", [{ key: "ip", op: "in_network", value: "192.168.1.0/24" }], null),
@@ -428,9 +535,33 @@ test("removing_an_expected_login_deletes_its_rule", async () => {
       name: "Remove the expected login alice from the range 192.168.1.0/24",
     }),
   );
+  expect(calls.filter((c) => c.route === "DELETE /api/v1/ack-rules/{id}")).toHaveLength(0);
+
+  await user.click(screen.getByRole("button", { name: "Remove" }));
 
   expect(calls.find((c) => c.route === "DELETE /api/v1/ack-rules/{id}")?.init.params?.path).toEqual(
     { id: "r-1" },
   );
   expect(await screen.findByText("No logins are marked as expected on nas.")).toBeVisible();
+});
+
+test("cancelling_the_removal_keeps_the_expected_login", async () => {
+  const user = userEvent.setup();
+  loginsRoutes([
+    loginRule("r-1", "alice", [{ key: "ip", op: "in_network", value: "192.168.1.0/24" }], null),
+  ]);
+  renderAt("/hosts/nas", "/hosts/:name", <HostDetailPage />);
+  await openLogins(user);
+
+  await user.click(
+    screen.getByRole("button", {
+      name: "Remove the expected login alice from the range 192.168.1.0/24",
+    }),
+  );
+  await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+  expect(calls.filter((c) => c.route === "DELETE /api/v1/ack-rules/{id}")).toHaveLength(0);
+  expect(screen.getByRole("region", { name: "Expected logins" })).toHaveTextContent(
+    "alice from the range 192.168.1.0/24, always",
+  );
 });

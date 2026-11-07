@@ -27,6 +27,16 @@
   width: 100%;
 }
 
+.check {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.check input {
+  width: auto;
+}
+
 .actions {
   display: flex;
   gap: 0.5rem;

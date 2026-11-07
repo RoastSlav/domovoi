@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { useAckRules, useCreateAckRule, useDeleteAckRule } from "../../api/hooks/rules";
 import { ApiFailure, type AckRule, type AckRuleInput, type Predicate } from "../../api/types";
 import { Button } from "../../components/Button";
+import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { EmptyState } from "../../components/EmptyState";
 import { PageIntro } from "../../components/PageIntro";
 import { RelativeTime } from "../../components/RelativeTime";
@@ -71,13 +72,17 @@ export function loginBody(host: string, fields: Fields): AckRuleInput | string {
   };
 }
 
-/** The body of the one-hour window opened from the page: any login on the host is expected. */
-export function loginWindow(host: string): AckRuleInput {
+/**
+ * The body of the one-hour window opened from the page: logins on `host` for one hour.
+ * Local network logins are the default; internet logins are included only when asked for,
+ * so one click never silences a login from outside the network.
+ */
+export function loginWindow(host: string, internet: boolean): AckRuleInput {
   return {
     host,
     check: SSH_CHECK,
     target_pattern: null,
-    predicates: [],
+    predicates: internet ? [] : [{ key: "network", op: "equals", value: "lan" }],
     note: "Login window opened from the web UI",
     expires_in_minutes: 60,
   };
@@ -95,7 +100,9 @@ export function fromWords(predicates: Predicate[]): string {
       return predicate.value === "lan" ? "the local network" : `the ${predicate.value} network`;
     }
     if (predicate.key === "ip" && predicate.op === "in_network") {
-      return `the range ${predicate.value}`;
+      return predicate.value.includes("/")
+        ? `the range ${predicate.value}`
+        : `the address ${predicate.value}`;
     }
     if (predicate.key === "ip" && predicate.op === "equals") {
       return `the address ${predicate.value}`;
@@ -107,18 +114,77 @@ export function fromWords(predicates: Predicate[]): string {
   return predicates.map((p) => `${p.key} ${opLabel(p.op)} ${p.value}`).join("; ");
 }
 
-/** Delete one expected login. */
-function RemoveButton({ rule }: { rule: AckRule }) {
-  const remove = useDeleteAckRule();
+/** A rule is an open login window when it has no target, no expiry date in the past, and
+ * covers `host` (its host is `host`, or null for any host). `now` is the current ISO time. */
+function isOpenWindow(
+  rule: AckRule,
+  host: string,
+  now: string,
+): rule is AckRule & {
+  expires_at: string;
+} {
   return (
-    <Button
-      variant="danger"
-      aria-label={`Remove the expected login ${userWords(rule)} from ${fromWords(rule.predicates)}`}
-      disabled={remove.isPending}
-      onClick={() => remove.mutate(rule.id)}
-    >
-      Remove
-    </Button>
+    rule.check === SSH_CHECK &&
+    (rule.host === host || rule.host === null) &&
+    rule.target_pattern === null &&
+    typeof rule.expires_at === "string" &&
+    rule.expires_at > now
+  );
+}
+
+/** The open login windows for `host`, soonest expiring first. */
+function openWindows(
+  rules: AckRule[],
+  host: string,
+  now: string,
+): (AckRule & {
+  expires_at: string;
+})[] {
+  return rules
+    .filter((rule) => isOpenWindow(rule, host, now))
+    .sort((a, b) => (a.expires_at < b.expires_at ? -1 : 1));
+}
+
+/** Delete one expected login, asking first. */
+function RemoveButton({ rule }: { rule: AckRule }) {
+  const [asking, setAsking] = useState(false);
+  const remove = useDeleteAckRule();
+  const close = () => {
+    setAsking(false);
+    remove.reset();
+  };
+  const words = `${userWords(rule)} from ${fromWords(rule.predicates)}`;
+  return (
+    <>
+      <Button
+        variant="danger"
+        aria-label={`Remove the expected login ${words}`}
+        onClick={() => setAsking(true)}
+      >
+        Remove
+      </Button>
+      {asking && (
+        <ConfirmDialog
+          title={`Remove the expected login on ${rule.host ?? "any host"}?`}
+          confirmLabel="Remove"
+          confirmVariant="danger"
+          busy={remove.isPending}
+          onConfirm={() => remove.mutate(rule.id, { onSuccess: close })}
+          onCancel={close}
+        >
+          <p>“{rule.note}”</p>
+          <p>
+            <strong>{words}</strong> starts alerting again. A login that already matched stays in
+            the history.
+          </p>
+          {remove.error && (
+            <p className={styles.error} role="alert">
+              Could not remove the expected login. Try again.
+            </p>
+          )}
+        </ConfirmDialog>
+      )}
+    </>
   );
 }
 
@@ -131,11 +197,15 @@ export function SshLoginsTab({ host }: { host: string }) {
   const create = useCreateAckRule();
   const [fields, setFields] = useState<Fields>(EMPTY);
   const [problem, setProblem] = useState<string>();
-  const [windowUntil, setWindowUntil] = useState<string>();
+  const [asking, setAsking] = useState(false);
+  const [internet, setInternet] = useState(false);
 
-  const expected = (rules.data ?? []).filter(
-    (rule) => rule.host === host && rule.check === SSH_CHECK,
+  const all = rules.data ?? [];
+  // Rules for any host count too: they silence logins on this host as well.
+  const expected = all.filter(
+    (rule) => (rule.host === host || rule.host === null) && rule.check === SSH_CHECK,
   );
+  const windowRule = openWindows(all, host, new Date().toISOString())[0];
   const change = (patch: Partial<Fields>) => setFields({ ...fields, ...patch });
 
   const show = (error: unknown) =>
@@ -156,10 +226,11 @@ export function SshLoginsTab({ host }: { host: string }) {
   };
 
   const openWindow = () => {
-    setProblem(undefined);
-    create.mutate(loginWindow(host), {
-      onSuccess: (rule) => setWindowUntil(rule.expires_at ?? undefined),
-      onError: show,
+    create.mutate(loginWindow(host, internet), {
+      onSuccess: () => {
+        setAsking(false);
+        setInternet(false);
+      },
     });
   };
 
@@ -173,16 +244,50 @@ export function SshLoginsTab({ host }: { host: string }) {
       <section aria-labelledby="ssh-window-heading">
         <h2 id="ssh-window-heading">Logging in now</h2>
         <p className={styles.hint}>
-          Opens a window of one hour, in which any login by anyone on {host} is expected.
+          Opens a window of one hour, in which logins on {host} are recorded and never alert. By
+          default it covers logins from the local network, not from the internet.
         </p>
-        <Button variant="primary" disabled={create.isPending} onClick={openWindow}>
+        <Button variant="primary" disabled={create.isPending} onClick={() => setAsking(true)}>
           I&rsquo;m logging in now
         </Button>
-        {windowUntil && (
+        {windowRule && (
           <p role="status">
-            A login window is open on {host}, so any login is expected. It expires{" "}
-            <RelativeTime at={windowUntil} />.
+            A login window is open on {host}, so{" "}
+            {windowRule.predicates.length === 0
+              ? "any login, including from the internet, is expected"
+              : "logins from the local network are expected"}
+            . It expires <RelativeTime at={windowRule.expires_at} />.
           </p>
+        )}
+        {asking && (
+          <ConfirmDialog
+            title={`Open a login window on ${host}?`}
+            confirmLabel="Open the window"
+            busy={create.isPending}
+            onConfirm={openWindow}
+            onCancel={() => {
+              setAsking(false);
+              setInternet(false);
+            }}
+          >
+            <p>
+              For one hour, logins on {host} by anyone are recorded and never alert you. Use it for
+              the login you are about to make.
+            </p>
+            <label className={styles.check}>
+              <input
+                type="checkbox"
+                checked={internet}
+                onChange={(e) => setInternet(e.target.checked)}
+              />
+              Include logins from the internet
+            </label>
+            {create.error && (
+              <p className={styles.error} role="alert">
+                Could not open the login window. Try again.
+              </p>
+            )}
+          </ConfirmDialog>
         )}
       </section>
 
@@ -196,7 +301,8 @@ export function SshLoginsTab({ host }: { host: string }) {
             {expected.map((rule) => (
               <li key={rule.id}>
                 <span>
-                  <strong>{userWords(rule)}</strong> from {fromWords(rule.predicates)},{" "}
+                  <strong>{userWords(rule)}</strong> from {fromWords(rule.predicates)}
+                  {rule.host === null ? " on any host" : ""},{" "}
                   {rule.expires_at ? <RelativeTime at={rule.expires_at} /> : <span>always</span>}
                 </span>{" "}
                 <RemoveButton rule={rule} />

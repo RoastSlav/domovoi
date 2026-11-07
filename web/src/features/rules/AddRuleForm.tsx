@@ -11,6 +11,7 @@ export const OPS: [PredicateOp, string][] = [
   ["contains", "contains"],
   ["at_most", "is at most"],
   ["at_least", "is at least"],
+  ["in_network", "is in network"],
 ];
 
 /** How long a rule lives, in minutes, with the words in the add form; "" means never. */
