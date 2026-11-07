@@ -1201,7 +1201,8 @@ export interface components {
         };
         /**
          * @description One condition on a signal's evidence. `value` is text, a number, `true` or `false`;
-         *     `at_most` and `at_least` need a number.
+         *     `at_most` and `at_least` need a number, and `in_network` an address range such as
+         *     `192.168.1.0/24`.
          */
         PredicateDto: {
             /** @description Evidence key, for example `value` or `user`. */
@@ -1215,7 +1216,7 @@ export interface components {
          * @description How a condition compares an evidence value with its `value`.
          * @enum {string}
          */
-        PredicateOpDto: "equals" | "contains" | "at_most" | "at_least";
+        PredicateOpDto: "equals" | "contains" | "at_most" | "at_least" | "in_network";
         /** @description An action triage suggested. */
         ProposalDto: {
             /** @description Arguments by parameter name. */

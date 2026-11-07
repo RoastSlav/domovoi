@@ -10,6 +10,7 @@ import { incidentBadge, triageNote } from "../incidents/badge";
 import { SkillList } from "../skills/SkillList";
 import { ChecksTab } from "./ChecksTab";
 import { HostStatus, isHubOnly, VersionCell } from "./HostStatus";
+import { SshLoginsTab } from "./SshLoginsTab";
 import styles from "./hosts.module.css";
 
 function Facts({ facts }: { facts: Fact[] }) {
@@ -60,7 +61,7 @@ function RecentIncidents({ host }: { host: string }) {
   );
 }
 
-/** One host: its agent, then tabs for its facts, incidents and skills, and its checks. */
+/** One host: its agent, its facts, incidents and skills, its checks, and its expected logins. */
 export function HostDetailPage() {
   const { name = "" } = useParams();
   const host = useHost(name);
@@ -103,6 +104,7 @@ export function HostDetailPage() {
         tabs={[
           { label: "Overview", content: <Overview name={detail.host.name} facts={detail.facts} /> },
           { label: "Checks", content: <ChecksTab host={detail.host.name} /> },
+          { label: "SSH logins", content: <SshLoginsTab host={detail.host.name} /> },
         ]}
       />
     </>
