@@ -1,6 +1,6 @@
 # Image built by the release workflow from prebuilt static binaries
 # (dist/bin-amd64/domovoi and dist/bin-arm64/domovoi). No compilation here.
-FROM busybox:1.37-musl AS data
+FROM busybox:1.38-musl AS data
 # The data directory, owned by the runtime user (distroless nonroot is 65532).
 RUN mkdir -p /out/var/lib/domovoi && chown 65532:65532 /out/var/lib/domovoi && chmod 0750 /out/var/lib/domovoi
 
