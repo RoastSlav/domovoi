@@ -24,6 +24,7 @@ fn report() -> TriageReport {
         evidence: Vec::new(),
         verdict: Verdict::Monitor,
         next_step: "Rotate logs.".to_owned(),
+        manual_steps: Vec::new(),
         proposals: Vec::new(),
         details: String::new(),
     }
