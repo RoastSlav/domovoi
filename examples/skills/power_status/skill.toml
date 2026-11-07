@@ -1,0 +1,7 @@
+name = "power_status"
+description = "Mains, battery and UPS state of this host."
+risk = "read"
+entry = "run"
+timeout = "15s"
+applies_to = ["power.supply"]
+max_output_bytes = 16384

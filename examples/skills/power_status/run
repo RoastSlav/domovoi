@@ -1,0 +1,44 @@
+#!/bin/sh
+# Mains, battery and UPS state of this host. Reads only.
+set -u
+
+echo "== power supply units"
+found=0
+for unit in /sys/class/power_supply/*; do
+    [ -d "$unit" ] || continue
+    found=1
+    echo "${unit##*/}"
+    for f in type online status capacity health energy_full energy_full_design charge_control_end_threshold; do
+        if [ -f "$unit/$f" ]; then
+            echo "  $f: $(cat "$unit/$f" 2>/dev/null)"
+        fi
+    done
+done
+if [ "$found" -eq 0 ]; then
+    echo "none under /sys/class/power_supply"
+fi
+
+echo
+echo "== upower"
+if command -v upower >/dev/null 2>&1; then
+    upower -d || :
+else
+    echo "upower not installed"
+fi
+
+echo
+echo "== ups (NUT)"
+if command -v upsc >/dev/null 2>&1; then
+    ups_list=$(upsc -l 2>/dev/null || :)
+    if [ -n "$ups_list" ]; then
+        for ups in $ups_list; do
+            echo
+            echo "ups $ups:"
+            upsc "$ups" || :
+        done
+    else
+        echo "no UPS detected"
+    fi
+else
+    echo "upsc not installed"
+fi
