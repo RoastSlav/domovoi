@@ -1384,6 +1384,11 @@ export interface components {
             last_used: string;
             /** @description The tool name, or the skill name for a read skill. */
             name: string;
+            /**
+             * Format: int32
+             * @description How many of those calls were not run because the tool-call budget was spent.
+             */
+            refused: number;
         };
         /** @description Triage limits. */
         TriageSettings: {

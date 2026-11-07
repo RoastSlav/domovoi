@@ -277,6 +277,8 @@ pub struct ToolUsageDto {
     pub calls: u32,
     /// How many of those calls failed.
     pub failures: u32,
+    /// How many of those calls were not run because the tool-call budget was spent.
+    pub refused: u32,
     /// When it was last called.
     pub last_used: String,
 }

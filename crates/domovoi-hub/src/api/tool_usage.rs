@@ -11,6 +11,10 @@ struct ToolUseEntry {
     tool: String,
     skill: Option<String>,
     failed: bool,
+    #[serde(default)]
+    refused: bool,
+    #[serde(default, rename = "raw")]
+    _raw: Option<String>,
 }
 
 /// Folds the `triage.tools` entries in `timeline` into one row per tool or skill, in
@@ -35,6 +39,8 @@ pub(crate) fn tool_usage(timeline: &[IncidentTimelineEntry]) -> Vec<ToolUsageDto
                     row.calls += 1;
                     if tool.failed {
                         row.failures += 1;
+                    } else if tool.refused {
+                        row.refused += 1;
                     }
                     row.last_used = entry.at.to_string();
                 }
@@ -43,6 +49,7 @@ pub(crate) fn tool_usage(timeline: &[IncidentTimelineEntry]) -> Vec<ToolUsageDto
                     kind: kind.to_owned(),
                     calls: 1,
                     failures: u32::from(tool.failed),
+                    refused: u32::from(tool.refused),
                     last_used: entry.at.to_string(),
                 }),
             }
@@ -70,13 +77,15 @@ mod tests {
             entry(
                 "2026-01-01T00:00:00Z",
                 serde_json::json!([
-                    {"tool": "journal", "skill": null, "failed": false},
+                    {"tool": "journal", "skill": null, "failed": true, "refused": false},
                     {"tool": "run_read_skill", "skill": "logs", "failed": true},
                 ]),
             ),
             entry(
                 "2026-01-01T00:01:00Z",
-                serde_json::json!([{"tool": "journal", "skill": null, "failed": true}]),
+                serde_json::json!([
+                    {"tool": "journal", "skill": null, "failed": false, "refused": true},
+                ]),
             ),
             entry(
                 "2026-01-01T00:02:00Z",
@@ -84,21 +93,38 @@ mod tests {
                     {"tool": "run_read_skill", "skill": "journal", "failed": false},
                 ]),
             ),
+            entry(
+                "2026-01-01T00:03:00Z",
+                serde_json::json!([
+                    {"tool": "unknown tool", "skill": null, "failed": false, "refused": true, "raw": "approve_action"},
+                    {"tool": "unknown tool", "skill": null, "failed": true, "refused": false, "raw": "jjj"},
+                ]),
+            ),
         ];
 
         let rows = tool_usage(&timeline);
-        assert_eq!(rows.len(), 3, "a skill named like a tool stays its own row");
+        assert_eq!(rows.len(), 4, "a skill named like a tool stays its own row");
         assert_eq!(rows[0].name, "journal");
         assert_eq!(rows[0].kind, "tool");
         assert_eq!(rows[0].calls, 2);
         assert_eq!(rows[0].failures, 1);
+        assert_eq!(rows[0].refused, 1);
         assert_eq!(rows[0].last_used, "2026-01-01T00:01:00Z");
         assert_eq!(rows[1].name, "logs");
         assert_eq!(rows[1].kind, "skill");
         assert_eq!(rows[1].failures, 1);
+        assert_eq!(rows[1].refused, 0);
         assert_eq!(rows[2].name, "journal");
         assert_eq!(rows[2].kind, "skill");
         assert_eq!(rows[2].calls, 1);
+        assert_eq!(
+            rows[3].name, "unknown tool",
+            "one row for every invented name"
+        );
+        assert_eq!(rows[3].kind, "tool");
+        assert_eq!(rows[3].calls, 2);
+        assert_eq!(rows[3].failures, 1);
+        assert_eq!(rows[3].refused, 1);
     }
 
     #[test]

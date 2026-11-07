@@ -4118,6 +4118,7 @@
           "kind",
           "calls",
           "failures",
+          "refused",
           "last_used"
         ],
         "properties": {
@@ -4144,6 +4145,12 @@
           "name": {
             "type": "string",
             "description": "The tool name, or the skill name for a read skill."
+          },
+          "refused": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How many of those calls were not run because the tool-call budget was spent.",
+            "minimum": 0
           }
         }
       },
