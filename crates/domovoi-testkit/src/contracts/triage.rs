@@ -16,6 +16,7 @@ fn report(headline: &str) -> TriageReport {
         evidence: Vec::new(),
         verdict: Verdict::Monitor,
         next_step: "watch it".to_owned(),
+        manual_steps: Vec::new(),
         proposals: Vec::new(),
         details: String::new(),
     }
