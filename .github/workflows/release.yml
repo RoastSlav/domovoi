@@ -4,6 +4,12 @@
 # PR bumps the version, so the `release` job tags vX.Y.Z and creates the GitHub
 # release. The build jobs run in this same workflow run, which avoids needing a
 # personal access token to trigger a second workflow.
+#
+# The tag exists before the builds start, so a failed build leaves a release
+# with no binaries, and release-plz has nothing left to do on the next run. Two
+# ways recover from that: re-running this run finds the tag on its commit, and
+# running the workflow by hand with `tag` set rebuilds that tag, which also
+# picks up fixes to this file.
 
 name: Release
 
@@ -11,6 +17,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release to rebuild, such as v0.1.0. Moves the latest image tags, so use the newest release. Leave empty to run release-plz.
+        type: string
+        required: false
 
 permissions: {}
 
@@ -27,30 +38,42 @@ jobs:
       contents: write
       pull-requests: write
     outputs:
-      created: ${{ steps.rp.outputs.releases_created }}
       tag: ${{ steps.tag.outputs.tag }}
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - run: rustup toolchain install
-      - uses: release-plz/action@v0.5
+          ref: ${{ inputs.tag }}
+      - if: inputs.tag == ''
+        run: rustup toolchain install
+      - if: inputs.tag == ''
+        uses: release-plz/action@v0.5
         with:
           command: release-pr
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - id: rp
+        if: inputs.tag == ''
         uses: release-plz/action@v0.5
         with:
           command: release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - id: tag
-        if: steps.rp.outputs.releases_created == 'true'
         env:
+          CREATED: ${{ steps.rp.outputs.releases_created }}
           RELEASES: ${{ steps.rp.outputs.releases }}
+          REQUESTED: ${{ inputs.tag }}
+          ATTEMPT: ${{ github.run_attempt }}
         run: |
-          tag=$(printf '%s' "$RELEASES" | jq -r '.[] | select(.package_name == "domovoi") | .tag')
+          tag=
+          if [ "$CREATED" = true ]; then
+            tag=$(printf '%s' "$RELEASES" | jq -r '.[] | select(.package_name == "domovoi") | .tag')
+          elif [ -n "$REQUESTED" ]; then
+            tag=$REQUESTED
+          elif [ "$ATTEMPT" -gt 1 ]; then
+            tag=$(git tag --points-at HEAD --list 'v*' | head -n 1)
+          fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
       - name: Upload the installer to the GitHub release
         if: steps.tag.outputs.tag != ''
@@ -62,7 +85,7 @@ jobs:
   web:
     name: Build web UI
     needs: release
-    if: needs.release.outputs.created == 'true' && needs.release.outputs.tag != ''
+    if: needs.release.outputs.tag != ''
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -86,7 +109,7 @@ jobs:
     name: Build ${{ matrix.target }}
     needs: [release, web]
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-24.04
@@ -126,7 +149,19 @@ jobs:
           (cd dist && sha256sum "$name.tar.gz" > "$name.tar.gz.sha256")
           mkdir -p image-bin
           cp "target/${{ matrix.target }}/release/domovoi" image-bin/domovoi
-      - uses: actions/attest-build-provenance@v4
+      # The Sigstore transparency log fails now and then. Nothing is uploaded
+      # without an attestation, so try again before giving up on the build.
+      - id: attest
+        continue-on-error: true
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: dist/*.tar.gz
+      - name: Wait before retrying the attestation
+        if: steps.attest.outcome == 'failure'
+        run: sleep 60
+      - name: Retry the attestation
+        if: steps.attest.outcome == 'failure'
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: dist/*.tar.gz
       - name: Upload to the GitHub release
