@@ -71,5 +71,6 @@ export function detail(): IncidentDetail {
       { at: "2026-10-31T12:01:00Z", kind: "triage.report", summary: "ACTION_NEEDED" },
     ],
     actions: [action()],
+    tools_used: [],
   };
 }
