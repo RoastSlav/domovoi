@@ -151,7 +151,11 @@ mod tests {
     /// `smartctl` it runs carries the `-n standby` guard like the built-in check.
     #[test]
     fn hardware_health_never_wakes_sleeping_disks() {
-        let run = workspace().join("examples").join("skills").join("hardware_health").join("run");
+        let run = workspace()
+            .join("examples")
+            .join("skills")
+            .join("hardware_health")
+            .join("run");
         let text = fs::read_to_string(&run).unwrap();
         let invocations: Vec<&str> = text
             .lines()
