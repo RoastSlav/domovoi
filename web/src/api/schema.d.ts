@@ -1049,6 +1049,8 @@ export interface components {
             report?: components["schemas"]["ReportDto"] | null;
             /** @description The timeline, oldest first. */
             timeline: components["schemas"]["TimelineEntryDto"][];
+            /** @description Skills and tools used while triaging or answering, in first-call order. */
+            tools_used: components["schemas"]["ToolUsageDto"][];
             triage?: components["schemas"]["TriageStateDto"] | null;
         };
         /** @description One page of incidents, newest first. */
@@ -1363,6 +1365,30 @@ export interface components {
             kind: string;
             /** @description One line. */
             summary: string;
+        };
+        /** @description One skill or tool used while triaging or answering a follow-up. */
+        ToolUsageDto: {
+            /**
+             * Format: int32
+             * @description How many times it was called.
+             */
+            calls: number;
+            /**
+             * Format: int32
+             * @description How many of those calls failed.
+             */
+            failures: number;
+            /** @description `tool` or `skill`. */
+            kind: string;
+            /** @description When it was last called. */
+            last_used: string;
+            /** @description The tool name, or the skill name for a read skill. */
+            name: string;
+            /**
+             * Format: int32
+             * @description How many of those calls were not run because the tool-call budget was spent.
+             */
+            refused: number;
         };
         /** @description Triage limits. */
         TriageSettings: {

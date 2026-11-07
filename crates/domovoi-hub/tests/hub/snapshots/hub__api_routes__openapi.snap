@@ -880,6 +880,13 @@ expression: spec
             },
             "type": "array"
           },
+          "tools_used": {
+            "description": "Skills and tools used while triaging or answering, in first-call order.",
+            "items": {
+              "$ref": "#/components/schemas/ToolUsageDto"
+            },
+            "type": "array"
+          },
           "triage": {
             "oneOf": [
               {
@@ -897,7 +904,8 @@ expression: spec
           "host",
           "card",
           "timeline",
-          "actions"
+          "actions",
+          "tools_used"
         ],
         "type": "object"
       },
@@ -1710,6 +1718,50 @@ expression: spec
           "at",
           "kind",
           "summary"
+        ],
+        "type": "object"
+      },
+      "ToolUsageDto": {
+        "description": "One skill or tool used while triaging or answering a follow-up.",
+        "properties": {
+          "calls": {
+            "description": "How many times it was called.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "failures": {
+            "description": "How many of those calls failed.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "kind": {
+            "description": "`tool` or `skill`.",
+            "type": "string"
+          },
+          "last_used": {
+            "description": "When it was last called.",
+            "type": "string"
+          },
+          "name": {
+            "description": "The tool name, or the skill name for a read skill.",
+            "type": "string"
+          },
+          "refused": {
+            "description": "How many of those calls were not run because the tool-call budget was spent.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "kind",
+          "calls",
+          "failures",
+          "refused",
+          "last_used"
         ],
         "type": "object"
       },

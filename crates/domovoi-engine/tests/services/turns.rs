@@ -1,11 +1,151 @@
-use domovoi_core::ports::{Part, ToolOutput};
+use domovoi_core::ports::{IncidentRepo, Part, ToolOutput};
 use domovoi_core::{ReadToolCall, TriageBudget, TriageOutcome};
 use domovoi_engine::triage::{BUDGET_EXHAUSTED, MAX_RESULT_BYTES, TriageSettings};
 use domovoi_testkit::link::LinkRequest;
 use jiff::SignedDuration;
 use serde_json::json;
 
-use crate::harness::{SECRET, Setup, calls, host_id, report, results, world};
+use crate::harness::{SECRET, Setup, calls, host_id, report, restart_skill, results, world};
+
+#[tokio::test]
+async fn tool_use_is_recorded_on_the_timeline() {
+    let w = world(Setup::default()).await;
+    w.primary
+        .push_ok(calls(&[("c1", "journal", json!({"unit": "nginx"}))]));
+    w.primary.push_text(report());
+
+    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+
+    let entries = w.store.timeline(w.incident.id()).await.expect("timeline");
+    let entry = entries
+        .iter()
+        .find(|e| e.kind == "triage.tools")
+        .expect("a triage.tools entry");
+    assert_eq!(entry.summary, "triage used journal");
+    assert_eq!(entry.detail["during"], "triage");
+    assert_eq!(entry.detail["tools"][0]["tool"], "journal");
+    assert_eq!(entry.detail["tools"][0]["failed"], false);
+}
+
+#[tokio::test]
+async fn failed_skill_call_keeps_the_skill_name() {
+    let w = world(Setup::default()).await;
+    w.link.set_skills(host_id(), vec![restart_skill()]);
+    w.primary.push_ok(calls(&[(
+        "c1",
+        "run_read_skill",
+        json!({"skill": "restart_container", "bogus": 1}),
+    )]));
+    w.primary.push_text(report());
+
+    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+
+    let entries = w.store.timeline(w.incident.id()).await.expect("timeline");
+    let entry = entries
+        .iter()
+        .find(|e| e.kind == "triage.tools")
+        .expect("a triage.tools entry");
+    assert_eq!(entry.summary, "triage used restart_container");
+    assert_eq!(entry.detail["tools"][0]["skill"], "restart_container");
+    assert_eq!(entry.detail["tools"][0]["failed"], true);
+}
+
+#[tokio::test]
+async fn prefetched_tools_are_recorded_for_a_provider_without_tools() {
+    let w = world(Setup {
+        cli: true,
+        ..Setup::default()
+    })
+    .await;
+    w.primary.push_text(report());
+
+    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+
+    let entries = w.store.timeline(w.incident.id()).await.expect("timeline");
+    let entry = entries
+        .iter()
+        .find(|e| e.kind == "triage.tools")
+        .expect("a triage.tools entry");
+    assert_eq!(
+        entry.summary,
+        "triage used docker_ps, docker_logs, journal, host_overview"
+    );
+    assert_eq!(entry.detail["tools"][0]["tool"], "docker_ps");
+    assert_eq!(entry.detail["tools"][0]["failed"], false);
+}
+
+#[tokio::test]
+async fn model_invented_tool_names_are_folded_into_unknown_tool() {
+    let w = world(Setup::default()).await;
+    let long_name = "j".repeat(10_000);
+    w.primary.push_ok(calls(&[
+        ("c1", "approve_action", json!({})),
+        ("c2", long_name.as_str(), json!({})),
+    ]));
+    w.primary.push_text(report());
+
+    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+
+    let entries = w.store.timeline(w.incident.id()).await.expect("timeline");
+    let entry = entries
+        .iter()
+        .find(|e| e.kind == "triage.tools")
+        .expect("a triage.tools entry");
+    assert_eq!(entry.summary, "triage used unknown tool ×2");
+    assert_eq!(entry.detail["tools"][0]["tool"], "unknown tool");
+    assert!(
+        entry.detail["tools"][0]["skill"].is_null(),
+        "no skill attribution"
+    );
+    assert_eq!(entry.detail["tools"][0]["raw"], "approve_action");
+    assert_eq!(entry.detail["tools"][1]["tool"], "unknown tool");
+    assert_eq!(
+        entry.detail["tools"][1]["raw"],
+        "j".repeat(96),
+        "cut to a fixed length"
+    );
+}
+
+#[tokio::test]
+async fn budget_refused_calls_are_recorded_as_not_run() {
+    let settings = TriageSettings {
+        budget: TriageBudget {
+            max_tool_calls: 1,
+            max_seconds: 90,
+            max_output_tokens: 2000,
+        },
+        ..TriageSettings::default()
+    };
+    let w = world(Setup {
+        settings,
+        ..Setup::default()
+    })
+    .await;
+    w.primary.push_ok(calls(&[
+        ("c1", "journal", json!({"unit": "nginx"})),
+        (
+            "c2",
+            "docker_logs",
+            json!({"container": "nginx", "lines": 100}),
+        ),
+    ]));
+    w.primary.push_text(report());
+
+    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+
+    let entries = w.store.timeline(w.incident.id()).await.expect("timeline");
+    let entry = entries
+        .iter()
+        .find(|e| e.kind == "triage.tools")
+        .expect("a triage.tools entry");
+    assert_eq!(entry.summary, "triage used journal, docker_logs");
+    assert_eq!(entry.detail["tools"][0]["refused"], false);
+    assert_eq!(entry.detail["tools"][1]["refused"], true);
+    assert_eq!(
+        entry.detail["tools"][1]["failed"], false,
+        "a refused call did not fail"
+    );
+}
 
 #[tokio::test]
 async fn tool_calls_are_routed_to_agent_and_store() {

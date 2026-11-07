@@ -3,11 +3,12 @@
 
 use std::collections::BTreeMap;
 
+use crate::triage::ToolUse;
 use domovoi_core::ports::IncidentTimelineEntry;
 use domovoi_core::{ActionId, Incident, IncidentId, TriageOutcome, UserId, Verdict};
 use jiff::Timestamp;
 
-use super::command::CommandError;
+use super::command::{Command, CommandError};
 use super::decide::{Decision, State, Write};
 use crate::events::{DomainEvent, EventKind};
 
@@ -117,4 +118,76 @@ pub(crate) fn follow_up(
         })],
         ..Decision::default()
     }
+}
+
+/// The decision for a command that only appends to an incident's timeline. These need no
+/// state; any other command gets an empty decision and is handled by the main match.
+pub(crate) fn record(command: &Command, now: Timestamp) -> Decision {
+    debug_assert!(matches!(
+        command,
+        Command::RecordFollowUp { .. } | Command::RecordToolUse { .. }
+    ));
+    match command {
+        Command::RecordFollowUp {
+            incident,
+            asked_by,
+            question,
+            answer,
+        } => follow_up(*incident, *asked_by, question, answer, now),
+        Command::RecordToolUse {
+            incident,
+            during,
+            tools,
+        } => tool_use(*incident, during, tools, now),
+        _ => Decision::default(),
+    }
+}
+
+/// A timeline entry for the read tools one run called, with `during` naming the run,
+/// `"triage"` or `"follow-up"`. Publishes nothing.
+pub(crate) fn tool_use(
+    incident: IncidentId,
+    during: &str,
+    tools: &[ToolUse],
+    now: Timestamp,
+) -> Decision {
+    Decision {
+        writes: vec![Write::Timeline(IncidentTimelineEntry {
+            incident,
+            at: now,
+            kind: "triage.tools".to_owned(),
+            summary: used_summary(during, tools),
+            detail: serde_json::json!({ "during": during, "tools": tools }),
+        })],
+        ..Decision::default()
+    }
+}
+
+/// `"{during} used journal, docker_logs ×2"`: display names in call order, with a count
+/// only when one repeats. A `run_read_skill` call shows the skill instead.
+fn used_summary(during: &str, tools: &[ToolUse]) -> String {
+    let mut seen: Vec<(String, u32)> = Vec::new();
+    for tool in tools {
+        let display = match &tool.skill {
+            Some(skill) => skill.to_owned(),
+            None => tool.tool.to_owned(),
+        };
+        if let Some(index) = seen.iter().position(|(name, _)| *name == display) {
+            seen[index].1 += 1;
+        } else {
+            seen.push((display, 1));
+        }
+    }
+    let names = seen
+        .iter()
+        .map(|(name, count)| {
+            if *count > 1 {
+                format!("{name} ×{count}")
+            } else {
+                name.to_owned()
+            }
+        })
+        .collect::<Vec<String>>()
+        .join(", ");
+    format!("{during} used {names}")
 }

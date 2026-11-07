@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use domovoi_core::ports::{IngestError, SignalSink};
 use std::collections::BTreeMap;
 
+use crate::triage::ToolUse;
 use domovoi_core::{ActionId, IncidentId, Signal, TriageOutcome, UserId, Verdict};
 use jiff::Timestamp;
 use tokio::sync::{mpsc, oneshot};
@@ -141,6 +142,21 @@ impl ManagerHandle {
             asked_by,
             question,
             answer,
+        })
+        .await
+    }
+
+    /// Adds the read tools a run called to `incident`'s timeline.
+    pub async fn record_tool_use(
+        &self,
+        incident: IncidentId,
+        during: String,
+        tools: Vec<ToolUse>,
+    ) -> Result<(), CommandError> {
+        self.send(Command::RecordToolUse {
+            incident,
+            during,
+            tools,
         })
         .await
     }

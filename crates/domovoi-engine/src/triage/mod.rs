@@ -31,7 +31,7 @@ use tokio_util::sync::CancellationToken;
 use crate::events::DomainEvent;
 use crate::manager::ManagerHandle;
 
-pub use agent::{BUDGET_EXHAUSTED, NO_CALLS_LEFT, read_tools};
+pub use agent::{BUDGET_EXHAUSTED, NO_CALLS_LEFT, ToolUse, read_tools};
 pub use followup::{FOLLOW_UP_PROMPT, MAX_ANSWER_CHARS};
 pub use proposals::{PROPOSER, mint_token, token_hash};
 pub use report::parse_report;

@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 
+use crate::triage::ToolUse;
 use domovoi_core::{ActionId, IncidentId, Signal, TriageOutcome, UserId, Verdict};
 use jiff::Timestamp;
 
@@ -70,6 +71,15 @@ pub enum Command {
         question: String,
         /// The redacted answer.
         answer: String,
+    },
+    /// The read tools a run called, for the timeline. Publishes nothing.
+    RecordToolUse {
+        /// Which incident.
+        incident: IncidentId,
+        /// `"triage"` or `"follow-up"`.
+        during: String,
+        /// The tool calls, in call order.
+        tools: Vec<ToolUse>,
     },
 }
 

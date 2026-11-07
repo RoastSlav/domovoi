@@ -7,7 +7,7 @@
       "name": "MIT OR Apache-2.0",
       "identifier": "MIT OR Apache-2.0"
     },
-    "version": "0.0.5"
+    "version": "0.0.6"
   },
   "paths": {
     "/api/v1/ack-rules": {
@@ -3237,7 +3237,8 @@
           "host",
           "card",
           "timeline",
-          "actions"
+          "actions",
+          "tools_used"
         ],
         "properties": {
           "actions": {
@@ -3276,6 +3277,13 @@
               "$ref": "#/components/schemas/TimelineEntryDto"
             },
             "description": "The timeline, oldest first."
+          },
+          "tools_used": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ToolUsageDto"
+            },
+            "description": "Skills and tools used while triaging or answering, in first-call order."
           },
           "triage": {
             "oneOf": [
@@ -4099,6 +4107,50 @@
           "summary": {
             "type": "string",
             "description": "One line."
+          }
+        }
+      },
+      "ToolUsageDto": {
+        "type": "object",
+        "description": "One skill or tool used while triaging or answering a follow-up.",
+        "required": [
+          "name",
+          "kind",
+          "calls",
+          "failures",
+          "refused",
+          "last_used"
+        ],
+        "properties": {
+          "calls": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How many times it was called.",
+            "minimum": 0
+          },
+          "failures": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How many of those calls failed.",
+            "minimum": 0
+          },
+          "kind": {
+            "type": "string",
+            "description": "`tool` or `skill`."
+          },
+          "last_used": {
+            "type": "string",
+            "description": "When it was last called."
+          },
+          "name": {
+            "type": "string",
+            "description": "The tool name, or the skill name for a read skill."
+          },
+          "refused": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How many of those calls were not run because the tool-call budget was spent.",
+            "minimum": 0
           }
         }
       },

@@ -479,15 +479,8 @@ pub fn decide(
             outcome,
             tokens,
         } => return super::annotate::attach(state, *incident, outcome, tokens, now),
-        Command::RecordFollowUp {
-            incident,
-            asked_by,
-            question,
-            answer,
-        } => {
-            return Ok(super::annotate::follow_up(
-                *incident, *asked_by, question, answer, now,
-            ));
+        Command::RecordFollowUp { .. } | Command::RecordToolUse { .. } => {
+            return Ok(super::annotate::record(command, now));
         }
         Command::SetVerdict { incident, verdict } => {
             return super::annotate::set_verdict(state, *incident, *verdict, now);

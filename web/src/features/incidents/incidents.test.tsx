@@ -353,6 +353,61 @@ test("incident_detail_shows_card_fields_and_timeline", async () => {
   expect(screen.getByRole("button", { name: "Mute" })).toBeVisible();
 });
 
+test("incident_detail_lists_skills_and_tools_used_with_counts", async () => {
+  route("GET /api/v1/incidents/{id}", () => ({
+    ...detail(),
+    tools_used: [
+      {
+        name: "journal",
+        kind: "tool",
+        calls: 3,
+        failures: 1,
+        refused: 2,
+        last_used: "2026-10-31T12:05:00Z",
+      },
+      {
+        name: "disk_usage",
+        kind: "skill",
+        calls: 2,
+        failures: 0,
+        refused: 1,
+        last_used: "2026-10-31T12:04:00Z",
+      },
+    ],
+  }));
+  renderAt("/incidents/inc-1", "/incidents/:id", <IncidentDetailPage />);
+
+  const used = await screen.findByRole("region", { name: "Skills and tools used" });
+  expect(
+    within(used).getByText("Read tools and read skills only look; they never change the host."),
+  ).toBeVisible();
+  expect(within(used).getByText("Skills proposed: restart_container.")).toBeVisible();
+
+  const rows = within(used).getAllByRole("row");
+  expect(within(rows[0] as HTMLElement).getByText("Not run")).toBeVisible();
+  expect(within(rows[1] as HTMLElement).getByText("journal")).toBeVisible();
+  expect(within(rows[1] as HTMLElement).getByText("tool")).toBeVisible();
+  expect(within(rows[1] as HTMLElement).getByText("3")).toBeVisible();
+  expect(within(rows[1] as HTMLElement).getByText("1"), "one failed call").toBeVisible();
+  expect(
+    within(rows[1] as HTMLElement).getByText("2"),
+    "two calls not run on budget",
+  ).toBeVisible();
+  expect(within(rows[2] as HTMLElement).getByText("disk_usage")).toBeVisible();
+  expect(within(rows[2] as HTMLElement).getByText("skill")).toBeVisible();
+  expect(within(rows[2] as HTMLElement).getByText("0"), "no failed calls").toBeVisible();
+  expect(within(rows[2] as HTMLElement).getByText("1"), "one call not run").toBeVisible();
+});
+
+test("incident_detail_says_nothing_was_used_yet", async () => {
+  route("GET /api/v1/incidents/{id}", () => ({ ...detail(), actions: [] }));
+  renderAt("/incidents/inc-1", "/incidents/:id", <IncidentDetailPage />);
+
+  const used = await screen.findByRole("region", { name: "Skills and tools used" });
+  expect(within(used).getByText("Nothing used yet.")).toBeVisible();
+  expect(within(used).queryByRole("table")).toBeNull();
+});
+
 test("ack_and_mute_say_what_they_do", async () => {
   route("GET /api/v1/incidents/{id}", () => detail());
   renderAt("/incidents/inc-1", "/incidents/:id", <IncidentDetailPage />);

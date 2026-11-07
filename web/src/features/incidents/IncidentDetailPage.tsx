@@ -4,6 +4,7 @@ import { ApiFailure, type TimelineEntry } from "../../api/types";
 import { EmptyState } from "../../components/EmptyState";
 import { Markdown } from "../../components/Markdown";
 import { RelativeTime } from "../../components/RelativeTime";
+import ui from "../../components/ui.module.css";
 import { ActionItem } from "../approvals/ActionItem";
 import approvals from "../approvals/approvals.module.css";
 import { AskBox } from "./AskBox";
@@ -45,7 +46,7 @@ export function IncidentDetailPage() {
     );
   }
 
-  const { card, report, actions, timeline, host } = incident.data;
+  const { card, report, actions, timeline, host, tools_used } = incident.data;
   const summary = incident.data.incident;
   return (
     <>
@@ -74,6 +75,54 @@ export function IncidentDetailPage() {
               <ActionItem key={action.id} action={action} />
             ))}
           </ul>
+        )}
+      </section>
+
+      <section className={styles.section} aria-labelledby="tools-heading">
+        <h2 id="tools-heading">Skills and tools used</h2>
+        <p className={styles.hint}>
+          Read tools and read skills only look; they never change the host.
+        </p>
+        {tools_used.length === 0 && actions.length === 0 ? (
+          <p>Nothing used yet.</p>
+        ) : (
+          <>
+            {tools_used.length > 0 && (
+              <div className={ui.tableWrap}>
+                <table className={ui.table}>
+                  <thead>
+                    <tr>
+                      <th scope="col">Name</th>
+                      <th scope="col">Kind</th>
+                      <th scope="col">Calls</th>
+                      <th scope="col">Failures</th>
+                      <th scope="col">Not run</th>
+                      <th scope="col">Last used</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tools_used.map((tool) => (
+                      <tr key={`${tool.kind}-${tool.name}`}>
+                        <td>{tool.name}</td>
+                        <td>{tool.kind}</td>
+                        <td>{tool.calls}</td>
+                        <td>{tool.failures}</td>
+                        <td>{tool.refused}</td>
+                        <td>
+                          <RelativeTime at={tool.last_used} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {actions.length > 0 && (
+              <p>
+                Skills proposed: {[...new Set(actions.map((action) => action.skill))].join(", ")}.
+              </p>
+            )}
+          </>
         )}
       </section>
 
