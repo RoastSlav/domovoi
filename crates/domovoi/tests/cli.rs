@@ -141,8 +141,31 @@ mod tests {
             .arg(&skills)
             .assert()
             .success()
+            .stdout(contains("ok     power_status (read)"))
+            .stdout(contains("ok     hardware_health (read)"))
             .stdout(contains("ok     vacuum_journal (destructive)"))
-            .stdout(contains("7 valid, 0 with issues"));
+            .stdout(contains("9 valid, 0 with issues"));
+    }
+
+    /// The `hardware_health` starter skill must never wake sleeping disks, so every
+    /// `smartctl` it runs carries the `-n standby` guard like the built-in check.
+    #[test]
+    fn hardware_health_never_wakes_sleeping_disks() {
+        let run = workspace()
+            .join("examples")
+            .join("skills")
+            .join("hardware_health")
+            .join("run");
+        let text = fs::read_to_string(&run).unwrap();
+        let invocations: Vec<&str> = text
+            .lines()
+            .filter(|line| !line.trim_start().starts_with("#") && line.contains("smartctl -"))
+            .collect();
+        assert!(!invocations.is_empty(), "the script runs no smartctl");
+        assert!(
+            invocations.iter().all(|line| line.contains("-n standby")),
+            "a smartctl call lacks the -n standby guard",
+        );
     }
 
     fn copy_tree(from: &Path, to: &Path) {

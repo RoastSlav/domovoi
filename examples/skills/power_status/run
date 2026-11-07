@@ -1,0 +1,56 @@
+#!/bin/sh
+# Mains, battery and UPS state of this host. Reads only.
+set -u
+
+run5() {
+    if command -v timeout >/dev/null 2>&1; then
+        timeout 5 "$@"
+    else
+        "$@"
+    fi
+}
+
+echo "== power supply units"
+found=0
+for unit in /sys/class/power_supply/*; do
+    [ -d "$unit" ] || continue
+    found=1
+    echo "${unit##*/}"
+    for f in type online status capacity health energy_full energy_full_design charge_control_end_threshold; do
+        if [ -f "$unit/$f" ]; then
+            echo "  $f: $(cat "$unit/$f" 2>/dev/null)"
+        fi
+    done
+done
+if [ "$found" -eq 0 ]; then
+    echo "none under /sys/class/power_supply"
+fi
+
+echo
+echo "== upower"
+if command -v upower >/dev/null 2>&1; then
+    run5 upower -d 2>&1 | grep -v -i serial || :
+else
+    echo "upower not installed"
+fi
+
+echo
+echo "== ups (NUT)"
+if command -v upsc >/dev/null 2>&1; then
+    ups_list=$(run5 upsc -l 2>&1)
+    list_rc=$?
+    if [ "$list_rc" -ne 0 ]; then
+        echo "upsc could not list UPSs: $ups_list"
+    elif [ -n "$ups_list" ]; then
+        # shellcheck disable=SC2066,SC2086
+        for ups in $ups_list; do
+            echo
+            echo "ups $ups:"
+            run5 upsc "$ups" 2>&1 | grep -v -i serial || :
+        done
+    else
+        echo "no UPS detected"
+    fi
+else
+    echo "upsc not installed"
+fi

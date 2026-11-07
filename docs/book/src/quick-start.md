@@ -46,7 +46,7 @@ The host shows as connected within seconds, and its built-in checks start: disks
 
 ## 5. Starter skills
 
-Skills are the only things Domovoi can ever run on a host, and only after you approve. The agent installer copies the seven starter skills into `/etc/domovoi/skills`, and on every later upgrade it adds any starter skill that is missing. Skills you edit are never overwritten. To check them:
+Skills are the only things Domovoi can ever run on a host, and only after you approve. The agent installer copies the nine starter skills into `/etc/domovoi/skills`, and on every later upgrade it adds any starter skill that is missing. Skills you edit are never overwritten. To check them:
 
 ```sh
 sudo domovoi check skills /etc/domovoi/skills

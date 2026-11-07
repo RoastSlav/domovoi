@@ -1,0 +1,64 @@
+#!/bin/sh
+# Temperatures, recent kernel hardware errors and a SMART health summary. Reads only.
+set -u
+
+echo "== temperatures"
+if command -v sensors >/dev/null 2>&1; then
+    sensors || :
+else
+    found=0
+    for zone in /sys/class/thermal/thermal_zone*; do
+        [ -f "$zone/temp" ] || continue
+        found=1
+        zone_type=$(cat "$zone/type" 2>/dev/null || echo unknown)
+        echo "${zone##*/} ${zone_type}: $(cat "$zone/temp" 2>/dev/null) millidegrees C"
+    done
+    if [ "$found" -eq 0 ]; then
+        echo "no thermal zones"
+    fi
+fi
+
+echo
+echo "== kernel errors (2 hours)"
+if command -v journalctl >/dev/null 2>&1; then
+    journalctl -k -p err --since=-2h --no-pager --lines=100 || :
+else
+    echo "journalctl not installed"
+fi
+
+echo
+echo "== edac counters"
+found=0
+for mc in /sys/devices/system/edac/mc/mc*; do
+    [ -d "$mc" ] || continue
+    found=1
+    for c in ce_count ue_count; do
+        if [ -f "$mc/$c" ]; then
+            echo "${mc##*/}.${c} = $(cat "$mc/$c" 2>/dev/null)"
+        fi
+    done
+done
+if [ "$found" -eq 0 ]; then
+    echo "no edac counters"
+fi
+
+echo
+echo "== smart"
+if command -v smartctl >/dev/null 2>&1; then
+    found=0
+    for dev in /dev/sd? /dev/nvme?n1; do
+        [ -b "$dev" ] || continue
+        found=1
+        echo "device $dev:"
+        smartctl -n standby -H "$dev"
+        rc=$?
+        if [ "$rc" -eq 2 ]; then
+            echo "standby, not checked"
+        fi
+    done
+    if [ "$found" -eq 0 ]; then
+        echo "none visible here under /dev/sd? or /dev/nvme?n1"
+    fi
+else
+    echo "smartctl not installed"
+fi

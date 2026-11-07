@@ -1,0 +1,7 @@
+name = "hardware_health"
+description = "Temperatures, recent kernel hardware errors and disk health summary."
+risk = "read"
+entry = "run"
+timeout = "30s"
+applies_to = ["temperature.cpu", "kernel.errors", "power.supply", "smart.health"]
+max_output_bytes = 65536

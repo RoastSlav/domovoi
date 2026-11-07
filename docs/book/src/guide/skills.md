@@ -8,7 +8,7 @@ A skill is a small program installed on a host, with a manifest that says what i
 
 ## The starter skills
 
-The release archive includes seven skills in `examples/skills/` (installed to `/usr/local/share/domovoi/examples/skills`):
+The release archive includes nine skills in `examples/skills/` (installed to `/usr/local/share/domovoi/examples/skills`):
 
 | Skill | Risk | What it does | Arguments |
 | --- | --- | --- | --- |
@@ -16,6 +16,8 @@ The release archive includes seven skills in `examples/skills/` (installed to `/
 | `top_processes` | read | The 15 processes using the most CPU, and the most memory | none |
 | `disk_usage_top` | read | The largest directories under a path | `path`: `/var/log`, `/var/lib/docker` or `/home` |
 | `journal_errors` | read | Errors a unit logged in the last few minutes | `unit`, `minutes` (1–1440) |
+| `power_status` | read | Mains, battery and UPS state of this host | none |
+| `hardware_health` | read | Temperatures, recent kernel hardware errors and disk health summary | none |
 | `restart_container` | write | `docker restart` one container, then re-check | `container` |
 | `restart_unit` | write | `systemctl restart` one unit, then re-check | `unit` |
 | `vacuum_journal` | destructive | Delete journal files older than 7, 14 or 30 days | `keep`: `7d`, `14d` or `30d` |
