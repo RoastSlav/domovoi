@@ -143,6 +143,8 @@ pub struct ReportDto {
     pub verdict: String,
     /// The single next step.
     pub next_step: String,
+    /// Steps a person does by hand, in order.
+    pub manual_steps: Vec<String>,
     /// Suggested actions.
     pub proposals: Vec<ProposalDto>,
     /// Anything else.
@@ -166,6 +168,7 @@ impl From<&TriageReport> for ReportDto {
                 .collect(),
             verdict: verdict_name(r.verdict),
             next_step: r.next_step.clone(),
+            manual_steps: r.manual_steps.clone(),
             proposals: r
                 .proposals
                 .iter()

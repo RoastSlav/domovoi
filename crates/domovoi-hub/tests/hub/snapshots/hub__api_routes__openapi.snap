@@ -1470,6 +1470,13 @@ expression: spec
             "description": "What is wrong, in one line.",
             "type": "string"
           },
+          "manual_steps": {
+            "description": "Steps a person does by hand, in order.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "next_step": {
             "description": "The single next step.",
             "type": "string"
@@ -1497,6 +1504,7 @@ expression: spec
           "evidence",
           "verdict",
           "next_step",
+          "manual_steps",
           "proposals",
           "details"
         ],
