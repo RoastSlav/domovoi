@@ -5,7 +5,9 @@ use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 
 use domovoi_core::ports::{LlmError, LlmMessage, LlmProvider, LlmRequest, Part, Role};
-use domovoi_core::{ActionId, Incident, IncidentId, SkillSummary, TriageOutcome, TriageReport};
+use domovoi_core::{
+    ActionId, Incident, IncidentId, ReadToolCall, SkillSummary, TriageOutcome, TriageReport,
+};
 use jiff::{SignedDuration, Timestamp};
 
 use super::agent::{self, ToolUse, text_of};
@@ -274,20 +276,30 @@ impl From<LlmError> for Failure {
 }
 
 /// The first user message: the bundle and, for providers without tools, the prefetched
-/// tool output.
+/// tool output. Every prefetched call is pushed onto `used`.
 async fn opening(
     shared: &Shared,
     provider: &Arc<dyn LlmProvider>,
     incident: &Incident,
     skills: &[SkillSummary],
     bundle: &str,
+    used: &mut Vec<ToolUse>,
 ) -> String {
     let mut text = format!("Triage this incident.\n\n{bundle}");
     if !provider.supports_tools() {
         text.push_str("\n\n## Tool output gathered for you\n");
         for call in tools::prefetch(incident) {
             let name = call.tool().name();
+            let skill = match &call {
+                ReadToolCall::RunReadSkill { skill, .. } => Some(skill.to_string()),
+                _ => None,
+            };
             let result = tools::run(shared, incident, skills, call).await;
+            used.push(ToolUse {
+                tool: name.to_owned(),
+                skill,
+                failed: result.is_error,
+            });
             text.push_str(&format!("\n### {name}\n\n{}\n", result.content));
         }
         text.push_str("\nYou cannot call tools. Reply with the JSON report only.");
@@ -304,7 +316,7 @@ async fn attempt(
     bundle: &str,
     used: &mut Vec<ToolUse>,
 ) -> Result<TriageReport, Failure> {
-    let first = opening(shared, provider, incident, skills, bundle).await;
+    let first = opening(shared, provider, incident, skills, bundle, used).await;
     let mut messages = vec![LlmMessage {
         role: Role::User,
         parts: vec![Part::Text(first)],

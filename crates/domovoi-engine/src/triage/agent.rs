@@ -6,7 +6,7 @@ use std::sync::Arc;
 use domovoi_core::ports::{
     LlmError, LlmMessage, LlmProvider, LlmRequest, LlmResponse, Part, Role, ToolSpec,
 };
-use domovoi_core::{Incident, ReadTool, ReadToolCall, SkillSummary};
+use domovoi_core::{Incident, ReadTool, SkillSummary};
 use jiff::SignedDuration;
 
 use super::{Shared, tools};
@@ -34,15 +34,13 @@ pub fn read_tools() -> Vec<ToolSpec> {
     ReadTool::ALL.into_iter().map(ToolSpec::from).collect()
 }
 
-/// The skill for a `run_read_skill` call's input, `None` for the other tools.
-fn read_skill_of(name: &str, input: serde_json::Value) -> Option<String> {
+/// The skill for a `run_read_skill` call's input, `None` for the other tools. Read from
+/// the raw input so a call that fails to parse still names the skill it targeted.
+fn read_skill_of(name: &str, input: &serde_json::Value) -> Option<String> {
     if name != "run_read_skill" {
         return None;
     }
-    match ReadToolCall::from_json(name, input) {
-        Ok(ReadToolCall::RunReadSkill { skill, .. }) => Some(skill.to_string()),
-        _ => None,
-    }
+    input.get("skill")?.as_str().map(str::to_owned)
 }
 
 /// The text parts of `parts`, joined.
@@ -91,8 +89,8 @@ pub(crate) async fn complete(
 /// Continues `messages` with `provider` until the model answers without tool calls, and
 /// returns that answer's text. Tool calls are answered through [`tools::call`] within the
 /// run budget; once it is spent the model is told to answer and further calls are not
-/// run. Providers without tool support get exactly one turn. Every call the model makes,
-/// run or refused, is pushed onto `used`.
+/// run. Every call the model makes while it may still call tools is pushed onto `used`;
+/// calls in the response after it was told to answer are ignored.
 pub(crate) async fn converse(
     shared: &Shared,
     provider: &Arc<dyn LlmProvider>,
@@ -141,7 +139,7 @@ pub(crate) async fn converse(
         }
         let mut results = Vec::with_capacity(calls.len() + 1);
         for (id, name, input) in calls {
-            let skill = read_skill_of(&name, input.clone());
+            let skill = read_skill_of(&name, &input);
             let result = if calls_used >= budget.max_tool_calls {
                 tools::ToolResult {
                     content: NO_CALLS_LEFT.to_owned(),

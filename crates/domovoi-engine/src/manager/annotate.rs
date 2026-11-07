@@ -8,9 +8,7 @@ use domovoi_core::ports::IncidentTimelineEntry;
 use domovoi_core::{ActionId, Incident, IncidentId, TriageOutcome, UserId, Verdict};
 use jiff::Timestamp;
 
-use super::command::Command;
-
-use super::command::CommandError;
+use super::command::{Command, CommandError};
 use super::decide::{Decision, State, Write};
 use crate::events::{DomainEvent, EventKind};
 
