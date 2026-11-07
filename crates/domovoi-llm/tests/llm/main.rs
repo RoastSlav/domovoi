@@ -13,4 +13,6 @@ mod models;
 #[cfg(test)]
 mod openai;
 #[cfg(test)]
+mod streaming;
+#[cfg(test)]
 mod support;

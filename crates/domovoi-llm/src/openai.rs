@@ -10,7 +10,8 @@ use serde_json::{Value, json};
 use url::Url;
 
 use crate::error::{LlmBuildError, excerpt};
-use crate::http;
+use crate::http::{self, Reply};
+use crate::openai_stream;
 use crate::settings::{Price, cost_micros};
 
 /// A provider speaking the Chat Completions API. Local servers may need no key.
@@ -53,13 +54,19 @@ impl LlmProvider for OpenAiCompatible {
     }
 
     async fn complete(&self, req: LlmRequest) -> Result<LlmResponse, LlmError> {
-        let body = request_body(&self.model, &req);
+        let mut body = request_body(&self.model, &req);
+        body["stream"] = Value::Bool(true);
+        body["stream_options"] = json!({ "include_usage": true });
         tracing::debug!(model = %self.model, messages = req.messages.len(), "openai turn");
         let mut request = self.client.post(&self.url).json(&body);
         if let Some(key) = &self.api_key {
             request = request.bearer_auth(key.expose_secret());
         }
-        let response: WireResponse = http::send(request, self.api_key.as_ref()).await?;
+        let secret = self.api_key.as_ref();
+        let response = match http::send_streaming::<WireResponse>(request, secret).await? {
+            Reply::Whole(response) => response,
+            Reply::Stream(mut events) => openai_stream::assemble(&mut events, secret).await?,
+        };
         into_response(response, self.price.as_ref(), self.api_key.as_ref())
     }
 }
@@ -154,45 +161,45 @@ fn push_message(out: &mut Vec<Value>, message: &LlmMessage) {
 }
 
 #[derive(Deserialize)]
-struct WireResponse {
-    choices: Vec<WireChoice>,
+pub(crate) struct WireResponse {
+    pub(crate) choices: Vec<WireChoice>,
     #[serde(default)]
-    usage: Option<WireUsage>,
+    pub(crate) usage: Option<WireUsage>,
 }
 
 #[derive(Deserialize)]
-struct WireChoice {
-    message: WireMessage,
-    finish_reason: Option<String>,
+pub(crate) struct WireChoice {
+    pub(crate) message: WireMessage,
+    pub(crate) finish_reason: Option<String>,
 }
 
 #[derive(Deserialize)]
-struct WireMessage {
+pub(crate) struct WireMessage {
     #[serde(default)]
-    content: Option<String>,
+    pub(crate) content: Option<String>,
     #[serde(default)]
-    tool_calls: Vec<WireToolCall>,
+    pub(crate) tool_calls: Vec<WireToolCall>,
 }
 
 #[derive(Deserialize)]
-struct WireToolCall {
-    id: String,
-    function: WireFunction,
+pub(crate) struct WireToolCall {
+    pub(crate) id: String,
+    pub(crate) function: WireFunction,
 }
 
 #[derive(Deserialize)]
-struct WireFunction {
-    name: String,
+pub(crate) struct WireFunction {
+    pub(crate) name: String,
     #[serde(default)]
-    arguments: String,
+    pub(crate) arguments: String,
 }
 
 #[derive(Deserialize)]
-struct WireUsage {
+pub(crate) struct WireUsage {
     #[serde(default)]
-    prompt_tokens: u32,
+    pub(crate) prompt_tokens: u32,
     #[serde(default)]
-    completion_tokens: u32,
+    pub(crate) completion_tokens: u32,
 }
 
 fn into_response(
