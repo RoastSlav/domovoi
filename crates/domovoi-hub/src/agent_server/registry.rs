@@ -6,7 +6,7 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use domovoi_core::ports::{LinkError, Presence};
 use domovoi_core::{HostId, RequestId, SkillSummary};
-use domovoi_proto::messages::{CheckInfo, SessionId};
+use domovoi_proto::messages::{CheckInfo, DockerReport, SessionId};
 use domovoi_proto::{Message, encode};
 use jiff::Timestamp;
 use tokio::sync::{mpsc, oneshot};
@@ -34,6 +34,7 @@ pub(crate) struct Live {
     pub version: String,
     pub skills: Vec<SkillSummary>,
     pub checks: Vec<CheckInfo>,
+    pub docker: Option<DockerReport>,
     pub outbox: mpsc::Sender<String>,
     pub pending: HashMap<RequestId, oneshot::Sender<Message>>,
     pub cancel: CancellationToken,
@@ -198,6 +199,15 @@ impl Registry {
             .get(&host)
             .and_then(|e| e.live.as_ref())
             .map(|l| l.checks.clone())
+    }
+
+    /// What the host's agent reported about its container runtime when it connected.
+    /// `None` while offline; `Some(None)` from an agent too old to report it.
+    pub fn docker(&self, host: HostId) -> Option<Option<DockerReport>> {
+        self.lock()
+            .get(&host)
+            .and_then(|e| e.live.as_ref())
+            .map(|l| l.docker.clone())
     }
 
     /// Sends `message` to the host's agent without waiting for an answer. False when the

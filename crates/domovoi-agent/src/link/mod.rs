@@ -106,6 +106,8 @@ pub struct LinkParts {
     pub skills: Vec<SkillSummary>,
     /// Every check with its local settings, announced in `hello`.
     pub checks: Vec<CheckInfo>,
+    /// What the agent found out about the container runtime, announced in `hello`.
+    pub docker: Option<domovoi_proto::messages::DockerReport>,
     /// Where the hub's check overrides take effect; `None` ignores them.
     pub overrides: Option<crate::overrides::EffectiveChecks>,
     /// Signal batches to send and replay.
@@ -189,6 +191,7 @@ impl Link {
             facts: host_facts(&*self.parts.fs).await,
             skills: &self.parts.skills,
             checks: &self.parts.checks,
+            docker: self.parts.docker.as_ref(),
         };
         let shake = handshake(
             transport.as_mut(),
@@ -203,7 +206,7 @@ impl Link {
         tracing::info!(session = ?welcome.session_id, "connected to the hub");
         let mut beat = heartbeat(&welcome.config);
         if let Some(overrides) = &self.parts.overrides {
-            overrides.apply(&welcome.config.check_overrides);
+            overrides.apply_settings(&welcome.config);
         }
         let mut sent = None;
         let mut missed = 0;
@@ -283,7 +286,7 @@ impl Link {
             Message::ConfigUpdate(update) => {
                 *beat = heartbeat(&update.config);
                 if let Some(overrides) = &self.parts.overrides {
-                    overrides.apply(&update.config.check_overrides);
+                    overrides.apply_settings(&update.config);
                 }
                 return Ok(());
             }

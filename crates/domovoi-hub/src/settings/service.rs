@@ -409,7 +409,7 @@ impl SettingsService {
         Ok(())
     }
 
-    async fn audit(&self, user: &User, kind: &str, subject: &str, detail: Value) {
+    pub(crate) async fn audit(&self, user: &User, kind: &str, subject: &str, detail: Value) {
         let deps = self.deps();
         let event = AuditEvent {
             at: deps.clock.now(),

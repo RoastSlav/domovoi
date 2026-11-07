@@ -4,13 +4,23 @@
 //! restart; the next `config_update` replaces the previous overrides entirely.
 
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 
 use domovoi_checks::framework::CheckSettings;
 use domovoi_core::CheckKey;
-use domovoi_proto::messages::CheckOverride;
+use domovoi_proto::messages::{AgentSettings, CheckOverride};
 use jiff::SignedDuration;
 use tokio::sync::watch;
+
+use crate::docker::DockerControl;
+
+/// The checks that read the container runtime; they stop while it is switched off.
+const CONTAINER_CHECKS: [&str; 4] = [
+    "container.expected_down",
+    "container.unhealthy",
+    "container.restart_loop",
+    "container.new",
+];
 
 /// Check settings in effect, by key. A check without an entry uses its defaults.
 pub type SettingsMap = BTreeMap<CheckKey, CheckSettings>;
@@ -30,6 +40,8 @@ pub fn fixed(settings: SettingsMap) -> SettingsView {
 pub struct EffectiveChecks {
     base: Arc<SettingsMap>,
     current: Arc<watch::Sender<Arc<SettingsMap>>>,
+    overrides: Arc<Mutex<BTreeMap<CheckKey, CheckOverride>>>,
+    docker: Option<DockerControl>,
 }
 
 impl std::fmt::Debug for EffectiveChecks {
@@ -48,7 +60,26 @@ impl EffectiveChecks {
         Self {
             current: Arc::new(watch::Sender::new(base.clone())),
             base,
+            overrides: Arc::default(),
+            docker: None,
         }
+    }
+
+    /// Also applies the hub's container runtime choice, and keeps the container checks
+    /// off while the runtime is.
+    #[must_use]
+    pub fn with_docker(mut self, docker: DockerControl) -> Self {
+        self.docker = Some(docker);
+        self.recompute();
+        self
+    }
+
+    /// Applies everything the hub sent: the container runtime choice and the overrides.
+    pub fn apply_settings(&self, settings: &AgentSettings) {
+        if let Some(docker) = &self.docker {
+            docker.choose(settings.docker);
+        }
+        self.apply(&settings.check_overrides);
     }
 
     /// The settings in effect, and every later change.
@@ -59,7 +90,38 @@ impl EffectiveChecks {
 
     /// Replaces the overrides. Readers are woken only when the result changed.
     pub fn apply(&self, overrides: &BTreeMap<CheckKey, CheckOverride>) {
-        let next = merge(&self.base, overrides);
+        *self
+            .overrides
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = overrides.clone();
+        self.recompute();
+        if !overrides.is_empty() {
+            tracing::info!(
+                checks = overrides.len(),
+                "applied check overrides from the hub"
+            );
+        }
+    }
+}
+
+impl EffectiveChecks {
+    /// The settings in effect from the local ones, the hub's overrides and the container
+    /// runtime switch. Readers are woken only when the result changed.
+    fn recompute(&self) {
+        let overrides = self
+            .overrides
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        let mut next = merge(&self.base, &overrides);
+        if self.docker.as_ref().is_some_and(|d| !d.is_on()) {
+            for key in CONTAINER_CHECKS
+                .iter()
+                .filter_map(|k| CheckKey::parse(k).ok())
+            {
+                next.entry(key).or_default().enabled = false;
+            }
+        }
         self.current.send_if_modified(|current| {
             if **current == next {
                 false
@@ -68,12 +130,6 @@ impl EffectiveChecks {
                 true
             }
         });
-        if !overrides.is_empty() {
-            tracing::info!(
-                checks = overrides.len(),
-                "applied check overrides from the hub"
-            );
-        }
     }
 }
 
@@ -164,5 +220,36 @@ mod tests {
             view.borrow_and_update()[&disk].enabled,
             "a new update replaces the old one"
         );
+    }
+
+    #[test]
+    fn container_checks_follow_the_runtime_switch_the_hub_flips() {
+        use domovoi_checks::containers::Detection;
+        use domovoi_config::DockerMode;
+        use domovoi_proto::messages::AgentSettings;
+
+        use crate::docker::DockerControl;
+
+        let detection = Detection::Found {
+            endpoint: "unix:///run/podman/podman.sock".to_owned(),
+            engine: "Podman",
+        };
+        let control = DockerControl::new(DockerMode::Auto, Some(&detection));
+        let effective = EffectiveChecks::new(BTreeMap::new()).with_docker(control.clone());
+        let view = effective.view();
+        let new = CheckKey::parse("container.new").unwrap();
+        let on = |view: &super::SettingsView| view.borrow().get(&new).is_none_or(|s| s.enabled);
+        assert!(on(&view), "an engine that answers turns the checks on");
+
+        let settings = |docker| AgentSettings {
+            heartbeat_seconds: 10,
+            check_overrides: BTreeMap::new(),
+            docker,
+        };
+        effective.apply_settings(&settings(Some(false)));
+        assert!(!control.is_on());
+        assert!(!on(&view), "the hub switched the runtime off");
+        effective.apply_settings(&settings(None));
+        assert!(on(&view), "no choice goes back to what was found");
     }
 }

@@ -11,7 +11,7 @@ mod handshake;
 mod link;
 mod memory;
 mod overrides;
-pub(crate) use overrides::stored_overrides;
+pub(crate) use overrides::{stored_docker, stored_overrides};
 mod presence;
 mod probes;
 mod registry;

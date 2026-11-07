@@ -73,6 +73,34 @@ pub struct AgentSettings {
     /// Per-check changes on top of the agent's local config.
     #[serde(default)]
     pub check_overrides: BTreeMap<CheckKey, CheckOverride>,
+    /// Whether the container runtime may be used on this host: `Some(true)` or
+    /// `Some(false)` is the hub's choice, `None` leaves it to the agent. An agent whose
+    /// `agent.toml` sets `[docker] enabled` to `true` or `false` ignores it (ADR 0018).
+    #[serde(default)]
+    pub docker: Option<bool>,
+}
+
+/// What an agent found out about the container runtime on its host.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct DockerReport {
+    /// Which engine answers on the endpoint, such as `Docker` or `Podman`. Empty when none
+    /// was found.
+    #[serde(default)]
+    pub engine: String,
+    /// The endpoint in use, or the first one tried. Empty when none was configured or found.
+    #[serde(default)]
+    pub endpoint: String,
+    /// Whether an engine answered on the endpoint at startup, so the hub may switch the
+    /// integration on.
+    pub available: bool,
+    /// Whether `agent.toml` fixes the setting (`enabled = true` or `false`), so the hub
+    /// cannot change it.
+    pub locked: bool,
+    /// Whether the integration was in use when the agent connected, before any hub choice.
+    pub enabled: bool,
+    /// Why it is unavailable, in a sentence, when it is.
+    #[serde(default)]
+    pub problem: Option<String>,
 }
 
 /// Changes to one check. Absent fields keep the agent's local value.
@@ -141,6 +169,9 @@ pub struct Hello {
     /// the hub can show what an override changes. Empty from older agents.
     #[serde(default)]
     pub checks: Vec<CheckInfo>,
+    /// What the agent found out about the container runtime. `None` from older agents.
+    #[serde(default)]
+    pub docker: Option<DockerReport>,
 }
 
 /// One check as the agent's own config sets it.

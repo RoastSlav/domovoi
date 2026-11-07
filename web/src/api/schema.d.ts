@@ -273,6 +273,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/hosts/{name}/docker": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A host's container runtime: what its agent found and the hub's choice. */
+        get: operations["host_docker"];
+        /**
+         * Switches a host's container runtime on or off from the hub, or leaves it to the agent;
+         *     no restart. Refused when the agent's config fixes the setting or no engine was found.
+         */
+        put: operations["set_host_docker"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/hosts/{name}/enrollment": {
         parameters: {
             query?: never;
@@ -978,6 +999,37 @@ export interface components {
             facts: components["schemas"]["FactDto"][];
             /** @description The host and its agent. */
             host: components["schemas"]["HostDto"];
+        };
+        /** @description A host's container runtime. */
+        HostDockerDto: {
+            /** @description Whether an engine answered on the host, so it can be switched on. */
+            available: boolean;
+            /** @description The hub's saved choice; absent when the agent decides. */
+            choice?: boolean | null;
+            /** @description Whether the agent is connected. Nothing below is known while it is not. */
+            connected: boolean;
+            /** @description Whether the container checks and tools are in use on the host now. */
+            enabled: boolean;
+            /** @description The endpoint in use, or the one that failed; empty when there was none. */
+            endpoint: string;
+            /** @description The engine found, such as `Docker` or `Podman`; empty when none. */
+            engine: string;
+            /** @description Whether the agent's own config fixes the setting, so the hub cannot change it. */
+            locked: boolean;
+            /** @description Why no engine can be used, in a sentence. */
+            problem?: string | null;
+            /** @description Whether the agent reports its container runtime. False for an agent too old to. */
+            reported: boolean;
+        };
+        /** @description Whether the agent got the change now. */
+        HostDockerSaved: {
+            /** @description True when sent to the connected agent; false when it gets it on reconnect. */
+            delivered: boolean;
+        };
+        /** @description The hub's choice for a host's container runtime. */
+        HostDockerUpdate: {
+            /** @description `true` or `false` switches the runtime on or off; `null` leaves it to the agent. */
+            enabled?: boolean | null;
         };
         /** @description A host and its agent's presence. */
         HostDto: {
@@ -2127,6 +2179,101 @@ export interface operations {
                 };
             };
             /** @description Invalid; `issues` lists each problem */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such host */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    host_docker: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Host name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The container runtime */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HostDockerDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such host */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    set_host_docker: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Host name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HostDockerUpdate"];
+            };
+        };
+        responses: {
+            /** @description Saved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HostDockerSaved"];
+                };
+            };
+            /** @description Refused; `issues` says why */
             400: {
                 headers: {
                     [name: string]: unknown;

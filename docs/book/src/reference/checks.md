@@ -130,7 +130,7 @@ Laptops and hosts with a UPS battery exposed in `/sys/class/power_supply`. A hos
 
 ## Containers
 
-The four container checks run when `[docker] enabled = true`, reading the Docker Engine API at `[docker] endpoint` (a unix socket or a `tcp://` socket proxy). Containers listed in `[containers] ignore` are skipped by all of them. Targets are container names.
+The four container checks run when a container engine is in use on the host. With the default `[docker] enabled = "auto"`, the agent looks for one every time it starts: Docker, rootless Docker, Podman or rootless Podman, on their usual sockets. Set `[docker] endpoint` for another engine that answers the Docker Engine API, or a `tcp://` socket proxy. The host page in the web UI shows what was found and lets you switch it on or off; `enabled = true` or `false` in `agent.toml` fixes it and the UI can no longer change it. See [Docker and Podman](../guide/containers.md). Containers listed in `[containers] ignore` are skipped by all of them. Targets are container names.
 
 A container is *managed* when it carries the `com.docker.compose.project` label, which compose and Portainer stacks set. Only managed containers without auto-remove are learned, so a throwaway `docker run --rm` never becomes expected.
 

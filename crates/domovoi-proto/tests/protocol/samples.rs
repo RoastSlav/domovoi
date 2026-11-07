@@ -60,6 +60,7 @@ fn settings() -> AgentSettings {
     AgentSettings {
         heartbeat_seconds: 30,
         check_overrides,
+        docker: Some(false),
     }
 }
 
@@ -135,6 +136,14 @@ pub fn all() -> Vec<Message> {
                 interval_seconds: 300,
                 thresholds: BTreeMap::from([("warn_percent".to_owned(), serde_json::json!(85))]),
             }],
+            docker: Some(DockerReport {
+                engine: "Podman".to_owned(),
+                endpoint: "unix:///run/podman/podman.sock".to_owned(),
+                available: true,
+                locked: false,
+                enabled: true,
+                problem: None,
+            }),
         }
         .into(),
         Challenge {

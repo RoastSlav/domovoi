@@ -3,18 +3,19 @@
 
 use std::sync::Arc;
 
-use domovoi_checks::containers::{ContainerSource, DockerSource};
+use domovoi_checks::containers::{ContainerSource, Detection, detect};
 use domovoi_checks::hostfs::RealHostFs;
 use domovoi_checks::system::RealFsStats;
-use domovoi_config::AgentConfig;
+use domovoi_config::{AgentConfig, DockerMode};
 use domovoi_core::ports::{Clock, HostFs, ProcessExecutor, Redactor};
 
+use crate::docker::{self, DockerControl};
 use crate::error::AgentError;
 use crate::runtime::AgentDeps;
 
 /// Production [`AgentDeps`]: files and filesystem usage under `[agent] host_root`, check
-/// tools from the agent's own filesystem (where they run), and Docker at
-/// `[docker] endpoint` when `[docker] enabled`.
+/// tools from the agent's own filesystem (where they run), and the container runtime found
+/// at start-up, or at `[docker] endpoint` (ADR 0018).
 pub fn deps(
     config: &AgentConfig,
     executor: Arc<dyn ProcessExecutor>,
@@ -22,13 +23,26 @@ pub fn deps(
     redactor: Arc<dyn Redactor>,
 ) -> Result<AgentDeps, AgentError> {
     let root = &config.agent.host_root;
-    let container_source: Option<Arc<dyn ContainerSource>> = if config.docker.enabled {
-        let source = DockerSource::connect(&config.docker.endpoint)
-            .map_err(|err| AgentError::Checks(format!("[docker] endpoint: {err}")))?;
-        Some(Arc::new(source))
-    } else {
-        None
-    };
+    let mode = config.docker.enabled;
+    // Looked for on every start, never remembered: an engine installed since the last run
+    // is picked up by restarting the agent.
+    let detection = (mode != DockerMode::Off).then(|| {
+        detect(
+            config.docker.endpoint.as_deref(),
+            std::env::var("XDG_RUNTIME_DIR").ok().as_deref(),
+        )
+    });
+    let control = DockerControl::new(mode, detection.as_ref());
+    log_detection(mode, detection.as_ref());
+    let container_source: Option<Arc<dyn ContainerSource>> =
+        match docker::endpoint_for(mode, config.docker.endpoint.as_deref(), detection.as_ref()) {
+            Some(endpoint) => {
+                let source = docker::connect(&endpoint)
+                    .map_err(|err| AgentError::Checks(format!("[docker] endpoint: {err}")))?;
+                Some(control.gate(source))
+            }
+            None => None,
+        };
     Ok(AgentDeps {
         clock,
         executor,
@@ -36,8 +50,28 @@ pub fn deps(
         toolfs: Arc::new(RealHostFs::new("/")),
         fs_stats: Arc::new(RealFsStats::new(root.clone())),
         container_source,
+        docker: Some(control),
         redactor,
     })
+}
+
+fn log_detection(mode: DockerMode, detection: Option<&Detection>) {
+    match detection {
+        Some(Detection::Found { endpoint, engine }) => {
+            tracing::info!(%engine, %endpoint, "container runtime found");
+        }
+        Some(Detection::NotFound { endpoint, problem }) if mode == DockerMode::Auto => {
+            if problem.contains("may not use") {
+                tracing::warn!(%endpoint, %problem, "container runtime found but not usable");
+            } else {
+                tracing::info!(%problem, "no container runtime; the container checks are off");
+            }
+        }
+        Some(Detection::NotFound { endpoint, problem }) => {
+            tracing::warn!(%endpoint, %problem, "[docker] enabled = true, but nothing answered");
+        }
+        None => tracing::info!("[docker] enabled = false; the container checks are off"),
+    }
 }
 
 /// The host's files under `[agent] host_root`, for enrollment.

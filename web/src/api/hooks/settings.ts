@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../client";
 import { keys } from "../queryClient";
-import { call, type HostChecks, type Saved, type TestResult } from "../types";
+import { call, type HostChecks, type HostDocker, type Saved, type TestResult } from "../types";
 
 /** What happens to a secret on save: keep it, set a new value, or remove it. */
 export type SecretChange = { keep: true } | { set: string } | { clear: true };
@@ -77,6 +77,30 @@ export function useHostChecks(name: string) {
     queryKey: keys.hostChecks(name),
     queryFn: () =>
       call<HostChecks>(api.GET("/api/v1/hosts/{name}/checks", { params: { path: { name } } })),
+  });
+}
+
+/** A host's container runtime: what its agent found and the hub's choice. */
+export function useHostDocker(name: string) {
+  return useQuery({
+    queryKey: keys.hostDocker(name),
+    queryFn: () =>
+      call<HostDocker>(api.GET("/api/v1/hosts/{name}/docker", { params: { path: { name } } })),
+  });
+}
+
+/** Switches a host's container runtime on or off, or `null` to leave it to the agent. */
+export function useSetHostDocker(name: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (enabled: boolean | null) =>
+      call<{ delivered: boolean }>(
+        api.PUT("/api/v1/hosts/{name}/docker", {
+          params: { path: { name } },
+          body: { enabled },
+        }),
+      ),
+    onSuccess: () => client.invalidateQueries({ queryKey: keys.hostDocker(name) }),
   });
 }
 

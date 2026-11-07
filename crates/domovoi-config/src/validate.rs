@@ -236,12 +236,13 @@ impl Validate for AgentConfig {
                 "must use wss://, such as \"wss://hub.example.net:7421\"",
             ));
         }
-        let endpoint_ok =
-            Url::parse(&self.docker.endpoint).is_ok_and(|u| matches!(u.scheme(), "unix" | "tcp"));
+        let endpoint_ok = self.docker.endpoint.as_deref().is_none_or(|endpoint| {
+            Url::parse(endpoint).is_ok_and(|u| matches!(u.scheme(), "unix" | "tcp"))
+        });
         if !endpoint_ok {
             issues.push(ConfigIssue::error(
                 "docker.endpoint",
-                "must be unix:///path/to/docker.sock or tcp://host:port",
+                "must be unix:///path/to/engine.sock or tcp://host:port",
             ));
         }
         if let Some(relay) = &self.local_webhooks

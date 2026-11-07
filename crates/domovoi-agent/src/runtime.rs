@@ -43,6 +43,9 @@ pub struct AgentDeps {
     pub fs_stats: Arc<dyn FsStats>,
     /// The container runtime; `None` turns the container checks and tools off.
     pub container_source: Option<Arc<dyn ContainerSource>>,
+    /// The container runtime switch and what was found; `None` when nothing manages it
+    /// (tests and one-off runs).
+    pub docker: Option<crate::docker::DockerControl>,
     /// Scrubs secrets from what is sent to the hub.
     pub redactor: Arc<dyn Redactor>,
 }
@@ -105,7 +108,10 @@ impl AgentRuntime {
         let registry =
             Registry::build(&all_on, host_deps).map_err(|e| AgentError::Checks(e.to_string()))?;
         let check_infos = crate::overrides::report(&registry, &base);
-        let effective = EffectiveChecks::new(base);
+        let mut effective = EffectiveChecks::new(base);
+        if let Some(docker) = &deps.docker {
+            effective = effective.with_docker(docker.clone());
+        }
         let checks: Arc<dyn CheckSet> = Arc::new(registry);
         let commands = Arc::new(
             Commands::resolve(
@@ -192,6 +198,7 @@ impl AgentRuntime {
             fs: self.deps.hostfs.clone(),
             skills: self.requests.catalog.summaries(),
             checks: self.check_infos,
+            docker: self.deps.docker.as_ref().map(|d| d.report().clone()),
             overrides: Some(self.effective),
             spool: self.spool.clone(),
             jitter: self.jitter,

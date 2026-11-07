@@ -174,6 +174,7 @@ mod common {
             toolfs: fs,
             fs_stats: Arc::new(NoStats),
             container_source: None,
+            docker: None,
             redactor: Arc::new(ListRedactor::new(Vec::<String>::new())),
         };
         let runtime = AgentRuntime::new(config, deps).await.unwrap();

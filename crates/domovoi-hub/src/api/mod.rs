@@ -13,6 +13,7 @@ pub mod notes_import;
 mod actions;
 mod auth;
 mod events;
+mod host_docker;
 pub(crate) mod hosts;
 pub(crate) mod incidents;
 mod notes;
@@ -299,6 +300,10 @@ pub fn routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(
             settings_write::host_checks,
             settings_write::set_host_checks
+        ))
+        .routes(routes!(
+            host_docker::host_docker,
+            host_docker::set_host_docker
         ))
         .routes(routes!(system::advisories))
         .routes(routes!(system::digest_preview))

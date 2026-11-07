@@ -22,6 +22,8 @@ pub struct Announce<'a> {
     pub skills: &'a [SkillSummary],
     /// Every check with its local settings.
     pub checks: &'a [CheckInfo],
+    /// What was found out about the container runtime.
+    pub docker: Option<&'a domovoi_proto::messages::DockerReport>,
 }
 
 /// Runs the handshake on a fresh connection and returns the hub's `welcome`.
@@ -42,6 +44,7 @@ pub async fn handshake(
         capabilities: Vec::new(),
         skills: announce.skills.to_vec(),
         checks: announce.checks.to_vec(),
+        docker: announce.docker.cloned(),
     };
     frame::send(transport, &Message::Hello(hello), None).await?;
     let challenge = match frame::expect(transport).await?.message {

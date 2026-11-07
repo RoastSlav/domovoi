@@ -35,3 +35,4 @@ An ADR records one decision that shapes the codebase: the context, the decision 
 | [0015](0015-user-editable-message-templates.md) | Let users edit routine message templates | Proposed |
 | [0016](0016-improvement-suggestions.md) | Suggest improvements from history, never apply them | Proposed |
 | [0017](0017-settings-managed-from-the-web-ui.md) | Manage settings from the web UI | Accepted |
+| [0018](0018-detect-the-container-runtime.md) | Detect the container runtime and let the hub switch it | Accepted |

@@ -161,19 +161,34 @@ expression: "AgentConfig::json_schema()"
       },
       "additionalProperties": false
     },
+    "DockerMode": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "string",
+          "enum": [
+            "auto"
+          ]
+        }
+      ]
+    },
     "DockerSection": {
-      "description": "`[docker]`.",
+      "description": "`[docker]`: the container runtime integration. It speaks the Docker Engine API, which\nDocker, Podman and compatible engines answer.",
       "type": "object",
       "properties": {
         "enabled": {
-          "description": "Whether container checks and skills are enabled. Default `false`.",
-          "type": "boolean",
-          "default": false
+          "description": "`\"auto\"`, `true` or `false`. `\"auto\"` (the default) uses an engine that answers on\nthe usual sockets and lets the hub switch it on or off for this host; `true` and\n`false` fix the choice here and the hub cannot change it.",
+          "$ref": "#/$defs/DockerMode"
         },
         "endpoint": {
-          "description": "`unix:///path/to/docker.sock` or `tcp://host:port` (for a socket proxy). Default\n`unix:///var/run/docker.sock`.",
-          "type": "string",
-          "default": "unix:///var/run/docker.sock"
+          "description": "`unix:///path/to/engine.sock` or `tcp://host:port` (for a socket proxy). Default:\nthe first of Docker's socket, rootless Docker's, Podman's and rootless Podman's that\nanswers.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
         }
       },
       "additionalProperties": false

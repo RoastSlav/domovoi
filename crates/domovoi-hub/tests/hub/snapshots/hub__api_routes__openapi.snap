@@ -706,6 +706,89 @@ expression: spec
         ],
         "type": "object"
       },
+      "HostDockerDto": {
+        "description": "A host's container runtime.",
+        "properties": {
+          "available": {
+            "description": "Whether an engine answered on the host, so it can be switched on.",
+            "type": "boolean"
+          },
+          "choice": {
+            "description": "The hub's saved choice; absent when the agent decides.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "connected": {
+            "description": "Whether the agent is connected. Nothing below is known while it is not.",
+            "type": "boolean"
+          },
+          "enabled": {
+            "description": "Whether the container checks and tools are in use on the host now.",
+            "type": "boolean"
+          },
+          "endpoint": {
+            "description": "The endpoint in use, or the one that failed; empty when there was none.",
+            "type": "string"
+          },
+          "engine": {
+            "description": "The engine found, such as `Docker` or `Podman`; empty when none.",
+            "type": "string"
+          },
+          "locked": {
+            "description": "Whether the agent's own config fixes the setting, so the hub cannot change it.",
+            "type": "boolean"
+          },
+          "problem": {
+            "description": "Why no engine can be used, in a sentence.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reported": {
+            "description": "Whether the agent reports its container runtime. False for an agent too old to.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "connected",
+          "reported",
+          "engine",
+          "endpoint",
+          "available",
+          "locked",
+          "enabled"
+        ],
+        "type": "object"
+      },
+      "HostDockerSaved": {
+        "description": "Whether the agent got the change now.",
+        "properties": {
+          "delivered": {
+            "description": "True when sent to the connected agent; false when it gets it on reconnect.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "delivered"
+        ],
+        "type": "object"
+      },
+      "HostDockerUpdate": {
+        "description": "The hub's choice for a host's container runtime.",
+        "properties": {
+          "enabled": {
+            "description": "`true` or `false` switches the runtime on or off; `null` leaves it to the agent.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
       "HostDto": {
         "description": "A host and its agent's presence.",
         "properties": {
@@ -2778,6 +2861,128 @@ expression: spec
           }
         },
         "summary": "Replaces a host's check overrides and sends them to its agent; no restart.",
+        "tags": [
+          "hosts"
+        ]
+      }
+    },
+    "/api/v1/hosts/{name}/docker": {
+      "get": {
+        "operationId": "host_docker",
+        "parameters": [
+          {
+            "description": "Host name",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HostDockerDto"
+                }
+              }
+            },
+            "description": "The container runtime"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such host"
+          }
+        },
+        "summary": "A host's container runtime: what its agent found and the hub's choice.",
+        "tags": [
+          "hosts"
+        ]
+      },
+      "put": {
+        "operationId": "set_host_docker",
+        "parameters": [
+          {
+            "description": "Host name",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HostDockerUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HostDockerSaved"
+                }
+              }
+            },
+            "description": "Saved"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused; `issues` says why"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such host"
+          }
+        },
+        "summary": "Switches a host's container runtime on or off from the hub, or leaves it to the agent;\nno restart. Refused when the agent's config fixes the setting or no engine was found.",
         "tags": [
           "hosts"
         ]

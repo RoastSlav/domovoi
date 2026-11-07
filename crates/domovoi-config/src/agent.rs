@@ -76,25 +76,84 @@ impl Default for PolicySection {
     }
 }
 
-/// `[docker]`.
+/// `[docker]`: the container runtime integration. It speaks the Docker Engine API, which
+/// Docker, Podman and compatible engines answer.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct DockerSection {
-    /// Whether container checks and skills are enabled. Default `false`.
+    /// `"auto"`, `true` or `false`. `"auto"` (the default) uses an engine that answers on
+    /// the usual sockets and lets the hub switch it on or off for this host; `true` and
+    /// `false` fix the choice here and the hub cannot change it.
     #[serde(default)]
-    pub enabled: bool,
-    /// `unix:///path/to/docker.sock` or `tcp://host:port` (for a socket proxy). Default
-    /// `unix:///var/run/docker.sock`.
-    #[serde(default = "default_docker_endpoint")]
-    pub endpoint: String,
+    pub enabled: DockerMode,
+    /// `unix:///path/to/engine.sock` or `tcp://host:port` (for a socket proxy). Default:
+    /// the first of Docker's socket, rootless Docker's, Podman's and rootless Podman's that
+    /// answers.
+    #[serde(default)]
+    pub endpoint: Option<String>,
 }
 
 impl Default for DockerSection {
     fn default() -> Self {
         Self {
-            enabled: false,
-            endpoint: default_docker_endpoint(),
+            enabled: DockerMode::Auto,
+            endpoint: None,
         }
+    }
+}
+
+/// How `[docker] enabled` is set.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DockerMode {
+    /// Use an engine that answers; the hub may switch it on or off.
+    #[default]
+    Auto,
+    /// Always use the engine at the endpoint; the hub cannot switch it off.
+    On,
+    /// Never use an engine; the hub cannot switch it on.
+    Off,
+}
+
+impl<'de> Deserialize<'de> for DockerMode {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Visitor;
+        impl serde::de::Visitor<'_> for Visitor {
+            type Value = DockerMode;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("true, false or \"auto\"")
+            }
+
+            fn visit_bool<E>(self, value: bool) -> Result<DockerMode, E> {
+                Ok(if value {
+                    DockerMode::On
+                } else {
+                    DockerMode::Off
+                })
+            }
+
+            fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<DockerMode, E> {
+                match value {
+                    "auto" => Ok(DockerMode::Auto),
+                    "true" => Ok(DockerMode::On),
+                    "false" => Ok(DockerMode::Off),
+                    other => Err(E::invalid_value(serde::de::Unexpected::Str(other), &self)),
+                }
+            }
+        }
+        deserializer.deserialize_any(Visitor)
+    }
+}
+
+impl JsonSchema for DockerMode {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "DockerMode".into()
+    }
+
+    fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({
+            "anyOf": [{ "type": "boolean" }, { "type": "string", "enum": ["auto"] }]
+        })
     }
 }
 
@@ -209,9 +268,6 @@ fn default_host_root() -> PathBuf {
 }
 fn default_allow_risk() -> Vec<Risk> {
     vec![Risk::Read, Risk::Write]
-}
-fn default_docker_endpoint() -> String {
-    "unix:///var/run/docker.sock".to_owned()
 }
 fn default_baseline_expiry() -> Duration {
     Duration::secs(7 * 24 * 3600)

@@ -22,7 +22,7 @@ use std::path::Path;
 
 use serde::de::DeserializeOwned;
 
-pub use agent::AgentConfig;
+pub use agent::{AgentConfig, DockerMode};
 pub use duration::Duration;
 pub use env::{EnvSource, MapEnv, OverrideScope, SystemEnv};
 pub use hub::HubConfig;
