@@ -20,6 +20,7 @@ use super::dto::{
 };
 use super::error::{ApiError, ErrorBody};
 use super::rules;
+use super::tool_usage::tool_usage;
 use super::{ApiState, Authed, host_named, page};
 
 /// The longest follow-up question, in characters.
@@ -105,7 +106,9 @@ pub(crate) fn latest_triage(
     timeline
         .iter()
         .rev()
-        .filter(|e| e.kind.starts_with("triage.") && e.kind != "triage.followup")
+        .filter(|e| {
+            e.kind.starts_with("triage.") && e.kind != "triage.followup" && e.kind != "triage.tools"
+        })
         .find_map(|e| serde_json::from_value(e.detail.clone()).ok())
 }
 
@@ -191,6 +194,7 @@ pub(super) async fn detail(
         card: CardDto::from(&card),
         timeline: timeline.iter().map(TimelineEntryDto::from).collect(),
         actions: actions.iter().map(ActionDto::from).collect(),
+        tools_used: tool_usage(&timeline),
     }))
 }
 

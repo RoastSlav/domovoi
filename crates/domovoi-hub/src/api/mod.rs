@@ -20,6 +20,7 @@ mod rules;
 pub(crate) mod settings;
 mod settings_write;
 pub(crate) mod system;
+mod tool_usage;
 mod version;
 
 use std::sync::Arc;

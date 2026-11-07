@@ -262,6 +262,23 @@ pub struct IncidentDetail {
     pub timeline: Vec<TimelineEntryDto>,
     /// Actions for this incident, newest first.
     pub actions: Vec<ActionDto>,
+    /// Skills and tools used while triaging or answering, in first-call order.
+    pub tools_used: Vec<ToolUsageDto>,
+}
+
+/// One skill or tool used while triaging or answering a follow-up.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
+pub struct ToolUsageDto {
+    /// The tool name, or the skill name for a read skill.
+    pub name: String,
+    /// `tool` or `skill`.
+    pub kind: String,
+    /// How many times it was called.
+    pub calls: u32,
+    /// How many of those calls failed.
+    pub failures: u32,
+    /// When it was last called.
+    pub last_used: String,
 }
 
 /// An action.
