@@ -233,6 +233,8 @@ Reads the `ssh.service` and `sshd.service` journal since the last run (with a cu
 - The local network covers RFC 1918, loopback, link-local, CGNAT (100.64.0.0/10) and unique-local IPv6 (fc00::/7). IPv4-mapped IPv6 addresses are judged as IPv4.
 - **Target:** the user.
 - **Evidence:** `ip`, `method`, `port`, `network` (`lan` or `wan`) of the latest internet login, else of the latest login; `count`.
+- **Expected logins:** the host page lists the logins you expect — a user, where the login comes from, and how long the expectation lasts. A matching login is recorded as an incident and never alerts. The conditions are `network` equals `lan` for the local network, and `ip` inside an address range with `in_network`, for example `192.168.1.0/24`. A condition with a malformed range matches nothing, and an address never matches a range of the other family.
+- **Logging in now:** the host page opens a window of one hour, in which any login by anyone on that host is expected.
 
 ## `security.sudo_failure`
 

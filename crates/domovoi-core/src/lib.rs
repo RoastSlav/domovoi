@@ -6,6 +6,7 @@
 
 pub mod ack;
 pub mod action;
+pub mod addr;
 pub mod advisory;
 pub mod baseline;
 pub mod card;
@@ -33,6 +34,7 @@ pub use action::{
     ActionChange, ActionError, ActionRequest, ActionStatus, ApprovalChannel, HumanApproval,
     PlanHash, Principal, StoredAction,
 };
+pub use addr::{in_cidr, valid_cidr};
 pub use advisory::{Advisory, AdvisoryKind};
 pub use baseline::{BaselineEntry, BaselineKind, Criticality};
 pub use card::{Card, CardBadge, CardButton};
