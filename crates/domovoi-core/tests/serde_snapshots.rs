@@ -103,6 +103,7 @@ fn triage_report_json_snapshot() {
         ],
         verdict: Verdict::ActionNeeded,
         next_step: "Pin the previous image tag and restart.".to_owned(),
+        manual_steps: vec!["Check that the power cable is seated.".to_owned()],
         proposals: vec![ActionProposal {
             skill: SkillName::parse("restart_container").unwrap(),
             args: [("container".to_owned(), "plex".to_owned())].into(),
