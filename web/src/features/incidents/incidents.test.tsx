@@ -353,6 +353,51 @@ test("incident_detail_shows_card_fields_and_timeline", async () => {
   expect(screen.getByRole("button", { name: "Mute" })).toBeVisible();
 });
 
+test("check_by_hand_list_renders_under_the_card", async () => {
+  const d = detail();
+  route("GET /api/v1/incidents/{id}", () => ({
+    ...d,
+    report: {
+      headline: "The AC was unplugged",
+      summary: "The power supply check failed on this host.",
+      cause: "The mains cable came out of the wall bracket.",
+      evidence: [],
+      verdict: "ACTION_NEEDED",
+      next_step: "Reconnect the cable and power the machine on.",
+      manual_steps: [
+        "Check the cable is seated in the wall socket.",
+        "Check the PSU inlet on the case.",
+        "Look at the UPS display for a standby mode.",
+      ],
+      proposals: [],
+      details: "",
+    },
+  }));
+  renderAt("/incidents/inc-1", "/incidents/:id", <IncidentDetailPage />);
+
+  const checklist = await screen.findByRole("region", { name: "Check by hand" });
+  expect(checklist).toBeVisible();
+  expect(
+    within(checklist)
+      .getAllByRole("listitem")
+      .map((li) => li.textContent),
+    "the steps keep the order the model wrote them",
+  ).toEqual([
+    "Check the cable is seated in the wall socket.",
+    "Check the PSU inlet on the case.",
+    "Look at the UPS display for a standby mode.",
+  ]);
+});
+
+test("check_by_hand_is_absent_when_the_report_has_no_steps", async () => {
+  route("GET /api/v1/incidents/{id}", () => detail());
+  renderAt("/incidents/inc-1", "/incidents/:id", <IncidentDetailPage />);
+
+  const card = await screen.findByRole("region", { name: "Summary" });
+  expect(within(card).getByText("Backups filled /srv")).toBeVisible();
+  expect(screen.queryByRole("region", { name: "Check by hand" })).toBeNull();
+});
+
 test("incident_detail_lists_skills_and_tools_used_with_counts", async () => {
   route("GET /api/v1/incidents/{id}", () => ({
     ...detail(),
