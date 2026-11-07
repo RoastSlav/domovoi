@@ -27,7 +27,10 @@ pub(crate) fn tool_usage(timeline: &[IncidentTimelineEntry]) -> Vec<ToolUsageDto
                 Some(skill) => (skill, "skill"),
                 None => (tool.tool, "tool"),
             };
-            match rows.iter_mut().find(|row| row.name == name) {
+            match rows
+                .iter_mut()
+                .find(|row| row.name == name && row.kind == kind)
+            {
                 Some(row) => {
                     row.calls += 1;
                     if tool.failed {
@@ -75,10 +78,16 @@ mod tests {
                 "2026-01-01T00:01:00Z",
                 serde_json::json!([{"tool": "journal", "skill": null, "failed": true}]),
             ),
+            entry(
+                "2026-01-01T00:02:00Z",
+                serde_json::json!([
+                    {"tool": "run_read_skill", "skill": "journal", "failed": false},
+                ]),
+            ),
         ];
 
         let rows = tool_usage(&timeline);
-        assert_eq!(rows.len(), 2);
+        assert_eq!(rows.len(), 3, "a skill named like a tool stays its own row");
         assert_eq!(rows[0].name, "journal");
         assert_eq!(rows[0].kind, "tool");
         assert_eq!(rows[0].calls, 2);
@@ -87,6 +96,9 @@ mod tests {
         assert_eq!(rows[1].name, "logs");
         assert_eq!(rows[1].kind, "skill");
         assert_eq!(rows[1].failures, 1);
+        assert_eq!(rows[2].name, "journal");
+        assert_eq!(rows[2].kind, "skill");
+        assert_eq!(rows[2].calls, 1);
     }
 
     #[test]
@@ -106,7 +118,13 @@ mod tests {
             ),
             entry(
                 "triage.tools",
-                serde_json::json!({"during": "triage", "tools": []}),
+                // Shaped like an outcome so only the kind filter keeps it out.
+                serde_json::json!({
+                    "type": "skipped",
+                    "data": {"reason": "tools"},
+                    "during": "triage",
+                    "tools": [],
+                }),
             ),
         ];
         assert_eq!(
