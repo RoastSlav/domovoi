@@ -4,6 +4,27 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.0.6](https://github.com/RoastSlav/domovoi/compare/v0.0.5...v0.0.6) - 2026-11-07
+
+### Added
+
+- *(web)* expected SSH logins and a login window on the host page ([#67](https://github.com/RoastSlav/domovoi/pull/67))
+- *(hub)* dismiss an incident as a known condition ([#66](https://github.com/RoastSlav/domovoi/pull/66))
+- *(engine)* run triage again from scratch without duplicate proposals ([#61](https://github.com/RoastSlav/domovoi/pull/61))
+- *(engine)* triage skipped by the hourly cap or failed runs again on its own ([#59](https://github.com/RoastSlav/domovoi/pull/59))
+- *(web)* manage known conditions from the web UI ([#63](https://github.com/RoastSlav/domovoi/pull/63))
+- *(hub)* distinguish hub-only host from offline hosts in UI ([#56](https://github.com/RoastSlav/domovoi/pull/56))
+- *(hub)* discord test fills a placeholder approver when none listed ([#53](https://github.com/RoastSlav/domovoi/pull/53))
+- *(hub)* widen the API request timeout so retry-triage survives slow local models ([#54](https://github.com/RoastSlav/domovoi/pull/54))
+
+### Fixed
+
+- *(engine)* bound triage retries across mixed timelines and freed slots ([#60](https://github.com/RoastSlav/domovoi/pull/60))
+
+### Other
+
+- add TESTING.md for running CI checks and the app locally ([#57](https://github.com/RoastSlav/domovoi/pull/57))
+
 ## [0.0.5](https://github.com/RoastSlav/domovoi/compare/v0.0.4...v0.0.5) - 2026-11-04
 
 ### Fixed
