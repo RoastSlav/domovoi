@@ -10,6 +10,73 @@ export interface SectionSpec {
 
 const fixed = (fields: FieldSpec[]) => () => fields;
 
+/** The fields of one `[llm.*]` provider. `prefix` is `llm.primary` or `llm.secondary`. */
+function providerFields(prefix: string): FieldSpec[] {
+  const http = { path: `${prefix}.kind`, values: ["anthropic", "openai_compatible"] };
+  const cli = { path: `${prefix}.kind`, values: ["cli"] };
+  const primary = prefix === "llm.primary";
+  return [
+    {
+      path: `${prefix}.kind`,
+      label: "Provider",
+      kind: "select",
+      options: ["", "anthropic", "openai_compatible", "cli"],
+      ...(primary
+        ? {}
+        : { hint: "Used when the main model is unavailable. Leave empty for none." }),
+    },
+    {
+      path: `${prefix}.model`,
+      label: "Model",
+      kind: primary ? "model" : "text",
+      visibleWhen: http,
+    },
+    {
+      path: `${prefix}.base_url`,
+      label: "Base URL",
+      kind: "text",
+      placeholder: "http://localhost:11434/v1",
+      hint: "API root. Required for OpenAI-compatible providers; optional for Anthropic proxies.",
+      visibleWhen: http,
+    },
+    { path: `${prefix}.api_key`, label: "API key", kind: "secret", visibleWhen: http },
+    {
+      path: `${prefix}.cli.preset`,
+      label: "CLI preset",
+      kind: "select",
+      options: ["", "claude", "codex"],
+      visibleWhen: cli,
+    },
+    {
+      path: `${prefix}.cli.command`,
+      label: "CLI program",
+      kind: "text",
+      placeholder: "/usr/local/bin/claude",
+      visibleWhen: cli,
+    },
+    {
+      path: `${prefix}.timeout`,
+      label: "Longest silence",
+      kind: "text",
+      placeholder: "2m",
+      hint: "How long the model may produce nothing before the call fails. Answers are streamed, so the clock restarts with every token. For a CLI it is the whole run.",
+      visibleWhen: { path: `${prefix}.kind`, values: ["anthropic", "openai_compatible", "cli"] },
+    },
+    {
+      path: `${prefix}.price.input_per_mtok_usd`,
+      label: "Input price (USD per million tokens)",
+      kind: "number",
+      visibleWhen: http,
+    },
+    {
+      path: `${prefix}.price.output_per_mtok_usd`,
+      label: "Output price (USD per million tokens)",
+      kind: "number",
+      visibleWhen: http,
+    },
+  ];
+}
+
 /** The hub's sections, in page order. */
 export const SECTIONS: SectionSpec[] = [
   {
@@ -121,60 +188,25 @@ export const SECTIONS: SectionSpec[] = [
     title: "Models and triage",
     test: "llm",
     fields: fixed([
-      {
-        path: "llm.primary.kind",
-        label: "Provider",
-        kind: "select",
-        options: ["", "anthropic", "openai_compatible", "cli"],
-      },
-      {
-        path: "llm.primary.model",
-        label: "Model",
-        kind: "model",
-        visibleWhen: {
-          path: "llm.primary.kind",
-          values: ["anthropic", "openai_compatible"],
-        },
-      },
-      {
-        path: "llm.primary.base_url",
-        label: "Base URL",
-        kind: "text",
-        placeholder: "http://localhost:11434/v1",
-        hint: "API root. Required for OpenAI-compatible providers; optional for Anthropic proxies.",
-        visibleWhen: {
-          path: "llm.primary.kind",
-          values: ["anthropic", "openai_compatible"],
-        },
-      },
-      {
-        path: "llm.primary.api_key",
-        label: "API key",
-        kind: "secret",
-        visibleWhen: {
-          path: "llm.primary.kind",
-          values: ["anthropic", "openai_compatible"],
-        },
-      },
-      {
-        path: "llm.primary.cli.preset",
-        label: "CLI preset",
-        kind: "select",
-        options: ["", "claude", "codex"],
-        visibleWhen: { path: "llm.primary.kind", values: ["cli"] },
-      },
-      {
-        path: "llm.primary.cli.command",
-        label: "CLI program",
-        kind: "text",
-        placeholder: "/usr/local/bin/claude",
-        visibleWhen: { path: "llm.primary.kind", values: ["cli"] },
-      },
+      ...providerFields("llm.primary"),
       { path: "triage.enabled", label: "Triage incidents with the model", kind: "bool" },
       { path: "triage.monthly_budget_usd", label: "Monthly budget (USD)", kind: "number" },
       { path: "triage.concurrency", label: "Runs at once", kind: "number" },
       { path: "triage.per_hour_runs", label: "Runs per hour", kind: "number" },
+      { path: "triage.cache_days", label: "Reuse a report for (days)", kind: "number" },
+      { path: "triage.per_run.tool_calls", label: "Tool calls per run", kind: "number" },
+      {
+        path: "triage.per_run.seconds",
+        label: "Seconds per run",
+        kind: "number",
+        hint: "After this long the model is told to answer with what it has. It does not cut a model call short.",
+      },
+      { path: "triage.per_run.output_tokens", label: "Output tokens per run", kind: "number" },
     ]),
+  },
+  {
+    title: "Fallback model",
+    fields: fixed(providerFields("llm.secondary")),
   },
   {
     title: "Webhooks",
