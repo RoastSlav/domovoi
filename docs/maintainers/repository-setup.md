@@ -31,3 +31,12 @@ Create `release` (used by release-plz PRs), `bug`, `enhancement`, `triage`, `sec
 4. Verify: `gh attestation verify domovoi-v0.1.0-x86_64-unknown-linux-musl.tar.gz --repo RoastSlav/domovoi`.
 
 On the very first release-plz run, check the release PR carefully: confirm all crates moved to the same version and the changelog lists commits from every crate. If not, adjust `release-plz.toml` before merging.
+
+### When a release has no binaries
+
+The tag and the GitHub release exist before the builds start, so a failed build leaves a release with only `install.sh`, and release-plz will not create that release again. Do not delete the tag or bump the version. Either:
+
+- Re-run the failed run from the Actions page. It finds the tag on its commit and builds again, using the workflow file as it was at that commit.
+- Rebuild the tag with the current workflow file: `gh workflow run release.yml -f tag=v0.1.0`. This moves the `:latest` and `major.minor` image tags, so use it only for the newest release.
+
+Either way, `gh release view v0.1.0 --json assets --jq '.assets[].name'` should then list an archive and a `.sha256` file for each target, plus `install.sh`.
