@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.0.7](https://github.com/RoastSlav/domovoi/compare/v0.0.6...v0.0.7) - 2026-11-08
+
+### Added
+
+- log_summary and service_list starter skills ([#80](https://github.com/RoastSlav/domovoi/pull/80))
+- power_status and hardware_health starter skills ([#73](https://github.com/RoastSlav/domovoi/pull/73))
+- *(agent)* detect Docker and Podman and let the hub switch them ([#72](https://github.com/RoastSlav/domovoi/pull/72))
+- skill details dialog with README, limits and recent runs ([#83](https://github.com/RoastSlav/domovoi/pull/83))
+- add a manual-steps checklist to triage reports and the incident page ([#79](https://github.com/RoastSlav/domovoi/pull/79))
+- *(llm)* stream model responses and make the timeout configurable ([#71](https://github.com/RoastSlav/domovoi/pull/71))
+- show the host profile in triage, chat and the note ([#82](https://github.com/RoastSlav/domovoi/pull/82))
+- *(web)* show the skills and tools used on the incident page ([#69](https://github.com/RoastSlav/domovoi/pull/69))
+- *(hub)* collect, store and show the host profile ([#81](https://github.com/RoastSlav/domovoi/pull/81))
+
 ## [0.0.6](https://github.com/RoastSlav/domovoi/compare/v0.0.5...v0.0.6) - 2026-11-07
 
 ### Added
