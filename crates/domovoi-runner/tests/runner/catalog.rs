@@ -60,7 +60,7 @@ fn oversized_readme_is_cut_on_a_character_boundary() {
     let (catalog, _) = SkillCatalog::load(dir.path());
     let summaries = catalog.summaries();
     assert_eq!(summaries.len(), 1);
-    let text = summaries[0].readme.unwrap();
+    let text = summaries[0].readme.as_ref().unwrap();
     assert_eq!(
         text.len(),
         8190,
