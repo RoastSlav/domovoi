@@ -89,3 +89,121 @@ async fn triage_sees_the_profile_summary_but_not_the_tool_output_behind_it() {
         "the generated profile is not listed again where the model searches notes",
     );
 }
+
+/// A note an installation wrote before the hub changed its note keeps the older raw output
+/// heading: that output must stay out of the request as well, until the note is refreshed.
+#[tokio::test]
+async fn a_profile_note_the_hub_wrote_earlier_cuts_its_tool_output_too() {
+    let w = world(Setup::default()).await;
+    w.primary.push_text(report());
+    let note = Note {
+        id: NoteId::new(),
+        host: Some(host_id()),
+        title: "Host profile: nas".to_owned(),
+        body_markdown: [
+            "# Host profile: nas",
+            "",
+            "Agent version 0.5.9.",
+            "",
+            "## What the machine looks like",
+            "",
+            "Debian GNU/Linux 12 on x86_64, 4 logical CPUs, 32 GiB memory",
+            "",
+            "## What the tools said",
+            "",
+            "### Overview",
+            "",
+            "```",
+            "uptime: 41 days and the raw output an old note never sends",
+            "```",
+        ]
+        .join("\n")
+        .to_owned(),
+        tags: [PROFILE_TAG, "generated"]
+            .iter()
+            .map(|tag| tag.to_string())
+            .collect(),
+        updated_at: T0,
+    };
+    NoteRepo::upsert(&*w.store, &note).await.unwrap();
+
+    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+
+    let requests = w.primary.requests();
+    let first = requests.first().expect("the model was asked once");
+    let shown = seen(first);
+    assert!(
+        shown.contains("Host profile (the normal state of this host)"),
+        "the profile still has its own part",
+    );
+    assert!(
+        shown.contains("4 logical CPUs, 32 GiB memory"),
+        "the text before the older heading reaches the model",
+    );
+    assert!(
+        !shown.contains("the raw output an old note never sends"),
+        "the tool output behind the older heading stays out of the request",
+    );
+}
+
+/// The profile note carries the incident's own words and can rank among the search results:
+/// it must not take one of the three places a person's runbook notes would have had.
+#[tokio::test]
+async fn the_profile_note_never_takes_a_place_from_the_host_notes() {
+    let w = world(Setup::default()).await;
+    w.primary.push_text(report());
+    let profile = Note {
+        id: NoteId::new(),
+        host: Some(host_id()),
+        title: "Host profile: nas".to_owned(),
+        body_markdown: [
+            "# Host profile: nas",
+            "",
+            "## Summary",
+            "",
+            "docker container nginx runs healthy: nfsd container and cups container",
+            "",
+            "## Details",
+            "",
+            "```",
+            "name image state nginx docker container",
+            "```",
+        ]
+        .join("\n")
+        .to_owned(),
+        tags: [PROFILE_TAG, "generated"]
+            .iter()
+            .map(|tag| tag.to_string())
+            .collect(),
+        updated_at: T0,
+    };
+    NoteRepo::upsert(&*w.store, &profile).await.unwrap();
+    w.note("nginx runbook one", "docker container nginx runbook one")
+        .await;
+    w.note("nginx runbook two", "docker container nginx runbook two")
+        .await;
+    w.note(
+        "nginx runbook three",
+        "docker container nginx runbook three",
+    )
+    .await;
+
+    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+
+    let requests = w.primary.requests();
+    let first = requests.first().expect("the model was asked once");
+    let shown = seen(first);
+    for title in [
+        "nginx runbook one",
+        "nginx runbook two",
+        "nginx runbook three",
+    ]
+    .iter()
+    {
+        assert!(
+            shown.contains(title),
+            "all three runbook notes are listed: {}",
+            title,
+        );
+    }
+}
