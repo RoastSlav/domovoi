@@ -162,6 +162,7 @@ impl SkillManifest {
             manifest_hash: self.manifest_hash(),
             timeout: self.timeout,
             verify: self.verify.clone(),
+            readme: None,
         }
     }
 }
@@ -190,6 +191,9 @@ pub struct SkillSummary {
     /// How to check that a write skill worked.
     #[serde(default)]
     pub verify: Option<VerifySpec>,
+    /// The skill folder's README.md, at most 8 KiB; absent when there is none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub readme: Option<String>,
 }
 
 fn default_summary_timeout() -> SignedDuration {

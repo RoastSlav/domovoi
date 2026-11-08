@@ -37,6 +37,7 @@ fn summary(risk: Risk) -> SkillSummary {
         manifest_hash: "ab".repeat(32).parse().unwrap(),
         timeout: jiff::SignedDuration::from_secs(60),
         verify: None,
+        readme: None,
     }
 }
 

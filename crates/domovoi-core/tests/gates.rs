@@ -85,6 +85,7 @@ fn destructive_actions_cannot_be_approved_from_chat() {
         manifest_hash: "00".repeat(32).parse::<ManifestHash>().unwrap(),
         timeout: jiff::SignedDuration::from_secs(60),
         verify: None,
+        readme: None,
     };
     let args = skill.validate_args(&Default::default()).unwrap();
     let now = Timestamp::UNIX_EPOCH;
