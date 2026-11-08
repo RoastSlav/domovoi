@@ -28,8 +28,8 @@ function Gaps({ sections }: { sections: ProfileSection[] }) {
 
 /**
  * What this machine looks like while it behaves normally, as the hub collected it.
- * Triage reads this to tell new problems from the usual state; the hub collects a
- * profile about every minute, and the button asks its agent for a new one now.
+ * The hub checks every minute and collects when there is none, when the agent version or
+ * machine facts changed, or a week has passed; the button collects one now.
  */
 export function ProfileTab({ host, connected }: { host: string; connected: boolean }) {
   const profile = useProfile(host);
@@ -59,8 +59,8 @@ export function ProfileTab({ host, connected }: { host: string; connected: boole
   return (
     <>
       <p className={styles.hint}>
-        What this machine looks like when things are normal. Triage reads this to tell new problems
-        from the usual state.
+        What this machine looks like when things are normal. The hub checks every minute and
+        collects when there is none, when the machine changed or a week passed.
       </p>
       <p>
         Collected <RelativeTime at={seen.collected_at} />
