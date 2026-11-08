@@ -1,6 +1,6 @@
 //! Asks one host's agent what its machine looks like while it behaves normally.
 //!
-//! Every request is a read tool from the closed [`crate::domovoi_core::ReadToolCall`]
+//! Every request is a read tool from the closed [`domovoi_core::ReadToolCall`]
 //! enum, so collecting a profile cannot change the machine it describes. A tool that
 //! fails, times out or is refused becomes a section saying so: one missing part does
 //! not throw away a profile, but the gap has to be visible in it.
@@ -191,11 +191,17 @@ pub(crate) async fn collect(deps: &ProfileDeps, host: &Host) -> Result<HostProfi
     ]
     .to_vec();
     let summaries = deps.link.skills(host.id);
-    for skill in summaries
-        .iter()
-        .filter(|skill| skill.risk == Risk::Read)
-        .take(MAX_SKILL_SECTIONS)
-    {
+    let mut asked = 0;
+    for skill in summaries.iter().filter(|skill| skill.risk == Risk::Read) {
+        if skill.params.iter().any(|param| param.required) {
+            let why = Err("skipped, needs arguments".to_owned());
+            sections.push(section_of(skill.name.as_str(), why));
+            continue;
+        }
+        if asked >= MAX_SKILL_SECTIONS {
+            continue;
+        }
+        asked += 1;
         let call = ReadToolCall::RunReadSkill {
             skill: skill.name.clone(),
             args: BTreeMap::new(),

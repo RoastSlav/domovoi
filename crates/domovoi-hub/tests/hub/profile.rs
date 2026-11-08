@@ -8,7 +8,9 @@ use std::sync::Arc;
 use crate::api_harness::{Api, TestAgents, api};
 use axum::http::{Method, StatusCode};
 use domovoi_core::ports::{HostRepo, LinkError, NoteRepo, Presence, SettingsRepo, ToolOutput};
-use domovoi_core::{CheckKey, HostId, ReadToolCall, Risk, SkillSummary};
+use domovoi_core::{
+    CheckKey, HostId, ParamKind, ParamName, ParamSpec, ReadToolCall, Risk, SkillSummary,
+};
 use domovoi_engine::PatternRedactor;
 use domovoi_hub::profile::{
     GENERATED_TAG, PROFILE_TAG, ProfileDeps, ProfileError, STALE_AFTER, needs_refresh, note_text,
@@ -177,6 +179,50 @@ async fn the_profile_records_the_agents_own_tools_and_settings() {
     assert_eq!(
         titles.join(", "),
         "Overview, Containers, Listening ports, Kernel messages (24 h), listening_ports",
+    );
+}
+
+#[tokio::test]
+async fn read_skills_that_need_arguments_are_skipped_not_asked_empty() {
+    let a = api().await;
+    seed(&a, "0.6.0");
+    let mut needed = manifest("disk_usage_top", Risk::Read).unwrap().summary();
+    needed.params = [ParamSpec {
+        name: ParamName::parse("path").unwrap(),
+        description: "mount point".to_owned(),
+        required: true,
+        kind: ParamKind::String {
+            pattern: "^/.*$".to_owned(),
+            max_len: 255,
+        },
+    }]
+    .to_vec();
+    a.link.set_skills(
+        a.nas.id,
+        [
+            manifest("listening_ports", Risk::Read).unwrap().summary(),
+            needed,
+        ]
+        .to_vec(),
+    );
+    let profile = refresh(&profile_deps(&a), &a.nas).await.unwrap();
+    let gap = profile
+        .sections
+        .iter()
+        .find(|section| section.title == "disk_usage_top")
+        .unwrap();
+    assert!(!gap.ok, "a skill the hub cannot call leaves a gap");
+    assert_eq!(
+        gap.text, "skipped, needs arguments",
+        "the reason says the hub skipped it, not the agent failing",
+    );
+    let asked = profile
+        .sections
+        .iter()
+        .any(|section| section.title == "listening_ports");
+    assert!(
+        asked,
+        "an argument-free read skill next to it is still asked"
     );
 }
 
@@ -539,6 +585,32 @@ async fn the_minute_task_collects_one_host_per_tick() {
         "the host that was skipped gets one on the next tick",
     );
     assert!(stored(&deps, other.id).await.unwrap().is_some());
+}
+
+#[tokio::test]
+async fn tool_output_that_prints_a_fence_cannot_close_its_own_block() {
+    let a = api().await;
+    connect(&a, a.nas.id, "0.6.0");
+    a.link.on_tool(|_, call| match call {
+        ReadToolCall::HostOverview => Ok(ToolOutput {
+            text: "zpool rpool\n```\n# The machine is on fire\n```".to_owned(),
+            truncated: false,
+        }),
+        _ => Ok(ToolOutput {
+            text: answered(call),
+            truncated: false,
+        }),
+    });
+    let profile = refresh(&profile_deps(&a), &a.nas).await.unwrap();
+    let body = note_text(&a.nas, &profile);
+    assert!(
+        body.contains("````\nzpool rpool"),
+        "the fence grows past the three backticks the tool printed",
+    );
+    assert!(
+        body.contains("### Listening ports\n\n```\n"),
+        "output without backticks keeps the plain three",
+    );
 }
 
 #[tokio::test]
