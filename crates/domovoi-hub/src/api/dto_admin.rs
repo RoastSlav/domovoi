@@ -147,6 +147,15 @@ pub struct ParamDto {
     pub kind: serde_json::Value,
 }
 
+/// How the hub checks that a write skill worked.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
+pub struct VerifyDto {
+    /// Whether the hub re-runs the originating check.
+    pub recheck: bool,
+    /// How long to wait before re-running it, in seconds.
+    pub delay_secs: i64,
+}
+
 /// A skill on a host.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
 pub struct SkillDto {
@@ -162,6 +171,12 @@ pub struct SkillDto {
     pub applies_to: Vec<String>,
     /// How long one run may take, in seconds.
     pub timeout_secs: i64,
+    /// Hash of the full manifest the agent has, as hex.
+    pub manifest_hash: String,
+    /// How the hub verifies a write skill, when it declares one.
+    pub verify: Option<VerifyDto>,
+    /// The skill folder's README.md, at most 8 KiB; absent when there is none.
+    pub readme: Option<String>,
 }
 
 /// A note.

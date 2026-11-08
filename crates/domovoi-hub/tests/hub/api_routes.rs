@@ -278,17 +278,22 @@ async fn hosts_enrollment_skills_and_notes() {
     let revoke = a.post("/api/v1/hosts/nas/revoke", &login, json!({})).await;
     assert_eq!(revoke.body["revoked"], false);
 
-    a.link.set_skills(
-        a.nas.id,
-        vec![
-            domovoi_testkit::build::manifest("restart_container", Risk::Write)
-                .unwrap()
-                .summary(),
-        ],
-    );
+    let restart = domovoi_testkit::build::manifest("restart_container", Risk::Write).unwrap();
+    let mut restart_summary = restart.summary();
+    restart_summary.readme = Some("# Restart container\n\nRestarts one container.".to_string());
+    a.link.set_skills(a.nas.id, vec![restart_summary]);
     let skills = a.get("/api/v1/hosts/nas/skills", &login).await;
     assert_eq!(skills.body[0]["name"], "restart_container");
     assert_eq!(skills.body[0]["timeout_secs"], 60);
+    assert_eq!(
+        skills.body[0]["manifest_hash"],
+        restart.manifest_hash().to_string()
+    );
+    assert_eq!(
+        skills.body[0]["readme"],
+        "# Restart container\n\nRestarts one container."
+    );
+    assert!(skills.body[0]["verify"].is_null());
 
     let created = a
         .post(

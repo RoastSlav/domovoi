@@ -1417,10 +1417,14 @@ export interface components {
             applies_to: string[];
             /** @description What it does. */
             description: string;
+            /** @description Hash of the full manifest the agent has, as hex. */
+            manifest_hash: string;
             /** @description Skill name. */
             name: string;
             /** @description Declared parameters. */
             params: components["schemas"]["ParamDto"][];
+            /** @description The skill folder's README.md, at most 8 KiB; absent when there is none. */
+            readme?: string | null;
             /** @description `read`, `write` or `destructive`. */
             risk: string;
             /**
@@ -1428,6 +1432,7 @@ export interface components {
              * @description How long one run may take, in seconds.
              */
             timeout_secs: number;
+            verify?: components["schemas"]["VerifyDto"] | null;
         };
         /** @description A file a notes import left out. */
         SkippedFileDto: {
@@ -1550,6 +1555,16 @@ export interface components {
             id: string;
             /** @description Login name. */
             username: string;
+        };
+        /** @description How the hub checks that a write skill worked. */
+        VerifyDto: {
+            /**
+             * Format: int64
+             * @description How long to wait before re-running it, in seconds.
+             */
+            delay_secs: number;
+            /** @description Whether the hub re-runs the originating check. */
+            recheck: boolean;
         };
         /** @description One inbound webhook. */
         WebhookSettings: {
