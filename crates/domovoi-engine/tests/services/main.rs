@@ -21,4 +21,6 @@ mod limits;
 #[cfg(test)]
 mod redact;
 #[cfg(test)]
+mod report;
+#[cfg(test)]
 mod turns;

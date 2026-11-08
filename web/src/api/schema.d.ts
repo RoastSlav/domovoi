@@ -1292,6 +1292,8 @@ export interface components {
             evidence: components["schemas"]["EvidenceDto"][];
             /** @description What is wrong, in one line. */
             headline: string;
+            /** @description Steps a person does by hand, in order. */
+            manual_steps: string[];
             /** @description The single next step. */
             next_step: string;
             /** @description Suggested actions. */

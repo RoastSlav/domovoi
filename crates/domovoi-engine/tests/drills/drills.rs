@@ -23,7 +23,9 @@ mod tests {
     use std::sync::Arc;
 
     use domovoi_core::ports::LlmProvider;
+    use domovoi_core::{ActionStatus, ReadToolCall, TriageOutcome};
     use domovoi_llm::{ProviderKind, ProviderSettings};
+    use domovoi_testkit::link::LinkRequest;
     use secrecy::SecretString;
 
     use crate::format::{Drill, load_all};
@@ -116,6 +118,46 @@ mod tests {
             results.iter().all(|r| r.passed),
             "a drill failed:\n{report}"
         );
+    }
+
+    /// A fix only a person can do is investigated by running the read skills the host
+    /// offers, and the steps are written into the report: nothing is left as a proposal a
+    /// human would have to approve, which a read skill never should be.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_check_by_hand_incident_runs_a_read_skill_and_proposes_nothing() {
+        let drills = load_all();
+        let drill = drills
+            .iter()
+            .find(|d| d.name == "ac_unplugged_check_by_hand")
+            .expect("the check-by-hand drill is present");
+        let outcome = run(drill, Model::Scripted).await;
+
+        let skill_ran = outcome.link.iter().any(|request| {
+            matches!(
+                request,
+                LinkRequest::Tool {
+                    call: ReadToolCall::RunReadSkill { skill, .. },
+                    ..
+                } if skill.as_str() == "power_status"
+            )
+        });
+        assert!(
+            skill_ran,
+            "the power state was read on the host with power_status, not proposed",
+        );
+        assert!(
+            matches!(
+                &outcome.outcome,
+                TriageOutcome::Report(report) if !report.manual_steps.is_empty()
+            ),
+            "the report carries the steps for the person",
+        );
+        let proposed = outcome
+            .actions
+            .iter()
+            .filter(|action| *action.status() == ActionStatus::Proposed)
+            .count();
+        assert_eq!(proposed, 0, "a read skill must not come back as a proposal");
     }
 
     #[test]

@@ -8,8 +8,9 @@ mod tools;
 mod triage_tests;
 
 pub use report::{
-    ActionProposal, EvidenceRef, HEADLINE_MAX_CHARS, MAX_EVIDENCE, MAX_PROPOSALS,
-    NEXT_STEP_MAX_CHARS, TriageBudget, TriageOutcome, TriageReport,
+    ActionProposal, EvidenceRef, HEADLINE_MAX_CHARS, MANUAL_STEP_MAX_CHARS, MAX_EVIDENCE,
+    MAX_MANUAL_STEPS, MAX_PROPOSALS, NEXT_STEP_MAX_CHARS, TriageBudget, TriageOutcome,
+    TriageReport,
 };
 pub use tool_call::{
     MAX_DEVICE_CHARS, MAX_HISTORY, MAX_LINES, MAX_NAME_CHARS, MAX_NOTES, MAX_QUERY_CHARS,

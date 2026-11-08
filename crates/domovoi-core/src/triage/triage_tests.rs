@@ -12,6 +12,7 @@ fn report() -> TriageReport {
         evidence: Vec::new(),
         verdict: Verdict::ActionNeeded,
         next_step: "Roll back to the previous image tag.".to_owned(),
+        manual_steps: Vec::new(),
         proposals: Vec::new(),
         details: String::new(),
     }
@@ -44,6 +45,20 @@ fn triage_report_validation_rejects_long_headline_and_too_many_proposals() {
     let mut long_step = report();
     long_step.next_step = "x".repeat(301);
     assert_eq!(long_step.validate().unwrap_err().field, "next_step");
+}
+
+#[test]
+fn triage_report_rejects_six_manual_steps() {
+    let mut many = report();
+    many.manual_steps = vec!["Check the cable".to_owned(); 6];
+    assert_eq!(many.validate().unwrap_err().field, "manual_steps");
+}
+
+#[test]
+fn triage_report_rejects_a_manual_step_over_200_characters() {
+    let mut long = report();
+    long.manual_steps = vec!["x".repeat(201)];
+    assert_eq!(long.validate().unwrap_err().field, "manual_steps");
 }
 
 #[test]

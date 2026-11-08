@@ -48,6 +48,7 @@ export function IncidentDetailPage() {
 
   const { card, report, actions, timeline, host, tools_used } = incident.data;
   const summary = incident.data.incident;
+  const manualSteps = report?.manual_steps ?? [];
   return (
     <>
       <p className={styles.meta}>
@@ -55,6 +56,19 @@ export function IncidentDetailPage() {
         {summary.target ? ` ${summary.target}` : ""} · {summary.status}
       </p>
       <IncidentCard card={card} verdict={report?.verdict ?? summary.verdict ?? null} />
+
+      {manualSteps.length > 0 && (
+        <section className={styles.section} aria-labelledby="manual-heading">
+          <h2 id="manual-heading">Check by hand</h2>
+          <p className={styles.hint}>Written by the model; Domovoi does not run these.</p>
+          <ol className={styles.checklist}>
+            {manualSteps.map((step, index) => (
+              <li key={`${step}-${index}`}>{step}</li>
+            ))}
+          </ol>
+        </section>
+      )}
+
       <RetryTriage incidentId={summary.id} triage={incident.data.triage} />
       <IncidentControls incident={summary} />
 

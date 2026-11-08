@@ -20,6 +20,9 @@ expression: report
   ],
   "verdict": "ACTION_NEEDED",
   "next_step": "Pin the previous image tag and restart.",
+  "manual_steps": [
+    "Check that the power cable is seated."
+  ],
   "proposals": [
     {
       "skill": "restart_container",

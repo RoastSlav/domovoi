@@ -3969,6 +3969,7 @@
           "evidence",
           "verdict",
           "next_step",
+          "manual_steps",
           "proposals",
           "details"
         ],
@@ -3991,6 +3992,13 @@
           "headline": {
             "type": "string",
             "description": "What is wrong, in one line."
+          },
+          "manual_steps": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Steps a person does by hand, in order."
           },
           "next_step": {
             "type": "string",

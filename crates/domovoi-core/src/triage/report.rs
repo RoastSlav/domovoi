@@ -15,6 +15,10 @@ pub const NEXT_STEP_MAX_CHARS: usize = 300;
 pub const MAX_EVIDENCE: usize = 6;
 /// Most action proposals in one report.
 pub const MAX_PROPOSALS: usize = 3;
+/// Most by-hand steps in one report.
+pub const MAX_MANUAL_STEPS: usize = 5;
+/// Longest one by-hand step, in characters.
+pub const MANUAL_STEP_MAX_CHARS: usize = 200;
 
 /// One piece of evidence the model cites.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -59,6 +63,9 @@ pub struct TriageReport {
     pub verdict: Verdict,
     /// What a human should do next, at most [`NEXT_STEP_MAX_CHARS`] characters.
     pub next_step: String,
+    /// Steps a person does by hand, such as checking a cable; at most [`MAX_MANUAL_STEPS`].
+    #[serde(default)]
+    pub manual_steps: Vec<String>,
     /// Skills worth running, at most [`MAX_PROPOSALS`].
     #[serde(default)]
     pub proposals: Vec<ActionProposal>,
@@ -93,6 +100,22 @@ impl TriageReport {
             return Err(ValidationError::new(
                 "proposals",
                 format!("must have at most {MAX_PROPOSALS} items"),
+            ));
+        }
+        if self.manual_steps.len() > MAX_MANUAL_STEPS {
+            return Err(ValidationError::new(
+                "manual_steps",
+                format!("must have at most {MAX_MANUAL_STEPS} items"),
+            ));
+        }
+        if self
+            .manual_steps
+            .iter()
+            .any(|step| step.chars().count() > MANUAL_STEP_MAX_CHARS)
+        {
+            return Err(ValidationError::new(
+                "manual_steps",
+                format!("each must be at most {MANUAL_STEP_MAX_CHARS} characters"),
             ));
         }
         Ok(())

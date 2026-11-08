@@ -2,7 +2,7 @@
 
 use domovoi_core::TriageReport;
 use domovoi_core::ports::Redactor;
-use domovoi_core::triage::{HEADLINE_MAX_CHARS, NEXT_STEP_MAX_CHARS};
+use domovoi_core::triage::{HEADLINE_MAX_CHARS, MANUAL_STEP_MAX_CHARS, NEXT_STEP_MAX_CHARS};
 
 use crate::cards::clip;
 
@@ -22,9 +22,10 @@ pub fn parse_report(text: &str) -> Result<TriageReport, String> {
     Ok(report)
 }
 
-/// Redacts every free-text field of `report` (INV-5), keeping the length limits. Proposal
-/// arguments are left alone: they are validated against the skill's parameters, and
-/// changing them would change what runs.
+/// Redacts every free-text field of `report` (INV-5), keeping the length limits. By-hand
+/// steps that are empty after redaction are dropped, so the checklist never renders a blank
+/// item. Proposal arguments are left alone: they are validated against the skill's
+/// parameters, and changing them would change what runs.
 pub(crate) fn redact_report(redactor: &dyn Redactor, report: &mut TriageReport) {
     report.headline = clip(&redactor.redact(&report.headline), HEADLINE_MAX_CHARS);
     report.summary = redactor.redact(&report.summary);
@@ -35,6 +36,12 @@ pub(crate) fn redact_report(redactor: &dyn Redactor, report: &mut TriageReport) 
         evidence.source = redactor.redact(&evidence.source);
     }
     report.next_step = clip(&redactor.redact(&report.next_step), NEXT_STEP_MAX_CHARS);
+    report.manual_steps = report
+        .manual_steps
+        .iter()
+        .map(|step| clip(&redactor.redact(step), MANUAL_STEP_MAX_CHARS))
+        .filter(|step| !step.trim().is_empty())
+        .collect();
     for proposal in &mut report.proposals {
         proposal.reason = redactor.redact(&proposal.reason);
     }
