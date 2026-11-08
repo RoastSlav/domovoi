@@ -8,6 +8,8 @@ use jiff::Timestamp;
 
 use super::HostProfile;
 use super::ProfileFacts;
+use super::collect::CONTAINER_TITLE;
+use super::collect::LISTENER_TITLE;
 
 /// The most changes a profile keeps: enough for a person to scan, and the note is cut anyway.
 pub const MAX_CHANGES: usize = 20;
@@ -21,11 +23,15 @@ const GIB: u64 = 1024 * 1024 * 1024;
 #[must_use]
 pub fn changes(old: &HostProfile, new: &HostProfile) -> Vec<String> {
     let mut lines: Vec<String> = vec![];
-    for line in container_lines(old, new) {
-        lines.push(line);
+    if collected(old, CONTAINER_TITLE) && collected(new, CONTAINER_TITLE) {
+        for line in container_lines(old, new) {
+            lines.push(line);
+        }
     }
-    for line in named_lines("listening socket", &old.listeners, &new.listeners) {
-        lines.push(line);
+    if collected(old, LISTENER_TITLE) && collected(new, LISTENER_TITLE) {
+        for line in named_lines("listening socket", &old.listeners, &new.listeners) {
+            lines.push(line);
+        }
     }
     for line in named_lines("read skill", &old.skills, &new.skills) {
         lines.push(line);
@@ -61,6 +67,16 @@ pub fn recent_changes(
 /// A change line with the date it was collected on, so a reader knows when it happened.
 fn dated(at: Timestamp, line: &str) -> String {
     format!("{}: {}", at.strftime("%Y-%m-%d %H:%M UTC"), line)
+}
+
+/// Whether `profile` has that section answered: a tool that did not answer leaves an empty
+/// list behind, and comparing one of those against the previous profile would report the
+/// whole inventory as removed, so those parts are only compared when both answered.
+fn collected(profile: &HostProfile, title: &str) -> bool {
+    profile
+        .sections
+        .iter()
+        .any(|section| section.title == title && section.ok)
 }
 
 /// One difference line per container that came, went or changed image.
@@ -127,8 +143,8 @@ fn machine_lines(old: &ProfileFacts, new: &ProfileFacts) -> Vec<String> {
     if old.mem_total_bytes != new.mem_total_bytes {
         lines.push(format!(
             "memory changed from {} GiB to {} GiB",
-            old.mem_total_bytes / GIB,
-            new.mem_total_bytes / GIB
+            tenths_of_gib(old.mem_total_bytes),
+            tenths_of_gib(new.mem_total_bytes)
         ));
     }
     if old.cpu_count != new.cpu_count {
@@ -143,4 +159,11 @@ fn machine_lines(old: &ProfileFacts, new: &ProfileFacts) -> Vec<String> {
 /// A name or value in double quotes, so a line says where it ends.
 fn quoted(name: &str) -> String {
     format!("\"{}\"", name)
+}
+
+/// Memory as GiB with one decimal, so a change smaller than a whole gigabyte still says
+/// something: 32.2 GiB and 32.8 GiB are not both printed as 32.
+fn tenths_of_gib(bytes: u64) -> String {
+    let tenths = bytes * 10 / GIB;
+    format!("{}.{:01}", tenths / 10, tenths % 10)
 }

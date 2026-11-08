@@ -463,6 +463,56 @@ async fn the_profile_diff_names_a_listening_socket_that_left() {
 }
 
 #[tokio::test]
+async fn a_failed_container_query_invents_no_removals() {
+    let a = api().await;
+    seed(&a, "0.6.0");
+    let before = refresh(&profile_deps(&a), &a.nas).await.unwrap();
+    a.link.on_tool(|_, call| match call {
+        ReadToolCall::DockerPs { .. } => Err(LinkError::Timeout),
+        _ => Ok(ToolOutput {
+            text: answered(call),
+            truncated: false,
+        }),
+    });
+    let after = refresh(&profile_deps(&a), &a.nas).await.unwrap();
+    assert!(
+        after.containers.is_empty(),
+        "a query that did not answer leaves no inventory behind"
+    );
+    let expected: Vec<String> = vec![];
+    assert_eq!(
+        changes(&before, &after),
+        expected,
+        "containers that are still there are not reported as removed because docker did not answer",
+    );
+}
+
+#[tokio::test]
+async fn a_failed_port_query_invents_no_socket_removals() {
+    let a = api().await;
+    seed(&a, "0.6.0");
+    let before = refresh(&profile_deps(&a), &a.nas).await.unwrap();
+    a.link.on_tool(|_, call| match call {
+        ReadToolCall::ListeningPorts => Err(LinkError::Timeout),
+        _ => Ok(ToolOutput {
+            text: answered(call),
+            truncated: false,
+        }),
+    });
+    let after = refresh(&profile_deps(&a), &a.nas).await.unwrap();
+    assert!(
+        after.listeners.is_empty(),
+        "a query that did not answer leaves no sockets behind"
+    );
+    let expected: Vec<String> = vec![];
+    assert_eq!(
+        changes(&before, &after),
+        expected,
+        "sockets that are still listening are not reported as removed because the tool did not answer",
+    );
+}
+
+#[tokio::test]
 async fn the_profile_diff_names_a_read_skill_that_arrived() {
     let a = api().await;
     seed(&a, "0.6.0");
@@ -542,8 +592,27 @@ async fn the_profile_diff_names_more_memory() {
     let lines = changes(&before, &after);
     assert_eq!(
         lines,
-        [format!("memory changed from {} GiB to {} GiB", 32, 64)].to_vec(),
+        [format!(
+            "memory changed from {} GiB to {} GiB",
+            "32.0", "64.0"
+        )]
+        .to_vec(),
         "memory is printed in the unit a person reads",
+    );
+}
+
+#[tokio::test]
+async fn a_memory_change_smaller_than_a_gigabyte_still_says_something() {
+    let a = api().await;
+    seed(&a, "0.6.0");
+    let before = refresh(&profile_deps(&a), &a.nas).await.unwrap();
+    let mut after = before.clone();
+    after.facts.mem_total_bytes += 200 * 1024 * 1024;
+    let lines = changes(&before, &after);
+    assert_eq!(
+        lines,
+        ["memory changed from 32.0 GiB to 32.1 GiB"].to_vec(),
+        "the line shows the difference, not two equal whole numbers",
     );
 }
 
