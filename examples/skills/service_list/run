@@ -1,0 +1,16 @@
+#!/bin/sh
+# Running and failed systemd services, and enabled timers. Reads only.
+set -u
+
+if command -v systemctl >/dev/null 2>&1; then
+    echo "== running services"
+    systemctl list-units --type=service --state=running --no-legend --plain --no-pager
+    echo
+    echo "== failed services"
+    systemctl list-units --type=service --state=failed --no-legend --plain --no-pager
+    echo
+    echo "== timers"
+    systemctl list-timers --no-legend --no-pager
+else
+    echo "systemctl not available"
+fi

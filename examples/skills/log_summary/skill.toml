@@ -1,0 +1,6 @@
+name = "log_summary"
+description = "Warnings and errors per program over the last 24 hours, and the 20 most recent errors."
+risk = "read"
+entry = "run"
+timeout = "30s"
+max_output_bytes = 32768

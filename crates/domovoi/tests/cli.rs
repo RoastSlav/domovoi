@@ -143,8 +143,10 @@ mod tests {
             .success()
             .stdout(contains("ok     power_status (read)"))
             .stdout(contains("ok     hardware_health (read)"))
+            .stdout(contains("ok     log_summary (read)"))
+            .stdout(contains("ok     service_list (read)"))
             .stdout(contains("ok     vacuum_journal (destructive)"))
-            .stdout(contains("9 valid, 0 with issues"));
+            .stdout(contains("11 valid, 0 with issues"));
     }
 
     /// The `hardware_health` starter skill must never wake sleeping disks, so every

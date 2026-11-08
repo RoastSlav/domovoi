@@ -1,0 +1,6 @@
+name = "service_list"
+description = "Running and failed systemd services, and enabled timers."
+risk = "read"
+entry = "run"
+timeout = "15s"
+max_output_bytes = 32768
