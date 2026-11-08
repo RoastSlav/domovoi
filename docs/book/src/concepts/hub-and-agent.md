@@ -22,6 +22,10 @@ The hub keeps one plain-text document per host: what that machine looks like whi
 
 The hub saves the profile as a note titled `Host profile: <name>` and tags it `generated`. Each refresh replaces that note's text, so the profile shows the newest collection only: the old one is gone, and the note is there for people to read, not to write in. The host page shows it as the "Profile" tab with when it was collected. The hub checks every minute, one host at a time, and collects when a host has no profile yet, when its agent version or machine facts changed, or when the stored profile is a week old. The tab's "Refresh" button asks its agent for a new one now.
 
+The note has three parts. `## Summary` lists the machine's OS and architecture, kernel, CPU count, memory, containers and listening sockets, the read skills and checks installed on the host, and a handful of recent kernel messages. `## Recent changes` shows dated lines — newest first — of what appeared, disappeared or changed since the last collection: containers, sockets, skills, the operating system, kernel, CPU count and memory. A first profile has no changes section. The hub keeps at most 20 change lines. `## Details` contains the raw tool output the summary was made from. Triage and the chat overview see only the summary and changes; the model reads the profile once and the host notes search excludes it so it does not appear there.
+
+Chat's `/status` command takes an optional host name. `/status <host>` (case-insensitive) answers with that machine's line and its profile summary, or says no profile has been collected yet.
+
 ## Versions
 
 A hub accepts agents on its own protocol version or one minor version behind; the Hosts page marks agents older than the hub. Upgrade the hub first, then the agents. See [Upgrading](../install/upgrading.md).

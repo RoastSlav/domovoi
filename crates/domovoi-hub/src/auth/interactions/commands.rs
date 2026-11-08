@@ -3,12 +3,12 @@
 
 use domovoi_chat::discord::ids::short_id;
 use domovoi_core::ports::{IncidentFilter, OutboundMessage, Page};
-use domovoi_core::{Incident, IncidentId};
+use domovoi_core::{Host, Incident, IncidentId};
 use jiff::SignedDuration;
 use serde_json::json;
 
 use super::{Accepted, Actor, InteractionAuthorizer};
-use crate::api::{hosts, system};
+use crate::api::{hosts, profile, system};
 
 /// The most incidents `/incidents` lists.
 pub const LIST_MAX: usize = 10;
@@ -60,7 +60,7 @@ impl InteractionAuthorizer {
     ) -> Result<Accepted, String> {
         let subject = format!("command:{name}");
         match name {
-            "status" => self.status(subject).await,
+            "status" => self.status(subject, args).await,
             "incidents" => self.incidents(subject).await,
             "mute" => self.mute(actor, args).await,
             "digest" => self.digest(subject).await,
@@ -68,7 +68,9 @@ impl InteractionAuthorizer {
         }
     }
 
-    async fn status(&self, subject: String) -> Result<Accepted, String> {
+    /// `/status`, or only the host named in the first argument when `/status <host>`
+    /// asks about one machine; its profile summary is appended to that host's line.
+    async fn status(&self, subject: String, args: &[String]) -> Result<Accepted, String> {
         let deps = self.api.deps();
         let all = deps
             .hosts
@@ -78,8 +80,28 @@ impl InteractionAuthorizer {
         if all.is_empty() {
             return Ok(Accepted::new("status", subject, "No hosts yet."));
         }
-        let mut lines = Vec::with_capacity(all.len());
-        for host in &all {
+        let wanted = args.first().map(|name| name.trim().to_lowercase());
+        let listed: Vec<Host> = match wanted.as_ref() {
+            None => all,
+            Some(name) => {
+                let found = all
+                    .iter()
+                    .filter(|host| host.name.to_string().to_lowercase() == name.as_str())
+                    .cloned()
+                    .collect::<Vec<Host>>();
+                if found.is_empty() {
+                    let names = all
+                        .iter()
+                        .map(|known| format!("{}", known.name))
+                        .collect::<Vec<String>>()
+                        .join(", ");
+                    return Err(format!("No host {}; the hosts are {}", name, names));
+                }
+                found
+            }
+        };
+        let mut lines = Vec::with_capacity(listed.len());
+        for host in &listed {
             let dto = hosts::host_dto(&self.api, host)
                 .await
                 .map_err(|_| TRY_AGAIN.to_owned())?;
@@ -93,7 +115,20 @@ impl InteractionAuthorizer {
                 1 => "1 open incident".to_owned(),
                 n => format!("{n} open incidents"),
             };
-            lines.push(format!("• **{}**: {agent}, {open}", dto.name));
+            let extra = match wanted.as_ref() {
+                None => String::new(),
+                Some(name) => {
+                    let summary = profile::summary_of_host(&self.api, host)
+                        .await
+                        .map_err(|_| TRY_AGAIN.to_owned())?;
+                    if summary.is_empty() {
+                        format!(" No profile yet for {name}.")
+                    } else {
+                        format!("\n{summary}")
+                    }
+                }
+            };
+            lines.push(format!("• **{}**: {agent}, {open}{extra}", dto.name));
         }
         Ok(Accepted::new("status", subject, lines.join("\n")))
     }

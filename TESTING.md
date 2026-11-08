@@ -19,9 +19,32 @@ CI runs on Linux (Ubuntu 24.04). The hub and the agent are Linux programs, so on
 
 `cargo xtask ci` works without nextest or cargo-deny. It falls back to `cargo test` and skips deny, and prints a note when it does.
 
+## While you work
+
+Run only the checks for what you changed. The full suite takes a long time, and CI runs all of it on every pull request, so there is no need to run it all by hand.
+
+```sh
+cargo fmt --all
+cargo clippy -p <crate> --all-targets -- -D warnings
+cargo nextest run -p <crate>                      # the crate you changed
+cargo nextest run -E 'rdeps(<crate>)'             # the crate and every crate that depends on it
+cd web && npx vitest run src/features/<area>      # web: only the tests for the area you changed
+```
+
+- Changed one crate and only its internals: test that crate.
+- Changed a public type, function, trait, protocol message or migration of a crate other crates use (`domovoi-core`, `domovoi-proto`, `domovoi-store`, `domovoi-testkit`): test the crate and its dependents with `rdeps(<crate>)`.
+- Changed several crates: run each one's tests.
+- Added or moved a module, or touched a `Cargo.toml`: also run `cargo xtask arch-check`, which is quick.
+- Touched `web/`: run the tests for the changed area, plus `npm run lint` and `npm run typecheck`.
+- Without nextest, use `cargo test -p <crate>`.
+
+When a changed crate has a `tests/gates.rs`, run it too; it is part of the crate's tests already.
+
+CI on GitHub runs the whole workspace, the web checks, deny and the rest on the pull request. A failure there that your scoped run missed is expected now and then; fix it on the branch. Run the full `cargo xtask ci` below only when you want the whole picture before pushing, for example after a change to a shared crate.
+
 ## Before you push
 
-Run one command from the repository root:
+To run everything CI runs, use one command from the repository root:
 
 ```sh
 cargo xtask ci --fast   # fmt, clippy, tests, feature-gated checks, arch-check, generated-file checks

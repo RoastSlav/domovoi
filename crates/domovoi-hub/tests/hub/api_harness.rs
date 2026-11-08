@@ -181,20 +181,26 @@ pub fn config() -> HubConfig {
 }
 
 pub async fn api() -> Api {
-    build(false, None).await
+    build(false, None, true).await
 }
 
 /// [`api`] with `notifier` taking digests.
 pub async fn api_with_notifier(notifier: Arc<dyn Notifier>) -> Api {
-    build(false, Some(notifier)).await
+    build(false, Some(notifier), true).await
 }
 
 /// [`api`] with triage on, answering from [`Api::llm`].
 pub async fn api_with_triage() -> Api {
-    build(true, None).await
+    build(true, None, true).await
 }
 
-async fn build(triage: bool, notifier: Option<Arc<dyn Notifier>>) -> Api {
+/// [`api`] whose hub was built without profile collection: the profile endpoints say they
+/// are unavailable, and the chat commands that only want the host's line still answer.
+pub async fn api_without_profiles() -> Api {
+    build(false, None, false).await
+}
+
+async fn build(triage: bool, notifier: Option<Arc<dyn Notifier>>, profiles: bool) -> Api {
     // The binary installs the process-wide provider; connection tests build HTTP clients.
     let _ = rustls::crypto::ring::default_provider().install_default();
     let dir = tempfile::tempdir().unwrap();
@@ -323,7 +329,7 @@ async fn build(triage: bool, notifier: Option<Arc<dyn Notifier>>) -> Api {
             link: link.clone(),
             hosts: store.clone(),
         }),
-        profiles: Some(ProfileDeps {
+        profiles: profiles.then(|| ProfileDeps {
             link: link.clone(),
             agents: Arc::new(TestAgents {
                 link: link.clone(),

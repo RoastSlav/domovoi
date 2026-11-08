@@ -12,9 +12,10 @@ use domovoi_core::{
     CheckKey, HostId, ParamKind, ParamName, ParamSpec, ReadToolCall, Risk, SkillSummary,
 };
 use domovoi_engine::PatternRedactor;
+use domovoi_hub::profile::diff::{MAX_CHANGES, changes, recent_changes};
 use domovoi_hub::profile::{
-    GENERATED_TAG, PROFILE_TAG, ProfileDeps, ProfileError, STALE_AFTER, needs_refresh, note_text,
-    profile_key, refresh, spawn, stored,
+    ContainerLine, GENERATED_TAG, HostProfile, PROFILE_TAG, ProfileDeps, ProfileError, STALE_AFTER,
+    needs_refresh, note_text, profile_key, refresh, spawn, stored,
 };
 use domovoi_proto::messages::{CheckInfo, HostFacts};
 use domovoi_testkit::build::{host, manifest};
@@ -349,7 +350,8 @@ async fn the_generated_note_names_the_machine_the_tools_described() {
     );
     assert!(body.contains("last kernel messages:"), "{}", body);
     assert!(body.contains("nfsd: read error on /srv"), "{}", body);
-    assert!(body.contains("## What the tools said"), "{}", body);
+    assert!(body.contains("## Details"), "{}", body);
+    assert!(body.contains("## Summary"), "{}", body);
     let notes = NoteRepo::list(&*a.store, Some(a.nas.id)).await.unwrap();
     assert_eq!(notes.len(), 1, "the hub wrote one note for the host");
     assert_eq!(
@@ -365,6 +367,333 @@ async fn the_generated_note_names_the_machine_the_tools_described() {
         notes[0].tags.iter().any(|tag| tag == GENERATED_TAG),
         "shown as generated in the UI"
     );
+}
+
+#[tokio::test]
+async fn the_profile_diff_names_a_container_that_arrived() {
+    let a = api().await;
+    seed(&a, "0.6.0");
+    let before = refresh(&profile_deps(&a), &a.nas).await.unwrap();
+    let mut after = before.clone();
+    after.containers.push(ContainerLine {
+        name: "backup".to_owned(),
+        image: "rsync:stable".to_owned(),
+        state: "running".to_owned(),
+        health: "-".to_owned(),
+        restarts: "0".to_owned(),
+    });
+    let lines = changes(&before, &after);
+    assert_eq!(
+        lines,
+        ["container \"backup\" added"].to_vec(),
+        "one line names the container that came",
+    );
+}
+
+#[tokio::test]
+async fn the_profile_diff_names_a_container_that_left() {
+    let a = api().await;
+    seed(&a, "0.6.0");
+    let before = refresh(&profile_deps(&a), &a.nas).await.unwrap();
+    let mut after = before.clone();
+    after.containers.remove(0);
+    let lines = changes(&before, &after);
+    assert_eq!(
+        lines,
+        [format!(
+            "container \"{}\" removed",
+            before.containers[0].name
+        )]
+        .to_vec(),
+        "one line names the container that left",
+    );
+}
+
+#[tokio::test]
+async fn the_profile_diff_names_a_container_that_changed_image() {
+    let a = api().await;
+    seed(&a, "0.6.0");
+    let before = refresh(&profile_deps(&a), &a.nas).await.unwrap();
+    let mut after = before.clone();
+    after.containers[0].image = "nginx:1.31".to_owned();
+    let lines = changes(&before, &after);
+    assert_eq!(
+        lines,
+        [format!(
+            "container \"{}\" image changed from \"{}\" to \"{}\"",
+            before.containers[0].name, before.containers[0].image, after.containers[0].image,
+        ),]
+        .to_vec(),
+        "the line quotes both images",
+    );
+}
+
+#[tokio::test]
+async fn the_profile_diff_names_a_listening_socket_that_arrived() {
+    let a = api().await;
+    seed(&a, "0.6.0");
+    let before = refresh(&profile_deps(&a), &a.nas).await.unwrap();
+    let mut after = before.clone();
+    after.listeners.push("8102 cups (LISTEN)".to_owned());
+    let lines = changes(&before, &after);
+    assert_eq!(
+        lines,
+        ["listening socket \"8102 cups (LISTEN)\" added"].to_vec(),
+        "one line names the socket that came",
+    );
+}
+
+#[tokio::test]
+async fn the_profile_diff_names_a_listening_socket_that_left() {
+    let a = api().await;
+    seed(&a, "0.6.0");
+    let before = refresh(&profile_deps(&a), &a.nas).await.unwrap();
+    let mut after = before.clone();
+    after.listeners.remove(0);
+    let lines = changes(&before, &after);
+    assert_eq!(
+        lines,
+        [format!(
+            "listening socket \"{}\" removed",
+            before.listeners[0]
+        )]
+        .to_vec(),
+        "one line names the socket that left",
+    );
+}
+
+#[tokio::test]
+async fn a_failed_container_query_invents_no_removals() {
+    let a = api().await;
+    seed(&a, "0.6.0");
+    let before = refresh(&profile_deps(&a), &a.nas).await.unwrap();
+    a.link.on_tool(|_, call| match call {
+        ReadToolCall::DockerPs { .. } => Err(LinkError::Timeout),
+        _ => Ok(ToolOutput {
+            text: answered(call),
+            truncated: false,
+        }),
+    });
+    let after = refresh(&profile_deps(&a), &a.nas).await.unwrap();
+    assert!(
+        after.containers.is_empty(),
+        "a query that did not answer leaves no inventory behind"
+    );
+    let expected: Vec<String> = vec![];
+    assert_eq!(
+        changes(&before, &after),
+        expected,
+        "containers that are still there are not reported as removed because docker did not answer",
+    );
+}
+
+#[tokio::test]
+async fn a_failed_port_query_invents_no_socket_removals() {
+    let a = api().await;
+    seed(&a, "0.6.0");
+    let before = refresh(&profile_deps(&a), &a.nas).await.unwrap();
+    a.link.on_tool(|_, call| match call {
+        ReadToolCall::ListeningPorts => Err(LinkError::Timeout),
+        _ => Ok(ToolOutput {
+            text: answered(call),
+            truncated: false,
+        }),
+    });
+    let after = refresh(&profile_deps(&a), &a.nas).await.unwrap();
+    assert!(
+        after.listeners.is_empty(),
+        "a query that did not answer leaves no sockets behind"
+    );
+    let expected: Vec<String> = vec![];
+    assert_eq!(
+        changes(&before, &after),
+        expected,
+        "sockets that are still listening are not reported as removed because the tool did not answer",
+    );
+}
+
+#[tokio::test]
+async fn the_profile_diff_names_a_read_skill_that_arrived() {
+    let a = api().await;
+    seed(&a, "0.6.0");
+    let before = refresh(&profile_deps(&a), &a.nas).await.unwrap();
+    let mut after = before.clone();
+    after.skills.push("show_pool (Read)".to_owned());
+    let lines = changes(&before, &after);
+    assert_eq!(
+        lines,
+        ["read skill \"show_pool (Read)\" added"].to_vec(),
+        "one line names the skill that came",
+    );
+}
+
+#[tokio::test]
+async fn the_profile_diff_names_a_read_skill_that_left() {
+    let a = api().await;
+    seed(&a, "0.6.0");
+    a.link.set_skills(a.nas.id, announced_many());
+    let before = refresh(&profile_deps(&a), &a.nas).await.unwrap();
+    let mut after = before.clone();
+    after.skills.remove(after.skills.len() - 1);
+    let last = before.skills[before.skills.len() - 1].clone();
+    let lines = changes(&before, &after);
+    assert_eq!(
+        lines,
+        [format!("read skill \"{}\" removed", last)].to_vec(),
+        "one line names the skill that left",
+    );
+}
+
+#[tokio::test]
+async fn the_profile_diff_names_a_new_operating_system() {
+    let a = api().await;
+    seed(&a, "0.6.0");
+    let before = refresh(&profile_deps(&a), &a.nas).await.unwrap();
+    let mut after = before.clone();
+    after.facts.os = "Ubuntu 24.04".to_owned();
+    let lines = changes(&before, &after);
+    assert_eq!(
+        lines,
+        [format!(
+            "os changed from \"{}\" to \"{}\"",
+            before.facts.os, after.facts.os,
+        ),]
+        .to_vec(),
+        "the line quotes both operating systems",
+    );
+}
+
+#[tokio::test]
+async fn the_profile_diff_names_a_new_kernel() {
+    let a = api().await;
+    seed(&a, "0.6.0");
+    let before = refresh(&profile_deps(&a), &a.nas).await.unwrap();
+    let mut after = before.clone();
+    after.facts.kernel = "6.13.0".to_owned();
+    let lines = changes(&before, &after);
+    assert_eq!(
+        lines,
+        [format!(
+            "kernel changed from \"{}\" to \"6.13.0\"",
+            before.facts.kernel,
+        ),]
+        .to_vec(),
+        "the line quotes both kernels",
+    );
+}
+
+#[tokio::test]
+async fn the_profile_diff_names_more_memory() {
+    let a = api().await;
+    seed(&a, "0.6.0");
+    let before = refresh(&profile_deps(&a), &a.nas).await.unwrap();
+    let mut after = before.clone();
+    after.facts.mem_total_bytes = 68_719_476_736;
+    let lines = changes(&before, &after);
+    assert_eq!(
+        lines,
+        [format!(
+            "memory changed from {} GiB to {} GiB",
+            "32.0", "64.0"
+        )]
+        .to_vec(),
+        "memory is printed in the unit a person reads",
+    );
+}
+
+#[tokio::test]
+async fn a_memory_change_smaller_than_a_gigabyte_still_says_something() {
+    let a = api().await;
+    seed(&a, "0.6.0");
+    let before = refresh(&profile_deps(&a), &a.nas).await.unwrap();
+    let mut after = before.clone();
+    after.facts.mem_total_bytes += 200 * 1024 * 1024;
+    let lines = changes(&before, &after);
+    assert_eq!(
+        lines,
+        ["memory changed from 32.0 GiB to 32.1 GiB"].to_vec(),
+        "the line shows the difference, not two equal whole numbers",
+    );
+}
+
+#[tokio::test]
+async fn the_profile_diff_names_more_cpus() {
+    let a = api().await;
+    seed(&a, "0.6.0");
+    let before = refresh(&profile_deps(&a), &a.nas).await.unwrap();
+    let mut after = before.clone();
+    after.facts.cpu_count = 8;
+    let lines = changes(&before, &after);
+    assert_eq!(
+        lines,
+        ["cpu count changed from 4 to 8"].to_vec(),
+        "the line counts the logical CPUs",
+    );
+}
+
+#[tokio::test]
+async fn two_identical_profile_snapshots_produce_no_diff_lines() {
+    let a = api().await;
+    seed(&a, "0.6.0");
+    let first = refresh(&profile_deps(&a), &a.nas).await.unwrap();
+    let second = refresh(&profile_deps(&a), &a.nas).await.unwrap();
+    let lines = changes(&first, &second);
+    assert!(
+        lines.is_empty(),
+        "identical snapshots give no lines: {}",
+        lines.join(",")
+    );
+}
+
+#[tokio::test]
+async fn the_note_shows_what_changed_since_the_last_refresh() {
+    let a = api().await;
+    seed(&a, "0.6.0");
+    let deps = profile_deps(&a);
+    let first = refresh(&deps, &a.nas).await.unwrap();
+    assert!(
+        first.changes.is_empty(),
+        "a first profile has no history yet"
+    );
+    a.link.set_facts(
+        a.nas.id,
+        HostFacts {
+            cpu_count: 8,
+            ..handshake(a.now())
+        },
+    );
+    let second = refresh(&deps, &a.nas).await.unwrap();
+    assert_eq!(
+        second.changes,
+        [format!(
+            "{}: cpu count changed from 4 to 8",
+            second.collected_at.strftime("%Y-%m-%d %H:%M UTC"),
+        ),]
+        .to_vec(),
+        "the change is dated with the refresh that found it",
+    );
+    let body = note_text(&a.nas, &second);
+    assert!(body.contains("## Recent changes"), "{}", body);
+    assert!(body.contains("cpu count changed from 4 to 8"), "{}", body);
+    let notes = NoteRepo::list(&*a.store, Some(a.nas.id)).await.unwrap();
+    assert_eq!(
+        notes[0].body_markdown, body,
+        "the stored note shows the change too"
+    );
+}
+
+#[tokio::test]
+async fn the_profile_keeps_only_the_twenty_newest_change_lines() {
+    let a = api().await;
+    seed(&a, "0.6.0");
+    let first = refresh(&profile_deps(&a), &a.nas).await.unwrap();
+    let mut older = first.clone();
+    older.changes = (1..31).map(|n| format!("kept {}", n)).collect();
+    let previous: Option<HostProfile> = Some(older);
+    let lines = recent_changes(&previous, a.now(), &first);
+    assert_eq!(lines.len(), MAX_CHANGES, "the cap holds");
+    let newest: Vec<String> = (1..21).map(|n| format!("kept {}", n)).collect();
+    assert_eq!(lines, newest, "the twenty newest kept lines come first");
 }
 
 #[tokio::test]

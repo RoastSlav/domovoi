@@ -18,7 +18,7 @@ use domovoi_testkit::build::manifest;
 use domovoi_testkit::{GatewayCall, RecordingGateway};
 use jiff::SignedDuration;
 
-use crate::api_harness::{Api, api, api_with_triage};
+use crate::api_harness::{Api, api, api_with_triage, api_without_profiles};
 
 /// The allowlisted Discord user.
 pub const ALLOWED: &str = "234567890123456789";
@@ -435,4 +435,28 @@ async fn commands_status_incidents_and_mute_by_short_id() {
     );
     let nope = c.authorizer.deliver(command("reboot", &[])).await;
     assert_eq!(rejected(&nope), "Unknown command /reboot");
+}
+
+#[tokio::test]
+async fn status_of_one_host_when_the_hub_collects_no_profiles() {
+    let a = api_without_profiles().await;
+    a.admin().await;
+    let c = chat(&a).await;
+    let command = |name: &str, args: &[&str]| {
+        interaction(
+            &a,
+            ALLOWED,
+            InteractionKind::Command {
+                name: name.to_owned(),
+                args: args.iter().map(|s| (*s).to_owned()).collect(),
+            },
+        )
+    };
+    let named = c.authorizer.deliver(command("status", &["NAS"])).await;
+    assert_eq!(
+        accepted(&named),
+        Some("• **nas**: offline, 1 open incident No profile yet for nas.")
+    );
+    let absent = c.authorizer.deliver(command("status", &["pantry"])).await;
+    assert_eq!(rejected(&absent), "No host pantry; the hosts are nas");
 }
