@@ -3,12 +3,13 @@
 //! A profile is what a machine looks like while it behaves normally: its facts, its
 //! containers, listening ports, the read skills it installed and the checks its agent
 //! leaves on, plus the raw tool output behind that. The hub collects one by asking its
-//! agent to run read tools (see [`crate::profile::collect::collect`]) and keeps it on the
+//! agent to run read tools (see `collect`) and keeps it on the
 //! hub only: as JSON under `host.<host id>.profile` in [`SettingsRepo`], and as a [`Note`]
-//! tagged `generated` that triage reads. Nothing like it is stored in an agent, and the
-//! note is replaced on every refresh, so writing in it is pointless. [`spawn`] runs the
-//! minute scheduler that collects one host per tick when it has no profile yet, its
-//! machine facts changed, or the stored profile is a week old.
+//! tagged `generated` so a note search can find it when its words match. Nothing
+//! like it is stored in an agent, and the note is replaced on every refresh, so writing
+//! in it is pointless. [`spawn`] runs the minute scheduler that collects one host per
+//! tick when it has no profile yet, its agent version or machine facts changed, or the
+//! stored profile is a week old.
 
 pub mod collect;
 mod render;
@@ -66,7 +67,7 @@ pub struct HostProfile {
 
 /// The machine facts a profile keeps.
 ///
-/// A copy of the handshake's [`crate::domovoi_proto::messages::HostFacts`] without the
+/// A copy of the handshake's [`domovoi_proto::messages::HostFacts`] without the
 /// boot id: it changes on every reboot, which says nothing a human reads here.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ProfileFacts {
@@ -257,6 +258,7 @@ pub(crate) async fn tick(deps: &ProfileDeps) {
         }
         if let Err(err) = refresh(deps, &host).await {
             tracing::warn!(%err, host = host.name.as_str(), "could not collect the host profile");
+            continue;
         }
         return;
     }
