@@ -38,7 +38,7 @@ fn folder_readme_is_reported_in_summaries() {
     let dir = tempfile::tempdir().unwrap();
     let folder = install_skill(dir.path(), "echo_args", "echo_args");
     std::fs::write(
-        &folder.join("README.md"),
+        folder.join("README.md"),
         "# Echo args\n\nEchoes its arguments.",
     )
     .unwrap();
@@ -56,7 +56,7 @@ fn folder_readme_is_reported_in_summaries() {
 fn oversized_readme_is_cut_on_a_character_boundary() {
     let dir = tempfile::tempdir().unwrap();
     let folder = install_skill(dir.path(), "echo_args", "echo_args");
-    std::fs::write(&folder.join("README.md"), "€".repeat(7000)).unwrap();
+    std::fs::write(folder.join("README.md"), "€".repeat(7000)).unwrap();
     let (catalog, _) = SkillCatalog::load(dir.path());
     let summaries = catalog.summaries();
     assert_eq!(summaries.len(), 1);
