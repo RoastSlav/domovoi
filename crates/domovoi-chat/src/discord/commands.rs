@@ -33,6 +33,7 @@ pub fn definitions() -> Vec<Command> {
             "Hosts and their open incidents",
             CommandType::ChatInput,
         )
+        .option(StringBuilder::new("host", "Only this host, by name").required(false))
         .build(),
         CommandBuilder::new(
             "incidents",
@@ -62,6 +63,10 @@ pub fn command_kind(data: &CommandData) -> Option<InteractionKind> {
     };
     let args = match data.name.as_str() {
         "mute" => vec![value("incident")?, value("duration")?],
+        "status" => match value("host") {
+            Some(host) => vec![host],
+            None => Vec::new(),
+        },
         _ => Vec::new(),
     };
     Some(InteractionKind::Command {
