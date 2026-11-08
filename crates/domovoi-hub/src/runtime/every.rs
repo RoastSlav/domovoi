@@ -11,7 +11,7 @@ use tokio_util::sync::CancellationToken;
 /// Scheduling from the start, not the end, matters when the clock moves while the job
 /// runs: a slow run, or a test setting the fake clock forward. The next run is then due
 /// at once, instead of `period` after the new time, so nothing waits a whole period late.
-pub(super) async fn every<F, Fut>(
+pub(crate) async fn every<F, Fut>(
     clock: Arc<dyn Clock>,
     period: SignedDuration,
     shutdown: CancellationToken,

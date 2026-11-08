@@ -6,7 +6,8 @@
 //! ```
 //!
 //! It serves on 127.0.0.1:7420, prints the setup link, and seeds an incident with a
-//! proposed write action and a destructive one. Press Enter to fire another incident and
+//! proposed write action and a destructive one, plus a host profile for `nas`. Press Enter
+//! to fire another incident and
 //! watch it arrive live. Without `embed-ui`, run `npm run dev` in `web/` against it.
 
 use std::collections::BTreeMap;
@@ -18,10 +19,11 @@ use async_trait::async_trait;
 use domovoi_config::{HubConfig, MapEnv};
 use domovoi_core::ports::{
     ActionRepo, Clock, HostRepo, IncidentFilter, IncidentRepo, Page, Presence, SkillOutput,
+    ToolOutput,
 };
 use domovoi_core::{
-    ActionRequest, CheckKey, HostId, HostName, Principal, Risk, Severity, Signal, SignalClass,
-    SkillSummary, SourceKind, TargetKey,
+    ActionRequest, CheckKey, HostId, HostName, Principal, ReadToolCall, Risk, Severity, Signal,
+    SignalClass, SkillSummary, SourceKind, TargetKey,
 };
 use domovoi_engine::{
     ActionDeps, ActionService, ActionSettings, EnginePolicy, IncidentManager, ManagerDeps,
@@ -32,7 +34,9 @@ use domovoi_hub::agent_server::{
 };
 use domovoi_hub::api::{AgentAdmin, ApiDeps, ApiState};
 use domovoi_hub::auth::{AuthState, WebIdentity};
+use domovoi_hub::profile::ProfileDeps;
 use domovoi_hub::router::router;
+use domovoi_proto::messages::{CheckInfo, HostFacts};
 use domovoi_store::{Store, StoreOptions};
 use domovoi_testkit::FakeAgentLink;
 use domovoi_testkit::build::{host, manifest};
@@ -105,6 +109,22 @@ impl AgentAdmin for DevAgents {
         let real = AgentAdmin::skills(&self.server, host);
         if real.is_empty() {
             domovoi_core::ports::AgentLink::skills(&*self.link, host)
+        } else {
+            real
+        }
+    }
+
+    fn facts(&self, host: HostId) -> Option<HostFacts> {
+        match AgentAdmin::facts(&self.server, host) {
+            Some(facts) => Some(facts),
+            None => self.link.host_facts(host),
+        }
+    }
+
+    fn checks(&self, host: HostId) -> Vec<CheckInfo> {
+        let real = AgentAdmin::checks(&self.server, host);
+        if real.is_empty() {
+            self.link.host_checks(host)
         } else {
             real
         }
@@ -262,6 +282,15 @@ async fn main() -> Result<()> {
     let [nas, pi] = hosts[..] else {
         return Err("two hosts expected".into());
     };
+    link.on_tool(|_, call| {
+        let text = match call {
+            ReadToolCall::HostOverview => ("uptime: 41 days\nload: 0.08 0.11 0.09\nmemory: 31 GiB total, 6.2 GiB used\ndisks:\n  /srv 2.0T 91%").to_owned(),
+            ReadToolCall::DockerPs { .. } => ("name\timage\tstate\thealth\trestarts\nnfsd\tnfs\tstarted\thealthy\t0\ndata\tpolardb\tstarted\tdegraded\t3").to_owned(),
+            ReadToolCall::ListeningPorts => ("2049 ephemeris (nfs)\n8101 samba (LISTEN) fd 12 (*:8101)").to_owned(),
+            _ => ("Nov 04 05:12 systemd[1]: Restarted job.").to_owned(),
+        };
+        Ok(ToolOutput { text, truncated: false })
+    });
     let skills = [
         ("restart_container", Risk::Write),
         ("delete_volume", Risk::Destructive),
@@ -276,6 +305,37 @@ async fn main() -> Result<()> {
             since: Timestamp::now(),
             version: env!("CARGO_PKG_VERSION").to_owned(),
         },
+    );
+    link.set_facts(
+        nas,
+        HostFacts {
+            hostname: "diskstation".to_owned(),
+            os: "Debian GNU/Linux 13".to_owned(),
+            kernel: "6.12.9".to_owned(),
+            arch: "x86_64".to_owned(),
+            cpu_count: 4,
+            mem_total_bytes: 34_359_738_368,
+            boot_time: Timestamp::now(),
+            boot_id: "8f2c1e4a6b0d".to_owned(),
+        },
+    );
+    link.set_checks(
+        nas,
+        [
+            CheckInfo {
+                key: CheckKey::parse("disk.usage")?,
+                enabled: true,
+                interval_seconds: 300,
+                thresholds: BTreeMap::new(),
+            },
+            CheckInfo {
+                key: CheckKey::parse("mem.used")?,
+                enabled: true,
+                interval_seconds: 60,
+                thresholds: BTreeMap::new(),
+            },
+        ]
+        .to_vec(),
     );
 
     let (bus, _) = broadcast::channel(256);
@@ -307,6 +367,18 @@ async fn main() -> Result<()> {
 
     let config = config()?;
     let server = agent_server(dir.path(), clock.clone(), store.clone(), manager.clone())?;
+    let profile_deps = ProfileDeps {
+        link: link.clone(),
+        agents: Arc::new(DevAgents {
+            server: server.clone(),
+            link: link.clone(),
+        }),
+        hosts: store.clone(),
+        notes: store.clone(),
+        settings: store.clone(),
+        clock: clock.clone(),
+        redactor: Arc::new(PatternRedactor::default()),
+    };
     let web = WebIdentity {
         public_url: Url::parse(&format!("http://{ADDR}"))?,
         trusted_proxies: Vec::new(),
@@ -334,6 +406,7 @@ async fn main() -> Result<()> {
             server: server.clone(),
             link: link.clone(),
         }),
+        profiles: Some(profile_deps.clone()),
         clock: clock.clone(),
         bus,
         config: Arc::new(config),
@@ -355,6 +428,11 @@ async fn main() -> Result<()> {
         )?])
         .await?;
     seed_actions(&store, nas).await?;
+    let found = HostRepo::get_host(&*store, nas).await?;
+    let Some(seeded) = found else {
+        return Err("the nas host is missing".into());
+    };
+    domovoi_hub::profile::refresh(&profile_deps, &seeded).await?;
 
     let listener = tokio::net::TcpListener::bind(ADDR).await?;
     let agents = tokio::net::TcpListener::bind(AGENT_ADDR).await?;
