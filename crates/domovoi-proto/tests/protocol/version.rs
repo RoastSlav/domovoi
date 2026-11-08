@@ -22,6 +22,6 @@ fn compatibility_matrix() {
 }
 
 #[test]
-fn current_version_is_one_zero() {
-    assert_eq!(PROTOCOL_VERSION.to_string(), "1.0");
+fn current_version_is_one_one() {
+    assert_eq!(PROTOCOL_VERSION.to_string(), "1.1");
 }

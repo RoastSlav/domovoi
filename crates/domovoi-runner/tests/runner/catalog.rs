@@ -30,6 +30,43 @@ fn valid_skills_load_with_hashes() {
     let summaries = catalog.summaries();
     assert_eq!(summaries.len(), 1);
     assert_eq!(summaries[0].manifest_hash, skill.manifest_hash());
+    assert!(summaries[0].readme.is_none());
+}
+
+#[test]
+fn folder_readme_is_reported_in_summaries() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = install_skill(dir.path(), "echo_args", "echo_args");
+    std::fs::write(
+        folder.join("README.md"),
+        "# Echo args\n\nEchoes its arguments.",
+    )
+    .unwrap();
+    let (catalog, issues) = SkillCatalog::load(dir.path());
+    assert!(issues.is_empty(), "{issues:#?}");
+    let summaries = catalog.summaries();
+    assert_eq!(summaries.len(), 1);
+    assert_eq!(
+        summaries[0].readme,
+        Some("# Echo args\n\nEchoes its arguments.".to_owned())
+    );
+}
+
+#[test]
+fn oversized_readme_is_cut_on_a_character_boundary() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = install_skill(dir.path(), "echo_args", "echo_args");
+    std::fs::write(folder.join("README.md"), "€".repeat(7000)).unwrap();
+    let (catalog, _) = SkillCatalog::load(dir.path());
+    let summaries = catalog.summaries();
+    assert_eq!(summaries.len(), 1);
+    let text = summaries[0].readme.as_ref().unwrap();
+    assert_eq!(
+        text.len(),
+        8190,
+        "8 KiB limit, lowered to a character boundary"
+    );
+    assert_eq!(text.chars().count(), text.len() / 3);
 }
 
 #[test]

@@ -4394,7 +4394,8 @@
           "risk",
           "params",
           "applies_to",
-          "timeout_secs"
+          "timeout_secs",
+          "manifest_hash"
         ],
         "properties": {
           "applies_to": {
@@ -4408,6 +4409,10 @@
             "type": "string",
             "description": "What it does."
           },
+          "manifest_hash": {
+            "type": "string",
+            "description": "Hash of the full manifest the agent has, as hex."
+          },
           "name": {
             "type": "string",
             "description": "Skill name."
@@ -4419,6 +4424,13 @@
             },
             "description": "Declared parameters."
           },
+          "readme": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The skill folder's README.md, at most 8 KiB; absent when there is none."
+          },
           "risk": {
             "type": "string",
             "description": "`read`, `write` or `destructive`."
@@ -4427,6 +4439,17 @@
             "type": "integer",
             "format": "int64",
             "description": "How long one run may take, in seconds."
+          },
+          "verify": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/VerifyDto",
+                "description": "How the hub verifies a write skill, when it declares one."
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       },
@@ -4685,6 +4708,25 @@
           "username": {
             "type": "string",
             "description": "Login name."
+          }
+        }
+      },
+      "VerifyDto": {
+        "type": "object",
+        "description": "How the hub checks that a write skill worked.",
+        "required": [
+          "recheck",
+          "delay_secs"
+        ],
+        "properties": {
+          "delay_secs": {
+            "type": "integer",
+            "format": "int64",
+            "description": "How long to wait before re-running it, in seconds."
+          },
+          "recheck": {
+            "type": "boolean",
+            "description": "Whether the hub re-runs the originating check."
           }
         }
       },

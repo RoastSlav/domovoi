@@ -14,7 +14,7 @@ pub struct ProtocolVersion {
 }
 
 /// The version this build speaks.
-pub const PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion { major: 1, minor: 0 };
+pub const PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion { major: 1, minor: 1 };
 
 /// Whether a hub at `hub` accepts an agent at `agent`: the same major, and the agent
 /// at most one minor behind and never ahead.

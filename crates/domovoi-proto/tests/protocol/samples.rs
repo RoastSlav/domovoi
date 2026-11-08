@@ -76,6 +76,7 @@ fn skill_summary() -> SkillSummary {
         }],
         "applies_to": ["container.restart_loop"],
         "manifest_hash": "ab".repeat(32),
+        "readme": "# Restart container\n\nRestarts one container managed by compose.",
     }))
     .unwrap()
 }

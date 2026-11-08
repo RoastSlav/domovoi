@@ -42,7 +42,7 @@ expression: "pretty(&message, reply)"
     },
     "protocol": {
       "major": 1,
-      "minor": 0
+      "minor": 1
     },
     "skills": [
       {
@@ -64,6 +64,7 @@ expression: "pretty(&message, reply)"
             "required": true
           }
         ],
+        "readme": "# Restart container\n\nRestarts one container managed by compose.",
         "risk": "write",
         "timeout": "1m",
         "verify": null

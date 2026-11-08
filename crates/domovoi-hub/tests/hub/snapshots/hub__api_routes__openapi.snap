@@ -1756,6 +1756,10 @@ expression: spec
             "description": "What it does.",
             "type": "string"
           },
+          "manifest_hash": {
+            "description": "Hash of the full manifest the agent has, as hex.",
+            "type": "string"
+          },
           "name": {
             "description": "Skill name.",
             "type": "string"
@@ -1767,6 +1771,13 @@ expression: spec
             },
             "type": "array"
           },
+          "readme": {
+            "description": "The skill folder's README.md, at most 8 KiB; absent when there is none.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "risk": {
             "description": "`read`, `write` or `destructive`.",
             "type": "string"
@@ -1775,6 +1786,17 @@ expression: spec
             "description": "How long one run may take, in seconds.",
             "format": "int64",
             "type": "integer"
+          },
+          "verify": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/VerifyDto",
+                "description": "How the hub verifies a write skill, when it declares one."
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -1783,7 +1805,8 @@ expression: spec
           "risk",
           "params",
           "applies_to",
-          "timeout_secs"
+          "timeout_secs",
+          "manifest_hash"
         ],
         "type": "object"
       },
@@ -2042,6 +2065,25 @@ expression: spec
         "required": [
           "id",
           "username"
+        ],
+        "type": "object"
+      },
+      "VerifyDto": {
+        "description": "How the hub checks that a write skill worked.",
+        "properties": {
+          "delay_secs": {
+            "description": "How long to wait before re-running it, in seconds.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "recheck": {
+            "description": "Whether the hub re-runs the originating check.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "recheck",
+          "delay_secs"
         ],
         "type": "object"
       },

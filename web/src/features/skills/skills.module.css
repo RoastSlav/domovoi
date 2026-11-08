@@ -64,3 +64,56 @@
   font-size: 0.85rem;
   color: var(--muted);
 }
+
+.name button {
+  background: none;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  margin: 0;
+  padding: 0;
+}
+
+.detail {
+  width: 100%;
+  border-collapse: collapse;
+  font: inherit;
+  font-size: 0.9rem;
+  margin: 0.5rem 0;
+}
+
+.detail caption {
+  caption-side: bottom;
+  color: var(--muted);
+  font-size: 0.85rem;
+  padding: 0.4rem 0 0;
+  text-align: start;
+}
+
+.detail th,
+.detail td {
+  border: 1px solid var(--border);
+  padding: 0.3rem 0.5rem;
+  text-align: left;
+  font-weight: normal;
+}
+
+.runsHead {
+  margin: 0.75rem 0 0;
+  font-size: 0.95rem;
+}
+
+.runs {
+  margin: 0.5rem 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.9rem;
+}
+
+.runs li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}

@@ -1,6 +1,9 @@
+import { useState } from "react";
+
 import { useSkills } from "../../api/hooks/hosts";
 import type { Skill } from "../../api/types";
 import { EmptyState } from "../../components/EmptyState";
+import { SkillDetail, kindText } from "./SkillDetail";
 import styles from "./skills.module.css";
 
 const GROUPS = [
@@ -9,24 +12,12 @@ const GROUPS = [
   ["destructive", "Destructive"],
 ] as const;
 
-/** A parameter's type and limits, from the JSON the API sends. */
-function kindText(kind: unknown): string {
-  if (typeof kind !== "object" || kind === null) {
-    return String(kind);
-  }
-  const { type, ...limits } = kind as Record<string, unknown>;
-  const extra = Object.entries(limits)
-    .map(([name, value]) => `${name} ${Array.isArray(value) ? value.join(" | ") : String(value)}`)
-    .join(", ");
-  return extra ? `${String(type)} (${extra})` : String(type);
-}
-
-function SkillCard({ skill }: { skill: Skill }) {
+function SkillCard({ skill, open }: { open: () => void; skill: Skill }) {
   const destructive = skill.risk === "destructive";
   return (
     <li className={styles.skill} data-risk={skill.risk}>
       <h4 className={styles.name}>
-        {skill.name}
+        <button onClick={open}>{skill.name}</button>
         {destructive && <span className={styles.danger}>Destructive</span>}
       </h4>
       <p>{skill.description}</p>
@@ -49,8 +40,9 @@ function SkillCard({ skill }: { skill: Skill }) {
   );
 }
 
-/** The skills `host`'s agent reported, grouped by risk. */
+/** The skills `host`'s agent reported, grouped by risk; clicking a name opens its details. */
 export function SkillList({ host }: { host: string }) {
+  const [opened, setOpened] = useState<string | null>(null);
   const skills = useSkills(host);
   if (skills.isPending) {
     return <p>Loading…</p>;
@@ -65,6 +57,7 @@ export function SkillList({ host }: { host: string }) {
       </EmptyState>
     );
   }
+  const openedSkill = skills.data.find((s) => s.name === opened);
   return (
     <>
       {GROUPS.map(([risk, label]) => {
@@ -79,12 +72,15 @@ export function SkillList({ host }: { host: string }) {
             </h3>
             <ul className={styles.list}>
               {group.map((skill) => (
-                <SkillCard key={skill.name} skill={skill} />
+                <SkillCard key={skill.name} open={() => setOpened(skill.name)} skill={skill} />
               ))}
             </ul>
           </section>
         );
       })}
+      {openedSkill && (
+        <SkillDetail host={host} onClose={() => setOpened(null)} skill={openedSkill} />
+      )}
     </>
   );
 }

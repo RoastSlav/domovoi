@@ -9,7 +9,9 @@ use domovoi_core::ports::{IncidentFilter, Page, Presence};
 use domovoi_core::{DigestFact, FactValue, HostKind, HostName};
 use jiff::SignedDuration;
 
-use super::dto_admin::{FactDto, HostDetailDto, HostDto, InviteDto, ParamDto, RevokeDto, SkillDto};
+use super::dto_admin::{
+    FactDto, HostDetailDto, HostDto, InviteDto, ParamDto, RevokeDto, SkillDto, VerifyDto,
+};
 use super::error::{ApiError, ErrorBody};
 use super::version::{HUB_VERSION, is_older};
 use super::{ApiState, Authed, host_named};
@@ -250,6 +252,12 @@ pub(super) async fn skills(
                 .collect(),
             applies_to: s.applies_to.iter().map(ToString::to_string).collect(),
             timeout_secs: s.timeout.as_secs(),
+            manifest_hash: s.manifest_hash.to_string(),
+            verify: s.verify.map(|v| VerifyDto {
+                recheck: v.recheck,
+                delay_secs: v.delay.as_secs(),
+            }),
+            readme: s.readme,
         })
         .collect();
     Ok(Json(skills))

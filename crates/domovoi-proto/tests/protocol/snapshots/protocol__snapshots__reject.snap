@@ -10,7 +10,7 @@ expression: "pretty(&message, reply)"
       "code": "incompatible",
       "hub": {
         "major": 1,
-        "minor": 0
+        "minor": 1
       }
     }
   },
