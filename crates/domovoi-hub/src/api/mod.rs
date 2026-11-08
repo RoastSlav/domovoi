@@ -17,7 +17,7 @@ mod host_docker;
 pub(crate) mod hosts;
 pub(crate) mod incidents;
 mod notes;
-mod profile;
+pub(crate) mod profile;
 mod rules;
 pub(crate) mod settings;
 mod settings_write;

@@ -1,8 +1,9 @@
-//! The note text a profile turns into: what the machine looks like, then the tool
-//! output it was made from.
+//! The note text a profile turns into: what the machine looks like, what changed since the
+//! last profile, then the tool output it was made from.
 //!
 //! The summary is short on purpose: a human reads it first, and a note search shows only
-//! one line of the note, so the words that matter are at the top. The raw sections follow
+//! one line of the note, so the words that matter are at the top. Everything before
+//! [`DETAILS_MARK`] is what triage and the chat overview are sent; the raw sections follow
 //! so nothing the tools said is hidden.
 
 use domovoi_core::Host;
@@ -12,11 +13,15 @@ use super::ProfileSection;
 use super::collect::KERNEL_TITLE;
 use super::cut;
 
+/// The mark in the note where the raw tool output starts: everything before it is the
+/// part a person scans and the part the model is sent, so triage and chat cut there.
+const DETAILS_MARK: &str = "\n## Details";
+
 /// The summary at the top of the note is cut to this many bytes.
-pub(crate) const SUMMARY_LIMIT: usize = 2 * 1024;
+const SUMMARY_LIMIT: usize = 2 * 1024;
 
 /// The whole note stays under this many bytes.
-pub(crate) const NOTE_LIMIT: usize = 64 * 1024;
+const NOTE_LIMIT: usize = 64 * 1024;
 
 /// Bytes in one GiB: memory is printed in the unit a person reads it.
 const GIB: u64 = 1024 * 1024 * 1024;
@@ -58,6 +63,19 @@ pub(crate) fn kernel_lines(profile: &HostProfile) -> Vec<String> {
             .map(|line| line.trim_end().to_owned())
             .collect(),
     }
+}
+
+/// The recent changes as the note shows them, empty when the machine has not changed.
+pub(crate) fn changes_block(profile: &HostProfile) -> String {
+    if profile.changes.is_empty() {
+        return String::new();
+    }
+    let lines = profile
+        .changes
+        .iter()
+        .map(|change| format!("- {}", change))
+        .collect::<Vec<String>>();
+    format!("## Recent changes\n\n{}", lines.join("\n"))
 }
 
 /// One block per section: a heading and what the tool said, fenced as text.
@@ -141,13 +159,32 @@ pub(crate) fn summary_lines(profile: &HostProfile) -> Vec<String> {
     lines
 }
 
-/// The whole note: the summary, then every section the tools answered.
+/// The whole note: the summary, what changed since the last profile, then the tool output.
 pub(crate) fn markdown(host: &Host, profile: &HostProfile) -> String {
     let summary = cut(summary_lines(profile).join("\n"), SUMMARY_LIMIT);
     let details = details_lines(profile).join("\n\n");
-    let text = format!(
-        "# Host profile: {}\n\n{}\n\nAgent version {}.\n\n## What the machine looks like\n\n{}\n\n## What the tools said\n\n{}",
-        host.name, GENERATED_LINE, profile.agent_version, summary, details,
-    );
-    cut(text, NOTE_LIMIT)
+    let blocks = [
+        format!("# Host profile: {}\n\n{}", host.name, GENERATED_LINE),
+        format!("Agent version {}.", profile.agent_version),
+        format!("## Summary\n\n{}", summary),
+        changes_block(profile),
+        format!("## Details\n\n{}", details),
+    ]
+    .iter()
+    .filter(|block| !block.trim().is_empty())
+    .map(|block| block.to_owned())
+    .collect::<Vec<String>>()
+    .join("\n\n");
+    cut(blocks, NOTE_LIMIT)
+}
+
+/// The part of the note a person scans and the model is sent: the summary and the recent
+/// changes, without the raw tool output. Triers and the chat overview cut here so they read
+/// the same words the host page shows.
+pub(crate) fn summary(host: &Host, profile: &HostProfile) -> String {
+    let text = markdown(host, profile);
+    match text.find(DETAILS_MARK) {
+        Some(at) => text[..at].trim_end().to_string(),
+        None => text,
+    }
 }

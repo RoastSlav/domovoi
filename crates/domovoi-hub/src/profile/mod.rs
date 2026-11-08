@@ -7,12 +7,15 @@
 //! hub only: as JSON under `host.<host id>.profile` in [`SettingsRepo`], and as a [`Note`]
 //! tagged `generated` so a note search can find it when its words match. Nothing
 //! like it is stored in an agent, and the note is replaced on every refresh, so writing
-//! in it is pointless. [`spawn`] runs the minute scheduler that collects one host per
+//! in it is pointless. Each refresh also records what came, went or changed since the
+//! stored profile, so the note can show what is new since the machine was last normal.
+//! [`spawn`] runs the minute scheduler that collects one host per
 //! tick when it has no profile yet, its agent version or machine facts changed, or the
 //! stored profile is a week old.
 
 pub mod collect;
-mod render;
+pub mod diff;
+pub(crate) mod render;
 
 use std::sync::Arc;
 
@@ -61,6 +64,10 @@ pub struct HostProfile {
     pub checks: Vec<String>,
     /// The raw tool output behind the fields above.
     pub sections: Vec<ProfileSection>,
+    /// The last changes between refreshes, newest first, each one dated. Kept so a person
+    /// and the model can tell what is new since the machine was last normal.
+    #[serde(default)]
+    pub changes: Vec<String>,
     /// The generated note that carries this profile's text, reused on refreshes.
     pub note: Option<NoteId>,
 }
@@ -205,10 +212,13 @@ pub fn note_text(host: &Host, profile: &HostProfile) -> String {
     render::markdown(host, profile)
 }
 
-/// Collects a profile for `host`, writes its note and saves it.
+/// Collects a profile for `host`, writes its note and saves it. The changes since the
+/// profile stored before are kept as dated lines, newest first, so the note can show
+/// what is new on the machine.
 pub async fn refresh(deps: &ProfileDeps, host: &Host) -> Result<HostProfile, ProfileError> {
     let previous = stored(deps, host.id).await?;
     let mut profile = collect::collect(deps, host).await?;
+    profile.changes = diff::recent_changes(&previous, profile.collected_at, &profile);
     let id = previous
         .and_then(|earlier| earlier.note)
         .unwrap_or(NoteId::new());

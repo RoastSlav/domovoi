@@ -218,6 +218,7 @@ pub(crate) async fn collect(deps: &ProfileDeps, host: &Host) -> Result<HostProfi
         skills: skills_of(summaries),
         checks: checks_of(deps.agents.checks(host.id)),
         sections,
+        changes: vec![],
         note: None,
     })
 }
