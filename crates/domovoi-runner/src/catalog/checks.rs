@@ -10,6 +10,26 @@ use crate::error::CatalogIssue;
 /// The manifest file name inside each skill folder.
 pub(crate) const MANIFEST_FILE: &str = "skill.toml";
 
+/// The human-written note inside each skill folder.
+pub(crate) const README_FILE: &str = "README.md";
+
+/// The most of a README the agent reports, in bytes.
+pub(crate) const README_LIMIT: usize = 8192;
+
+/// Reads `<dir>/README.md` if it is a regular file; anything wrong with it reads as no
+/// README, and a longer one is cut to [`README_LIMIT`] bytes on a character boundary.
+pub(crate) fn load_readme(dir: &Path) -> Option<String> {
+    let mut text = std::fs::read_to_string(dir.join(README_FILE)).ok()?;
+    if text.len() > README_LIMIT {
+        let mut cut = README_LIMIT;
+        while !text.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        text.truncate(cut);
+    }
+    Some(text)
+}
+
 /// Loads every folder under `dir`, in name order.
 pub(super) fn load_dir(dir: &Path) -> (Vec<LoadedSkill>, Vec<CatalogIssue>) {
     let mut skills = Vec::new();
@@ -72,7 +92,8 @@ fn load_skill(folder: &Path) -> Result<LoadedSkill, String> {
         .map_err(|err| format!("cannot resolve the skill folder: {err}"))?;
     check_folder(&dir)?;
     let entry_path = resolve_entry(&dir, &manifest.entry)?;
-    Ok(LoadedSkill::new(manifest, entry_path, dir))
+    let readme = load_readme(&dir);
+    Ok(LoadedSkill::new(manifest, entry_path, dir, readme))
 }
 
 /// Checks the entry of a loaded skill again, just before running it.

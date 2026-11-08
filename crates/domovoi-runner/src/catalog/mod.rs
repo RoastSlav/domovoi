@@ -18,6 +18,8 @@ pub struct LoadedSkill {
     manifest_hash: ManifestHash,
     entry_path: PathBuf,
     dir: PathBuf,
+    /// The folder's `README.md`, at most 8 KiB; absent when there is none.
+    readme: Option<String>,
 }
 
 impl LoadedSkill {
@@ -97,7 +99,14 @@ impl SkillCatalog {
     /// What the hub may know about each skill, ordered by name.
     #[must_use]
     pub fn summaries(&self) -> Vec<SkillSummary> {
-        self.skills.values().map(|s| s.manifest.summary()).collect()
+        self.skills
+            .values()
+            .map(|s| {
+                let mut summary = s.manifest.summary();
+                summary.readme = s.readme.clone();
+                summary
+            })
+            .collect()
     }
 
     /// Runs `skill` with `args` through `executor`.
@@ -137,12 +146,18 @@ impl SkillCatalog {
 }
 
 impl LoadedSkill {
-    pub(crate) fn new(manifest: SkillManifest, entry_path: PathBuf, dir: PathBuf) -> Self {
+    pub(crate) fn new(
+        manifest: SkillManifest,
+        entry_path: PathBuf,
+        dir: PathBuf,
+        readme: Option<String>,
+    ) -> Self {
         Self {
             manifest_hash: manifest.manifest_hash(),
             manifest,
             entry_path,
             dir,
+            readme,
         }
     }
 }
