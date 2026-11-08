@@ -1,0 +1,15 @@
+#!/bin/sh
+# Warnings and errors per program over the last 24 hours, and the 20 most recent errors. Reads only.
+set -u
+
+if command -v journalctl >/dev/null 2>&1; then
+    echo "== warnings and errors per program, last 24 h"
+    journalctl --priority=warning --since=-24h --no-pager --quiet --output=short \
+        | awk '{ p = $5; sub(/\[.*/, "", p); sub(/:$/, "", p); n[p]++ } END { for (p in n) printf "%7d %s\n", n[p], p }' \
+        | sort -rn | head -30
+    echo
+    echo "== most recent errors"
+    journalctl --priority=err --since=-24h --no-pager --quiet --output=short-iso --lines=20
+else
+    echo "journalctl not available"
+fi
