@@ -1,9 +1,9 @@
 //! The note text a profile turns into: what the machine looks like, then the tool
 //! output it was made from.
 //!
-//! The summary is short on purpose: triage reads the note to tell a new problem from
-//! the usual state of the machine, and a human opens it to check that the profile still
-//! describes their machine. The raw sections follow so nothing the tools said is hidden.
+//! The summary is short on purpose: a human reads it first, and a note search shows only
+//! one line of the note, so the words that matter are at the top. The raw sections follow
+//! so nothing the tools said is hidden.
 
 use domovoi_core::Host;
 
@@ -65,10 +65,30 @@ pub(crate) fn details_lines(profile: &HostProfile) -> Vec<String> {
     profile.sections.iter().map(details_block).collect()
 }
 
+/// A fence longer than the longest run of backticks in `text`, so tool output cannot
+/// close it early and write its own headings into the note.
+pub(crate) fn fence_for(text: &str) -> String {
+    let mut longest = 0;
+    let mut run = 0;
+    for mark in text.chars() {
+        if mark == '`' {
+            run += 1;
+            longest = longest.max(run);
+        } else {
+            run = 0;
+        }
+    }
+    "`".repeat((longest + 1).max(3))
+}
+
 /// One section as a heading plus its text fenced as a block, or why it did not answer.
 pub(crate) fn details_block(section: &ProfileSection) -> String {
     if section.ok {
-        format!("### {}\n\n```\n{}\n```", section.title, section.text)
+        let fence = fence_for(section.text.as_str());
+        format!(
+            "### {}\n\n{fence}\n{}\n{fence}",
+            section.title, section.text
+        )
     } else {
         format!(
             "### {}\n\nThe tool did not answer: {}",
@@ -77,7 +97,7 @@ pub(crate) fn details_block(section: &ProfileSection) -> String {
     }
 }
 
-/// The summary a human or triage reads first.
+/// The top of the note: the facts, containers and ports a human scans first.
 pub(crate) fn summary_lines(profile: &HostProfile) -> Vec<String> {
     let facts = &profile.facts;
     let running = profile
