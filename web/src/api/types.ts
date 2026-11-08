@@ -61,6 +61,10 @@ export type HostDocker = Schemas["HostDockerDto"];
 export type HostCheck = Schemas["HostCheckDto"];
 /** One check's settings. */
 export type CheckSettings = Schemas["CheckSettingsDto"];
+/** What the hub knows a machine looks like while it behaves normally. */
+export type Profile = Schemas["ProfileDto"];
+/** One tool output inside a profile; a failed one is a visible gap. */
+export type ProfileSection = Schemas["ProfileSectionDto"];
 /** One problem with submitted settings, with its path. */
 export type Issue = Schemas["IssueDto"];
 /** A known condition: incidents that match it are kept in the history and never notify. */
