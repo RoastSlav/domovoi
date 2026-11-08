@@ -44,8 +44,12 @@ fn folder_readme_is_reported_in_summaries() {
     .unwrap();
     let (catalog, issues) = SkillCatalog::load(dir.path());
     assert!(issues.is_empty(), "{issues:#?}");
-    let [summary] = catalog.summaries()[..];
-    assert_eq!(summary.readme, Some("# Echo args\n\nEchoes its arguments."));
+    let summaries = catalog.summaries();
+    assert_eq!(summaries.len(), 1);
+    assert_eq!(
+        summaries[0].readme,
+        Some("# Echo args\n\nEchoes its arguments.".to_owned())
+    );
 }
 
 #[test]
@@ -54,8 +58,9 @@ fn oversized_readme_is_cut_on_a_character_boundary() {
     let folder = install_skill(dir.path(), "echo_args", "echo_args");
     std::fs::write(&folder.join("README.md"), "€".repeat(7000)).unwrap();
     let (catalog, _) = SkillCatalog::load(dir.path());
-    let [summary] = catalog.summaries()[..];
-    let text = summary.readme.unwrap();
+    let summaries = catalog.summaries();
+    assert_eq!(summaries.len(), 1);
+    let text = summaries[0].readme.unwrap();
     assert_eq!(
         text.len(),
         8190,
