@@ -19,6 +19,8 @@ mod harness;
 #[cfg(test)]
 mod limits;
 #[cfg(test)]
+mod profile;
+#[cfg(test)]
 mod redact;
 #[cfg(test)]
 mod report;

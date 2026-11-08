@@ -20,11 +20,22 @@ pub const CHANGES_DEADLINE: SignedDuration = SignedDuration::from_secs(2);
 const SIGNALS: u16 = 10;
 const SIMILAR: usize = 3;
 const NOTES: u16 = 3;
+/// The tag the hub puts on the note it generates from the host profile, so the model
+/// reads it and never sees the raw tool output again. The hub owns this string; the
+/// engine copies it because it cannot see the hub.
+const PROFILE_TAG: &str = "host-profile";
+/// The generated note puts the raw tool output after this heading, and only the part
+/// before it is sent: the summary and the recent changes.
+const HUB_DETAILS_MARK: &str = "\n## Details";
 
 /// Builds the redacted bundle for `incident`.
 pub(crate) async fn build(shared: &Shared, incident: &Incident, skills: &[SkillSummary]) -> String {
     let parts = [
         ("Incident", snapshot(incident)),
+        (
+            "Host profile (the normal state of this host)",
+            profile_note(shared, incident).await,
+        ),
         (
             "Recent signals, newest first",
             signals(shared, incident).await,
@@ -174,6 +185,29 @@ async fn similar(shared: &Shared, incident: &Incident) -> String {
         .join("\n")
 }
 
+/// The note tagged with `PROFILE_TAG` is the profile the hub generated for the host
+/// (list returns the most recently updated first). Only the text before the raw tool
+/// output heading is sent: the summary and the recent changes. Empty when the hub has
+/// not written the profile note yet, which leaves the part out of the bundle.
+pub(crate) async fn profile_note(shared: &Shared, incident: &Incident) -> String {
+    let Ok(notes) = shared.deps.notes.list(Some(incident.host())).await else {
+        return "".to_owned();
+    };
+    let profile = notes
+        .iter()
+        .find(|note| note.tags.iter().any(|tag| tag == PROFILE_TAG));
+    match profile {
+        None => "".to_owned(),
+        Some(found) => {
+            let body = found.body_markdown.as_str().trim_end();
+            match body.find(HUB_DETAILS_MARK) {
+                None => body.to_owned(),
+                Some(at) => body[..at].to_owned(),
+            }
+        }
+    }
+}
+
 async fn notes(shared: &Shared, incident: &Incident) -> String {
     let mut query = incident.check().as_str().replace(['.', '_'], " ");
     if let Some(target) = incident.target() {
@@ -189,6 +223,7 @@ async fn notes(shared: &Shared, incident: &Incident) -> String {
         return String::new();
     };
     hits.iter()
+        .filter(|h| !h.note.tags.iter().any(|tag| tag == PROFILE_TAG))
         .map(|h| format!("- {}: {}", h.note.title, h.snippet))
         .collect::<Vec<_>>()
         .join("\n")
