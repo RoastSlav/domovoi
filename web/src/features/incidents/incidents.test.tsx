@@ -378,6 +378,10 @@ test("check_by_hand_list_renders_under_the_card", async () => {
   const checklist = await screen.findByRole("region", { name: "Check by hand" });
   expect(checklist).toBeVisible();
   expect(
+    within(checklist).getByText("Written by the model; Domovoi does not run these."),
+    "the steps are marked as the model's words",
+  ).toBeVisible();
+  expect(
     within(checklist)
       .getAllByRole("listitem")
       .map((li) => li.textContent),

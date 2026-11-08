@@ -60,6 +60,7 @@ export function IncidentDetailPage() {
       {manualSteps.length > 0 && (
         <section className={styles.section} aria-labelledby="manual-heading">
           <h2 id="manual-heading">Check by hand</h2>
+          <p className={styles.hint}>Written by the model; Domovoi does not run these.</p>
           <ol className={styles.checklist}>
             {manualSteps.map((step, index) => (
               <li key={`${step}-${index}`}>{step}</li>
