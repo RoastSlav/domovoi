@@ -43,6 +43,8 @@ Each skill is a folder under the agent's skills directory, `/etc/domovoi/skills`
 - The folder must not be world-writable. Keep the whole tree owned by root.
 - The agent reads the folder when it starts. After adding or changing a skill, run `domovoi check skills /etc/domovoi/skills`, then restart the agent.
 
+Opening a skill on the Skills page (or on a host's Skills tab) shows its full details: what its risk means, every parameter with its limits, what it applies to, its timeout, its verification, its manifest hash, its recent runs on that host, and the folder's `README.md` when it has one.
+
 Editing a manifest changes its hash, which cancels any pending approval for that skill: you always approve exactly what runs.
 
 ## The manifest
