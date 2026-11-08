@@ -18,9 +18,9 @@ The [agent protocol](../reference/protocol.md) has the details.
 
 ## Host profile
 
-The hub keeps one plain-text document per host: what that machine looks like while it behaves normally. It asks the agent for it with its read tools: the host overview, the containers it runs, its listening ports, the last day of kernel messages, and the read skills installed on it (up to twelve). A tool that does not answer leaves its section as a gap. Triage reads this document to tell a new problem on the host from its usual state.
+The hub keeps one plain-text document per host: what that machine looks like while it behaves normally. It asks the agent for it with its read tools: the host overview, the containers it runs, its listening ports, the last day of kernel messages, and the read skills installed on it (up to twelve). A tool that does not answer leaves its section as a gap. A skill that needs arguments the hub cannot fill in is skipped, and its section says so. Triage only sees this document when a note search for the words it checks happens to match it.
 
-The hub saves the profile as a note titled `Host profile: <name>` and tags it `generated`, updating the same note in place, so the note's history shows how the machine has changed. The host page shows it as the "Profile" tab with when it was collected. The hub re-collects on a minute schedule, one host at a time, and the tab's "Refresh" button asks its agent for a new one now.
+The hub saves the profile as a note titled `Host profile: <name>` and tags it `generated`. Each refresh replaces that note's text, so the profile shows the newest collection only: the old one is gone, and the note is there for people to read, not to write in. The host page shows it as the "Profile" tab with when it was collected. The hub checks every minute, one host at a time, and collects when a host has no profile yet, when its agent version or machine facts changed, or when the stored profile is a week old. The tab's "Refresh" button asks its agent for a new one now.
 
 ## Versions
 
