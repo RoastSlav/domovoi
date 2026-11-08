@@ -33,13 +33,18 @@ fn profile_error(err: ProfileError) -> ApiError {
 }
 
 /// The top of `host`'s profile note: the summary and the `## Recent changes` block,
-/// without the raw tool output. Empty when the hub has not collected a profile yet, so
-/// `/status <host>` says there is nothing to show rather than failing.
+/// without the raw tool output. Empty when there is nothing to show: the hub has not
+/// collected a profile yet, or this hub was built without profile collection, so `/status
+/// <host>` still answers with the host's own line rather than failing.
 pub(crate) async fn summary_of_host(
     state: &ApiState,
     host: &domovoi_core::Host,
 ) -> Result<String, ApiError> {
-    let deps = profiles(state)?;
+    let deps = match profiles(state) {
+        Err(ApiError::Unavailable(_)) => return Ok(String::new()),
+        Ok(found) => found,
+        Err(err) => return Err(err),
+    };
     match stored(&deps, host.id).await.map_err(profile_error)? {
         None => Ok(String::new()),
         Some(profile) => Ok(summary(host, &profile)),
