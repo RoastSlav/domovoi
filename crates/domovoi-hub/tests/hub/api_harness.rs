@@ -25,9 +25,11 @@ use domovoi_hub::agent_server::{
 };
 use domovoi_hub::api::{AgentAdmin, ApiDeps, ApiState};
 use domovoi_hub::auth::{AuthState, WebIdentity};
+use domovoi_hub::profile::ProfileDeps;
 use domovoi_hub::router::router;
 use domovoi_hub::settings::{ConfigSources, SecretKey, SettingsDeps, SettingsService};
 use domovoi_proto::EnrollToken;
+use domovoi_proto::messages::{CheckInfo, HostFacts};
 use domovoi_store::{Store, StoreOptions};
 use domovoi_testkit::build::{host, manifest, open_incident};
 use domovoi_testkit::{FakeAgentLink, FakeClock, RecordingSignalSink, ScriptedLlm};
@@ -109,6 +111,14 @@ impl AgentAdmin for TestAgents {
 
     fn skills(&self, host: HostId) -> Vec<SkillSummary> {
         domovoi_core::ports::AgentLink::skills(&*self.link, host)
+    }
+
+    fn facts(&self, host: HostId) -> Option<HostFacts> {
+        self.link.host_facts(host)
+    }
+
+    fn checks(&self, host: HostId) -> Vec<CheckInfo> {
+        self.link.host_checks(host)
     }
 }
 
@@ -312,6 +322,18 @@ async fn build(triage: bool, notifier: Option<Arc<dyn Notifier>>) -> Api {
         agents: Arc::new(TestAgents {
             link: link.clone(),
             hosts: store.clone(),
+        }),
+        profiles: Some(ProfileDeps {
+            link: link.clone(),
+            agents: Arc::new(TestAgents {
+                link: link.clone(),
+                hosts: store.clone(),
+            }),
+            hosts: store.clone(),
+            notes: store.clone(),
+            settings: store.clone(),
+            clock: clock.clone(),
+            redactor: Arc::new(PatternRedactor::default()),
         }),
         clock: clock.clone(),
         bus: bus.clone(),

@@ -1419,6 +1419,57 @@ expression: spec
         ],
         "type": "string"
       },
+      "ProfileDto": {
+        "description": "What the hub knows about one machine, as its agent reported it.",
+        "properties": {
+          "collected_at": {
+            "description": "When the collection started.",
+            "type": "string"
+          },
+          "markdown": {
+            "description": "The note text: the summary, then every tool output.",
+            "type": "string"
+          },
+          "note": {
+            "description": "The generated note carrying this profile, so the UI can link to it.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sections": {
+            "description": "One entry per tool output, in the order the tools ran.",
+            "items": {
+              "$ref": "#/components/schemas/ProfileSectionDto"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "collected_at",
+          "markdown",
+          "sections"
+        ],
+        "type": "object"
+      },
+      "ProfileSectionDto": {
+        "description": "One tool output in a host profile: its title and whether it answered.",
+        "properties": {
+          "ok": {
+            "description": "Whether the tool answered; a failed one shows in the profile as a gap.",
+            "type": "boolean"
+          },
+          "title": {
+            "description": "What the tool was asked for, for example `Containers`.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "ok"
+        ],
+        "type": "object"
+      },
       "ProposalDto": {
         "description": "An action triage suggested.",
         "properties": {
@@ -3043,6 +3094,138 @@ expression: spec
           }
         },
         "summary": "A one-time enrollment invite for host `name`, creating the host if it is new. The\ntoken is shown only in this response.",
+        "tags": [
+          "hosts"
+        ]
+      }
+    },
+    "/api/v1/hosts/{name}/profile": {
+      "get": {
+        "operationId": "get_host_profile",
+        "parameters": [
+          {
+            "description": "Host name",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileDto"
+                }
+              }
+            },
+            "description": "The profile"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such host, or no profile yet"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The hub does not collect profiles"
+          }
+        },
+        "summary": "What `host`'s machine looks like while it behaves normally; 404 before the hub has\ncollected one.",
+        "tags": [
+          "hosts"
+        ]
+      },
+      "post": {
+        "operationId": "refresh_host_profile",
+        "parameters": [
+          {
+            "description": "Host name",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileDto"
+                }
+              }
+            },
+            "description": "The profile just collected"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such host"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The host has no connected agent"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The hub does not collect profiles"
+          }
+        },
+        "summary": "Collects the profile of `host` again now, and answers with it. 409 when its agent is\nnot connected: there is nobody to ask.",
         "tags": [
           "hosts"
         ]
