@@ -6,7 +6,7 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use domovoi_core::ports::{LinkError, Presence};
 use domovoi_core::{HostId, RequestId, SkillSummary};
-use domovoi_proto::messages::{CheckInfo, DockerReport, SessionId};
+use domovoi_proto::messages::{CheckInfo, DockerReport, HostFacts, SessionId};
 use domovoi_proto::{Message, encode};
 use jiff::Timestamp;
 use tokio::sync::{mpsc, oneshot};
@@ -32,6 +32,8 @@ pub(crate) struct Live {
     pub session: SessionId,
     pub since: Timestamp,
     pub version: String,
+    /// What the agent said about its machine, kept so the hub can profile the host.
+    pub facts: HostFacts,
     pub skills: Vec<SkillSummary>,
     pub checks: Vec<CheckInfo>,
     pub docker: Option<DockerReport>,
@@ -199,6 +201,14 @@ impl Registry {
             .get(&host)
             .and_then(|e| e.live.as_ref())
             .map(|l| l.checks.clone())
+    }
+
+    /// What the host's agent said about its machine when it connected; `None` while offline.
+    pub fn facts(&self, host: HostId) -> Option<HostFacts> {
+        self.lock()
+            .get(&host)
+            .and_then(|e| e.live.as_ref())
+            .map(|l| l.facts.clone())
     }
 
     /// What the host's agent reported about its container runtime when it connected.

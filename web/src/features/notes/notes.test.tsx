@@ -128,6 +128,17 @@ test("notes_editor_previews_markdown_without_raw_html", async () => {
   expect(await screen.findByTestId("location")).toHaveTextContent("/notes/n9");
 });
 
+test("notes_page_marks_generated_notes_rather_than_their_hub_tags", async () => {
+  route("GET /api/v1/notes", () => [
+    note("n1", "Backups"),
+    { ...note("gp", "nas"), tags: ["generated", "host-profile"] },
+  ]);
+  renderAt("/notes", "/notes", <NotesPage />);
+  const list = await screen.findByRole("list", { name: "Notes" });
+  expect(within(list).getByText(/Generated/)).toBeVisible();
+  expect(within(list).queryByText("host-profile")).toBeNull();
+});
+
 test("notes_import_uploads_files_and_reports_counts", async () => {
   const user = userEvent.setup({ applyAccept: false });
   route("POST /api/v1/notes/import", () => ({

@@ -27,6 +27,7 @@ use std::sync::{Arc, OnceLock};
 use domovoi_core::ports::{Clock, FactRepo, HostRepo, SignalSink};
 use domovoi_core::{HostId, HostKind, HostName};
 use domovoi_proto::Transport;
+use domovoi_proto::messages::{CheckInfo, HostFacts};
 use jiff::SignedDuration;
 use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
@@ -125,6 +126,19 @@ impl AgentServer {
     #[must_use]
     pub fn link(&self) -> Arc<WsAgentLink> {
         self.inner.link.clone()
+    }
+
+    /// What the host's agent said about its machine on its last handshake; `None` while
+    /// it is offline.
+    #[must_use]
+    pub fn host_facts(&self, host: HostId) -> Option<HostFacts> {
+        self.inner.registry.facts(host)
+    }
+
+    /// The checks the host's agent reported when it connected; empty while it is offline.
+    #[must_use]
+    pub fn host_checks(&self, host: HostId) -> Vec<CheckInfo> {
+        self.inner.registry.checks(host).unwrap_or_default()
     }
 
     /// Binds the configured listen address.

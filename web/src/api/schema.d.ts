@@ -314,6 +314,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/hosts/{name}/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What `host`'s machine looks like while it behaves normally; 404 before the hub has
+         *     collected one.
+         */
+        get: operations["get_host_profile"];
+        put?: never;
+        /**
+         * Collects the profile of `host` again now, and answers with it. 409 when its agent is
+         *     not connected: there is nobody to ask.
+         */
+        post: operations["refresh_host_profile"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/hosts/{name}/revoke": {
         parameters: {
             query?: never;
@@ -1271,6 +1295,24 @@ export interface components {
          * @enum {string}
          */
         PredicateOpDto: "equals" | "contains" | "at_most" | "at_least" | "in_network";
+        /** @description What the hub knows about one machine, as its agent reported it. */
+        ProfileDto: {
+            /** @description When the collection started. */
+            collected_at: string;
+            /** @description The note text: the summary, then every tool output. */
+            markdown: string;
+            /** @description The generated note carrying this profile, so the UI can link to it. */
+            note?: string | null;
+            /** @description One entry per tool output, in the order the tools ran. */
+            sections: components["schemas"]["ProfileSectionDto"][];
+        };
+        /** @description One tool output in a host profile: its title and whether it answered. */
+        ProfileSectionDto: {
+            /** @description Whether the tool answered; a failed one shows in the profile as a gap. */
+            ok: boolean;
+            /** @description What the tool was asked for, for example `Containers`. */
+            title: string;
+        };
         /** @description An action triage suggested. */
         ProposalDto: {
             /** @description Arguments by parameter name. */
@@ -2336,6 +2378,115 @@ export interface operations {
             };
             /** @description Not logged in */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_host_profile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Host name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The profile */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProfileDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such host, or no profile yet */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The hub does not collect profiles */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    refresh_host_profile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Host name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The profile just collected */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProfileDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such host */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The host has no connected agent */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The hub does not collect profiles */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

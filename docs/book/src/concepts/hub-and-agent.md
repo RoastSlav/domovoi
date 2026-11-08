@@ -16,6 +16,12 @@ Agents connect out to the hub over WebSocket and TLS, on port 7421. Nothing conn
 
 The [agent protocol](../reference/protocol.md) has the details.
 
+## Host profile
+
+The hub keeps one plain-text document per host: what that machine looks like while it behaves normally. It asks the agent for it with its read tools: the host overview, the containers it runs, its listening ports, the last day of kernel messages, and the read skills installed on it (up to twelve). A tool that does not answer leaves its section as a gap. A skill that needs arguments the hub cannot fill in is skipped, and its section says so. Triage only sees this document when a note search for the words it checks happens to match it.
+
+The hub saves the profile as a note titled `Host profile: <name>` and tags it `generated`. Each refresh replaces that note's text, so the profile shows the newest collection only: the old one is gone, and the note is there for people to read, not to write in. The host page shows it as the "Profile" tab with when it was collected. The hub checks every minute, one host at a time, and collects when a host has no profile yet, when its agent version or machine facts changed, or when the stored profile is a week old. The tab's "Refresh" button asks its agent for a new one now.
+
 ## Versions
 
 A hub accepts agents on its own protocol version or one minor version behind; the Hosts page marks agents older than the hub. Upgrade the hub first, then the agents. See [Upgrading](../install/upgrading.md).

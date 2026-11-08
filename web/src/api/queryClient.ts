@@ -21,6 +21,7 @@ export const keys = {
   settingsSchema: ["settings", "schema"] as const,
   hostChecks: (name: string) => ["hosts", "checks", name] as const,
   hostDocker: (name: string) => ["hosts", "docker", name] as const,
+  hostProfile: (name: string) => ["hosts", "profile", name] as const,
   advisories: ["advisories"] as const,
   digest: ["digest"] as const,
 };

@@ -3,7 +3,7 @@
 pub(crate) mod adapters;
 mod delivery;
 mod dispatcher;
-mod every;
+pub(crate) mod every;
 mod local;
 mod lock;
 mod schedulers;
@@ -129,6 +129,7 @@ pub struct HubRuntime {
     pub(crate) manager_task: JoinHandle<()>,
     pub(crate) triage_task: Option<JoinHandle<()>>,
     pub(crate) actions_task: JoinHandle<()>,
+    pub(crate) profile_task: JoinHandle<()>,
     pub(crate) intake_shutdown: CancellationToken,
     pub(crate) worker_shutdown: CancellationToken,
     pub(crate) manager_shutdown: CancellationToken,
@@ -252,6 +253,15 @@ impl HubRuntime {
                 executor: test_executor,
             })
         });
+        let profile_deps = crate::profile::ProfileDeps {
+            link: server.link(),
+            agents: Arc::new(server.clone()),
+            hosts: store.clone(),
+            notes: store.clone(),
+            settings: store.clone(),
+            clock: clock.clone(),
+            redactor: redactor.clone(),
+        };
         let api = ApiState::new(
             ApiDeps {
                 incidents: store.clone(),
@@ -267,6 +277,7 @@ impl HubRuntime {
                 actions_service: actions_service.clone(),
                 triage: triage.0,
                 agents: Arc::new(server.clone()),
+                profiles: Some(profile_deps.clone()),
                 clock: clock.clone(),
                 bus: bus.clone(),
                 config: Arc::new(config.clone()),
@@ -315,6 +326,7 @@ impl HubRuntime {
             dispatcher.clone(),
             digest,
         );
+        let profile_task = crate::profile::spawn(profile_deps, intake_shutdown.clone());
         Ok(Self {
             lock,
             auth,
@@ -332,6 +344,7 @@ impl HubRuntime {
             manager_task,
             triage_task: triage.1,
             actions_task,
+            profile_task,
             intake_shutdown,
             worker_shutdown,
             manager_shutdown,

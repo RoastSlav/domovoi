@@ -264,3 +264,25 @@ pub struct UiEvent {
     /// The new status name, when it changed.
     pub status: Option<String>,
 }
+
+/// One tool output in a host profile: its title and whether it answered.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
+pub struct ProfileSectionDto {
+    /// What the tool was asked for, for example `Containers`.
+    pub title: String,
+    /// Whether the tool answered; a failed one shows in the profile as a gap.
+    pub ok: bool,
+}
+
+/// What the hub knows about one machine, as its agent reported it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
+pub struct ProfileDto {
+    /// When the collection started.
+    pub collected_at: String,
+    /// The generated note carrying this profile, so the UI can link to it.
+    pub note: Option<String>,
+    /// The note text: the summary, then every tool output.
+    pub markdown: String,
+    /// One entry per tool output, in the order the tools ran.
+    pub sections: Vec<ProfileSectionDto>,
+}

@@ -9,6 +9,7 @@ use domovoi_core::ports::{
     SkillOutput, ToolOutput,
 };
 use domovoi_core::{CheckKey, HostId, ReadToolCall, Signal, SkillSummary, TargetKey};
+use domovoi_proto::messages::{CheckInfo, HostFacts};
 use jiff::Timestamp;
 
 use crate::lock;
@@ -62,7 +63,7 @@ struct Handlers {
     check: Option<CheckHandler>,
 }
 
-/// An [`AgentLink`] with scripted presence, skills and handlers.
+/// An [`AgentLink`] with scripted presence, skills, host facts and handlers.
 ///
 /// Every request is recorded. A host that is not [`Presence::Connected`] gets
 /// [`LinkError::NotConnected`]; a connected host with no handler for the request kind gets
@@ -70,17 +71,21 @@ struct Handlers {
 pub struct FakeAgentLink {
     presence: Mutex<BTreeMap<HostId, Presence>>,
     skills: Mutex<BTreeMap<HostId, Vec<SkillSummary>>>,
+    facts: Mutex<BTreeMap<HostId, HostFacts>>,
+    checks: Mutex<BTreeMap<HostId, Vec<CheckInfo>>>,
     handlers: Mutex<Handlers>,
     requests: Mutex<Vec<LinkRequest>>,
 }
 
 impl FakeAgentLink {
-    /// A link where no host is connected.
+    /// A link where no host is connected, nothing announced and no handlers.
     #[must_use]
     pub fn new() -> Self {
         Self {
             presence: Mutex::new(BTreeMap::new()),
             skills: Mutex::new(BTreeMap::new()),
+            facts: Mutex::new(BTreeMap::new()),
+            checks: Mutex::new(BTreeMap::new()),
             handlers: Mutex::new(Handlers::default()),
             requests: Mutex::new(Vec::new()),
         }
@@ -94,6 +99,28 @@ impl FakeAgentLink {
     /// Sets the skills a host announces.
     pub fn set_skills(&self, host: HostId, skills: Vec<SkillSummary>) {
         lock(&self.skills).insert(host, skills);
+    }
+
+    /// Sets what a host's agent said about its machine, as a handshake would.
+    pub fn set_facts(&self, host: HostId, facts: HostFacts) {
+        lock(&self.facts).insert(host, facts);
+    }
+
+    /// What the host's agent said about its machine, `None` while never announced.
+    #[must_use]
+    pub fn host_facts(&self, host: HostId) -> Option<HostFacts> {
+        lock(&self.facts).get(&host).cloned()
+    }
+
+    /// Sets the checks a host's agent announced, as a handshake would.
+    pub fn set_checks(&self, host: HostId, checks: Vec<CheckInfo>) {
+        lock(&self.checks).insert(host, checks);
+    }
+
+    /// The checks the host's agent announced; empty while never announced.
+    #[must_use]
+    pub fn host_checks(&self, host: HostId) -> Vec<CheckInfo> {
+        lock(&self.checks).get(&host).cloned().unwrap_or_default()
     }
 
     /// Answers `run_tool` with `handler`.

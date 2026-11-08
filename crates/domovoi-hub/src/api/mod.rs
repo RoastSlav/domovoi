@@ -17,6 +17,7 @@ mod host_docker;
 pub(crate) mod hosts;
 pub(crate) mod incidents;
 mod notes;
+mod profile;
 mod rules;
 pub(crate) mod settings;
 mod settings_write;
@@ -37,6 +38,7 @@ use domovoi_core::ports::{
 use domovoi_core::{HostId, HostName, SkillSummary};
 use domovoi_engine::triage::TriageHandle;
 use domovoi_engine::{ActionHandle, DomainEvent, ManagerHandle};
+use domovoi_proto::messages::{CheckInfo, HostFacts};
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 use utoipa::OpenApi;
@@ -63,6 +65,11 @@ pub trait AgentAdmin: Send + Sync {
     async fn revoke(&self, host: HostId) -> Result<bool, AgentServerError>;
     /// Whether `host`'s agent is connected.
     fn presence(&self, host: HostId) -> Presence;
+    /// What `host`'s agent said about its machine when it connected; `None` when it never
+    /// completed a handshake.
+    fn facts(&self, host: HostId) -> Option<HostFacts>;
+    /// The checks `host`'s agent left on, as its own config set them.
+    fn checks(&self, host: HostId) -> Vec<CheckInfo>;
     /// The skills `host`'s agent reported.
     fn skills(&self, host: HostId) -> Vec<SkillSummary>;
 }
@@ -79,6 +86,14 @@ impl AgentAdmin for AgentServer {
 
     fn presence(&self, host: HostId) -> Presence {
         domovoi_core::ports::AgentLink::presence(&*self.link(), host)
+    }
+
+    fn facts(&self, host: HostId) -> Option<HostFacts> {
+        self.host_facts(host)
+    }
+
+    fn checks(&self, host: HostId) -> Vec<CheckInfo> {
+        self.host_checks(host)
     }
 
     fn skills(&self, host: HostId) -> Vec<SkillSummary> {
@@ -117,6 +132,9 @@ pub struct ApiDeps {
     pub triage: Option<TriageHandle>,
     /// Enrollment, revocation, presence and catalogues.
     pub agents: Arc<dyn AgentAdmin>,
+    /// The profile task's handles; `None` when the hub runs without one, where the
+    /// profile endpoints answer 503.
+    pub profiles: Option<crate::profile::ProfileDeps>,
     /// Time.
     pub clock: Arc<dyn Clock>,
     /// Events for the SSE stream.
@@ -286,6 +304,7 @@ pub fn routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(hosts::enrollment))
         .routes(routes!(hosts::revoke))
         .routes(routes!(hosts::skills))
+        .routes(routes!(profile::get, profile::refresh))
         .routes(routes!(notes::list, notes::create))
         .routes(routes!(notes::search))
         .routes(routes!(notes::get, notes::replace, notes::delete))

@@ -15,6 +15,17 @@ import styles from "./notes.module.css";
 /** How long typing must pause before a search runs. */
 export const SEARCH_DEBOUNCE_MS = 300;
 
+/** The hub's own bookkeeping tags: they mark generated notes, and read as one word. */
+const BOOKKEEPING_TAGS = ["generated", "host-profile"];
+
+function tagLine(tags: string[]): string {
+  const visible = tags.filter((tag) => !BOOKKEEPING_TAGS.includes(tag));
+  if (tags.includes("generated")) {
+    visible.push("Generated");
+  }
+  return visible.join(", ");
+}
+
 function SearchResults({ q, host }: { q: string; host: string | undefined }) {
   const hits = useNoteSearch(q, host);
   if (hits.isPending) {
@@ -60,7 +71,7 @@ function NoteList({ host }: { host: string | undefined }) {
           <Link to={`/notes/${note.id}`}>{note.title}</Link>
           <p>
             Updated <RelativeTime at={note.updated_at} />
-            {note.tags.length > 0 && ` · ${note.tags.join(", ")}`}
+            {tagLine(note.tags) !== "" && ` · ${tagLine(note.tags)}`}
           </p>
         </li>
       ))}

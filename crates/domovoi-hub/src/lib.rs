@@ -12,6 +12,7 @@ pub mod auth;
 mod digest;
 pub mod ingest;
 pub mod middleware;
+pub mod profile;
 pub mod router;
 pub mod runtime;
 pub mod selftest;

@@ -32,6 +32,7 @@ pub(crate) async fn run_session(
         session,
         since: inner.deps.clock.now(),
         version: hello.agent_version,
+        facts: hello.facts,
         skills: hello.skills,
         checks: hello.checks,
         docker: hello.docker,

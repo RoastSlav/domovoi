@@ -30,6 +30,7 @@ pub(super) async fn run(
         manager_task,
         triage_task,
         actions_task,
+        profile_task,
         intake_shutdown,
         worker_shutdown,
         manager_shutdown,
@@ -46,7 +47,7 @@ pub(super) async fn run(
     let (stopped_tx, mut stopped_rx) = mpsc::channel(4);
     let mut intake_tasks = Vec::new();
     intake_tasks.extend(schedulers.spawn(intake_shutdown.clone()));
-
+    intake_tasks.push(profile_task);
     let serving = agent_server.clone();
     let report = stopped_tx.clone();
     intake_tasks.push(tokio::spawn(async move {
