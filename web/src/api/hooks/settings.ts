@@ -31,11 +31,17 @@ export function useSaveSettings() {
 /** Which connection a test tries. */
 export type TestTarget = "discord" | "llm" | "heartbeat";
 
-/** Tries a connection with candidate values; nothing is saved. */
-export function useTestConnection(target: TestTarget) {
+/** Which provider a model test or model discovery uses; the default is the main one. */
+export type ProviderSlot = "primary" | "secondary";
+
+/** Tries a connection with candidate values; `slot` picks the provider for model tests. */
+export function useTestConnection(target: TestTarget, slot?: ProviderSlot) {
   return useMutation({
     mutationFn: (changes: Changes) => {
-      const body = { changes: changes as Record<string, never> };
+      const body = {
+        changes: changes as Record<string, never>,
+        ...(slot ? { slot } : {}),
+      };
       switch (target) {
         case "discord":
           return call<TestResult>(api.POST("/api/v1/settings/test/discord", { body }));
@@ -48,13 +54,17 @@ export function useTestConnection(target: TestTarget) {
   });
 }
 
-/** Lists models for candidate provider settings without saving them. */
-export function useModelDiscovery() {
+/** Lists models for candidate provider settings without saving them; `slot` picks the
+ * provider to ask. */
+export function useModelDiscovery(slot?: ProviderSlot) {
   return useMutation({
     mutationFn: async (changes: Changes) => {
       const result = await call<{ models: string[] }>(
         api.POST("/api/v1/settings/models", {
-          body: { changes: changes as Record<string, never> },
+          body: {
+            changes: changes as Record<string, never>,
+            ...(slot ? { slot } : {}),
+          },
         }),
       );
       return result.models;

@@ -1,5 +1,10 @@
 import { useId, useState } from "react";
-import { type Changes, type SecretChange, useModelDiscovery } from "../../api/hooks/settings";
+import {
+  type Changes,
+  type ProviderSlot,
+  type SecretChange,
+  useModelDiscovery,
+} from "../../api/hooks/settings";
 import { ApiFailure } from "../../api/types";
 import { Button } from "../../components/Button";
 import type { FieldSpec } from "./form";
@@ -198,20 +203,23 @@ export function SecretField({
   );
 }
 
-/** A model ID with provider-backed suggestions and a manual-entry fallback. */
+/** A model ID with provider-backed suggestions and a manual-entry fallback; `slot` picks
+ * which provider lists them, the main one by default. */
 export function ModelField({
   spec,
   value,
   onChange,
   candidate,
+  slot,
   ...common
 }: Common & {
   value: string;
   onChange: (value: string) => void;
   candidate: () => Changes;
+  slot?: ProviderSlot | undefined;
 }) {
   const id = useId();
-  const discovery = useModelDiscovery();
+  const discovery = useModelDiscovery(slot);
   const readOnly = Boolean(common.locked);
   const models = discovery.data ?? [];
   return (

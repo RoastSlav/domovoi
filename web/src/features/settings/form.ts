@@ -1,4 +1,4 @@
-import type { Changes, SecretChange } from "../../api/hooks/settings";
+import type { Changes, ProviderSlot, SecretChange } from "../../api/hooks/settings";
 import { SECRET_SET, type Issue } from "../../api/types";
 
 /** How a field is edited. */
@@ -18,6 +18,8 @@ export interface FieldSpec {
   placeholder?: string;
   /** Show this field only when another input has one of these values. */
   visibleWhen?: { path: string; values: string[] };
+  /** For `model`: which provider lists the suggestions; the main one by default. */
+  slot?: ProviderSlot;
 }
 
 /** The value at a dotted `path` of `values`. */

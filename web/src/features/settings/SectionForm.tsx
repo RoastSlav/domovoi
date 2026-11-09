@@ -1,6 +1,11 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState, type FormEvent, type ReactNode } from "react";
-import { useTestConnection, type SecretChange, type TestTarget } from "../../api/hooks/settings";
+import {
+  useTestConnection,
+  type ProviderSlot,
+  type SecretChange,
+  type TestTarget,
+} from "../../api/hooks/settings";
 import { keys } from "../../api/queryClient";
 import { ApiFailure, type Editable, type Issue } from "../../api/types";
 import { Button } from "../../components/Button";
@@ -31,6 +36,8 @@ export interface SectionProps {
   schema?: Record<string, unknown> | undefined;
   /** A connection test offered in this section. */
   test?: TestTarget;
+  /** Which provider the test above targets; the main one by default. */
+  testSlot?: ProviderSlot;
   /** Shown above the fields. */
   intro?: ReactNode;
 }
@@ -57,7 +64,7 @@ function failureOf(error: unknown): { message: string; issues: Issue[]; stale: b
  * it has one. Fields set in hub.toml or the environment are read-only with their source;
  * secrets are write-only; the hub's validation errors show next to their fields.
  */
-export function SectionForm({ title, fields, editable, schema, test, intro }: SectionProps) {
+export function SectionForm({ title, fields, editable, schema, test, testSlot, intro }: SectionProps) {
   const values = editable.values as Record<string, unknown>;
   const initial = useMemo(
     () =>
@@ -74,7 +81,7 @@ export function SectionForm({ title, fields, editable, schema, test, intro }: Se
   const [asking, setAsking] = useState(false);
   const [passwordError, setPasswordError] = useState<string>();
   const apply = useApplySettings();
-  const tester = useTestConnection(test ?? "heartbeat");
+  const tester = useTestConnection(test ?? "heartbeat", testSlot ?? "primary");
   const client = useQueryClient();
   const id = `section-${title.toLowerCase().replace(/\W+/g, "-")}`;
 
@@ -158,6 +165,7 @@ export function SectionForm({ title, fields, editable, schema, test, intro }: Se
               errors={errors}
               value={String(inputs[spec.path] ?? "")}
               candidate={changes}
+              slot={spec.slot}
               onChange={(value) => setInputs((s) => ({ ...s, [spec.path]: value }))}
             />
           ) : (
@@ -196,7 +204,7 @@ export function SectionForm({ title, fields, editable, schema, test, intro }: Se
           </Button>
           {test && (
             <Button disabled={tester.isPending} onClick={() => tester.mutate(changes())}>
-              {TEST_LABEL[test]}
+              {testSlot === "secondary" ? "Test the fallback model" : TEST_LABEL[test]}
             </Button>
           )}
         </div>
