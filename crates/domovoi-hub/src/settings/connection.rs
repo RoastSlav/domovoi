@@ -23,8 +23,11 @@ pub const TEST_TIMEOUT: Duration = Duration::from_secs(15);
 pub enum Target {
     /// Post a test card with the Discord bot.
     Discord,
-    /// One minimal call to the primary model.
-    Llm,
+    /// One minimal call to a model provider; `secondary` picks the fallback slot.
+    Llm {
+        /// Whether the fallback provider is tested instead of the primary one.
+        secondary: bool,
+    },
     /// One GET of the heartbeat URL.
     Heartbeat,
 }
@@ -74,25 +77,42 @@ impl SettingsService {
         })
     }
 
-    /// Lists models for the candidate primary HTTP provider without saving its settings.
-    pub async fn models(&self, patch: &Map<String, Value>) -> Result<Vec<String>, SettingsError> {
+    /// Lists models for the candidate provider; `secondary` picks the fallback slot
+    /// without saving its settings.
+    pub async fn models(
+        &self,
+        patch: &Map<String, Value>,
+        secondary: bool,
+    ) -> Result<Vec<String>, SettingsError> {
         let mut candidate = patch.clone();
-        if let Some(primary) = candidate
+        let slot = if secondary { "secondary" } else { "primary" };
+        if let Some(section) = candidate
             .get_mut("llm")
             .and_then(Value::as_object_mut)
-            .and_then(|llm| llm.get_mut("primary"))
+            .and_then(|llm| llm.get_mut(slot))
             .and_then(Value::as_object_mut)
         {
-            let model = primary.entry("model").or_insert(Value::Null);
+            let model = section.entry("model").or_insert(Value::Null);
             if model.is_null() {
                 *model = Value::String("model-discovery-placeholder".to_owned());
             }
         }
         let (config, secrets) = self.candidate(&candidate).await?;
-        let provider =
-            config.llm.primary.as_ref().ok_or_else(|| {
-                SettingsError::Unavailable("no model provider is set up".to_owned())
-            })?;
+        let provider = (if secondary {
+            config.llm.secondary.as_ref()
+        } else {
+            config.llm.primary.as_ref()
+        })
+        .ok_or_else(|| {
+            SettingsError::Unavailable(
+                (if secondary {
+                    "no fallback model is set up"
+                } else {
+                    "no model provider is set up"
+                })
+                .to_owned(),
+            )
+        })?;
         let settings = crate::runtime::settings::provider(provider);
         let result = tokio::time::timeout(TEST_TIMEOUT, domovoi_llm::list_models(&settings))
             .await
@@ -165,8 +185,17 @@ impl SettingsService {
                     .map(|_| format!("posted a test message in channel {}", discord.channel_id))
                     .map_err(|e| format!("Discord refused: {e}"))
             }
-            Target::Llm => {
-                let provider = config.llm.primary.as_ref().ok_or("no model is set up")?;
+            Target::Llm { secondary } => {
+                let provider = (if secondary {
+                    config.llm.secondary.as_ref()
+                } else {
+                    config.llm.primary.as_ref()
+                })
+                .ok_or(if secondary {
+                    "no fallback model is set up"
+                } else {
+                    "no model is set up"
+                })?;
                 let model = provider
                     .model
                     .clone()
