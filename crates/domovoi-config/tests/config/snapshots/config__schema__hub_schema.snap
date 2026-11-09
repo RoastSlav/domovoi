@@ -379,6 +379,14 @@ expression: "HubConfig::json_schema()"
             }
           ]
         },
+        "fallback_models": {
+          "description": "Models of the same provider tried in order when `model` fails. Optional.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        },
         "kind": {
           "description": "Which adapter talks to the model.",
           "$ref": "#/$defs/LlmKind"

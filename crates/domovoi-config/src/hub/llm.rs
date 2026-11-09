@@ -30,6 +30,9 @@ pub struct LlmProvider {
     /// Model name. Required for `anthropic` and `openai_compatible`.
     #[serde(default)]
     pub model: Option<String>,
+    /// Models of the same provider tried in order when `model` fails. Optional.
+    #[serde(default)]
+    pub fallback_models: Vec<String>,
     /// API base URL. Required for `openai_compatible`; optional for `anthropic`.
     #[serde(default)]
     pub base_url: Option<Url>,

@@ -154,6 +154,28 @@ fn provider_rules(path: &str, provider: &LlmProvider, issues: &mut Vec<ConfigIss
             "prices must be zero or more",
         ));
     }
+    if provider.fallback_models.len() > 5 {
+        issues.push(ConfigIssue::error(
+            format!("{path}.fallback_models"),
+            "at most 5 fallback models",
+        ));
+    }
+    if provider
+        .fallback_models
+        .iter()
+        .any(|model| model.is_empty())
+    {
+        issues.push(ConfigIssue::error(
+            format!("{path}.fallback_models"),
+            "every fallback model needs a name",
+        ));
+    }
+    if !provider.fallback_models.is_empty() && provider.kind == LlmKind::Cli {
+        issues.push(ConfigIssue::error(
+            format!("{path}.fallback_models"),
+            "fallback models need an anthropic or openai_compatible provider",
+        ));
+    }
 }
 
 fn probe_rules(path: &str, probe: &Probe, issues: &mut Vec<ConfigIssue>) {
