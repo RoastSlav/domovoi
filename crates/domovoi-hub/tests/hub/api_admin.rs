@@ -2,7 +2,9 @@ use axum::body::Body;
 use axum::http::{Method, Request, StatusCode, header};
 use domovoi_core::ports::{FactRepo, HostRepo, NoteRepo, Presence};
 use domovoi_core::{AgentIdentity, DigestFact, FactValue};
+use domovoi_hub::agent_server::Refusal;
 use domovoi_hub::api::notes_import::{MAX_FILE_BYTES, MAX_FILES};
+use domovoi_proto::MIN_AGENT_VERSION;
 use jiff::SignedDuration;
 use serde_json::Value;
 
@@ -240,6 +242,34 @@ async fn hosts_report_open_incidents_and_outdated_agents() {
     assert_eq!(
         nas(&a.get("/api/v1/hosts", &login).await)["outdated"],
         false
+    );
+}
+
+/// A host whose agent was refused because it runs an older release says so on the Hosts
+/// page, with both releases named, so people know which machine to update.
+#[tokio::test]
+async fn hosts_name_the_agent_refused_for_being_too_old() {
+    let a = api().await;
+    let login = a.admin().await;
+    let nas = |reply: &Reply| -> Value { reply.body[0].clone() };
+
+    assert_eq!(
+        nas(&a.get("/api/v1/hosts", &login).await)["refused"],
+        Value::Null,
+        "nothing refused yet"
+    );
+    a.refuse(
+        a.nas.id,
+        Refusal {
+            version: "0.0.1".to_owned(),
+            minimum: MIN_AGENT_VERSION.to_string(),
+            at: a.now(),
+        },
+    );
+    assert_eq!(
+        nas(&a.get("/api/v1/hosts", &login).await)["refused"],
+        "agent 0.0.1 is older than the minimum 0.0.5; update it",
+        "the Hosts page says which agent is behind and what to do"
     );
 }
 

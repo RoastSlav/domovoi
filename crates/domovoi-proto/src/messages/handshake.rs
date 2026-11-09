@@ -9,7 +9,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::bytes::{CertFingerprint, EnrollToken, Nonce, PublicKey, Signature};
-use crate::version::ProtocolVersion;
+use crate::version::{ProtocolVersion, Release};
 
 /// Identifies one authenticated connection, from `welcome` until it closes.
 #[derive(
@@ -147,8 +147,8 @@ pub struct Enrolled {
 
 /// The first frame of every connection by an enrolled agent.
 ///
-/// The hub replies `challenge`, or `reject` if the agent is unknown, revoked or
-/// speaks an incompatible protocol.
+/// The hub replies `challenge`, or `reject` if the agent is unknown, revoked, speaks an
+/// incompatible protocol or runs an older release than this hub accepts.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Hello {
     /// The identity from `enrolled`.
@@ -232,6 +232,11 @@ pub enum RejectReason {
     Incompatible {
         /// The hub's version.
         hub: ProtocolVersion,
+    },
+    /// The agent's release is older than this hub accepts, so it must be updated.
+    AgentTooOld {
+        /// The oldest agent release this hub accepts.
+        minimum: Release,
     },
     /// The challenge signature did not verify.
     BadSignature,

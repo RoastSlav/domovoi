@@ -64,6 +64,10 @@ pub struct HostDto {
     pub last_seen: Option<String>,
     /// Whether the connected agent is older than the hub.
     pub outdated: bool,
+    /// Why the host's agent was refused at its last handshake, for example
+    /// `agent 0.0.1 is older than the minimum 0.0.5; update it`. `None` when the agent
+    /// connected, or was never refused.
+    pub refused: Option<String>,
     /// Incidents not yet resolved (pending, open, acked or muted), counted up to 200.
     pub open_incidents: u32,
 }

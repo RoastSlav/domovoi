@@ -27,6 +27,18 @@ pub(crate) enum Liveness {
     HostDown,
 }
 
+/// Why a host's agent was refused at the handshake: its release is older than this hub
+/// accepts. Kept so the Hosts page can tell people to update that agent.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Refusal {
+    /// The agent's version as it said it, which may not parse.
+    pub version: String,
+    /// The oldest release this hub accepts, such as `0.0.5`.
+    pub minimum: String,
+    /// When the hub refused it.
+    pub at: Timestamp,
+}
+
 /// A live, authenticated session.
 pub(crate) struct Live {
     pub session: SessionId,
@@ -64,11 +76,16 @@ pub(crate) struct Watch {
 #[derive(Default)]
 pub(crate) struct Registry {
     hosts: Mutex<BTreeMap<HostId, Entry>>,
+    refused: Mutex<BTreeMap<HostId, Refusal>>,
 }
 
 impl Registry {
     fn lock(&self) -> MutexGuard<'_, BTreeMap<HostId, Entry>> {
         self.hosts.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn refusal_lock(&self) -> MutexGuard<'_, BTreeMap<HostId, Refusal>> {
+        self.refused.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Publishes how many hosts have a live session, from inside the lock.
@@ -97,6 +114,7 @@ impl Registry {
             entry.remote_ip = remote_ip;
         }
         entry.live = Some(live);
+        self.refusal_lock().remove(&host);
         Self::report(&hosts);
     }
 
@@ -118,6 +136,16 @@ impl Registry {
             live.cancel.cancel();
         }
         Self::report(&hosts);
+    }
+
+    /// Records why `host`'s agent was refused, so the Hosts page says to update it.
+    pub fn record_refusal(&self, host: HostId, refusal: Refusal) {
+        self.refusal_lock().insert(host, refusal);
+    }
+
+    /// Why `host`'s agent was last refused; `None` when it never was, or once it connects.
+    pub fn refusal(&self, host: HostId) -> Option<Refusal> {
+        self.refusal_lock().get(&host).cloned()
     }
 
     /// Records a frame from the host at `at`.

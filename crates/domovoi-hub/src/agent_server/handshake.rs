@@ -10,13 +10,15 @@ use domovoi_proto::messages::{
     Challenge, Enroll, Enrolled, Hello, Reject, RejectReason, SessionId, Welcome,
 };
 use domovoi_proto::{
-    CertFingerprint, Message, Nonce, PROTOCOL_VERSION, Transport, challenge_message, compatible,
+    CertFingerprint, MIN_AGENT_VERSION, Message, Nonce, PROTOCOL_VERSION, Transport, at_least,
+    challenge_message, compatible,
 };
 use ed25519_dalek::{Signature, VerifyingKey};
 use jiff::SignedDuration;
 
 use super::Inner;
 use super::conn::{ConnError, expect, send, within};
+use super::registry::Refusal;
 use super::tokens::token_hash;
 
 /// How long a new connection may take to send `enroll` or `hello`.
@@ -148,6 +150,26 @@ async fn authenticate(
     if !compatible(hello.protocol, PROTOCOL_VERSION) {
         let reason = RejectReason::Incompatible {
             hub: PROTOCOL_VERSION,
+        };
+        return Err(reject(transport, reason, id).await);
+    }
+    if !at_least(&hello.agent_version, MIN_AGENT_VERSION) {
+        tracing::warn!(
+            host = %agent.host,
+            agent = %hello.agent_version,
+            minimum = %MIN_AGENT_VERSION,
+            "agent release is older than the hub's minimum; update that agent"
+        );
+        inner.registry.record_refusal(
+            agent.host,
+            Refusal {
+                version: hello.agent_version.to_owned(),
+                minimum: MIN_AGENT_VERSION.to_string(),
+                at: clock.now(),
+            },
+        );
+        let reason = RejectReason::AgentTooOld {
+            minimum: MIN_AGENT_VERSION,
         };
         return Err(reject(transport, reason, id).await);
     }
