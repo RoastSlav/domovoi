@@ -19,6 +19,7 @@
 - [Verdicts, cards and threads](concepts/cards.md)
 - [Actions and approvals](concepts/actions.md)
 - [Digest and advisories](concepts/digest.md)
+- [Logs in the web UI](concepts/logs.md)
 
 # Guides
 
