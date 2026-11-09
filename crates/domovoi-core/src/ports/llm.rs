@@ -148,6 +148,12 @@ pub trait LlmProvider: Send + Sync {
     /// Stable provider id used in config and usage records, for example `anthropic`.
     fn id(&self) -> &str;
 
+    /// Model this provider answers with, when the adapter knows it; used in fallback
+    /// log lines and failure text.
+    fn model(&self) -> Option<&str> {
+        None
+    }
+
     /// Whether the provider accepts [`LlmRequest::tools`]. When `false` the engine sends no
     /// tools and expects a final answer.
     fn supports_tools(&self) -> bool;

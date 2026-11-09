@@ -49,6 +49,10 @@ impl LlmProvider for OpenAiCompatible {
         "openai_compatible"
     }
 
+    fn model(&self) -> Option<&str> {
+        Some(self.model.as_ref())
+    }
+
     fn supports_tools(&self) -> bool {
         true
     }
