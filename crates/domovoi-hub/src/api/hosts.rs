@@ -258,6 +258,7 @@ pub(super) async fn skills(
                 delay_secs: v.delay.as_secs(),
             }),
             readme: s.readme,
+            enabled: !state.deps.skill_policy.is_disabled(host.id, &s.name),
         })
         .collect();
     Ok(Json(skills))

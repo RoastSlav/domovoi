@@ -177,6 +177,8 @@ pub struct SkillDto {
     pub verify: Option<VerifyDto>,
     /// The skill folder's README.md, at most 8 KiB; absent when there is none.
     pub readme: Option<String>,
+    /// Whether the hub may run and suggest this skill on the host.
+    pub enabled: bool,
 }
 
 /// A note.
