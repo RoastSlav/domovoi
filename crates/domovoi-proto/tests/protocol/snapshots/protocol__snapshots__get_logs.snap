@@ -8,7 +8,8 @@ expression: "pretty(&message, reply)"
   "payload": {
     "deadline": "2023-11-14T22:14:50Z",
     "lines": 50,
-    "min_level": "info"
+    "min_level": "info",
+    "offset": 0
   },
   "v": 1
 }

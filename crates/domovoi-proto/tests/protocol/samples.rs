@@ -208,6 +208,7 @@ pub fn all() -> Vec<Message> {
         GetLogs {
             lines: 50,
             min_level: "info".to_owned(),
+            offset: 0,
             deadline: DEADLINE,
         }
         .into(),
@@ -226,6 +227,7 @@ pub fn all() -> Vec<Message> {
                     message: "agent not connected; retrying in 4s".to_owned(),
                 },
             ],
+            has_more: false,
         }
         .into(),
         RunSkill {

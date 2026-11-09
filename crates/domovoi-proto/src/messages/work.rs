@@ -33,21 +33,35 @@ pub struct ToolResult {
 }
 
 /// Ask the agent for its recent log lines and reply `logs` before `deadline`.
+///
+/// A whole answer rarely fits one frame, so it travels in chunks: the agent
+/// sends the newest `lines` window split at whatever point its reply stops
+/// fitting the frame limit, and the hub asks again with `offset` advanced to
+/// the lines it has already got.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct GetLogs {
-    /// At most this many lines.
+    /// At most this many lines in the whole window, across the chunks.
     pub lines: u16,
     /// The least severe level to include: `error`, `warn`, `info` or `debug`.
     pub min_level: String,
+    /// Lines of the window the hub already got: the agent replies after this
+    /// many, `0` for the first chunk.
+    #[serde(default)]
+    pub offset: u16,
     /// When the hub stops waiting.
     pub deadline: Timestamp,
 }
 
-/// The answer to `get_logs`: the agent's own recent lines, oldest first.
+/// The answer to `get_logs`: a chunk of the agent's own recent lines, oldest
+/// first, `offset` lines into the window it was asked for.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Logs {
-    /// The lines, already redacted by the agent.
+    /// The chunk's lines, already redacted by the agent.
     pub lines: Vec<LogLine>,
+    /// Whether the window has more lines after this chunk: the hub asks again
+    /// with a bigger `offset`. Replies from before chunking leave this `false`.
+    #[serde(default)]
+    pub has_more: bool,
 }
 
 /// A tool's output or failure: `{"ok": {..}}` or `{"err": {..}}`.
