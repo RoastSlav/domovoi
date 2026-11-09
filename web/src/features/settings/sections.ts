@@ -35,6 +35,13 @@ function providerFields(prefix: string): FieldSpec[] {
       visibleWhen: http,
     },
     {
+      path: `${prefix}.fallback_models`,
+      label: "Fallback models",
+      kind: "list",
+      hint: "Tried in order when the model above fails. Comma-separated.",
+      visibleWhen: http,
+    },
+    {
       path: `${prefix}.base_url`,
       label: "Base URL",
       kind: "text",
