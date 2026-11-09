@@ -346,6 +346,21 @@ async fn hosts_enrollment_skills_and_notes() {
 }
 
 #[tokio::test]
+async fn host_logs_are_served_or_the_host_is_unknown() {
+    let a = api().await;
+    let login = a.admin().await;
+    let logs = a
+        .get("/api/v1/hosts/nas/logs?lines=2&level=warn", &login)
+        .await;
+    assert_eq!(logs.status, StatusCode::OK, "{}", logs.text);
+    assert_eq!(logs.body.as_array().unwrap().len(), 0);
+    assert_eq!(
+        a.get("/api/v1/hosts/nowhere/logs", &login).await.status,
+        StatusCode::NOT_FOUND
+    );
+}
+
+#[tokio::test]
 async fn advisories_digest_and_metrics() {
     let a = api().await;
     let login = a.admin().await;
