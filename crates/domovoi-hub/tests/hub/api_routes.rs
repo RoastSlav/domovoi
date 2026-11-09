@@ -294,6 +294,7 @@ async fn hosts_enrollment_skills_and_notes() {
         "# Restart container\n\nRestarts one container."
     );
     assert!(skills.body[0]["verify"].is_null());
+    assert_eq!(skills.body[0]["enabled"], true);
 
     let created = a
         .post(

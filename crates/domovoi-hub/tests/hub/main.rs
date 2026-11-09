@@ -33,4 +33,6 @@ mod sessions;
 #[cfg(test)]
 mod settings;
 #[cfg(test)]
+mod skills;
+#[cfg(test)]
 mod spa;

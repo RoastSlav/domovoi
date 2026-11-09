@@ -403,6 +403,10 @@ mod api {
             (Method::POST, "/api/v1/settings/test/heartbeat".to_owned()),
             (Method::PUT, "/api/v1/hosts/nas/checks".to_owned()),
             (Method::PUT, "/api/v1/hosts/nas/docker".to_owned()),
+            (
+                Method::PUT,
+                "/api/v1/hosts/nas/skills/zpool_status".to_owned(),
+            ),
             (Method::POST, "/api/v1/hosts/nas/profile".to_owned()),
             (Method::POST, "/api/v1/ack-rules".to_owned()),
             (
