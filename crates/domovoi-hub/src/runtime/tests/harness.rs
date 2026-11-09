@@ -184,6 +184,7 @@ secret = {{ env = "TEST_SECRET" }}
                 process_executor: None,
                 metrics: None,
                 apply: None,
+                logs: None,
             },
             AdapterOverrides {
                 primary: Some(self.primary.clone()),

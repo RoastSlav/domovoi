@@ -10,6 +10,7 @@ mod selftest;
 mod version;
 
 use crate::ExitCode;
+use crate::log_ring::LogRing;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -78,8 +79,9 @@ pub enum SchemaFile {
     Agent,
 }
 
-/// Runs `command` and returns the process exit code.
-pub fn run(command: Command) -> anyhow::Result<ExitCode> {
+/// Runs `command` and returns the process exit code. `logs` is where the hub serves
+/// recent log lines from; other commands do not use it.
+pub fn run(command: Command, logs: Arc<LogRing>) -> anyhow::Result<ExitCode> {
     match command {
         Command::Version => version::run(),
         Command::Openapi => {
@@ -95,7 +97,7 @@ pub fn run(command: Command) -> anyhow::Result<ExitCode> {
             Ok(ExitCode::SUCCESS)
         }
         Command::Check(command) => check::run(command),
-        Command::Hub(command) => block_on(hub::run(command)),
+        Command::Hub(command) => block_on(hub::run(command, logs)),
         Command::Agent(command) => block_on(agent::run(command)),
         Command::Notify(command) => block_on(notify::run(command)),
         Command::Selftest(args) => block_on(selftest::run(args)),

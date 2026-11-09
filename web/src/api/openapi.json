@@ -2677,6 +2677,72 @@
         }
       }
     },
+    "/api/v1/system/logs": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "The hub's recent log lines, oldest first, with secrets removed.",
+        "operationId": "list_logs",
+        "parameters": [
+          {
+            "name": "lines",
+            "in": "query",
+            "description": "How many lines to return, 1 to 2000. Default 200.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "level",
+            "in": "query",
+            "description": "The least severe level to return: `error`, `warn`, `info`, `debug` or `trace`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The recent log lines",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/LogLineDto"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Logs are not captured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/healthz": {
       "get": {
         "tags": [
@@ -3907,6 +3973,34 @@
               "null"
             ],
             "description": "The model, if set."
+          }
+        }
+      },
+      "LogLineDto": {
+        "type": "object",
+        "description": "One captured log line.",
+        "required": [
+          "at",
+          "level",
+          "target",
+          "message"
+        ],
+        "properties": {
+          "at": {
+            "type": "string",
+            "description": "When the line was logged, RFC 3339."
+          },
+          "level": {
+            "type": "string",
+            "description": "How severe the line is: `error`, `warn`, `info`, `debug` or `trace`."
+          },
+          "message": {
+            "type": "string",
+            "description": "The message with its fields as `key=value` pairs, secrets removed."
+          },
+          "target": {
+            "type": "string",
+            "description": "What logged the line, usually the module that called it."
           }
         }
       },

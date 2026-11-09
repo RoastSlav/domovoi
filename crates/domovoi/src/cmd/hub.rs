@@ -4,6 +4,7 @@ use crate::ExitCode;
 use std::io::BufRead;
 use std::sync::Arc;
 
+use crate::log_ring::LogRing;
 use clap::{Args, Subcommand};
 use domovoi_hub::admin::OfflineAdmin;
 
@@ -70,9 +71,9 @@ pub struct SetPasswordArgs {
     password_stdin: bool,
 }
 
-pub async fn run(command: HubCommand) -> anyhow::Result<ExitCode> {
+pub async fn run(command: HubCommand, logs: Arc<LogRing>) -> anyhow::Result<ExitCode> {
     match command {
-        HubCommand::Run(args) => super::hub_run::run(args).await,
+        HubCommand::Run(args) => super::hub_run::run(args, logs).await,
         HubCommand::Token(TokenCommand::Create { host, ttl, config }) => {
             let admin = open(&config).await?;
             let invite = admin.create_token(&host, ttl.as_signed()).await;

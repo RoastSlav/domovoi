@@ -77,6 +77,8 @@ export type PredicateOp = Schemas["PredicateOpDto"];
 export type AckRuleInput = Schemas["AckRuleInput"];
 /** Dismissing an incident as a known condition: the reason, and how long the check stays quiet. */
 export type DismissInput = Schemas["DismissRequest"];
+/** One line from the hub's own log. */
+export type LogLine = Schemas["LogLineDto"];
 
 /** How the API shows a secret that has a value. */
 export const SECRET_SET = "[set]";

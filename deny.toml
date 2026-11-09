@@ -7,7 +7,12 @@ all-features = false
 [advisories]
 version = 2
 yanked = "deny"
-ignore = []
+ignore = [
+    # sqlx 0.9.0 (the newest release) bundles SQLite 3.53.2 through libsqlite3-sys
+    # 0.37.0 and pins that line, so the patched bundle (0.39.0, SQLite 3.54.0) is
+    # unreachable while the store stays on sqlx. Tracked for the store bump.
+    "RUSTSEC-2026-0459",
+]
 
 [licenses]
 version = 2

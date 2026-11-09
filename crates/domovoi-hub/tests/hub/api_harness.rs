@@ -12,8 +12,8 @@ use axum::extract::connect_info::MockConnectInfo;
 use axum::http::{HeaderMap, Method, Request, StatusCode, header};
 use domovoi_config::{HubConfig, MapEnv};
 use domovoi_core::ports::{
-    ActionRepo, AuditEvent, AuditFilter, AuditLog, HostRepo, IncidentRepo, LlmProvider, Notifier,
-    Page, Presence,
+    ActionRepo, AuditEvent, AuditFilter, AuditLog, HostRepo, IncidentRepo, LlmProvider, LogLine,
+    LogSource, Notifier, Page, Presence,
 };
 use domovoi_core::{ActionRequest, HostId, HostName, Incident, Principal, Risk, SkillSummary};
 use domovoi_engine::{
@@ -33,7 +33,9 @@ use domovoi_proto::EnrollToken;
 use domovoi_proto::messages::{CheckInfo, HostFacts};
 use domovoi_store::{Store, StoreOptions};
 use domovoi_testkit::build::{host, manifest, open_incident};
-use domovoi_testkit::{FakeAgentLink, FakeClock, RecordingSignalSink, ScriptedLlm};
+use domovoi_testkit::{
+    CannedLogSource, FakeAgentLink, FakeClock, RecordingSignalSink, ScriptedLlm,
+};
 use jiff::{SignedDuration, Timestamp};
 use serde_json::Value;
 use tempfile::TempDir;
@@ -70,6 +72,32 @@ pub fn peer() -> SocketAddr {
 
 pub fn t0() -> Timestamp {
     "2026-10-31T12:00:00Z".parse().unwrap()
+}
+
+/// Log lines the harness's log source answers with, oldest first. The last one carries
+/// an `sk-` shaped credential so a test can see it removed from the response.
+pub fn canned_logs() -> Vec<LogLine> {
+    [
+        LogLine {
+            at: "2026-10-31T12:00:01Z".parse().unwrap(),
+            level: "info".to_owned(),
+            target: "domovoi_hub.runtime".to_owned(),
+            message: "hub started hosts=1".to_owned(),
+        },
+        LogLine {
+            at: "2026-10-31T12:00:02Z".parse().unwrap(),
+            level: "warn".to_owned(),
+            target: "domovoi_hub.checks".to_owned(),
+            message: "disk.usage on /srv is 91% full".to_owned(),
+        },
+        LogLine {
+            at: "2026-10-31T12:00:03Z".parse().unwrap(),
+            level: "error".to_owned(),
+            target: "domovoi_hub.chat".to_owned(),
+            message: "gateway rejected key=sk-ant-test-0123456789abcdef".to_owned(),
+        },
+    ]
+    .to_vec()
 }
 
 /// Agents for the API: presence and catalogues from a fake link; invites and revocations
@@ -191,26 +219,36 @@ pub fn config() -> HubConfig {
 }
 
 pub async fn api() -> Api {
-    build(false, None, true).await
+    build(false, None, true, true).await
 }
 
 /// [`api`] with `notifier` taking digests.
 pub async fn api_with_notifier(notifier: Arc<dyn Notifier>) -> Api {
-    build(false, Some(notifier), true).await
+    build(false, Some(notifier), true, true).await
 }
 
 /// [`api`] with triage on, answering from [`Api::llm`].
 pub async fn api_with_triage() -> Api {
-    build(true, None, true).await
+    build(true, None, true, true).await
 }
 
 /// [`api`] whose hub was built without profile collection: the profile endpoints say they
 /// are unavailable, and the chat commands that only want the host's line still answer.
 pub async fn api_without_profiles() -> Api {
-    build(false, None, false).await
+    build(false, None, false, true).await
 }
 
-async fn build(triage: bool, notifier: Option<Arc<dyn Notifier>>, profiles: bool) -> Api {
+/// [`api`] with nothing captured behind it: the log endpoints say they are unavailable.
+pub async fn api_without_logs() -> Api {
+    build(false, None, true, false).await
+}
+
+async fn build(
+    triage: bool,
+    notifier: Option<Arc<dyn Notifier>>,
+    profiles: bool,
+    logs: bool,
+) -> Api {
     // The binary installs the process-wide provider; connection tests build HTTP clients.
     let _ = rustls::crypto::ring::default_provider().install_default();
     let dir = tempfile::tempdir().unwrap();
@@ -324,6 +362,7 @@ async fn build(triage: bool, notifier: Option<Arc<dyn Notifier>>, profiles: bool
     });
     let refused_map: BTreeMap<HostId, Refusal> = BTreeMap::new();
     let refusals = Arc::new(Mutex::new(refused_map));
+    let source: Arc<dyn LogSource> = Arc::new(CannedLogSource::new(canned_logs()));
     let deps = ApiDeps {
         incidents: store.clone(),
         signals: store.clone(),
@@ -347,6 +386,8 @@ async fn build(triage: bool, notifier: Option<Arc<dyn Notifier>>, profiles: bool
                 .await
                 .unwrap(),
         ),
+        logs: if logs { Some(source) } else { None },
+        redactor: Arc::new(PatternRedactor::default()),
         profiles: profiles.then(|| ProfileDeps {
             link: link.clone(),
             agents: Arc::new(TestAgents {

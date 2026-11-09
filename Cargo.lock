@@ -902,6 +902,7 @@ dependencies = [
  "reqwest",
  "rpassword",
  "rustls",
+ "secrecy",
  "serde_json",
  "tempfile",
  "tokio",

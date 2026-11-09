@@ -740,6 +740,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/system/logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The hub's recent log lines, oldest first, with secrets removed. */
+        get: operations["list_logs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/healthz": {
         parameters: {
             query?: never;
@@ -1227,6 +1244,17 @@ export interface components {
             kind: string;
             /** @description The model, if set. */
             model?: string | null;
+        };
+        /** @description One captured log line. */
+        LogLineDto: {
+            /** @description When the line was logged, RFC 3339. */
+            at: string;
+            /** @description How severe the line is: `error`, `warn`, `info`, `debug` or `trace`. */
+            level: string;
+            /** @description The message with its fields as `key=value` pairs, secrets removed. */
+            message: string;
+            /** @description What logged the line, usually the module that called it. */
+            target: string;
         };
         /** @description Logging in. */
         LoginRequest: {
@@ -3758,6 +3786,49 @@ export interface operations {
             };
             /** @description More than 10 tests a minute */
             429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_logs: {
+        parameters: {
+            query?: {
+                /** @description How many lines to return, 1 to 2000. Default 200. */
+                lines?: number;
+                /** @description The least severe level to return: `error`, `warn`, `info`, `debug` or `trace`. */
+                level?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The recent log lines */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LogLineDto"][];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Logs are not captured */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

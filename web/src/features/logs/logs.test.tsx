@@ -1,0 +1,115 @@
+import { screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import type { LogLine } from "../../api/types";
+import { calls, failure, resetApi, route } from "../../test/apiMock";
+import { T0 } from "../../test/fixtures";
+import { renderAt } from "../../test/render";
+import { LogsPage } from "./LogsPage";
+
+vi.mock("../../api/client", () => import("../../test/apiMock"));
+
+/** How many times the mocked endpoint answered, so a refetch can answer with more lines. */
+let answered = 0;
+
+/** The hub's own lines, oldest first, as the endpoint answers them. */
+function served(): LogLine[] {
+  return [
+    { at: T0, level: "info", target: "domovoi_hub.runtime", message: "hub started hosts=1" },
+    {
+      at: T0,
+      level: "warn",
+      target: "domovoi_hub.checks",
+      message: "disk.usage on /srv is 91% full",
+    },
+    {
+      at: T0,
+      level: "error",
+      target: "domovoi_hub.chat",
+      message: "gateway rejected key=[REDACTED]",
+    },
+  ];
+}
+
+/** One more line, as it is only there once the page asked again. */
+function later(): LogLine {
+  return {
+    at: "2026-10-31T12:00:20Z",
+    level: "info",
+    target: "domovoi_hub.triage",
+    message: "triage reported inc-1",
+  };
+}
+
+function logQueries() {
+  return calls
+    .filter((call) => call.route === "GET /api/v1/system/logs")
+    .map((call) => call.init.params?.query);
+}
+
+beforeEach(() => {
+  resetApi();
+  answered = 0;
+  route("GET /api/v1/system/logs", () =>
+    (answered += 1) === 1 ? served() : [...served(), later()],
+  );
+});
+
+test("logs_page_lists_the_hub_lines_oldest_first_with_their_level", async () => {
+  renderAt("/logs", "/logs", <LogsPage />);
+  await screen.findByText(/hub started hosts=1/);
+  const lines = [...document.querySelectorAll("pre span[data-level]")];
+  expect(lines, "one element per line").toHaveLength(3);
+  expect(lines[0]).toHaveTextContent(/INFO domovoi_hub\.runtime: hub started hosts=1/);
+  expect(lines[1]).toHaveTextContent(/WARN domovoi_hub\.checks: disk\.usage on \/srv is 91% full/);
+  expect(lines[2]).toHaveTextContent(/ERROR domovoi_hub\.chat: gateway rejected key=\[REDACTED\]/);
+  expect(lines[0]).toHaveAttribute("data-level", "info");
+  expect(lines[1]).toHaveAttribute("data-level", "warn");
+  expect(lines[2]).toHaveAttribute("data-level", "error");
+  expect(screen.getByRole("button", { name: "Refresh" })).toBeVisible();
+});
+
+test("log_selects_move_the_level_and_line_count_into_the_query", async () => {
+  const user = userEvent.setup();
+  renderAt("/logs?level=warn", "/logs", <LogsPage />);
+  expect(logQueries()).toEqual([{ level: "warn", lines: 200 }]);
+
+  await user.selectOptions(screen.getByLabelText("Level and above"), "error");
+  expect(screen.getByTestId("location")).toHaveTextContent("/logs?level=error");
+  expect(await screen.findByText(/gateway rejected/)).toBeVisible();
+
+  await user.selectOptions(screen.getByLabelText("Lines"), "1000");
+  expect(screen.getByTestId("location")).toHaveTextContent("/logs?level=error&lines=1000");
+  expect(logQueries().slice(1)).toEqual([
+    { level: "error", lines: 200 },
+    { level: "error", lines: 1000 },
+  ]);
+});
+
+test("logs_refresh_button_asks_for_the_lines_again", async () => {
+  const user = userEvent.setup();
+  renderAt("/logs", "/logs", <LogsPage />);
+  await screen.findByText(/gateway rejected/);
+  expect(screen.queryByText(/triage reported/)).toBeNull();
+
+  await user.click(screen.getByRole("button", { name: "Refresh" }));
+  expect(logQueries()).toHaveLength(2);
+  expect(await screen.findByText(/triage reported inc-1/)).toBeVisible();
+});
+
+test("logs_page_shows_the_hub_s_words_when_nothing_was_captured", async () => {
+  route("GET /api/v1/system/logs", () => failure(503, "unavailable", "logs are not captured"));
+  renderAt("/logs", "/logs", <LogsPage />);
+  expect(await screen.findByText("logs are not captured")).toBeVisible();
+});
+
+test("logs_page_promises_more_lines_when_the_hub_logged_nothing_to_show", async () => {
+  route("GET /api/v1/system/logs", () => []);
+  renderAt("/logs?level=debug", "/logs", <LogsPage />);
+  expect(await screen.findByText(/Nothing was logged at debug or above/)).toBeVisible();
+});
+
+test("logs_page_names_the_hub_as_the_only_source_it_can_read", async () => {
+  renderAt("/logs?source=agent", "/logs", <LogsPage />);
+  expect(await screen.findByText("Agent logs are not here yet.")).toBeVisible();
+  expect(logQueries(), "nothing is fetched for a source the hub cannot read").toHaveLength(0);
+});

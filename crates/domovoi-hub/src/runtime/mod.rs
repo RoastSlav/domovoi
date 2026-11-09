@@ -19,7 +19,7 @@ use std::sync::Arc;
 use domovoi_config::Secrets;
 use domovoi_config::hub::HubConfig;
 use domovoi_core::ports::{
-    AgentLink, ChatGateway, Clock, HostRepo, InteractionSink, Notifier, ProcessExecutor,
+    AgentLink, ChatGateway, Clock, HostRepo, InteractionSink, LogSource, Notifier, ProcessExecutor,
 };
 use domovoi_engine::triage::{TriageDeps, TriageHandle, TriageService};
 use domovoi_engine::{
@@ -60,6 +60,9 @@ pub struct HubDeps {
     /// Where saved settings go to be applied: the `hub run` supervisor. `None` stores
     /// them for the next start.
     pub apply: Option<tokio::sync::mpsc::Sender<crate::settings::ApplyRequest>>,
+    /// Recent log lines of this process, kept in memory by the binary that runs the hub.
+    /// `None` means nothing was captured, where the API answers 503.
+    pub logs: Option<Arc<dyn LogSource>>,
 }
 
 /// Why the hub could not be built, served or stopped.
@@ -293,6 +296,8 @@ impl HubRuntime {
                 metrics: deps.metrics,
                 settings,
                 audit: store.clone(),
+                logs: deps.logs,
+                redactor: redactor.clone(),
             },
             auth.clone(),
         )

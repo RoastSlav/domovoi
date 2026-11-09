@@ -9,6 +9,7 @@ pub mod chat;
 pub mod clock;
 pub mod hostfs;
 pub mod llm;
+pub mod logs;
 pub mod process;
 pub mod redact;
 pub mod repos;
@@ -26,6 +27,7 @@ pub use llm::{
     LlmError, LlmMessage, LlmProvider, LlmRequest, LlmResponse, Part, Role, StopReason, ToolSpec,
     Usage,
 };
+pub use logs::{LogLine, LogSource};
 pub use process::{ProcessError, ProcessExecutor, ProcessOutput, ProcessSpec};
 pub use redact::Redactor;
 pub use repos::*;

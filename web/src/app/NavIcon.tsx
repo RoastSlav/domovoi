@@ -7,6 +7,7 @@ export const NAV = [
   ["/skills", "Skills", "tool"],
   ["/notes", "Notes", "note"],
   ["/digest", "Digest", "list"],
+  ["/logs", "Logs", "log"],
   ["/settings", "Settings", "gear"],
 ] as const;
 
@@ -22,6 +23,7 @@ const PATHS: Record<IconName, string> = {
   tool: "M10.5 2.5a3 3 0 0 0-2.7 4L2.5 11.8l1.7 1.7L9.5 8.2a3 3 0 0 0 4-2.7l-2 2-1.5-.5-.5-1.5 2-2a3 3 0 0 0-1-.5Z",
   note: "M3.5 2h6l3 3v9h-9V2Zm6 0v3h3M5.5 8h5m-5 2.5h5",
   list: "M2.5 4h11m-11 4h11m-11 4h7",
+  log: "M2.5 3.5h11v9h-11Zm2 2l2 2l-2 2m3.5 2h3",
   gear: "M8 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5ZM8 1.5v2m0 9v2m6.5-6.5h-2m-9 0h-2m10.6-4.6-1.4 1.4m-6.4 6.4-1.4 1.4m0-9.2 1.4 1.4m6.4 6.4 1.4 1.4",
 };
 
