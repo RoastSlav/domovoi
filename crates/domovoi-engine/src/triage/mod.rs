@@ -4,7 +4,7 @@
 //! the repeat cache, builds a redacted context bundle and runs a bounded loop over the
 //! closed [`ReadTool`](domovoi_core::ReadTool) set. The final answer must be one JSON
 //! [`TriageReport`](domovoi_core::TriageReport). The primary provider falls back to the
-//! secondary; a failed run still leaves the card that already went out (INV-11). Valid
+//! providers after it in order; a failed run still leaves the card that already went out (INV-11). Valid
 //! action proposals become `Proposed` actions; nothing the model writes is ever run (INV-9).
 
 mod agent;
@@ -96,8 +96,8 @@ impl Default for TriageSettings {
 pub struct TriageDeps {
     /// The provider tried first.
     pub primary: Arc<dyn LlmProvider>,
-    /// The fallback when the primary is unavailable.
-    pub secondary: Option<Arc<dyn LlmProvider>>,
+    /// Providers tried in order after the primary fails.
+    pub fallbacks: Vec<Arc<dyn LlmProvider>>,
     /// Read tools and skill catalogues on agents.
     pub link: Arc<dyn AgentLink>,
     /// Incidents, read only; changes go through `manager`.
@@ -174,6 +174,15 @@ impl Shared {
             None => deferred.push((at, id, reason)),
         }
         self.deferred_ready.notify_one();
+    }
+
+    /// The providers a triage run tries, in order: the primary, then its fallbacks.
+    pub(crate) fn chain(&self) -> Vec<Arc<dyn LlmProvider>> {
+        std::iter::chain(
+            std::iter::once(self.deps.primary.clone()),
+            self.deps.fallbacks.iter().map(Arc::clone),
+        )
+        .collect()
     }
 }
 
