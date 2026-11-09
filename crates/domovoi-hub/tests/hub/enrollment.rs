@@ -4,7 +4,7 @@ use domovoi_core::ports::{Clock, HostRepo};
 use domovoi_core::{AgentId, HostKind, HostName};
 use domovoi_hub::agent_server::{AgentServer, AgentServerDeps, TlsIdentity, token_hash};
 use domovoi_proto::messages::{Enrolled, RejectReason};
-use domovoi_proto::{Message, MIN_AGENT_VERSION, PROTOCOL_VERSION, ProtocolVersion};
+use domovoi_proto::{MIN_AGENT_VERSION, Message, PROTOCOL_VERSION, ProtocolVersion};
 use jiff::SignedDuration;
 
 use crate::agent::{FakeAgent, enroll, hello_running, new_key, rejected};
@@ -204,11 +204,15 @@ async fn agent_older_than_the_hub_minimum_is_refused() {
     let hub = Hub::start().await;
     let ident = enroll(&hub, "nas").await;
     let mut agent = FakeAgent::connect(hub.addr).await;
-    agent.send(hello_running(ident.agent, PROTOCOL_VERSION, "0.0.1"), None).await;
+    agent
+        .send(hello_running(ident.agent, PROTOCOL_VERSION, "0.0.1"), None)
+        .await;
     let reply = agent.expect().await.message;
     assert_eq!(
         rejected(&reply),
-        Some(RejectReason::AgentTooOld { minimum: MIN_AGENT_VERSION }),
+        Some(RejectReason::AgentTooOld {
+            minimum: MIN_AGENT_VERSION
+        }),
         "the hub names the minimum the agent has to reach",
     );
     agent.closed().await;
