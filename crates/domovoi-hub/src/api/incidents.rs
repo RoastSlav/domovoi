@@ -434,7 +434,7 @@ pub(super) async fn ask(
         .map_err(|e| ApiError::internal("follow-up failed", e))?
         .map_err(|e| match e {
             TriageError::UnknownIncident(_) => ApiError::NotFound,
-            TriageError::Provider(err) => ApiError::Unavailable(err.to_string()),
+            TriageError::Provider(err) => ApiError::Unavailable(err),
             TriageError::Store(err) => ApiError::internal("follow-up failed", err),
         })?;
     Ok(Json(AskResponse { answer }))
