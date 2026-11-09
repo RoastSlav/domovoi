@@ -1,4 +1,4 @@
-use domovoi_core::ports::{ActionRepo, IncidentRepo, Part};
+use domovoi_core::ports::{ActionRepo, IncidentRepo, LlmError, Part};
 use domovoi_core::{ActionStatus, CheckKey, Principal, ReadToolCall, TriageOutcome, UserId};
 use domovoi_engine::triage::{MAX_ANSWER_CHARS, PROPOSAL_TTL, token_hash};
 use domovoi_testkit::link::LinkRequest;
@@ -190,4 +190,26 @@ async fn follow_up_answers_with_tools_and_never_creates_actions() {
         .expect("the follow-up is in the timeline");
     assert_eq!(entry.summary, "Why does nginx restart?");
     assert_eq!(entry.detail["answer"], answer);
+}
+
+#[tokio::test]
+async fn follow_up_falls_back_on_refused_credentials() {
+    let w = world(Setup {
+        secondary: true,
+        ..Setup::default()
+    })
+    .await;
+    w.primary.push_err(LlmError::Auth);
+    w.secondary.push_text("The config file is bad.");
+    let answer = w
+        .triage
+        .follow_up(w.incident.id(), "Anything else?", UserId::new())
+        .await
+        .unwrap();
+    assert!(answer.starts_with("The config file is bad."));
+    assert_eq!(
+        w.secondary.requests().len(),
+        1,
+        "the fallback answers the follow-up"
+    );
 }
