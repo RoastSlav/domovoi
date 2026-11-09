@@ -69,6 +69,7 @@ test("sidebar_lists_the_main_navigation_links", () => {
     "Skills",
     "Notes",
     "Digest",
+    "Logs",
     "Settings",
   ]);
   expect(links[0]).toHaveAttribute("href", "/incidents");
