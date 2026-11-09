@@ -49,8 +49,15 @@ export function isHubOnly(host: Host): boolean {
   return host.kind === "local" && !host.agent_enrolled;
 }
 
-/** The agent's version, marked when it is older than the hub. */
+/** The agent's version, marked when it is older than the hub, or why it was refused. */
 export function VersionCell({ host }: { host: Host }) {
+  if (host.refused) {
+    return (
+      <span className={styles.refused} title="The handshake was refused; update the older side">
+        {host.refused}
+      </span>
+    );
+  }
   if (!host.version) {
     return <span aria-label="unknown">–</span>;
   }

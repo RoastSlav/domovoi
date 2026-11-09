@@ -1,29 +1,15 @@
 //! Comparing agent versions with the hub's, for the "outdated" flag.
 
+use domovoi_proto::parse_release;
+
 /// The hub's own version.
 pub const HUB_VERSION: &str = env!("CARGO_PKG_VERSION");
-
-/// `major.minor.patch` of `version`, ignoring a pre-release or build suffix.
-fn triple(version: &str) -> Option<(u64, u64, u64)> {
-    let core = version
-        .trim()
-        .trim_start_matches('v')
-        .split(['-', '+'])
-        .next()?;
-    let mut parts = core.split('.').map(str::parse::<u64>);
-    let triple = (
-        parts.next()?.ok()?,
-        parts.next()?.ok()?,
-        parts.next()?.ok()?,
-    );
-    parts.next().is_none().then_some(triple)
-}
 
 /// Whether agent `version` is older than `hub`. Versions that do not parse are never
 /// called outdated.
 #[must_use]
 pub fn is_older(version: &str, hub: &str) -> bool {
-    match (triple(version), triple(hub)) {
+    match (parse_release(version), parse_release(hub)) {
         (Some(agent), Some(hub)) => agent < hub,
         _ => false,
     }

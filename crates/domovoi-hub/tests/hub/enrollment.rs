@@ -4,10 +4,10 @@ use domovoi_core::ports::{Clock, HostRepo};
 use domovoi_core::{AgentId, HostKind, HostName};
 use domovoi_hub::agent_server::{AgentServer, AgentServerDeps, TlsIdentity, token_hash};
 use domovoi_proto::messages::{Enrolled, RejectReason};
-use domovoi_proto::{Message, PROTOCOL_VERSION, ProtocolVersion};
+use domovoi_proto::{MIN_AGENT_VERSION, Message, PROTOCOL_VERSION, ProtocolVersion};
 use jiff::SignedDuration;
 
-use crate::agent::{FakeAgent, enroll, new_key, rejected};
+use crate::agent::{FakeAgent, enroll, hello_running, new_key, rejected};
 use crate::harness::{Hub, pump, t0};
 
 #[tokio::test]
@@ -195,6 +195,93 @@ async fn incompatible_major_version_is_rejected() {
             hub: PROTOCOL_VERSION
         })
     );
+}
+
+/// The release rule: an agent older than the hub's minimum cannot take a session, and the
+/// host keeps the reason so its page says to update that agent. The hub states the rule only
+/// once the agent has signed a fresh challenge, and sends a reason the client can name.
+#[tokio::test]
+async fn agent_older_than_the_hub_minimum_is_refused() {
+    let hub = Hub::start().await;
+    let ident = enroll(&hub, "nas").await;
+    let mut agent = FakeAgent::connect(hub.addr).await;
+    agent
+        .send(hello_running(ident.agent, PROTOCOL_VERSION, "0.0.1"), None)
+        .await;
+    let Message::Challenge(challenge) = agent.expect().await.message else {
+        panic!("the hub asks every caller to prove its key first");
+    };
+    let reply = agent.answer(&challenge, ident.agent, &ident.key).await;
+    assert_eq!(
+        rejected(&reply),
+        Some(RejectReason::Incompatible {
+            hub: PROTOCOL_VERSION
+        }),
+        "an agent older than the reason floor is refused with a reason it already stops on",
+    );
+    let minimum = MIN_AGENT_VERSION.to_string();
+    let recorded = hub.server.host_refusal(ident.host);
+    assert_eq!(
+        recorded
+            .as_ref()
+            .map(|refusal| (refusal.version.as_str(), refusal.minimum.as_str())),
+        Some(("0.0.1", minimum.as_str())),
+        "the host keeps the refused release and the minimum it has to reach",
+    );
+    agent.closed().await;
+}
+
+/// A client predating the reason floor (0.0.4) never saw the `agent_too_old` wire variant,
+/// so it gets `incompatible`: the one reason every client, including those old binaries,
+/// already treats as final and closes on (see `incompatible_reject_stops_with_upgrade_message`
+/// on the agent side).
+#[tokio::test]
+async fn a_client_predating_the_reason_floor_is_refused_with_incompatible() {
+    let hub = Hub::start().await;
+    let ident = enroll(&hub, "nas").await;
+    let mut agent = FakeAgent::connect(hub.addr).await;
+    agent
+        .send(hello_running(ident.agent, PROTOCOL_VERSION, "0.0.4"), None)
+        .await;
+    let Message::Challenge(challenge) = agent.expect().await.message else {
+        panic!("the hub asks every caller to prove its key first");
+    };
+    let reply = agent.answer(&challenge, ident.agent, &ident.key).await;
+    assert_eq!(
+        rejected(&reply),
+        Some(RejectReason::Incompatible {
+            hub: PROTOCOL_VERSION
+        }),
+        "a client that cannot name agent_too_old gets incompatible, so it stops reconnecting",
+    );
+    agent.closed().await;
+}
+
+/// Refusal state is published only to a client that proved it holds the agent's key: an
+/// old hello from a client that cannot sign the challenge leaves no refusal behind, so it
+/// cannot put a message on the Hosts page beside a live agent.
+#[tokio::test]
+async fn an_agent_that_cannot_sign_its_challenge_records_no_refusal() {
+    let hub = Hub::start().await;
+    let ident = enroll(&hub, "nas").await;
+    let mut agent = FakeAgent::connect(hub.addr).await;
+    agent
+        .send(hello_running(ident.agent, PROTOCOL_VERSION, "0.0.4"), None)
+        .await;
+    let Message::Challenge(challenge) = agent.expect().await.message else {
+        panic!("the hub asks every caller to prove its key first");
+    };
+    let reply = agent.answer_without_the_key(&challenge, ident.agent).await;
+    assert_eq!(
+        rejected(&reply),
+        Some(RejectReason::BadSignature),
+        "the client does not hold the agent's key",
+    );
+    assert!(
+        hub.server.host_refusal(ident.host).is_none(),
+        "an unauthenticated client must not be able to record a refusal",
+    );
+    agent.closed().await;
 }
 
 #[tokio::test]

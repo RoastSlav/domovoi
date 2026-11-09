@@ -27,4 +27,8 @@ fn every_message_kind_matches_its_wire_snapshot() {
         insta::assert_json_snapshot!(message.kind().to_owned(), pretty(&message, reply));
     }
     insta::assert_json_snapshot!("skill_result_ok", pretty(&samples::skill_success(), true));
+    insta::assert_json_snapshot!(
+        "reject_agent_too_old",
+        pretty(&samples::agent_too_old(), true)
+    );
 }

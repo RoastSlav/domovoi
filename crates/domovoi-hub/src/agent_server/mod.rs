@@ -39,7 +39,7 @@ pub use handshake::{BAD_TOKEN_DELAY, FIRST_FRAME_TIMEOUT, STEP_TIMEOUT};
 pub use link::WsAgentLink;
 pub use memory::MemoryTransport;
 pub use probes::{NetProbes, RealNetProbes};
-pub use registry::{AGENTS_CONNECTED, MAX_PENDING};
+pub use registry::{AGENTS_CONNECTED, MAX_PENDING, Refusal};
 pub use settings::ServerSettings;
 pub use skill_policy::{DISABLED_REASON, PolicyLink, SkillPolicy, host_skills_key};
 pub use tls::{CHANNEL_BINDING_LABEL, HUB_SAN, TlsIdentity, colon_hex};
@@ -141,6 +141,13 @@ impl AgentServer {
     #[must_use]
     pub fn host_checks(&self, host: HostId) -> Vec<CheckInfo> {
         self.inner.registry.checks(host).unwrap_or_default()
+    }
+
+    /// Why the host's agent was refused at its last handshake: its release is older than
+    /// this hub accepts. `None` while it connects, or when it was never refused.
+    #[must_use]
+    pub fn host_refusal(&self, host: HostId) -> Option<Refusal> {
+        self.inner.registry.refusal(host)
     }
 
     /// Binds the configured listen address.

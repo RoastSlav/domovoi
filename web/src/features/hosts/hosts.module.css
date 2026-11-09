@@ -111,6 +111,14 @@
   background: var(--monitor);
 }
 
+.refused {
+  padding: 0 0.45rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--danger);
+}
+
 .facts {
   display: grid;
   grid-template-columns: max-content 1fr;

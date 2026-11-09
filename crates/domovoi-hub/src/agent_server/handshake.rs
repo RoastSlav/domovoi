@@ -10,13 +10,15 @@ use domovoi_proto::messages::{
     Challenge, Enroll, Enrolled, Hello, Reject, RejectReason, SessionId, Welcome,
 };
 use domovoi_proto::{
-    CertFingerprint, Message, Nonce, PROTOCOL_VERSION, Transport, challenge_message, compatible,
+    AGENT_TOO_OLD_REASON_SINCE, CertFingerprint, MIN_AGENT_VERSION, Message, Nonce,
+    PROTOCOL_VERSION, Release, Transport, at_least, challenge_message, compatible,
 };
 use ed25519_dalek::{Signature, VerifyingKey};
 use jiff::SignedDuration;
 
 use super::Inner;
 use super::conn::{ConnError, expect, send, within};
+use super::registry::Refusal;
 use super::tokens::token_hash;
 
 /// How long a new connection may take to send `enroll` or `hello`.
@@ -130,6 +132,21 @@ async fn enroll_agent(
     send(transport, &enrolled, Some(id)).await
 }
 
+/// Why the hub refuses an agent whose release is below its floor `minimum`: a client older
+/// than [`AGENT_TOO_OLD_REASON_SINCE`] never saw the `agent_too_old` wire variant, and a
+/// reason it cannot name is not final for it, so it gets `incompatible` instead, which every
+/// client already treats as final. A client that knows the reason gets it by name.
+#[must_use]
+pub fn refusal_reason(agent_version: &str, minimum: Release) -> RejectReason {
+    if at_least(agent_version, AGENT_TOO_OLD_REASON_SINCE) {
+        RejectReason::AgentTooOld { minimum }
+    } else {
+        RejectReason::Incompatible {
+            hub: PROTOCOL_VERSION,
+        }
+    }
+}
+
 async fn authenticate(
     inner: &Inner,
     transport: &mut dyn Transport,
@@ -171,6 +188,30 @@ async fn authenticate(
     });
     if !valid {
         return Err(reject(transport, RejectReason::BadSignature, answer.id).await);
+    }
+    // The age rule is only stated once the agent proved its key: an unauthenticated client
+    // that knows an agent id must not be able to put a refusal on the Hosts page.
+    if !at_least(&hello.agent_version, MIN_AGENT_VERSION) {
+        tracing::warn!(
+            host = %agent.host,
+            agent = %hello.agent_version,
+            minimum = %MIN_AGENT_VERSION,
+            "agent release is older than the hub's minimum; update that agent"
+        );
+        inner.registry.record_refusal(
+            agent.host,
+            Refusal {
+                version: hello.agent_version.to_owned(),
+                minimum: MIN_AGENT_VERSION.to_string(),
+                at: clock.now(),
+            },
+        );
+        return Err(reject(
+            transport,
+            refusal_reason(&hello.agent_version, MIN_AGENT_VERSION),
+            answer.id,
+        )
+        .await);
     }
     if agent.version != hello.agent_version {
         agent.version.clone_from(&hello.agent_version);

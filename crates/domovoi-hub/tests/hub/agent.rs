@@ -96,10 +96,15 @@ pub fn facts() -> HostFacts {
 }
 
 pub fn hello(agent: AgentId, protocol: ProtocolVersion) -> Message {
+    hello_running(agent, protocol, "0.1.0")
+}
+
+/// A hello saying the agent runs release `version`, for the minimum-release rule.
+pub fn hello_running(agent: AgentId, protocol: ProtocolVersion, version: &str) -> Message {
     Message::Hello(Hello {
         agent_id: agent,
         protocol,
-        agent_version: "0.1.0".to_owned(),
+        agent_version: version.to_owned(),
         facts: facts(),
         capabilities: Vec::new(),
         skills: Vec::new(),
@@ -214,6 +219,23 @@ impl FakeAgent {
     ) -> Message {
         let message = challenge_message(&challenge.nonce, agent, &self.binding);
         let signature = Signature(key.sign(&message).to_bytes());
+        self.send(
+            Message::ChallengeResponse(ChallengeResponse { signature }),
+            None,
+        )
+        .await;
+        self.expect().await.message
+    }
+
+    /// Answers a challenge with a signature from some other key: a client that knows an
+    /// agent id but cannot prove it holds that agent's key.
+    pub async fn answer_without_the_key(
+        &mut self,
+        challenge: &Challenge,
+        agent: AgentId,
+    ) -> Message {
+        let message = challenge_message(&challenge.nonce, agent, &self.binding);
+        let signature = Signature(new_key().sign(&message).to_bytes());
         self.send(
             Message::ChallengeResponse(ChallengeResponse { signature }),
             None,

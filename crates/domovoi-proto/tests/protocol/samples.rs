@@ -9,8 +9,8 @@ use domovoi_core::{
 };
 use domovoi_proto::messages::*;
 use domovoi_proto::{
-    CertFingerprint, EnrollToken, Message, Nonce, PROTOCOL_VERSION, PublicKey, Sha256Bytes,
-    Signature,
+    CertFingerprint, EnrollToken, MIN_AGENT_VERSION, Message, Nonce, PROTOCOL_VERSION, PublicKey,
+    Sha256Bytes, Signature,
 };
 use jiff::Timestamp;
 use uuid::Uuid;
@@ -261,6 +261,17 @@ pub fn skill_success() -> Message {
             duration_ms: 1_250,
             argv_hash: Sha256Bytes([3; 32]),
         }),
+    }
+    .into()
+}
+
+/// A `reject` about the agent's release rather than its protocol, which [`all`] pins to
+/// the hub's own minimum so the wire shape follows the release rule.
+pub fn agent_too_old() -> Message {
+    Reject {
+        reason: RejectReason::AgentTooOld {
+            minimum: MIN_AGENT_VERSION,
+        },
     }
     .into()
 }

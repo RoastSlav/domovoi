@@ -3,7 +3,7 @@
 //! again.
 
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::api_harness::{Api, TestAgents, api};
 use axum::http::{Method, StatusCode};
@@ -137,6 +137,7 @@ fn profile_deps(a: &Api) -> ProfileDeps {
         agents: Arc::new(TestAgents {
             link: a.link.clone(),
             hosts: a.store.clone(),
+            refused: Arc::new(Mutex::new(BTreeMap::new())),
         }),
         hosts: a.store.clone(),
         notes: a.store.clone(),
@@ -288,6 +289,7 @@ async fn a_disabled_read_skill_is_never_asked_for_a_profile() {
         agents: Arc::new(TestAgents {
             link: a.link.clone(),
             hosts: a.store.clone(),
+            refused: Arc::new(Mutex::new(BTreeMap::new())),
         }),
         hosts: a.store.clone(),
         notes: a.store.clone(),

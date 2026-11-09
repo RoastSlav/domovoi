@@ -102,6 +102,32 @@ impl HubConn {
         hello
     }
 
+    /// The whole handshake, but the hub says it runs release `hub_release`, for the
+    /// minimum-release rule: an older hub is refused by the agent.
+    pub async fn welcome_from_release(
+        &mut self,
+        identity: &Identity,
+        heartbeat_seconds: u32,
+        hub_release: &str,
+    ) -> Hello {
+        let (hello, nonce) = self.challenge(identity).await;
+        assert!(
+            self.verify(identity, &nonce).await,
+            "bad challenge signature"
+        );
+        let welcome = Welcome {
+            session_id: SessionId::new(),
+            hub_version: hub_release.to_owned(),
+            config: AgentSettings {
+                heartbeat_seconds,
+                check_overrides: Default::default(),
+                docker: None,
+            },
+        };
+        self.send(Message::Welcome(welcome), None).await;
+        hello
+    }
+
     pub async fn reject(&mut self, identity: &Identity, reason: RejectReason) {
         let (_, nonce) = self.challenge(identity).await;
         assert!(self.verify(identity, &nonce).await);

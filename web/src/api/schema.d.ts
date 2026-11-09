@@ -1102,6 +1102,12 @@ export interface components {
             open_incidents: number;
             /** @description Whether the connected agent is older than the hub. */
             outdated: boolean;
+            /**
+             * @description Why the host's agent was refused at its last handshake, for example
+             *     `agent 0.0.1 is older than the minimum 0.0.5; update it`. `None` when the agent
+             *     connected, or was never refused.
+             */
+            refused?: string | null;
             /** @description The agent's version, while connected. */
             version?: string | null;
         };

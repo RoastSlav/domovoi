@@ -143,6 +143,30 @@ test("outdated_agent_badge_shown", async () => {
   expect(within(current as HTMLElement).queryByText("Outdated")).toBeNull();
 });
 
+test("refused_agent_names_why_it_was_refused", async () => {
+  route("GET /api/v1/hosts", () => [
+    {
+      ...nas,
+      connected: false,
+      last_seen: null,
+      version: null,
+      outdated: false,
+      refused: "agent 0.0.1 is older than the minimum 0.0.5; update it",
+    },
+  ]);
+  renderAt("/hosts", "/hosts", <HostsPage />);
+
+  const cells = await screen.findAllByRole("cell");
+  const refused = cells.filter((cell) => cell.textContent.includes("older than the minimum"));
+  expect(refused).toHaveLength(1);
+  expect(
+    within(refused[0] as HTMLElement).getByText(
+      "agent 0.0.1 is older than the minimum 0.0.5; update it",
+    ),
+  ).toBeVisible();
+  expect(within(refused[0] as HTMLElement).queryByText("Outdated")).toBeNull();
+});
+
 test("hub_host_without_agent_is_shown_as_hub_only", async () => {
   const hub = {
     ...nas,

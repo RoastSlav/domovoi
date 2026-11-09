@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use domovoi_proto::ProtocolVersion;
+use domovoi_proto::{ProtocolVersion, Release};
 
 /// Why a file under the state directory could not be read or written.
 #[derive(Debug, thiserror::Error)]
@@ -59,13 +59,45 @@ pub enum LinkError {
         /// This agent's protocol version.
         agent: ProtocolVersion,
     },
+    /// The hub refused this agent because its release is older than the hub accepts. The
+    /// link stops: the agent has to be updated.
+    #[error(
+        "this agent is release {}, older than the hub's minimum {}; update the agent",
+        agent_version,
+        minimum
+    )]
+    AgentTooOld {
+        /// This agent's release, as it said it.
+        agent_version: String,
+        /// The oldest agent release the hub accepts.
+        minimum: Release,
+    },
+    /// This agent refuses the hub because the hub's release is older than the agent accepts.
+    /// The link stops: the hub has to be updated.
+    #[error(
+        "the hub says it runs release {}, older than this agent's minimum {}; update the hub",
+        hub_version,
+        minimum
+    )]
+    HubTooOld {
+        /// The hub's release, as the hub said it.
+        hub_version: String,
+        /// The oldest hub release this agent accepts.
+        minimum: Release,
+    },
 }
 
 impl LinkError {
     /// Whether retrying cannot help, so the link stops.
     #[must_use]
     pub fn is_final(&self) -> bool {
-        matches!(self, Self::Revoked(_) | Self::Incompatible { .. })
+        matches!(
+            self,
+            Self::Revoked(_)
+                | Self::Incompatible { .. }
+                | Self::AgentTooOld { .. }
+                | Self::HubTooOld { .. },
+        )
     }
 }
 

@@ -37,6 +37,14 @@ fn agent_error(err: crate::agent_server::AgentServerError) -> ApiError {
     }
 }
 
+/// The Hosts page's line for an agent refused because its release is older than the
+/// minimum this hub accepts.
+fn refused_text(refusal: crate::agent_server::Refusal) -> String {
+    let version = refusal.version;
+    let minimum = refusal.minimum;
+    format!("agent {version} is older than the minimum {minimum}; update it")
+}
+
 /// The DTO of `host`, with its agent's presence and its count of unresolved incidents.
 pub(crate) async fn host_dto(
     state: &ApiState,
@@ -62,6 +70,7 @@ pub(crate) async fn host_dto(
         connected_since: None,
         last_seen: None,
         outdated: false,
+        refused: state.deps.agents.refusal(host.id).map(refused_text),
         open_incidents: u32::try_from(open).unwrap_or(u32::MAX),
     };
     match state.deps.agents.presence(host.id) {

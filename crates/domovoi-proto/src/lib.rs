@@ -20,4 +20,7 @@ pub use envelope::{Decoded, Envelope, MAX_FRAME_BYTES, decode, encode};
 pub use error::ProtoError;
 pub use messages::Message;
 pub use transport::{Transport, TransportError};
-pub use version::{PROTOCOL_VERSION, ProtocolVersion, compatible};
+pub use version::{
+    AGENT_TOO_OLD_REASON_SINCE, MIN_AGENT_VERSION, MIN_HUB_VERSION, PROTOCOL_VERSION,
+    ProtocolVersion, Release, at_least, compatible, parse_release,
+};

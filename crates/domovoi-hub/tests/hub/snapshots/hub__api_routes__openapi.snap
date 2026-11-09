@@ -836,6 +836,13 @@ expression: spec
             "description": "Whether the connected agent is older than the hub.",
             "type": "boolean"
           },
+          "refused": {
+            "description": "Why the host's agent was refused at its last handshake, for example\n`agent 0.0.1 is older than the minimum 0.0.5; update it`. `None` when the agent\nconnected, or was never refused.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "version": {
             "description": "The agent's version, while connected.",
             "type": [
