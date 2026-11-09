@@ -25,4 +25,4 @@ The page asks again by itself every 5 seconds, and the Refresh button asks right
 
 ## Secrets
 
-A line never carries a configured secret: those values are held as secret types whose printed form is never the value. Lines that come back from the hub also go through the same redactor that scrubs chat cards, so a credential that arrived as plain text in a message is replaced with `[REDACTED]`.
+A line never carries a configured secret: those values are held as secret types whose printed form is never the value. And a line is scrubbed while it comes in, with the rules the hub had at that moment, so a secret is replaced with `[REDACTED]` before the hub ever stores the line. Rotating a secret through the settings page cannot uncover a line that was already captured: the earlier line keeps the scrubbing it was captured with. Lines the hub sends to the page go through the same redactor that scrubs chat cards, which changes nothing in an already scrubbed line.

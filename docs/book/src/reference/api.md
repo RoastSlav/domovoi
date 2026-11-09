@@ -133,7 +133,7 @@ The reply counts what happened: `{"created": 2, "skipped": 0, "skipped_files": [
 
 ## Logs
 
-`GET /api/v1/system/logs` answers the hub's own recent log lines, oldest first, as a JSON array of `{"at", "level", "target", "message"}`. `lines` is how many to return (1 to 2000, default 200) and `level` is the least severe level to include (`error`, `warn`, `info`, `debug`, `trace`; default `info`). Only the newest 2000 lines are kept in memory. Each message goes through the same redactor that scrubs chat cards. When the process keeps no lines, the endpoint answers 503 with `logs are not captured`.
+`GET /api/v1/system/logs` answers the hub's own recent log lines, oldest first, as a JSON array of `{"at", "level", "target", "message"}`. `lines` is how many to return (1 to 2000, default 200) and `level` is the least severe level to include (`error`, `warn`, `info`, `debug`, `trace`; default `info`). Only the newest 2000 lines are kept in memory, and every message was scrubbed while the hub captured it, so replacing a secret later cannot make an older line show the value it replaced. When the process keeps no lines, the endpoint answers 503 with `logs are not captured`.
 
 ## Health and metrics
 
