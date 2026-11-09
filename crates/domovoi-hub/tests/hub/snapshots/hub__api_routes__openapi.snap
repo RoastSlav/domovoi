@@ -3463,7 +3463,7 @@ expression: spec
                 }
               }
             },
-            "description": "No such host"
+            "description": "No such host, or the agent does not report that skill"
           }
         },
         "summary": "Turns one of a host's skills on or off. The switch is saved in the settings table and\ntakes effect immediately: a disabled skill stays on the host, but the hub never runs it\nand never offers it to triage.",

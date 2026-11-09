@@ -19,6 +19,9 @@ const SHOWN: &str = "listening_ports";
 /// A name the agent could never have announced: uppercase is not a skill name.
 const NOT_A_SKILL: &str = "Restart_Container";
 
+/// A name the agent could have announced but did not: well-formed, absent here.
+const UNANNOUNCED: &str = "prune_logs";
+
 /// The skills the fake agent announces for `nas`.
 fn announced() -> Vec<SkillSummary> {
     let hidden = manifest(HIDDEN, Risk::Read).unwrap().summary();
@@ -193,6 +196,11 @@ async fn a_skill_name_the_agent_could_not_have_is_refused() {
         switch(&a, &login, NOT_A_SKILL, false).await,
         StatusCode::BAD_REQUEST,
         "uppercase is not a skill name",
+    );
+    assert_eq!(
+        switch(&a, &login, UNANNOUNCED, false).await,
+        StatusCode::NOT_FOUND,
+        "a well-formed name the host does not report is not saved",
     );
     assert_eq!(
         running(&a, &login, HIDDEN).await,

@@ -430,7 +430,7 @@ pub struct SkillEnabledUpdate {
         (status = 204, description = "Saved"),
         (status = 400, description = "Invalid skill name", body = ErrorBody),
         (status = 401, description = "Not logged in", body = ErrorBody),
-        (status = 404, description = "No such host", body = ErrorBody),
+        (status = 404, description = "No such host, or the agent does not report that skill", body = ErrorBody),
     )
 )]
 pub(super) async fn set_skill_enabled(
@@ -441,6 +441,15 @@ pub(super) async fn set_skill_enabled(
 ) -> Result<StatusCode, ApiError> {
     let host = host_named(&state, &host_name).await?;
     let skill = SkillName::parse(&skill_name).map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    let announced = state
+        .deps
+        .agents
+        .skills(host.id)
+        .iter()
+        .any(|s| s.name == skill);
+    if !announced {
+        return Err(ApiError::NotFound);
+    }
     state
         .deps
         .skill_policy
