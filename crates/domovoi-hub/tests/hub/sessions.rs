@@ -6,8 +6,8 @@ use domovoi_core::{
 };
 use domovoi_hub::agent_server::{LOCAL_SESSION_HINT, MAX_FRAMES_PER_SECOND, MemoryTransport};
 use domovoi_proto::messages::{
-    Challenge, ChallengeResponse, DigestFacts, Logs, Ping, RejectReason, Signals, ToolOutcome,
-    ToolResult, ToolSuccess, Unsupported,
+    Challenge, ChallengeResponse, DigestFacts, ErrorMessage, Logs, Ping, RejectReason, Signals,
+    ToolOutcome, ToolResult, ToolSuccess, Unsupported,
 };
 use domovoi_proto::{
     MAX_FRAME_BYTES, Message, PROTOCOL_VERSION, Signature, Transport, challenge_message, decode,
@@ -160,6 +160,7 @@ async fn logs_are_requested_and_answered_or_rejected() {
     };
     assert_eq!(get.lines, 2);
     assert_eq!(get.min_level, "warn");
+    assert_eq!(get.offset, 0);
     let mine = [LogLine {
         at: t0(),
         level: "warn".to_owned(),
@@ -170,6 +171,7 @@ async fn logs_are_requested_and_answered_or_rejected() {
         .send(
             Message::Logs(Logs {
                 lines: mine.to_vec(),
+                has_more: false,
             }),
             Some(request.id),
         )
@@ -204,6 +206,110 @@ async fn logs_are_requested_and_answered_or_rejected() {
         err,
         LinkError::Rejected("the agent is too old to send logs; update it".to_owned()),
         "an agent too old to send logs says so, so the person knows to update it",
+    );
+}
+
+#[tokio::test]
+async fn a_log_window_too_big_for_one_frame_is_asked_for_in_chunks() {
+    let hub = Hub::start().await;
+    let link = hub.server.link();
+    let (ident, mut agent) = online(&hub, "nas").await;
+
+    let asked = tokio::spawn({
+        let link = link.clone();
+        async move { link.logs(ident.host, 3, "info".to_owned()).await }
+    });
+
+    let all = [
+        LogLine {
+            at: t0(),
+            level: "info".to_owned(),
+            target: "agent.link".to_owned(),
+            message: "first".to_owned(),
+        },
+        LogLine {
+            at: t0(),
+            level: "info".to_owned(),
+            target: "agent.link".to_owned(),
+            message: "second".to_owned(),
+        },
+        LogLine {
+            at: t0(),
+            level: "info".to_owned(),
+            target: "agent.link".to_owned(),
+            message: "third".to_owned(),
+        },
+    ];
+    let request = agent.expect().await;
+    let Message::GetLogs(get) = request.message else {
+        panic!("expected get_logs");
+    };
+    assert_eq!(
+        get.offset, 0,
+        "the hub starts at the oldest end of the window"
+    );
+    agent
+        .send(
+            Message::Logs(Logs {
+                lines: all[..2].to_vec(),
+                has_more: true,
+            }),
+            Some(request.id),
+        )
+        .await;
+
+    let again = agent.expect().await;
+    let Message::GetLogs(get) = again.message else {
+        panic!("expected the hub to ask again for the rest of the window");
+    };
+    assert_eq!(get.offset, 2, "the hub asks after the lines it already got");
+    agent
+        .send(
+            Message::Logs(Logs {
+                lines: all[2..].to_vec(),
+                has_more: false,
+            }),
+            Some(again.id),
+        )
+        .await;
+
+    let got = guard(asked).await.unwrap().unwrap();
+    assert_eq!(
+        got,
+        all.to_vec(),
+        "the chunks come back joined, oldest first",
+    );
+}
+
+#[tokio::test]
+async fn a_busy_agent_answers_the_log_request_right_away() {
+    let hub = Hub::start().await;
+    let link = hub.server.link();
+    let (ident, mut agent) = online(&hub, "nas").await;
+
+    let asked = tokio::spawn({
+        let link = link.clone();
+        async move { link.logs(ident.host, 5, "info".to_owned()).await }
+    });
+    let request = agent.expect().await;
+    let Message::GetLogs(get) = request.message else {
+        panic!("expected get_logs");
+    };
+    assert_eq!(get.lines, 5);
+    agent
+        .send(
+            Message::Error(ErrorMessage {
+                code: "busy".to_owned(),
+                message: "the agent is busy; try again shortly".to_owned(),
+            }),
+            Some(request.id),
+        )
+        .await;
+    let err = guard(asked).await.unwrap().unwrap_err();
+    assert_eq!(
+        err,
+        LinkError::Rejected("the agent is busy; try again shortly".to_owned()),
+        "the busy answer is delivered, so the hub does not wait out the deadline",
     );
 }
 

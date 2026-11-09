@@ -118,16 +118,30 @@ async fn handle(
         | Message::SkillResult(_)
         | Message::CheckResult(_)
         | Message::Logs(_)
-        | Message::Unsupported(_)) => {
+        | Message::Unsupported(_)
+        | Message::Error(_)) => {
+            let reported: Option<(String, String)> = match &reply {
+                Message::Error(err) => Some((err.code.to_owned(), err.message.to_owned())),
+                _ => None,
+            };
             let delivered =
                 reply_to.is_some_and(|to| inner.registry.deliver(host, session, to, reply));
             if !delivered {
-                tracing::debug!(%host, "a result arrived after its request gave up");
+                // A busy or failed request the hub was not waiting for stays visible in
+                // the log; a request the hub is waiting for gets the error delivered.
+                match reported {
+                    Some((code, message)) => tracing::warn!(
+                        %host,
+                        code = code,
+                        message = message,
+                        "agent reported an error nobody was waiting for"
+                    ),
+                    _ => tracing::debug!(
+                        %host,
+                        "a result arrived after its request gave up"
+                    ),
+                }
             }
-            Ok(())
-        }
-        Message::Error(err) => {
-            tracing::warn!(%host, code = err.code, message = err.message, "agent reported an error");
             Ok(())
         }
         Message::Unknown { kind } => {
