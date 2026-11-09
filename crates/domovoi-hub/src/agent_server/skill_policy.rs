@@ -34,6 +34,8 @@ pub struct SkillPolicy {
     pub(crate) store: Arc<dyn SettingsRepo>,
     /// The disabled skill names per host.
     pub(crate) disabled: Mutex<BTreeMap<HostId, BTreeSet<SkillName>>>,
+    /// Held for the whole of one update, across the store write.
+    pub(crate) updates: tokio::sync::Mutex<()>,
 }
 
 /// Locks a policy map without panicking on a poisoned lock.
@@ -69,6 +71,7 @@ impl SkillPolicy {
         Ok(Self {
             store,
             disabled: Mutex::new(disabled),
+            updates: tokio::sync::Mutex::new(()),
         })
     }
 
@@ -82,34 +85,58 @@ impl SkillPolicy {
         set.contains(skill)
     }
 
-    /// Turns `skill` on or off for `host`, in memory and in the settings table.
+    /// Turns `skill` on or off for `host`, in memory and in the settings table. One update
+    /// is one whole step: the new names are worked out, saved, and only then put in memory,
+    /// so a store that refuses the write leaves the policy as it was. The update lock is
+    /// held the whole time, which keeps two switches on one host from overwriting each
+    /// other.
     pub async fn set(
         &self,
         host: &Host,
         skill: SkillName,
         enabled: bool,
     ) -> Result<(), StoreError> {
-        let value = {
-            let mut hosts = lock(&self.disabled);
-            let set = hosts.entry(host.id).or_default();
-            if enabled {
-                set.remove(&skill);
-            } else {
-                set.insert(skill);
-            }
-            let names = set
-                .iter()
-                .map(|name| name.as_str().to_owned())
-                .collect::<Vec<String>>();
-            let value = json!({ "disabled": names });
-            if set.is_empty() {
-                hosts.remove(&host.id);
-            }
-            value
-        };
+        let _writing = self.updates.lock().await;
+        let names = self.disabled_names(&host.id, skill, enabled);
+        let value = json!({
+            "disabled": names.iter().map(|name| name.as_str().to_owned()).collect::<Vec<String>>(),
+        });
         self.store
             .set(&host_skills_key(host.name.as_str()), &value)
-            .await
+            .await?;
+        self.remember(host.id, &names);
+        Ok(())
+    }
+
+    /// The host's disabled skills with `skill` switched; memory is left alone.
+    #[must_use]
+    fn disabled_names(
+        &self,
+        host: &HostId,
+        skill: SkillName,
+        enabled: bool,
+    ) -> BTreeSet<SkillName> {
+        let hosts = lock(&self.disabled);
+        let mut names = match hosts.get(host) {
+            Some(saved) => saved.clone(),
+            None => BTreeSet::new(),
+        };
+        if enabled {
+            names.remove(&skill);
+        } else {
+            names.insert(skill);
+        }
+        names
+    }
+
+    /// Records `names` as `host`'s disabled skills. A host with none drops out.
+    fn remember(&self, host: HostId, names: &BTreeSet<SkillName>) {
+        let mut hosts = lock(&self.disabled);
+        if names.is_empty() {
+            hosts.remove(&host);
+            return;
+        }
+        hosts.insert(host, names.clone());
     }
 }
 
@@ -119,6 +146,14 @@ pub struct PolicyLink {
     pub(crate) inner: Arc<dyn AgentLink>,
     /// The per-host policy applied to every request.
     pub(crate) policy: Arc<SkillPolicy>,
+}
+
+impl PolicyLink {
+    /// Wraps `inner` so every request to the agents goes through `policy`.
+    #[must_use]
+    pub fn wrap(inner: Arc<dyn AgentLink>, policy: Arc<SkillPolicy>) -> PolicyLink {
+        PolicyLink { inner, policy }
+    }
 }
 
 #[async_trait]
@@ -178,13 +213,16 @@ mod tests {
     use std::collections::BTreeMap;
     use std::sync::Arc;
 
-    use domovoi_core::ports::{AgentLink, LinkError, Presence, SettingsRepo, SkillDispatch};
+    use domovoi_core::ports::{
+        AgentLink, LinkError, Presence, SettingsRepo, SkillDispatch, StoreError,
+    };
     use domovoi_core::{ActionId, HostId, PlanHash, ReadToolCall, Risk, SkillName, SkillSummary};
     use domovoi_testkit::build::{host, manifest};
     use domovoi_testkit::{FakeAgentLink, InMemoryStore};
     use jiff::Timestamp;
+    use serde_json::json;
 
-    use super::{DISABLED_REASON, PolicyLink, SkillPolicy};
+    use super::{DISABLED_REASON, PolicyLink, SkillPolicy, host_skills_key};
 
     const HIDDEN: &str = "prune_logs";
     const VISIBLE: &str = "zpool_status";
@@ -237,10 +275,7 @@ mod tests {
                 .unwrap(),
         );
         policy.set(&nas, named(HIDDEN), false).await.unwrap();
-        let link = PolicyLink {
-            inner: agent.clone(),
-            policy,
-        };
+        let link = PolicyLink::wrap(agent.clone(), policy);
         (link, nas.id, agent)
     }
 
@@ -347,6 +382,65 @@ mod tests {
         assert!(
             !revived.is_disabled(nas.id, &named(HIDDEN)),
             "a saved enable did not survive the reload",
+        );
+    }
+
+    #[tokio::test]
+    async fn two_switches_on_one_host_keep_both_names() {
+        let nas = host("nas").unwrap();
+        let store: Arc<dyn SettingsRepo> = Arc::new(InMemoryStore::new());
+        let policy = Arc::new(
+            SkillPolicy::load(store.clone(), std::slice::from_ref(&nas))
+                .await
+                .unwrap(),
+        );
+        let (first, second) = tokio::join!(
+            tokio::spawn({
+                let policy = policy.clone();
+                let other = nas.clone();
+                async move { policy.set(&other, named(HIDDEN), false).await }
+            }),
+            tokio::spawn({
+                let policy = policy.clone();
+                let other = nas.clone();
+                async move { policy.set(&other, named(VISIBLE), false).await }
+            }),
+        );
+        first.unwrap().unwrap();
+        second.unwrap().unwrap();
+        let saved = store.get(&host_skills_key("nas")).await.unwrap();
+        assert_eq!(
+            saved,
+            Some(json!({ "disabled": [HIDDEN, VISIBLE] })),
+            "one of the switches overwrote the other",
+        );
+    }
+
+    #[tokio::test]
+    async fn a_store_that_refuses_the_write_leaves_the_policy_unchanged() {
+        let nas = host("nas").unwrap();
+        let fresh = Arc::new(InMemoryStore::new());
+        let store: Arc<dyn SettingsRepo> = fresh.clone();
+        let policy = Arc::new(
+            SkillPolicy::load(store.clone(), std::slice::from_ref(&nas))
+                .await
+                .unwrap(),
+        );
+        fresh.fail_next(StoreError::Backend("read-only disk".to_owned()));
+        let refused = policy.set(&nas, named(HIDDEN), false).await;
+        assert_eq!(
+            refused,
+            Err(StoreError::Backend("read-only disk".to_owned())),
+            "the store refused the write",
+        );
+        assert!(
+            !policy.is_disabled(nas.id, &named(HIDDEN)),
+            "the policy in memory kept the switch the store refused",
+        );
+        assert_eq!(
+            store.get(&host_skills_key("nas")).await.unwrap(),
+            None,
+            "nothing was saved",
         );
     }
 }
