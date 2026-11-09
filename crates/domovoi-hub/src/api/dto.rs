@@ -106,6 +106,29 @@ pub struct RetryQuery {
     pub fresh: Option<bool>,
 }
 
+/// One captured log line.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
+pub struct LogLineDto {
+    /// When the line was logged, RFC 3339.
+    pub at: String,
+    /// How severe the line is: `error`, `warn`, `info`, `debug` or `trace`.
+    pub level: String,
+    /// What logged the line, usually the module that called it.
+    pub target: String,
+    /// The message with its fields as `key=value` pairs, secrets removed.
+    pub message: String,
+}
+
+/// Filters for the log lines.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub struct LogsQuery {
+    /// How many lines to return, 1 to 2000. Default 200.
+    pub lines: Option<u16>,
+    /// The least severe level to return: `error`, `warn`, `info`, `debug` or `trace`.
+    pub level: Option<String>,
+}
+
 /// One piece of evidence in a report.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
 pub struct EvidenceDto {

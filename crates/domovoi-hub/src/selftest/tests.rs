@@ -35,6 +35,7 @@ fn deps() -> HubDeps {
         process_executor: None,
         metrics: None,
         apply: None,
+        logs: None,
     }
 }
 

@@ -16,6 +16,7 @@ mod events;
 mod host_docker;
 pub(crate) mod hosts;
 pub(crate) mod incidents;
+mod logs;
 mod notes;
 pub(crate) mod profile;
 mod rules;
@@ -32,8 +33,8 @@ use axum::extract::{DefaultBodyLimit, FromRef, FromRequestParts};
 use axum::http::request::Parts;
 use domovoi_config::HubConfig;
 use domovoi_core::ports::{
-    AckRepo, ActionRepo, AdvisoryRepo, Clock, FactRepo, HostRepo, IncidentRepo, NoteRepo, Notifier,
-    Page, Presence, SignalRepo, UsageRepo,
+    AckRepo, ActionRepo, AdvisoryRepo, Clock, FactRepo, HostRepo, IncidentRepo, LogSource,
+    NoteRepo, Notifier, Page, Presence, Redactor, SignalRepo, UsageRepo,
 };
 use domovoi_core::{HostId, HostName, SkillSummary};
 use domovoi_engine::triage::TriageHandle;
@@ -159,6 +160,10 @@ pub struct ApiDeps {
     pub settings: Option<crate::settings::SettingsService>,
     /// The audit log.
     pub audit: Arc<dyn domovoi_core::ports::AuditLog>,
+    /// Recent log lines of this process; `None` answers 503 where logs were not captured.
+    pub logs: Option<Arc<dyn LogSource>>,
+    /// Removes secrets from log text before it is served.
+    pub redactor: Arc<dyn Redactor>,
 }
 
 /// The state every handler gets.
@@ -340,6 +345,7 @@ pub fn routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(events::stream))
         .routes(routes!(system::healthz))
         .routes(routes!(system::metrics))
+        .routes(routes!(logs::list))
         .merge(
             // Inside the router's 1 MiB default, so this route alone takes a folder of notes.
             OpenApiRouter::new()
