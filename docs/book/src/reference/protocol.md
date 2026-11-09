@@ -24,7 +24,9 @@ Unknown fields in the envelope or a payload are ignored, so newer peers can add 
 
 The current version is **1.0**. The hub accepts an agent with the same major version and a minor version equal to its own or one behind. An agent newer than the hub, more than one minor behind, or on another major is refused with `reject` and the reason `incompatible`.
 
-On top of protocol compatibility, each side refuses the other below a minimum release: the hub refuses an agent older than release **0.0.5** with `reject` and the reason `agent_too_old`, which names the minimum it wants, and an agent refuses a hub whose `welcome` announces a release older than **0.0.5**. Both minimums are constants in the protocol crate and only ever move forward. A release string that does not parse, as a source build's `dev` does, is treated as unknown and never refused.
+On top of protocol compatibility, each side refuses the other below a minimum release: the hub refuses an agent older than release **0.0.5**, and an agent refuses a hub whose `welcome` announces a release older than **0.0.5**. Both minimums are constants in the protocol crate and only ever move forward. A release string that does not parse, as a source build's `dev` does, is treated as unknown and never refused.
+
+The hub states that age rule only once the agent's signature has verified, so a client that does not hold the agent's key cannot leave a refusal on the Hosts page. It then sends `agent_too_old`, naming the minimum, to agents from release 0.0.5 onwards: an earlier agent never saw that reason and would read it as an unknown code, which it retries, so it gets `incompatible` instead, a reason every client already treats as final and stops reconnecting on.
 
 ## Limits
 
@@ -50,7 +52,7 @@ On top of protocol compatibility, each side refuses the other below a minimum re
 1. The agent connects and sends `hello`.
 2. The hub replies `challenge` with a random nonce, or `reject` (`unknown_agent`, `revoked`, `incompatible`).
 3. The agent signs the challenge message and sends `challenge_response`.
-4. The hub verifies the signature against the enrolled public key and replies `welcome`, or `reject` with `bad_signature`.
+4. The hub verifies the signature against the enrolled public key and replies `welcome`, or `reject` with `bad_signature`. Only then does it refuse an agent release below its minimum, with `agent_too_old` for clients that know that reason and `incompatible` for those that do not.
 
 After `welcome` either side may send any message.
 
