@@ -1193,6 +1193,34 @@ expression: spec
         ],
         "type": "object"
       },
+      "LogLineDto": {
+        "description": "One captured log line.",
+        "properties": {
+          "at": {
+            "description": "When the line was logged, RFC 3339.",
+            "type": "string"
+          },
+          "level": {
+            "description": "How severe the line is: `error`, `warn`, `info`, `debug` or `trace`.",
+            "type": "string"
+          },
+          "message": {
+            "description": "The message with its fields as `key=value` pairs, secrets removed.",
+            "type": "string"
+          },
+          "target": {
+            "description": "What logged the line, usually the module that called it.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "at",
+          "level",
+          "target",
+          "message"
+        ],
+        "type": "object"
+      },
       "LoginRequest": {
         "description": "Logging in.",
         "properties": {
@@ -4829,6 +4857,72 @@ expression: spec
           }
         },
         "summary": "One minimal call to the candidate primary model.",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/v1/system/logs": {
+      "get": {
+        "operationId": "list_logs",
+        "parameters": [
+          {
+            "description": "How many lines to return, 1 to 2000. Default 200.",
+            "in": "query",
+            "name": "lines",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The least severe level to return: `error`, `warn`, `info`, `debug` or `trace`.",
+            "in": "query",
+            "name": "level",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/LogLineDto"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The recent log lines"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Logs are not captured"
+          }
+        },
+        "summary": "The hub's recent log lines, oldest first, with secrets removed.",
         "tags": [
           "system"
         ]

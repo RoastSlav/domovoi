@@ -10,6 +10,8 @@ mod api_auth;
 #[cfg(test)]
 mod api_harness;
 #[cfg(test)]
+mod api_logs;
+#[cfg(test)]
 mod api_routes;
 #[cfg(test)]
 mod dismiss;

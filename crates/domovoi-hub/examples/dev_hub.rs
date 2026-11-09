@@ -18,8 +18,8 @@ use std::time::Duration;
 use async_trait::async_trait;
 use domovoi_config::{HubConfig, MapEnv};
 use domovoi_core::ports::{
-    ActionRepo, Clock, HostRepo, IncidentFilter, IncidentRepo, Page, Presence, SkillOutput,
-    ToolOutput,
+    ActionRepo, Clock, HostRepo, IncidentFilter, IncidentRepo, LogLine, Page, Presence,
+    SkillOutput, ToolOutput,
 };
 use domovoi_core::{
     ActionRequest, CheckKey, HostId, HostName, Principal, ReadToolCall, Risk, Severity, Signal,
@@ -39,8 +39,8 @@ use domovoi_hub::profile::ProfileDeps;
 use domovoi_hub::router::router;
 use domovoi_proto::messages::{CheckInfo, HostFacts};
 use domovoi_store::{Store, StoreOptions};
-use domovoi_testkit::FakeAgentLink;
 use domovoi_testkit::build::{host, manifest};
+use domovoi_testkit::{CannedLogSource, FakeAgentLink};
 use jiff::{SignedDuration, Timestamp};
 use tokio::io::AsyncBufReadExt;
 
@@ -259,6 +259,32 @@ async fn fire_on_enter(manager: ManagerHandle, pi: HostId) -> Result<()> {
     Ok(())
 }
 
+/// Log lines the dev hub answers with, so the web UI's Logs page has something to show.
+fn dev_logs() -> Vec<LogLine> {
+    let at = Timestamp::now();
+    [
+        LogLine {
+            at,
+            level: "info".to_owned(),
+            target: "domovoi_hub.runtime".to_owned(),
+            message: "hub started hosts=2".to_owned(),
+        },
+        LogLine {
+            at,
+            level: "warn".to_owned(),
+            target: "domovoi_hub.checks".to_owned(),
+            message: "disk.usage on /srv is 91% full".to_owned(),
+        },
+        LogLine {
+            at,
+            level: "error".to_owned(),
+            target: "domovoi_hub.chat".to_owned(),
+            message: "gateway rejected key=sk-ant-dev-0000111122223333".to_owned(),
+        },
+    ]
+    .to_vec()
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let dir = tempfile::tempdir()?;
@@ -422,6 +448,8 @@ async fn main() -> Result<()> {
         metrics: None,
         settings: None,
         audit: store.clone(),
+        logs: Some(Arc::new(CannedLogSource::new(dev_logs()))),
+        redactor: Arc::new(PatternRedactor::default()),
     };
     let state = ApiState::new(deps, auth.clone());
     let app = router(state, None).into_make_service_with_connect_info::<SocketAddr>();
