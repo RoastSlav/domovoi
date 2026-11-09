@@ -144,6 +144,7 @@ async fn run_checks(path: PathBuf, only: Option<String>, json: bool) -> anyhow::
         Arc::new(SandboxExecutor::new(redactor.clone())),
         Arc::new(SystemClock),
         redactor,
+        None,
     )?;
     let runs = dry_run::run_checks_once(&config, &deps, only.as_ref()).await?;
     if json {

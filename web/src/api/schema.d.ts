@@ -314,6 +314,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/hosts/{name}/logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The recent log lines host `name`'s agent keeps, scrubbed again here so the page is
+         *     safe even if the agent was not. An agent too old to send them is refused with a
+         *     message telling the person to update it.
+         */
+        get: operations["list_host_logs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/hosts/{name}/profile": {
         parameters: {
             query?: never;
@@ -2455,6 +2476,61 @@ export interface operations {
             };
             /** @description Not logged in */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_host_logs: {
+        parameters: {
+            query?: {
+                /** @description How many lines to return, 1 to 2000. Default 200. */
+                lines?: number;
+                /** @description The least severe level to return: `error`, `warn`, `info`, `debug` or `trace`. */
+                level?: string;
+            };
+            header?: never;
+            path: {
+                /** @description Host name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The agent's recent log lines */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LogLineDto"][];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such host */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The agent is not connected, did not answer, or is too old to send logs */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -1,7 +1,7 @@
 import { act, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { calls, resetApi, route } from "../../test/apiMock";
-import { incident, nas } from "../../test/fixtures";
+import { T0, incident, nas } from "../../test/fixtures";
 import { renderAt } from "../../test/render";
 import type { AckRule, AckRuleInput, Predicate } from "../../api/types";
 import { HostsPage } from "./HostsPage";
@@ -588,4 +588,23 @@ test("cancelling_the_removal_keeps_the_expected_login", async () => {
   expect(screen.getByRole("region", { name: "Expected logins" })).toHaveTextContent(
     "alice from the range 192.168.1.0/24, always",
   );
+});
+
+test("host_logs_tab_shows_the_recent_lines_that_agent_kept", async () => {
+  const user = userEvent.setup();
+  route("GET /api/v1/hosts/{name}", () => ({ host: nas, facts: [] }));
+  route("GET /api/v1/incidents", () => ({ items: [], next_cursor: null }));
+  route("GET /api/v1/hosts/{name}/skills", () => []);
+  route("GET /api/v1/hosts/{name}/logs", () => [
+    { at: T0, level: "warn", target: "agent.checks", message: "disk.usage on /srv is 97% full" },
+  ]);
+  renderAt("/hosts/nas", "/hosts/:name", <HostDetailPage />);
+  await user.click(await screen.findByRole("tab", { name: "Logs" }));
+
+  const line = await screen.findByText(/disk\.usage on \/srv is 97% full/);
+  expect(line).toHaveAttribute("data-level", "warn");
+  expect(calls.filter((c) => c.route === "GET /api/v1/hosts/{name}/logs")[0]?.init.params).toEqual({
+    path: { name: "nas" },
+    query: { level: "info", lines: 200 },
+  });
 });

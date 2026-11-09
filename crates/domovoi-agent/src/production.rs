@@ -7,7 +7,7 @@ use domovoi_checks::containers::{ContainerSource, Detection, detect};
 use domovoi_checks::hostfs::RealHostFs;
 use domovoi_checks::system::RealFsStats;
 use domovoi_config::{AgentConfig, DockerMode};
-use domovoi_core::ports::{Clock, HostFs, ProcessExecutor, Redactor};
+use domovoi_core::ports::{Clock, HostFs, LogSource, ProcessExecutor, Redactor};
 
 use crate::docker::{self, DockerControl};
 use crate::error::AgentError;
@@ -21,6 +21,7 @@ pub fn deps(
     executor: Arc<dyn ProcessExecutor>,
     clock: Arc<dyn Clock>,
     redactor: Arc<dyn Redactor>,
+    logs: Option<Arc<dyn LogSource>>,
 ) -> Result<AgentDeps, AgentError> {
     let root = &config.agent.host_root;
     let mode = config.docker.enabled;
@@ -52,6 +53,7 @@ pub fn deps(
         container_source,
         docker: Some(control),
         redactor,
+        logs,
     })
 }
 
@@ -117,6 +119,7 @@ mod tests {
             Arc::new(FakeProcessExecutor::new()),
             Arc::new(FakeClock::new(jiff::Timestamp::UNIX_EPOCH)),
             Arc::new(ListRedactor::new(Vec::<String>::new())),
+            None,
         )
         .unwrap();
         let tool = tool.to_str().unwrap();

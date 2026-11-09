@@ -22,6 +22,8 @@ export const keys = {
   hostChecks: (name: string) => ["hosts", "checks", name] as const,
   hostDocker: (name: string) => ["hosts", "docker", name] as const,
   hostProfile: (name: string) => ["hosts", "profile", name] as const,
+  hostLogs: (name: string, level: string, lines: number) =>
+    ["hosts", "logs", name, level, lines] as const,
   advisories: ["advisories"] as const,
   digest: ["digest"] as const,
   logs: (level: string | undefined, lines: number | undefined) =>

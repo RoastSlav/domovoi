@@ -8,7 +8,7 @@ use domovoi_checks::containers::{ContainerDeps, ContainerPolicy, ContainerSource
 use domovoi_checks::framework::{HostDeps, Registry};
 use domovoi_checks::system::FsStats;
 use domovoi_config::AgentConfig;
-use domovoi_core::ports::{Clock, HostFs, ProcessExecutor, Redactor};
+use domovoi_core::ports::{Clock, HostFs, LogSource, ProcessExecutor, Redactor};
 use domovoi_runner::SkillCatalog;
 use tokio_util::sync::CancellationToken;
 
@@ -48,6 +48,9 @@ pub struct AgentDeps {
     pub docker: Option<crate::docker::DockerControl>,
     /// Scrubs secrets from what is sent to the hub.
     pub redactor: Arc<dyn Redactor>,
+    /// The log lines of the process this agent runs in, served for `get_logs`;
+    /// `None` when nothing captures them (tests and one-off runs).
+    pub logs: Option<Arc<dyn LogSource>>,
 }
 
 /// A configured agent, ready to run.
@@ -144,6 +147,7 @@ impl AgentRuntime {
             checks: checks.clone(),
             check_env,
             store: store.clone(),
+            logs: deps.logs.clone(),
         });
         let verifier = Arc::new(PinnedVerifier::new(identity.hub_fingerprint));
         let connector = Arc::new(TlsConnector::new(

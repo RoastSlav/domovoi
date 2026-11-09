@@ -11,6 +11,7 @@ use url::Url;
 
 use super::{DEFAULT_AGENT_CONFIG, load_agent, redactor};
 use crate::init::{self, SystemClock};
+use crate::log_ring::LogRing;
 
 /// Agent subcommands.
 #[derive(Debug, Subcommand)]
@@ -50,14 +51,22 @@ pub struct EnrollArgs {
     config: ConfigArg,
 }
 
-pub async fn run(command: AgentCommand) -> anyhow::Result<ExitCode> {
+pub async fn run(command: AgentCommand, logs: Arc<LogRing>) -> anyhow::Result<ExitCode> {
     match command {
         AgentCommand::Run(args) => {
             let config = load_agent(&args.config)?;
             let redactor = redactor(&config);
+            // Scrub this process's log lines with this agent's secrets as they come in.
+            logs.set_redactor(redactor.clone());
             // INV-2: the runner's sandbox is the agent's only way to start a process.
             let executor = Arc::new(SandboxExecutor::new(redactor.clone()));
-            let deps = production::deps(&config, executor, Arc::new(SystemClock), redactor)?;
+            let deps = production::deps(
+                &config,
+                executor,
+                Arc::new(SystemClock),
+                redactor,
+                Some(logs),
+            )?;
             let agent = AgentRuntime::new(config, deps).await?;
             agent.run(init::shutdown_on_signals()).await?;
             Ok(ExitCode::SUCCESS)

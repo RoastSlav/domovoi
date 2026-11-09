@@ -21,6 +21,7 @@ fn deps(dir: &tempfile::TempDir) -> AgentDeps {
         container_source: None,
         docker: None,
         redactor: Arc::new(ListRedactor::new(Vec::<String>::new())),
+        logs: None,
     }
 }
 

@@ -1,8 +1,9 @@
-import { screen } from "@testing-library/react";
+import { act, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { LOGS_REFRESH_MS } from "../../api/hooks/system";
 import type { LogLine } from "../../api/types";
 import { calls, failure, resetApi, route } from "../../test/apiMock";
-import { T0 } from "../../test/fixtures";
+import { T0, nas } from "../../test/fixtures";
 import { renderAt } from "../../test/render";
 import { LogsPage } from "./LogsPage";
 
@@ -49,9 +50,14 @@ function logQueries() {
 beforeEach(() => {
   resetApi();
   answered = 0;
+  route("GET /api/v1/hosts", () => [nas]);
   route("GET /api/v1/system/logs", () =>
     (answered += 1) === 1 ? served() : [...served(), later()],
   );
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 test("logs_page_lists_the_hub_lines_oldest_first_with_their_level", async () => {
@@ -108,8 +114,53 @@ test("logs_page_promises_more_lines_when_the_hub_logged_nothing_to_show", async 
   expect(await screen.findByText(/Nothing was logged at debug or above/)).toBeVisible();
 });
 
-test("logs_page_names_the_hub_as_the_only_source_it_can_read", async () => {
-  renderAt("/logs?source=agent", "/logs", <LogsPage />);
-  expect(await screen.findByText("Agent logs are not here yet.")).toBeVisible();
-  expect(logQueries(), "nothing is fetched for a source the hub cannot read").toHaveLength(0);
+test("switching_the_log_source_to_a_host_reads_that_host_s_logs_endpoint", async () => {
+  route("GET /api/v1/hosts/{name}/logs", () => [
+    {
+      at: T0,
+      level: "warn",
+      target: "agent.checks",
+      message: "disk.usage on /srv is 97% full",
+    },
+  ]);
+  const user = userEvent.setup();
+  renderAt("/logs", "/logs", <LogsPage />);
+  await screen.findByText(/hub started hosts=1/);
+
+  await user.selectOptions(screen.getByLabelText("Source"), "nas");
+  expect(screen.getByTestId("location")).toHaveTextContent("/logs?source=nas");
+  expect(await screen.findByText(/disk\.usage on \/srv is 97% full/)).toBeVisible();
+  const hostCalls = calls.filter((entry) => entry.route === "GET /api/v1/hosts/{name}/logs");
+  expect(hostCalls.length, "the host's lines come from its own endpoint").toBeGreaterThan(0);
+  expect(hostCalls[0]?.init.params).toEqual({
+    path: { name: "nas" },
+    query: { level: "info", lines: 200 },
+  });
+});
+
+test("logs_page_asks_to_update_an_agent_too_old_to_send_its_lines", async () => {
+  route("GET /api/v1/hosts/{name}/logs", () =>
+    failure(409, "conflict", "rejected by agent: the agent is too old to send logs; update it"),
+  );
+  renderAt("/logs?source=nas", "/logs", <LogsPage />);
+  expect(await screen.findByText(/the agent is too old to send logs/)).toBeVisible();
+  expect(screen.getByText(/update it/)).toBeVisible();
+});
+
+test("the_auto_refresh_dropdown_decides_whether_the_page_asks_again_on_its_own", async () => {
+  vi.useFakeTimers({ now: new Date("2026-11-01T12:00:00Z"), shouldAdvanceTime: true });
+  const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
+  renderAt("/logs?refresh=off", "/logs", <LogsPage />);
+  await screen.findByText(/hub started hosts=1/);
+  expect(logQueries()).toHaveLength(1);
+
+  await act(() => vi.advanceTimersByTimeAsync(LOGS_REFRESH_MS + 1_000));
+  expect(logQueries(), "off leaves the asking to the button").toHaveLength(1);
+
+  await user.click(screen.getByRole("button", { name: "Refresh" }));
+  expect(logQueries()).toHaveLength(2);
+
+  await user.selectOptions(screen.getByLabelText("Auto-refresh"), "on");
+  await act(() => vi.advanceTimersByTimeAsync(LOGS_REFRESH_MS + 1_000));
+  expect(logQueries().length, "on asks again by itself").toBeGreaterThan(2);
 });

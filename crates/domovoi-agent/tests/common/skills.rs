@@ -106,6 +106,7 @@ impl Fixture {
             checks: Arc::new(checks),
             check_env,
             store: Arc::new(CheckStore::open(self.dir.path()).unwrap()),
+            logs: None,
         }
     }
 }

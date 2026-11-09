@@ -17,6 +17,8 @@ use domovoi_hub::runtime::LocalAgents;
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
+use crate::log_ring::LogRing;
+
 /// Dials the hub in this process: every connection is a fresh in-memory pair whose hub
 /// end is attached to the agent server of the runtime running now. While the hub
 /// restarts there is none, and the agent retries with its usual backoff.
@@ -46,6 +48,7 @@ pub async fn run_agent(
     config: AgentConfig,
     executor: Arc<dyn ProcessExecutor>,
     clock: Arc<dyn Clock>,
+    logs: Arc<LogRing>,
     shutdown: CancellationToken,
 ) -> anyhow::Result<()> {
     let registrar = current
@@ -66,7 +69,7 @@ pub async fn run_agent(
     })
     .await?;
     let redactor = crate::cmd::redactor(&config);
-    let deps = production::deps(&config, executor, clock, redactor)?;
+    let deps = production::deps(&config, executor, clock, redactor, Some(logs))?;
     let agent = AgentRuntime::new(config, deps)
         .await?
         .with_connector(Arc::new(LocalConnector { current }));

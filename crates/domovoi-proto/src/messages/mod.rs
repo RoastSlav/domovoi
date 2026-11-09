@@ -19,9 +19,9 @@ pub use stream::{
     ConfigUpdate, DigestFacts, ErrorMessage, Ping, Pong, Signals, SignalsAck, Unsupported,
 };
 pub use work::{
-    CheckObservation, CheckResult, RunCheck, RunSkill, RunTool, SkillFailure, SkillFailureCode,
-    SkillOutcome, SkillResult, SkillSuccess, ToolFailure, ToolFailureCode, ToolOutcome, ToolResult,
-    ToolSuccess,
+    CheckObservation, CheckResult, GetLogs, Logs, RunCheck, RunSkill, RunTool, SkillFailure,
+    SkillFailureCode, SkillOutcome, SkillResult, SkillSuccess, ToolFailure, ToolFailureCode,
+    ToolOutcome, ToolResult, ToolSuccess,
 };
 
 macro_rules! messages {
@@ -104,6 +104,10 @@ messages! {
     RunTool(RunTool) = "run_tool",
     /// `tool_result`, agent → hub.
     ToolResult(ToolResult) = "tool_result",
+    /// `get_logs`, hub → agent.
+    GetLogs(GetLogs) = "get_logs",
+    /// `logs`, agent → hub.
+    Logs(Logs) = "logs",
     /// `run_skill`, hub → agent.
     RunSkill(RunSkill) = "run_skill",
     /// `skill_result`, agent → hub.

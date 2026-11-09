@@ -2,7 +2,16 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { api } from "../client";
 import { keys } from "../queryClient";
-import { call, type Host, type HostDetail, type Invite, type Skill } from "../types";
+import { LOGS_REFRESH_MS } from "./system";
+import {
+  call,
+  defined,
+  type Host,
+  type HostDetail,
+  type Invite,
+  type LogLine,
+  type Skill,
+} from "../types";
 
 /** How often the host list refreshes on its own. */
 export const HOSTS_REFRESH_MS = 30_000;
@@ -44,6 +53,32 @@ export function useSkills(name: string) {
     queryFn: () =>
       call<Skill[]>(api.GET("/api/v1/hosts/{name}/skills", { params: { path: { name } } })),
     enabled: name !== "",
+  });
+}
+
+/**
+ * The recent log lines host `name`'s agent keeps, oldest first. Asks again every
+ * {@link LOGS_REFRESH_MS} while `refresh` is true; with it false the page only
+ * asks when the person clicks. Stays idle while `name` is empty, or while `enabled`
+ * is false for a source the page is not showing.
+ */
+export function useHostLogs(
+  name: string,
+  level: string,
+  lines: number,
+  enabled = true,
+  refresh = true,
+) {
+  return useQuery({
+    queryKey: keys.hostLogs(name, level, lines),
+    queryFn: () =>
+      call<LogLine[]>(
+        api.GET("/api/v1/hosts/{name}/logs", {
+          params: { path: { name }, query: defined({ level, lines }) },
+        }),
+      ),
+    enabled: name !== "" && enabled,
+    refetchInterval: refresh ? LOGS_REFRESH_MS : false,
   });
 }
 

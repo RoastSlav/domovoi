@@ -18,7 +18,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use domovoi_config::{HubConfig, MapEnv};
 use domovoi_core::ports::{
-    ActionRepo, Clock, HostRepo, IncidentFilter, IncidentRepo, LogLine, Page, Presence,
+    ActionRepo, Clock, HostRepo, IncidentFilter, IncidentRepo, LinkError, LogLine, Page, Presence,
     SkillOutput, ToolOutput,
 };
 use domovoi_core::{
@@ -133,6 +133,15 @@ impl AgentAdmin for DevAgents {
 
     fn refusal(&self, host: HostId) -> Option<Refusal> {
         AgentAdmin::refusal(&self.server, host)
+    }
+
+    async fn logs(
+        &self,
+        host: HostId,
+        lines: u16,
+        min_level: String,
+    ) -> std::result::Result<Vec<LogLine>, LinkError> {
+        AgentAdmin::logs(&self.server, host, lines, min_level).await
     }
 }
 

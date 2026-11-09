@@ -1009,6 +1009,91 @@
         }
       }
     },
+    "/api/v1/hosts/{name}/logs": {
+      "get": {
+        "tags": [
+          "hosts"
+        ],
+        "summary": "The recent log lines host `name`'s agent keeps, scrubbed again here so the page is\nsafe even if the agent was not. An agent too old to send them is refused with a\nmessage telling the person to update it.",
+        "operationId": "list_host_logs",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Host name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "lines",
+            "in": "query",
+            "description": "How many lines to return, 1 to 2000. Default 200.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "level",
+            "in": "query",
+            "description": "The least severe level to return: `error`, `warn`, `info`, `debug` or `trace`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The agent's recent log lines",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/LogLineDto"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such host",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The agent is not connected, did not answer, or is too old to send logs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/hosts/{name}/profile": {
       "get": {
         "tags": [

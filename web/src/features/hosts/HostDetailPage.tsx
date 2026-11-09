@@ -11,6 +11,7 @@ import { SkillList } from "../skills/SkillList";
 import { ChecksTab } from "./ChecksTab";
 import { DockerPanel } from "./DockerPanel";
 import { HostStatus, isHubOnly, VersionCell } from "./HostStatus";
+import { LogsTab } from "./LogsTab";
 import { ProfileTab } from "./ProfileTab";
 import { SshLoginsTab } from "./SshLoginsTab";
 import styles from "./hosts.module.css";
@@ -63,7 +64,7 @@ function RecentIncidents({ host }: { host: string }) {
   );
 }
 
-/** One host: its agent, its facts, incidents and skills, its profile, checks and logins. */
+/** One host: its agent, its facts, incidents and skills, its profile, checks, logins and logs. */
 export function HostDetailPage() {
   const { name = "" } = useParams();
   const host = useHost(name);
@@ -118,6 +119,7 @@ export function HostDetailPage() {
               </>
             ),
           },
+          { label: "Logs", content: <LogsTab host={detail.host.name} /> },
           { label: "SSH logins", content: <SshLoginsTab host={detail.host.name} /> },
         ]}
       />

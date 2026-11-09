@@ -4,15 +4,17 @@
 use std::collections::BTreeMap;
 
 use axum::Json;
-use axum::extract::{Path, State};
-use domovoi_core::ports::{IncidentFilter, Page, Presence};
+use axum::extract::{Path, Query, State};
+use domovoi_core::ports::{IncidentFilter, LinkError, Page, Presence};
 use domovoi_core::{DigestFact, FactValue, HostKind, HostName};
 use jiff::SignedDuration;
 
+use super::dto::{LogLineDto, LogsQuery};
 use super::dto_admin::{
     FactDto, HostDetailDto, HostDto, InviteDto, ParamDto, RevokeDto, SkillDto, VerifyDto,
 };
 use super::error::{ApiError, ErrorBody};
+use super::logs::{DEFAULT_LEVEL, DEFAULT_LINES, MAX_LINES};
 use super::version::{HUB_VERSION, is_older};
 use super::{ApiState, Authed, host_named};
 
@@ -271,4 +273,54 @@ pub(super) async fn skills(
         })
         .collect();
     Ok(Json(skills))
+}
+
+/// Why the browser cannot get an agent's log lines now: it is not connected, did not
+/// answer, or runs a release too old to send them.
+fn link_error(err: LinkError) -> ApiError {
+    ApiError::Conflict(err.to_string())
+}
+
+/// The recent log lines host `name`'s agent keeps, scrubbed again here so the page is
+/// safe even if the agent was not. An agent too old to send them is refused with a
+/// message telling the person to update it.
+#[utoipa::path(
+    get, path = "/api/v1/hosts/{name}/logs", operation_id = "list_host_logs", tag = "hosts",
+    params(
+        ("name" = String, Path, description = "Host name"),
+        LogsQuery,
+    ),
+    responses(
+        (status = 200, description = "The agent's recent log lines", body = Vec<LogLineDto>),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 404, description = "No such host", body = ErrorBody),
+        (status = 409, description = "The agent is not connected, did not answer, or is too old to send logs", body = ErrorBody),
+    )
+)]
+pub(super) async fn logs(
+    State(state): State<ApiState>,
+    _auth: Authed,
+    Path(name): Path<String>,
+    query: Query<LogsQuery>,
+) -> Result<Json<Vec<LogLineDto>>, ApiError> {
+    let host = host_named(&state, &name).await?;
+    let lines = query.lines.unwrap_or(DEFAULT_LINES).clamp(1, MAX_LINES);
+    let min_level = query.level.as_deref().unwrap_or(DEFAULT_LEVEL).to_owned();
+    let picked = state
+        .deps
+        .agents
+        .logs(host.id, lines, min_level)
+        .await
+        .map_err(link_error)?;
+    Ok(Json(
+        picked
+            .iter()
+            .map(|line| LogLineDto {
+                at: line.at.to_string(),
+                level: line.level.clone(),
+                target: line.target.clone(),
+                message: state.deps.redactor.redact(&line.message),
+            })
+            .collect(),
+    ))
 }

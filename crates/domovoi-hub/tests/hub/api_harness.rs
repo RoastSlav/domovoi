@@ -12,8 +12,8 @@ use axum::extract::connect_info::MockConnectInfo;
 use axum::http::{HeaderMap, Method, Request, StatusCode, header};
 use domovoi_config::{HubConfig, MapEnv};
 use domovoi_core::ports::{
-    ActionRepo, AuditEvent, AuditFilter, AuditLog, HostRepo, IncidentRepo, LlmProvider, LogLine,
-    LogSource, Notifier, Page, Presence,
+    ActionRepo, AuditEvent, AuditFilter, AuditLog, HostRepo, IncidentRepo, LinkError, LlmProvider,
+    LogLine, LogSource, Notifier, Page, Presence,
 };
 use domovoi_core::{ActionRequest, HostId, HostName, Incident, Principal, Risk, SkillSummary};
 use domovoi_engine::{
@@ -155,6 +155,15 @@ impl AgentAdmin for TestAgents {
     fn refusal(&self, host: HostId) -> Option<Refusal> {
         let refused = self.refused.lock().unwrap_or_else(PoisonError::into_inner);
         refused.get(&host).cloned()
+    }
+
+    async fn logs(
+        &self,
+        _host: HostId,
+        _lines: u16,
+        _min_level: String,
+    ) -> Result<Vec<LogLine>, LinkError> {
+        Ok(Vec::new())
     }
 }
 
