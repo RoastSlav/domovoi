@@ -24,6 +24,8 @@ export const keys = {
   hostProfile: (name: string) => ["hosts", "profile", name] as const,
   advisories: ["advisories"] as const,
   digest: ["digest"] as const,
+  logs: (level: string | undefined, lines: number | undefined) =>
+    ["system", "logs", level ?? "", lines ?? ""] as const,
 };
 
 /** Retries once, but never a client error: a 401 or 404 will not change on retry. */
