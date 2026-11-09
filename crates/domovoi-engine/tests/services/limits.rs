@@ -292,6 +292,27 @@ async fn unusable_answer_falls_back_to_secondary_after_the_repair_turn() {
 }
 
 #[tokio::test]
+async fn unusable_answers_from_every_provider_name_the_provider_that_failed() {
+    let w = world(Setup {
+        secondary: true,
+        ..Setup::default()
+    })
+    .await;
+    w.primary.push_text("I cannot help");
+    w.primary.push_text("Still not a report");
+    w.secondary.push_text("no report either");
+    w.secondary.push_text("still not a report");
+    assert!(
+        matches!(
+            w.run().await,
+            TriageOutcome::Failed { reason }
+                if reason.contains("scripted failed:") && reason.contains("; scripted failed:")
+        ),
+        "an unusable report still says which provider produced it, for every provider",
+    );
+}
+
+#[tokio::test]
 async fn three_failures_raise_triage_degraded_and_success_clears_it() {
     let settings = TriageSettings {
         per_hour_runs: 10,
