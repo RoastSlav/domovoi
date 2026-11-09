@@ -351,6 +351,25 @@ async fn model_discovery_uses_candidate_settings_before_a_model_is_chosen() {
 }
 
 #[tokio::test]
+async fn testing_the_secondary_slot_without_a_secondary_says_no_fallback_is_set_up() {
+    let a = api().await;
+    let login = a.admin().await;
+    let body = json!({ "changes": {}, "slot": "secondary" });
+    let reply = a.post("/api/v1/settings/test/llm", &login, body).await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.text);
+    assert_eq!(reply.body["ok"], false, "there is nothing to test");
+    assert!(
+        reply.text.contains("no fallback model is set up"),
+        "the answer should name the missing fallback: {}",
+        reply.text,
+    );
+    assert!(
+        a.store.list_prefix("").await.unwrap().is_empty(),
+        "nothing stored"
+    );
+}
+
+#[tokio::test]
 async fn host_check_overrides_are_stored_and_reported_offline() {
     let a = api().await;
     let login = a.admin().await;
