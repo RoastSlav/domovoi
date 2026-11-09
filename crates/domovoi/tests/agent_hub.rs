@@ -176,6 +176,7 @@ mod common {
             container_source: None,
             docker: None,
             redactor: Arc::new(ListRedactor::new(Vec::<String>::new())),
+            logs: None,
         };
         let runtime = AgentRuntime::new(config, deps).await.unwrap();
         let shutdown = CancellationToken::new();

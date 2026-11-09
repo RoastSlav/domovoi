@@ -95,6 +95,7 @@ pub async fn run(args: RunArgs, logs: Arc<LogRing>) -> anyhow::Result<ExitCode> 
                 config,
                 executor.clone(),
                 clock.clone(),
+                logs.clone(),
                 shutdown.clone(),
             )));
         }
