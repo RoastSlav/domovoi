@@ -208,10 +208,7 @@ impl HubRuntime {
         let skill_policy = Arc::new(
             SkillPolicy::load(store.clone(), &HostRepo::list_hosts(&*store).await?).await?,
         );
-        let policy_link = Arc::new(PolicyLink {
-            inner: server.link(),
-            policy: skill_policy.clone(),
-        });
+        let policy_link = Arc::new(PolicyLink::wrap(server.link(), skill_policy.clone()));
         let triage = build_triage(TriageBuild {
             config: &config,
             store: &store,
@@ -264,7 +261,7 @@ impl HubRuntime {
             })
         });
         let profile_deps = crate::profile::ProfileDeps {
-            link: server.link(),
+            link: policy_link.clone(),
             agents: Arc::new(server.clone()),
             hosts: store.clone(),
             notes: store.clone(),
