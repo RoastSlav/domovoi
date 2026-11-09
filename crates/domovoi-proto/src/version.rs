@@ -59,6 +59,16 @@ pub const MIN_HUB_VERSION: Release = Release {
     patch: 5,
 };
 
+/// The first release whose agents and hubs know the `agent_too_old` reject reason. A peer
+/// older than this never saw that wire variant, and a reason it cannot name is not final
+/// for it, so a hub must refuse such a peer with a reason it already treats as final.
+/// This release only ever moves forward with the protocol.
+pub const AGENT_TOO_OLD_REASON_SINCE: Release = Release {
+    major: 0,
+    minor: 0,
+    patch: 5,
+};
+
 /// `version` as a [`Release`], ignoring a leading `v` and a `-` or `+` suffix.
 /// `None` when it is not `major.minor.patch` of plain numbers, such as `dev` or `1.2`.
 pub fn parse_release(version: &str) -> Option<Release> {
