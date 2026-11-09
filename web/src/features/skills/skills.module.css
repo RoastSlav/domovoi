@@ -30,6 +30,10 @@
   border-left-width: 6px;
 }
 
+.skill[data-disabled="true"] {
+  opacity: 0.6;
+}
+
 .skill p {
   margin: 0.25rem 0;
 }
@@ -52,6 +56,21 @@
   font-weight: 700;
   color: #ffffff;
   background: var(--action-needed);
+}
+
+.disabled {
+  padding: 0 0.45rem;
+  border-radius: 999px;
+  font-family: system-ui, sans-serif;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--fg);
+  background: var(--border);
+}
+
+.switch {
+  margin: 0.4rem 0;
+  font-size: 0.85rem;
 }
 
 .params {

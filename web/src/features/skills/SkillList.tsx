@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import { useSkills } from "../../api/hooks/hosts";
+import { useSetSkillEnabled, useSkills } from "../../api/hooks/hosts";
 import type { Skill } from "../../api/types";
 import { EmptyState } from "../../components/EmptyState";
 import { SkillDetail, kindText } from "./SkillDetail";
@@ -12,15 +12,39 @@ const GROUPS = [
   ["destructive", "Destructive"],
 ] as const;
 
-function SkillCard({ skill, open }: { open: () => void; skill: Skill }) {
+function SkillCard({
+  skill,
+  open,
+  save,
+  busy,
+}: {
+  busy: boolean;
+  open: () => void;
+  save: (checked: boolean) => void;
+  skill: Skill;
+}) {
   const destructive = skill.risk === "destructive";
   return (
-    <li className={styles.skill} data-risk={skill.risk}>
+    <li
+      className={styles.skill}
+      data-risk={skill.risk}
+      data-disabled={skill.enabled ? undefined : "true"}
+    >
       <h4 className={styles.name}>
         <button onClick={open}>{skill.name}</button>
         {destructive && <span className={styles.danger}>Destructive</span>}
+        {!skill.enabled && <span className={styles.disabled}>Disabled</span>}
       </h4>
       <p>{skill.description}</p>
+      <label className={styles.switch}>
+        <input
+          type="checkbox"
+          checked={skill.enabled}
+          disabled={busy}
+          onChange={(event) => save(event.target.checked)}
+        />
+        Enabled
+      </label>
       {skill.params.length > 0 && (
         <ul className={styles.params} aria-label={`Parameters of ${skill.name}`}>
           {skill.params.map((param) => (
@@ -44,6 +68,7 @@ function SkillCard({ skill, open }: { open: () => void; skill: Skill }) {
 export function SkillList({ host }: { host: string }) {
   const [opened, setOpened] = useState<string | null>(null);
   const skills = useSkills(host);
+  const toggle = useSetSkillEnabled(host);
   if (skills.isPending) {
     return <p>Loading…</p>;
   }
@@ -72,7 +97,13 @@ export function SkillList({ host }: { host: string }) {
             </h3>
             <ul className={styles.list}>
               {group.map((skill) => (
-                <SkillCard key={skill.name} open={() => setOpened(skill.name)} skill={skill} />
+                <SkillCard
+                  busy={toggle.isPending}
+                  key={skill.name}
+                  open={() => setOpened(skill.name)}
+                  save={(checked) => void toggle.mutate({ enabled: checked, skill: skill.name })}
+                  skill={skill}
+                />
               ))}
             </ul>
           </section>
