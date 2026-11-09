@@ -244,7 +244,7 @@ async fn providers(
         let why = match attempt(shared, provider, incident, skills, bundle, used).await {
             Ok(report) => return Ok(report),
             Err(Failure::Provider(err)) => format!("{} failed: {err}", provider.id()),
-            Err(Failure::Invalid(why)) => why,
+            Err(Failure::Invalid(why)) => format!("{} failed: {why}", provider.id()),
         };
         if i + 1 < chain.len() {
             tracing::info!(
