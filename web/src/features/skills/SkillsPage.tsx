@@ -20,7 +20,8 @@ export function SkillsPage() {
       <h1>Skills</h1>
       <PageIntro topic="skills" docs="guide/skills.html">
         Scripts an agent can run. Read skills only look, and triage may run them on its own. Write
-        and destructive skills change things and need your approval.
+        and destructive skills change things and need your approval. Disabled skills stay on the
+        host but Domovoi never runs or suggests them.
       </PageIntro>
       {hosts.data && names.length === 0 && <EmptyState title="No hosts yet" />}
       {host && selected === undefined && (

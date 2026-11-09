@@ -47,6 +47,21 @@ export function useSkills(name: string) {
   });
 }
 
+/** Turns host `name`'s skill on or off; the host's skill list refreshes once it is saved. */
+export function useSetSkillEnabled(name: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ enabled, skill }: { enabled: boolean; skill: string }) =>
+      call(
+        api.PUT("/api/v1/hosts/{name}/skills/{skill}", {
+          params: { path: { name, skill } },
+          body: { enabled },
+        }),
+      ),
+    onSuccess: () => client.invalidateQueries({ queryKey: keys.skills(name) }),
+  });
+}
+
 /** Creates a one-time enrollment invite, creating the host if it is new. */
 export function useCreateInvite() {
   const client = useQueryClient();

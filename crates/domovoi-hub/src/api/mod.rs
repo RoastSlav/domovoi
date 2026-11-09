@@ -47,7 +47,7 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use self::error::ApiError;
-use crate::agent_server::{AgentServer, AgentServerError, EnrollmentInvite};
+use crate::agent_server::{AgentServer, AgentServerError, EnrollmentInvite, SkillPolicy};
 use crate::auth::{AuthState, Current, csrf};
 
 /// The default page size of list endpoints.
@@ -132,6 +132,8 @@ pub struct ApiDeps {
     pub triage: Option<TriageHandle>,
     /// Enrollment, revocation, presence and catalogues.
     pub agents: Arc<dyn AgentAdmin>,
+    /// The per-host skill switches the UI reads and writes.
+    pub skill_policy: Arc<SkillPolicy>,
     /// The profile task's handles; `None` when the hub runs without one, where the
     /// profile endpoints answer 503.
     pub profiles: Option<crate::profile::ProfileDeps>,
@@ -324,6 +326,7 @@ pub fn routes() -> OpenApiRouter<ApiState> {
             host_docker::host_docker,
             host_docker::set_host_docker
         ))
+        .routes(routes!(settings_write::set_skill_enabled))
         .routes(routes!(system::advisories))
         .routes(routes!(system::digest_preview))
         .routes(routes!(system::digest_send))

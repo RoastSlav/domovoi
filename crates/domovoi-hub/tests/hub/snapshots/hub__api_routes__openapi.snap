@@ -1756,6 +1756,10 @@ expression: spec
             "description": "What it does.",
             "type": "string"
           },
+          "enabled": {
+            "description": "Whether the hub may run and suggest this skill on the host.",
+            "type": "boolean"
+          },
           "manifest_hash": {
             "description": "Hash of the full manifest the agent has, as hex.",
             "type": "string"
@@ -1806,7 +1810,21 @@ expression: spec
           "params",
           "applies_to",
           "timeout_secs",
-          "manifest_hash"
+          "manifest_hash",
+          "enabled"
+        ],
+        "type": "object"
+      },
+      "SkillEnabledUpdate": {
+        "description": "Turning one host skill on or off.",
+        "properties": {
+          "enabled": {
+            "description": "Whether the hub may run and suggest the skill on this host.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
         ],
         "type": "object"
       },
@@ -3375,6 +3393,80 @@ expression: spec
           }
         },
         "summary": "The skills host `name`'s agent reported.",
+        "tags": [
+          "hosts"
+        ]
+      }
+    },
+    "/api/v1/hosts/{name}/skills/{skill}": {
+      "put": {
+        "operationId": "set_skill_enabled",
+        "parameters": [
+          {
+            "description": "Host name",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Skill name",
+            "in": "path",
+            "name": "skill",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SkillEnabledUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Saved"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Invalid skill name"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such host, or the agent does not report that skill"
+          }
+        },
+        "summary": "Turns one of a host's skills on or off. The switch is saved in the settings table and\ntakes effect immediately: a disabled skill stays on the host, but the hub never runs it\nand never offers it to triage.",
         "tags": [
           "hosts"
         ]

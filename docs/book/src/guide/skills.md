@@ -45,6 +45,11 @@ Each skill is a folder under the agent's skills directory, `/etc/domovoi/skills`
 
 Opening a skill on the Skills page (or on a host's Skills tab) shows its full details: what its risk means, every parameter with its limits, what it applies to, its timeout, its verification, its manifest hash, its recent runs on that host, and the folder's `README.md` when it has one.
 
+You can also turn a skill off without touching the host. Each card on the Skills page has an
+**Enabled** checkbox; unchecking it keeps the skill on the host and in the list, shown greyed and
+tagged "Disabled", and the hub stops running it and stops offering it to triage. The switch is
+saved per host, so it survives a hub restart, and checking the box again turns the skill back on.
+
 Editing a manifest changes its hash, which cancels any pending approval for that skill: you always approve exactly what runs.
 
 ## The manifest

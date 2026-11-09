@@ -30,7 +30,8 @@ use domovoi_engine::{
     ManagerHandle, PatternRedactor,
 };
 use domovoi_hub::agent_server::{
-    AgentServer, AgentServerDeps, AgentServerError, EnrollmentInvite, RealNetProbes, ServerSettings,
+    AgentServer, AgentServerDeps, AgentServerError, EnrollmentInvite, RealNetProbes,
+    ServerSettings, SkillPolicy,
 };
 use domovoi_hub::api::{AgentAdmin, ApiDeps, ApiState};
 use domovoi_hub::auth::{AuthState, WebIdentity};
@@ -406,6 +407,9 @@ async fn main() -> Result<()> {
             server: server.clone(),
             link: link.clone(),
         }),
+        skill_policy: Arc::new(
+            SkillPolicy::load(store.clone(), &HostRepo::list_hosts(&*store).await?).await?,
+        ),
         profiles: Some(profile_deps.clone()),
         clock: clock.clone(),
         bus,

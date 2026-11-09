@@ -372,6 +372,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/hosts/{name}/skills/{skill}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Turns one of a host's skills on or off. The switch is saved in the settings table and
+         *     takes effect immediately: a disabled skill stays on the host, but the hub never runs it
+         *     and never offers it to triage.
+         */
+        put: operations["set_skill_enabled"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/incidents": {
         parameters: {
             query?: never;
@@ -1417,6 +1438,8 @@ export interface components {
             applies_to: string[];
             /** @description What it does. */
             description: string;
+            /** @description Whether the hub may run and suggest this skill on the host. */
+            enabled: boolean;
             /** @description Hash of the full manifest the agent has, as hex. */
             manifest_hash: string;
             /** @description Skill name. */
@@ -1433,6 +1456,11 @@ export interface components {
              */
             timeout_secs: number;
             verify?: components["schemas"]["VerifyDto"] | null;
+        };
+        /** @description Turning one host skill on or off. */
+        SkillEnabledUpdate: {
+            /** @description Whether the hub may run and suggest the skill on this host. */
+            enabled: boolean;
         };
         /** @description A file a notes import left out. */
         SkippedFileDto: {
@@ -2583,6 +2611,60 @@ export interface operations {
                 };
             };
             /** @description No such host */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    set_skill_enabled: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Host name */
+                name: string;
+                /** @description Skill name */
+                skill: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SkillEnabledUpdate"];
+            };
+        };
+        responses: {
+            /** @description Saved */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid skill name */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such host, or the agent does not report that skill */
             404: {
                 headers: {
                     [name: string]: unknown;

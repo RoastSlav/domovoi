@@ -7,7 +7,7 @@
       "name": "MIT OR Apache-2.0",
       "identifier": "MIT OR Apache-2.0"
     },
-    "version": "0.0.6"
+    "version": "0.0.7"
   },
   "paths": {
     "/api/v1/ack-rules": {
@@ -1237,6 +1237,80 @@
           },
           "404": {
             "description": "No such host",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/hosts/{name}/skills/{skill}": {
+      "put": {
+        "tags": [
+          "hosts"
+        ],
+        "summary": "Turns one of a host's skills on or off. The switch is saved in the settings table and\ntakes effect immediately: a disabled skill stays on the host, but the hub never runs it\nand never offers it to triage.",
+        "operationId": "set_skill_enabled",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Host name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "skill",
+            "in": "path",
+            "description": "Skill name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SkillEnabledUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Saved"
+          },
+          "400": {
+            "description": "Invalid skill name",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such host, or the agent does not report that skill",
             "content": {
               "application/json": {
                 "schema": {
@@ -4395,7 +4469,8 @@
           "params",
           "applies_to",
           "timeout_secs",
-          "manifest_hash"
+          "manifest_hash",
+          "enabled"
         ],
         "properties": {
           "applies_to": {
@@ -4408,6 +4483,10 @@
           "description": {
             "type": "string",
             "description": "What it does."
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether the hub may run and suggest this skill on the host."
           },
           "manifest_hash": {
             "type": "string",
@@ -4450,6 +4529,19 @@
                 "type": "null"
               }
             ]
+          }
+        }
+      },
+      "SkillEnabledUpdate": {
+        "type": "object",
+        "description": "Turning one host skill on or off.",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether the hub may run and suggest the skill on this host."
           }
         }
       },

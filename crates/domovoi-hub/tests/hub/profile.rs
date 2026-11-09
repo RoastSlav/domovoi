@@ -12,6 +12,7 @@ use domovoi_core::{
     CheckKey, HostId, ParamKind, ParamName, ParamSpec, ReadToolCall, Risk, SkillSummary,
 };
 use domovoi_engine::PatternRedactor;
+use domovoi_hub::agent_server::{PolicyLink, SkillPolicy};
 use domovoi_hub::profile::diff::{MAX_CHANGES, changes, recent_changes};
 use domovoi_hub::profile::{
     ContainerLine, GENERATED_TAG, HostProfile, PROFILE_TAG, ProfileDeps, ProfileError, STALE_AFTER,
@@ -19,6 +20,8 @@ use domovoi_hub::profile::{
 };
 use domovoi_proto::messages::{CheckInfo, HostFacts};
 use domovoi_testkit::build::{host, manifest};
+use domovoi_testkit::link::LinkRequest;
+use serde_json::json;
 
 use jiff::Timestamp;
 
@@ -254,6 +257,76 @@ async fn only_a_read_skill_the_agent_installed_ever_gets_asked() {
         !never_announced,
         "the hub never asks for a skill this host lacks"
     );
+}
+
+#[tokio::test]
+async fn a_disabled_read_skill_is_never_asked_for_a_profile() {
+    let a = api().await;
+    let login = a.admin().await;
+    seed(&a, "0.6.0");
+    a.link.set_skills(a.nas.id, announced_skills());
+    let saved = a
+        .send(
+            Method::PUT,
+            "/api/v1/hosts/nas/skills/listening_ports",
+            Some(&login),
+            Some(json!({ "enabled": false })),
+        )
+        .await;
+    assert_eq!(
+        saved.status,
+        StatusCode::NO_CONTENT,
+        "{}: {}",
+        saved.status,
+        saved.text
+    );
+    let policy = SkillPolicy::load(a.store.clone(), std::slice::from_ref(&a.nas))
+        .await
+        .unwrap();
+    let deps = ProfileDeps {
+        link: Arc::new(PolicyLink::wrap(a.link.clone(), Arc::new(policy))),
+        agents: Arc::new(TestAgents {
+            link: a.link.clone(),
+            hosts: a.store.clone(),
+        }),
+        hosts: a.store.clone(),
+        notes: a.store.clone(),
+        settings: a.store.clone(),
+        clock: a.clock.clone(),
+        redactor: Arc::new(PatternRedactor::default()),
+    };
+    let profile = refresh(&deps, &a.nas).await.unwrap();
+    let titles = profile
+        .sections
+        .iter()
+        .map(|section| section.title.clone())
+        .collect::<Vec<String>>();
+    assert_eq!(
+        titles,
+        [
+            "Overview",
+            "Containers",
+            "Listening ports",
+            "Kernel messages (24 h)"
+        ]
+        .to_vec(),
+        "only the tools the hub always asks: the switched-off skill has no section",
+    );
+    let suggested = profile.skills.iter().any(|name| name == "listening_ports");
+    assert!(
+        !suggested,
+        "the profile does not offer a skill the host has switched off"
+    );
+    let fired = a.link.requests().iter().any(|call| {
+        matches!(
+            call,
+            LinkRequest::Tool {
+                call: ReadToolCall::RunReadSkill { skill, .. },
+                ..
+            } if skill.as_str() == "listening_ports"
+        )
+    });
+    assert!(!fired, "the disabled skill never reached the agent");
 }
 
 #[tokio::test]

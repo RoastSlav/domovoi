@@ -18,7 +18,9 @@ use std::sync::Arc;
 
 use domovoi_config::Secrets;
 use domovoi_config::hub::HubConfig;
-use domovoi_core::ports::{ChatGateway, Clock, InteractionSink, Notifier, ProcessExecutor};
+use domovoi_core::ports::{
+    AgentLink, ChatGateway, Clock, HostRepo, InteractionSink, Notifier, ProcessExecutor,
+};
 use domovoi_engine::triage::{TriageDeps, TriageHandle, TriageService};
 use domovoi_engine::{
     ActionDeps, ActionService, DomainEvent, IncidentManager, ManagerDeps, ManagerHandle,
@@ -31,7 +33,8 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::agent_server::{
-    AgentServer, AgentServerDeps, AgentServerError, RealNetProbes, ServerSettings,
+    AgentServer, AgentServerDeps, AgentServerError, PolicyLink, RealNetProbes, ServerSettings,
+    SkillPolicy,
 };
 use crate::api::{ApiDeps, ApiState, MetricsRender};
 use crate::auth::{AuthState, WebIdentity};
@@ -202,10 +205,14 @@ impl HubRuntime {
                 hub_host,
             },
         )?;
+        let skill_policy = Arc::new(
+            SkillPolicy::load(store.clone(), &HostRepo::list_hosts(&*store).await?).await?,
+        );
+        let policy_link = Arc::new(PolicyLink::wrap(server.link(), skill_policy.clone()));
         let triage = build_triage(TriageBuild {
             config: &config,
             store: &store,
-            server: &server,
+            link: policy_link.clone(),
             manager: &manager,
             bus: &bus,
             clock: &clock,
@@ -220,7 +227,7 @@ impl HubRuntime {
                 actions: store.clone(),
                 incidents: store.clone(),
                 audit: store.clone(),
-                link: server.link(),
+                link: policy_link.clone(),
                 redactor: redactor.clone(),
                 clock: clock.clone(),
                 manager: manager.clone(),
@@ -254,7 +261,7 @@ impl HubRuntime {
             })
         });
         let profile_deps = crate::profile::ProfileDeps {
-            link: server.link(),
+            link: policy_link.clone(),
             agents: Arc::new(server.clone()),
             hosts: store.clone(),
             notes: store.clone(),
@@ -277,6 +284,7 @@ impl HubRuntime {
                 actions_service: actions_service.clone(),
                 triage: triage.0,
                 agents: Arc::new(server.clone()),
+                skill_policy: skill_policy.clone(),
                 profiles: Some(profile_deps.clone()),
                 clock: clock.clone(),
                 bus: bus.clone(),
@@ -379,7 +387,7 @@ impl HubRuntime {
 struct TriageBuild<'a> {
     config: &'a HubConfig,
     store: &'a Arc<Store>,
-    server: &'a AgentServer,
+    link: Arc<dyn AgentLink>,
     manager: &'a ManagerHandle,
     bus: &'a broadcast::Sender<DomainEvent>,
     clock: &'a Arc<dyn Clock>,
@@ -395,7 +403,7 @@ async fn build_triage(
     let TriageBuild {
         config,
         store,
-        server,
+        link,
         manager,
         bus,
         clock,
@@ -425,7 +433,7 @@ async fn build_triage(
         TriageDeps {
             primary,
             secondary,
-            link: server.link(),
+            link,
             incidents: store.clone(),
             signals: store.clone(),
             notes: store.clone(),

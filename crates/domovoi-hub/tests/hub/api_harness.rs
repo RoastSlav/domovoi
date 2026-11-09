@@ -21,7 +21,8 @@ use domovoi_engine::{
     ManagerDeps, ManagerHandle, PatternRedactor, TriageDeps, TriageService, TriageSettings,
 };
 use domovoi_hub::agent_server::{
-    AgentServer, AgentServerDeps, AgentServerError, EnrollmentInvite, RealNetProbes, ServerSettings,
+    AgentServer, AgentServerDeps, AgentServerError, EnrollmentInvite, RealNetProbes,
+    ServerSettings, SkillPolicy,
 };
 use domovoi_hub::api::{AgentAdmin, ApiDeps, ApiState};
 use domovoi_hub::auth::{AuthState, WebIdentity};
@@ -329,6 +330,11 @@ async fn build(triage: bool, notifier: Option<Arc<dyn Notifier>>, profiles: bool
             link: link.clone(),
             hosts: store.clone(),
         }),
+        skill_policy: Arc::new(
+            SkillPolicy::load(store.clone(), &HostRepo::list_hosts(&*store).await.unwrap())
+                .await
+                .unwrap(),
+        ),
         profiles: profiles.then(|| ProfileDeps {
             link: link.clone(),
             agents: Arc::new(TestAgents {
