@@ -114,7 +114,11 @@ async fn handle(
             send(transport, &pong, Some(id)).await
         }
         Message::Pong(_) => Ok(()),
-        reply @ (Message::ToolResult(_) | Message::SkillResult(_) | Message::CheckResult(_)) => {
+        reply @ (Message::ToolResult(_)
+        | Message::SkillResult(_)
+        | Message::CheckResult(_)
+        | Message::Logs(_)
+        | Message::Unsupported(_)) => {
             let delivered =
                 reply_to.is_some_and(|to| inner.registry.deliver(host, session, to, reply));
             if !delivered {

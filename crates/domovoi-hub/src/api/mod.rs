@@ -33,8 +33,8 @@ use axum::extract::{DefaultBodyLimit, FromRef, FromRequestParts};
 use axum::http::request::Parts;
 use domovoi_config::HubConfig;
 use domovoi_core::ports::{
-    AckRepo, ActionRepo, AdvisoryRepo, Clock, FactRepo, HostRepo, IncidentRepo, LogSource,
-    NoteRepo, Notifier, Page, Presence, Redactor, SignalRepo, UsageRepo,
+    AckRepo, ActionRepo, AdvisoryRepo, Clock, FactRepo, HostRepo, IncidentRepo, LinkError, LogLine,
+    LogSource, NoteRepo, Notifier, Page, Presence, Redactor, SignalRepo, UsageRepo,
 };
 use domovoi_core::{HostId, HostName, SkillSummary};
 use domovoi_engine::triage::TriageHandle;
@@ -76,6 +76,15 @@ pub trait AgentAdmin: Send + Sync {
     /// Why `host`'s agent was refused at its last handshake: it runs a release older than
     /// this hub accepts. `None` while it connects, or when it was never refused.
     fn refusal(&self, host: HostId) -> Option<Refusal>;
+    /// The recent log lines `host`'s agent keeps, oldest first. Fails with a
+    /// [`domovoi_core::ports::LinkError`] when it is not connected, did not answer,
+    /// or is too old to send logs.
+    async fn logs(
+        &self,
+        host: HostId,
+        lines: u16,
+        min_level: String,
+    ) -> Result<Vec<LogLine>, LinkError>;
 }
 
 #[async_trait]
@@ -106,6 +115,15 @@ impl AgentAdmin for AgentServer {
 
     fn refusal(&self, host: HostId) -> Option<Refusal> {
         self.host_refusal(host)
+    }
+
+    async fn logs(
+        &self,
+        host: HostId,
+        lines: u16,
+        min_level: String,
+    ) -> Result<Vec<LogLine>, LinkError> {
+        self.link().logs(host, lines, min_level).await
     }
 }
 
@@ -318,6 +336,7 @@ pub fn routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(hosts::enrollment))
         .routes(routes!(hosts::revoke))
         .routes(routes!(hosts::skills))
+        .routes(routes!(hosts::logs))
         .routes(routes!(profile::get, profile::refresh))
         .routes(routes!(notes::list, notes::create))
         .routes(routes!(notes::search))

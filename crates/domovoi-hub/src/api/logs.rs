@@ -10,13 +10,13 @@ use super::error::{ApiError, ErrorBody};
 use super::{ApiState, Authed};
 
 /// Default lines one request asks for.
-const DEFAULT_LINES: u16 = 200;
+pub const DEFAULT_LINES: u16 = 200;
 
 /// Largest number of lines one request may ask for.
-const MAX_LINES: u16 = 2000;
+pub const MAX_LINES: u16 = 2000;
 
 /// The least severe level when the request does not say.
-const DEFAULT_LEVEL: &str = "info";
+pub const DEFAULT_LEVEL: &str = "info";
 
 /// The hub's recent log lines, oldest first, with secrets removed.
 #[utoipa::path(
