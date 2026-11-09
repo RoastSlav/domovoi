@@ -21,6 +21,7 @@ use super::{HubConfigArg, redactor, warn};
 use crate::ExitCode;
 use crate::init::{self, SystemClock};
 use crate::local_link;
+use crate::log_ring::LogRing;
 
 /// `hub run`.
 #[derive(Debug, clap::Args)]
@@ -40,7 +41,7 @@ enum Ended {
     Restart,
 }
 
-pub async fn run(args: RunArgs) -> anyhow::Result<ExitCode> {
+pub async fn run(args: RunArgs, logs: Arc<LogRing>) -> anyhow::Result<ExitCode> {
     let sources = args.config.sources()?;
     let local_agent: Option<AgentConfig> = args
         .with_local_agent
@@ -62,6 +63,7 @@ pub async fn run(args: RunArgs) -> anyhow::Result<ExitCode> {
             process_executor: Some(executor.clone()),
             metrics: Some(metrics.clone()),
             apply: Some(apply_tx.clone()),
+            logs: Some(logs.clone()),
         };
         let runtime = match HubRuntime::start(sources.clone(), deps()).await {
             Ok(runtime) => runtime,

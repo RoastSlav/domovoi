@@ -9,6 +9,7 @@
 mod cmd;
 mod init;
 mod local_link;
+mod log_ring;
 
 use clap::Parser;
 
@@ -42,12 +43,12 @@ fn main() -> ExitCode {
     if let Err(err) = init::install_crypto() {
         return cmd::fail(&err);
     }
-    init::logging(&Logging {
+    let logs = init::logging(&Logging {
         format: cli.log_format,
         filter: cli.log_level,
         quiet: command.is_quiet(),
     });
-    match cmd::run(command) {
+    match cmd::run(command, logs) {
         Ok(code) => code,
         Err(err) => cmd::fail(&err),
     }

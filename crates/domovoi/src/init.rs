@@ -11,6 +11,10 @@ use jiff::Timestamp;
 use metrics_exporter_prometheus::PrometheusBuilder;
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::EnvFilter;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+
+use crate::log_ring::{LogRing, RingLayer};
 
 /// Installs ring as the process-wide rustls provider. Fails when a provider is already
 /// installed, so a second, different provider can never sneak in.
@@ -43,9 +47,10 @@ pub struct Logging {
     pub quiet: bool,
 }
 
-/// Sends logs to standard error. Configuration secrets are wrapped types whose `Debug`
-/// and `Display` never show the value, so they cannot reach a log line.
-pub fn logging(options: &Logging) {
+/// Sends logs to standard error and keeps the recent ones in memory for the web UI.
+/// Configuration secrets are wrapped types whose `Debug` and `Display` never show the
+/// value, so they cannot reach a log line.
+pub fn logging(options: &Logging) -> Arc<LogRing> {
     let default = if options.quiet { "warn" } else { "info" };
     let filter = options
         .filter
@@ -53,14 +58,28 @@ pub fn logging(options: &Logging) {
         .map(EnvFilter::new)
         .or_else(|| EnvFilter::try_from_default_env().ok())
         .unwrap_or_else(|| EnvFilter::new(default));
-    let builder = tracing_subscriber::fmt()
-        .with_env_filter(filter)
+    let ring = Arc::new(LogRing::new());
+    let ansi = std::io::IsTerminal::is_terminal(&std::io::stderr());
+    let fmt_layer = tracing_subscriber::fmt::layer()
         .with_writer(std::io::stderr)
-        .with_ansi(std::io::IsTerminal::is_terminal(&std::io::stderr()));
+        .with_ansi(ansi);
     let _ = match options.format {
-        LogFormat::Human => builder.try_init(),
-        LogFormat::Json => builder.json().try_init(),
+        LogFormat::Human => tracing_subscriber::registry()
+            .with(filter)
+            .with(fmt_layer)
+            .with(RingLayer {
+                ring: Arc::clone(&ring),
+            })
+            .try_init(),
+        LogFormat::Json => tracing_subscriber::registry()
+            .with(filter)
+            .with(fmt_layer.json())
+            .with(RingLayer {
+                ring: Arc::clone(&ring),
+            })
+            .try_init(),
     };
+    ring
 }
 
 /// Installs the Prometheus recorder and returns what renders it for `/metrics`.

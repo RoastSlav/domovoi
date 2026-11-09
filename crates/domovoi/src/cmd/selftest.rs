@@ -37,6 +37,7 @@ pub async fn run(args: SelftestArgs) -> anyhow::Result<ExitCode> {
             process_executor: Some(executor),
             metrics: None,
             apply: None,
+            logs: None,
         },
         mode,
     )
