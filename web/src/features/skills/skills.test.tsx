@@ -14,6 +14,7 @@ const skill = (name: string, risk: string, extra = {}) => ({
   params: [],
   applies_to: [],
   timeout_secs: 60,
+  enabled: true,
   ...extra,
 });
 
@@ -21,6 +22,9 @@ beforeEach(resetApi);
 
 /** The skill-catalogue requests made so far. */
 const skillCalls = () => calls.filter((c) => c.route === "GET /api/v1/hosts/{name}/skills");
+
+/** The skill switches saved so far. */
+const switches = () => calls.filter((c) => c.route === "PUT /api/v1/hosts/{name}/skills/{skill}");
 
 test("skills_page_explains_which_skills_need_approval", async () => {
   route("GET /api/v1/hosts", () => [nas]);
@@ -31,6 +35,9 @@ test("skills_page_explains_which_skills_need_approval", async () => {
   // Says what a write skill means.
   expect(
     screen.getByText(/Write and destructive skills change things and need your approval\./),
+  ).toBeVisible();
+  expect(
+    screen.getByText(/Disabled skills stay on the host but Domovoi never runs or suggests them\./),
   ).toBeVisible();
   expect(
     screen.getByRole("link", { name: "Learn more about skills (opens in a new tab)" }),
@@ -166,4 +173,42 @@ test("skill_detail_dialog_says_no_readme_when_absent", async () => {
   await user.tab();
   await user.keyboard("{Escape}");
   expect(screen.queryByRole("dialog")).toBeNull();
+});
+
+test("skills_disabled_skill_stays_listed_greyed_and_tagged", async () => {
+  route("GET /api/v1/hosts", () => [nas]);
+  route("GET /api/v1/hosts/{name}/skills", () => [
+    skill("disk_usage", "read"),
+    skill("restart_container", "write", { enabled: false }),
+  ]);
+  renderAt("/skills", "/skills", <SkillsPage />);
+
+  const groups = await screen.findAllByRole("region");
+  expect(groups.map((g) => g.getAttribute("aria-label"))).toEqual(["Read skills", "Write skills"]);
+  const [read, write] = groups as [HTMLElement, HTMLElement];
+  const [on] = within(read).getAllByRole("listitem") as [HTMLElement];
+  const [off] = within(write).getAllByRole("listitem") as [HTMLElement];
+
+  expect(within(read).getByText("disk_usage")).toBeVisible();
+  expect(within(write).getByText("restart_container")).toBeVisible();
+  expect(on.getAttribute("data-disabled")).toBeNull();
+  expect(off).toHaveAttribute("data-disabled", "true");
+  expect(within(off).getByText("Disabled")).toBeVisible();
+});
+
+test("switching_a_skill_off_on_its_card_saves_the_change", async () => {
+  const user = userEvent.setup();
+  route("GET /api/v1/hosts", () => [nas]);
+  route("GET /api/v1/hosts/{name}/skills", () => [skill("docker_ps", "read")]);
+  route("PUT /api/v1/hosts/{name}/skills/{skill}", () => undefined);
+  renderAt("/skills", "/skills", <SkillsPage />);
+
+  await screen.findByText("docker_ps");
+  const [card] = (await screen.findAllByRole("listitem")) as [HTMLElement];
+  const checkbox = within(card).getByRole("checkbox");
+  expect(checkbox).toBeChecked();
+
+  await user.click(checkbox);
+  expect(switches().map((c) => c.init.body)).toEqual([{ enabled: false }]);
+  expect(switches().map((c) => c.init.params?.path)).toEqual([{ name: "nas", skill: "docker_ps" }]);
 });
