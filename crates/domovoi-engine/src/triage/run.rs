@@ -226,16 +226,8 @@ async fn cached(
     (from.id() != incident.id()).then(|| (report, from.id()))
 }
 
-/// Whether the next provider should be tried after `err`.
-fn falls_back(err: &LlmError) -> bool {
-    matches!(
-        err,
-        LlmError::Unavailable(_) | LlmError::RateLimited { .. } | LlmError::Transport(_)
-    )
-}
-
-/// The primary, then the secondary when the primary is unavailable. Tool calls from
-/// every attempt end up in `used`.
+/// The primary, then the secondary whenever the primary failed for any reason, including
+/// an unusable answer. Tool calls from every attempt end up in `used`.
 async fn providers(
     shared: &Shared,
     incident: &Incident,
@@ -247,21 +239,23 @@ async fn providers(
     let chain: Vec<&Arc<dyn LlmProvider>> = std::iter::once(&deps.primary)
         .chain(deps.secondary.as_ref())
         .collect();
-    let mut last = String::from("no provider is configured");
+    let mut reasons: Vec<String> = Vec::new();
     for (i, provider) in chain.iter().enumerate() {
-        match attempt(shared, provider, incident, skills, bundle, used).await {
+        let why = match attempt(shared, provider, incident, skills, bundle, used).await {
             Ok(report) => return Ok(report),
-            Err(Failure::Provider(err)) => {
-                last = format!("{} failed: {err}", provider.id());
-                if !(falls_back(&err) && i + 1 < chain.len()) {
-                    return Err(last);
-                }
-                tracing::info!(provider = provider.id(), %err, "triage falls back to the next provider");
-            }
-            Err(Failure::Invalid(why)) => return Err(why),
+            Err(Failure::Provider(err)) => format!("{} failed: {err}", provider.id()),
+            Err(Failure::Invalid(why)) => format!("{} failed: {why}", provider.id()),
+        };
+        if i + 1 < chain.len() {
+            tracing::info!(
+                provider = provider.id(),
+                reason = why.as_str(),
+                "triage falls back to the next provider",
+            );
         }
+        reasons.push(why);
     }
-    Err(last)
+    Err(reasons.join("; "))
 }
 
 enum Failure {

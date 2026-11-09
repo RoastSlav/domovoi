@@ -20,8 +20,8 @@ mod tools;
 use std::sync::Arc;
 
 use domovoi_core::ports::{
-    ActionRepo, AdvisoryRepo, AgentLink, AuditLog, Clock, IncidentRepo, LlmError, LlmProvider,
-    NoteRepo, Redactor, SignalRepo, TriageCacheRepo, UsageRepo,
+    ActionRepo, AdvisoryRepo, AgentLink, AuditLog, Clock, IncidentRepo, LlmProvider, NoteRepo,
+    Redactor, SignalRepo, TriageCacheRepo, UsageRepo,
 };
 use domovoi_core::{Incident, IncidentId, TriageBudget, TriageOutcome, UserId};
 use tokio::sync::broadcast;
@@ -134,9 +134,9 @@ pub enum TriageError {
     /// No incident has that id.
     #[error("no such incident {0}")]
     UnknownIncident(IncidentId),
-    /// Every provider failed.
+    /// Every provider failed; the text lists each provider's reason joined by "; ".
     #[error("the model is not available: {0}")]
-    Provider(LlmError),
+    Provider(String),
     /// The store failed.
     #[error("store error: {0}")]
     Store(String),

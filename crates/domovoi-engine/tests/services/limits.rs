@@ -238,17 +238,77 @@ async fn fallback_to_secondary_then_failed() {
         .push_err(LlmError::RateLimited { retry_after: None });
     w.secondary
         .push_err(LlmError::Transport("connection reset".to_owned()));
-    assert!(matches!(
-        w.run().await,
-        TriageOutcome::Failed { reason } if reason.contains("connection reset")
-    ));
+    assert!(
+        matches!(
+            w.run().await,
+            TriageOutcome::Failed { reason } if reason.contains("rate limited") && reason.contains("connection reset")
+        ),
+        "the failure lists why each provider failed"
+    );
 
     w.primary.push_err(LlmError::Auth);
-    assert!(matches!(w.run().await, TriageOutcome::Failed { .. }));
+    assert!(
+        matches!(w.run().await, TriageOutcome::Failed { reason } if reason.contains("authentication failed")),
+        "refused credentials still try the fallback"
+    );
     assert_eq!(
         w.secondary.requests().len(),
+        3,
+        "the fallback runs even for refused credentials"
+    );
+}
+
+#[tokio::test]
+async fn model_not_found_from_primary_falls_back_to_secondary() {
+    let w = world(Setup {
+        secondary: true,
+        ..Setup::default()
+    })
+    .await;
+    w.primary
+        .push_err(LlmError::InvalidResponse("model not found".to_owned()));
+    w.secondary.push_text(report());
+    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+    assert_eq!(w.secondary.requests().len(), 1);
+}
+
+#[tokio::test]
+async fn unusable_answer_falls_back_to_secondary_after_the_repair_turn() {
+    let w = world(Setup {
+        secondary: true,
+        ..Setup::default()
+    })
+    .await;
+    w.primary.push_text("I cannot help");
+    w.primary.push_text("Still not a report");
+    w.secondary.push_text(report());
+    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+    assert_eq!(
+        w.primary.requests().len(),
         2,
-        "refused credentials do not fall back"
+        "the repair turn runs before falling back"
+    );
+    assert_eq!(w.secondary.requests().len(), 1);
+}
+
+#[tokio::test]
+async fn unusable_answers_from_every_provider_name_the_provider_that_failed() {
+    let w = world(Setup {
+        secondary: true,
+        ..Setup::default()
+    })
+    .await;
+    w.primary.push_text("I cannot help");
+    w.primary.push_text("Still not a report");
+    w.secondary.push_text("no report either");
+    w.secondary.push_text("still not a report");
+    assert!(
+        matches!(
+            w.run().await,
+            TriageOutcome::Failed { reason }
+                if reason.contains("scripted failed:") && reason.contains("; scripted failed:")
+        ),
+        "an unusable report still says which provider produced it, for every provider",
     );
 }
 

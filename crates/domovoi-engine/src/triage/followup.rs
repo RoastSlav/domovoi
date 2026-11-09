@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use domovoi_core::ports::{LlmError, LlmMessage, LlmProvider, Part, Role};
+use domovoi_core::ports::{LlmMessage, LlmProvider, Part, Role};
 use domovoi_core::{IncidentId, UserId};
 
 use super::{Shared, TriageError, agent, context};
@@ -62,10 +62,10 @@ pub(crate) async fn answer(
     let chain: Vec<&Arc<dyn LlmProvider>> = std::iter::once(&deps.primary)
         .chain(deps.secondary.as_ref())
         .collect();
-    let mut last = LlmError::Unavailable("no provider is configured".to_owned());
     let mut text = None;
+    let mut reasons: Vec<String> = Vec::new();
     let mut tool_use: Vec<agent::ToolUse> = Vec::new();
-    for (i, provider) in chain.iter().enumerate() {
+    for provider in chain.iter() {
         let mut messages = vec![LlmMessage {
             role: Role::User,
             parts: vec![Part::Text(opening.clone())],
@@ -85,21 +85,10 @@ pub(crate) async fn answer(
                 text = Some(answer);
                 break;
             }
-            Err(err) => {
-                let next = matches!(
-                    err,
-                    LlmError::Unavailable(_)
-                        | LlmError::RateLimited { .. }
-                        | LlmError::Transport(_)
-                ) && i + 1 < chain.len();
-                last = err;
-                if !next {
-                    break;
-                }
-            }
+            Err(err) => reasons.push(format!("{} failed: {err}", provider.id())),
         }
     }
-    let answer = text.ok_or(TriageError::Provider(last))?;
+    let answer = text.ok_or(TriageError::Provider(reasons.join("; ")))?;
     let answer = clip(
         deps.redactor.redact(answer.trim()).as_str(),
         MAX_ANSWER_CHARS,

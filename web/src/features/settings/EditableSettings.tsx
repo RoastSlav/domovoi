@@ -44,7 +44,8 @@ export function EditableSettings({ editable }: { editable: Editable }) {
           fields={section.fields(section.title === "Webhooks" ? withAdded : values)}
           editable={editable}
           schema={schema.data}
-          {...(section.test ? { test: section.test } : {})}
+          {...(section.test ? { test: section.test, testSlot: section.testSlot } : {})}
+          {...(section.intro ? { intro: section.intro } : {})}
           {...(section.title === "Webhooks"
             ? { intro: <AddWebhook onAdd={(name) => setAdded((a) => [...a, name])} /> }
             : section.title === "Discord"

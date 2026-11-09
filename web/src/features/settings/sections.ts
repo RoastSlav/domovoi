@@ -1,4 +1,4 @@
-import type { TestTarget } from "../../api/hooks/settings";
+import type { ProviderSlot, TestTarget } from "../../api/hooks/settings";
 import type { FieldSpec } from "./form";
 
 /** One section of the settings page. */
@@ -6,6 +6,10 @@ export interface SectionSpec {
   title: string;
   fields: (values: Record<string, unknown>) => FieldSpec[];
   test?: TestTarget;
+  /** Which provider a model test targets; the main one by default. */
+  testSlot?: ProviderSlot;
+  /** Shown above the fields. */
+  intro?: string;
 }
 
 const fixed = (fields: FieldSpec[]) => () => fields;
@@ -21,14 +25,13 @@ function providerFields(prefix: string): FieldSpec[] {
       label: "Provider",
       kind: "select",
       options: ["", "anthropic", "openai_compatible", "cli"],
-      ...(primary
-        ? {}
-        : { hint: "Used when the main model is unavailable. Leave empty for none." }),
+      ...(primary ? {} : { hint: "Leave empty for none." }),
     },
     {
       path: `${prefix}.model`,
       label: "Model",
-      kind: primary ? "model" : "text",
+      kind: "model",
+      ...(primary ? {} : { slot: "secondary" }),
       visibleWhen: http,
     },
     {
@@ -227,6 +230,10 @@ export const SECTIONS: SectionSpec[] = [
   },
   {
     title: "Fallback model",
+    test: "llm",
+    testSlot: "secondary",
+    intro:
+      "Used when the main model fails, times out, is rate limited or gives an unusable answer. Optional.",
     fields: fixed(providerFields("llm.secondary")),
   },
   {

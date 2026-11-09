@@ -1887,6 +1887,13 @@ expression: spec
           "changes": {
             "description": "The same shape as a save; a secret left as `{ \"keep\": true }` uses the stored one.",
             "type": "object"
+          },
+          "slot": {
+            "description": "Which provider to test or list models for: `\"primary\"` (the default) or\n`\"secondary\"`. Other tests ignore it.",
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "type": "object"
@@ -4727,7 +4734,7 @@ expression: spec
             "description": "Provider unavailable"
           }
         },
-        "summary": "Lists models available to the candidate primary provider.",
+        "summary": "Lists models available to the candidate provider of the requested slot.",
         "tags": [
           "system"
         ]
@@ -4941,7 +4948,7 @@ expression: spec
             "description": "More than 10 tests a minute"
           }
         },
-        "summary": "One minimal call to the candidate primary model.",
+        "summary": "One minimal call to the candidate model provider of the requested slot.",
         "tags": [
           "system"
         ]

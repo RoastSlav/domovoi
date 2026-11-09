@@ -685,7 +685,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Lists models available to the candidate primary provider. */
+        /** Lists models available to the candidate provider of the requested slot. */
         post: operations["list_models"];
         delete?: never;
         options?: never;
@@ -753,7 +753,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** One minimal call to the candidate primary model. */
+        /** One minimal call to the candidate model provider of the requested slot. */
         post: operations["test_llm"];
         delete?: never;
         options?: never;
@@ -1528,6 +1528,11 @@ export interface components {
         TestRequest: {
             /** @description The same shape as a save; a secret left as `{ "keep": true }` uses the stored one. */
             changes?: Record<string, never>;
+            /**
+             * @description Which provider to test or list models for: `"primary"` (the default) or
+             *     `"secondary"`. Other tests ignore it.
+             */
+            slot?: string | null;
         };
         /** @description The result of a connection test. */
         TestResultDto: {

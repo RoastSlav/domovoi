@@ -53,6 +53,10 @@ pub struct TestRequest {
     #[schema(value_type = Object)]
     #[serde(default)]
     pub changes: Map<String, Value>,
+    /// Which provider to test or list models for: `"primary"` (the default) or
+    /// `"secondary"`. Other tests ignore it.
+    #[serde(default)]
+    pub slot: Option<String>,
 }
 
 /// The result of a connection test.
@@ -238,7 +242,7 @@ pub(super) async fn test_discord(
     run_test(&state, &current, Target::Discord, &req).await
 }
 
-/// One minimal call to the candidate primary model.
+/// One minimal call to the candidate model provider of the requested slot.
 #[utoipa::path(
     post, path = "/api/v1/settings/test/llm", operation_id = "test_llm", tag = "system",
     request_body = TestRequest,
@@ -254,10 +258,13 @@ pub(super) async fn test_llm(
     Authed(current): Authed,
     Json(req): Json<TestRequest>,
 ) -> Result<Json<TestResultDto>, ApiError> {
-    run_test(&state, &current, Target::Llm, &req).await
+    let target = Target::Llm {
+        secondary: req.slot.as_deref() == Some("secondary"),
+    };
+    run_test(&state, &current, target, &req).await
 }
 
-/// Lists models available to the candidate primary provider.
+/// Lists models available to the candidate provider of the requested slot.
 #[utoipa::path(
     post, path = "/api/v1/settings/models", operation_id = "list_models", tag = "system",
     request_body = TestRequest,
@@ -278,7 +285,11 @@ pub(super) async fn list_models(
     settings
         .admit_test(current.session_hash)
         .map_err(api_error)?;
-    let models = settings.models(&req.changes).await.map_err(api_error)?;
+    let secondary = req.slot.as_deref() == Some("secondary");
+    let models = settings
+        .models(&req.changes, secondary)
+        .await
+        .map_err(api_error)?;
     Ok(Json(ModelsDto { models }))
 }
 
