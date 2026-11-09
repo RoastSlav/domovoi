@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use axum::http::StatusCode;
+use domovoi_config::hub::{LlmKind, LlmProvider};
 use domovoi_core::ports::{ChatError, Clock, MessageRef, NotifyStateRepo};
 use domovoi_core::{AdvisoryKind, ChatRefs, Incident, NotifyState};
 use domovoi_testkit::{GatewayCall, RecordingGateway, ScriptedLlm};
@@ -14,6 +15,7 @@ use metrics::{
     Counter, CounterFn, Gauge, Histogram, Key, KeyName, Metadata, Recorder, SharedString, Unit,
 };
 use tokio_util::sync::CancellationToken;
+use url::Url;
 use wiremock::matchers::method;
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -734,4 +736,33 @@ async fn shutdown_completes_within_15_seconds_with_inflight_triage() {
     assert!(provider.completed());
     assert!(harness.clock.now() < at("2026-10-31T12:00:15Z"));
     harness.stop().await;
+}
+
+/// The hub builds one provider per fallback model, in config order, each answering
+/// with its own model.
+#[test]
+fn chain_for_builds_one_provider_per_fallback_model() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let config = LlmProvider {
+        kind: LlmKind::OpenaiCompatible,
+        model: Some("model-one".to_owned()),
+        fallback_models: ["model-two".to_owned(), "model-three".to_owned()].to_vec(),
+        base_url: Some(Url::parse("http://127.0.0.1:8001/v1").unwrap()),
+        api_key: None,
+        cli: None,
+        price: None,
+        timeout: None,
+    };
+    let chain = super::settings::chain_for(&config, None).unwrap();
+    assert_eq!(
+        chain.len(),
+        3,
+        "the slot's own provider plus one per fallback model"
+    );
+    let models: Vec<Option<&str>> = chain.iter().map(|provider| provider.model()).collect();
+    assert_eq!(
+        models,
+        [Some("model-one"), Some("model-two"), Some("model-three")].to_vec(),
+        "the chain keeps the slot's model and each fallback model in order",
+    );
 }
