@@ -2664,7 +2664,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description No such host */
+            /** @description No such host, or the agent does not report that skill */
             404: {
                 headers: {
                     [name: string]: unknown;
