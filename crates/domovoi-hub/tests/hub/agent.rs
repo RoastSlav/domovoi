@@ -227,6 +227,23 @@ impl FakeAgent {
         self.expect().await.message
     }
 
+    /// Answers a challenge with a signature from some other key: a client that knows an
+    /// agent id but cannot prove it holds that agent's key.
+    pub async fn answer_without_the_key(
+        &mut self,
+        challenge: &Challenge,
+        agent: AgentId,
+    ) -> Message {
+        let message = challenge_message(&challenge.nonce, agent, &self.binding);
+        let signature = Signature(new_key().sign(&message).to_bytes());
+        self.send(
+            Message::ChallengeResponse(ChallengeResponse { signature }),
+            None,
+        )
+        .await;
+        self.expect().await.message
+    }
+
     /// The whole handshake for an enrolled agent.
     pub async fn authenticate(&mut self, ident: &Ident) -> Welcome {
         let Message::Challenge(challenge) = self.hello(ident.agent, PROTOCOL_VERSION).await else {
