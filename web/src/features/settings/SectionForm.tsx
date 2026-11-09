@@ -64,7 +64,15 @@ function failureOf(error: unknown): { message: string; issues: Issue[]; stale: b
  * it has one. Fields set in hub.toml or the environment are read-only with their source;
  * secrets are write-only; the hub's validation errors show next to their fields.
  */
-export function SectionForm({ title, fields, editable, schema, test, testSlot, intro }: SectionProps) {
+export function SectionForm({
+  title,
+  fields,
+  editable,
+  schema,
+  test,
+  testSlot,
+  intro,
+}: SectionProps) {
   const values = editable.values as Record<string, unknown>;
   const initial = useMemo(
     () =>

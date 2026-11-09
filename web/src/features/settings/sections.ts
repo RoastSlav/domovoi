@@ -232,7 +232,8 @@ export const SECTIONS: SectionSpec[] = [
     title: "Fallback model",
     test: "llm",
     testSlot: "secondary",
-    intro: "Used when the main model fails, times out, is rate limited or gives an unusable answer. Optional.",
+    intro:
+      "Used when the main model fails, times out, is rate limited or gives an unusable answer. Optional.",
     fields: fixed(providerFields("llm.secondary")),
   },
   {
