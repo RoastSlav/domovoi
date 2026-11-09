@@ -1,9 +1,7 @@
 //! Follow-up questions in an incident's thread: the same read tools and budget, a plain
 //! text answer, and never an action.
 
-use std::sync::Arc;
-
-use domovoi_core::ports::{LlmMessage, LlmProvider, Part, Role};
+use domovoi_core::ports::{LlmMessage, Part, Role};
 use domovoi_core::{IncidentId, UserId};
 
 use super::{Shared, TriageError, agent, context};
@@ -59,9 +57,7 @@ pub(crate) async fn answer(
     let opening = deps.redactor.redact(&format!(
         "{bundle}\n\n{earlier}Question from the operator:\n{question}"
     ));
-    let chain: Vec<&Arc<dyn LlmProvider>> = std::iter::once(&deps.primary)
-        .chain(deps.secondary.as_ref())
-        .collect();
+    let chain = shared.chain();
     let mut text = None;
     let mut reasons: Vec<String> = Vec::new();
     let mut tool_use: Vec<agent::ToolUse> = Vec::new();
@@ -85,7 +81,10 @@ pub(crate) async fn answer(
                 text = Some(answer);
                 break;
             }
-            Err(err) => reasons.push(format!("{} failed: {err}", provider.id())),
+            Err(err) => reasons.push(format!(
+                "{} failed: {err}",
+                super::run::provider_name(provider)
+            )),
         }
     }
     let answer = text.ok_or(TriageError::Provider(reasons.join("; ")))?;

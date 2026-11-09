@@ -226,8 +226,16 @@ async fn cached(
     (from.id() != incident.id()).then(|| (report, from.id()))
 }
 
-/// The primary, then the secondary whenever the primary failed for any reason, including
-/// an unusable answer. Tool calls from every attempt end up in `used`.
+/// The primary, then each fallback provider in order whenever the provider before it failed
+/// for any reason, including an unusable answer. Tool calls from every attempt end up in `used`.
+/// How a provider is named in failure text: its id, plus its model when it has one.
+pub(crate) fn provider_name(provider: &Arc<dyn LlmProvider>) -> String {
+    match provider.model() {
+        Some(model) => format!("{} model {}", provider.id(), model),
+        None => provider.id().to_owned(),
+    }
+}
+
 async fn providers(
     shared: &Shared,
     incident: &Incident,
@@ -235,16 +243,13 @@ async fn providers(
     bundle: &str,
     used: &mut Vec<ToolUse>,
 ) -> Result<TriageReport, String> {
-    let deps = &shared.deps;
-    let chain: Vec<&Arc<dyn LlmProvider>> = std::iter::once(&deps.primary)
-        .chain(deps.secondary.as_ref())
-        .collect();
+    let chain = shared.chain();
     let mut reasons: Vec<String> = Vec::new();
     for (i, provider) in chain.iter().enumerate() {
         let why = match attempt(shared, provider, incident, skills, bundle, used).await {
             Ok(report) => return Ok(report),
-            Err(Failure::Provider(err)) => format!("{} failed: {err}", provider.id()),
-            Err(Failure::Invalid(why)) => format!("{} failed: {why}", provider.id()),
+            Err(Failure::Provider(err)) => format!("{} failed: {err}", provider_name(provider)),
+            Err(Failure::Invalid(why)) => format!("{} failed: {why}", provider_name(provider)),
         };
         if i + 1 < chain.len() {
             tracing::info!(

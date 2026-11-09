@@ -313,6 +313,74 @@ async fn unusable_answers_from_every_provider_name_the_provider_that_failed() {
 }
 
 #[tokio::test]
+async fn triage_recovers_when_the_second_fallback_answers() {
+    let w = world(Setup {
+        secondary: true,
+        third: true,
+        ..Setup::default()
+    })
+    .await;
+    w.primary
+        .push_err(LlmError::Unavailable("first stop".to_owned()));
+    w.secondary
+        .push_err(LlmError::Transport("second stop".to_owned()));
+    w.third.push_text(report());
+    assert!(
+        matches!(w.run().await, TriageOutcome::Report(_)),
+        "the second fallback answers when the two providers before it fail",
+    );
+    assert_eq!(w.primary.requests().len(), 1, "the primary is tried first");
+    assert_eq!(
+        w.secondary.requests().len(),
+        1,
+        "the first fallback is tried next",
+    );
+    assert_eq!(
+        w.third.requests().len(),
+        1,
+        "the second fallback is tried last and answers",
+    );
+}
+
+#[tokio::test]
+async fn triage_falls_back_through_secondary_then_fallback_model() {
+    let w = world(Setup {
+        secondary: true,
+        third: true,
+        ..Setup::default()
+    })
+    .await;
+    w.primary
+        .push_err(LlmError::Unavailable("first stop".to_owned()));
+    w.secondary
+        .push_err(LlmError::Transport("second stop".to_owned()));
+    w.third.push_err(LlmError::Auth);
+    let reason = match w.run().await {
+        TriageOutcome::Failed { reason } => reason,
+        TriageOutcome::Report(_) => "".to_owned(),
+        TriageOutcome::Skipped { .. } => "".to_owned(),
+        TriageOutcome::Cached { .. } => "".to_owned(),
+    };
+    assert!(
+        reason.contains("unavailable: first stop")
+            && reason.contains("transport error: second stop")
+            && reason.contains("authentication failed"),
+        "the failure lists why each of the three providers failed",
+    );
+    assert_eq!(w.primary.requests().len(), 1, "the primary is tried first");
+    assert_eq!(
+        w.secondary.requests().len(),
+        1,
+        "the secondary provider is tried after the primary",
+    );
+    assert_eq!(
+        w.third.requests().len(),
+        1,
+        "the last fallback is tried before the run fails",
+    );
+}
+
+#[tokio::test]
 async fn three_failures_raise_triage_degraded_and_success_clears_it() {
     let settings = TriageSettings {
         per_hour_runs: 10,

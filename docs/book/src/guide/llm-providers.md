@@ -10,6 +10,29 @@ Configure one provider as `[llm.primary]` and, optionally, a fallback as `[llm.s
 
 In the web setup and **Settings → Models and triage**, choose the provider first. API providers show the model, base URL and API key fields; CLI providers show only the CLI options. **Fetch models** asks the provider for model IDs using the values and key currently in the form without saving them. You can also enter a model ID manually, which is useful when a compatible server has no model-list endpoint.
 
+## Fallback models
+
+An API provider can list up to five of its other models in `fallback_models`. When its
+main model fails, the same request is retried on those models, in order, with the same
+base URL and key:
+
+```toml
+[llm.primary]
+kind = "openai_compatible"
+base_url = "https://api.openai.com/v1"
+model = "gpt-5"
+fallback_models = ["gpt-5-mini", "gpt-4.1-mini"]
+```
+
+Fallback models work only with the `anthropic` and `openai_compatible` kinds; a `cli`
+provider always runs the same program. In the web UI they are the **Fallback models**
+rows under **Settings → Models and triage** and **Settings → Fallback model**, entered
+comma-separated.
+
+Triage tries every model of a provider before moving to the other provider: the primary
+model, its fallback models, then the secondary model and its fallback models. The first
+provider that answers wins.
+
 ## Fallback provider
 
 The **Settings → Fallback model** section, or `[llm.secondary]` in `hub.toml`, sets up a second, optional provider:
@@ -104,4 +127,4 @@ Each request has a total time limit of 120 seconds, and connecting has 10 second
 | HTTP 408, 5xx or 529, a timeout, or no connection | the provider is unavailable for now |
 | A body Domovoi cannot read | an invalid response, quoted in short |
 
-API keys never appear in logs, errors or the web UI. When a provider fails, triage falls back to `[llm.secondary]` and then to posting the incident without a report.
+API keys never appear in logs, errors or the web UI. When a model fails, triage tries its provider's fallback models, then the other provider and its fallback models, and posts the incident without a report only when every one of them failed.

@@ -35,6 +35,7 @@ pub fn host_id() -> HostId {
 pub struct Setup {
     pub settings: TriageSettings,
     pub secondary: bool,
+    pub third: bool,
     pub cli: bool,
     pub evidence: Evidence,
 }
@@ -44,6 +45,7 @@ impl Default for Setup {
         Self {
             settings: TriageSettings::default(),
             secondary: false,
+            third: false,
             cli: false,
             evidence: disk(92.4),
         }
@@ -66,6 +68,7 @@ pub struct World {
     pub link: Arc<FakeAgentLink>,
     pub primary: Arc<ScriptedLlm>,
     pub secondary: Arc<ScriptedLlm>,
+    pub third: Arc<ScriptedLlm>,
     pub manager: ManagerHandle,
     pub triage: TriageHandle,
     pub events: broadcast::Receiver<DomainEvent>,
@@ -151,11 +154,19 @@ pub async fn world(setup: Setup) -> World {
         ScriptedLlm::new()
     });
     let secondary = Arc::new(ScriptedLlm::new());
+    let third = Arc::new(ScriptedLlm::new());
     let primary_dyn: Arc<dyn LlmProvider> = primary.clone();
     let secondary_dyn: Arc<dyn LlmProvider> = secondary.clone();
+    let third_dyn: Arc<dyn LlmProvider> = third.clone();
+    let fallbacks: Vec<Arc<dyn LlmProvider>> = match (setup.secondary, setup.third) {
+        (false, false) => Vec::new(),
+        (true, false) => vec![secondary_dyn],
+        (false, true) => vec![third_dyn],
+        (true, true) => vec![secondary_dyn, third_dyn],
+    };
     let deps = TriageDeps {
         primary: primary_dyn,
-        secondary: setup.secondary.then_some(secondary_dyn),
+        fallbacks,
         link: link.clone(),
         incidents: store.clone(),
         signals: store.clone(),
@@ -178,6 +189,7 @@ pub async fn world(setup: Setup) -> World {
         link,
         primary,
         secondary,
+        third,
         manager,
         triage,
         events,

@@ -1,4 +1,5 @@
-use crate::helpers::{AGENT, agent, agent_errors, assert_issue, hub, hub_errors};
+use crate::helpers::{AGENT, agent, agent_errors, assert_issue, hub, hub_errors, hub_with};
+use domovoi_config::MapEnv;
 
 #[test]
 fn hub_url_must_use_wss() {
@@ -64,6 +65,30 @@ fn api_providers_require_model_and_endpoint() {
     assert_issue(&errors, "llm.primary.base_url", "base_url");
     let errors = hub_errors("[llm.primary]\nkind = \"anthropic\"\nmodel = \"m\"\n");
     assert_issue(&errors, "llm.primary.api_key", "needs an api_key");
+}
+
+#[test]
+fn fallback_models_require_api_provider_and_names() {
+    let api = "[llm.primary]\nkind = \"anthropic\"\nmodel = \"m\"\napi_key = { env = \"K\" }\n";
+    let too_many = format!("{api}fallback_models = [\"a\", \"b\", \"c\", \"d\", \"e\", \"f\"]\n");
+    let errors = hub_errors(&too_many);
+    assert_issue(&errors, "llm.primary.fallback_models", "at most 5");
+    let empty_entry = format!("{api}fallback_models = [\"a\", \"\"]\n");
+    let errors = hub_errors(&empty_entry);
+    assert_issue(&errors, "llm.primary.fallback_models", "needs a name");
+
+    let errors = hub_errors(
+        "[llm.primary]\nkind = \"cli\"\ncli = { preset = \"claude\" }\nfallback_models = [\"a\"]\n",
+    );
+    assert_issue(
+        &errors,
+        "llm.primary.fallback_models",
+        "anthropic or openai_compatible",
+    );
+
+    let ok = format!("{api}fallback_models = [\"a\", \"b\"]\n");
+    let env = MapEnv::new().with("K", "a-key");
+    assert!(hub_with(&ok, &env).is_ok());
 }
 
 #[test]

@@ -93,6 +93,7 @@ The provider tried first. Required when triage is enabled.
 | --- | --- | --- |
 | `api_key` | secret | API key. Required for `anthropic`. |
 | `base_url` | URL | API base URL. Required for `openai_compatible`; optional for `anthropic`. |
+| `fallback_models` | list of string | Models of the same provider tried in order when `model` fails. Optional. |
 | `kind` | `"anthropic"` or `"openai_compatible"` or `"cli"` | Which adapter talks to the model. |
 | `model` | string | Model name. Required for `anthropic` and `openai_compatible`. |
 | `timeout` | duration | The longest the model may stay silent, such as `2m`. Answers are streamed, so the clock restarts with every token; it covers loading and reading the prompt too. For `cli` it is the whole run. Default `2m`. |
@@ -124,6 +125,7 @@ A fallback used when the primary fails. Optional.
 | --- | --- | --- |
 | `api_key` | secret | API key. Required for `anthropic`. |
 | `base_url` | URL | API base URL. Required for `openai_compatible`; optional for `anthropic`. |
+| `fallback_models` | list of string | Models of the same provider tried in order when `model` fails. Optional. |
 | `kind` | `"anthropic"` or `"openai_compatible"` or `"cli"` | Which adapter talks to the model. |
 | `model` | string | Model name. Required for `anthropic` and `openai_compatible`. |
 | `timeout` | duration | The longest the model may stay silent, such as `2m`. Answers are streamed, so the clock restarts with every token; it covers loading and reading the prompt too. For `cli` it is the whole run. Default `2m`. |

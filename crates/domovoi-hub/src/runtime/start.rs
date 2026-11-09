@@ -60,9 +60,9 @@ impl HubRuntime {
             let primary = config.llm.primary.as_ref().ok_or_else(|| {
                 RuntimeError::Chat("triage is enabled without a primary provider".to_owned())
             })?;
-            domovoi_llm::build(&settings::provider(primary), executor.clone())?;
+            settings::chain_for(primary, executor.clone())?;
             if let Some(secondary) = &config.llm.secondary {
-                domovoi_llm::build(&settings::provider(secondary), executor)?;
+                settings::chain_for(secondary, executor.clone())?;
             }
         }
         Ok(())

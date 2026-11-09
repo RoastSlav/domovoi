@@ -306,7 +306,7 @@ async fn build(
         TriageService::spawn(
             TriageDeps {
                 primary,
-                secondary: None,
+                fallbacks: Vec::new(),
                 link: link.clone(),
                 incidents: store.clone(),
                 signals: store.clone(),

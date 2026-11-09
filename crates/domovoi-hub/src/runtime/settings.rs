@@ -1,5 +1,7 @@
 //! Conversion from validated hub configuration to engine and adapter settings.
 
+use std::sync::Arc;
+
 use domovoi_config::hub::{HubConfig, LlmKind, LlmProvider};
 use domovoi_core::IncidentPolicy;
 use domovoi_engine::notify::{NotifySettings, QuietHours};
@@ -87,4 +89,49 @@ pub(crate) fn provider(config: &LlmProvider) -> ProviderSettings {
 
 pub(super) fn actions() -> ActionSettings {
     ActionSettings::default()
+}
+
+/// The provider chain for one configured slot: the slot's own provider first, then one
+/// per fallback model. Built eagerly so a bad fallback model is a start-up error.
+pub(crate) fn chain_for(
+    config: &LlmProvider,
+    executor: Option<Arc<dyn domovoi_core::ports::ProcessExecutor>>,
+) -> Result<Vec<Arc<dyn domovoi_core::ports::LlmProvider>>, super::RuntimeError> {
+    let base = provider(config);
+    let all: Vec<ProviderSettings> = std::iter::chain(
+        std::iter::once(base.clone()),
+        config.fallback_models.iter().map(|model| {
+            let mut fallback = base.clone();
+            fallback.model = Some(model.clone());
+            fallback
+        }),
+    )
+    .collect();
+    let mut chain: Vec<Arc<dyn domovoi_core::ports::LlmProvider>> = Vec::new();
+    for settings in all.iter() {
+        match domovoi_llm::build(settings, executor.clone()) {
+            Ok(provider) => chain.push(provider),
+            Err(err) => return Err(super::RuntimeError::Llm(err)),
+        }
+    }
+    Ok(chain)
+}
+
+/// The providers for `config`'s fallback models alone, in order, without the slot's
+/// own provider, which an override can replace without rebuilding.
+pub(crate) fn fallback_models_for(
+    config: &LlmProvider,
+    executor: Option<Arc<dyn domovoi_core::ports::ProcessExecutor>>,
+) -> Result<Vec<Arc<dyn domovoi_core::ports::LlmProvider>>, super::RuntimeError> {
+    let base = provider(config);
+    let mut chain: Vec<Arc<dyn domovoi_core::ports::LlmProvider>> = Vec::new();
+    for model in config.fallback_models.iter() {
+        let mut settings = base.clone();
+        settings.model = Some(model.clone());
+        match domovoi_llm::build(&settings, executor.clone()) {
+            Ok(provider) => chain.push(provider),
+            Err(err) => return Err(super::RuntimeError::Llm(err)),
+        }
+    }
+    Ok(chain)
 }

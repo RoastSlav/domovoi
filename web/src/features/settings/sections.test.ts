@@ -21,6 +21,11 @@ test("the models section exposes the silence timeout, prices and per-run limits"
   }
 });
 
+test("both llm slots expose their fallback models", () => {
+  expect(paths("Models and triage")).toContain("llm.primary.fallback_models");
+  expect(paths("Fallback model")).toContain("llm.secondary.fallback_models");
+});
+
 test("the fallback model has the same settings as the main one", () => {
   const primary = paths("Models and triage")
     .filter((path) => path.startsWith("llm.primary."))

@@ -420,24 +420,43 @@ async fn build_triage(
     if !config.triage.enabled {
         return Ok((None, None));
     }
-    let primary = match &overrides.primary {
-        Some(provider) => provider.clone(),
-        None => domovoi_llm::build(
-            &settings::provider(config.llm.primary.as_ref().ok_or_else(|| {
-                RuntimeError::Chat("triage is enabled without a primary provider".to_owned())
-            })?),
-            executor.clone(),
-        )?,
+    let (primary, configured_fallbacks) = match (&overrides.primary, &config.llm.primary) {
+        (Some(provider), Some(primary_config)) => (
+            provider.clone(),
+            settings::fallback_models_for(primary_config, executor.clone())?,
+        ),
+        (Some(provider), None) => (provider.clone(), Vec::new()),
+        (None, Some(primary_config)) => {
+            let chain = settings::chain_for(primary_config, executor.clone())?;
+            let head: Arc<dyn domovoi_core::ports::LlmProvider> =
+                chain.iter().map(Arc::clone).next().ok_or_else(|| {
+                    RuntimeError::Chat("triage is enabled without a primary provider".to_owned())
+                })?;
+            (head, chain.iter().skip(1).map(Arc::clone).collect())
+        }
+        (None, None) => {
+            return Err(RuntimeError::Chat(
+                "triage is enabled without a primary provider".to_owned(),
+            ));
+        }
     };
-    let secondary = match (&overrides.secondary, &config.llm.secondary) {
-        (Some(provider), _) => Some(provider.clone()),
-        (None, Some(config)) => Some(domovoi_llm::build(&settings::provider(config), executor)?),
-        (None, None) => None,
+    let tail = match (&overrides.secondary, &config.llm.secondary) {
+        (Some(provider), None) => vec![provider.clone()],
+        (Some(provider), Some(secondary)) => std::iter::chain(
+            std::iter::once(provider.clone()),
+            settings::fallback_models_for(secondary, executor.clone())?
+                .iter()
+                .map(Arc::clone),
+        )
+        .collect(),
+        (None, Some(secondary)) => settings::chain_for(secondary, executor.clone())?,
+        (None, None) => Vec::new(),
     };
+    let fallbacks = std::iter::chain(configured_fallbacks, tail).collect();
     let (handle, task) = TriageService::spawn(
         TriageDeps {
             primary,
-            secondary,
+            fallbacks,
             link,
             incidents: store.clone(),
             signals: store.clone(),

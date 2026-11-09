@@ -42,6 +42,9 @@ heartbeat = "10s"
 kind = "anthropic"
 # Model name; required for anthropic and openai_compatible (example).
 model = "claude-sonnet-5-5"
+# Fallback models of the same provider, tried in order when the model above fails
+# (up to 5, only with anthropic or openai_compatible; example; optional).
+# fallback_models = ["claude-haiku-4-5"]
 # API key; required for anthropic.
 api_key = { env = "ANTHROPIC_API_KEY" }
 # Prices used for the monthly budget, in US dollars per million tokens (example; optional).
