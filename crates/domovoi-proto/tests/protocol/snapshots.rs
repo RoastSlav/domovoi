@@ -23,6 +23,7 @@ fn every_message_kind_matches_its_wire_snapshot() {
                     | "welcome"
                     | "reject"
                     | "challenge_response"
+                    | "logs"
             );
         insta::assert_json_snapshot!(message.kind().to_owned(), pretty(&message, reply));
     }

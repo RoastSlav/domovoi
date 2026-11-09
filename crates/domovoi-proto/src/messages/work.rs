@@ -4,7 +4,7 @@
 
 use std::collections::BTreeMap;
 
-use domovoi_core::ports::{CheckRecheck, SkillDispatch, SkillOutput, ToolOutput};
+use domovoi_core::ports::{CheckRecheck, LogLine, SkillDispatch, SkillOutput, ToolOutput};
 use domovoi_core::{
     ActionId, CheckKey, Evidence, PlanHash, ReadToolCall, SignalStatus, SkillName, TargetKey,
 };
@@ -30,6 +30,24 @@ pub struct RunTool {
 pub struct ToolResult {
     /// What happened.
     pub outcome: ToolOutcome,
+}
+
+/// Ask the agent for its recent log lines and reply `logs` before `deadline`.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct GetLogs {
+    /// At most this many lines.
+    pub lines: u16,
+    /// The least severe level to include: `error`, `warn`, `info` or `debug`.
+    pub min_level: String,
+    /// When the hub stops waiting.
+    pub deadline: Timestamp,
+}
+
+/// The answer to `get_logs`: the agent's own recent lines, oldest first.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Logs {
+    /// The lines, already redacted by the agent.
+    pub lines: Vec<LogLine>,
 }
 
 /// A tool's output or failure: `{"ok": {..}}` or `{"err": {..}}`.

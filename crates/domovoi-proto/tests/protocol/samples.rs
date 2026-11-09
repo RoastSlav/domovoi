@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 
+use domovoi_core::ports::LogLine;
 use domovoi_core::{
     ActionId, AgentId, CheckKey, DigestFact, Evidence, EvidenceValue, FactValue, HostId, HostName,
     PlanHash, ReadToolCall, RequestId, Severity, Signal, SignalId, SignalStatus, SkillName,
@@ -202,6 +203,29 @@ pub fn all() -> Vec<Message> {
                 text: "ready to accept connections".to_owned(),
                 truncated: false,
             }),
+        }
+        .into(),
+        GetLogs {
+            lines: 50,
+            min_level: "info".to_owned(),
+            deadline: DEADLINE,
+        }
+        .into(),
+        Logs {
+            lines: vec![
+                LogLine {
+                    at: T0,
+                    level: "warn".to_owned(),
+                    target: "agent.checks".to_owned(),
+                    message: "/srv is 97% full".to_owned(),
+                },
+                LogLine {
+                    at: T0,
+                    level: "error".to_owned(),
+                    target: "agent.link".to_owned(),
+                    message: "agent not connected; retrying in 4s".to_owned(),
+                },
+            ],
         }
         .into(),
         RunSkill {
