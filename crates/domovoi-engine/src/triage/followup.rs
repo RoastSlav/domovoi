@@ -86,14 +86,8 @@ pub(crate) async fn answer(
                 break;
             }
             Err(err) => {
-                let next = matches!(
-                    err,
-                    LlmError::Unavailable(_)
-                        | LlmError::RateLimited { .. }
-                        | LlmError::Transport(_)
-                ) && i + 1 < chain.len();
                 last = err;
-                if !next {
+                if i + 1 >= chain.len() {
                     break;
                 }
             }
