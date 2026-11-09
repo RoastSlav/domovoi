@@ -154,6 +154,7 @@ async fn get_logs_request_returns_redacted_lines() {
     let request = RequestKind::Logs(GetLogs {
         lines: 10,
         min_level: "info".to_owned(),
+        offset: 0,
         deadline: T0 + SignedDuration::from_mins(1),
     });
     let Message::Logs(reply) = handle(&ctx, &request).await else {
@@ -176,6 +177,7 @@ async fn get_logs_request_returns_redacted_lines() {
     let one_line = RequestKind::Logs(GetLogs {
         lines: 1,
         min_level: "info".to_owned(),
+        offset: 0,
         deadline: T0 + SignedDuration::from_mins(1),
     });
     let Message::Logs(reply) = handle(&ctx, &one_line).await else {
@@ -189,6 +191,45 @@ async fn get_logs_request_returns_redacted_lines() {
     assert_eq!(
         reply.lines[0].message, "/srv is 97% full",
         "the cut keeps the newest lines"
+    );
+}
+
+#[tokio::test]
+async fn get_logs_reply_fits_the_link_frame_for_a_full_batch_of_big_lines() {
+    let fixture = Fixture::new();
+    let mut ctx = fixture.ctx(vec![Risk::Read], None, Vec::new());
+    ctx.logs = Some(Arc::new(CannedLogSource::new(
+        (0..2_000)
+            .map(|_| {
+                logged(
+                    "info",
+                    "agent.runtime",
+                    "rotated the logs, marker=".to_owned() + &"x".repeat(1_900),
+                )
+            })
+            .collect(),
+    )));
+    let request = RequestKind::Logs(GetLogs {
+        lines: 2_000,
+        min_level: "info".to_owned(),
+        offset: 0,
+        deadline: T0 + SignedDuration::from_mins(1),
+    });
+    let Message::Logs(reply) = handle(&ctx, &request).await else {
+        panic!("expected logs");
+    };
+    assert!(
+        reply.has_more && reply.lines.len() < 2_000,
+        "the window cannot be sent at once, so the reply is a chunk",
+    );
+    assert!(
+        domovoi_proto::encode(
+            &Message::Logs(reply),
+            domovoi_core::RequestId::new(),
+            Some(domovoi_core::RequestId::new()),
+        )
+        .is_ok(),
+        "the chunk's whole frame is sendable, so the link stays connected",
     );
 }
 

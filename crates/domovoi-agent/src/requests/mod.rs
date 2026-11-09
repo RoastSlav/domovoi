@@ -15,7 +15,7 @@ use domovoi_checks::commands::Commands;
 use domovoi_checks::containers::ContainerSource;
 use domovoi_checks::system::FsStats;
 use domovoi_core::ports::{Clock, HostFs, LogLine, LogSource, ProcessExecutor, Redactor};
-use domovoi_core::{HostId, Risk, SignalStatus};
+use domovoi_core::{HostId, RequestId, Risk, SignalStatus};
 use domovoi_proto::Message;
 use domovoi_proto::messages::{
     CheckObservation, CheckResult, ErrorMessage, Logs, RunCheck, SkillFailure, SkillFailureCode,
@@ -116,6 +116,33 @@ fn redact_line(redactor: &dyn Redactor, line: LogLine) -> LogLine {
         level: line.level,
         target: line.target,
         message: redactor.redact(&line.message),
+    }
+}
+
+/// The `get_logs` reply for the redacted `window`: the biggest chunk from
+/// `from` already-delivered lines on whose whole encoded frame the link may
+/// send, which `encode` refuses past its limit. Lines are added until it
+/// answers within the frame, and `has_more` tells the hub to ask again with a
+/// bigger `offset`. A line too big to fit even alone is dropped rather than
+/// dropping the link.
+#[must_use]
+fn chunk_logs(window: Vec<LogLine>, from: usize) -> Message {
+    let probe = RequestId::new();
+    let mut lo = from.min(window.len());
+    let mut hi = window.len();
+    loop {
+        let reply = Message::Logs(Logs {
+            lines: window[lo..hi].to_vec(),
+            has_more: hi < window.len(),
+        });
+        if domovoi_proto::encode(&reply, probe, Some(probe)).is_ok() {
+            return reply;
+        }
+        if hi - lo > 1 {
+            hi = lo + (hi - lo) / 2;
+        } else {
+            lo += 1;
+        }
     }
 }
 
@@ -248,12 +275,11 @@ pub async fn handle(ctx: &RequestCtx, kind: &RequestKind) -> Message {
                 Some(logs) => logs.tail(max, &get.min_level),
                 None => Vec::new(),
             };
-            Message::Logs(Logs {
-                lines: lines
-                    .into_iter()
-                    .map(|line| redact_line(&*ctx.redactor, line))
-                    .collect(),
-            })
+            let window = lines
+                .into_iter()
+                .map(|line| redact_line(&*ctx.redactor, line))
+                .collect();
+            chunk_logs(window, usize::from(get.offset))
         }
     }
 }
