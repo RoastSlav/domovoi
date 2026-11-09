@@ -15,7 +15,8 @@ use domovoi_proto::messages::{
     Enrolled, Ping, RejectReason, RunTool, ToolFailure, ToolFailureCode, ToolOutcome, ToolResult,
 };
 use domovoi_proto::{
-    CertFingerprint, EnrollToken, Message, PROTOCOL_VERSION, ProtocolVersion, challenge_message,
+    CertFingerprint, EnrollToken, MIN_AGENT_VERSION, Message, PROTOCOL_VERSION, ProtocolVersion,
+    challenge_message,
 };
 use domovoi_testkit::FakeClock;
 use domovoi_testkit::build::T0;
@@ -205,6 +206,32 @@ async fn revoked_reject_stops_retrying() {
     assert_eq!(hub.accepted(), 1);
 }
 
+/// The hub rejects the agent because its release is older than the hub's minimum: the
+/// agent stops rather than retrying.
+#[tokio::test]
+async fn agent_refused_by_the_hub_for_being_too_old_is_final() {
+    let mut hub = TestHub::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let identity = identity(&hub);
+    let link = start_link(&hub, &identity, &clock(), &dir);
+    let mut conn = hub.accept().await;
+    conn.reject(
+        &identity,
+        RejectReason::AgentTooOld {
+            minimum: MIN_AGENT_VERSION,
+        },
+    )
+    .await;
+    let err = guard(link.task).await.unwrap().unwrap_err();
+    assert!(
+        err.is_final(),
+        "the agent must not retry an age the hub will not accept"
+    );
+    let said = err.to_string();
+    assert!(said.contains("update the agent"), "{said}");
+    assert!(said.contains("0.0.5"), "the hub names the minimum it wants");
+}
+
 #[tokio::test]
 async fn incompatible_reject_stops_with_upgrade_message() {
     let mut hub = TestHub::start().await;
@@ -218,6 +245,47 @@ async fn incompatible_reject_stops_with_upgrade_message() {
     let err = guard(link.task).await.unwrap().unwrap_err();
     assert!(err.is_final());
     assert!(err.to_string().contains("upgrade"), "{err}");
+}
+
+/// The hub says it runs an old release, but is otherwise a normal hub: the agent refuses
+/// it and the link stops.
+#[tokio::test]
+async fn hub_older_than_the_agent_minimum_is_refused() {
+    let mut hub = TestHub::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let identity = identity(&hub);
+    let link = start_link(&hub, &identity, &clock(), &dir);
+    let mut conn = hub.accept().await;
+    conn.welcome_from_release(&identity, 3600, "0.0.1").await;
+    let err = guard(link.task).await.unwrap().unwrap_err();
+    assert!(err.is_final(), "an update of the hub is the only way out");
+    let said = err.to_string();
+    assert!(said.contains("update the hub"), "{said}");
+    assert!(said.contains("0.0.1"), "the hub names its own release");
+    assert!(said.contains("0.0.5"), "and the minimum the agent accepts");
+}
+
+/// A hub whose release does not parse, as a development build's does, is never locked out.
+#[tokio::test]
+async fn unparsable_hub_release_still_connects() {
+    let mut hub = TestHub::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let identity = identity(&hub);
+    let clock = clock();
+    let link = start_link(&hub, &identity, &clock, &dir);
+    let mut conn = hub.accept().await;
+    conn.welcome_from_release(&identity, 2, "dev").await;
+    let (first, _) = advancing(&clock, SignedDuration::from_secs(1), conn.expect()).await;
+    let kind = first.message;
+    assert!(
+        matches!(kind, Message::Ping(Ping { .. })),
+        "an unparsable release is unknown, not old: the agent heartbeats as usual: {kind:?}",
+    );
+    link.shutdown.cancel();
+    assert!(
+        guard(link.task).await.unwrap().is_ok(),
+        "and the agent keeps running"
+    );
 }
 
 #[tokio::test]

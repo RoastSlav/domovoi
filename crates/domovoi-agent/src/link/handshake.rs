@@ -4,7 +4,9 @@ use domovoi_core::SkillSummary;
 use domovoi_proto::messages::{
     AgentSettings, ChallengeResponse, CheckInfo, Hello, HostFacts, RejectReason, Welcome,
 };
-use domovoi_proto::{Message, PROTOCOL_VERSION, Transport, challenge_message};
+use domovoi_proto::{
+    MIN_HUB_VERSION, Message, PROTOCOL_VERSION, Transport, at_least, challenge_message,
+};
 use jiff::SignedDuration;
 
 use super::frame;
@@ -36,10 +38,11 @@ pub async fn handshake(
     session_hint: &str,
     announce: Announce<'_>,
 ) -> Result<Welcome, LinkError> {
+    let release = env!("CARGO_PKG_VERSION");
     let hello = Hello {
         agent_id: identity.agent_id,
         protocol: PROTOCOL_VERSION,
-        agent_version: env!("CARGO_PKG_VERSION").to_owned(),
+        agent_version: release.to_owned(),
         facts: announce.facts,
         capabilities: Vec::new(),
         skills: announce.skills.to_vec(),
@@ -49,7 +52,7 @@ pub async fn handshake(
     frame::send(transport, &Message::Hello(hello), None).await?;
     let challenge = match frame::expect(transport).await?.message {
         Message::Challenge(challenge) => challenge,
-        other => return Err(refused(other)),
+        other => return Err(refused(other, release)),
     };
     let signed = challenge_message(&challenge.nonce, identity.agent_id, session_hint);
     let response = ChallengeResponse {
@@ -57,12 +60,22 @@ pub async fn handshake(
     };
     frame::send(transport, &Message::ChallengeResponse(response), None).await?;
     match frame::expect(transport).await?.message {
-        Message::Welcome(welcome) => Ok(welcome),
-        other => Err(refused(other)),
+        Message::Welcome(welcome) => {
+            // The link is only as good as the hub's release: refuse an agent-to-hub pair
+            // where the hub is older than this build's minimum, and say to update the hub.
+            if !at_least(&welcome.hub_version, MIN_HUB_VERSION) {
+                return Err(LinkError::HubTooOld {
+                    hub_version: welcome.hub_version,
+                    minimum: MIN_HUB_VERSION,
+                });
+            }
+            Ok(welcome)
+        }
+        other => Err(refused(other, release)),
     }
 }
 
-fn refused(message: Message) -> LinkError {
+fn refused(message: Message, release: &str) -> LinkError {
     match message {
         Message::Reject(reject) => match reject.reason {
             RejectReason::Revoked => LinkError::Revoked("revoked"),
@@ -70,6 +83,10 @@ fn refused(message: Message) -> LinkError {
             RejectReason::Incompatible { hub } => LinkError::Incompatible {
                 hub,
                 agent: PROTOCOL_VERSION,
+            },
+            RejectReason::AgentTooOld { minimum } => LinkError::AgentTooOld {
+                agent_version: release.to_owned(),
+                minimum,
             },
             other => LinkError::Protocol(format!("rejected: {other:?}")),
         },
