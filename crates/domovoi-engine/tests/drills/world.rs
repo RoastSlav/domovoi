@@ -259,7 +259,7 @@ pub async fn run(drill: &Drill, model: Model) -> Outcome {
     let primary: Arc<dyn LlmProvider> = recording.clone();
     let deps = TriageDeps {
         primary,
-        secondary: None,
+        fallbacks: Vec::new(),
         link: link.clone(),
         incidents: store.clone(),
         signals: store.clone(),
