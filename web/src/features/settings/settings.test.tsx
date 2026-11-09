@@ -239,3 +239,19 @@ test("stale_revision_offers_a_reload", async () => {
   expect(await within(incidents).findByText("Settings changed elsewhere, reload.")).toBeVisible();
   expect(within(incidents).getByRole("button", { name: "Reload" })).toBeVisible();
 });
+
+test("fallback_model_section_tests_the_secondary_slot", async () => {
+  const user = userEvent.setup();
+  route("GET /api/v1/settings", () => settings({}));
+  route("POST /api/v1/settings/test/llm", () => ({
+    ok: false,
+    message: "no fallback model is set up",
+    latency_ms: 1,
+  }));
+  renderAt("/settings", "/settings", <SettingsPage />);
+  const fallback = await screen.findByRole("region", { name: "Fallback model" });
+  expect(within(fallback).getByText(/^Used when the main model fails/)).toBeVisible();
+  await user.click(within(fallback).getByRole("button", { name: "Test the fallback model" }));
+  const sent = calls.find((c) => c.route === "POST /api/v1/settings/test/llm");
+  expect(sent?.init.body).toEqual({ changes: {}, slot: "secondary" });
+});
