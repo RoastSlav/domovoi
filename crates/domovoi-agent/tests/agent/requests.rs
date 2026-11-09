@@ -4,10 +4,11 @@ use std::sync::Arc;
 
 use domovoi_agent::link::RequestKind;
 use domovoi_agent::requests::{MAX_TOOL_OUTPUT, handle};
+use domovoi_core::ports::LogLine;
 use domovoi_core::{ReadToolCall, Risk, Severity, SignalStatus};
 use domovoi_proto::Message;
-use domovoi_proto::messages::{RunCheck, RunTool, ToolFailureCode, ToolOutcome};
-use domovoi_testkit::build::T0;
+use domovoi_proto::messages::{GetLogs, RunCheck, RunTool, ToolFailureCode, ToolOutcome};
+use domovoi_testkit::{CannedLogSource, build::T0};
 use jiff::SignedDuration;
 
 use crate::common::{Fixture, SECRET};
@@ -126,6 +127,69 @@ async fn run_check_returns_observations_for_the_target() {
         deadline: T0 + SignedDuration::from_mins(1),
     });
     assert!(matches!(handle(&ctx, &unknown).await, Message::Error(_)));
+}
+
+/// One of the agent's own log lines, with its own secret in it.
+fn logged(level: &str, target: &str, message: String) -> LogLine {
+    LogLine {
+        at: T0,
+        level: level.to_owned(),
+        target: target.to_owned(),
+        message,
+    }
+}
+
+#[tokio::test]
+async fn get_logs_request_returns_redacted_lines() {
+    let fixture = Fixture::new();
+    let mut ctx = fixture.ctx(vec![Risk::Read], None, Vec::new());
+    ctx.logs = Some(Arc::new(CannedLogSource::new(vec![
+        logged(
+            "info",
+            "agent.link",
+            format!("hub offline, retry with token={SECRET}"),
+        ),
+        logged("warn", "agent.checks", "/srv is 97% full".to_owned()),
+    ])));
+    let request = RequestKind::Logs(GetLogs {
+        lines: 10,
+        min_level: "info".to_owned(),
+        deadline: T0 + SignedDuration::from_mins(1),
+    });
+    let Message::Logs(reply) = handle(&ctx, &request).await else {
+        panic!("expected logs");
+    };
+    let sent: Vec<String> = reply
+        .lines
+        .iter()
+        .map(|line| line.message.clone())
+        .collect();
+    assert_eq!(
+        sent,
+        [
+            "hub offline, retry with token=[REDACTED]".to_owned(),
+            "/srv is 97% full".to_owned(),
+        ],
+        "the agent's own lines come out oldest first, secret scrubbed",
+    );
+
+    let one_line = RequestKind::Logs(GetLogs {
+        lines: 1,
+        min_level: "info".to_owned(),
+        deadline: T0 + SignedDuration::from_mins(1),
+    });
+    let Message::Logs(reply) = handle(&ctx, &one_line).await else {
+        panic!("expected logs");
+    };
+    assert_eq!(
+        reply.lines.len(),
+        1,
+        "the tail is cut to what the hub asked for"
+    );
+    assert_eq!(
+        reply.lines[0].message, "/srv is 97% full",
+        "the cut keeps the newest lines"
+    );
 }
 
 #[cfg(unix)]

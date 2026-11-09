@@ -1,4 +1,5 @@
-//! The request handler: serves `run_tool`, `run_skill` and `run_check` from the hub.
+//! The request handler: serves `run_tool`, `run_skill`, `run_check` and `get_logs`
+//! from the hub.
 //!
 //! Requests never run on the link task. At most [`MAX_CONCURRENT`] run at once; the link
 //! refuses more than its queue holds as busy. Every request is cut off at its deadline,
@@ -13,11 +14,11 @@ use std::sync::Arc;
 use domovoi_checks::commands::Commands;
 use domovoi_checks::containers::ContainerSource;
 use domovoi_checks::system::FsStats;
-use domovoi_core::ports::{Clock, HostFs, ProcessExecutor, Redactor};
+use domovoi_core::ports::{Clock, HostFs, LogLine, LogSource, ProcessExecutor, Redactor};
 use domovoi_core::{HostId, Risk, SignalStatus};
 use domovoi_proto::Message;
 use domovoi_proto::messages::{
-    CheckObservation, CheckResult, ErrorMessage, RunCheck, SkillFailure, SkillFailureCode,
+    CheckObservation, CheckResult, ErrorMessage, Logs, RunCheck, SkillFailure, SkillFailureCode,
     SkillOutcome, SkillResult, ToolFailure, ToolFailureCode, ToolOutcome, ToolResult, ToolSuccess,
 };
 use domovoi_runner::SkillCatalog;
@@ -38,6 +39,8 @@ use crate::store::CheckStore;
 pub const MAX_CONCURRENT: usize = 4;
 /// Most bytes of text a tool returns.
 pub const MAX_TOOL_OUTPUT: usize = 64 * 1024;
+/// Most log lines a `get_logs` reply carries, whatever the hub asked for.
+pub const MAX_LOG_LINES: usize = 2000;
 
 /// Why a tool failed, as sent to the hub.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -86,6 +89,8 @@ pub struct RequestCtx {
     pub check_env: CheckEnv,
     /// Check states.
     pub store: Arc<CheckStore>,
+    /// The log lines of this process, for `get_logs`; `None` answers with none.
+    pub logs: Option<Arc<dyn LogSource>>,
 }
 
 /// Cuts `text` to at most `max` bytes on a character boundary.
@@ -100,6 +105,18 @@ pub fn cap(mut text: String, max: usize) -> (String, bool) {
     }
     text.truncate(end);
     (text, true)
+}
+
+/// Re-scrubs a log line's message before the hub sees it: the ring scrubs at capture
+/// time already, but the wire copy must not rely on that.
+#[must_use]
+fn redact_line(redactor: &dyn Redactor, line: LogLine) -> LogLine {
+    LogLine {
+        at: line.at,
+        level: line.level,
+        target: line.target,
+        message: redactor.redact(&line.message),
+    }
 }
 
 /// Redacts, then caps, a tool's output.
@@ -130,6 +147,10 @@ pub fn busy_reply(kind: &RequestKind) -> Message {
             }),
         }),
         RequestKind::Check(_) => Message::Error(ErrorMessage {
+            code: "busy".to_owned(),
+            message: BUSY.to_owned(),
+        }),
+        RequestKind::Logs(_) => Message::Error(ErrorMessage {
             code: "busy".to_owned(),
             message: BUSY.to_owned(),
         }),
@@ -221,6 +242,19 @@ pub async fn handle(ctx: &RequestCtx, kind: &RequestKind) -> Message {
                     message: "the check missed its deadline".to_owned(),
                 })
             }),
+        RequestKind::Logs(get) => {
+            let max = usize::from(get.lines).min(MAX_LOG_LINES);
+            let lines = match &ctx.logs {
+                Some(logs) => logs.tail(max, &get.min_level),
+                None => Vec::new(),
+            };
+            Message::Logs(Logs {
+                lines: lines
+                    .into_iter()
+                    .map(|line| redact_line(&*ctx.redactor, line))
+                    .collect(),
+            })
+        }
     }
 }
 

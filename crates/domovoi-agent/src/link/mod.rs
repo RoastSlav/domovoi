@@ -19,7 +19,7 @@ use std::sync::Arc;
 use domovoi_core::ports::{Clock, HostFs};
 use domovoi_core::{RequestId, SkillSummary};
 use domovoi_proto::messages::{
-    CheckInfo, Ping, Pong, RunCheck, RunSkill, RunTool, Signals, Unsupported,
+    CheckInfo, GetLogs, Ping, Pong, RunCheck, RunSkill, RunTool, Signals, Unsupported,
 };
 use domovoi_proto::{Decoded, Message, Transport};
 use jiff::SignedDuration;
@@ -51,6 +51,8 @@ pub enum RequestKind {
     Skill(RunSkill),
     /// Run one check now.
     Check(RunCheck),
+    /// Send recent log lines.
+    Logs(GetLogs),
 }
 
 /// A request and the id its reply must carry in `reply_to`.
@@ -293,6 +295,7 @@ impl Link {
             Message::RunTool(run) => RequestKind::Tool(run),
             Message::RunSkill(run) => RequestKind::Skill(run),
             Message::RunCheck(run) => RequestKind::Check(run),
+            Message::GetLogs(get) => RequestKind::Logs(get),
             Message::Unknown { kind } => {
                 let reply = Message::Unsupported(Unsupported { kind });
                 frame::send(transport, &reply, Some(id)).await?;
