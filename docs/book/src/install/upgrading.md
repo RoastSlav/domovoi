@@ -18,6 +18,8 @@ docker compose -f hub.yml up -d
 
 Upgrade the hub first, then the agents. A hub accepts agents on its own protocol version or one minor version behind, and the Hosts page marks agents that are older than the hub. An agent newer than the hub, or further behind, is refused, and says so in its log. See [the agent protocol](../reference/protocol.md).
 
+Each side also refuses a counterpart below its minimum release: the hub refuses an agent older than release 0.0.5, and an agent refuses a hub that says it runs a release older than 0.0.5. The Hosts page names why, for example `agent 0.0.1 is older than the minimum 0.0.5; update it`, and the hub logs the same sentence. A release that does not parse, as a development build's, is never refused. Upgrading either side to at least 0.0.5 clears the refusal; the Hosts page stops showing it as soon as the agent connects.
+
 Before a new release changes the database, the hub copies `hub.db` into `backups/`. `secret.key` and the agent certificate in `tls/` carry over unchanged, so saved secrets keep working and agents stay enrolled.
 
 To go back a version, stop the hub, restore the backup taken before the upgrade (see [Backups](../reference/backup.md)), and install the older release with `--version`.

@@ -24,6 +24,8 @@ Unknown fields in the envelope or a payload are ignored, so newer peers can add 
 
 The current version is **1.0**. The hub accepts an agent with the same major version and a minor version equal to its own or one behind. An agent newer than the hub, more than one minor behind, or on another major is refused with `reject` and the reason `incompatible`.
 
+On top of protocol compatibility, each side refuses the other below a minimum release: the hub refuses an agent older than release **0.0.5** with `reject` and the reason `agent_too_old`, which names the minimum it wants, and an agent refuses a hub whose `welcome` announces a release older than **0.0.5**. Both minimums are constants in the protocol crate and only ever move forward. A release string that does not parse, as a source build's `dev` does, is treated as unknown and never refused.
+
 ## Limits
 
 - A frame is at most **1 MiB** (1,048,576 bytes). Larger frames are refused unread, and senders refuse to produce them.
