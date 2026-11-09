@@ -19,7 +19,7 @@ The page only reaches back as far as the hub kept in memory: the newest 2000 lin
 
 - **Level and above.** `error`, `warn`, `info` (the default) or `debug`. What exists at all depends on how the hub was started: `--log-level`, or `RUST_LOG`, decides what it logs in the first place. A hub started at `warn` logged nothing at `info`, and the page has nothing to show for that level.
 - **Lines.** How many to ask for, 100 to 1000 in the page; the hub answers up to 2000.
-- **Source.** Only the hub's own lines are available now. The hub's recent lines are captured in memory; an agent's lines stay on its own machine, so the page says so rather than showing nothing.
+- **Source.** The hub, or one of the hosts with an agent. The hub's recent lines are captured in memory; an agent's lines stay on its own machine, but the hub asks the agent for the newest ones through its link, so picking a host shows what that agent was doing there. The lines come back scrubbed again on the hub's side, so an agent that logged a secret without scrubbing it is still safe. An agent from a release that cannot send logs answers "the agent is too old to send logs; update it", and the page shows that.
 
 The page asks again by itself every 5 seconds, and the Refresh button asks right away, for when a person wants the newest lines now.
 
