@@ -10,6 +10,19 @@ Configure one provider as `[llm.primary]` and, optionally, a fallback as `[llm.s
 
 In the web setup and **Settings → Models and triage**, choose the provider first. API providers show the model, base URL and API key fields; CLI providers show only the CLI options. **Fetch models** asks the provider for model IDs using the values and key currently in the form without saving them. You can also enter a model ID manually, which is useful when a compatible server has no model-list endpoint.
 
+## Fallback provider
+
+The **Settings → Fallback model** section, or `[llm.secondary]` in `hub.toml`, sets up a second, optional provider:
+
+```toml
+[llm.secondary]
+kind = "openai_compatible"
+base_url = "http://localhost:11434/v1"
+model = "qwen3:14b"
+```
+
+Triage and follow-up questions try the fallback whenever the main provider fails for any reason: no connection, rate limited, refused credentials, an answer Domovoi cannot read, or an answer that is not a usable report. When both providers fail, the failure says why each one did.
+
 ## Anthropic
 
 ```toml
