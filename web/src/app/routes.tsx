@@ -8,6 +8,7 @@ import { EmptyState } from "../components/EmptyState";
 import { ApprovalsPage } from "../features/approvals/ApprovalsPage";
 import { LoginPage } from "../features/auth/LoginPage";
 import { DigestPage } from "../features/digest/DigestPage";
+import { LogsPage } from "../features/logs/LogsPage";
 import { HostDetailPage } from "../features/hosts/HostDetailPage";
 import { HostsPage } from "../features/hosts/HostsPage";
 import { SetupPage } from "../features/auth/SetupPage";
@@ -68,6 +69,7 @@ export function AppRoutes() {
             <Route path="/notes" element={<NotesPage />} />
             <Route path="/notes/:id" element={<NoteEditorPage />} />
             <Route path="/digest" element={<DigestPage />} />
+            <Route path="/logs" element={<LogsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/welcome" element={<FirstRun />} />
             <Route path="*" element={<Placeholder title="Not found" />} />
