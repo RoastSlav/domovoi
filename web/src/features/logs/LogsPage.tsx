@@ -20,6 +20,12 @@ const COUNTS = [
   { value: "1000", text: "1000 lines" },
 ];
 
+/** Whether the page asks on its own every 5 seconds, or only when the person clicks. */
+const REFRESH = [
+  { value: "on", text: "Every 5 seconds" },
+  { value: "off", text: "Only when I click" },
+];
+
 /** One dropdown on the page; picking an option rewrites the URL, so the page asks again. */
 function Choice({
   name,
@@ -51,8 +57,8 @@ function Choice({
 
 /**
  * Recent log lines, oldest first with the newest at the bottom: the hub's own, or a host
- * agent's. The page asks again on its own every 5 seconds, and the Refresh button asks
- * right away.
+ * agent's. The page asks again on its own every 5 seconds while the Refresh dropdown is
+ * on, and the Refresh button asks right away either way.
  */
 export function LogsPage() {
   const [params, setParams] = useSearchParams();
@@ -60,9 +66,11 @@ export function LogsPage() {
   const count = params.get("lines") ?? String(DEFAULT_LINES);
   const source = params.get("source") ?? "hub";
   const captured = source === "hub";
+  const refresh = params.get("refresh") ?? "on";
+  const auto = refresh !== "off";
   const hosts = useHosts();
-  const hub = useLogs(level, Number(count), captured);
-  const agent = useHostLogs(captured ? "" : source, level, Number(count), !captured);
+  const hub = useLogs(level, Number(count), captured, auto);
+  const agent = useHostLogs(captured ? "" : source, level, Number(count), !captured, auto);
   const sources = [
     { value: "hub", text: "Hub" },
     ...(hosts.data ?? []).map((host) => ({ value: host.name, text: host.name })),
@@ -112,6 +120,13 @@ export function LogsPage() {
           options={COUNTS}
           selected={count}
           onChange={(value) => choose("lines", value)}
+        />
+        <Choice
+          name="refresh"
+          label="Auto-refresh"
+          options={REFRESH}
+          selected={refresh}
+          onChange={(value) => choose("refresh", value)}
         />
       </form>
       {captured ? (

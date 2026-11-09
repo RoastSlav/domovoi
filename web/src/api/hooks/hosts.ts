@@ -57,11 +57,18 @@ export function useSkills(name: string) {
 }
 
 /**
- * The recent log lines host `name`'s agent keeps, oldest first, asked again every
- * {@link LOGS_REFRESH_MS}. Stays idle while `name` is empty, or while `enabled` is false
- * for a source the page is not showing.
+ * The recent log lines host `name`'s agent keeps, oldest first. Asks again every
+ * {@link LOGS_REFRESH_MS} while `refresh` is true; with it false the page only
+ * asks when the person clicks. Stays idle while `name` is empty, or while `enabled`
+ * is false for a source the page is not showing.
  */
-export function useHostLogs(name: string, level: string, lines: number, enabled = true) {
+export function useHostLogs(
+  name: string,
+  level: string,
+  lines: number,
+  enabled = true,
+  refresh = true,
+) {
   return useQuery({
     queryKey: keys.hostLogs(name, level, lines),
     queryFn: () =>
@@ -71,7 +78,7 @@ export function useHostLogs(name: string, level: string, lines: number, enabled 
         }),
       ),
     enabled: name !== "" && enabled,
-    refetchInterval: LOGS_REFRESH_MS,
+    refetchInterval: refresh ? LOGS_REFRESH_MS : false,
   });
 }
 

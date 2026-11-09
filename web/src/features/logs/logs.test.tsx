@@ -1,5 +1,6 @@
-import { screen } from "@testing-library/react";
+import { act, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { LOGS_REFRESH_MS } from "../../api/hooks/system";
 import type { LogLine } from "../../api/types";
 import { calls, failure, resetApi, route } from "../../test/apiMock";
 import { T0, nas } from "../../test/fixtures";
@@ -53,6 +54,10 @@ beforeEach(() => {
   route("GET /api/v1/system/logs", () =>
     (answered += 1) === 1 ? served() : [...served(), later()],
   );
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 test("logs_page_lists_the_hub_lines_oldest_first_with_their_level", async () => {
@@ -140,4 +145,22 @@ test("logs_page_asks_to_update_an_agent_too_old_to_send_its_lines", async () => 
   renderAt("/logs?source=nas", "/logs", <LogsPage />);
   expect(await screen.findByText(/the agent is too old to send logs/)).toBeVisible();
   expect(screen.getByText(/update it/)).toBeVisible();
+});
+
+test("the_auto_refresh_dropdown_decides_whether_the_page_asks_again_on_its_own", async () => {
+  vi.useFakeTimers({ now: new Date("2026-11-01T12:00:00Z"), shouldAdvanceTime: true });
+  const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
+  renderAt("/logs?refresh=off", "/logs", <LogsPage />);
+  await screen.findByText(/hub started hosts=1/);
+  expect(logQueries()).toHaveLength(1);
+
+  await act(() => vi.advanceTimersByTimeAsync(LOGS_REFRESH_MS + 1_000));
+  expect(logQueries(), "off leaves the asking to the button").toHaveLength(1);
+
+  await user.click(screen.getByRole("button", { name: "Refresh" }));
+  expect(logQueries()).toHaveLength(2);
+
+  await user.selectOptions(screen.getByLabelText("Auto-refresh"), "on");
+  await act(() => vi.advanceTimersByTimeAsync(LOGS_REFRESH_MS + 1_000));
+  expect(logQueries().length, "on asks again by itself").toBeGreaterThan(2);
 });
