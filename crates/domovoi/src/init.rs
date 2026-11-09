@@ -6,6 +6,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use clap::ValueEnum;
 use domovoi_core::ports::Clock;
+use domovoi_hub::PatternRedactor;
 use domovoi_hub::api::MetricsRender;
 use jiff::Timestamp;
 use metrics_exporter_prometheus::PrometheusBuilder;
@@ -49,7 +50,9 @@ pub struct Logging {
 
 /// Sends logs to standard error and keeps the recent ones in memory for the web UI.
 /// Configuration secrets are wrapped types whose `Debug` and `Display` never show the
-/// value, so they cannot reach a log line.
+/// value, so they cannot reach a log line. The ring starts scrubbing only the common
+/// credential shapes, since settings are not loaded yet; `hub run` gives it the rules
+/// built from the settings before it starts the runtime.
 pub fn logging(options: &Logging) -> Arc<LogRing> {
     let default = if options.quiet { "warn" } else { "info" };
     let filter = options
@@ -58,7 +61,7 @@ pub fn logging(options: &Logging) -> Arc<LogRing> {
         .map(EnvFilter::new)
         .or_else(|| EnvFilter::try_from_default_env().ok())
         .unwrap_or_else(|| EnvFilter::new(default));
-    let ring = Arc::new(LogRing::new());
+    let ring = Arc::new(LogRing::new(Arc::new(PatternRedactor::default())));
     let ansi = std::io::IsTerminal::is_terminal(&std::io::stderr());
     let fmt_layer = tracing_subscriber::fmt::layer()
         .with_writer(std::io::stderr)

@@ -55,6 +55,7 @@ domovoi-proto = { workspace = true }
 domovoi-testkit = { workspace = true }
 predicates = { workspace = true }
 reqwest = { workspace = true }
+secrecy = { workspace = true }
 tempfile = { workspace = true }
 
 [target.'cfg(unix)'.dev-dependencies]

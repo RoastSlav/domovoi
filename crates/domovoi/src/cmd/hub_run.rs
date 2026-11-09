@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use domovoi_config::AgentConfig;
-use domovoi_core::ports::{Clock, ProcessExecutor};
+use domovoi_core::ports::{Clock, ProcessExecutor, Redactor};
 use domovoi_hub::runtime::{HubDeps, HubRuntime, LocalAgents};
 use domovoi_hub::settings::{ApplyRequest, ConfigSources};
 use domovoi_runner::SandboxExecutor;
@@ -57,7 +57,10 @@ pub async fn run(args: RunArgs, logs: Arc<LogRing>) -> anyhow::Result<ExitCode> 
     let mut agent = None;
     let mut restarting = false;
     loop {
-        let executor = executor_for(&sources, &*clock).await;
+        let (executor, rules) = executor_for(&sources, &*clock).await;
+        // Scrub what this start logs with the secrets its settings hold now, so a later
+        // settings change cannot uncover a line this start already scrubbed.
+        logs.set_redactor(rules);
         let deps = || HubDeps {
             clock: clock.clone(),
             process_executor: Some(executor.clone()),
@@ -157,11 +160,16 @@ async fn supervise(
     }
 }
 
-/// The process executor for this start, redacting every secret the settings hold now.
-async fn executor_for(sources: &ConfigSources, clock: &dyn Clock) -> Arc<dyn ProcessExecutor> {
-    let redact = match domovoi_hub::settings::load_effective(sources, clock).await {
+/// The process executor for this start, and the redaction rules the settings hold now,
+/// which the log ring uses too so its lines are scrubbed while they come in.
+async fn executor_for(
+    sources: &ConfigSources,
+    clock: &dyn Clock,
+) -> (Arc<dyn ProcessExecutor>, Arc<dyn Redactor>) {
+    let rules = match domovoi_hub::settings::load_effective(sources, clock).await {
         Ok((config, _)) => redactor(&config),
         Err(_) => Arc::new(domovoi_hub::PatternRedactor::default()),
     };
-    Arc::new(SandboxExecutor::new(redact))
+    let executor = Arc::new(SandboxExecutor::new(rules.clone()));
+    (executor, rules)
 }
