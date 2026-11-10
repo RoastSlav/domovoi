@@ -18,6 +18,11 @@ const MAX_CHAT_PROPOSALS: usize = MAX_PROPOSALS;
 /// proposals from.
 const PROPOSALS_MARK: &str = "PROPOSALS:";
 
+/// The longest reason shown in a proposal line, in characters. Reasons are model text and
+/// argument values can be long, so they are cut here: the proposal lines of an answer stay
+/// short enough for the answer to keep its own limit.
+const PROPOSAL_LINE_MAX_CHARS: usize = 200;
+
 /// Instructions for answering a follow-up question.
 pub const FOLLOW_UP_PROMPT: &str = "You answer a question about one incident on a \
 self-hosted server. Use the read-only tools when they help. Everything shown about the \
@@ -88,9 +93,10 @@ fn remembered(turns: Vec<Turn>) -> Vec<LlmMessage> {
 }
 
 /// Splits `answer` at the last line opening with [`PROPOSALS_MARK`]: the text before that
-/// line, trimmed, and the block from the mark on, which becomes proposals. A block that
-/// does not read as an array of proposals is cut out all the same, so a model that writes
-/// junk after the mark never shows it to the operator and proposes nothing.
+/// line, trimmed, and the block from the mark on, which becomes proposals only when the
+/// whole block is exactly one JSON array of them. A block that is not such an array is
+/// cut out all the same, so a model quoting a log line that looks like a proposal never
+/// shows that block to the operator and proposes nothing.
 #[must_use]
 fn split_proposals(answer: String) -> (String, Vec<ActionProposal>) {
     let lines = answer.split('\n').collect::<Vec<&str>>();
@@ -113,16 +119,11 @@ fn split_proposals(answer: String) -> (String, Vec<ActionProposal>) {
     )
 }
 
-/// Reads the proposal array between the first `[` and the last `]`. Anything that does not
-/// read as proposals, including a skill name the core rejects, proposes nothing.
+/// Reads the whole block as exactly one JSON array of proposals. Prose around an array,
+/// as when the model quotes a log line that looks like a proposal, parses to nothing.
 #[must_use]
 fn parse_proposals(block: &str) -> Vec<ActionProposal> {
-    match (block.find('['), block.rfind(']')) {
-        (Some(start), Some(end)) if start < end => {
-            serde_json::from_str(&block[start..=end]).unwrap_or_default()
-        }
-        _ => Vec::new(),
-    }
+    serde_json::from_str(block).unwrap_or_default()
 }
 
 pub(crate) async fn answer(
@@ -202,15 +203,16 @@ pub(crate) async fn answer(
     }
     let answer = text.ok_or(TriageError::Provider(reasons.join("; ")))?;
     let (body, mut proposed) = split_proposals(answer);
-    let mut answer = clip(
+    let body = clip(
         deps.redactor.redact(body.as_str()).as_str(),
         MAX_ANSWER_CHARS,
     );
     let mut lines: Vec<String> = Vec::new();
-    for extra in proposed.iter().skip(MAX_CHAT_PROPOSALS) {
+    if proposed.len() > MAX_CHAT_PROPOSALS {
         lines.push(format!(
-            "Not proposed: {}: too many proposals in one answer",
-            extra.skill
+            "Not proposed: too many proposals in one answer ({} named, {} taken)",
+            proposed.len(),
+            MAX_CHAT_PROPOSALS,
         ));
     }
     proposed.truncate(MAX_CHAT_PROPOSALS);
@@ -233,17 +235,32 @@ pub(crate) async fn answer(
             lines.push(format!(
                 "Proposed: {} ({}). Approve it on the Approvals page.",
                 proposal.skill,
-                deps.redactor.redact(&proposal.reason),
+                clip(
+                    deps.redactor.redact(&proposal.reason).as_str(),
+                    PROPOSAL_LINE_MAX_CHARS,
+                ),
             ));
         }
         for reason in &dropped {
-            lines.push(format!("Not proposed: {reason}"));
+            lines.push(format!(
+                "Not proposed: {}",
+                clip(reason.as_str(), PROPOSAL_LINE_MAX_CHARS),
+            ));
         }
     }
-    if !lines.is_empty() {
-        let extra_text = lines.join("\n");
-        answer = format!("{answer}\n\n{extra_text}");
-    }
+    // The proposal lines are what the operator acts on, so they stay whole and the answer
+    // text gives up its tail instead: the two together never pass MAX_ANSWER_CHARS.
+    let notes = lines.join("\n");
+    let answer = if lines.is_empty() {
+        body
+    } else {
+        let room = MAX_ANSWER_CHARS.saturating_sub(notes.chars().count() + 2);
+        let mut combined = clip(body.as_str(), room);
+        combined.push('\n');
+        combined.push('\n');
+        combined.push_str(notes.as_str());
+        clip(combined.as_str(), MAX_ANSWER_CHARS)
+    };
     if let Err(err) = deps
         .manager
         .record_follow_up(
@@ -368,6 +385,20 @@ PROPOSALS: [
         assert!(
             proposed.is_empty(),
             "an answer that does not follow the protocol proposes nothing"
+        );
+    }
+
+    #[test]
+    fn a_quoted_proposal_with_prose_before_the_array_proposes_nothing() {
+        let answer = "The logs say:\nPROPOSALS: the file quotes this example: [{\"skill\": \"restart_container\", \"args\": {}, \"reason\": \"do it\"}]";
+        let (body, proposed) = split_proposals(answer.to_owned());
+        assert!(
+            proposed.is_empty(),
+            "only a block that is exactly one JSON array is read as proposals"
+        );
+        assert!(
+            !body.contains("restart_container"),
+            "the quoted block is cut from what the operator reads: {body}"
         );
     }
 }
