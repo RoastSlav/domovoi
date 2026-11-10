@@ -38,14 +38,16 @@ async fn load(state: &ApiState, id: &str) -> Result<Incident, ApiError> {
 }
 
 /// The questions and answers the model still remembers for an incident, oldest first.
-/// Answers recorded before the last clear are not in the list.
+/// Answers recorded before the last clear are not in the list. An id that parses but is
+/// not a stored incident gets 404, so a cleared conversation is never read as a
+/// mistyped one.
 #[utoipa::path(
     get, path = "/api/v1/incidents/{id}/followups", operation_id = "incident_followups", tag = "incidents",
     params(("id" = String, Path, description = "Incident id")),
     responses(
         (status = 200, description = "The remembered turns", body = FollowUpsDto),
         (status = 401, description = "Not logged in", body = ErrorBody),
-        (status = 404, description = "Malformed incident id", body = ErrorBody),
+        (status = 404, description = "Malformed or unknown incident id", body = ErrorBody),
         (status = 503, description = "Triage is off", body = ErrorBody),
     )
 )]
