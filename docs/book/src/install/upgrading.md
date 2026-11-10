@@ -9,6 +9,15 @@ curl -fsSL https://github.com/RoastSlav/domovoi/releases/latest/download/install
 sudo systemctl restart domovoi-hub
 ```
 
+Or let the binary replace itself. `domovoi upgrade` downloads the latest release for this machine, checks its SHA-256 against the `.sha256` file published next to it, and swaps the binary in place. It changes nothing if the check fails. It does not restart anything: it prints the `systemctl restart` commands for the units that exist on this machine.
+
+```sh
+sudo domovoi upgrade
+sudo systemctl restart domovoi-hub
+```
+
+`--version v0.9.9` installs that release instead of the latest, and `--dry-run` prints what would be downloaded and replaced without changing anything. Unlike the installer it leaves the unit files, users and examples alone, so use the installer when a release changes them. Run it with `sudo` when the binary is in `/usr/local/bin`. It works on Linux x86-64 and 64-bit ARM, the platforms with release builds.
+
 **Containers.** Pull the new image and recreate the container on the same volume:
 
 ```sh
@@ -34,7 +43,7 @@ To go back a version, stop the hub, restore the backup taken before the upgrade 
 
 ## Release notices
 
-Twice a day the hub asks GitHub for the newest Domovoi release. Nothing about your installation is sent, only the request itself. When the release is newer than the hub, every page shows a banner with the version, its release notes, and commands that install it. The commands name the release's tag, so they can be copied as they are: the hub and agent commands pass it to the installer, and the container command pins the image to the release, which keeps it off the `latest` tag. The **Hosts** page links each outdated agent to the same commands. Update the hub first, then the agents.
+Twice a day the hub asks GitHub for the newest Domovoi release. Nothing about your installation is sent, only the request itself. When the release is newer than the hub, every page shows a banner with the version, its release notes, and commands that install it, starting with `domovoi upgrade` on a binary install. The commands name the release's tag, so they can be copied as they are: the hub and agent commands pass it to the installer, and the container command pins the image to the release, which keeps it off the `latest` tag. The **Hosts** page links each outdated agent to the same commands. Update the hub first, then the agents.
 
 **Settings → About** shows the version this hub runs, when it last checked, and a **Check now** button. A manual check is allowed once a minute.
 

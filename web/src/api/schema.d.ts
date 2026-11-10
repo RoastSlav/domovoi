@@ -1774,6 +1774,11 @@ export interface components {
             notes?: string | null;
             /** @description When the release was published. */
             published_at?: string | null;
+            /**
+             * @description Replaces the hub's binary in place and restarts its service. `None` when the hub
+             *     runs in a container, where the image is what changes.
+             */
+            upgrade_command?: string | null;
             /** @description The release's page on GitHub. */
             url?: string | null;
         };

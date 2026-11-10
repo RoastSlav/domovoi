@@ -44,6 +44,8 @@ secrecy = { version = "0.10.3", features = ["serde"] }
 serde_norway = "0.9.42"
 sha2 = "0.11"
 hex = "0.4"
+flate2 = "1.1"
+tar = "0.4"
 base64 = "0.23.1"
 ring = "0.17.14"
 regex = "1.13.1"

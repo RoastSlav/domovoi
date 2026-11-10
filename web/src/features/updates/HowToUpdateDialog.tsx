@@ -19,6 +19,13 @@ export function HowToUpdateDialog({ onClose }: { onClose: () => void }) {
       {latest ? (
         <>
           <h3>Hub</h3>
+          {info.upgrade_command ? (
+            <>
+              <p>Replace the binary in place:</p>
+              <CopyBlock text={info.upgrade_command} label="Hub upgrade command" />
+              <p>Or run the installer again:</p>
+            </>
+          ) : null}
           <CopyBlock text={info.hub_command ?? ""} label="Hub update command" />
           <h3>Each agent</h3>
           <CopyBlock text={info.agent_command ?? ""} label="Agent update command" />

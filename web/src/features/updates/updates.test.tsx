@@ -14,6 +14,7 @@ const update = {
   notes: "**Fixed** a noisy check.",
   published_at: "2026-11-09T10:00:00Z",
   checked_at: "2026-11-10T12:00:00Z",
+  upgrade_command: "sudo domovoi upgrade --version v0.2.0 && sudo systemctl restart domovoi-hub",
   hub_command:
     "curl -fsSL https://github.com/RoastSlav/domovoi/releases/download/v0.2.0/install.sh | sudo sh -s -- --role hub --version v0.2.0 && sudo systemctl restart domovoi-hub",
   agent_command:
@@ -55,6 +56,9 @@ test("how_to_update_shows_the_hub_agent_and_docker_commands", async () => {
   await user.click(await screen.findByRole("button", { name: "How to update" }));
 
   expect(screen.getByRole("dialog", { name: "How to update Domovoi" })).toBeVisible();
+  expect(screen.getByLabelText("Hub upgrade command")).toHaveTextContent(
+    "sudo domovoi upgrade --version v0.2.0",
+  );
   expect(screen.getByLabelText("Hub update command")).toHaveTextContent(
     "--role hub --version v0.2.0",
   );

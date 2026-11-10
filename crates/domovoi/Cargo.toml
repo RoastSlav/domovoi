@@ -33,12 +33,17 @@ domovoi-runner = { workspace = true }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 clap = { workspace = true }
+flate2 = { workspace = true }
+hex = { workspace = true }
 jiff = { workspace = true }
 metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
+reqwest = { workspace = true }
 rpassword = { workspace = true }
 rustls = { workspace = true }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
+tar = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
@@ -54,7 +59,6 @@ domovoi-checks = { workspace = true, features = ["host"] }
 domovoi-proto = { workspace = true }
 domovoi-testkit = { workspace = true }
 predicates = { workspace = true }
-reqwest = { workspace = true }
 secrecy = { workspace = true }
 tempfile = { workspace = true }
 
