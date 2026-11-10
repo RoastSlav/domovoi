@@ -31,9 +31,15 @@
      `crates/domovoi-hub/tests/gates.rs`.
 2. **CLI.** `domovoi hub set-password` also calls `delete_for_user` and prints
    "Signed out N web sessions."
-3. **Web.** Settings → an "Account" section: change password (current, new, repeat; show
-   the rule; errors inline) and "Sign out other sessions" with `PasswordPrompt`.
-   After a password change show "Password changed. Other sessions were signed out."
+3. **Web** (the Settings page and the user menu already have slots for Account):
+   Settings → an "Account" section, also linked from the user menu:
+   - Change password: `Field`s for current, new and repeat with a visibility toggle,
+     the password rule as a live checklist (reuse the one from account setup),
+     mismatch shown inline, `bad_credentials` and rate limits (countdown) through
+     `describeError`, submit with `loading`. On success a toast "Password changed.
+     Other sessions were signed out."
+   - "Sign out other sessions": `ConfirmDialog` explaining the consequence, then
+     `PasswordPrompt`; toast with the result.
 4. **Book.** `docs/book/src/guide/hardening.md` and `reference/cli.md`: both ways to
    change the password and that they end other sessions.
 

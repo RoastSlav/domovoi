@@ -56,6 +56,16 @@ and **agent** (runs on each watched host, runs checks and skills).
     Book pages you edit must keep `cargo xtask docs-links` passing.
 13. Tests use fakes from `domovoi-testkit` and the fake clock (`clock.advance(..)`);
     never sleep in tests.
+14. Web UI (once the `ui/` series is merged): read `web/DESIGN.md` before changing
+    `web/`. Build pages from the kit in `web/src/components/` (`PageHeader`,
+    `QueryBoundary`, `DataTable`, `Field`, `StatusPill`, `Tooltip`, `InfoTip`,
+    `ConfirmDialog`, …); colours only through tokens in `web/src/styles/tokens.css`;
+    every status's label, tone and hint only from `web/src/design/tone.ts`; every
+    mutation reports its result through `useActionFeedback` or an inline message, with
+    error text from `describeError`; every disabled control has a `disabledReason`;
+    every page has loading, empty, error and offline states and works at 375 px in
+    both themes. Add new components and states to `/dev/design`. Do not invent new
+    styled primitives in feature code: extend the kit and `DESIGN.md` instead.
 
 ## Before you finish, run
 
@@ -69,8 +79,10 @@ cargo xtask arch-check
 If you changed `web/`:
 
 ```sh
-cd web && npm run lint && npm run typecheck && npm test
+cd web && npm run lint && npm run typecheck && npm test && npm run build
 ```
+
+`npm run build` includes the bundle size check once the `ui/` series added it.
 
 ## How to work
 

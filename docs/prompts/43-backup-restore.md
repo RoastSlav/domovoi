@@ -34,7 +34,11 @@
 3. **Health.** Record the last backup outcome in the `settings` table key
    `last_backup` (`{ at, ok, error }`). Raise a `backup_failed` advisory when the last
    nightly backup failed or none succeeded for 48 h; resolve it on the next success.
-   Show "Last backup: 03:00 today" on the Settings → Backups section.
+   Show "Last backup: 03:00 today" on the Settings → Backups section (its slot exists)
+   as a `StatusPill`: `success` when the last run succeeded within 26 h, `danger` with
+   the error as tooltip when it failed, `warning` "No backup for 2 days". Add the
+   field to the settings or system DTO (rule 9). The advisory appears wherever the UI
+   shows advisories, with a link to the Backups section.
 4. **Book.** `docs/book/src/reference/backup.md`: a "Restore" section (stop the hub, run
    the command or copy by hand, sidecar files, `secret.key` and `tls/`, start the hub,
    what to check). `reference/cli.md`: the new command. `install/upgrading.md`: link to

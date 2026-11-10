@@ -14,9 +14,12 @@
 
 ## Steps
 
-1. In `Markdown.tsx`, add an `img` component that renders the alt text as plain text
+1. In `Markdown.tsx` (it may have moved within `web/src/components/` in the UI
+   redesign; find it), add an `img` component that renders the alt text as plain text
    with a link next to it (`[image: alt](url)`, using the same safe `a`), never an
-   `<img>`. Only `http:` and `https:` URLs become links; anything else is plain text.
+   `<img>`. Style it as a small neutral `Tag`-like chip with an image icon from the
+   kit and the host name of the URL as its tooltip, so it reads as intentional. Only
+   `http:` and `https:` URLs become links; anything else is plain text.
 2. Make the `a` component refuse non-`http(s)`/`mailto:` hrefs explicitly (render the
    children as text), instead of relying on react-markdown's default `urlTransform`.
 3. Update the component's doc comment to say both.

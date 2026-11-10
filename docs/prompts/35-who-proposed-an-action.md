@@ -26,9 +26,12 @@
 3. `followup::answer` passes `Proposer { component: "chat", asked_by: Some(asked_by) }`;
    triage passes `TRIAGE`. Keep `PROPOSER` exported (it is public) as an alias of the
    triage component, with its doc saying so.
-4. Web: the Approvals page shows "Suggested by triage" or "Suggested in chat" from
-   `proposed_by` (check `ActionDto` in `crates/domovoi-hub/src/api/dto.rs` exposes it;
-   if not, add `proposed_by: String` and regenerate OpenAPI).
+4. Web: the "Suggested by …" line of `ActionCard` (used on the Approvals and incident
+   pages) shows "Suggested by triage" or "Suggested in chat by alice" from
+   `proposed_by` and the asker (check `ActionDto` in `crates/domovoi-hub/src/api/dto.rs`
+   exposes them; if not, add `proposed_by: String` and `asked_by: Option<String>` and
+   regenerate OpenAPI). Put the wording in one function next to the action metas in
+   `web/src/design/tone.ts` or a sibling, with a tooltip explaining the difference.
 
 ## Tests
 

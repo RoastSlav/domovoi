@@ -50,16 +50,25 @@
    post a card for every incident on that host that is still open and was never posted,
    the same way quiet hours release does, on the minute tick. Write the test first to
    find out.
-5. **Web.**
-   - Host page: a "Maintenance" button opening a dialog (duration presets 30 min, 1 h,
-     2 h, 4 h, custom end; note). While a window is active the host header shows
-     "In maintenance until 14:30" and an "End now" button.
-   - The global host selector and the Hosts list show a small "maintenance" tag.
-   - A "Maintenance" section on the Rules page (rename the page title to
-     "Known conditions and maintenance" only if it fits; otherwise a tab) listing
-     current and planned windows with "End now".
+5. **Web** (follow `web/DESIGN.md`; the host header, Hosts table, host selector and
+   Known conditions page already have slots for this). Maintenance uses the `info`
+   tone: add `maintenanceMeta` to `web/src/design/tone.ts` (label, hint "Cards and
+   reminders are paused for this host until the window ends.", icon).
+   - Host page: a "Maintenance" button in the host header opening a `Dialog`: duration
+     as a `SegmentedControl` (30 min, 1 h, 2 h, 4 h, Custom → end time `Field`), note
+     `Field` with a counter (200 chars), a preview line "Until 14:30 today", submit
+     through `useActionFeedback` ("nas-01 is in maintenance until 14:30"). While a window
+     is active the header shows a `StatusPill` "In maintenance until 14:30" and "End
+     now" (toast with the result).
+   - The host selector and the Hosts table show a `Tag` "maintenance" with the end time
+     as tooltip.
+   - A "Maintenance" section or tab on the Known conditions page (rename the page to
+     "Known conditions and maintenance" only if it fits) listing current and planned
+     windows in a `DataTable` (host, from, until, note, created by) with "End now" in
+     the row menu; empty state explains what a window does.
    - Hooks in `web/src/api/hooks/maintenance.ts`, keys in `queryClient.ts`; invalidate
-     only `maintenance` and `hosts`.
+     only `maintenance`, `hosts` and the navigation overview counts if they exist.
+   - Add the dialog and the pill to `/dev/design`.
 6. **Book.** `docs/book/src/concepts/incidents.md`: what a window suppresses (cards,
    reminders, digest lines stay), what it keeps (signals, incidents, triage), and what
    happens when it ends.

@@ -8,6 +8,12 @@ not need to search the repository.
 The prompts finished earlier (01–14, 16–22, 23a and 24) were removed: they are merged.
 Their history is in this branch's earlier commits.
 
+**Run the UI modernization in [`ui/`](ui/README.md) first.** It is a separate series
+that redesigns the whole web UI and absorbs the old prompts 23 (layouts, performance)
+and 42 (host selector, error states). The web steps of the prompts below assume it is
+merged: they use its component kit and follow `web/DESIGN.md`. Line numbers under
+`web/` in these prompts predate the redesign; find the named component instead.
+
 ## How to use them
 
 1. Start a fresh session for every prompt (or part, such as `25a`).
@@ -23,7 +29,6 @@ Their history is in this branch's earlier commits.
 | # | Prompt | Kind | Size | Needs |
 | --- | --- | --- | --- | --- |
 | 15 | [Add and delete skills from the UI](15-skill-add-delete-from-webui.md) | 15a agent reload, 15b **INV-3 change**, 15c UI | M + M + M | 32; 15b needs a decision |
-| 23 | [Denser layouts and a targeted performance pass](23-ui-refresh.md) | 23b layouts, 23c performance | M + S | 42 |
 | 25 | [One writer for action state, recovery after a restart](25-single-writer-for-actions.md) | bug, engine + store, ADR | M + M | |
 | 26 | [One admission gate for triage, follow-ups and chat](26-one-admission-gate-for-model-calls.md) | security, engine + config + hub | M | |
 | 27 | [A reused triage report proposes its actions again](27-cached-reports-create-actions.md) | bug, engine | S | |
@@ -41,12 +46,12 @@ Their history is in this branch's earlier commits.
 | 39 | [Split the files at the size limit](39-split-files-near-the-limit.md) | refactor | S | |
 | 40 | [An audit log page](40-audit-log-page.md) | feature, hub + store + web | S | 35 |
 | 41 | [Change the password, sign out other sessions](41-change-password-and-sign-out-everywhere.md) | feature, hub + CLI + web | S | |
-| 42 | [Host selector everywhere, real error states](42-web-host-selector-and-error-states.md) | web | M | |
 | 43 | [Restore from a backup, see the last backup](43-backup-restore.md) | feature, CLI + store + hub | S | |
 
 ## Suggested order
 
-1. **Action and cost correctness** (real defects, do first):
+0. **UI modernization** (before everything else): **ui/01 → ui/07**, one at a time.
+1. **Action and cost correctness** (real defects, first after the UI series):
    **25a → 25b**, **27**, **26**, **28**.
 2. **Small security fixes** (independent, any order): **29**, **30**, **37**, then
    **31** once you have generated the minisign key.
@@ -55,15 +60,16 @@ Their history is in this branch's earlier commits.
 5. **Chat and audit**: **35 → 34**, then **40**.
 6. **Operator features**: **33**, **41**, **43**.
 7. **Skill management**: **15a**, decide on 15b, then **(15b) → 15c**.
-8. **Web polish**: **42 → 23b → 23c**.
-9. **Docs**: **38** after the batch you merge (it describes the final state).
+8. **Docs**: **38** after the batch you merge (it describes the final state, including
+   the redesigned UI).
 
-Parallel lanes, if you run more than one session (no shared files):
+Parallel lanes, if you run more than one session (no shared files), once the UI series
+is merged:
 
 - lane A, engine: 25a → 25b → 27 → 26 → 28 → 36 → 35 → 34 (27, 26, 28 and 34 all touch
   `engine/src/triage/`, so they stay in one lane);
 - lane B, hub and release: 29, 30, 31, 39 → 32 → 41 → 43;
-- lane C, web: 37 → 42 → 23b → 23c.
+- lane C, web: 37, then the web halves of 33, 40, 41 once their API parts land.
 
 ## Decisions taken (from the audit questions)
 

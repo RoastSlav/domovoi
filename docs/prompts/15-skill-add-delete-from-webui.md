@@ -159,16 +159,23 @@ Write the choice into the ADR. The steps below are option 2.
    - `managed_by_hub: bool` on the skill DTO (carry an optional `source` in
      `SkillSummary`, default `"local"`), `hub_skills: bool` on the host DTO (from the
      agent's capabilities).
-2. **Web:** on the Skills page an **Add skill** button opens
-   `web/src/features/skills/SkillEditor.tsx`: name, description, risk (read only unless
-   the host allows more), timeout, applies to, a params editor (string with
-   pattern/max_len, integer with min/max, boolean, enum with values), the script
-   (monospace textarea, prefilled `#!/bin/sh\nset -u\n`), README. Build the TOML on the
-   client, validate as you type (debounced with `useDebounced`), show issues.
+2. **Web** (follow `web/DESIGN.md`; the Skills page already has a header action slot
+   and a row slot for these): the **Add skill** button in the Skills `PageHeader`
+   opens `web/src/features/skills/SkillEditor.tsx` (split into sibling files to stay
+   under the line limit): `Field`s for name, description, risk (`SegmentedControl` with
+   `riskMeta` pills; options the host does not allow are disabled with a
+   `disabledReason`), timeout, applies to; a params editor (rows of string with
+   pattern/max_len, integer with min/max, boolean, enum with values; add/remove rows);
+   the script (monospace `Textarea`, prefilled `#!/bin/sh\nset -u\n`); README. Build the
+   TOML on the client, validate as you type (debounced with `useDebounced`), show issues
+   per field and in a `FormErrorSummary`, and a live `success` `InlineMessage` "Valid
+   skill" when there are none.
    - Host with `hub_skills: true` (15b): Save asks for the password (`PasswordPrompt`)
-     and installs. Hub-managed skills get Edit and Delete; local skills show
+     and installs, reporting through `useActionFeedback`. Hub-managed skills get a
+     "hub-managed" `Tag` and Edit and Delete (`ConfirmDialog` naming the skill and host)
+     in the row menu; local skills show Edit disabled with the `disabledReason`
      "Installed on the host; edit it there."
-   - Otherwise (or without 15b): **Copy install commands**: a `CopyBlock` with
+   - Otherwise (or without 15b): **Copy install commands** (primary button): a `CopyBlock` with
      `sudo mkdir -p /etc/domovoi/skills/<name>`, `sudo tee` heredocs for `skill.toml`,
      `run` and `README.md`, `sudo chmod 755 .../run`, and
      `sudo domovoi check skills /etc/domovoi/skills`. With 15a it appears within a

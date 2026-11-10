@@ -31,15 +31,21 @@ proposals show the asker.
 2. **Kind prefix filter.** `kind` matching is exact in the port. Add
    `kind_prefix: Option<String>` to `AuditFilter` (store: `kind LIKE ? || '%'` with the
    prefix escaped) so the UI can filter `action.` or `chat.`.
-3. **Web** `web/src/features/audit/AuditPage.tsx`, route `/audit`, sidebar entry under
-   Settings (or near Approvals; match the shell's grouping):
-   - A table: time (`RelativeTime` with the full time in `title`), who, what (kind as a
-     short phrase: map the known kinds to words, fall back to the kind), subject link,
-     and a "Details" toggle showing `detail` as formatted JSON.
-   - Filters: kind group (All, Actions, Chat, Settings, Incidents), and "since"
-     (24 h, 7 days, 30 days, all). Infinite scroll with "Load more" like the incident
-     list.
-   - Loading, empty ("Nothing recorded yet") and error states with a retry button.
+3. **Web** `web/src/features/audit/AuditPage.tsx`, a lazy route `/audit`, nav entry
+   "Audit log" in the **System** group (follow the "Add a page" and "Add a nav item"
+   recipes in `web/DESIGN.md`):
+   - `PageHeader` with an intro saying the log cannot be edited.
+   - A `DataTable`: time (`RelativeTime`, absolute time in its tooltip), who (actor
+     label, with a `Tag` for user / Discord / Domovoi), what (kind as a short phrase,
+     map the known kinds to words in one table, fall back to the kind; give each kind
+     group a tone: actions `pending`/their result tone, settings `info`, chat `neutral`,
+     incidents per the incident tones), subject link, and an expandable row showing
+     `detail` as formatted, copyable JSON in mono.
+   - Filters as `FilterChips` (All, Actions, Chat, Settings, Incidents) and a "since"
+     `SegmentedControl` (24 h, 7 days, 30 days, all), both in the URL query. "Load more"
+     like the incident list, with its own progress and error.
+   - States through `QueryBoundary`: skeleton rows, empty ("Nothing recorded yet"),
+     `LoadError` with Retry.
 4. **Book.** `docs/book/src/security.md`: where to see the audit log and that it cannot
    be edited.
 
