@@ -511,6 +511,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/incidents/{id}/followups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The questions and answers the model still remembers for an incident, oldest first.
+         *     Answers recorded before the last clear are not in the list. An id that parses but is
+         *     not a stored incident gets 404, so a cleared conversation is never read as a
+         *     mistyped one.
+         */
+        get: operations["incident_followups"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/incidents/{id}/followups/clear": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Forgets the conversation: the next question will not be shown the earlier ones. Works
+         *     whether triage is on or off, and on a resolved incident too; it writes one timeline
+         *     line and publishes nothing.
+         */
+        post: operations["clear_incident_followups"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/incidents/{id}/mute": {
         parameters: {
             query?: never;
@@ -919,7 +962,7 @@ export interface components {
         };
         /** @description The answer to a follow-up question. */
         AskResponse: {
-            /** @description Plain text, at most 1500 characters. */
+            /** @description Plain text, at most 4000 characters. */
             answer: string;
         };
         /** @description The incident's chat card, as it would be posted. */
@@ -1038,6 +1081,11 @@ export interface components {
             unit?: string | null;
             /** @description The value as text. */
             value: string;
+        };
+        /** @description The follow-up conversation the model still remembers for an incident, oldest first. */
+        FollowUpsDto: {
+            /** @description The remembered questions and answers; empty when there are none or after a clear. */
+            turns: components["schemas"]["TurnDto"][];
         };
         /** @description The dead man's switch. */
         HeartbeatSettings: {
@@ -1605,6 +1653,17 @@ export interface components {
             kind: string;
             /** @description Why it was skipped or failed. */
             reason?: string | null;
+        };
+        /** @description One question and its answer of the conversation the model still remembers. */
+        TurnDto: {
+            /** @description What the model answered. */
+            answer: string;
+            /** @description Who asked, as `user:` and its user id. */
+            asked_by: string;
+            /** @description When the answer was recorded, RFC 3339. */
+            at: string;
+            /** @description What the operator asked. */
+            question: string;
         };
         /** @description A change the web UI should show, sent on the event stream. */
         UiEvent: {
@@ -3043,6 +3102,95 @@ export interface operations {
             };
             /** @description Not possible now */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    incident_followups: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Incident id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The remembered turns */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FollowUpsDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Malformed or unknown incident id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Triage is off */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    clear_incident_followups: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Incident id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The conversation was forgotten */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such incident */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

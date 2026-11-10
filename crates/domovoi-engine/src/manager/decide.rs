@@ -31,6 +31,10 @@ pub struct State {
     /// For [`Command::AttachTriage`] and [`Command::SetVerdict`]: the incident, loaded even
     /// when resolved.
     pub triaged: Option<Incident>,
+    /// For [`Command::RecordFollowUp`]: the incident's timeline as it is now, so a
+    /// follow-up answer whose request started before a clear is recognized as stale
+    /// and dropped.
+    pub timeline: Vec<IncidentTimelineEntry>,
 }
 
 /// One store write, applied in order.
@@ -479,8 +483,14 @@ pub fn decide(
             outcome,
             tokens,
         } => return super::annotate::attach(state, *incident, outcome, tokens, now),
-        Command::RecordFollowUp { .. } | Command::RecordToolUse { .. } => {
+        Command::RecordFollowUp { .. } => {
+            return Ok(super::annotate::record_follow_up(command, state, now));
+        }
+        Command::RecordToolUse { .. } => {
             return Ok(super::annotate::record(command, now));
+        }
+        Command::ClearFollowUps { incident, by } => {
+            return Ok(super::annotate::clear_follow_ups(*incident, *by, now));
         }
         Command::SetVerdict { incident, verdict } => {
             return super::annotate::set_verdict(state, *incident, *verdict, now);

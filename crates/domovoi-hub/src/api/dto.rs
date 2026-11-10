@@ -7,6 +7,7 @@ use domovoi_core::ports::IncidentTimelineEntry;
 use domovoi_core::{
     ActionRequest, ActionStatus, Card, CardBadge, Incident, Principal, TriageReport, Verdict,
 };
+use domovoi_engine::triage::Turn;
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
@@ -428,8 +429,39 @@ pub struct AskRequest {
 /// The answer to a follow-up question.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
 pub struct AskResponse {
-    /// Plain text, at most 1500 characters.
+    /// Plain text, at most 4000 characters.
     pub answer: String,
+}
+
+/// One question and its answer of the conversation the model still remembers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
+pub struct TurnDto {
+    /// What the operator asked.
+    pub question: String,
+    /// What the model answered.
+    pub answer: String,
+    /// Who asked, as `user:` and its user id.
+    pub asked_by: String,
+    /// When the answer was recorded, RFC 3339.
+    pub at: String,
+}
+
+/// The follow-up conversation the model still remembers for an incident, oldest first.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
+pub struct FollowUpsDto {
+    /// The remembered questions and answers; empty when there are none or after a clear.
+    pub turns: Vec<TurnDto>,
+}
+
+impl From<&Turn> for TurnDto {
+    fn from(t: &Turn) -> Self {
+        Self {
+            question: t.question.clone(),
+            answer: t.answer.clone(),
+            asked_by: format!("user:{}", t.asked_by),
+            at: t.at.to_string(),
+        }
+    }
 }
 
 #[cfg(test)]

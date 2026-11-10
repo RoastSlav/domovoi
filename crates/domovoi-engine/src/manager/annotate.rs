@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::triage::ToolUse;
+use crate::triage::{CLEAR_KIND, FOLLOW_UP_KIND, ToolUse, count_clear};
 use domovoi_core::ports::IncidentTimelineEntry;
 use domovoi_core::{ActionId, Incident, IncidentId, TriageOutcome, UserId, Verdict};
 use jiff::Timestamp;
@@ -96,25 +96,75 @@ pub(crate) fn attach(
     Ok(out)
 }
 
-/// A timeline entry for a follow-up question and its answer.
+/// A timeline entry for a follow-up question and its answer. `asked_at` is when the
+/// question was asked, before the model ran; the replay order comes from it, not from
+/// `now`, so two questions answered out of order still play in question order.
+/// Publishes nothing.
 pub(crate) fn follow_up(
     incident: IncidentId,
     asked_by: UserId,
     question: &str,
     answer: &str,
+    asked_at: Timestamp,
     now: Timestamp,
 ) -> Decision {
     Decision {
         writes: vec![Write::Timeline(IncidentTimelineEntry {
             incident,
             at: now,
-            kind: "triage.followup".to_owned(),
+            kind: FOLLOW_UP_KIND.to_owned(),
             summary: question.to_owned(),
             detail: serde_json::json!({
                 "asked_by": asked_by.to_string(),
                 "question": question,
                 "answer": answer,
+                "asked_at": asked_at.as_millisecond(),
             }),
+        })],
+        ..Decision::default()
+    }
+}
+
+/// The decision for a recorded follow-up. A follow-up request carries the number of
+/// clear markers its timeline had when it started; if the live timeline now has more,
+/// a clear landed while the model was running and its answer is dropped, so a cleared
+/// conversation never gains an older turn.
+pub(crate) fn record_follow_up(command: &Command, state: &State, now: Timestamp) -> Decision {
+    debug_assert!(matches!(command, Command::RecordFollowUp { .. }));
+    match command {
+        Command::RecordFollowUp {
+            incident,
+            asked_by,
+            question,
+            answer,
+            asked_at,
+            generation,
+        } => {
+            if count_clear(&state.timeline) != *generation {
+                tracing::info!(
+                    %incident,
+                    "dropped a follow-up answer: the conversation was cleared while the model was running",
+                );
+                Decision::default()
+            } else {
+                follow_up(*incident, *asked_by, question, answer, *asked_at, now)
+            }
+        }
+        _ => Decision::default(),
+    }
+}
+
+/// A timeline entry that forgets the follow-up questions asked so far, so the next question
+/// starts a new conversation. The earlier entries stay in the timeline; only entries before
+/// this one are not sent back to the model. Publishes nothing.
+pub(crate) fn clear_follow_ups(incident: IncidentId, by: UserId, now: Timestamp) -> Decision {
+    Decision {
+        writes: vec![Write::Timeline(IncidentTimelineEntry {
+            incident,
+            at: now,
+            kind: CLEAR_KIND.to_owned(),
+            summary: format!("cleared by user:{by}"),
+            detail: serde_json::Value::Null,
         })],
         ..Decision::default()
     }
@@ -122,18 +172,10 @@ pub(crate) fn follow_up(
 
 /// The decision for a command that only appends to an incident's timeline. These need no
 /// state; any other command gets an empty decision and is handled by the main match.
+/// `RecordFollowUp` is not one of them: it is stale-checkable and has its own function.
 pub(crate) fn record(command: &Command, now: Timestamp) -> Decision {
-    debug_assert!(matches!(
-        command,
-        Command::RecordFollowUp { .. } | Command::RecordToolUse { .. }
-    ));
+    debug_assert!(matches!(command, Command::RecordToolUse { .. }));
     match command {
-        Command::RecordFollowUp {
-            incident,
-            asked_by,
-            question,
-            answer,
-        } => follow_up(*incident, *asked_by, question, answer, now),
         Command::RecordToolUse {
             incident,
             during,

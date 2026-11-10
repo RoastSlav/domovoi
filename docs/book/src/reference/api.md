@@ -78,6 +78,24 @@ Lists return `{"items": […], "next_cursor": "…"}`, newest first. Pass `curso
 
 `GET /api/v1/hosts` lists every host with its agent's presence, whether the agent is older than the hub (`outdated`), and how many of its incidents are not yet resolved (`open_incidents`). `GET /api/v1/hosts/{name}` adds the latest value of each digest fact the host reported in the last 24 hours.
 
+## Asking about an incident
+
+`POST /api/v1/incidents/{id}/ask` asks the triage model one question about an incident. It reads with the same read-only tools triage has, answers in plain text, and never proposes or runs actions.
+
+```bash
+curl -b cookies.txt -X POST -H "X-CSRF-Token: $csrf" -H 'Content-Type: application/json' \
+  -d '{"question":"Did the restart help?"}' \
+  https://domovoi.example.net/api/v1/incidents/$ID/ask
+```
+
+- The question, trimmed, must be 1 to 1000 characters: otherwise `400`.
+- `200 {"answer": "…"}`. `404` when the id is not a stored incident (a malformed one, or a well-formed one nobody saved), `503` when triage is off or the model could not answer.
+- The question and its answer are remembered for that incident and shown to the model with the next question. Each question sees the conversation as it was when the question started.
+
+`GET /api/v1/incidents/{id}/followups` answers `{"turns": [{"question", "answer", "asked_by", "at"}]}`, oldest first: what the model still sees. `at` is when the answer was recorded, and `asked_by` is `user:` and the id of the person who asked. Turns written before the last clear are left out, so the list is empty after one. `404` for an id that is not a stored incident, `503` when triage is off.
+
+`POST /api/v1/incidents/{id}/followups/clear` forgets the conversation: the next question is shown none of the earlier ones. It answers `204`, or `404` for an id that is not a stored incident, and works whether triage is on or off. A clear also wins over a question that was still being answered: that answer is never remembered, and the next question does not see it.
+
 ## Settings
 
 `GET /api/v1/settings` returns, under `editable`:

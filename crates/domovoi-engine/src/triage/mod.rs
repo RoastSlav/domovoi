@@ -11,6 +11,8 @@ mod agent;
 mod cache;
 mod context;
 mod followup;
+mod history;
+mod incident_context;
 mod proposals;
 mod queue;
 mod report;
@@ -33,6 +35,7 @@ use crate::manager::ManagerHandle;
 
 pub use agent::{BUDGET_EXHAUSTED, NO_CALLS_LEFT, ToolUse, read_tools};
 pub use followup::{FOLLOW_UP_PROMPT, MAX_ANSWER_CHARS};
+pub use history::{CLEAR_KIND, FOLLOW_UP_KIND, Turn, count_clear, since_clear};
 pub use proposals::{PROPOSER, mint_token, token_hash};
 pub use report::parse_report;
 pub(crate) use tools::cut;
@@ -244,6 +247,27 @@ impl TriageHandle {
         asked_by: UserId,
     ) -> Result<String, TriageError> {
         followup::answer(&self.shared, incident, question, asked_by).await
+    }
+
+    /// The follow-up questions and answers the incident still remembers: the ones after
+    /// the last clear marker, oldest first. Reading them takes no model call. An unknown
+    /// incident fails with `TriageError::UnknownIncident` before the timeline read, so
+    /// the hub can tell a cleared conversation from an incident nobody stored.
+    pub async fn history(&self, incident: IncidentId) -> Result<Vec<Turn>, TriageError> {
+        // The existence check first: an unknown incident's timeline is just empty,
+        // which would otherwise read back as a cleared conversation.
+        self.shared
+            .deps
+            .incidents
+            .get(incident)
+            .await
+            .map_err(|err| TriageError::Store(err.to_string()))?
+            .ok_or(TriageError::UnknownIncident(incident))?;
+        let timeline = match self.shared.deps.incidents.timeline(incident).await {
+            Ok(found) => found,
+            Err(err) => return Err(TriageError::Store(err.to_string())),
+        };
+        Ok(since_clear(&timeline))
     }
 
     /// Requests waiting for a worker.

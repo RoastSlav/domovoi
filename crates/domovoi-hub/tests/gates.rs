@@ -417,6 +417,10 @@ mod api {
                 Method::POST,
                 format!("/api/v1/incidents/{}/dismiss", a.incident.id()),
             ),
+            (
+                Method::POST,
+                format!("/api/v1/incidents/{}/followups/clear", a.incident.id()),
+            ),
         ];
         for (method, uri) in writes {
             let anonymous = send(&a, method.clone(), &uri, "", None, None).await;

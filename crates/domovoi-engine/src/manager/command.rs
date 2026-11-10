@@ -71,6 +71,13 @@ pub enum Command {
         question: String,
         /// The redacted answer.
         answer: String,
+        /// When the question was asked, before the model ran; turns are replayed in this
+        /// order even when two answers arrive out of order.
+        asked_at: Timestamp,
+        /// How many clear markers the timeline had when the request started. If it has
+        /// more by the time this is recorded, a clear won the race and the answer is
+        /// dropped.
+        generation: u32,
     },
     /// The read tools a run called, for the timeline. Publishes nothing.
     RecordToolUse {
@@ -80,6 +87,14 @@ pub enum Command {
         during: String,
         /// The tool calls, in call order.
         tools: Vec<ToolUse>,
+    },
+    /// Forget the follow-up questions asked so far, so the model starts over. Works on
+    /// resolved incidents too; publishes nothing.
+    ClearFollowUps {
+        /// Which incident.
+        incident: IncidentId,
+        /// Who asked for it.
+        by: UserId,
     },
 }
 

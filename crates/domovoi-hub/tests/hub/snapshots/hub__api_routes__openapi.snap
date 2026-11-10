@@ -282,7 +282,7 @@ expression: spec
         "description": "The answer to a follow-up question.",
         "properties": {
           "answer": {
-            "description": "Plain text, at most 1500 characters.",
+            "description": "Plain text, at most 4000 characters.",
             "type": "string"
           }
         },
@@ -564,6 +564,22 @@ expression: spec
           "label",
           "value",
           "observed_at"
+        ],
+        "type": "object"
+      },
+      "FollowUpsDto": {
+        "description": "The follow-up conversation the model still remembers for an incident, oldest first.",
+        "properties": {
+          "turns": {
+            "description": "The remembered questions and answers; empty when there are none or after a clear.",
+            "items": {
+              "$ref": "#/components/schemas/TurnDto"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "turns"
         ],
         "type": "object"
       },
@@ -2042,6 +2058,34 @@ expression: spec
         },
         "required": [
           "kind"
+        ],
+        "type": "object"
+      },
+      "TurnDto": {
+        "description": "One question and its answer of the conversation the model still remembers.",
+        "properties": {
+          "answer": {
+            "description": "What the model answered.",
+            "type": "string"
+          },
+          "asked_by": {
+            "description": "Who asked, as `user:` and its user id.",
+            "type": "string"
+          },
+          "at": {
+            "description": "When the answer was recorded, RFC 3339.",
+            "type": "string"
+          },
+          "question": {
+            "description": "What the operator asked.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "question",
+          "answer",
+          "asked_by",
+          "at"
         ],
         "type": "object"
       },
@@ -3948,6 +3992,113 @@ expression: spec
           }
         },
         "summary": "Dismisses an incident as a known condition: closes it now with the verdict `EXPECTED`,\nand when `ignore_for_minutes` is given, creates the rule that keeps the check quiet\n(0 means always). The rule is stored before the incident closes, so a check firing in\nthe moment between the two is already silenced, and a dismiss that fails afterwards\nleaves a rule that a human can see and delete on the Known conditions page. The rule\nmatches the incident's host, check and target; `note` is the reason, so a human can\nread later what it covers. A target with `*` in it cannot be matched exactly by a rule\npattern, so dismissing such an incident with a period is refused.",
+        "tags": [
+          "incidents"
+        ]
+      }
+    },
+    "/api/v1/incidents/{id}/followups": {
+      "get": {
+        "operationId": "incident_followups",
+        "parameters": [
+          {
+            "description": "Incident id",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FollowUpsDto"
+                }
+              }
+            },
+            "description": "The remembered turns"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Malformed or unknown incident id"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Triage is off"
+          }
+        },
+        "summary": "The questions and answers the model still remembers for an incident, oldest first.\nAnswers recorded before the last clear are not in the list. An id that parses but is\nnot a stored incident gets 404, so a cleared conversation is never read as a\nmistyped one.",
+        "tags": [
+          "incidents"
+        ]
+      }
+    },
+    "/api/v1/incidents/{id}/followups/clear": {
+      "post": {
+        "operationId": "clear_incident_followups",
+        "parameters": [
+          {
+            "description": "Incident id",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The conversation was forgotten"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such incident"
+          }
+        },
+        "summary": "Forgets the conversation: the next question will not be shown the earlier ones. Works\nwhether triage is on or off, and on a resolved incident too; it writes one timeline\nline and publishes nothing.",
         "tags": [
           "incidents"
         ]
