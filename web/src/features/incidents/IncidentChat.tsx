@@ -30,8 +30,9 @@ function scrollToBottom(element: Element): void {
 /**
  * The chat with triage about one incident: the turns the model still remembers,
  * questions right-aligned in accent bubbles and answers left-aligned as Markdown; the
- * next question stays visible with a Thinking bubble while the model works, and the
- * Clear conversation button has it forget the whole thing.
+ * next question stays visible with a Thinking bubble while the model works, an answer
+ * the hub did not manage to remember is shown from the response, and the Clear
+ * conversation button has it forget the whole thing.
  */
 export function IncidentChat({ incidentId, host }: { incidentId: string; host: string }) {
   const remembered = useFollowUps(incidentId);
@@ -41,22 +42,38 @@ export function IncidentChat({ incidentId, host }: { incidentId: string; host: s
   const [sending, setSending] = useState("");
   const [clearOpen, setClearOpen] = useState(false);
   const turnsList = useRef<HTMLOListElement | null>(null);
+  const composer = useRef<HTMLTextAreaElement | null>(null);
   const scrolledTo = useRef("");
 
   const turns = remembered.data?.turns ?? [];
   const asked = sending.trim();
   const landed = ask.isSuccess && turns.some((turn) => turn.question === asked);
-  const pending = asked && !ask.error && !landed ? asked : "";
+  // The hub can answer successfully without recording the turn, when storing it
+  // failed; show that answer from the response so it never gets lost.
+  const unremembered = ask.isSuccess && asked && !landed ? (ask.data?.answer ?? "") : "";
+  const pending = asked && !ask.error && !ask.isSuccess ? asked : "";
+
+  /**
+   * Empties the composer after a successful send, so Send cannot submit the same
+   * question again; the pending bubble already shows the sent one. React's `value`
+   * attribute only seeds the textarea, so clearing typed text needs a DOM write.
+   */
+  const clearComposer = (): void => {
+    if (composer.current) {
+      composer.current.value = "";
+    }
+    setQuestion("");
+  };
 
   const send = (text: string): void => {
     const trimmed = text.trim();
     if (trimmed && !ask.isPending) {
       setSending(trimmed);
-      ask.mutate(trimmed);
+      ask.mutate(trimmed, { onSuccess: clearComposer });
     }
   };
 
-  const newestTurn = `${turns.length}:${turns.at(-1)?.question ?? ""}:${pending}`;
+  const newestTurn = `${turns.length}:${turns.at(-1)?.question ?? ""}:${pending || (unremembered && asked)}`;
   useEffect(() => {
     if (newestTurn !== scrolledTo.current) {
       scrolledTo.current = newestTurn;
@@ -69,6 +86,12 @@ export function IncidentChat({ incidentId, host }: { incidentId: string; host: s
 
   return (
     <div className={styles.chat}>
+      {remembered.isPending && <p className={styles.hint}>Loading…</p>}
+      {remembered.error && (
+        <p className={styles.error} role="alert">
+          Could not load the conversation.
+        </p>
+      )}
       <ol className={styles.turns} ref={turnsList}>
         {turns.flatMap((turn, index) => [
           <li className={styles.question} key={`ask-${index}`}>
@@ -89,15 +112,28 @@ export function IncidentChat({ incidentId, host }: { incidentId: string; host: s
             </li>
           </>
         )}
+        {unremembered && (
+          <>
+            <li className={styles.question}>
+              <span>{asked}</span>
+            </li>
+            <li className={styles.answer}>
+              <Markdown text={unremembered} />
+            </li>
+          </>
+        )}
       </ol>
       <label htmlFor="chat-input">Ask about this incident</label>
       <textarea
+        ref={composer}
         id="chat-input"
         aria-describedby="chat-hint"
+        maxLength={MAX_QUESTION_CHARS}
         value={question}
         onChange={(event) => setQuestion(event.target.value)}
         onKeyDown={(event) => {
           if (event.key === "Enter" && !event.shiftKey) {
+            event.preventDefault();
             send(question);
           }
         }}
@@ -117,7 +153,10 @@ export function IncidentChat({ incidentId, host }: { incidentId: string; host: s
           Send
         </Button>
       </div>
-      <Button disabled={clearOpen || clear.isPending} onClick={() => setClearOpen(true)}>
+      <Button
+        disabled={clearOpen || clear.isPending || ask.isPending}
+        onClick={() => setClearOpen(true)}
+      >
         Clear conversation
       </Button>
       {ask.error && (
@@ -129,8 +168,15 @@ export function IncidentChat({ incidentId, host }: { incidentId: string; host: s
         <ConfirmDialog
           title="Clear the conversation?"
           confirmLabel="Yes, clear it"
-          busy={clear.isPending}
-          onConfirm={() => clear.mutate(undefined, { onSuccess: () => setClearOpen(false) })}
+          busy={clear.isPending || ask.isPending}
+          onConfirm={() =>
+            clear.mutate(undefined, {
+              onSuccess: () => {
+                setClearOpen(false);
+                setSending("");
+              },
+            })
+          }
           onCancel={() => setClearOpen(false)}
         >
           <p>The model forgets this conversation. The questions stay in the timeline.</p>

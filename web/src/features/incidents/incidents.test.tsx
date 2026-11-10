@@ -4,6 +4,7 @@ import type { IncidentSummary, Turn } from "../../api/types";
 import { calls, failure, resetApi, route } from "../../test/apiMock";
 import { detail, incident, nas } from "../../test/fixtures";
 import { renderAt } from "../../test/render";
+import { MAX_QUESTION_CHARS } from "./IncidentChat";
 import { IncidentDetailPage } from "./IncidentDetailPage";
 import { IncidentListPage } from "./IncidentListPage";
 
@@ -645,18 +646,22 @@ test("chat_clear_button_forgets_the_conversation_after_confirming", async () => 
   ).toBeNull();
 });
 
-test("chat_enter_sends_the_question", async () => {
+test("chat_enter_sends_the_question_without_inserting_a_newline", async () => {
   const user = userEvent.setup();
   route("GET /api/v1/incidents/{id}", () => detail());
-  route("POST /api/v1/incidents/{id}/ask", () => ({ answer: "Noted." }));
+  route("POST /api/v1/incidents/{id}/ask", () => failure(500, "internal", "the hub is sick"));
   renderAt("/incidents/inc-1", "/incidents/:id", <IncidentDetailPage />);
 
-  await user.type(await screen.findByLabelText("Ask about this incident"), "Why now?");
+  const textarea = await screen.findByLabelText("Ask about this incident");
+  await user.type(textarea, "Why now?");
   await user.keyboard("{Enter}");
   expect(
     calls.filter((call) => call.route === "POST /api/v1/incidents/{id}/ask"),
     "Enter alone sent the question",
   ).toHaveLength(1);
+  expect((textarea as HTMLTextAreaElement).value, "Enter did not also leave a newline").toBe(
+    "Why now?",
+  );
 });
 
 test("chat_shift_enter_stays_in_the_text", async () => {
@@ -664,12 +669,93 @@ test("chat_shift_enter_stays_in_the_text", async () => {
   route("GET /api/v1/incidents/{id}", () => detail());
   renderAt("/incidents/inc-1", "/incidents/:id", <IncidentDetailPage />);
 
-  await user.type(await screen.findByLabelText("Ask about this incident"), "First line");
-  await user.keyboard("{Shift>}{/Enter}{/Shift}");
+  const textarea = await screen.findByLabelText("Ask about this incident");
+  await user.type(textarea, "First line");
+  await user.keyboard("{Shift>}{Enter}{/Shift}");
   expect(
     calls.filter((call) => call.route === "POST /api/v1/incidents/{id}/ask"),
     "Shift+Enter is only a line break",
   ).toHaveLength(0);
+  expect((textarea as HTMLTextAreaElement).value, "Shift+Enter broke the line in the text").toBe(
+    "First line\n",
+  );
+});
+
+test("chat_caps_the_question_at_the_hub_limit", async () => {
+  const user = userEvent.setup();
+  route("GET /api/v1/incidents/{id}", () => detail());
+  renderAt("/incidents/inc-1", "/incidents/:id", <IncidentDetailPage />);
+
+  const textarea = await screen.findByLabelText("Ask about this incident");
+  expect(textarea).toHaveAttribute("maxlength", String(MAX_QUESTION_CHARS));
+  await user.type(textarea, "a".repeat(MAX_QUESTION_CHARS + 1));
+  expect(
+    (textarea as HTMLTextAreaElement).value,
+    "the character past 1000 is dropped",
+  ).toHaveLength(MAX_QUESTION_CHARS);
+}, 30000);
+
+test("chat_empties_the_composer_once_the_hub_answers", async () => {
+  const user = userEvent.setup();
+  route("GET /api/v1/incidents/{id}", () => detail());
+  route("POST /api/v1/incidents/{id}/ask", () => ({ answer: "Noted." }));
+  renderAt("/incidents/inc-1", "/incidents/:id", <IncidentDetailPage />);
+
+  const textarea = await screen.findByLabelText("Ask about this incident");
+  await user.type(textarea, "Why now?");
+  await user.click(screen.getByRole("button", { name: "Send" }));
+  expect(await screen.findByText(/^Noted\.$/)).toBeVisible();
+  expect((textarea as HTMLTextAreaElement).value, "the composer is emptied").toBe("");
+  expect(screen.getByRole("button", { name: "Send" }), "Send cannot resubmit").toBeDisabled();
+});
+
+test("chat_keeps_the_question_when_the_answer_fails", async () => {
+  const user = userEvent.setup();
+  route("GET /api/v1/incidents/{id}", () => detail());
+  route("POST /api/v1/incidents/{id}/ask", () => failure(500, "internal", "the hub is sick"));
+  renderAt("/incidents/inc-1", "/incidents/:id", <IncidentDetailPage />);
+
+  const textarea = await screen.findByLabelText("Ask about this incident");
+  await user.type(textarea, "Why now?");
+  await user.click(screen.getByRole("button", { name: "Send" }));
+  expect(
+    calls.filter((call) => call.route === "POST /api/v1/incidents/{id}/ask"),
+    "the hub got the question once",
+  ).toHaveLength(1);
+  expect(await screen.findByText("Could not get an answer. Try again.")).toBeVisible();
+  expect((textarea as HTMLTextAreaElement).value, "the question stays for a retry").toBe(
+    "Why now?",
+  );
+  expect(screen.getByRole("button", { name: "Send" }), "the retry is open").toBeEnabled();
+});
+
+test("chat_shows_the_answer_from_the_response_when_the_hub_never_records_the_turn", async () => {
+  const user = userEvent.setup();
+  route("GET /api/v1/incidents/{id}", () => detail());
+  route("POST /api/v1/incidents/{id}/ask", () => ({ answer: "Noted." }));
+  // the beforeEach follow-ups route always answers with no turns: the hub never
+  // records the question, exactly the race where storing it failed
+  renderAt("/incidents/inc-1", "/incidents/:id", <IncidentDetailPage />);
+
+  const chat = await screen.findByRole("region", { name: "Chat" });
+  await user.type(await screen.findByLabelText("Ask about this incident"), "Why now?");
+  await user.click(screen.getByRole("button", { name: "Send" }));
+  expect(within(chat).getByText("Why now?"), "the asked question is shown").toBeVisible();
+  const answered = await within(chat).findByText(/^Noted\.$/);
+  expect(answered, "the answer shows even though the history never got it").toBeVisible();
+  expect(screen.queryByText("Thinking…"), "the chat is not stuck on Thinking").toBeNull();
+});
+
+test("chat_says_when_the_conversation_could_not_be_loaded", async () => {
+  route("GET /api/v1/incidents/{id}", () => detail());
+  route("GET /api/v1/incidents/{id}/followups", () => failure(500, "internal", "the hub is sick"));
+  renderAt("/incidents/inc-1", "/incidents/:id", <IncidentDetailPage />);
+
+  expect(await screen.findByText("Could not load the conversation.")).toBeVisible();
+  expect(
+    screen.queryByText("Thinking…"),
+    "a failed history is not read as an empty conversation with a stuck answer",
+  ).toBeNull();
 });
 
 test("timeline_hides_the_question_text_of_a_followup_entry", async () => {
