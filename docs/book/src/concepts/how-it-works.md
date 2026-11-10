@@ -22,6 +22,10 @@ The incident manager persists signals and changes before publishing domain event
 
 Chat delivery plans each change from the notification policy and persisted per-incident state. It creates a card and thread when needed, then updates the same message on later changes. Approvals in chat or the web UI go through the action service. Only an approved action is sent to its owning agent.
 
+## Chat
+
+The Chat page answers general questions about the operator's servers. With a host chosen, the model may use that host's read-only tools and read skills; with "All hosts", it answers from a summary of every host and its open incidents, and calls no tools. The page keeps a separate conversation per host in the browser tab and can clear it. Everything sent is redacted and size-bounded, the monthly model budget applies, and the model never proposes or runs an action.
+
 ## Restart and missed events
 
 SQLite holds incidents, signals, triage reports, action history, chat message references and notification state. A restart reuses those references, so later changes update existing cards instead of posting duplicates.
