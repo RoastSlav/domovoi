@@ -6,7 +6,7 @@ use std::sync::Arc;
 use domovoi_core::ports::{
     LlmError, LlmMessage, LlmProvider, LlmRequest, LlmResponse, Part, Role, ToolSpec,
 };
-use domovoi_core::{Incident, ReadTool, SkillSummary};
+use domovoi_core::{ReadTool, SkillSummary};
 use jiff::SignedDuration;
 
 use super::{Shared, tools};
@@ -130,7 +130,7 @@ pub(crate) async fn complete(
 pub(crate) async fn converse(
     shared: &Shared,
     provider: &Arc<dyn LlmProvider>,
-    incident: &Incident,
+    scope: tools::Scope,
     skills: &[SkillSummary],
     system: &str,
     messages: &mut Vec<LlmMessage>,
@@ -184,7 +184,7 @@ pub(crate) async fn converse(
                 }
             } else {
                 calls_used += 1;
-                tools::call(shared, incident, skills, &name, input).await
+                tools::call(shared, scope, skills, &name, input).await
             };
             let (tool, used_skill, raw) = target_of(&name, skill, skills);
             used.push(ToolUse {

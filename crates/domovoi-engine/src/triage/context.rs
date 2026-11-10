@@ -243,7 +243,9 @@ async fn notes(shared: &Shared, incident: &Incident) -> String {
         .join("\n")
 }
 
-fn catalogue(skills: &[SkillSummary]) -> String {
+/// The skill catalogue as the model reads it: one line per skill with its risk,
+/// description and parameters.
+pub(crate) fn catalogue(skills: &[SkillSummary]) -> String {
     let mut out = String::new();
     for skill in skills {
         let params = serde_json::to_string(&skill.params).unwrap_or_default();

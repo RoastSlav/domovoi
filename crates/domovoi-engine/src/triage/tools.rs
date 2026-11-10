@@ -2,11 +2,30 @@
 //! from the store or through the agent link, redacted and cut.
 
 use domovoi_core::ports::{IncidentFilter, Page};
-use domovoi_core::{Incident, ReadToolCall, Risk, SkillSummary};
+use domovoi_core::{HostId, Incident, IncidentId, ReadToolCall, Risk, SkillSummary};
 use jiff::SignedDuration;
 use serde_json::Value;
 
 use super::Shared;
+
+/// Where tool calls run: a host, and the incident to leave out of history, if any.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Scope {
+    pub(crate) host: HostId,
+    pub(crate) incident: Option<IncidentId>,
+}
+
+impl Scope {
+    /// The scope a triage or follow-up runs in: the incident's host, and the incident
+    /// itself left out of its own history.
+    #[must_use]
+    pub(crate) fn of(incident: &Incident) -> Self {
+        Self {
+            host: incident.host(),
+            incident: Some(incident.id()),
+        }
+    }
+}
 
 /// The largest tool result handed to the model, in bytes.
 pub const MAX_RESULT_BYTES: usize = 8 * 1024;
@@ -36,18 +55,18 @@ pub(crate) fn cut(text: &str, max: usize) -> String {
     format!("{}{NOTE}", &text[..end])
 }
 
-/// Runs the call the model named `name` with `input` for `incident`. Unknown tools and bad
+/// Runs the call the model named `name` with `input` within `scope`. Unknown tools and bad
 /// arguments are answered with an error the model can read; nothing outside the read
 /// tools can run.
 pub(crate) async fn call(
     shared: &Shared,
-    incident: &Incident,
+    scope: Scope,
     skills: &[SkillSummary],
     name: &str,
     input: Value,
 ) -> ToolResult {
     match ReadToolCall::from_json(name, input) {
-        Ok(call) => run(shared, incident, skills, call).await,
+        Ok(call) => run(shared, scope, skills, call).await,
         Err(err) => finish(shared, &format!("error: {err}"), true),
     }
 }
@@ -55,11 +74,11 @@ pub(crate) async fn call(
 /// Runs a parsed call.
 pub(crate) async fn run(
     shared: &Shared,
-    incident: &Incident,
+    scope: Scope,
     skills: &[SkillSummary],
     call: ReadToolCall,
 ) -> ToolResult {
-    match execute(shared, incident, skills, call).await {
+    match execute(shared, scope, skills, call).await {
         Ok(text) => finish(shared, &text, false),
         Err(text) => finish(shared, &format!("error: {text}"), true),
     }
@@ -75,7 +94,7 @@ fn finish(shared: &Shared, text: &str, is_error: bool) -> ToolResult {
 
 async fn execute(
     shared: &Shared,
-    incident: &Incident,
+    scope: Scope,
     skills: &[SkillSummary],
     call: ReadToolCall,
 ) -> Result<String, String> {
@@ -83,7 +102,7 @@ async fn execute(
     match &call {
         ReadToolCall::IncidentHistory { limit } => {
             let filter = IncidentFilter {
-                host: Some(incident.host()),
+                host: Some(scope.host),
                 ..IncidentFilter::default()
             };
             let page = deps
@@ -94,7 +113,7 @@ async fn execute(
             let lines: Vec<String> = page
                 .items
                 .iter()
-                .filter(|i| i.id() != incident.id())
+                .filter(|i| scope.incident.is_none_or(|current| i.id() != current))
                 .map(|i| {
                     let verdict = i.verdict().map_or("no verdict", |v| v.label());
                     format!(
@@ -115,7 +134,7 @@ async fn execute(
         ReadToolCall::NotesSearch { query, limit } => {
             let hits = deps
                 .notes
-                .search(query, Some(incident.host()), *limit)
+                .search(query, Some(scope.host), *limit)
                 .await
                 .map_err(|e| e.to_string())?;
             Ok(if hits.is_empty() {
@@ -136,13 +155,13 @@ async fn execute(
                 return Err(format!("skill `{skill}` is not read-only"));
             }
             summary.validate_args(args).map_err(|e| e.to_string())?;
-            agent(shared, incident, call).await
+            agent(shared, scope, call).await
         }
-        _ => agent(shared, incident, call).await,
+        _ => agent(shared, scope, call).await,
     }
 }
 
-async fn agent(shared: &Shared, incident: &Incident, call: ReadToolCall) -> Result<String, String> {
+async fn agent(shared: &Shared, scope: Scope, call: ReadToolCall) -> Result<String, String> {
     let deps = &shared.deps;
     let deadline = deps
         .clock
@@ -151,7 +170,7 @@ async fn agent(shared: &Shared, incident: &Incident, call: ReadToolCall) -> Resu
         .unwrap_or(deps.clock.now());
     let out = deps
         .link
-        .run_tool(incident.host(), call, deadline)
+        .run_tool(scope.host, call, deadline)
         .await
         .map_err(|e| e.to_string())?;
     Ok(if out.truncated {

@@ -150,20 +150,34 @@ pub(crate) fn slot_after(oldest: Timestamp) -> Option<Timestamp> {
         .ok()
 }
 
+/// Whether the monthly model budget is spent, reading the model spending for the current
+/// calendar month (UTC). A failed read is not a spent budget: triage still runs.
+pub(crate) async fn budget_spent(shared: &Shared) -> bool {
+    let Some(budget) = shared.settings.monthly_budget_micros else {
+        return false;
+    };
+    let month = shared
+        .deps
+        .clock
+        .now()
+        .to_zoned(jiff::tz::TimeZone::UTC)
+        .date();
+    match shared.deps.usage.month_total(month).await {
+        Ok(total) => total.cost_micros >= budget,
+        Err(err) => {
+            tracing::warn!(%err, "could not read model spending; triaging anyway");
+            false
+        }
+    }
+}
+
 /// Why this run may not start, or `None` after recording its start.
 async fn over_cap(shared: &Shared) -> Option<Cap> {
     let deps = &shared.deps;
     let settings = &shared.settings;
     let now = deps.clock.now();
-    if let Some(budget) = settings.monthly_budget_micros {
-        let month = now.to_zoned(jiff::tz::TimeZone::UTC).date();
-        match deps.usage.month_total(month).await {
-            Ok(total) if total.cost_micros >= budget => {
-                return Some(Cap::Monthly);
-            }
-            Ok(_) => {}
-            Err(err) => tracing::warn!(%err, "could not read model spending; triaging anyway"),
-        }
+    if budget_spent(shared).await {
+        return Some(Cap::Monthly);
     }
     let since = hour_ago(now);
     let mut limits = limits(shared);
@@ -287,13 +301,14 @@ async fn opening(
     let mut text = format!("Triage this incident.\n\n{bundle}");
     if !provider.supports_tools() {
         text.push_str("\n\n## Tool output gathered for you\n");
+        let scope = tools::Scope::of(incident);
         for call in tools::prefetch(incident) {
             let name = call.tool().name();
             let skill = match &call {
                 ReadToolCall::RunReadSkill { skill, .. } => Some(skill.to_string()),
                 _ => None,
             };
-            let result = tools::run(shared, incident, skills, call).await;
+            let result = tools::run(shared, scope, skills, call).await;
             used.push(ToolUse {
                 tool: name.to_owned(),
                 skill,
@@ -325,7 +340,7 @@ async fn attempt(
     let answer = agent::converse(
         shared,
         provider,
-        incident,
+        tools::Scope::of(incident),
         skills,
         SYSTEM_PROMPT,
         &mut messages,
