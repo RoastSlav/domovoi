@@ -1,4 +1,4 @@
-use domovoi_core::ports::{IncidentRepo, LlmRequest, Part};
+use domovoi_core::ports::{IncidentRepo, LlmError, LlmRequest, Part};
 use domovoi_core::{TriageOutcome, UserId};
 use serde_json::json;
 
@@ -96,6 +96,149 @@ async fn a_clear_forgets_the_earlier_questions() {
             .iter()
             .any(|e| e.kind == domovoi_engine::triage::CLEAR_KIND),
         "the clear is a timeline entry of its own"
+    );
+}
+
+#[tokio::test]
+async fn a_clear_while_a_question_is_running_drops_its_answer() {
+    let w = world(Setup::default()).await;
+    w.primary.hold();
+    w.primary.push_text("Slow answer.");
+    w.primary.push_text("Fresh answer.");
+
+    let incident = w.incident.id();
+    let triage = w.triage.clone();
+    let running =
+        tokio::spawn(async move { triage.follow_up(incident, "Running?", UserId::new()).await });
+
+    // The provider has the request, so the question captured its conversation already.
+    w.primary.wait_for_request().await;
+    w.manager
+        .clear_follow_ups(incident, UserId::new())
+        .await
+        .unwrap();
+    w.primary.release(1);
+    let answered = running.await.unwrap().unwrap();
+    assert_eq!(
+        answered,
+        "Slow answer.".to_owned(),
+        "the operator still gets the answer the model gave",
+    );
+
+    let timeline = IncidentRepo::timeline(&*w.store, incident).await.unwrap();
+    assert!(
+        timeline
+            .iter()
+            .any(|e| e.kind == domovoi_engine::triage::CLEAR_KIND),
+        "the clear is a timeline entry of its own"
+    );
+    assert!(
+        timeline
+            .iter()
+            .all(|e| e.kind != domovoi_engine::triage::FOLLOW_UP_KIND),
+        "an answer finished after the clear is never recorded",
+    );
+    assert!(
+        w.triage.history(incident).await.unwrap().is_empty(),
+        "the conversation is empty after the clear",
+    );
+
+    w.triage
+        .follow_up(incident, "Again?", UserId::new())
+        .await
+        .unwrap();
+    let requests = w.primary.requests();
+    assert_eq!(
+        requests.len(),
+        2,
+        "one request for the cleared question, one for the new one"
+    );
+    let last = shown(&requests[1]);
+    assert!(last.contains("Again?"), "the new question is asked: {last}");
+    assert!(
+        !last.contains("Running?") && !last.contains("Slow answer."),
+        "an answer finished after the clear does not reappear in the next request: {last}",
+    );
+}
+
+#[tokio::test]
+async fn questions_answered_out_of_order_play_in_question_order() {
+    let w = world(Setup {
+        secondary: true,
+        ..Setup::default()
+    })
+    .await;
+    // The first question's provider fails on the primary and waits on the gated
+    // secondary; the second question answers on the primary straight away, so it is
+    // recorded first while it was asked later.
+    w.primary.push_err(LlmError::Auth);
+    w.primary.push_text("Quick answer for the second.");
+    w.primary.push_text("Third.");
+    w.secondary.push_text("Late answer for the first.");
+    w.secondary.hold();
+
+    let incident = w.incident.id();
+    let triage = w.triage.clone();
+    let running =
+        tokio::spawn(async move { triage.follow_up(incident, "First asked?", UserId::new()).await });
+
+    // The secondary holds the first question's request, so it cannot record yet.
+    w.secondary.wait_for_request().await;
+    w.clock.advance(jiff::SignedDuration::from_secs(1));
+    let second = w
+        .triage
+        .follow_up(incident, "Second asked?", UserId::new())
+        .await
+        .unwrap();
+    assert_eq!(
+        second,
+        "Quick answer for the second.".to_owned(),
+        "the second question finished first, on the primary",
+    );
+    w.secondary.release(1);
+    let first = running.await.unwrap().unwrap();
+    assert_eq!(
+        first,
+        "Late answer for the first.".to_owned(),
+        "the first question answers last, off the secondary",
+    );
+
+    let history = w.triage.history(incident).await.unwrap();
+    assert_eq!(
+        history
+            .iter()
+            .map(|t| t.question.clone())
+            .collect::<Vec<String>>(),
+        vec!["First asked?".to_owned(), "Second asked?".to_owned()],
+        "the remembered turns follow the asking order, not the recording order",
+    );
+
+    w.triage
+        .follow_up(incident, "Third asked?", UserId::new())
+        .await
+        .unwrap();
+    let requests = w.primary.requests();
+    assert_eq!(
+        requests.len(),
+        3,
+        "three primary requests: the failed first, the second, the third"
+    );
+    let replay = shown(&requests[2]);
+    let order = (
+        replay.find("First asked?"),
+        replay.find("Late answer for the first."),
+        replay.find("Second asked?"),
+        replay.find("Quick answer for the second."),
+    );
+    let new_question = replay.find("Third asked?");
+    assert!(
+        match order {
+            (Some(a), Some(b), Some(c), Some(d)) =>
+                a < b && b < c && c < d && Some(d) < new_question,
+            _ => false,
+        },
+        "the third request replays question, answer, question, answer in asking order, \
+            with the new question last: {replay}",
     );
 }
 
