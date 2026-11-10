@@ -408,6 +408,7 @@ mod api {
                 "/api/v1/hosts/nas/skills/zpool_status".to_owned(),
             ),
             (Method::POST, "/api/v1/hosts/nas/profile".to_owned()),
+            (Method::POST, "/api/v1/chat".to_owned()),
             (Method::POST, "/api/v1/ack-rules".to_owned()),
             (
                 Method::DELETE,

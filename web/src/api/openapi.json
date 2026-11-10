@@ -514,6 +514,77 @@
         }
       }
     },
+    "/api/v1/chat": {
+      "post": {
+        "tags": [
+          "hosts"
+        ],
+        "summary": "Answers a general question about the operator's hosts. With `host` the model may use\nthat host's read-only tools and read skills; without one it answers from an overview\nof every host and calls no tools. It never proposes or runs actions.",
+        "operationId": "chat",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The question or a turn is empty or too long",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such host",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Triage is off or the model is unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/digest/preview": {
       "get": {
         "tags": [
@@ -3308,6 +3379,64 @@
           "resolved": {
             "type": "boolean",
             "description": "Whether the incident resolved."
+          }
+        }
+      },
+      "ChatRequest": {
+        "type": "object",
+        "description": "A general question, the host it is about and the conversation so far.",
+        "required": [
+          "question"
+        ],
+        "properties": {
+          "history": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChatTurnDto"
+            },
+            "description": "The earlier turns, oldest first."
+          },
+          "host": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The host to look at; absent or `null` asks about every host."
+          },
+          "question": {
+            "type": "string",
+            "description": "The question to answer."
+          }
+        }
+      },
+      "ChatResponse": {
+        "type": "object",
+        "description": "The model's answer.",
+        "required": [
+          "answer"
+        ],
+        "properties": {
+          "answer": {
+            "type": "string",
+            "description": "The answer, in Markdown."
+          }
+        }
+      },
+      "ChatTurnDto": {
+        "type": "object",
+        "description": "One earlier turn of the chat.",
+        "required": [
+          "role",
+          "text"
+        ],
+        "properties": {
+          "role": {
+            "type": "string",
+            "description": "Who said it: `user` or `assistant`."
+          },
+          "text": {
+            "type": "string",
+            "description": "What was said."
           }
         }
       },

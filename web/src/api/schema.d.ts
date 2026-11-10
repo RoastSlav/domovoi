@@ -167,6 +167,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/chat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Answers a general question about the operator's hosts. With `host` the model may use
+         *     that host's read-only tools and read skills; without one it answers from an overview
+         *     of every host and calls no tools. It never proposes or runs actions.
+         */
+        post: operations["chat"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/digest/preview": {
         parameters: {
             query?: never;
@@ -982,6 +1003,27 @@ export interface components {
             next_step?: string | null;
             /** @description Whether the incident resolved. */
             resolved: boolean;
+        };
+        /** @description A general question, the host it is about and the conversation so far. */
+        ChatRequest: {
+            /** @description The earlier turns, oldest first. */
+            history?: components["schemas"]["ChatTurnDto"][];
+            /** @description The host to look at; absent or `null` asks about every host. */
+            host?: string | null;
+            /** @description The question to answer. */
+            question: string;
+        };
+        /** @description The model's answer. */
+        ChatResponse: {
+            /** @description The answer, in Markdown. */
+            answer: string;
+        };
+        /** @description One earlier turn of the chat. */
+        ChatTurnDto: {
+            /** @description Who said it: `user` or `assistant`. */
+            role: string;
+            /** @description What was said. */
+            text: string;
         };
         /** @description One check's settings: on or off, interval, thresholds. */
         CheckSettingsDto: {
@@ -2134,6 +2176,66 @@ export interface operations {
             };
             /** @description Setup is closed */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    chat: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatRequest"];
+            };
+        };
+        responses: {
+            /** @description The answer */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatResponse"];
+                };
+            };
+            /** @description The question or a turn is empty or too long */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such host */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Triage is off or the model is unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
