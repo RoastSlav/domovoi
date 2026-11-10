@@ -9,6 +9,7 @@
 
 mod agent;
 mod cache;
+mod chat;
 mod context;
 mod followup;
 mod history;
@@ -25,7 +26,7 @@ use domovoi_core::ports::{
     ActionRepo, AdvisoryRepo, AgentLink, AuditLog, Clock, IncidentRepo, LlmProvider, NoteRepo,
     Redactor, SignalRepo, TriageCacheRepo, UsageRepo,
 };
-use domovoi_core::{Incident, IncidentId, TriageBudget, TriageOutcome, UserId};
+use domovoi_core::{HostId, Incident, IncidentId, TriageBudget, TriageOutcome, UserId};
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -34,6 +35,7 @@ use crate::events::DomainEvent;
 use crate::manager::ManagerHandle;
 
 pub use agent::{BUDGET_EXHAUSTED, NO_CALLS_LEFT, ToolUse, read_tools};
+pub use chat::{CHAT_PROMPT, ChatRole, ChatTurn};
 pub use followup::{FOLLOW_UP_PROMPT, MAX_ANSWER_CHARS};
 pub use history::{CLEAR_KIND, FOLLOW_UP_KIND, Turn, count_clear, since_clear};
 pub use proposals::{PROPOSER, mint_token, token_hash};
@@ -247,6 +249,21 @@ impl TriageHandle {
         asked_by: UserId,
     ) -> Result<String, TriageError> {
         followup::answer(&self.shared, incident, question, asked_by).await
+    }
+
+    /// Answers `question` about the operator's hosts in general, outside any incident
+    /// thread. With `host` the model may use that host's read tools and read skills; with
+    /// `None` it answers only from `overview`, the summary of every host, and calls no
+    /// tools. `history` is the chat the operator already had. Nothing it writes is ever
+    /// proposed or run.
+    pub async fn chat(
+        &self,
+        host: Option<HostId>,
+        overview: &str,
+        history: &[ChatTurn],
+        question: &str,
+    ) -> Result<String, TriageError> {
+        chat::answer(&self.shared, host, overview, history, question).await
     }
 
     /// The follow-up questions and answers the incident still remembers: the ones after

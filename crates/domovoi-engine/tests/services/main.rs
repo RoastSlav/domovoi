@@ -10,6 +10,8 @@ mod approve;
 #[cfg(test)]
 mod attach;
 #[cfg(test)]
+mod chat;
+#[cfg(test)]
 mod conversation;
 #[cfg(test)]
 mod execute;

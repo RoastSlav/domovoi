@@ -7,7 +7,7 @@ use domovoi_core::{ActionProposal, ActionStatus, IncidentId, UserId};
 
 use super::history::{Turn, count_clear, since_clear};
 use super::incident_context::about;
-use super::{Shared, TriageError, agent, context, proposals};
+use super::{Shared, TriageError, agent, context, proposals, tools};
 use crate::events::{DomainEvent, EventKind};
 
 /// How many actions one follow-up answer may suggest. The same count a triage report
@@ -49,7 +49,8 @@ const MAX_TURNS: usize = 10;
 /// The largest remembered conversation, in characters.
 const TURN_BUDGET_CHARS: usize = 16 * 1024;
 
-fn clip(text: &str, max: usize) -> String {
+/// Cuts `text` to `max` characters, with an ellipsis when cut.
+pub(crate) fn clip(text: &str, max: usize) -> String {
     if text.chars().count() <= max {
         return text.to_owned();
     }
@@ -140,6 +141,7 @@ pub(crate) async fn answer(
         .map_err(|e| TriageError::Store(e.to_string()))?
         .ok_or(TriageError::UnknownIncident(id))?;
     let skills = deps.link.skills(incident.host());
+    let scope = tools::Scope::of(&incident);
     let bundle = context::build(shared, &incident, &skills).await;
     // The incident itself: its latest report, its actions and its recent timeline.
     let incident_block = about(shared, id).await;
@@ -183,7 +185,7 @@ pub(crate) async fn answer(
         match agent::converse(
             shared,
             provider,
-            &incident,
+            scope,
             &skills,
             FOLLOW_UP_PROMPT,
             &mut messages,
