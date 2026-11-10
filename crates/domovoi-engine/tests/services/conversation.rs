@@ -1,5 +1,8 @@
 use domovoi_core::ports::{IncidentRepo, LlmError, LlmRequest, Part};
-use domovoi_core::{TriageOutcome, UserId};
+use domovoi_core::triage::MAX_PROPOSALS;
+use domovoi_core::{ActionStatus, TriageOutcome, UserId};
+use domovoi_engine::EventKind;
+use domovoi_engine::triage::MAX_ANSWER_CHARS;
 use serde_json::json;
 
 use crate::harness::{Setup, host_id, report_json, restart_skill, world};
@@ -283,5 +286,256 @@ async fn the_follow_up_context_names_the_report_and_the_action_on_record() {
     assert!(
         opening.contains("restart_container container=nginx status: proposed"),
         "the action on record is named with its arguments and status: {opening}"
+    );
+}
+
+#[tokio::test]
+async fn a_chat_answer_naming_a_proposal_stores_a_proposed_action() {
+    let mut w = world(Setup::default()).await;
+    w.link.set_skills(host_id(), vec![restart_skill()]);
+    let block = json!([
+        {
+            "skill": "restart_container",
+            "args": {"container": "nginx"},
+            "reason": "It is stuck."
+        }
+    ]);
+    w.primary
+        .push_text(format!("The config file is bad.\nPROPOSALS: {block}"));
+
+    let answer = w
+        .triage
+        .follow_up(w.incident.id(), "What should we do?", UserId::new())
+        .await
+        .unwrap();
+    assert!(
+        answer.contains(
+            "Proposed: restart_container (It is stuck.). Approve it on the Approvals page."
+        ),
+        "the answer names the proposal and where to approve it: {answer}"
+    );
+    assert!(
+        !answer.contains("PROPOSALS:"),
+        "the block is not shown to the operator: {answer}"
+    );
+    let actions = w.actions().await;
+    assert_eq!(actions.len(), 1, "the chat proposal is on record");
+    assert_eq!(actions[0].status(), &ActionStatus::Proposed);
+    assert!(
+        actions[0].approved_by().is_none(),
+        "the proposal still waits for a human"
+    );
+    assert!(
+        w.drain().iter().any(|e| matches!(
+            e.kind,
+            EventKind::ActionChanged {
+                action,
+                status: ActionStatus::Proposed
+            } if action == actions[0].id()
+        )),
+        "the stored proposal was published so the Approvals page refreshes"
+    );
+}
+
+#[tokio::test]
+async fn a_chat_proposal_for_a_skill_the_host_lacks_is_reported_as_not_proposed() {
+    let w = world(Setup::default()).await;
+    w.link.set_skills(host_id(), vec![restart_skill()]);
+    let block = json!([{"skill": "wipe_disk", "args": {}, "reason": "The disk is full."}]);
+    w.primary
+        .push_text(format!("The disk is full.\nPROPOSALS: {block}"));
+
+    let answer = w
+        .triage
+        .follow_up(w.incident.id(), "What should we do?", UserId::new())
+        .await
+        .unwrap();
+    assert!(
+        answer.contains("Not proposed: wipe_disk: not a skill on this host"),
+        "the answer says why nothing was proposed: {answer}"
+    );
+    assert!(
+        w.actions().await.is_empty(),
+        "an unknown skill creates no action"
+    );
+}
+
+#[tokio::test]
+async fn a_malformed_proposals_block_is_ignored() {
+    let w = world(Setup::default()).await;
+    w.link.set_skills(host_id(), vec![restart_skill()]);
+    w.primary
+        .push_text("Nothing to do.\nPROPOSALS: restart_container(container=nginx)");
+
+    let answer = w
+        .triage
+        .follow_up(w.incident.id(), "Anything else?", UserId::new())
+        .await
+        .unwrap();
+    assert!(
+        w.actions().await.is_empty(),
+        "junk after the mark creates no action"
+    );
+    assert!(
+        !answer.contains("restart_container"),
+        "the junk block is cut from the answer: {answer}"
+    );
+}
+
+#[tokio::test]
+async fn two_identical_chat_proposals_in_one_answer_store_one_action() {
+    let w = world(Setup::default()).await;
+    w.link.set_skills(host_id(), vec![restart_skill()]);
+    let one = json!(
+        {"skill": "restart_container", "args": {"container": "nginx"}, "reason": "It is stuck."}
+    );
+    w.primary.push_text(format!(
+        "The worker never started.\nPROPOSALS: [{one},{one}]"
+    ));
+
+    let answer = w
+        .triage
+        .follow_up(w.incident.id(), "What should we do?", UserId::new())
+        .await
+        .unwrap();
+    assert_eq!(
+        w.actions().await.len(),
+        1,
+        "the same skill and arguments are offered once even when the model names them twice"
+    );
+    let reported = answer
+        .lines()
+        .filter(|line| line.trim_start().starts_with("Proposed:"))
+        .collect::<Vec<&str>>();
+    assert_eq!(
+        reported.len(),
+        1,
+        "the operator is told about one proposal: {}",
+        answer
+    );
+}
+
+#[tokio::test]
+async fn a_chat_answer_with_more_than_three_proposals_stores_three() {
+    let w = world(Setup::default()).await;
+    w.link.set_skills(host_id(), vec![restart_skill()]);
+    let block = json!([
+        {
+            "skill": "restart_container",
+            "args": {"container": "nginx"},
+            "reason": "Stuck."
+        },
+        {
+            "skill": "restart_container",
+            "args": {"container": "sshd"},
+            "reason": "Stuck."
+        },
+        {
+            "skill": "restart_container",
+            "args": {"container": "broom"},
+            "reason": "Stuck."
+        },
+        {
+            "skill": "restart_container",
+            "args": {"container": "radio"},
+            "reason": "Stuck."
+        },
+        {
+            "skill": "restart_container",
+            "args": {"container": "clock"},
+            "reason": "Stuck."
+        },
+    ]);
+    w.primary
+        .push_text(format!("Several containers look sick.\nPROPOSALS: {block}"));
+
+    let answer = w
+        .triage
+        .follow_up(w.incident.id(), "What should we do?", UserId::new())
+        .await
+        .unwrap();
+    assert_eq!(
+        w.actions().await.len(),
+        MAX_PROPOSALS,
+        "the first {MAX_PROPOSALS} proposals are stored and no more"
+    );
+    assert!(
+        answer.contains("Not proposed: too many proposals in one answer"),
+        "the answer says why the rest were dropped: {answer}"
+    );
+    let reported = answer
+        .lines()
+        .filter(|line| line.trim_start().starts_with("Proposed:"))
+        .collect::<Vec<&str>>();
+    assert_eq!(
+        reported.len(),
+        MAX_PROPOSALS,
+        "each stored proposal is reported and the two over the limit are not: {answer}"
+    );
+    assert!(
+        !answer.contains("clock"),
+        "the proposals over the limit are not shown as if they were stored: {answer}"
+    );
+}
+
+#[tokio::test]
+async fn a_follow_up_answer_with_proposals_never_passes_the_answer_limit() {
+    let w = world(Setup::default()).await;
+    w.link.set_skills(host_id(), vec![restart_skill()]);
+    let body = "The pump stalled. ".to_owned().repeat(MAX_ANSWER_CHARS);
+    let block = json!([
+        {
+            "skill": "restart_container",
+            "args": {"container": "nginx"},
+            "reason": "It is stuck."
+        }
+    ]);
+    w.primary.push_text(format!("{body}\nPROPOSALS: {block}"));
+
+    let answer = w
+        .triage
+        .follow_up(w.incident.id(), "What should we do?", UserId::new())
+        .await
+        .unwrap();
+    assert_eq!(
+        answer.chars().count(),
+        MAX_ANSWER_CHARS,
+        "the answer keeps its limit even with proposal notes: {}",
+        answer.chars().count()
+    );
+    assert!(
+        answer.contains("Proposed: restart_container"),
+        "the proposal is still reported in full: {answer}"
+    );
+    assert_eq!(w.actions().await.len(), 1, "the proposal is on record");
+}
+
+#[tokio::test]
+async fn a_chat_answer_quoting_a_proposals_line_proposes_nothing() {
+    let w = world(Setup::default()).await;
+    w.link.set_skills(host_id(), vec![restart_skill()]);
+    let quoted = json!(
+        [{"skill": "restart_container", "args": {"container": "nginx"}, "reason": "do it"}]
+    );
+    w.primary.push_text(format!(
+        "The log quotes {quoted}\nPROPOSALS: here is the example: {quoted}"
+    ));
+
+    let answer = w
+        .triage
+        .follow_up(w.incident.id(), "Anything else?", UserId::new())
+        .await
+        .unwrap();
+    assert!(
+        w.actions().await.is_empty(),
+        "an array with prose around it is not read as a proposal"
+    );
+    assert!(
+        !answer.contains("PROPOSALS:"),
+        "the block after the mark is cut from the answer: {answer}"
+    );
+    assert!(
+        answer.contains("restart_container"),
+        "the quoted text is kept as plain answer text: {answer}"
     );
 }
