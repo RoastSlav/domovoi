@@ -603,3 +603,19 @@ async fn follow_up_history_is_served_and_clear_empties_it() {
         cleared.text,
     );
 }
+
+#[tokio::test]
+async fn follow_up_history_for_an_unknown_incident_is_not_found() {
+    let a = api_with_triage().await;
+    let login = a.admin().await;
+    let unknown = domovoi_core::IncidentId::new();
+    let missing = a
+        .get(&format!("/api/v1/incidents/{}/followups", unknown), &login)
+        .await;
+    assert_eq!(
+        missing.status,
+        StatusCode::NOT_FOUND,
+        "an id that parses but was never stored is not a cleared conversation: {}",
+        missing.text,
+    );
+}
