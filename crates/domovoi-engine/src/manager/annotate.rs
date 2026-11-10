@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::triage::ToolUse;
+use crate::triage::{CLEAR_KIND, FOLLOW_UP_KIND, ToolUse};
 use domovoi_core::ports::IncidentTimelineEntry;
 use domovoi_core::{ActionId, Incident, IncidentId, TriageOutcome, UserId, Verdict};
 use jiff::Timestamp;
@@ -108,13 +108,29 @@ pub(crate) fn follow_up(
         writes: vec![Write::Timeline(IncidentTimelineEntry {
             incident,
             at: now,
-            kind: "triage.followup".to_owned(),
+            kind: FOLLOW_UP_KIND.to_owned(),
             summary: question.to_owned(),
             detail: serde_json::json!({
                 "asked_by": asked_by.to_string(),
                 "question": question,
                 "answer": answer,
             }),
+        })],
+        ..Decision::default()
+    }
+}
+
+/// A timeline entry that forgets the follow-up questions asked so far, so the next question
+/// starts a new conversation. The earlier entries stay in the timeline; only entries before
+/// this one are not sent back to the model. Publishes nothing.
+pub(crate) fn clear_follow_ups(incident: IncidentId, by: UserId, now: Timestamp) -> Decision {
+    Decision {
+        writes: vec![Write::Timeline(IncidentTimelineEntry {
+            incident,
+            at: now,
+            kind: CLEAR_KIND.to_owned(),
+            summary: format!("cleared by user:{by}"),
+            detail: serde_json::Value::Null,
         })],
         ..Decision::default()
     }

@@ -221,7 +221,8 @@ impl IncidentManager {
             | Command::Unmute { .. }
             | Command::Dismiss { .. }
             | Command::RecordFollowUp { .. }
-            | Command::RecordToolUse { .. } => {}
+            | Command::RecordToolUse { .. }
+            | Command::ClearFollowUps { .. } => {}
             Command::AttachTriage { incident, .. } | Command::SetVerdict { incident, .. } => {
                 if !self.active.iter().any(|i| i.id() == *incident) {
                     triaged = self.deps.incidents.get(*incident).await?;

@@ -161,6 +161,16 @@ impl ManagerHandle {
         .await
     }
 
+    /// Drops the follow-up questions and answers of `incident` from the conversation the
+    /// model sees. Works on resolved incidents too.
+    pub async fn clear_follow_ups(
+        &self,
+        incident: IncidentId,
+        by: UserId,
+    ) -> Result<(), CommandError> {
+        self.send(Command::ClearFollowUps { incident, by }).await
+    }
+
     /// Pending incidents dropped before confirmation since the manager started.
     #[must_use]
     pub fn flaps(&self) -> u64 {

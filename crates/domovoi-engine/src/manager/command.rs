@@ -81,6 +81,14 @@ pub enum Command {
         /// The tool calls, in call order.
         tools: Vec<ToolUse>,
     },
+    /// Forget the follow-up questions asked so far, so the model starts over. Works on
+    /// resolved incidents too; publishes nothing.
+    ClearFollowUps {
+        /// Which incident.
+        incident: IncidentId,
+        /// Who asked for it.
+        by: UserId,
+    },
 }
 
 /// Why a command was not carried out. Nothing was stored and nothing was published.
