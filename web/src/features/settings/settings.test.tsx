@@ -44,6 +44,11 @@ beforeEach(() => {
   resetApi();
   route("GET /api/v1/hosts", () => [nas]);
   route("GET /api/v1/advisories", () => []);
+  route("GET /api/v1/system/update", () => ({
+    current: "0.1.0",
+    latest: null,
+    newer: false,
+  }));
   route("GET /api/v1/settings/schema", () => ({
     properties: { incidents: { $ref: "#/$defs/Incidents" } },
     $defs: {

@@ -842,6 +842,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/system/update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The last release check, if the hub has made one. */
+        get: operations["get_update"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/system/update/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Checks for a release now, at most once a minute. */
+        post: operations["check_update"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/healthz": {
         parameters: {
             query?: never;
@@ -1719,6 +1753,29 @@ export interface components {
             kind: string;
             /** @description The new status name, when it changed. */
             status?: string | null;
+        };
+        /** @description The newest release this hub knows about, with commands ready to copy. */
+        UpdateDto: {
+            /** @description Reinstalls an agent and restarts its service. */
+            agent_command?: string | null;
+            /** @description When this hub last checked. */
+            checked_at?: string | null;
+            /** @description The version this hub runs. */
+            current: string;
+            /** @description Pulls and recreates a container deployment. */
+            docker_command?: string | null;
+            /** @description Reinstalls the hub and restarts its service. */
+            hub_command?: string | null;
+            /** @description The release's tag, for example `v0.5.0`; `None` until the first check succeeds. */
+            latest?: string | null;
+            /** @description Whether `latest` is newer than `current`. */
+            newer: boolean;
+            /** @description The release notes, cut to 4000 characters. */
+            notes?: string | null;
+            /** @description When the release was published. */
+            published_at?: string | null;
+            /** @description The release's page on GitHub. */
+            url?: string | null;
         };
         /** @description Model usage this calendar month (UTC). */
         UsageSettings: {
@@ -4159,6 +4216,82 @@ export interface operations {
                 };
             };
             /** @description Logs are not captured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The last check and how to update */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdateDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    check_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The new check */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdateDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Checked less than a minute ago */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description GitHub did not answer with a release */
             503: {
                 headers: {
                     [name: string]: unknown;

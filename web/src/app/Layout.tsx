@@ -1,6 +1,7 @@
 import { Outlet } from "react-router";
 import { useLiveEvents } from "../api/events";
 import { SetupBanner } from "../features/setup/SetupBanner";
+import { UpdateBanner } from "../features/updates/UpdateBanner";
 import { HostProvider } from "./HostContext";
 import styles from "./Layout.module.css";
 import { Sidebar } from "./Sidebar";
@@ -16,6 +17,7 @@ export function Layout() {
         </a>
         <Sidebar live={live} />
         <main id="main" className={styles.main} tabIndex={-1}>
+          <UpdateBanner />
           <SetupBanner />
           <Outlet />
         </main>

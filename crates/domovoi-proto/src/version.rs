@@ -86,6 +86,21 @@ pub fn parse_release(version: &str) -> Option<Release> {
     parts.next().is_none().then_some(release)
 }
 
+/// Whether `tag` is safe wherever a release tag ends up: in a URL path, and on the
+/// command line of a script the operator pastes into a root shell. It must parse as a
+/// [`Release`] and hold only letters, digits, `.`, `-` and `+`, which covers `v0.9.9` and
+/// `0.9.9-rc.2` and rules out every character a shell or a URL gives meaning to (`$`,
+/// backticks, quotes, `;`, `|`, `&`, spaces, globs). `parse_release` alone is not enough
+/// for this: it stops at the first `-` or `+`, so the junk in `v0.9.9-$(id)` is never
+/// looked at and would reach the command.
+#[must_use]
+pub fn is_release_tag(tag: &str) -> bool {
+    parse_release(tag).is_some()
+        && tag
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '+')
+}
+
 /// Whether the release `version` is at least `minimum`. Versions that do not parse pass,
 /// so a dev build is never locked out.
 #[must_use]
@@ -101,7 +116,7 @@ impl fmt::Display for Release {
 
 #[cfg(test)]
 mod tests {
-    use super::{at_least, parse_release};
+    use super::{at_least, is_release_tag, parse_release};
 
     #[test]
     fn at_least_accepts_equal_and_newer_releases() {
@@ -137,5 +152,38 @@ mod tests {
         assert_eq!(parse_release("0.0.5-rc.2"), parse_release("0.0.5"));
         assert_eq!(parse_release("0.0.5+dirty"), parse_release("0.0.5"));
         assert_eq!(parse_release(" 0.0.5 "), parse_release("0.0.5"));
+    }
+
+    #[test]
+    fn tags_holding_shell_syntax_are_not_release_tags() {
+        assert!(
+            is_release_tag("v0.9.9"),
+            "the tag a release carries is accepted"
+        );
+        assert!(is_release_tag("0.9.9"), "the tag without the v is accepted");
+        assert!(is_release_tag("0.9.9-rc.2"), "a plain suffix is accepted");
+        assert!(
+            !is_release_tag("v0.9.9-$(id)"),
+            "a command substitution is refused"
+        );
+        assert!(!is_release_tag("v0.9.9`id`"), "backticks are refused");
+        assert!(
+            !is_release_tag("v0.9.9' ; rm -rf /"),
+            "quotes, a space and a command are refused"
+        );
+        assert!(
+            !is_release_tag("v0.9.9;reboot"),
+            "a statement separator is refused"
+        );
+        assert!(
+            !is_release_tag("v0.9.9 *"),
+            "a glob and a space are refused"
+        );
+        assert!(!is_release_tag("v0.9.9\nreboot"), "a newline is refused");
+        assert!(!is_release_tag("dev"), "not a release at all");
+        assert!(
+            !is_release_tag("1.2"),
+            "a short version is not a release tag"
+        );
     }
 }

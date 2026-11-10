@@ -222,6 +222,14 @@ Limits for a single run.
 | `seconds` | integer | Wall-clock seconds per run. Default 90. |
 | `tool_calls` | integer | Tool calls per run. Default 15. |
 
+### `[updates]`
+
+Looking for a newer Domovoi release.
+
+| Key | Type | Meaning |
+| --- | --- | --- |
+| `check` | boolean | Look for a newer Domovoi release on GitHub twice a day. Nothing is sent but the request itself. Default `true`. |
+
 ### `[web]`
 
 The web UI and HTTP API listener.

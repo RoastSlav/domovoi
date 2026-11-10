@@ -5,6 +5,7 @@ import { SECRET_SET, type Settings } from "../../api/types";
 import { EmptyState } from "../../components/EmptyState";
 import { PageIntro } from "../../components/PageIntro";
 import { RelativeTime } from "../../components/RelativeTime";
+import { UpdateAbout } from "../updates/UpdateAbout";
 import { EditableSettings } from "./EditableSettings";
 import styles from "./settings.module.css";
 
@@ -151,6 +152,9 @@ export function SettingsPage() {
         <Section title="Advisories">
           <Advisories />
         </Section>
+        <Section title="About">
+          <UpdateAbout />
+        </Section>
       </>
     );
   }
@@ -235,6 +239,9 @@ export function SettingsPage() {
       </Section>
       <Section title="Advisories">
         <Advisories />
+      </Section>
+      <Section title="About">
+        <UpdateAbout />
       </Section>
     </>
   );

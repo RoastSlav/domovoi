@@ -2184,6 +2184,80 @@ expression: spec
         ],
         "type": "object"
       },
+      "UpdateDto": {
+        "description": "The newest release this hub knows about, with commands ready to copy.",
+        "properties": {
+          "agent_command": {
+            "description": "Reinstalls an agent and restarts its service.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "checked_at": {
+            "description": "When this hub last checked.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "current": {
+            "description": "The version this hub runs.",
+            "type": "string"
+          },
+          "docker_command": {
+            "description": "Pulls and recreates a container deployment.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hub_command": {
+            "description": "Reinstalls the hub and restarts its service.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "latest": {
+            "description": "The release's tag, for example `v0.5.0`; `None` until the first check succeeds.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "newer": {
+            "description": "Whether `latest` is newer than `current`.",
+            "type": "boolean"
+          },
+          "notes": {
+            "description": "The release notes, cut to 4000 characters.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "published_at": {
+            "description": "When the release was published.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "url": {
+            "description": "The release's page on GitHub.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "current",
+          "newer"
+        ],
+        "type": "object"
+      },
       "UsageSettings": {
         "description": "Model usage this calendar month (UTC).",
         "properties": {
@@ -5295,6 +5369,88 @@ expression: spec
           }
         },
         "summary": "The hub's recent log lines, oldest first, with secrets removed.",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/v1/system/update": {
+      "get": {
+        "operationId": "get_update",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateDto"
+                }
+              }
+            },
+            "description": "The last check and how to update"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          }
+        },
+        "summary": "The last release check, if the hub has made one.",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/v1/system/update/check": {
+      "post": {
+        "operationId": "check_update",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateDto"
+                }
+              }
+            },
+            "description": "The new check"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Checked less than a minute ago"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "GitHub did not answer with a release"
+          }
+        },
+        "summary": "Checks for a release now, at most once a minute.",
         "tags": [
           "system"
         ]

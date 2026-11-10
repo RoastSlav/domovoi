@@ -13,6 +13,7 @@ mod start;
 mod support;
 #[cfg(test)]
 mod tests;
+pub mod updates;
 
 use std::sync::Arc;
 
@@ -40,6 +41,7 @@ use crate::api::{ApiDeps, ApiState, MetricsRender};
 use crate::auth::{AuthState, WebIdentity};
 use crate::digest::DigestDeps;
 use crate::ingest::{IngestDeps, IngestState};
+use crate::runtime::updates::UpdateChecker;
 
 pub(crate) use dispatcher::Dispatcher;
 pub use local::{LocalAgents, LocalEnrollment};
@@ -272,6 +274,7 @@ impl HubRuntime {
             clock: clock.clone(),
             redactor: redactor.clone(),
         };
+        let updates = UpdateChecker::load(store.clone(), clock.clone()).await;
         let api = ApiState::new(
             ApiDeps {
                 incidents: store.clone(),
@@ -298,6 +301,7 @@ impl HubRuntime {
                 audit: store.clone(),
                 logs: deps.logs,
                 redactor: redactor.clone(),
+                update: updates.clone(),
             },
             auth.clone(),
         )
@@ -338,6 +342,7 @@ impl HubRuntime {
             actions_service,
             dispatcher.clone(),
             digest,
+            updates,
         );
         let profile_task = crate::profile::spawn(profile_deps, intake_shutdown.clone());
         Ok(Self {

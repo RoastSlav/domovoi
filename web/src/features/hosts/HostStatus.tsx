@@ -1,5 +1,7 @@
+import { useState } from "react";
 import type { Host } from "../../api/types";
 import { RelativeTime } from "../../components/RelativeTime";
+import { HowToUpdateDialog } from "../updates/HowToUpdateDialog";
 import styles from "./hosts.module.css";
 
 /** Whether a host's agent is connected, and since or until when. */
@@ -51,6 +53,8 @@ export function isHubOnly(host: Host): boolean {
 
 /** The agent's version, marked when it is older than the hub, or why it was refused. */
 export function VersionCell({ host }: { host: Host }) {
+  const [updating, setUpdating] = useState(false);
+  const outdated = host.outdated;
   if (host.refused) {
     return (
       <span className={styles.refused} title="The handshake was refused; update the older side">
@@ -62,13 +66,21 @@ export function VersionCell({ host }: { host: Host }) {
     return <span aria-label="unknown">–</span>;
   }
   return (
-    <span className={styles.version}>
-      {host.version}
-      {host.outdated && (
-        <span className={styles.outdated} title="Older than the hub; update the agent">
-          Outdated
-        </span>
-      )}
-    </span>
+    <>
+      <span className={styles.version}>
+        {host.version}
+        {outdated && (
+          <span className={styles.outdated} title="Older than the hub; update the agent">
+            Outdated
+          </span>
+        )}
+        {outdated && (
+          <button type="button" className={styles.update} onClick={() => setUpdating(true)}>
+            How to update
+          </button>
+        )}
+      </span>
+      {updating && outdated && <HowToUpdateDialog onClose={() => setUpdating(false)} />}
+    </>
   );
 }

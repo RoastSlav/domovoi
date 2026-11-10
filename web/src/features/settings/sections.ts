@@ -312,4 +312,10 @@ export const SECTIONS: SectionSpec[] = [
       { path: "backup.keep", label: "Backups to keep", kind: "number" },
     ]),
   },
+  {
+    title: "Updates",
+    intro:
+      "Look for a newer Domovoi release on GitHub twice a day. Nothing is sent but the request itself.",
+    fields: fixed([{ path: "updates.check", label: "Check for new releases", kind: "bool" }]),
+  },
 ];

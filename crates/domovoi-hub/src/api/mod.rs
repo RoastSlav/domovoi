@@ -26,6 +26,7 @@ pub(crate) mod settings;
 mod settings_write;
 pub(crate) mod system;
 mod tool_usage;
+mod updates;
 mod version;
 
 use std::sync::Arc;
@@ -184,6 +185,8 @@ pub struct ApiDeps {
     pub logs: Option<Arc<dyn LogSource>>,
     /// Removes secrets from log text before it is served.
     pub redactor: Arc<dyn Redactor>,
+    /// The last release check, and the button that runs one now.
+    pub update: crate::runtime::updates::UpdateChecker,
 }
 
 /// The state every handler gets.
@@ -365,6 +368,7 @@ pub fn routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(system::advisories))
         .routes(routes!(system::digest_preview))
         .routes(routes!(system::digest_send))
+        .routes(routes!(updates::show, updates::check))
         .routes(routes!(events::stream))
         .routes(routes!(system::healthz))
         .routes(routes!(system::metrics))
