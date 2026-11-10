@@ -8,6 +8,9 @@ import styles from "./ChatThread.module.css";
 /** The longest question the hub accepts. */
 export const MAX_QUESTION_CHARS = 1000;
 
+/** The most earlier messages the hub accepts in one request. */
+export const MAX_HISTORY_TURNS = 20;
+
 /** One message in a chat: the operator's question or the model's answer. */
 export interface ChatTurn {
   role: "user" | "assistant";
@@ -20,7 +23,13 @@ export interface ChatTurn {
 export function chatFailureText(error: unknown): string {
   if (error instanceof ApiFailure) {
     if (error.status === 503) {
-      return "Triage is off, so there is no one to ask.";
+      if (error.code === "triage_off") {
+        return "Triage is off, so there is no one to ask.";
+      }
+      if (error.code === "budget_spent") {
+        return "The monthly model budget is spent, so there are no answers until it resets.";
+      }
+      return "The model is not available right now. Check the model settings and try again.";
     }
     if (error.status < 500) {
       return error.message;

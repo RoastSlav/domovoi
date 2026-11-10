@@ -142,6 +142,9 @@ pub enum TriageError {
     /// Every provider failed; the text lists each provider's reason joined by "; ".
     #[error("the model is not available: {0}")]
     Provider(String),
+    /// The monthly model budget is spent, so no provider was asked.
+    #[error("the monthly model budget is spent")]
+    BudgetSpent,
     /// The store failed.
     #[error("store error: {0}")]
     Store(String),

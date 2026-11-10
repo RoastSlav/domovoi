@@ -419,11 +419,7 @@ pub(super) async fn ask(
             "the question must have 1 to {MAX_QUESTION_CHARS} characters"
         )));
     }
-    let triage = state
-        .deps
-        .triage
-        .clone()
-        .ok_or_else(|| ApiError::Unavailable("triage is not enabled".to_owned()))?;
+    let triage = state.deps.triage.clone().ok_or(ApiError::TriageOff)?;
     let incident = parse_id(&id)?;
     let question = question.to_owned();
     let user = current.user.id;
@@ -435,6 +431,7 @@ pub(super) async fn ask(
         .map_err(|e| match e {
             TriageError::UnknownIncident(_) => ApiError::NotFound,
             TriageError::Provider(err) => ApiError::Unavailable(err),
+            TriageError::BudgetSpent => ApiError::BudgetSpent,
             TriageError::Store(err) => ApiError::internal("follow-up failed", err),
         })?;
     Ok(Json(AskResponse { answer }))
@@ -459,11 +456,7 @@ pub(super) async fn retry_triage(
     Path(id): Path<String>,
     Query(query): Query<RetryQuery>,
 ) -> Result<Json<TriageStateDto>, ApiError> {
-    let triage = state
-        .deps
-        .triage
-        .clone()
-        .ok_or_else(|| ApiError::Unavailable("triage is not enabled".to_owned()))?;
+    let triage = state.deps.triage.clone().ok_or(ApiError::TriageOff)?;
     let incident = load(&state, &id).await?;
     let fresh = query.fresh == Some(true);
     // A task of its own, so that a closed tab or a navigation does not cancel the run; the

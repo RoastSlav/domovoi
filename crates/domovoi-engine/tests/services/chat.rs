@@ -186,10 +186,7 @@ async fn a_spent_monthly_budget_refuses_the_chat_without_a_model_call() {
         .await
         .err();
     assert!(
-        matches!(
-            &refused,
-            Some(TriageError::Provider(reason)) if reason.contains("monthly"),
-        ),
+        matches!(&refused, Some(TriageError::BudgetSpent)),
         "the spent monthly budget is the reason: {refused:?}",
     );
     assert!(

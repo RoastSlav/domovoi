@@ -537,7 +537,7 @@ test("incident_detail_ack_and_ask", async () => {
   route("GET /api/v1/incidents/{id}", () => detail());
   route("POST /api/v1/incidents/{id}/ack", () => undefined);
   route("POST /api/v1/incidents/{id}/ask", () =>
-    failure(503, "unavailable", "triage is not configured"),
+    failure(503, "triage_off", "triage is not configured"),
   );
   renderAt("/incidents/inc-1", "/incidents/:id", <IncidentDetailPage />);
 

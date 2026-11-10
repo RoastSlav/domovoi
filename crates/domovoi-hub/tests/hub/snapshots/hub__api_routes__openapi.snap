@@ -2870,10 +2870,10 @@ expression: spec
                 }
               }
             },
-            "description": "Triage is off or the model is unavailable"
+            "description": "Triage is off, the monthly model budget is spent, or the model is unavailable"
           }
         },
-        "summary": "Answers a general question about the operator's hosts. With `host` the model may use\nthat host's read-only tools and read skills; without one it answers from an overview\nof every host and calls no tools. It never proposes or runs actions.",
+        "summary": "Answers a general question about the operator's hosts. With a connected `host` the model\nmay use that host's read-only tools and read skills; without one, or with an offline host,\nit answers from an overview and calls no tools. It never proposes or runs actions.",
         "tags": [
           "hosts"
         ]

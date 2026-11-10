@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useChat, type ChatMessage } from "../../api/hooks/chat";
 import { useHosts } from "../../api/hooks/hosts";
-import { ChatThread, chatFailureText } from "../../components/ChatThread";
+import { ChatThread, MAX_HISTORY_TURNS, chatFailureText } from "../../components/ChatThread";
 import { PageIntro } from "../../components/PageIntro";
 import styles from "./chat.module.css";
 
@@ -51,6 +51,15 @@ function forgetConversation(host: string | undefined): void {
 }
 
 /**
+ * The newest earlier turns the hub accepts. Only whole question/answer pairs are sent, so
+ * a conversation that has outgrown the limit keeps working instead of every request failing.
+ */
+function recentHistory(turns: ChatMessage[]): ChatMessage[] {
+  const start = Math.max(0, turns.length - MAX_HISTORY_TURNS);
+  return turns.slice(turns[start]?.role === "assistant" ? start + 1 : start);
+}
+
+/**
  * The general chat: one conversation per host, kept in sessionStorage, cleared on demand.
  * With a host chosen the model may look at that host; with "All hosts" it answers from a
  * summary of every host. It only reads, and the hint under the composer says so.
@@ -78,7 +87,11 @@ export function ChatPage() {
     }
     setPending(trimmed);
     try {
-      const response = await ask.mutateAsync({ host, history: turns, question: trimmed });
+      const response = await ask.mutateAsync({
+        host,
+        history: recentHistory(turns),
+        question: trimmed,
+      });
       const next: ChatMessage[] = [
         ...turns,
         { role: "user", text: trimmed },

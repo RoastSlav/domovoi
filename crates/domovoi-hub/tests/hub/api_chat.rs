@@ -2,6 +2,7 @@
 //! refusal when triage is off.
 
 use axum::http::StatusCode;
+use domovoi_core::ports::Presence;
 use serde_json::{Value, json};
 
 use crate::api_harness::{api, api_with_triage};
@@ -10,7 +11,7 @@ use crate::api_harness::{api, api_with_triage};
 async fn chat_rejects_oversized_or_malformed_requests_without_a_model_call() {
     let a = api_with_triage().await;
     let login = a.admin().await;
-    let cases: [(&str, Value); 5] = [
+    let cases: [(&str, Value); 7] = [
         ("an empty question", json!({ "question": "   " })),
         (
             "a question over the limit",
@@ -23,6 +24,20 @@ async fn chat_rejects_oversized_or_malformed_requests_without_a_model_call() {
                 "history": (0..21)
                     .map(|_| json!({ "role": "assistant", "text": "Earlier." }))
                     .collect::<Vec<Value>>(),
+            }),
+        ),
+        (
+            "an empty earlier turn",
+            json!({
+                "question": "Why?",
+                "history": [{ "role": "user", "text": "" }],
+            }),
+        ),
+        (
+            "a whitespace-only earlier turn",
+            json!({
+                "question": "Why?",
+                "history": [{ "role": "user", "text": "   " }],
             }),
         ),
         (
@@ -100,6 +115,38 @@ async fn chat_answers_from_the_model_with_every_host_in_its_overview() {
     assert!(
         seen.contains("disk.usage"),
         "the overview lists the open incident: {seen}"
+    );
+}
+
+#[tokio::test]
+async fn chat_about_an_offline_host_offers_the_model_no_tools() {
+    let a = api_with_triage().await;
+    let login = a.admin().await;
+    a.link
+        .set_presence(a.nas.id, Presence::Disconnected { last_seen: None });
+    a.llm
+        .push_text("The NAS is offline, so I can only use what the hub knows.");
+
+    let reply = a
+        .post(
+            "/api/v1/chat",
+            &login,
+            json!({ "host": "nas", "question": "Why is it slow?" }),
+        )
+        .await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.text);
+
+    let asked = a.llm.requests();
+    assert_eq!(asked.len(), 1, "the model answers once");
+    assert!(
+        asked[0].tools.is_empty(),
+        "an offline host offers the model no tools: {:?}",
+        asked[0]
+    );
+    let seen = format!("{:?}", asked[0]);
+    assert!(
+        seen.contains("nas"),
+        "the overview still names the offline host: {seen}"
     );
 }
 

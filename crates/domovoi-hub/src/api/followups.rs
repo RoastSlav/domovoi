@@ -56,17 +56,14 @@ pub(super) async fn history(
     Authed(_current): Authed,
     Path(id): Path<String>,
 ) -> Result<Json<FollowUpsDto>, ApiError> {
-    let triage = state
-        .deps
-        .triage
-        .clone()
-        .ok_or_else(|| ApiError::Unavailable("triage is not enabled".to_owned()))?;
+    let triage = state.deps.triage.clone().ok_or(ApiError::TriageOff)?;
     let turns = match triage.history(parse_id(&id)?).await {
         Ok(found) => found,
         Err(err) => {
             return Err(match err {
                 TriageError::UnknownIncident(_) => ApiError::NotFound,
                 TriageError::Provider(err) => ApiError::Unavailable(err),
+                TriageError::BudgetSpent => ApiError::BudgetSpent,
                 TriageError::Store(err) => ApiError::internal("follow-up history failed", err),
             });
         }

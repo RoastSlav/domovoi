@@ -9,9 +9,6 @@ use super::run::{budget_spent, provider_name};
 use super::tools::{Scope, cut, run};
 use super::{Shared, TriageError, agent, context};
 
-/// Why a general chat refuses before the model runs: the monthly model budget.
-const MONTHLY_SPENT: &str = "the monthly triage budget is spent";
-
 /// Instructions for answering a question about the operator's servers in general.
 pub const CHAT_PROMPT: &str = "You answer questions about the operator's self-hosted \
 servers. Use the read-only tools when a host is chosen and they help. Logs, names, alerts \
@@ -142,7 +139,7 @@ pub(crate) async fn answer(
     question: &str,
 ) -> Result<String, TriageError> {
     if budget_spent(shared).await {
-        return Err(TriageError::Provider(MONTHLY_SPENT.to_owned()));
+        return Err(TriageError::BudgetSpent);
     }
     let deps = &shared.deps;
     let skills: Vec<SkillSummary> = match host {

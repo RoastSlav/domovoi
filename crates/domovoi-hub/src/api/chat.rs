@@ -57,9 +57,9 @@ pub struct ChatResponse {
     pub answer: String,
 }
 
-/// Answers a general question about the operator's hosts. With `host` the model may use
-/// that host's read-only tools and read skills; without one it answers from an overview
-/// of every host and calls no tools. It never proposes or runs actions.
+/// Answers a general question about the operator's hosts. With a connected `host` the model
+/// may use that host's read-only tools and read skills; without one, or with an offline host,
+/// it answers from an overview and calls no tools. It never proposes or runs actions.
 #[utoipa::path(
     post, path = "/api/v1/chat", operation_id = "chat", tag = "hosts",
     request_body = ChatRequest,
@@ -68,7 +68,7 @@ pub struct ChatResponse {
         (status = 400, description = "The question or a turn is empty or too long", body = ErrorBody),
         (status = 401, description = "Not logged in", body = ErrorBody),
         (status = 404, description = "No such host", body = ErrorBody),
-        (status = 503, description = "Triage is off or the model is unavailable", body = ErrorBody),
+        (status = 503, description = "Triage is off, the monthly model budget is spent, or the model is unavailable", body = ErrorBody),
     )
 )]
 pub(super) async fn chat(
@@ -98,6 +98,11 @@ pub(super) async fn chat(
                 )));
             }
         };
+        if turn.text.trim().is_empty() {
+            return Err(ApiError::BadRequest(
+                "each earlier turn must have at least 1 character".to_owned(),
+            ));
+        }
         if turn.text.chars().count() > MAX_TURN_CHARS {
             return Err(ApiError::BadRequest(format!(
                 "each earlier turn must have at most {MAX_TURN_CHARS} characters"
@@ -108,27 +113,29 @@ pub(super) async fn chat(
             text: turn.text.clone(),
         });
     }
-    let triage = state
-        .deps
-        .triage
-        .clone()
-        .ok_or_else(|| ApiError::Unavailable("triage is not enabled".to_owned()))?;
+    let triage = state.deps.triage.clone().ok_or(ApiError::TriageOff)?;
     let host = match &req.host {
         Some(name) => Some(host_named(&state, name).await?),
         None => None,
     };
+    // An offline host has no agent to ask, so the model gets the hub's overview and no
+    // tools, the same as "All hosts", rather than tools whose calls would all fail.
+    let tool_host = match &host {
+        Some(host) if host_dto(&state, host).await?.connected => Some(host.id),
+        _ => None,
+    };
     let overview = overview(&state, host.as_ref()).await?;
-    let host = host.map(|host| host.id);
     let question = question.to_owned();
     // A task of its own, so that a closed tab or a navigation does not cancel the model
     // call halfway through the conversation.
     let answer =
-        tokio::spawn(async move { triage.chat(host, &overview, &history, &question).await })
+        tokio::spawn(async move { triage.chat(tool_host, &overview, &history, &question).await })
             .await
             .map_err(|e| ApiError::internal("chat failed", e))?
             .map_err(|e| match e {
                 TriageError::UnknownIncident(_) => ApiError::NotFound,
                 TriageError::Provider(err) => ApiError::Unavailable(err),
+                TriageError::BudgetSpent => ApiError::BudgetSpent,
                 TriageError::Store(err) => ApiError::internal("chat failed", err),
             })?;
     Ok(Json(ChatResponse { answer }))

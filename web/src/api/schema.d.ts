@@ -177,9 +177,9 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Answers a general question about the operator's hosts. With `host` the model may use
-         *     that host's read-only tools and read skills; without one it answers from an overview
-         *     of every host and calls no tools. It never proposes or runs actions.
+         * Answers a general question about the operator's hosts. With a connected `host` the model
+         *     may use that host's read-only tools and read skills; without one, or with an offline host,
+         *     it answers from an overview and calls no tools. It never proposes or runs actions.
          */
         post: operations["chat"];
         delete?: never;
@@ -2234,7 +2234,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description Triage is off or the model is unavailable */
+            /** @description Triage is off, the monthly model budget is spent, or the model is unavailable */
             503: {
                 headers: {
                     [name: string]: unknown;

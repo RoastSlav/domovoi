@@ -71,6 +71,12 @@ pub enum ApiError {
     /// A part the request needs is not configured or not running.
     #[error("{0}")]
     Unavailable(String),
+    /// Triage, and with it the model chat, is not enabled.
+    #[error("triage is not enabled")]
+    TriageOff,
+    /// The monthly model budget is spent; no model was asked.
+    #[error("the monthly model budget is spent")]
+    BudgetSpent,
     /// A configured chat platform did not take a message.
     #[error("{0}")]
     Delivery(String),
@@ -95,6 +101,8 @@ impl ApiError {
             Self::Conflict(_) => (StatusCode::CONFLICT, "conflict"),
             Self::TooMany(_) => (StatusCode::TOO_MANY_REQUESTS, "too_many_requests"),
             Self::Unavailable(_) => (StatusCode::SERVICE_UNAVAILABLE, "unavailable"),
+            Self::TriageOff => (StatusCode::SERVICE_UNAVAILABLE, "triage_off"),
+            Self::BudgetSpent => (StatusCode::SERVICE_UNAVAILABLE, "budget_spent"),
             Self::Delivery(_) => (StatusCode::BAD_GATEWAY, "delivery_failed"),
             Self::Internal => (StatusCode::INTERNAL_SERVER_ERROR, "internal"),
         }

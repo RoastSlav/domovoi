@@ -1,8 +1,9 @@
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { calls, resetApi, route } from "../../test/apiMock";
+import { calls, failure, resetApi, route } from "../../test/apiMock";
 import { nas } from "../../test/fixtures";
 import { renderAt } from "../../test/render";
+import { MAX_HISTORY_TURNS } from "../../components/ChatThread";
 import { ChatPage } from "./ChatPage";
 
 vi.mock("../../api/client", () => import("../../test/apiMock"));
@@ -53,6 +54,65 @@ test("chat_sends_the_earlier_turns_and_clear_empties_them", async () => {
     "Clear empties the conversation",
   ).not.toBeInTheDocument();
   expect(sessionStorage.getItem("chat:all"), "the saved conversation is gone").toBeNull();
+});
+
+test("chat_sends_only_the_newest_twenty_earlier_messages", async () => {
+  const user = userEvent.setup();
+  renderAt("/chat", "/chat", <ChatPage />);
+
+  const textarea = screen.getByLabelText("Ask about your servers");
+  for (let n = 0; n < 12; n += 1) {
+    await user.type(textarea, `Question ${n}`);
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    expect(await screen.findByText(`Answer to: Question ${n}`)).toBeVisible();
+  }
+
+  const posts = calls.filter((call) => call.route === "POST /api/v1/chat");
+  expect(posts, "every question still reaches the hub").toHaveLength(12);
+  const last = posts[11]?.init.body as {
+    history: { role: string; text: string }[];
+  };
+  expect(last.history, "the hub's limit is never exceeded").toHaveLength(MAX_HISTORY_TURNS);
+  expect(last.history[0], "the oldest pair is dropped together").toEqual({
+    role: "user",
+    text: "Question 1",
+  });
+  expect(last.history.at(-1)).toEqual({
+    role: "assistant",
+    text: "Answer to: Question 10",
+  });
+  expect(
+    posts.every(
+      (post) => (post.init.body as { history: unknown[] }).history.length <= MAX_HISTORY_TURNS,
+    ),
+    "no request ever sends more than the limit",
+  ).toBe(true);
+});
+
+test("chat_says_when_the_monthly_model_budget_is_spent", async () => {
+  const user = userEvent.setup();
+  route("POST /api/v1/chat", () =>
+    failure(503, "budget_spent", "the monthly model budget is spent"),
+  );
+  renderAt("/chat", "/chat", <ChatPage />);
+
+  await user.type(screen.getByLabelText("Ask about your servers"), "Why?");
+  await user.click(screen.getByRole("button", { name: "Send" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("The monthly model budget is spent");
+});
+
+test("chat_says_when_the_model_is_not_available", async () => {
+  const user = userEvent.setup();
+  route("POST /api/v1/chat", () =>
+    failure(503, "unavailable", "the model is not available: connection refused"),
+  );
+  renderAt("/chat", "/chat", <ChatPage />);
+
+  await user.type(screen.getByLabelText("Ask about your servers"), "Why?");
+  await user.click(screen.getByRole("button", { name: "Send" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "The model is not available right now",
+  );
 });
 
 test("chat_keeps_a_separate_conversation_for_each_host", async () => {
