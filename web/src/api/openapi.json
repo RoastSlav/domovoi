@@ -1761,6 +1761,113 @@
         }
       }
     },
+    "/api/v1/incidents/{id}/followups": {
+      "get": {
+        "tags": [
+          "incidents"
+        ],
+        "summary": "The questions and answers the model still remembers for an incident, oldest first.\nAnswers recorded before the last clear are not in the list.",
+        "operationId": "incident_followups",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Incident id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The remembered turns",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FollowUpsDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Malformed incident id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Triage is off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/incidents/{id}/followups/clear": {
+      "post": {
+        "tags": [
+          "incidents"
+        ],
+        "summary": "Forgets the conversation: the next question will not be shown the earlier ones. Works\nwhether triage is on or off, and on a resolved incident too; it writes one timeline\nline and publishes nothing.",
+        "operationId": "clear_incident_followups",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Incident id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The conversation was forgotten"
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such incident",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/incidents/{id}/mute": {
       "post": {
         "tags": [
@@ -3155,7 +3262,7 @@
         "properties": {
           "answer": {
             "type": "string",
-            "description": "Plain text, at most 1500 characters."
+            "description": "Plain text, at most 4000 characters."
           }
         }
       },
@@ -3432,6 +3539,22 @@
           "value": {
             "type": "string",
             "description": "The value as text."
+          }
+        }
+      },
+      "FollowUpsDto": {
+        "type": "object",
+        "description": "The follow-up conversation the model still remembers for an incident, oldest first.",
+        "required": [
+          "turns"
+        ],
+        "properties": {
+          "turns": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TurnDto"
+            },
+            "description": "The remembered questions and answers; empty when there are none or after a clear."
           }
         }
       },
@@ -4910,6 +5033,34 @@
               "null"
             ],
             "description": "Why it was skipped or failed."
+          }
+        }
+      },
+      "TurnDto": {
+        "type": "object",
+        "description": "One question and its answer of the conversation the model still remembers.",
+        "required": [
+          "question",
+          "answer",
+          "asked_by",
+          "at"
+        ],
+        "properties": {
+          "answer": {
+            "type": "string",
+            "description": "What the model answered."
+          },
+          "asked_by": {
+            "type": "string",
+            "description": "Who asked, as its user id text."
+          },
+          "at": {
+            "type": "string",
+            "description": "When the answer was recorded, RFC 3339."
+          },
+          "question": {
+            "type": "string",
+            "description": "What the operator asked."
           }
         }
       },
