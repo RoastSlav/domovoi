@@ -71,6 +71,13 @@ pub enum Command {
         question: String,
         /// The redacted answer.
         answer: String,
+        /// When the question was asked, before the model ran; turns are replayed in this
+        /// order even when two answers arrive out of order.
+        asked_at: Timestamp,
+        /// How many clear markers the timeline had when the request started. If it has
+        /// more by the time this is recorded, a clear won the race and the answer is
+        /// dropped.
+        generation: u32,
     },
     /// The read tools a run called, for the timeline. Publishes nothing.
     RecordToolUse {

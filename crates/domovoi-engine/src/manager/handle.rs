@@ -129,19 +129,25 @@ impl ManagerHandle {
         self.send(Command::SetVerdict { incident, verdict }).await
     }
 
-    /// Adds a follow-up question and its answer to `incident`'s timeline.
+    /// Adds a follow-up question and its answer to `incident`'s timeline. `asked_at` and
+    /// `generation` are what the request saw when it started; if a clear landed while
+    /// the model was running, the answer is dropped instead of recorded.
     pub async fn record_follow_up(
         &self,
         incident: IncidentId,
         asked_by: UserId,
         question: String,
         answer: String,
+        asked_at: Timestamp,
+        generation: u32,
     ) -> Result<(), CommandError> {
         self.send(Command::RecordFollowUp {
             incident,
             asked_by,
             question,
             answer,
+            asked_at,
+            generation,
         })
         .await
     }

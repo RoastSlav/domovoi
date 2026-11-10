@@ -5,7 +5,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use domovoi_core::ports::{
-    AckRepo, Clock, IncidentFilter, IncidentRepo, Page, Redactor, SignalRepo, StoreError,
+    AckRepo, Clock, IncidentFilter, IncidentRepo, IncidentTimelineEntry, Page, Redactor,
+    SignalRepo, StoreError,
 };
 use domovoi_core::{HostId, Incident, IncidentStatus};
 use tokio::sync::{broadcast, mpsc};
@@ -183,6 +184,7 @@ impl IncidentManager {
         let mut resolved = BTreeMap::new();
         let mut acks = Vec::new();
         let mut triaged = None;
+        let mut timeline: Vec<IncidentTimelineEntry> = Vec::new();
         match command {
             Command::Ingest(signals) => {
                 let since = now
@@ -220,9 +222,13 @@ impl IncidentManager {
             | Command::Mute { .. }
             | Command::Unmute { .. }
             | Command::Dismiss { .. }
-            | Command::RecordFollowUp { .. }
             | Command::RecordToolUse { .. }
             | Command::ClearFollowUps { .. } => {}
+            // A recording follow-up needs the live timeline so deciding can tell whether
+            // a clear landed while the model was still answering.
+            Command::RecordFollowUp { incident, .. } => {
+                timeline = self.deps.incidents.timeline(*incident).await?;
+            }
             Command::AttachTriage { incident, .. } | Command::SetVerdict { incident, .. } => {
                 if !self.active.iter().any(|i| i.id() == *incident) {
                     triaged = self.deps.incidents.get(*incident).await?;
@@ -239,6 +245,7 @@ impl IncidentManager {
             acks,
             windows,
             triaged,
+            timeline,
         })
     }
 
