@@ -104,6 +104,12 @@ Use it when you would otherwise grep or read several files to answer a structura
 - What is X and what touches it: `graphify explain "X"`.
 - Where does a concept live, before a cross-crate change: `graphify query "<identifiers>"`.
 
+Known weaknesses (checked against this repo):
+
+- Every `use` of a type creates its own stub node, so a name like `ReadTool` or `HumanApproval` has several nodes, and the real definition's edges only point outward. `explain "Name"` silently picks one of them, often an import stub with 1 to 3 connections, and `affected` on the real node returns almost nothing (for `HumanApproval` it listed only `ApprovalChannel`, while grep finds 14 files using it).
+- So treat `query` as the useful command and `explain` and `affected` as hints. Judge a node by its `Source:` line: if it is an import or a local stub, not the definition, it told you nothing. Find the definition with `query` or grep, and confirm users with grep before claiming nothing else uses X.
+- `explain` and `path` need exact identifiers, not sentences.
+
 Query with identifiers (`HumanApproval`, `TriageReport`, `ReadTool`), not sentences. Sentences match common words like "how" or "web" and return noise. Add `--budget 1500` to keep output small.
 
 Skip it when:
