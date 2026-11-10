@@ -508,3 +508,98 @@ async fn retrying_triage_without_a_model_is_503_and_unknown_incidents_are_404() 
         .await;
     assert_eq!(reply.status, StatusCode::NOT_FOUND, "{}", reply.text);
 }
+
+#[tokio::test]
+async fn follow_up_history_is_served_and_clear_empties_it() {
+    let a = api_with_triage().await;
+    let login = a.admin().await;
+    a.llm.push_text("Because the config file is bad.");
+    let first = a
+        .post(
+            &format!("/api/v1/incidents/{}/ask", a.incident.id()),
+            &login,
+            json!({ "question": "Why does nginx crash?" }),
+        )
+        .await;
+    assert_eq!(first.status, StatusCode::OK, "{}", first.text);
+    a.llm.push_text("Yes, it restarted.");
+    let second = a
+        .post(
+            &format!("/api/v1/incidents/{}/ask", a.incident.id()),
+            &login,
+            json!({ "question": "Did the restart help?" }),
+        )
+        .await;
+    assert_eq!(second.status, StatusCode::OK, "{}", second.text);
+
+    let history = a
+        .get(
+            &format!("/api/v1/incidents/{}/followups", a.incident.id()),
+            &login,
+        )
+        .await;
+    assert_eq!(history.status, StatusCode::OK, "{}", history.text);
+    let turns = history.body["turns"].as_array().unwrap();
+    assert_eq!(
+        turns.len(),
+        2,
+        "both questions are remembered: {}",
+        history.text
+    );
+    assert_eq!(turns[0]["question"], "Why does nginx crash?");
+    assert_eq!(turns[0]["answer"], "Because the config file is bad.");
+    assert!(
+        turns[1]["asked_by"].as_str().unwrap().starts_with("user:"),
+        "the asker is recorded",
+    );
+
+    let cleared = a
+        .post(
+            &format!("/api/v1/incidents/{}/followups/clear", a.incident.id()),
+            &login,
+            json!({}),
+        )
+        .await;
+    assert_eq!(cleared.status, StatusCode::NO_CONTENT, "{}", cleared.text);
+    let after = a
+        .get(
+            &format!("/api/v1/incidents/{}/followups", a.incident.id()),
+            &login,
+        )
+        .await;
+    assert_eq!(after.status, StatusCode::OK, "{}", after.text);
+    assert_eq!(
+        after.body["turns"].as_array().unwrap().len(),
+        0,
+        "after the clear nothing is remembered: {}",
+        after.text,
+    );
+
+    let off = api().await;
+    let login = off.admin().await;
+    let unknown = off
+        .get(
+            &format!("/api/v1/incidents/{}/followups", off.incident.id()),
+            &login,
+        )
+        .await;
+    assert_eq!(
+        unknown.status,
+        StatusCode::SERVICE_UNAVAILABLE,
+        "with triage off there is no conversation to read: {}",
+        unknown.text,
+    );
+    let cleared = off
+        .post(
+            &format!("/api/v1/incidents/{}/followups/clear", off.incident.id()),
+            &login,
+            json!({}),
+        )
+        .await;
+    assert_eq!(
+        cleared.status,
+        StatusCode::NO_CONTENT,
+        "a clear works even with triage off: {}",
+        cleared.text,
+    );
+}
