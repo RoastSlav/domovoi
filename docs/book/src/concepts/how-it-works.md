@@ -24,7 +24,7 @@ Chat delivery plans each change from the notification policy and persisted per-i
 
 ## Chat
 
-The Chat page answers general questions about the operator's servers. With a host chosen, the model may use that host's read-only tools and read skills; with "All hosts", it answers from a summary of every host and its open incidents, and calls no tools. The page keeps a separate conversation per host in the browser tab and can clear it. Everything sent is redacted and size-bounded, the monthly model budget applies, and the model never proposes or runs an action.
+The Chat page answers general questions about the operator's servers. With a connected host chosen, the model may use that host's read-only tools and read skills; with "All hosts" or an offline host, it answers from a summary of every host and its open incidents, and calls no tools. The page keeps a separate conversation per host in the browser tab and can clear it. Everything sent is redacted and size-bounded, the monthly model budget applies, and the model never proposes or runs an action.
 
 ## Restart and missed events
 
