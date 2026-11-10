@@ -520,7 +520,9 @@ export interface paths {
         };
         /**
          * The questions and answers the model still remembers for an incident, oldest first.
-         *     Answers recorded before the last clear are not in the list.
+         *     Answers recorded before the last clear are not in the list. An id that parses but is
+         *     not a stored incident gets 404, so a cleared conversation is never read as a
+         *     mistyped one.
          */
         get: operations["incident_followups"];
         put?: never;
@@ -3139,7 +3141,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description Malformed incident id */
+            /** @description Malformed or unknown incident id */
             404: {
                 headers: {
                     [name: string]: unknown;

@@ -1766,7 +1766,7 @@
         "tags": [
           "incidents"
         ],
-        "summary": "The questions and answers the model still remembers for an incident, oldest first.\nAnswers recorded before the last clear are not in the list.",
+        "summary": "The questions and answers the model still remembers for an incident, oldest first.\nAnswers recorded before the last clear are not in the list. An id that parses but is\nnot a stored incident gets 404, so a cleared conversation is never read as a\nmistyped one.",
         "operationId": "incident_followups",
         "parameters": [
           {
@@ -1801,7 +1801,7 @@
             }
           },
           "404": {
-            "description": "Malformed incident id",
+            "description": "Malformed or unknown incident id",
             "content": {
               "application/json": {
                 "schema": {
