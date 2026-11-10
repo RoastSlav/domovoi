@@ -145,7 +145,7 @@ async fn proposal_for_unknown_skill_or_bad_args_is_dropped() {
 }
 
 #[tokio::test]
-async fn follow_up_answers_with_tools_and_never_creates_actions() {
+async fn follow_up_that_ignores_the_proposal_protocol_creates_no_actions() {
     let w = world(Setup::default()).await;
     w.link.set_skills(host_id(), vec![restart_skill()]);
     w.primary.push_ok(calls(&[(
@@ -174,7 +174,10 @@ async fn follow_up_answers_with_tools_and_never_creates_actions() {
         crate::harness::results(&w.primary.requests()[1]),
         vec![("output of docker_logs".to_owned(), false)]
     );
-    assert!(w.actions().await.is_empty(), "follow-ups never propose");
+    assert!(
+        w.actions().await.is_empty(),
+        "an answer without a PROPOSALS: line proposes nothing"
+    );
     assert!(
         !w.link
             .requests()

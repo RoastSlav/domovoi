@@ -52,14 +52,16 @@ fn check<'a>(
     Ok((skill, args))
 }
 
-/// Stores a `Proposed` action for each valid proposal in `report` and returns their plain
-/// chat tokens. Invalid proposals are removed from the report and listed in its details.
-pub(crate) async fn create(
+/// Stores a `Proposed` action for each of `proposals` that names a skill on this host,
+/// fits that skill's manifest and is not already waiting for a human. Returns the plain
+/// chat token of each stored action keyed by its id, the proposals that were stored in the
+/// order given, and why each of the others was dropped, one line each and already redacted.
+pub(crate) async fn store(
     shared: &Shared,
     incident: &Incident,
     skills: &[SkillSummary],
-    report: &mut TriageReport,
-) -> BTreeMap<ActionId, String> {
+    proposals: Vec<ActionProposal>,
+) -> (BTreeMap<ActionId, String>, Vec<ActionProposal>, Vec<String>) {
     let now = shared.deps.clock.now();
     let mut tokens = BTreeMap::new();
     let mut kept = Vec::new();
@@ -83,7 +85,7 @@ pub(crate) async fn create(
             Vec::new()
         }
     };
-    for proposal in std::mem::take(&mut report.proposals) {
+    for proposal in proposals {
         let (skill, args) = match check(&proposal, incident, skills) {
             Ok(found) => found,
             Err(why) => {
@@ -128,6 +130,25 @@ pub(crate) async fn create(
             }
         }
     }
+    (tokens, kept, dropped)
+}
+
+/// Stores the report's proposals as `Proposed` actions and keeps in the report only the
+/// ones that were stored, so the card and the thread never name a skill that is not on
+/// record. Why the others were dropped is appended to its details.
+pub(crate) async fn create(
+    shared: &Shared,
+    incident: &Incident,
+    skills: &[SkillSummary],
+    report: &mut TriageReport,
+) -> BTreeMap<ActionId, String> {
+    let (tokens, kept, dropped) = store(
+        shared,
+        incident,
+        skills,
+        std::mem::take(&mut report.proposals),
+    )
+    .await;
     report.proposals = kept;
     if !dropped.is_empty() {
         let mut details = std::mem::take(&mut report.details);

@@ -1,5 +1,5 @@
 use domovoi_core::ports::{IncidentRepo, LlmError, LlmRequest, Part};
-use domovoi_core::{TriageOutcome, UserId};
+use domovoi_core::{ActionStatus, TriageOutcome, UserId};
 use serde_json::json;
 
 use crate::harness::{Setup, host_id, report_json, restart_skill, world};
@@ -283,5 +283,88 @@ async fn the_follow_up_context_names_the_report_and_the_action_on_record() {
     assert!(
         opening.contains("restart_container container=nginx status: proposed"),
         "the action on record is named with its arguments and status: {opening}"
+    );
+}
+
+#[tokio::test]
+async fn a_chat_answer_naming_a_proposal_stores_a_proposed_action() {
+    let w = world(Setup::default()).await;
+    w.link.set_skills(host_id(), vec![restart_skill()]);
+    let block = json!([
+        {
+            "skill": "restart_container",
+            "args": {"container": "nginx"},
+            "reason": "It is stuck."
+        }
+    ]);
+    w.primary
+        .push_text(format!("The config file is bad.\nPROPOSALS: {block}"));
+
+    let answer = w
+        .triage
+        .follow_up(w.incident.id(), "What should we do?", UserId::new())
+        .await
+        .unwrap();
+    assert!(
+        answer.contains(
+            "Proposed: restart_container (It is stuck.). Approve it on the Approvals page."
+        ),
+        "the answer names the proposal and where to approve it: {answer}"
+    );
+    assert!(
+        !answer.contains("PROPOSALS:"),
+        "the block is not shown to the operator: {answer}"
+    );
+    let actions = w.actions().await;
+    assert_eq!(actions.len(), 1, "the chat proposal is on record");
+    assert_eq!(actions[0].status(), &ActionStatus::Proposed);
+    assert!(
+        actions[0].approved_by().is_none(),
+        "the proposal still waits for a human"
+    );
+}
+
+#[tokio::test]
+async fn a_chat_proposal_for_a_skill_the_host_lacks_is_reported_as_not_proposed() {
+    let w = world(Setup::default()).await;
+    w.link.set_skills(host_id(), vec![restart_skill()]);
+    let block = json!([{"skill": "wipe_disk", "args": {}, "reason": "The disk is full."}]);
+    w.primary
+        .push_text(format!("The disk is full.\nPROPOSALS: {block}"));
+
+    let answer = w
+        .triage
+        .follow_up(w.incident.id(), "What should we do?", UserId::new())
+        .await
+        .unwrap();
+    assert!(
+        answer.contains("Not proposed: wipe_disk: not a skill on this host"),
+        "the answer says why nothing was proposed: {answer}"
+    );
+    assert!(
+        w.actions().await.is_empty(),
+        "an unknown skill creates no action"
+    );
+}
+
+#[tokio::test]
+async fn a_malformed_proposals_block_is_ignored() {
+    let w = world(Setup::default()).await;
+    w.link.set_skills(host_id(), vec![restart_skill()]);
+    w.primary
+        .push_text("Nothing to do.\nPROPOSALS: restart_container(container=nginx)");
+
+    let answer = w
+        .triage
+        .follow_up(w.incident.id(), "Anything else?", UserId::new())
+        .await
+        .unwrap();
+    assert!(
+        w.actions().await.is_empty(),
+        "junk after the mark creates no action"
+    );
+    assert!(
+        !answer.contains("restart_container"),
+        "the junk block is cut from the answer: {answer}"
     );
 }
