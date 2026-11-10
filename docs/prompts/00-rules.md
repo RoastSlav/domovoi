@@ -43,11 +43,14 @@ and **agent** (runs on each watched host, runs checks and skills).
 10. Protocol change (`crates/domovoi-proto`): additive only (new optional fields with
     `#[serde(default)]`, new message kinds). Add a sample to
     `crates/domovoi-proto/tests/protocol/samples.rs` and update snapshots with
-    `INSTA_UPDATE=always cargo test -p domovoi-proto`. If `PROTOCOL_VERSION` in
-    `crates/domovoi-proto/src/version.rs` is still `1.0`, bump it to `1.1`; if it is
-    already `1.1`, leave it.
+    `INSTA_UPDATE=always cargo test -p domovoi-proto`. Bump the minor of
+    `PROTOCOL_VERSION` in `crates/domovoi-proto/src/version.rs` by one (it is `1.1` on
+    `main` today), unless a change since the last release tag already bumped it
+    (`git diff <last tag> -- crates/domovoi-proto/src/version.rs`). Update
+    `docs/book/src/reference/protocol.md` with the new kind and version.
 11. Changing a rule or invariant in `ARCHITECTURE.md` needs a new ADR in `docs/adr/`
-    (copy `0000-template.md`, next free number).
+    (copy `0000-template.md`, next free number; `0018` is the last one on `main`, and
+    prompts 25 and 31 plan `0019` and `0020`: check `docs/adr/` before picking).
 12. Config change (`crates/domovoi-config`): the reference page is generated. Run
     `cargo xtask docs-config` and commit `docs/book/src/reference/configuration.md`.
     Book pages you edit must keep `cargo xtask docs-links` passing.
@@ -76,5 +79,14 @@ cd web && npm run lint && npm run typecheck && npm test
 - Match the surrounding style: short plain-English doc comments, tests named after the
   behaviour (`resolved_incidents_show_a_resolved_badge`).
 - User-visible behaviour changed? Update the matching page in `docs/book/src/`.
-- Commit with a Conventional Commit title, for example `fix(web): ...` or
-  `feat(engine): ...`.
+- Files near the 500-line limit on `main` (plan around them, or do prompt 39 first):
+  `engine/src/manager/decide.rs` (500), `hub/src/api/dto.rs` (490),
+  `hub/src/api/settings_write.rs` (486), `hub/src/runtime/mod.rs` (483),
+  `hub/src/api/incidents.rs` (474), `hub/src/settings/service.rs` (472),
+  `config/src/hub/mod.rs` (467), `engine/src/actions/executor.rs` (454).
+- Work on a branch named after the change (`action-writer`), never after the prompt.
+- Commit messages are one line: the Conventional Commit subject only, no body, no
+  trailers, for example `fix(web): ...` or `feat(engine): ...`. PR titles have at most
+  one scope.
+- No committed file, commit or PR mentions prompts, prompt numbers, the build plan or AI
+  assistance. Describe the change itself.

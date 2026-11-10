@@ -1,92 +1,94 @@
 # Implementation prompts
 
-Ready-to-paste prompts for a local coding model, one per reported problem or requested
-improvement. Each prompt was written after reading the code it touches, so it already
-names the files, functions, root causes and file-size limits. The model should not need
-to search the repository.
+Ready-to-paste prompts for a coding model, one per problem or improvement. Each was
+written after reading the code on `main` (at `a50505a`, after `domovoi upgrade`), so it
+names the files, functions, root causes and file-size limits it needs. The model should
+not need to search the repository.
+
+The prompts finished earlier (01–14, 16–22, 23a and 24) were removed: they are merged.
+Their history is in this branch's earlier commits.
 
 ## How to use them
 
-1. Start a fresh session for every prompt (or sub-prompt such as `15a`).
+1. Start a fresh session for every prompt (or part, such as `25a`).
 2. Paste [`00-rules.md`](00-rules.md) first, then the prompt. For a prompt with parts,
    paste the shared "Background" section plus one part.
 3. Let the model work, then run the checks at the end of `00-rules.md`. If something
    fails, paste the exact error back with: "Fix only this. Do not change anything else."
-4. Commit after each prompt. Later prompts assume earlier ones are merged.
+4. Merge before starting a prompt that depends on it. Line numbers drift: if a cited
+   line does not match, the model should find the named function instead.
 
 ## The prompts
 
 | # | Prompt | Kind | Size | Needs |
 | --- | --- | --- | --- | --- |
-| 01 | [Discord test fails in the setup wizard](01-fix-setup-discord-test.md) | bug, web + hub | S | |
-| 02 | [Hub's own host shows "Never connected" without a local agent](02-fix-hub-host-without-local-agent.md) | bug, web | S | |
-| 03 | [Resolved incidents still show "Action needed"](03-fix-resolved-incident-badge.md) | bug, web | S | |
-| 04 | [Triage skipped by the hourly limit never runs again](04-fix-triage-retry-after-hourly-cap.md) | bug, engine | M | |
-| 05 | [Redo triage (fresh run, no cache)](05-redo-triage.md) | engine + API + web | S | |
-| 06 | [Group the incident page by state](06-incident-groups.md) | web | M | 03 |
-| 07 | [Ack rules ("known conditions") API and page](07-ack-rules-api-and-ui.md) | API + web | M | |
-| 08 | [Dismiss false positives](08-dismiss-false-positives.md) | core + engine + API + web | M | 07 |
-| 09 | [Expected SSH logins](09-expected-ssh-logins.md) | core + API + web | M | 07 (08 optional) |
-| 10 | [Skills and tools used per incident](10-skills-used-per-incident.md) | engine + API + web | M | |
-| 11 | [Suggestions for hardware incidents ("AC unplugged")](11-hardware-incident-proposals.md) | 11a skills, 11b report | S + M | |
-| 12 | [Explain things in the UI (what notes are, etc.)](12-ui-explanations.md) | web | S | |
-| 13 | [More skill details in the UI](13-skill-details.md) | core + runner + proto + API + web | M | |
-| 14 | [Enable and disable skills from the UI](14-skill-enable-disable.md) | hub + API + web | M | |
-| 15 | [Add and delete skills from the UI](15-skill-add-delete-from-webui.md) | 15a agent reload, 15b **security change**, 15c UI | L | 14 |
-| 16 | [Agent and hub logs in the UI](16-agent-logs.md) | 16a hub logs, 16b agent logs | M + M | |
-| 17 | [Minimum version checks both ways](17-min-version-checks.md) | proto + hub + agent + web | M | |
-| 18 | [New release notice and update help](18-release-check-and-updates.md) | 18a notice, 18b `domovoi upgrade` (optional) | M + M | 17 helps |
-| 19 | [Fallback AI provider](19-fallback-provider.md) | engine + hub + web | M | |
-| 20 | [Fallback model from the same provider](20-fallback-model.md) | config + engine + hub | M | 19 |
-| 21 | [Incident follow-ups as a real chat](21-incident-chat.md) | 21a engine/API, 21b UI, 21c proposals (optional) | M + M + M | |
-| 22 | [General chat, not tied to an incident](22-general-chat.md) | 22a engine, 22b API + UI | M + M | 21a, 21b |
-| 23 | [Denser, modern, faster UI with a host selector](23-ui-refresh.md) | 23a shell, 23b layouts, 23c performance | M + M + S | |
-| 24 | [Baseline profile of each machine on first connect](24-host-baseline-profile.md) | 24a skills, 24b hub collect + UI, 24c triage/chat use + changes | S + L + M | 11a helps |
+| 15 | [Add and delete skills from the UI](15-skill-add-delete-from-webui.md) | 15a agent reload, 15b **INV-3 change**, 15c UI | M + M + M | 32; 15b needs a decision |
+| 23 | [Denser layouts and a targeted performance pass](23-ui-refresh.md) | 23b layouts, 23c performance | M + S | 42 |
+| 25 | [One writer for action state, recovery after a restart](25-single-writer-for-actions.md) | bug, engine + store, ADR | M + M | |
+| 26 | [One admission gate for triage, follow-ups and chat](26-one-admission-gate-for-model-calls.md) | security, engine + config + hub | M | |
+| 27 | [A reused triage report proposes its actions again](27-cached-reports-create-actions.md) | bug, engine | S | |
+| 28 | [Redact model failure reasons](28-redact-provider-failures.md) | security, engine | S | |
+| 29 | [Authenticate webhooks before rate limiting](29-webhook-auth-before-rate-limit.md) | security, hub | S | |
+| 30 | [Cap unauthenticated agent connections](30-cap-agent-connections.md) | security, hub | S | |
+| 31 | [Sign releases with minisign](31-signed-releases.md) | security, binary + CI + installer, ADR | M | a key pair from you |
+| 32 | [Per-host settings in their own table](32-per-host-settings-table.md) | refactor, store + core + hub | M | |
+| 33 | [Maintenance windows from the UI](33-maintenance-windows.md) | feature, core + store + hub + web | M | 39 helps |
+| 34 | [One conversation builder for both chats](34-unify-the-two-chats.md) | refactor, engine + hub | M | 26, 28 |
+| 35 | [The audit log says who proposed an action](35-who-proposed-an-action.md) | bug, engine + web | S | |
+| 36 | [Loop guard, triage cap and retries survive a restart](36-limits-survive-a-restart.md) | bug, engine + store | M | 25, 26 |
+| 37 | [Markdown never loads remote images](37-markdown-without-remote-images.md) | security, web | S | |
+| 38 | [Docs match the code](38-docs-match-the-code.md) | docs | M | run after the code prompts |
+| 39 | [Split the files at the size limit](39-split-files-near-the-limit.md) | refactor | S | |
+| 40 | [An audit log page](40-audit-log-page.md) | feature, hub + store + web | S | 35 |
+| 41 | [Change the password, sign out other sessions](41-change-password-and-sign-out-everywhere.md) | feature, hub + CLI + web | S | |
+| 42 | [Host selector everywhere, real error states](42-web-host-selector-and-error-states.md) | web | M | |
+| 43 | [Restore from a backup, see the last backup](43-backup-restore.md) | feature, CLI + store + hub | S | |
 
 ## Suggested order
 
-1. Bugs: **03 → 02 → 01 → 04**.
-2. Shell first, so new pages fit it: **23a**.
-3. Small wins: **05, 06, 12**.
-4. Known conditions: **07 → 08 → 09**.
-5. Triage insight: **10, 11a, 11b, 24a → 24b → 24c**.
-6. Skills: **13 → 14**.
-7. Versions and logs: **17 → 16a → 16b**.
-8. Models: **19 → 20**.
-9. Chat: **21a → 21b → (21c) → 22a → 22b**.
-10. Updates: **18a → (18b)**.
-11. Skill management: **15a**, then decide on **15b** (see below), then **15c**.
-12. Polish: **23b → 23c**.
+1. **Action and cost correctness** (real defects, do first):
+   **25a → 25b**, **27**, **26**, **28**.
+2. **Small security fixes** (independent, any order): **29**, **30**, **37**, then
+   **31** once you have generated the minisign key.
+3. **Make room before features**: **39**.
+4. **Data model**: **32 → 36**.
+5. **Chat and audit**: **35 → 34**, then **40**.
+6. **Operator features**: **33**, **41**, **43**.
+7. **Skill management**: **15a**, decide on 15b, then **(15b) → 15c**.
+8. **Web polish**: **42 → 23b → 23c**.
+9. **Docs**: **38** after the batch you merge (it describes the final state).
 
-## Decisions that are yours, not the model's
+Parallel lanes, if you run more than one session (no shared files):
 
-- **15b changes invariant INV-3** ("the hub cannot push scripts"). The prompt keeps it
-  opt-in per agent, limited to a separate folder and to read skills by default, and
-  requires an ADR, but it is still a security trade-off. Without 15b, 15c falls back to
-  generating copy-paste install commands, and 14 covers turning skills off.
-- **18b** writes over the installed binary when run with `sudo`. A self-updating hub is
-  deliberately not proposed: the hub runs unprivileged and Domovoi never spawns
-  processes outside the runner.
-- **18a** makes the hub call the GitHub API twice a day by default (it can be turned
-  off). Flip the default in the prompt if you prefer opt-in.
+- lane A, engine: 25a → 25b → 27 → 26 → 28 → 36 → 35 → 34 (27, 26, 28 and 34 all touch
+  `engine/src/triage/`, so they stay in one lane);
+- lane B, hub and release: 29, 30, 31, 39 → 32 → 41 → 43;
+- lane C, web: 37 → 42 → 23b → 23c.
 
-## Notes from the investigation
+## Decisions taken (from the audit questions)
 
-- **01**: the wizard sends only the current step's fields to the test, the hub then
-  rejects an enabled Discord section without approver IDs, and the wizard hides the
-  validation issues. If you have the exact error text from the failed test, add it to
-  the prompt; the fix covers this cause and shows any other one.
-- **03**: the hub keeps the triage verdict after an incident resolves (by design), and the
-  list badge preferred the verdict over the status. The detail page looked right because
-  it adds "Resolved" next to the badge.
-- **02**: the hub always registers its own machine as a `local` host, because it files
-  hub-level problems (such as losing its network) against it.
-- **19**: the fallback provider already exists in config and the engine; it was missing
-  from the UI and only kicked in for network, rate-limit and outage errors.
-- **24**: every agent already sends OS, kernel, CPU and RAM in its handshake, but the hub
-  discards them. The profile is built on the hub from read tools the agent already
-  serves (overview, containers, ports, kernel log) plus read skills, so it needs no
-  protocol change. It is stored as a generated note, which makes it visible, searchable
-  and readable by triage without a new table.
-- Several Rust files are close to the 500-line limit (`engine/src/manager/decide.rs` is
-  at 492). The prompts that touch them say where to put new code instead.
+- Action state uses **one writer** (25), not just a compare-and-set in the store.
+- Follow-up questions and the general chat **count against the hourly triage cap** (26),
+  with `reserved_for_incidents` keeping room for triage.
+- Releases are signed with a **minisign key compiled into the binary** (31).
+- `/metrics` and `/healthz` **stay unauthenticated** for Prometheus and Netdata; 38
+  documents it.
+- A generic webhook, ntfy, Slack and Telegram notifiers are **planned for later**, not
+  written as prompts yet; 38 moves the generic webhook out of the v0.1 claims.
+
+## Decisions still yours
+
+- **15b** changes INV-3 ("the hub cannot push scripts"). The prompt lists three options;
+  the audit recommends skipping it (15a and 15c already make adding a skill a
+  copy-paste plus at most a minute's wait).
+- **26**: is `reserved_for_incidents = 2` the right default with `per_hour_runs = 6`?
+- **31**: you generate the key pair and add two repository secrets before running it.
+
+## Later, not written yet
+
+Ideas from the audit that build on existing code, for when the list above is done:
+more notifiers (generic webhook, ntfy, email) and gateways (Slack, Telegram, Matrix);
+a read-only second user; agent self-update from the Hosts page; more checks
+(per-host certificate expiry, ZFS/mdraid/btrfs health, backup-job heartbeats, pending
+package updates); a weekly cost line in the digest; config and notes export; saving the
+general chat on the hub.
