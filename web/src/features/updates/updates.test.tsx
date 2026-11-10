@@ -18,7 +18,8 @@ const update = {
     "curl -fsSL https://github.com/RoastSlav/domovoi/releases/download/v0.2.0/install.sh | sudo sh -s -- --role hub --version v0.2.0 && sudo systemctl restart domovoi-hub",
   agent_command:
     "curl -fsSL https://github.com/RoastSlav/domovoi/releases/download/v0.2.0/install.sh | sudo sh -s -- --role agent --version v0.2.0 && sudo systemctl restart domovoi-agent",
-  docker_command: "docker compose -f hub.yml pull && docker compose -f hub.yml up -d",
+  docker_command:
+    "DOMOVOI_IMAGE_TAG=0.2.0 docker compose -f hub.yml pull && DOMOVOI_IMAGE_TAG=0.2.0 docker compose -f hub.yml up -d",
 };
 
 function renderBanner() {
@@ -54,10 +55,14 @@ test("how_to_update_shows_the_hub_agent_and_docker_commands", async () => {
   await user.click(await screen.findByRole("button", { name: "How to update" }));
 
   expect(screen.getByRole("dialog", { name: "How to update Domovoi" })).toBeVisible();
-  expect(screen.getByLabelText("Hub update command")).toHaveTextContent("--role hub");
-  expect(screen.getByLabelText("Agent update command")).toHaveTextContent("--role agent");
+  expect(screen.getByLabelText("Hub update command")).toHaveTextContent(
+    "--role hub --version v0.2.0",
+  );
+  expect(screen.getByLabelText("Agent update command")).toHaveTextContent(
+    "--role agent --version v0.2.0",
+  );
   expect(screen.getByLabelText("Docker update command")).toHaveTextContent(
-    "docker compose -f hub.yml pull",
+    "DOMOVOI_IMAGE_TAG=0.2.0 docker compose -f hub.yml pull",
   );
   expect(screen.getByText("Update the hub first, then the agents.")).toBeVisible();
 });

@@ -618,7 +618,7 @@ test("outdated_agent_opens_the_update_commands", async () => {
     newer: true,
     hub_command: "install --role hub --version v0.9.9",
     agent_command: "install --role agent --version v0.9.9",
-    docker_command: "docker compose -f hub.yml pull",
+    docker_command: "DOMOVOI_IMAGE_TAG=0.9.9 docker compose -f hub.yml pull",
   }));
   renderAt("/hosts", "/hosts", <HostsPage />);
 
