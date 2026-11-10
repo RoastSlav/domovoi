@@ -14,6 +14,10 @@ export type IncidentDetail = Schemas["IncidentDetail"];
 export type Card = Schemas["CardDto"];
 /** One timeline line. */
 export type TimelineEntry = Schemas["TimelineEntryDto"];
+/** What the model still remembers of the follow-up conversation. */
+export type FollowUps = Schemas["FollowUpsDto"];
+/** One follow-up question and its answer. */
+export type Turn = Schemas["TurnDto"];
 /** A triage report. */
 export type Report = Schemas["ReportDto"];
 /** How the latest triage run went. */
