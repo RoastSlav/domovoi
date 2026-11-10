@@ -5,6 +5,7 @@ import {
   call,
   defined,
   type DismissInput,
+  type FollowUps,
   type IncidentDetail,
   type IncidentPage,
   type TriageState,
@@ -45,6 +46,15 @@ export function useIncident(id: string) {
     queryKey: keys.incident(id),
     queryFn: () =>
       call<IncidentDetail>(api.GET("/api/v1/incidents/{id}", { params: { path: { id } } })),
+  });
+}
+
+/** The follow-up turns the model still remembers for the incident, oldest first. */
+export function useFollowUps(id: string) {
+  return useQuery({
+    queryKey: keys.followUps(id),
+    queryFn: () =>
+      call<FollowUps>(api.GET("/api/v1/incidents/{id}/followups", { params: { path: { id } } })),
   });
 }
 
@@ -116,12 +126,35 @@ export function useRetryTriage(id: string) {
   });
 }
 
-/** Asks triage a follow-up question about the incident. */
+/** Asks triage a follow-up question about the incident; the remembered turns refresh with
+ * its answer. */
 export function useAsk(id: string) {
+  const client = useQueryClient();
   return useMutation({
     mutationFn: (question: string) =>
       call<{ answer: string }>(
         api.POST("/api/v1/incidents/{id}/ask", { params: { path: { id } }, body: { question } }),
       ),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: keys.followUps(id) });
+    },
+  });
+}
+
+/** Forgets the follow-up conversation: the next question starts a new one. The incident detail
+ * refreshes too, since the clearing writes one timeline line. */
+export function useClearFollowUps(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      call(
+        api.POST("/api/v1/incidents/{id}/followups/clear", {
+          params: { path: { id } },
+        }),
+      ),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: keys.followUps(id) });
+      void client.invalidateQueries({ queryKey: keys.incident(id) });
+    },
   });
 }

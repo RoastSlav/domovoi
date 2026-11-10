@@ -7,11 +7,14 @@ import { RelativeTime } from "../../components/RelativeTime";
 import ui from "../../components/ui.module.css";
 import { ActionItem } from "../approvals/ActionItem";
 import approvals from "../approvals/approvals.module.css";
-import { AskBox } from "./AskBox";
+import { IncidentChat } from "./IncidentChat";
 import { IncidentCard } from "./IncidentCard";
 import { IncidentControls } from "./IncidentControls";
 import { RetryTriage } from "./RetryTriage";
 import styles from "./incidents.module.css";
+
+/** The timeline kind of a recorded follow-up question; the Chat section shows its text. */
+const FOLLOW_UP_KIND = "triage.followup";
 
 function Timeline({ entries }: { entries: TimelineEntry[] }) {
   if (entries.length === 0) {
@@ -22,14 +25,14 @@ function Timeline({ entries }: { entries: TimelineEntry[] }) {
       {entries.map((entry, index) => (
         <li key={`${entry.at}-${index}`}>
           <RelativeTime at={entry.at} /> <span className={styles.kind}>{entry.kind}</span>{" "}
-          {entry.summary}
+          {entry.kind === FOLLOW_UP_KIND ? "" : entry.summary}
         </li>
       ))}
     </ol>
   );
 }
 
-/** One incident: the card on top, then details, actions, follow-up questions and history. */
+/** One incident: the card on top, then details, actions, the chat about it and history. */
 export function IncidentDetailPage() {
   const { id = "" } = useParams();
   const incident = useIncident(id);
@@ -140,9 +143,9 @@ export function IncidentDetailPage() {
         )}
       </section>
 
-      <section className={styles.section} aria-labelledby="ask-heading">
-        <h2 id="ask-heading">Follow-up</h2>
-        <AskBox incidentId={summary.id} />
+      <section className={styles.section} aria-labelledby="chat-heading">
+        <h2 id="chat-heading">Chat</h2>
+        <IncidentChat incidentId={summary.id} host={host} />
       </section>
 
       <section className={styles.section} aria-labelledby="timeline-heading">
