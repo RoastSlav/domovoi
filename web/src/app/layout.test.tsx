@@ -21,6 +21,11 @@ beforeEach(() => {
   route("GET /api/v1/session", () => ({ user: { username: "admin" }, csrf_token: "t" }));
   route("GET /api/v1/hosts", () => [nas]);
   route("GET /api/v1/actions", () => ({ items: [] }));
+  route("GET /api/v1/system/update", () => ({
+    current: "0.1.0",
+    latest: null,
+    newer: false,
+  }));
 });
 
 afterEach(() => {

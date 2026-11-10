@@ -27,6 +27,7 @@ export const keys = {
     ["hosts", "logs", name, level, lines] as const,
   advisories: ["advisories"] as const,
   digest: ["digest"] as const,
+  update: ["system", "update"] as const,
   logs: (level: string | undefined, lines: number | undefined) =>
     ["system", "logs", level ?? "", lines ?? ""] as const,
 };

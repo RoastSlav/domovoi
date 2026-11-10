@@ -409,6 +409,7 @@ mod api {
             ),
             (Method::POST, "/api/v1/hosts/nas/profile".to_owned()),
             (Method::POST, "/api/v1/chat".to_owned()),
+            (Method::POST, "/api/v1/system/update/check".to_owned()),
             (Method::POST, "/api/v1/ack-rules".to_owned()),
             (
                 Method::DELETE,

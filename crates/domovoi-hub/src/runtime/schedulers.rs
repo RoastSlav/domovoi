@@ -20,6 +20,7 @@ use crate::digest::{self, DigestDeps};
 
 use super::Dispatcher;
 use super::every::every;
+use super::updates::{self, UpdateChecker};
 
 const DIGEST_LAST_SENT: &str = "digest_last_sent_at";
 
@@ -41,6 +42,8 @@ pub(crate) struct Schedulers {
     heartbeat: Arc<Mutex<HeartbeatStatus>>,
     /// The client heartbeat pings use; `None` when TLS could not be set up.
     http: Option<reqwest::Client>,
+    /// The last release check, shared with the API and its check-now button.
+    updates: UpdateChecker,
     /// After a failed digest, when to try again.
     digest_retry_at: Arc<Mutex<Option<Timestamp>>>,
 }
@@ -53,6 +56,7 @@ impl Schedulers {
         actions: ActionHandle,
         dispatcher: Dispatcher,
         digest: DigestDeps,
+        updates: UpdateChecker,
     ) -> Self {
         let heartbeat = HeartbeatStatus {
             configured: config.heartbeat.is_some(),
@@ -73,6 +77,7 @@ impl Schedulers {
             digest: Arc::new(digest),
             heartbeat: Arc::new(Mutex::new(heartbeat)),
             http,
+            updates,
             digest_retry_at: Arc::new(Mutex::new(None)),
         }
     }
@@ -95,7 +100,14 @@ impl Schedulers {
             ),
         ];
         if self.config.heartbeat.is_some() {
-            tasks.push(spawn_heartbeat(self, shutdown));
+            tasks.push(spawn_heartbeat(self.clone(), shutdown.clone()));
+        }
+        if self.config.updates.check {
+            tasks.push(updates::spawn(
+                self.updates.clone(),
+                self.clock.clone(),
+                shutdown,
+            ));
         }
         tasks
     }

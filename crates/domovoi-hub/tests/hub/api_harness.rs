@@ -28,6 +28,7 @@ use domovoi_hub::api::{AgentAdmin, ApiDeps, ApiState};
 use domovoi_hub::auth::{AuthState, WebIdentity};
 use domovoi_hub::profile::ProfileDeps;
 use domovoi_hub::router::router;
+use domovoi_hub::runtime::updates::UpdateChecker;
 use domovoi_hub::settings::{ConfigSources, SecretKey, SettingsDeps, SettingsService};
 use domovoi_proto::EnrollToken;
 use domovoi_proto::messages::{CheckInfo, HostFacts};
@@ -372,6 +373,7 @@ async fn build(
     let refused_map: BTreeMap<HostId, Refusal> = BTreeMap::new();
     let refusals = Arc::new(Mutex::new(refused_map));
     let source: Arc<dyn LogSource> = Arc::new(CannedLogSource::new(canned_logs()));
+    let update = UpdateChecker::load(store.clone(), clock.clone()).await;
     let deps = ApiDeps {
         incidents: store.clone(),
         signals: store.clone(),
@@ -417,6 +419,7 @@ async fn build(
         metrics: Some(Arc::new(|| "domovoi_up 1\n".to_owned())),
         settings: Some(settings),
         audit: store.clone(),
+        update,
     };
     let state = ApiState::new(deps, auth);
     let app = router(state.clone(), None).layer(MockConnectInfo(peer()));

@@ -3006,6 +3006,88 @@
         }
       }
     },
+    "/api/v1/system/update": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "The last release check, if the hub has made one.",
+        "operationId": "get_update",
+        "responses": {
+          "200": {
+            "description": "The last check and how to update",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/system/update/check": {
+      "post": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Checks for a release now, at most once a minute.",
+        "operationId": "check_update",
+        "responses": {
+          "200": {
+            "description": "The new check",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Checked less than a minute ago",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "GitHub did not answer with a release",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/healthz": {
       "get": {
         "tags": [
@@ -5227,6 +5309,80 @@
               "null"
             ],
             "description": "The new status name, when it changed."
+          }
+        }
+      },
+      "UpdateDto": {
+        "type": "object",
+        "description": "The newest release this hub knows about, with commands ready to copy.",
+        "required": [
+          "current",
+          "newer"
+        ],
+        "properties": {
+          "agent_command": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Reinstalls an agent and restarts its service."
+          },
+          "checked_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "When this hub last checked."
+          },
+          "current": {
+            "type": "string",
+            "description": "The version this hub runs."
+          },
+          "docker_command": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Pulls and recreates a container deployment."
+          },
+          "hub_command": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Reinstalls the hub and restarts its service."
+          },
+          "latest": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The release's tag, for example `v0.5.0`; `None` until the first check succeeds."
+          },
+          "newer": {
+            "type": "boolean",
+            "description": "Whether `latest` is newer than `current`."
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The release notes, cut to 4000 characters."
+          },
+          "published_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "When the release was published."
+          },
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The release's page on GitHub."
           }
         }
       },

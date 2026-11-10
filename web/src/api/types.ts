@@ -52,6 +52,8 @@ export type Settings = Schemas["SettingsDto"];
 export type Advisory = Schemas["AdvisoryDto"];
 /** The digest as it would be sent now. */
 export type DigestPreview = Schemas["DigestPreview"];
+/** The last release check, with commands that update the hub and its agents. */
+export type Update = Schemas["UpdateDto"];
 /** The settings as the settings page edits them, with each field's source. */
 export type Editable = Schemas["EditableSettings"];
 /** A saved settings change. */

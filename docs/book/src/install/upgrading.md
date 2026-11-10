@@ -24,6 +24,21 @@ Before a new release changes the database, the hub copies `hub.db` into `backups
 
 To go back a version, stop the hub, restore the backup taken before the upgrade (see [Backups](../reference/backup.md)), and install the older release with `--version`.
 
+## Release notices
+
+Twice a day the hub asks GitHub for the newest Domovoi release. Nothing about your installation is sent, only the request itself. When the release is newer than the hub, every page shows a banner with the version, its release notes, and commands that install it. The commands use the release's tag, so they can be copied as they are. The **Hosts** page links each outdated agent to the same commands. Update the hub first, then the agents.
+
+**Settings → About** shows the version this hub runs, when it last checked, and a **Check now** button. A manual check is allowed once a minute.
+
+Turn the check off in **Settings → Updates**, or in `hub.toml`:
+
+```toml
+[updates]
+check = false
+```
+
+The environment variable `DOMOVOI_UPDATES__CHECK=false` does the same. The release check only reads GitHub; installing is always a command you run.
+
 ## Uninstalling
 
 An agent:

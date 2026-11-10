@@ -37,6 +37,7 @@ use domovoi_hub::api::{AgentAdmin, ApiDeps, ApiState};
 use domovoi_hub::auth::{AuthState, WebIdentity};
 use domovoi_hub::profile::ProfileDeps;
 use domovoi_hub::router::router;
+use domovoi_hub::runtime::updates::UpdateChecker;
 use domovoi_proto::messages::{CheckInfo, HostFacts};
 use domovoi_store::{Store, StoreOptions};
 use domovoi_testkit::build::{host, manifest};
@@ -429,6 +430,7 @@ async fn main() -> Result<()> {
         clock.clone(),
         web,
     ));
+    let update = UpdateChecker::load(store.clone(), clock.clone()).await;
     let deps = ApiDeps {
         incidents: store.clone(),
         signals: store.clone(),
@@ -459,6 +461,7 @@ async fn main() -> Result<()> {
         audit: store.clone(),
         logs: Some(Arc::new(CannedLogSource::new(dev_logs()))),
         redactor: Arc::new(PatternRedactor::default()),
+        update,
     };
     let state = ApiState::new(deps, auth.clone());
     let app = router(state, None).into_make_service_with_connect_info::<SocketAddr>();

@@ -16,6 +16,8 @@ mod api_logs;
 #[cfg(test)]
 mod api_routes;
 #[cfg(test)]
+mod api_updates;
+#[cfg(test)]
 mod dismiss;
 #[cfg(test)]
 mod enrollment;

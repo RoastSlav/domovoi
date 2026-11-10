@@ -608,3 +608,25 @@ test("host_logs_tab_shows_the_recent_lines_that_agent_kept", async () => {
     query: { level: "info", lines: 200 },
   });
 });
+
+test("outdated_agent_opens_the_update_commands", async () => {
+  const user = userEvent.setup();
+  route("GET /api/v1/hosts", () => [{ ...nas, version: "0.0.1", outdated: true }]);
+  route("GET /api/v1/system/update", () => ({
+    current: "0.0.7",
+    latest: "v0.9.9",
+    newer: true,
+    hub_command: "install --role hub --version v0.9.9",
+    agent_command: "install --role agent --version v0.9.9",
+    docker_command: "docker compose -f hub.yml pull",
+  }));
+  renderAt("/hosts", "/hosts", <HostsPage />);
+
+  const row = (await screen.findAllByRole("row")).find((r) =>
+    within(r).queryByRole("link", { name: "nas" }),
+  );
+  await user.click(within(row as HTMLElement).getByRole("button", { name: "How to update" }));
+
+  expect(screen.getByRole("dialog", { name: "How to update Domovoi" })).toBeVisible();
+  expect(screen.getByLabelText("Agent update command")).toHaveTextContent("--role agent");
+});

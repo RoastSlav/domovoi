@@ -14,10 +14,12 @@ use crate::secret::{Secret, Secrets};
 use crate::time::{LocalTime, TimeZone};
 
 mod llm;
+mod updates;
 
 pub use llm::{
     CliConfig, CliPreset, LlmKind, LlmProvider, LlmSection, Price, TriageLimits, TriageSection,
 };
+pub use updates::UpdatesSection;
 
 /// The whole of `hub.toml`. Every section is optional; omitted keys take the defaults
 /// documented on each field.
@@ -63,6 +65,9 @@ pub struct HubConfig {
     /// Secret hygiene.
     #[serde(default)]
     pub secrets: SecretsSection,
+    /// Looking for a newer Domovoi release.
+    #[serde(default)]
+    pub updates: UpdatesSection,
 }
 
 /// `[hub]`.

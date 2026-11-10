@@ -119,6 +119,16 @@
   color: var(--danger);
 }
 
+.update {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+}
+
 .facts {
   display: grid;
   grid-template-columns: max-content 1fr;

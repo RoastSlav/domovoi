@@ -69,6 +69,10 @@ expression: "HubConfig::json_schema()"
       "description": "Automatic triage of new incidents.",
       "$ref": "#/$defs/TriageSection"
     },
+    "updates": {
+      "description": "Looking for a newer Domovoi release.",
+      "$ref": "#/$defs/UpdatesSection"
+    },
     "web": {
       "description": "The web UI and HTTP API listener.",
       "$ref": "#/$defs/WebSection"
@@ -719,6 +723,18 @@ expression: "HubConfig::json_schema()"
         "per_run": {
           "description": "Limits for a single run.",
           "$ref": "#/$defs/TriageLimits"
+        }
+      },
+      "additionalProperties": false
+    },
+    "UpdatesSection": {
+      "description": "`[updates]`.",
+      "type": "object",
+      "properties": {
+        "check": {
+          "description": "Look for a newer Domovoi release on GitHub twice a day. Nothing is sent but the\nrequest itself. Default `true`.",
+          "type": "boolean",
+          "default": true
         }
       },
       "additionalProperties": false
