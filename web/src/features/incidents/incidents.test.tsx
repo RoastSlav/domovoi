@@ -1,6 +1,6 @@
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { IncidentSummary } from "../../api/types";
+import type { IncidentSummary, Turn } from "../../api/types";
 import { calls, failure, resetApi, route } from "../../test/apiMock";
 import { detail, incident, nas } from "../../test/fixtures";
 import { renderAt } from "../../test/render";
@@ -12,6 +12,7 @@ vi.mock("../../api/client", () => import("../../test/apiMock"));
 beforeEach(() => {
   resetApi();
   route("GET /api/v1/hosts", () => [nas, { ...nas, id: "host-pi", name: "pi" }]);
+  route("GET /api/v1/incidents/{id}/followups", () => ({ turns: [] }));
 });
 
 function incidentQueries() {
@@ -472,16 +473,14 @@ test("ack_and_mute_say_what_they_do", async () => {
   );
 });
 
-test("ask_box_says_the_model_cannot_change_anything", async () => {
+test("chat_hint_says_the_model_cannot_change_anything", async () => {
   route("GET /api/v1/incidents/{id}", () => detail());
   renderAt("/incidents/inc-1", "/incidents/:id", <IncidentDetailPage />);
 
-  const hint = await screen.findByText(
-    "The model answers with read-only tools. It cannot change anything.",
-  );
+  const hint = await screen.findByText("Uses read-only tools on nas. It cannot change anything.");
   expect(hint).toBeVisible();
   expect(screen.getByLabelText("Ask about this incident")).toHaveAccessibleDescription(
-    "The model answers with read-only tools. It cannot change anything.",
+    "Uses read-only tools on nas. It cannot change anything.",
   );
 });
 
@@ -545,9 +544,155 @@ test("incident_detail_ack_and_ask", async () => {
   expect(calls.map((c) => c.route)).toContain("POST /api/v1/incidents/{id}/ack");
 
   await user.type(screen.getByLabelText("Ask about this incident"), "Why now?");
-  await user.click(screen.getByRole("button", { name: "Ask" }));
+  await user.click(screen.getByRole("button", { name: "Send" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("Triage is off");
   expect(calls.at(-1)?.init.body).toEqual({ question: "Why now?" });
+});
+
+test("chat_shows_the_saved_turns", async () => {
+  const turns: Turn[] = [
+    {
+      at: "2026-10-31T12:02:00Z",
+      asked_by: "user:1",
+      question: "Was it the backup job?",
+      answer: "Yes, the **backup job** grew it.",
+    },
+    {
+      at: "2026-10-31T12:05:00Z",
+      asked_by: "user:1",
+      question: "Should I prune them?",
+      answer: "Wait for the **last sync** to finish.",
+    },
+  ];
+  route("GET /api/v1/incidents/{id}", () => detail());
+  route("GET /api/v1/incidents/{id}/followups", () => ({ turns: [...turns] }));
+  renderAt("/incidents/inc-1", "/incidents/:id", <IncidentDetailPage />);
+
+  const chat = await screen.findByRole("region", { name: "Chat" });
+  expect(await within(chat).findByText("Was it the backup job?")).toBeVisible();
+  expect(within(chat).getByText("Should I prune them?")).toBeVisible();
+  expect(within(chat).getByText("backup job").tagName).toBe("STRONG");
+  expect(within(chat).getByText("last sync").tagName).toBe("STRONG");
+});
+
+test("chat_shows_the_question_then_its_answer", async () => {
+  const user = userEvent.setup();
+  const turns: Turn[] = [];
+  const answer = "Because the nightly backup kept every snapshot.";
+  route("GET /api/v1/incidents/{id}", () => detail());
+  route("GET /api/v1/incidents/{id}/followups", () => ({ turns: [...turns] }));
+  route("POST /api/v1/incidents/{id}/ask", (init) => {
+    turns.push({
+      at: "2026-10-31T12:07:00Z",
+      asked_by: "user:1",
+      question: (init.body as { question: string }).question,
+      answer,
+    });
+    return { answer };
+  });
+  renderAt("/incidents/inc-1", "/incidents/:id", <IncidentDetailPage />);
+
+  const textarea = await screen.findByLabelText("Ask about this incident");
+  await user.type(textarea, "Why now?");
+  await user.click(screen.getByRole("button", { name: "Send" }));
+
+  expect(
+    calls.filter((call) => call.route === "POST /api/v1/incidents/{id}/ask"),
+    "the hub got the question once",
+  ).toHaveLength(1);
+  expect(screen.getByText(/Why now\?/, { selector: "span" })).toBeVisible();
+  const answered = await screen.findByText(/^Because the nightly backup kept every snapshot\.$/);
+  expect(answered, "the answer lands when the remembered turns refresh").toBeVisible();
+});
+
+test("chat_clear_button_forgets_the_conversation_after_confirming", async () => {
+  const user = userEvent.setup();
+  const turns: Turn[] = [
+    {
+      at: "2026-10-31T12:02:00Z",
+      asked_by: "user:1",
+      question: "Was it the backup job?",
+      answer: "Yes.",
+    },
+  ];
+  route("GET /api/v1/incidents/{id}", () => detail());
+  route("GET /api/v1/incidents/{id}/followups", () => ({ turns: [...turns] }));
+  route("POST /api/v1/incidents/{id}/followups/clear", () => {
+    turns.length = 0;
+  });
+  renderAt("/incidents/inc-1", "/incidents/:id", <IncidentDetailPage />);
+
+  const chat = await screen.findByRole("region", { name: "Chat" });
+  expect(await within(chat).findByText("Was it the backup job?")).toBeVisible();
+
+  await user.click(await screen.findByRole("button", { name: "Clear conversation" }));
+  const dialog = screen.getByRole("dialog", { name: "Clear the conversation?" });
+  expect(
+    within(dialog).getByText(
+      "The model forgets this conversation. The questions stay in the timeline.",
+    ),
+    "the dialog says what clearing does",
+  ).toBeVisible();
+
+  await user.click(within(dialog).getByRole("button", { name: "Yes, clear it" }));
+  expect(
+    calls.filter((call) => call.route === "POST /api/v1/incidents/{id}/followups/clear"),
+    "the hub cleared the conversation",
+  ).toHaveLength(1);
+  expect(
+    screen.queryByRole("dialog", { name: "Clear the conversation?" }),
+    "the dialog closes once the hub clears",
+  ).toBeNull();
+});
+
+test("chat_enter_sends_the_question", async () => {
+  const user = userEvent.setup();
+  route("GET /api/v1/incidents/{id}", () => detail());
+  route("POST /api/v1/incidents/{id}/ask", () => ({ answer: "Noted." }));
+  renderAt("/incidents/inc-1", "/incidents/:id", <IncidentDetailPage />);
+
+  await user.type(await screen.findByLabelText("Ask about this incident"), "Why now?");
+  await user.keyboard("{Enter}");
+  expect(
+    calls.filter((call) => call.route === "POST /api/v1/incidents/{id}/ask"),
+    "Enter alone sent the question",
+  ).toHaveLength(1);
+});
+
+test("chat_shift_enter_stays_in_the_text", async () => {
+  const user = userEvent.setup();
+  route("GET /api/v1/incidents/{id}", () => detail());
+  renderAt("/incidents/inc-1", "/incidents/:id", <IncidentDetailPage />);
+
+  await user.type(await screen.findByLabelText("Ask about this incident"), "First line");
+  await user.keyboard("{Shift>}{/Enter}{/Shift}");
+  expect(
+    calls.filter((call) => call.route === "POST /api/v1/incidents/{id}/ask"),
+    "Shift+Enter is only a line break",
+  ).toHaveLength(0);
+});
+
+test("timeline_hides_the_question_text_of_a_followup_entry", async () => {
+  const withFollowUp = {
+    ...detail(),
+    timeline: [
+      ...detail().timeline,
+      {
+        at: "2026-10-31T12:02:00Z",
+        kind: "triage.followup",
+        summary: "Was it the backup job?",
+      },
+    ],
+  };
+  route("GET /api/v1/incidents/{id}", () => withFollowUp);
+  renderAt("/incidents/inc-1", "/incidents/:id", <IncidentDetailPage />);
+
+  const timeline = await screen.findByRole("region", { name: "Timeline" });
+  expect(within(timeline).getByText("triage.followup")).toBeVisible();
+  expect(
+    within(timeline).queryByText("Was it the backup job?"),
+    "the chat shows the question, the timeline only its kind",
+  ).toBeNull();
 });
 
 test("dismiss_dialog_sends_the_reason_and_the_period", async () => {
