@@ -7,18 +7,26 @@ use async_trait::async_trait;
 use domovoi_core::ports::{
     LlmError, LlmProvider, LlmRequest, LlmResponse, Part, StopReason, Usage,
 };
+use tokio::sync::Semaphore;
 
 use crate::lock;
 
 /// An [`LlmProvider`] that answers from a queue and records every request.
 ///
 /// When the queue is empty it returns `LlmError::Unavailable("script exhausted")`.
+/// [`hold`](Self::hold) can make the next response wait, so a test can run on while a
+/// request is inside the provider, and [`wait_for_request`](Self::wait_for_request)
+/// waits until one has actually arrived.
 #[derive(Debug)]
 pub struct ScriptedLlm {
     id: String,
     supports_tools: bool,
     script: Mutex<VecDeque<Result<LlmResponse, LlmError>>>,
     requests: Mutex<Vec<LlmRequest>>,
+    /// Permits a [`complete`] must hold before taking its scripted response.
+    gate: Semaphore,
+    /// One permit fired per received request, for [`wait_for_request`].
+    arrived: Semaphore,
 }
 
 impl ScriptedLlm {
@@ -30,6 +38,8 @@ impl ScriptedLlm {
             supports_tools: true,
             script: Mutex::new(VecDeque::new()),
             requests: Mutex::new(Vec::new()),
+            gate: Semaphore::new(1024),
+            arrived: Semaphore::new(0),
         }
     }
 
@@ -70,6 +80,32 @@ impl ScriptedLlm {
     pub fn remaining(&self) -> usize {
         lock(&self.script).len()
     }
+
+    /// Takes the next scripted response only after [`release`](Self::release) hands
+    /// the permits back, so a test can work on while the request is already inside
+    /// the provider. Call it before spawning the request, with at most one request
+    /// blocked at a time.
+    pub fn hold(&self) {
+        self.gate.forget_permits(self.gate.available_permits());
+    }
+
+    /// Hands `n` permits back, letting up to `n` blocked requests take their response.
+    pub fn release(&self, n: usize) {
+        self.gate.add_permits(n);
+    }
+
+    /// Waits until the provider has received the next request. When this returns the
+    /// request is already recorded in [`requests`](Self::requests) and its provider is
+    /// holding it, which also proves anything the caller read before the call, such as
+    /// a conversation snapshot, happened before the response could arrive. One wait
+    /// consumes one arrival signal.
+    pub async fn wait_for_request(&self) {
+        let permit = self.arrived.acquire().await;
+        match permit {
+            Ok(held) => held.forget(),
+            Err(_closed) => {}
+        }
+    }
 }
 
 impl Default for ScriptedLlm {
@@ -90,6 +126,13 @@ impl LlmProvider for ScriptedLlm {
 
     async fn complete(&self, req: LlmRequest) -> Result<LlmResponse, LlmError> {
         lock(&self.requests).push(req);
+        // The request counts as received before the gate is taken, so a test can
+        // `wait_for_request` even while [`hold`](Self::hold) blocks the response.
+        self.arrived.add_permits(1);
+        match self.gate.acquire().await {
+            Ok(_held) => {}
+            Err(_closed) => {}
+        }
         lock(&self.script)
             .pop_front()
             .unwrap_or_else(|| Err(LlmError::Unavailable("script exhausted".to_owned())))
