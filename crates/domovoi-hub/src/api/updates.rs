@@ -9,8 +9,12 @@ use super::error::{ApiError, ErrorBody};
 use super::version::HUB_VERSION;
 use super::{ApiState, Authed};
 use crate::runtime::updates::{CheckError, UpdateInfo};
+use domovoi_proto::is_release_tag;
 
 const INSTALL: &str = "https://github.com/RoastSlav/domovoi/releases/download";
+/// The environment variable the Compose files read to pin the image they pull, so a
+/// container deployment gets the release the banner names and not whatever is `latest`.
+const IMAGE_TAG: &str = "DOMOVOI_IMAGE_TAG";
 
 /// The newest release this hub knows about, with commands ready to copy.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
@@ -39,7 +43,15 @@ pub struct UpdateDto {
 
 impl UpdateDto {
     /// The API's view of `info`, measured against the version this hub runs now.
+    /// A check whose tag is not a plain release tag (`is_release_tag`) is dropped whole,
+    /// because the tag is shown and put into commands: a hub that saved an unsafe one,
+    /// as an older build could, then offers nothing rather than something to be run.
     fn new(info: Option<&UpdateInfo>) -> Self {
+        let info = if info.is_some_and(|info| is_release_tag(&info.latest)) {
+            info
+        } else {
+            None
+        };
         let latest = info.map(|info| info.latest.clone());
         let newer = latest
             .as_deref()
@@ -60,7 +72,12 @@ impl UpdateDto {
     }
 }
 
-/// The commands that bring a deployment to `tag`: hub, one agent, containers.
+/// The commands that bring a deployment to `tag`: hub, one agent, containers. The tag has
+/// passed [`is_release_tag`] by the time this runs, which is what lets it be written into
+/// a URL path and onto a shell command line as it is: no character left in a vetted tag is
+/// special to a shell or to a URL path, so no quoting or escaping is needed. The image is
+/// tagged with the same version without its leading `v`, which is how the release
+/// workflow pushes it.
 fn commands(tag: &str) -> (String, String, String) {
     let hub = format!(
         "curl -fsSL {INSTALL}/{tag}/install.sh | sudo sh -s -- --role hub --version {tag} && sudo systemctl restart domovoi-hub"
@@ -68,7 +85,11 @@ fn commands(tag: &str) -> (String, String, String) {
     let agent = format!(
         "curl -fsSL {INSTALL}/{tag}/install.sh | sudo sh -s -- --role agent --version {tag} && sudo systemctl restart domovoi-agent"
     );
-    let docker = "docker compose -f hub.yml pull && docker compose -f hub.yml up -d".to_owned();
+    // The image carries the release's own tag, the version without the tag's leading `v`.
+    let image = tag.strip_prefix('v').unwrap_or(tag);
+    let docker = format!(
+        "{IMAGE_TAG}={image} docker compose -f hub.yml pull && {IMAGE_TAG}={image} docker compose -f hub.yml up -d"
+    );
     (hub, agent, docker)
 }
 

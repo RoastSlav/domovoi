@@ -3,7 +3,7 @@
 use std::sync::{Arc, Mutex, RwLock};
 
 use domovoi_core::ports::{Clock, SettingsRepo};
-use domovoi_proto::parse_release;
+use domovoi_proto::{is_release_tag, parse_release};
 use jiff::{SignedDuration, Timestamp};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -176,7 +176,9 @@ pub async fn check(http: &reqwest::Client, url: &str) -> Result<Value, String> {
 }
 
 /// Reads a GitHub release into [`UpdateInfo`]. Drafts, prereleases, releases without a
-/// usable tag or URL, and releases that do not parse are ignored.
+/// usable tag or URL, tags that are not plain release tags, and releases that do not
+/// parse are ignored. A tag is vetted here because it is kept in the settings store and
+/// later turned into commands the operator copies.
 pub fn evaluate(current: &str, release: &Value, now: Timestamp) -> Option<UpdateInfo> {
     if release.get("draft").and_then(Value::as_bool) == Some(true)
         || release.get("prerelease").and_then(Value::as_bool) == Some(true)
@@ -184,6 +186,9 @@ pub fn evaluate(current: &str, release: &Value, now: Timestamp) -> Option<Update
         return None;
     }
     let latest = release.get("tag_name")?.as_str()?;
+    if !is_release_tag(latest) {
+        return None;
+    }
     let url = release.get("html_url")?.as_str()?;
     let latest_release = parse_release(latest)?;
     let current_release = parse_release(current)?;
@@ -301,6 +306,21 @@ mod tests {
             )
             .is_none()
         );
+    }
+
+    #[test]
+    fn a_tag_that_is_not_a_plain_release_tag_is_ignored() {
+        for tag in [
+            "v0.9.9-$(id)",
+            "v0.9.9`id`",
+            "v0.9.9 ; rm -rf /",
+            "v0.9.9;reboot",
+        ] {
+            assert!(
+                evaluate("0.2.0", &release(tag), now()).is_none(),
+                "a tag carrying shell syntax is never kept, so it can never reach a command"
+            );
+        }
     }
 
     #[test]
