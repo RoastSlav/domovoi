@@ -22,5 +22,5 @@ pub use messages::Message;
 pub use transport::{Transport, TransportError};
 pub use version::{
     AGENT_TOO_OLD_REASON_SINCE, MIN_AGENT_VERSION, MIN_HUB_VERSION, PROTOCOL_VERSION,
-    ProtocolVersion, Release, at_least, compatible, parse_release,
+    ProtocolVersion, Release, at_least, compatible, is_release_tag, parse_release,
 };
