@@ -1656,7 +1656,7 @@ export interface components {
         TurnDto: {
             /** @description What the model answered. */
             answer: string;
-            /** @description Who asked, as its user id text. */
+            /** @description Who asked, as `user:` and its user id. */
             asked_by: string;
             /** @description When the answer was recorded, RFC 3339. */
             at: string;

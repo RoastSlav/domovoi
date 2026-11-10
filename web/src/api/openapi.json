@@ -5052,7 +5052,7 @@
           },
           "asked_by": {
             "type": "string",
-            "description": "Who asked, as its user id text."
+            "description": "Who asked, as `user:` and its user id."
           },
           "at": {
             "type": "string",
