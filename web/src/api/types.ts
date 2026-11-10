@@ -81,6 +81,8 @@ export type PredicateOp = Schemas["PredicateOpDto"];
 export type AckRuleInput = Schemas["AckRuleInput"];
 /** Dismissing an incident as a known condition: the reason, and how long the check stays quiet. */
 export type DismissInput = Schemas["DismissRequest"];
+/** The model's answer to a general chat question. */
+export type ChatResponse = Schemas["ChatResponse"];
 /** One line from the hub's own log. */
 export type LogLine = Schemas["LogLineDto"];
 

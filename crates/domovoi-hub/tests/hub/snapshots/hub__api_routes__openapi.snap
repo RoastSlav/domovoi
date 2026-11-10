@@ -336,6 +336,64 @@ expression: spec
         ],
         "type": "object"
       },
+      "ChatRequest": {
+        "description": "A general question, the host it is about and the conversation so far.",
+        "properties": {
+          "history": {
+            "description": "The earlier turns, oldest first.",
+            "items": {
+              "$ref": "#/components/schemas/ChatTurnDto"
+            },
+            "type": "array"
+          },
+          "host": {
+            "description": "The host to look at; absent or `null` asks about every host.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "question": {
+            "description": "The question to answer.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "question"
+        ],
+        "type": "object"
+      },
+      "ChatResponse": {
+        "description": "The model's answer.",
+        "properties": {
+          "answer": {
+            "description": "The answer, in Markdown.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "answer"
+        ],
+        "type": "object"
+      },
+      "ChatTurnDto": {
+        "description": "One earlier turn of the chat.",
+        "properties": {
+          "role": {
+            "description": "Who said it: `user` or `assistant`.",
+            "type": "string"
+          },
+          "text": {
+            "description": "What was said.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "text"
+        ],
+        "type": "object"
+      },
       "CheckSettingsDto": {
         "description": "One check's settings: on or off, interval, thresholds.",
         "properties": {
@@ -2747,6 +2805,77 @@ expression: spec
         "summary": "Creates the admin account with the one-time token from the setup link, and logs in.\nOnly works before the first user exists.",
         "tags": [
           "auth"
+        ]
+      }
+    },
+    "/api/v1/chat": {
+      "post": {
+        "operationId": "chat",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatResponse"
+                }
+              }
+            },
+            "description": "The answer"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The question or a turn is empty or too long"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such host"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Triage is off, the monthly model budget is spent, or the model is unavailable"
+          }
+        },
+        "summary": "Answers a general question about the operator's hosts. With a connected `host` the model\nmay use that host's read-only tools and read skills; without one, or with an offline host,\nit answers from an overview and calls no tools. It never proposes or runs actions.",
+        "tags": [
+          "hosts"
         ]
       }
     },

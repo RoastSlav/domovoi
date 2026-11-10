@@ -63,6 +63,7 @@ test("sidebar_lists_the_main_navigation_links", () => {
   const links = within(nav).getAllByRole("link", { hidden: true });
   expect(links.map((link) => link.textContent)).toEqual([
     "Incidents",
+    "Chat",
     "Known conditions",
     "Approvals",
     "Hosts",

@@ -12,6 +12,7 @@ pub mod notes_import;
 
 mod actions;
 mod auth;
+mod chat;
 mod events;
 mod followups;
 mod host_docker;
@@ -328,6 +329,7 @@ pub fn routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(incidents::unmute))
         .routes(routes!(incidents::dismiss))
         .routes(routes!(incidents::ask))
+        .routes(routes!(chat::chat))
         .routes(routes!(followups::history, followups::clear))
         .routes(routes!(incidents::retry_triage))
         .routes(routes!(actions::list))
