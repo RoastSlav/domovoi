@@ -4,6 +4,23 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.0.8](https://github.com/RoastSlav/domovoi/compare/v0.0.7...v0.0.8) - 2026-11-10
+
+### Added
+
+- add domovoi upgrade to replace the binary in place ([#97](https://github.com/RoastSlav/domovoi/pull/97))
+- *(hub)* fetch an agent's recent logs over the link and show them in the UI ([#88](https://github.com/RoastSlav/domovoi/pull/88))
+- the hub keeps its recent log lines and the UI shows them ([#87](https://github.com/RoastSlav/domovoi/pull/87))
+- *(llm)* triage falls through ordered fallback model chains ([#90](https://github.com/RoastSlav/domovoi/pull/90))
+- *(hub)* tell the operator when a new release is out ([#96](https://github.com/RoastSlav/domovoi/pull/96))
+- refuse agents and hubs older than their minimum release and say why ([#86](https://github.com/RoastSlav/domovoi/pull/86))
+- *(web)* add the general Chat page ([#95](https://github.com/RoastSlav/domovoi/pull/95))
+- *(engine)* a general chat about the operator's hosts ([#94](https://github.com/RoastSlav/domovoi/pull/94))
+- *(engine)* let the incident chat propose actions for approval ([#93](https://github.com/RoastSlav/domovoi/pull/93))
+- follow-up questions keep a conversation until a clear forgets it ([#91](https://github.com/RoastSlav/domovoi/pull/91))
+- fall back to a secondary AI provider when the main one fails ([#89](https://github.com/RoastSlav/domovoi/pull/89))
+- *(hub)* skills can be enabled and disabled per host ([#84](https://github.com/RoastSlav/domovoi/pull/84))
+
 ## [0.0.7](https://github.com/RoastSlav/domovoi/compare/v0.0.6...v0.0.7) - 2026-11-08
 
 ### Added
