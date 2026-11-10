@@ -40,13 +40,19 @@ theme switch. Page layouts and components do not change shape yet; that is parts
      `hosts.module.css`, `skills.module.css` and `ui.module.css`.
 
 3. **Theme switch.**
-   - `web/public/theme-init.js` (a static file, because the CSP blocks inline scripts):
+   - A tiny inline script in the `<head>` of `index.html`, before the module script,
      reads `localStorage["domovoi.theme"]` (`system | light | dark`, wrapped in
      try/catch) and sets `document.documentElement.dataset.theme` for light/dark before
-     first paint. `index.html` loads it with a plain `<script src="/theme-init.js">` in
-     `<head>` before the module script. Check how the hub serves `web/dist` (the
-     embedded assets in `crates/domovoi-hub`) and that this file is included and served
-     with the right content type; add a hub test if serving needed a change.
+     first paint. Keep it a few lines with no dynamic content, so its hash is stable.
+   - **CSP change** (`CSP` in `crates/domovoi-hub/src/middleware.rs`): add
+     `script-src 'self' 'sha256-…'` with the hash of exactly that script. Do not
+     hard-code the hash by hand: compute it at build time from the built
+     `web/dist/index.html` (for example in the hub's build script or where the embedded
+     assets are loaded, or in a small Vite plugin that writes the hash to a file the hub
+     embeds). Never `'unsafe-inline'`, no other directive changes. Update the CSP
+     assertion in `crates/domovoi-hub/tests/hub/api_routes.rs`, add a test that the
+     served `index.html`'s inline script matches the hash in the header, and mention
+     the change in `docs/book/src/security.md` if it lists the CSP.
    - `web/src/design/theme.ts`: `useTheme()` returns `{ theme, setTheme }`, persists the
      choice, updates `data-theme`, and updates `<meta name="theme-color">`.
    - The control (System / Light / Dark, a small segmented control with icons and

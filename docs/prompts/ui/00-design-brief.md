@@ -79,9 +79,11 @@ is removed under `prefers-reduced-motion: reduce`.
   01) is a committed file, so write it as normal project documentation.
 - The hub's Content-Security-Policy (`crates/domovoi-hub/src/middleware.rs`, `CSP`) is
   `default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; …`.
-  **Inline `<script>` is blocked.** Anything that must run before React (the theme
-  pre-paint) is a small static file served by the hub, not inline code. Do not loosen
-  the CSP.
+  **Inline `<script>` is blocked today.** You may loosen it for the theme pre-paint
+  script only (part 01): add `script-src 'self' 'sha256-<hash of that script>'`, with
+  the hash computed from the built `index.html` so it cannot drift. Never add
+  `'unsafe-inline'` or `'unsafe-eval'` to `script-src`, and do not loosen any other
+  directive.
 - Tests find things by role and accessible name. Keep accessible names stable, or
   update the tests in the same PR. Never delete a test to make a change pass; rewrite it
   for the new structure.
