@@ -2,6 +2,7 @@
 #
 #   docker compose -f hub.yml up -d
 #   docker compose -f hub.yml logs hub | grep setup    # open this link to create the admin account
+#   DOMOVOI_IMAGE_TAG=0.9.9 docker compose -f hub.yml pull    # get one release, not the newest
 #
 # No config file is needed: everything is set in the web UI. The volume holds the
 # database, secret.key (which encrypts the secrets saved in the UI) and the agent
@@ -10,7 +11,7 @@ name: domovoi
 
 services:
   hub:
-    image: ghcr.io/roastslav/domovoi:latest
+    image: ghcr.io/roastslav/domovoi:${DOMOVOI_IMAGE_TAG:-latest}
     restart: unless-stopped
     ports:
       - "7420:7420" # web UI and API

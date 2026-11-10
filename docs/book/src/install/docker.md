@@ -28,6 +28,12 @@ docker compose -f hub.yml up -d
 docker compose -f hub.yml logs hub | grep -A1 setup
 ```
 
+The image is `latest` unless you name a release: put its version in the variable, as the update banner's Docker command does, and use it in front of every Compose command that follows.
+
+```sh
+DOMOVOI_IMAGE_TAG=0.9.9 docker compose -f hub.yml pull && DOMOVOI_IMAGE_TAG=0.9.9 docker compose -f hub.yml up -d
+```
+
 ## The data volume
 
 Everything the hub keeps is in `/var/lib/domovoi`:
