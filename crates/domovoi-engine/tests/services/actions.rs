@@ -159,7 +159,7 @@ async fn follow_up_answers_with_tools_and_never_creates_actions() {
             "ACTION_NEEDED",
             json!([{"skill": "restart_container", "args": {"container": "nginx"}, "reason": "x"}])
         ),
-        "more ".repeat(600)
+        "more ".repeat(1200)
     );
     w.primary.push_text(long);
 
