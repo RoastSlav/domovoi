@@ -2244,6 +2244,13 @@ expression: spec
               "null"
             ]
           },
+          "upgrade_command": {
+            "description": "Replaces the hub's binary in place and restarts its service. `None` when the hub\nruns in a container, where the image is what changes.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "url": {
             "description": "The release's page on GitHub.",
             "type": [

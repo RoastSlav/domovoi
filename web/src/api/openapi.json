@@ -5377,6 +5377,13 @@
             ],
             "description": "When the release was published."
           },
+          "upgrade_command": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Replaces the hub's binary in place and restarts its service. `None` when the hub\nruns in a container, where the image is what changes."
+          },
           "url": {
             "type": [
               "string",

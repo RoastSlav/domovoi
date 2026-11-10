@@ -33,6 +33,9 @@ pub struct UpdateDto {
     pub published_at: Option<String>,
     /// When this hub last checked.
     pub checked_at: Option<String>,
+    /// Replaces the hub's binary in place and restarts its service. `None` when the hub
+    /// runs in a container, where the image is what changes.
+    pub upgrade_command: Option<String>,
     /// Reinstalls the hub and restarts its service.
     pub hub_command: Option<String>,
     /// Reinstalls an agent and restarts its service.
@@ -57,6 +60,9 @@ impl UpdateDto {
             .as_deref()
             .is_some_and(|latest| super::version::is_older(HUB_VERSION, latest));
         let commands = latest.as_deref().map(commands);
+        let upgrade = latest.as_deref().filter(|_| !in_container()).map(|tag| {
+            format!("sudo domovoi upgrade --version {tag} && sudo systemctl restart domovoi-hub")
+        });
         Self {
             current: HUB_VERSION.to_owned(),
             latest,
@@ -65,11 +71,18 @@ impl UpdateDto {
             notes: info.and_then(|info| info.notes.clone()),
             published_at: info.and_then(|info| info.published_at.clone()),
             checked_at: info.map(|info| info.checked_at.to_string()),
+            upgrade_command: upgrade,
             hub_command: commands.as_ref().map(|commands| commands.0.clone()),
             agent_command: commands.as_ref().map(|commands| commands.1.clone()),
             docker_command: commands.map(|commands| commands.2),
         }
     }
+}
+
+/// Whether this process runs in a container, which Docker and Podman mark with a file.
+fn in_container() -> bool {
+    std::path::Path::new("/.dockerenv").exists()
+        || std::path::Path::new("/run/.containerenv").exists()
 }
 
 /// The commands that bring a deployment to `tag`: hub, one agent, containers. The tag has

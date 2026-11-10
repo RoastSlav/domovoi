@@ -39,6 +39,15 @@ async fn update_endpoint_returns_commands_for_the_stored_release() {
             .unwrap()
             .contains("--role hub --version v0.9.9")
     );
+    // Offered unless the test itself runs in a container.
+    if !std::path::Path::new("/.dockerenv").exists()
+        && !std::path::Path::new("/run/.containerenv").exists()
+    {
+        assert_eq!(
+            reply.body["upgrade_command"],
+            "sudo domovoi upgrade --version v0.9.9 && sudo systemctl restart domovoi-hub"
+        );
+    }
     assert!(
         reply.body["agent_command"]
             .as_str()
@@ -89,7 +98,12 @@ async fn a_stored_release_with_an_unsafe_tag_offers_nothing() {
         "the unsafe tag is not shown"
     );
     assert_eq!(reply.body["newer"], false, "nothing is claimed newer");
-    for command in ["hub_command", "agent_command", "docker_command"] {
+    for command in [
+        "hub_command",
+        "agent_command",
+        "docker_command",
+        "upgrade_command",
+    ] {
         assert!(
             reply.body[command].as_str().is_none(),
             "no command is offered for it"

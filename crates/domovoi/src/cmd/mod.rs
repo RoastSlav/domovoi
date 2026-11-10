@@ -7,6 +7,7 @@ mod hub;
 mod hub_run;
 mod notify;
 mod selftest;
+mod upgrade;
 mod version;
 
 use crate::ExitCode;
@@ -56,6 +57,8 @@ pub enum Command {
         #[arg(value_enum)]
         file: SchemaFile,
     },
+    /// Replace this binary with a release and say what to restart.
+    Upgrade(upgrade::UpgradeArgs),
     /// Print version and build information.
     Version,
 }
@@ -102,6 +105,7 @@ pub fn run(command: Command, logs: Arc<LogRing>) -> anyhow::Result<ExitCode> {
         Command::Notify(command) => block_on(notify::run(command)),
         Command::Selftest(args) => block_on(selftest::run(args)),
         Command::Digest(command) => block_on(digest::run(command)),
+        Command::Upgrade(args) => block_on(upgrade::run(args)),
     }
 }
 
