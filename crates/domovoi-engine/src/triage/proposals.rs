@@ -53,9 +53,10 @@ fn check<'a>(
 }
 
 /// Stores a `Proposed` action for each of `proposals` that names a skill on this host,
-/// fits that skill's manifest and is not already waiting for a human. Returns the plain
-/// chat token of each stored action keyed by its id, the proposals that were stored in the
-/// order given, and why each of the others was dropped, one line each and already redacted.
+/// fits that skill's manifest and is not already waiting for a human, including one this
+/// very batch stored. Returns the plain chat token of each stored action keyed by its id,
+/// the proposals that were stored in the order given, and why each of the others was
+/// dropped, one line each and already redacted.
 pub(crate) async fn store(
     shared: &Shared,
     incident: &Incident,
@@ -66,7 +67,7 @@ pub(crate) async fn store(
     let mut tokens = BTreeMap::new();
     let mut kept = Vec::new();
     let mut dropped = Vec::new();
-    let existing = match shared
+    let mut existing = match shared
         .deps
         .actions
         .list(
@@ -123,6 +124,9 @@ pub(crate) async fn store(
                 }
                 tokens.insert(action.id(), token);
                 kept.push(proposal);
+                // It is on record now: the same skill and arguments again in this batch
+                // are the identical action and must not become a second one.
+                existing.push(action);
             }
             Err(err) => {
                 tracing::warn!(%err, "could not store a proposed action");
