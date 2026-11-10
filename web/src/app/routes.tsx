@@ -7,6 +7,7 @@ import { Button } from "../components/Button";
 import { EmptyState } from "../components/EmptyState";
 import { ApprovalsPage } from "../features/approvals/ApprovalsPage";
 import { LoginPage } from "../features/auth/LoginPage";
+import { ChatPage } from "../features/chat/ChatPage";
 import { DigestPage } from "../features/digest/DigestPage";
 import { LogsPage } from "../features/logs/LogsPage";
 import { HostDetailPage } from "../features/hosts/HostDetailPage";
@@ -61,6 +62,7 @@ export function AppRoutes() {
             <Route index element={<Navigate to="/incidents" replace />} />
             <Route path="/incidents" element={<IncidentListPage />} />
             <Route path="/incidents/:id" element={<IncidentDetailPage />} />
+            <Route path="/chat" element={<ChatPage />} />
             <Route path="/rules" element={<RulesPage />} />
             <Route path="/approvals" element={<ApprovalsPage />} />
             <Route path="/hosts" element={<HostsPage />} />

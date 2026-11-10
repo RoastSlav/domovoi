@@ -1,6 +1,7 @@
 /** The sidebar's pages: path, label and the icon drawn beside the label. */
 export const NAV = [
   ["/incidents", "Incidents", "alert"],
+  ["/chat", "Chat", "chat"],
   ["/rules", "Known conditions", "rules"],
   ["/approvals", "Approvals", "check"],
   ["/hosts", "Hosts", "server"],
@@ -17,6 +18,7 @@ export type IconName = (typeof NAV)[number][2];
 /** Stroke paths on a 16x16 grid, one entry per icon. */
 const PATHS: Record<IconName, string> = {
   alert: "M8 2 1.5 13.5h13L8 2Zm0 4v4m0 2v.5",
+  chat: "M2.5 3.5h11v7h-5.5l-3.5 3v-3h-2v-7Z",
   rules: "M3 3h10v10H3V3Zm2.5 3h5m-5 2h5m-5 2h3",
   check: "M2.5 8.5 6 12l7.5-8",
   server: "M2 3h12v4H2V3Zm0 6h12v4H2V9Zm2-4h.5m-.5 6h.5",
