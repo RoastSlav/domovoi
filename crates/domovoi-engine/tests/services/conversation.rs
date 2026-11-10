@@ -179,8 +179,11 @@ async fn questions_answered_out_of_order_play_in_question_order() {
 
     let incident = w.incident.id();
     let triage = w.triage.clone();
-    let running =
-        tokio::spawn(async move { triage.follow_up(incident, "First asked?", UserId::new()).await });
+    let running = tokio::spawn(async move {
+        triage
+            .follow_up(incident, "First asked?", UserId::new())
+            .await
+    });
 
     // The secondary holds the first question's request, so it cannot record yet.
     w.secondary.wait_for_request().await;
