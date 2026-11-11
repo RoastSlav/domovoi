@@ -1,11 +1,38 @@
 import { useUpdate } from "../../api/hooks/updates";
-import { Button, CopyBlock, Dialog } from "../../components";
+import { Button, CopyBlock, Dialog, InlineMessage, Stack, Text } from "../../components";
+
+/** One way to install: what it is for in a sentence, then the command to paste. */
+function Method({
+  title,
+  note,
+  command,
+  label,
+}: {
+  title: string;
+  note?: string | undefined;
+  command: string | null | undefined;
+  label: string;
+}) {
+  if (!command) {
+    return null;
+  }
+  return (
+    <Stack gap={2}>
+      <Text strong>{title}</Text>
+      {note && (
+        <Text muted block>
+          {note}
+        </Text>
+      )}
+      <CopyBlock text={command} label={label} />
+    </Stack>
+  );
+}
 
 /** The commands that bring a deployment to the release the hub last saw. */
 export function HowToUpdateDialog({ onClose }: { onClose: () => void }) {
   const update = useUpdate();
   const info = update.data;
-  const latest = info?.latest;
   return (
     <Dialog
       title="How to update Domovoi"
@@ -13,26 +40,40 @@ export function HowToUpdateDialog({ onClose }: { onClose: () => void }) {
       onClose={onClose}
       wide
     >
-      <p>Update the hub first, then the agents.</p>
-      {latest ? (
-        <>
-          <h3>Hub</h3>
-          {info.upgrade_command ? (
-            <>
-              <p>Replace the binary in place:</p>
-              <CopyBlock text={info.upgrade_command} label="Hub upgrade command" />
-              <p>Or run the installer again:</p>
-            </>
-          ) : null}
-          <CopyBlock text={info.hub_command ?? ""} label="Hub update command" />
-          <h3>Each agent</h3>
-          <CopyBlock text={info.agent_command ?? ""} label="Agent update command" />
-          <h3>Docker</h3>
-          <CopyBlock text={info.docker_command ?? ""} label="Docker update command" />
-        </>
-      ) : (
-        <p>No release has been checked yet. Check for one in Settings, under About.</p>
-      )}
+      <Stack gap={4}>
+        <Text block>Update the hub first, then the agents.</Text>
+        {info?.latest ? (
+          <>
+            <Method
+              title="Hub, replacing the binary"
+              note="Replaces the binary in place and restarts the service."
+              command={info.upgrade_command}
+              label="Hub upgrade command"
+            />
+            <Method
+              title="Hub, running the installer again"
+              command={info.hub_command ?? ""}
+              label="Hub update command"
+            />
+            <Method
+              title="Each agent"
+              note="Run it on every host that has an agent."
+              command={info.agent_command ?? ""}
+              label="Agent update command"
+            />
+            <Method
+              title="Docker"
+              note="For a hub or agent that runs as a container."
+              command={info.docker_command ?? ""}
+              label="Docker update command"
+            />
+          </>
+        ) : (
+          <InlineMessage tone="info" title="No release has been checked yet">
+            <p>Check for one in Settings, under About.</p>
+          </InlineMessage>
+        )}
+      </Stack>
     </Dialog>
   );
 }

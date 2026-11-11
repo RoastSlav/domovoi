@@ -69,17 +69,6 @@ export default tseslint.config(
     },
   },
   {
-    // Over the limit before it existed. Split each one when its page is next reworked and
-    // remove it here; never add a file to this list.
-    files: [
-      "src/features/setup/FirstRun.tsx",
-      "src/features/settings/sections.ts",
-      "src/features/settings/fields.tsx",
-      "src/features/settings/form.ts",
-    ],
-    rules: { "max-lines": "off" },
-  },
-  {
     // The one table of every status in the product: a data file, kept whole on purpose.
     files: ["src/design/tone.ts"],
     rules: { "max-lines": ["error", { max: 540, skipBlankLines: true, skipComments: true }] },

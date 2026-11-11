@@ -78,6 +78,7 @@ export function AppRoutes() {
             <Route path="/digest" element={<PAGES.digest.Page />} />
             <Route path="/logs" element={<PAGES.logs.Page />} />
             <Route path="/settings" element={<PAGES.settings.Page />} />
+            <Route path="/settings/:section" element={<PAGES.settings.Page />} />
             <Route path="/welcome" element={<PAGES.firstRun.Page />} />
             <Route path="*" element={<NotFoundPage />} />
           </Route>
