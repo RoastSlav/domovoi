@@ -2,6 +2,7 @@ import { StatusPill, ThemeSwitch } from "../components";
 import { ICON_NAMES, Icon } from "../design/icons";
 import { TONES } from "../design/tone";
 import { LayoutDemos, StateDemos } from "./ContentDemos";
+import { FleetDemos } from "./FleetDemos";
 import { FormDemos } from "./FormDemos";
 import { RespondDemos } from "./RespondDemos";
 import { ControlDemos, OverlayDemos } from "./ControlDemos";
@@ -96,6 +97,7 @@ export default function DesignPage() {
       <FormDemos />
       <OverlayDemos />
       <RespondDemos />
+      <FleetDemos />
 
       <section>
         <h2>Type scale</h2>

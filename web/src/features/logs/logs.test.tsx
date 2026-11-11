@@ -1,4 +1,4 @@
-import { act, screen } from "@testing-library/react";
+import { act, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { LOGS_REFRESH_MS } from "../../api/hooks/system";
 import type { LogLine } from "../../api/types";
@@ -63,15 +63,23 @@ afterEach(() => {
 test("logs_page_lists_the_hub_lines_oldest_first_with_their_level", async () => {
   renderAt("/logs", "/logs", <LogsPage />);
   await screen.findByText(/hub started hosts=1/);
-  const lines = [...document.querySelectorAll("pre span[data-level]")];
-  expect(lines, "one element per line").toHaveLength(3);
-  expect(lines[0]).toHaveTextContent(/INFO domovoi_hub\.runtime: hub started hosts=1/);
-  expect(lines[1]).toHaveTextContent(/WARN domovoi_hub\.checks: disk\.usage on \/srv is 91% full/);
-  expect(lines[2]).toHaveTextContent(/ERROR domovoi_hub\.chat: gateway rejected key=\[REDACTED\]/);
-  expect(lines[0]).toHaveAttribute("data-level", "info");
-  expect(lines[1]).toHaveAttribute("data-level", "warn");
-  expect(lines[2]).toHaveAttribute("data-level", "error");
+  const log = screen.getByRole("log", { name: "Hub log lines" });
+  const rows = [...log.querySelectorAll("[data-level]")];
+  expect(rows, "one element per line").toHaveLength(3);
+  expect(rows[0]).toHaveTextContent(/INFO domovoi_hub\.runtime: hub started hosts=1/);
+  expect(rows[1]).toHaveTextContent(/WARN domovoi_hub\.checks: disk\.usage on \/srv is 91% full/);
+  expect(rows[2]).toHaveTextContent(/ERROR domovoi_hub\.chat: gateway rejected key=\[REDACTED\]/);
+  expect(rows.map((row) => row.getAttribute("data-level"))).toEqual(["info", "warn", "error"]);
   expect(screen.getByRole("button", { name: "Refresh" })).toBeVisible();
+});
+
+test("logs_page_keeps_its_shape_while_the_first_lines_load", async () => {
+  route("GET /api/v1/system/logs", () => new Promise(() => undefined));
+  renderAt("/logs", "/logs", <LogsPage />);
+  expect(await screen.findByText("Loading…")).toBeInTheDocument();
+  expect(screen.getByRole("searchbox", { name: "Search lines" })).toBeVisible();
+  expect(screen.queryByRole("log", { name: "Hub log lines" })).toBeNull();
+  expect(screen.queryByText(/No log lines/)).toBeNull();
 });
 
 test("log_selects_move_the_level_and_line_count_into_the_query", async () => {
@@ -108,12 +116,15 @@ test("logs_page_shows_the_hub_s_words_when_nothing_was_captured", async () => {
   const alert = await screen.findByRole("alert");
   expect(alert).toHaveTextContent("Could not load logs");
   expect(alert).toHaveTextContent("Logs are not captured.");
+  expect(screen.getByRole("button", { name: "Retry" })).toBeVisible();
+  expect(screen.queryByText(/No log lines/)).toBeNull();
 });
 
-test("logs_page_promises_more_lines_when_the_hub_logged_nothing_to_show", async () => {
+test("logs_page_says_why_the_hub_logged_nothing_to_show", async () => {
   route("GET /api/v1/system/logs", () => []);
   renderAt("/logs?level=debug", "/logs", <LogsPage />);
   expect(await screen.findByText(/Nothing was logged at debug or above/)).toBeVisible();
+  expect(screen.getByText("No log lines")).toBeVisible();
 });
 
 test("switching_the_log_source_to_a_host_reads_that_host_s_logs_endpoint", async () => {
@@ -129,7 +140,8 @@ test("switching_the_log_source_to_a_host_reads_that_host_s_logs_endpoint", async
   renderAt("/logs", "/logs", <LogsPage />);
   await screen.findByText(/hub started hosts=1/);
 
-  await user.selectOptions(screen.getByLabelText("Source"), "nas");
+  await user.click(screen.getByRole("combobox", { name: "Source" }));
+  await user.click(await screen.findByRole("option", { name: /nas/ }));
   expect(screen.getByTestId("location")).toHaveTextContent("/logs?source=nas");
   expect(await screen.findByText(/disk\.usage on \/srv is 97% full/)).toBeVisible();
   const hostCalls = calls.filter((entry) => entry.route === "GET /api/v1/hosts/{name}/logs");
@@ -138,6 +150,16 @@ test("switching_the_log_source_to_a_host_reads_that_host_s_logs_endpoint", async
     path: { name: "nas" },
     query: { level: "info", lines: 200 },
   });
+});
+
+test("the_source_picker_shows_whether_each_host_is_connected", async () => {
+  const user = userEvent.setup();
+  renderAt("/logs", "/logs", <LogsPage />);
+  await screen.findByText(/hub started hosts=1/);
+  await user.click(screen.getByRole("combobox", { name: "Source" }));
+  const option = await screen.findByRole("option", { name: /nas/ });
+  expect(within(option).getByText(/connected|offline/i)).toBeVisible();
+  expect(screen.getByRole("option", { name: "Hub" })).toBeVisible();
 });
 
 test("logs_page_asks_to_update_an_agent_too_old_to_send_its_lines", async () => {
@@ -149,22 +171,29 @@ test("logs_page_asks_to_update_an_agent_too_old_to_send_its_lines", async () => 
   expect(screen.getByText(/update it/)).toBeVisible();
 });
 
-test("the_auto_refresh_dropdown_decides_whether_the_page_asks_again_on_its_own", async () => {
+test("turning_live_off_stops_the_page_asking_again_on_its_own", async () => {
   vi.useFakeTimers({ now: new Date("2026-11-01T12:00:00Z"), shouldAdvanceTime: true });
   const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
-  renderAt("/logs?refresh=off", "/logs", <LogsPage />);
+  renderAt("/logs", "/logs", <LogsPage />);
   await screen.findByText(/hub started hosts=1/);
-  expect(logQueries()).toHaveLength(1);
+  expect(screen.getByText("Auto-refresh every 5 s")).toBeVisible();
 
   await act(() => vi.advanceTimersByTimeAsync(LOGS_REFRESH_MS + 1_000));
-  expect(logQueries(), "off leaves the asking to the button").toHaveLength(1);
+  expect(logQueries().length, "live asks again by itself").toBeGreaterThan(1);
+
+  await user.click(screen.getByRole("switch", { name: "Live" }));
+  expect(screen.getByTestId("location")).toHaveTextContent("refresh=off");
+  expect(screen.queryByText(/Auto-refresh every/)).toBeNull();
+  const asked = logQueries().length;
+  await act(() => vi.advanceTimersByTimeAsync(LOGS_REFRESH_MS * 3));
+  expect(logQueries(), "off leaves the asking to the button").toHaveLength(asked);
 
   await user.click(screen.getByRole("button", { name: "Refresh" }));
-  expect(logQueries()).toHaveLength(2);
+  expect(logQueries()).toHaveLength(asked + 1);
 
-  await user.selectOptions(screen.getByLabelText("Auto-refresh"), "on");
+  await user.click(screen.getByRole("switch", { name: "Live" }));
   await act(() => vi.advanceTimersByTimeAsync(LOGS_REFRESH_MS + 1_000));
-  expect(logQueries().length, "on asks again by itself").toBeGreaterThan(2);
+  expect(logQueries().length, "on asks again").toBeGreaterThan(asked + 1);
 });
 
 test("logs_start_on_the_selected_host_until_a_source_is_picked", async () => {
@@ -175,9 +204,10 @@ test("logs_start_on_the_selected_host_until_a_source_is_picked", async () => {
   renderAt("/logs?host=nas", "/logs", <LogsPage />);
 
   expect(await screen.findByText(/disk\.usage on \/srv is 97% full/)).toBeVisible();
-  expect(screen.getByLabelText("Source")).toHaveValue("nas");
+  expect(screen.getByRole("combobox", { name: "Source" })).toHaveTextContent("nas");
   expect(logQueries(), "the hub's own lines were not asked for").toEqual([]);
 
-  await user.selectOptions(screen.getByLabelText("Source"), "hub");
+  await user.click(screen.getByRole("combobox", { name: "Source" }));
+  await user.click(await screen.findByRole("option", { name: "Hub" }));
   expect(await screen.findByText(/hub started hosts=1/)).toBeVisible();
 });

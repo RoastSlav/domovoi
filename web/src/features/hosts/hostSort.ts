@@ -1,0 +1,59 @@
+import type { Host } from "../../api/types";
+import type { TableSort } from "../../components";
+import { hostConnectionOf, hostKindMeta, type HostConnection } from "../../design/tone";
+
+/** Offline hosts first: the list opens on what needs a person. */
+export const DEFAULT_HOST_SORT: TableSort = { key: "connection", direction: "ascending" };
+
+/** Where a connection state falls in the list: trouble first, then quiet, then fine. */
+const CONNECTION_RANK: Record<HostConnection, number> = {
+  offline: 0,
+  refused: 0,
+  never_connected: 1,
+  connected: 2,
+  hub_only: 3,
+};
+
+/** A time as a number; a host that is connected now is the most recent, one never seen the least. */
+function seenAt(host: Host): number {
+  if (host.connected) {
+    return Number.POSITIVE_INFINITY;
+  }
+  return host.last_seen ? new Date(host.last_seen).getTime() : Number.NEGATIVE_INFINITY;
+}
+
+function compareBy(key: string, a: Host, b: Host): number {
+  switch (key) {
+    case "connection":
+      return CONNECTION_RANK[hostConnectionOf(a)] - CONNECTION_RANK[hostConnectionOf(b)];
+    case "kind":
+      return hostKindMeta(a.kind).label.localeCompare(hostKindMeta(b.kind).label);
+    case "version":
+      return (a.version ?? "").localeCompare(b.version ?? "", "en", { numeric: true });
+    case "incidents":
+      return a.open_incidents - b.open_incidents;
+    case "seen": {
+      const [x, y] = [seenAt(a), seenAt(b)];
+      return x === y ? 0 : x < y ? -1 : 1;
+    }
+    default:
+      return a.name.localeCompare(b.name, "en", { numeric: true });
+  }
+}
+
+/** `hosts` ordered by `sort`, ties broken by name so the order never jumps between refreshes. */
+export function sortHosts(hosts: readonly Host[], sort: TableSort): Host[] {
+  const sign = sort.direction === "ascending" ? 1 : -1;
+  return [...hosts].sort(
+    (a, b) =>
+      sign * compareBy(sort.key, a, b) || a.name.localeCompare(b.name, "en", { numeric: true }),
+  );
+}
+
+/** The sort after a click on `key`: a second click on the same column reverses it. */
+export function nextSort(sort: TableSort, key: string): TableSort {
+  return {
+    key,
+    direction: sort.key === key && sort.direction === "ascending" ? "descending" : "ascending",
+  };
+}

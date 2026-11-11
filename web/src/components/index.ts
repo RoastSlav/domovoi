@@ -44,7 +44,7 @@ export { Card } from "./Card";
 export { Text } from "./Text";
 
 // Data
-export { DataTable, type Column } from "./DataTable";
+export { DataTable, type Column, type TableSort } from "./DataTable";
 export { KeyValueList, type KeyValue } from "./KeyValueList";
 export { FilterChips, type Chip } from "./FilterChips";
 export { Tabs, type Tab } from "./Tabs";

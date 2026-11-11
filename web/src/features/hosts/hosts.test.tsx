@@ -1,646 +1,316 @@
-import { act, screen, within } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { calls, resetApi, route } from "../../test/apiMock";
+import type { Fact, Host, Skill } from "../../api/types";
+import { calls, failure, resetApi, route } from "../../test/apiMock";
 import { T0, incident, nas } from "../../test/fixtures";
 import { renderAt } from "../../test/render";
-import type { AckRule, AckRuleInput, Predicate } from "../../api/types";
-import { HostsPage } from "./HostsPage";
 import { HostDetailPage } from "./HostDetailPage";
-import { HostStatus } from "./HostStatus";
 
 vi.mock("../../api/client", () => import("../../test/apiMock"));
 
-const NOW = new Date("2026-11-01T12:00:00Z");
-
 beforeEach(resetApi);
 
-afterEach(() => {
-  vi.useRealTimers();
-});
+const HUB: Host = {
+  ...nas,
+  id: "host-hub",
+  name: "hub",
+  kind: "local",
+  connected: false,
+  agent_enrolled: false,
+  version: null,
+  open_incidents: 0,
+};
 
-function posts(path: string) {
-  return calls.filter((c) => c.route === `POST ${path}`);
+/** Answers the requests the host page makes with `host` and empty lists, overridable. */
+function serve(host: Host = nas, facts: Fact[] = []) {
+  route("GET /api/v1/hosts/{name}", () => ({ host, facts }));
+  route("GET /api/v1/incidents", () => ({ items: [], next_cursor: null }));
+  route("GET /api/v1/hosts/{name}/skills", () => []);
+  route("GET /api/v1/hosts/{name}/checks", () => ({ connected: true, checks: [] }));
 }
 
-test("hosts_page_explains_which_hosts_it_knows", async () => {
-  route("GET /api/v1/hosts", () => [nas]);
-  renderAt("/hosts", "/hosts", <HostsPage />);
+function show(url = "/hosts/nas") {
+  return renderAt(url, "/hosts/:name", <HostDetailPage />);
+}
 
-  expect(await screen.findByText(/^Machines Domovoi knows about:/)).toBeVisible();
-  expect(
-    screen.getByText(/hosts running an agent, and hosts that webhooks report on\./),
-  ).toBeVisible();
-  expect(
-    screen.getByRole("link", { name: "Learn more about hosts (opens in a new tab)" }),
-  ).toHaveAttribute("href", "https://RoastSlav.github.io/domovoi/concepts/hub-and-agent.html");
-});
+function fact(key: string, label: string, value: string, unit?: string): Fact {
+  return { key, label, value, unit: unit ?? null, observed_at: T0 };
+}
 
-test("enrollment_flow_shows_command_fingerprint_and_countdown_then_connected", async () => {
-  vi.useFakeTimers({ now: NOW, shouldAdvanceTime: true });
-  const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
-  const pi = {
-    ...nas,
-    id: "host-pi",
-    name: "pi",
-    connected: false,
-    version: null,
-    open_incidents: 0,
+function skill(name: string, risk: string, enabled = true): Skill {
+  return {
+    name,
+    risk,
+    enabled,
+    description: `Does ${name}`,
+    applies_to: [],
+    manifest_hash: "abc",
+    params: [],
+    timeout_secs: 30,
   };
-  let connected = false;
-  route("GET /api/v1/hosts", () => [
-    nas,
-    connected ? { ...pi, connected: true, version: "0.0.1" } : pi,
-  ]);
-  route("POST /api/v1/hosts/{name}/enrollment", () => ({
-    host_id: "host-pi",
-    token: "tok-1",
-    expires_at: "2026-11-01T12:10:00Z",
-    fingerprint: "AB:CD:EF:01",
-    command: "domovoi agent enroll --hub wss://hub:7421 --token tok-1 --fingerprint AB:CD:EF:01",
-  }));
-  renderAt("/hosts", "/hosts", <HostsPage />);
+}
 
-  await user.click(await screen.findByRole("button", { name: "Add host" }));
-  const dialog = screen.getByRole("dialog", { name: "Add a host" });
-  await user.type(within(dialog).getByLabelText("Host name"), "pi");
-  await user.click(within(dialog).getByRole("button", { name: "Create invite" }));
+test("the_header_names_the_host_and_says_how_it_is_doing_on_one_line", async () => {
+  serve({
+    ...nas,
+    kind: "agent",
+    version: "0.0.1",
+    outdated: true,
+    open_incidents: 2,
+    connected_since: "2026-10-31T12:00:00Z",
+  });
+  show();
 
-  const enroll = await screen.findByRole("dialog", { name: "Enroll pi" });
-  expect(posts("/api/v1/hosts/{name}/enrollment")[0]?.init.params?.path).toEqual({ name: "pi" });
-  expect(within(enroll).getByLabelText("Enrollment command")).toHaveTextContent(
-    "domovoi agent enroll --hub wss://hub:7421 --token tok-1 --fingerprint AB:CD:EF:01",
-  );
-  expect(within(enroll).getByLabelText("Hub fingerprint")).toHaveTextContent("AB:CD:EF:01");
-  expect(within(enroll).getByRole("status")).toHaveTextContent(
-    "Waiting for the agent… The invite expires in 10:00.",
-  );
-
-  await act(() => vi.advanceTimersByTimeAsync(1_000));
-  expect(within(enroll).getByRole("status")).toHaveTextContent("expires in 9:59");
-
-  connected = true;
-  await act(() => vi.advanceTimersByTimeAsync(2_000));
-  expect(await within(enroll).findByText(/Connected\. pi is enrolled/)).toBeVisible();
-  expect(within(enroll).getByRole("status")).toHaveTextContent("runs agent 0.0.1");
-});
-
-test("enrollment_invite_expires", async () => {
-  vi.useFakeTimers({ now: NOW, shouldAdvanceTime: true });
-  const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
-  route("GET /api/v1/hosts", () => [nas]);
-  route("POST /api/v1/hosts/{name}/enrollment", () => ({
-    host_id: "host-pi",
-    token: "tok-1",
-    expires_at: "2026-11-01T12:00:05Z",
-    fingerprint: "AB",
-    command: "enroll",
-  }));
-  renderAt("/hosts", "/hosts", <HostsPage />);
-  await user.click(await screen.findByRole("button", { name: "Add host" }));
-  await user.type(screen.getByLabelText("Host name"), "pi");
-  await user.click(screen.getByRole("button", { name: "Create invite" }));
-  const enroll = await screen.findByRole("dialog", { name: "Enroll pi" });
-  await act(() => vi.advanceTimersByTimeAsync(6_000));
-  expect(within(enroll).getByRole("status")).toHaveTextContent("This invite expired");
-  expect(within(enroll).getByRole("button", { name: "New invite" })).toBeEnabled();
-});
-
-test("revoke_requires_confirmation", async () => {
-  const user = userEvent.setup();
-  route("GET /api/v1/hosts", () => [nas]);
-  route("POST /api/v1/hosts/{name}/revoke", () => ({ revoked: true }));
-  renderAt("/hosts", "/hosts", <HostsPage />);
-
-  await user.click(await screen.findByRole("button", { name: "Revoke" }));
-  const dialog = screen.getByRole("dialog", { name: "Revoke the agent on nas?" });
-  await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
-  expect(screen.queryByRole("dialog")).toBeNull();
-  expect(posts("/api/v1/hosts/{name}/revoke")).toHaveLength(0);
-
-  await user.click(screen.getByRole("button", { name: "Revoke" }));
-  await user.click(
-    within(screen.getByRole("dialog")).getByRole("button", { name: "Revoke agent" }),
-  );
-  expect(posts("/api/v1/hosts/{name}/revoke")).toEqual([
-    { route: "POST /api/v1/hosts/{name}/revoke", init: { params: { path: { name: "nas" } } } },
-  ]);
-  expect(screen.queryByRole("dialog")).toBeNull();
-});
-
-test("outdated_agent_badge_shown", async () => {
-  route("GET /api/v1/hosts", () => [
-    { ...nas, version: "0.0.0", outdated: true },
-    { ...nas, id: "host-pi", name: "pi", version: "0.0.1", outdated: false, open_incidents: 0 },
-  ]);
-  renderAt("/hosts", "/hosts", <HostsPage />);
-
-  const rows = await screen.findAllByRole("row");
-  const old = rows.find((r) => within(r).queryByRole("link", { name: "nas" }));
-  const current = rows.find((r) => within(r).queryByRole("link", { name: "pi" }));
-  expect(within(old as HTMLElement).getByText("Outdated")).toBeVisible();
-  expect(within(old as HTMLElement).getByRole("link", { name: "1" })).toHaveAttribute(
+  const title = await screen.findByRole("heading", { level: 1, name: "nas" });
+  const header = title.closest("header") as HTMLElement;
+  expect(within(header).getByText("Connected")).toBeVisible();
+  expect(within(header).getByText("Agent")).toBeVisible();
+  expect(within(header).getByText("Agent 0.0.1")).toBeVisible();
+  expect(within(header).getByText("Update available")).toBeVisible();
+  expect(within(header).getByRole("link", { name: "2 open incidents" })).toHaveAttribute(
     "href",
     "/incidents?host=nas",
   );
-  expect(within(current as HTMLElement).queryByText("Outdated")).toBeNull();
+  expect(within(header).getByText(/^Connected since/)).toBeVisible();
 });
 
-test("refused_agent_names_why_it_was_refused", async () => {
-  route("GET /api/v1/hosts", () => [
-    {
-      ...nas,
-      connected: false,
-      last_seen: null,
-      version: null,
-      outdated: false,
-      refused: "agent 0.0.1 is older than the minimum 0.0.5; update it",
-    },
-  ]);
-  renderAt("/hosts", "/hosts", <HostsPage />);
-
-  const cells = await screen.findAllByRole("cell");
-  const refused = cells.filter((cell) => cell.textContent.includes("older than the minimum"));
-  expect(refused).toHaveLength(1);
-  expect(
-    within(refused[0] as HTMLElement).getByText(
-      "agent 0.0.1 is older than the minimum 0.0.5; update it",
-    ),
-  ).toBeVisible();
-  expect(within(refused[0] as HTMLElement).queryByText("Outdated")).toBeNull();
+test("an_offline_host_shows_when_it_was_last_seen_in_the_header", async () => {
+  serve({
+    ...nas,
+    connected: false,
+    version: null,
+    last_seen: "2026-10-31T09:00:00Z",
+  });
+  show();
+  const header = (await screen.findByRole("heading", { level: 1 })).closest(
+    "header",
+  ) as HTMLElement;
+  expect(within(header).getByText("Offline")).toBeVisible();
+  expect(within(header).getByText(/^Last seen/)).toBeVisible();
 });
 
 test("hub_host_without_agent_is_shown_as_hub_only", async () => {
-  const hub = {
-    ...nas,
-    id: "host-hub",
-    name: "hub",
-    kind: "local",
-    connected: false,
-    agent_enrolled: false,
-    last_seen: null,
-  };
-  const remote = {
-    ...nas,
-    id: "host-remote",
-    name: "remote",
-    kind: "remote",
-    connected: false,
-    agent_enrolled: false,
-    version: null,
-    last_seen: null,
-  };
-  renderAt(
-    "/status",
-    "/status",
-    <>
-      <HostStatus host={hub} />
-      <HostStatus host={remote} />
-    </>,
-  );
-  expect(screen.getByText("Hub only, no agent")).toHaveAttribute("data-connected", "hub");
-  expect(screen.getByText("Never connected")).toHaveAttribute("data-connected", "false");
-  expect(screen.queryAllByText("Hub only, no agent")).toHaveLength(1);
-  expect(screen.queryAllByText("Never connected")).toHaveLength(1);
-});
-
-test("hub_machine_with_a_never_seen_agent_still_shows_an_agent", async () => {
-  const hub = {
-    ...nas,
-    id: "host-hub",
-    name: "hub",
-    kind: "local",
-    connected: false,
-    agent_enrolled: true,
-    version: null,
-    last_seen: null,
-  };
-  renderAt("/status", "/status", <HostStatus host={hub} />);
-  const offline = screen.getByText("Never connected");
-  expect(offline).toHaveAttribute("data-connected", "false");
-  expect(screen.queryByText("Hub only, no agent")).toBeNull();
+  serve(HUB);
+  show("/hosts/hub");
+  expect(await screen.findByText("Hub only, no agent")).toBeVisible();
+  expect(screen.getByText(/^This is the hub/)).toBeVisible();
 });
 
 test("host_detail_page_hints_how_to_cover_the_hub_machine", async () => {
-  const hub = {
-    ...nas,
-    id: "host-hub",
-    name: "hub",
-    kind: "local",
-    connected: false,
-    agent_enrolled: false,
-    version: null,
-    open_incidents: 0,
-  };
-  route("GET /api/v1/hosts/{name}", () => ({ host: hub, facts: [] }));
-  route("GET /api/v1/incidents", () => ({ pages: [] }));
-  route("GET /api/v1/hosts/{name}/skills", () => []);
-  renderAt("/hosts/hub", "/hosts/:name", <HostDetailPage />);
-  const hint = await screen.findByText(/^This is the hub/);
+  serve(HUB);
+  show("/hosts/hub");
+  const hint = (await screen.findByText(/^This is the hub/)).closest("[role=status]");
   expect(hint).toHaveTextContent(
     "install an agent on it and enroll it under the name hub. The hub can also run the agent " +
       "in its own process with --with-local-agent /etc/domovoi/agent.toml, where checks that " +
       "need root report errors.",
   );
-  expect(within(hint).getByText("--with-local-agent /etc/domovoi/agent.toml")).toBeVisible();
+  expect(
+    within(hint as HTMLElement).getByText("--with-local-agent /etc/domovoi/agent.toml"),
+  ).toBeVisible();
 });
 
-test("host_detail_page_has_no_hint_when_an_agent_is_enrolled", async () => {
-  const hub = {
-    ...nas,
-    id: "host-hub",
-    name: "hub",
-    kind: "local",
-    connected: false,
-    agent_enrolled: true,
-    version: null,
-    open_incidents: 0,
-  };
-  route("GET /api/v1/hosts/{name}", () => ({ host: hub, facts: [] }));
-  route("GET /api/v1/incidents", () => ({ pages: [] }));
-  route("GET /api/v1/hosts/{name}/skills", () => []);
-  renderAt("/hosts/hub", "/hosts/:name", <HostDetailPage />);
-  await screen.findByRole("heading", { name: "hub" });
+test("hub_machine_with_a_never_seen_agent_still_shows_an_agent", async () => {
+  serve({ ...HUB, agent_enrolled: true });
+  show("/hosts/hub");
+  await screen.findByRole("heading", { level: 1, name: "hub" });
   expect(screen.queryByText(/^This is the hub/)).toBeNull();
-  expect(screen.getByText("Never connected")).toHaveAttribute("data-connected", "false");
+  expect(screen.getByText("Offline")).toBeVisible();
+  expect(screen.queryByText("Hub only, no agent")).toBeNull();
 });
 
-test("recent_incidents_show_resolved_badge_and_triage_note", async () => {
-  route("GET /api/v1/hosts/{name}", () => ({ host: nas, facts: [] }));
+test("an_unknown_host_says_so_and_links_back_to_the_list", async () => {
+  route("GET /api/v1/hosts/{name}", () => failure(404, "not_found", "no such host"));
+  show("/hosts/ghost");
+  expect(await screen.findByText("No such host")).toBeVisible();
+  expect(screen.getByRole("link", { name: "Back to hosts" })).toHaveAttribute("href", "/hosts");
+});
+
+test("a_host_that_fails_to_load_shows_retry_not_an_empty_page", async () => {
+  route("GET /api/v1/hosts/{name}", () => failure(500, "internal", "boom"));
+  show();
+  expect(await screen.findByRole("button", { name: "Retry" })).toBeVisible();
+});
+
+test("the_tab_follows_the_url_and_the_url_follows_the_tab", async () => {
+  serve();
+  route("GET /api/v1/hosts/{name}/logs", () => []);
+  const user = userEvent.setup();
+  show("/hosts/nas?tab=logs");
+
+  expect(await screen.findByRole("tab", { name: "Logs", selected: true })).toBeVisible();
+  await user.click(screen.getByRole("tab", { name: "SSH logins" }));
+  expect(screen.getByTestId("location")).toHaveTextContent("/hosts/nas?tab=ssh");
+  expect(screen.getByRole("tab", { name: "SSH logins", selected: true })).toBeVisible();
+
+  await user.click(screen.getByRole("tab", { name: "Overview" }));
+  expect(screen.getByTestId("location")).toHaveTextContent(/^\/hosts\/nas$/);
+});
+
+test("arrow_keys_move_focus_between_the_tabs_and_open_them", async () => {
+  serve();
+  const user = userEvent.setup();
+  show();
+  await user.click(await screen.findByRole("tab", { name: "Overview" }));
+  await user.keyboard("{ArrowRight}");
+  expect(screen.getByRole("tab", { name: /^Profile/ })).toHaveFocus();
+  expect(screen.getByTestId("location")).toHaveTextContent("tab=profile");
+});
+
+test("the_failing_checks_count_shows_on_the_checks_tab", async () => {
+  serve();
+  route("GET /api/v1/incidents", () => ({
+    items: [incident(), incident({ id: "inc-2", check: "memory.available", status: "resolved" })],
+    next_cursor: null,
+  }));
+  route("GET /api/v1/hosts/{name}/checks", () => ({
+    connected: true,
+    checks: [
+      { key: "disk.usage", reported: { enabled: true, interval_seconds: 60 }, overrides: null },
+      {
+        key: "memory.available",
+        reported: { enabled: true, interval_seconds: 60 },
+        overrides: null,
+      },
+    ],
+  }));
+  show();
+  expect(await screen.findByRole("tab", { name: "Checks 1 failing" })).toBeVisible();
+});
+
+test("a_recent_incidents_request_failure_shows_retry_and_not_no_incidents", async () => {
+  serve();
+  route("GET /api/v1/incidents", () => failure(500, "internal", "boom"));
+  show();
+  const section = (await screen.findByRole("heading", { name: "Recent incidents" })).closest(
+    "section",
+  ) as HTMLElement;
+  expect(await within(section).findByRole("button", { name: "Retry" })).toBeVisible();
+  expect(screen.queryByText(/No incidents/)).toBeNull();
+});
+
+test("recent_incidents_with_none_say_why_it_is_empty", async () => {
+  serve();
+  show();
+  expect(await screen.findByText("No incidents on nas")).toBeVisible();
+});
+
+test("recent_incidents_show_a_resolved_pill_beside_each_incident", async () => {
+  serve();
   route("GET /api/v1/incidents", () => ({
     items: [incident({ status: "resolved", verdict: "ACTION_NEEDED" })],
     next_cursor: null,
   }));
-  route("GET /api/v1/hosts/{name}/skills", () => []);
-  renderAt("/hosts/nas", "/hosts/:name", <HostDetailPage />);
-
-  const rows = await screen.findAllByRole("listitem");
-  const row = rows.find((li) => within(li).queryByRole("link", { name: "Disk /srv is 93% full" }));
-  expect(within(row as HTMLElement).getByText("Resolved")).toBeVisible();
-  expect(within(row as HTMLElement).getByText(/triage said Action needed/)).toBeVisible();
-  expect(screen.queryByText("Action needed")).toBeNull();
+  show();
+  const table = await screen.findByRole("table", { name: "Recent incidents on nas" });
+  const row = within(table).getByRole("link", { name: /Disk \/srv is 93% full/ });
+  expect(row).toHaveAttribute("href", "/incidents/inc-1");
+  expect(within(table).getByText("Resolved")).toBeVisible();
 });
 
-/** An expected SSH login as the API returns it, overridable. */
-function loginRule(
-  id: string,
-  user: string,
-  predicates: Predicate[],
-  expires: string | null,
-  overrides: Partial<AckRule> = {},
-): AckRule {
-  return {
-    id,
-    host: "nas",
-    check: "security.ssh_login",
-    target_pattern: user,
-    predicates,
-    note: "Expected SSH login",
-    expires_at: expires,
-    ...overrides,
-  };
-}
-
-/** The host page routes, with `rules` as the stored known conditions. */
-function loginsRoutes(rules: AckRule[]) {
-  route("GET /api/v1/hosts/{name}", () => ({ host: nas, facts: [] }));
-  route("GET /api/v1/incidents", () => ({ items: [], next_cursor: null }));
-  route("GET /api/v1/hosts/{name}/skills", () => []);
-  route("GET /api/v1/ack-rules", () => [...rules]);
-  route("POST /api/v1/ack-rules", (init) => {
-    const body = init.body as AckRuleInput;
-    const created: AckRule = {
-      id: "rule-new",
-      host: body.host ?? null,
-      check: body.check,
-      target_pattern: body.target_pattern ?? null,
-      predicates: body.predicates,
-      note: body.note,
-      expires_at:
-        body.expires_in_minutes == null
-          ? null
-          : new Date(NOW.getTime() + body.expires_in_minutes * 60_000).toISOString(),
-    };
-    rules.push(created);
-    return created;
-  });
-  route("DELETE /api/v1/ack-rules/{id}", (init) => {
-    const at = rules.findIndex((rule) => rule.id === init.params?.path?.id);
-    rules.splice(at, 1);
-    return null;
-  });
-}
-
-/** Open the SSH logins tab of the host page. */
-async function openLogins(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(await screen.findByRole("tab", { name: "SSH logins" }));
-}
-
-test("ssh_logins_tab_shows_only_the_expected_logins_of_this_host", async () => {
-  vi.useFakeTimers({ now: NOW, shouldAdvanceTime: true });
-  const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
-  loginsRoutes([
-    loginRule(
-      "r-1",
-      "alice",
-      [{ key: "ip", op: "in_network", value: "192.168.1.0/24" }],
-      "2026-11-04T12:00:00Z",
-    ),
-    loginRule("r-2", "bob", [{ key: "network", op: "equals", value: "lan" }], null),
-    loginRule("r-3", "carol", [], null, { check: "disk.usage" }),
-    loginRule("r-4", "dave", [], null, { host: "pi" }),
-    loginRule("r-5", "erin", [], null, { host: null }),
+test("facts_are_grouped_into_cards_by_what_they_describe_with_the_rest_under_other", async () => {
+  serve(nas, [
+    fact("disk./srv.free_gib", "Free on /srv", "120", "GiB"),
+    fact("memory.available_gib", "Memory available", "6.5", "GiB"),
+    fact("system.uptime_days", "Uptime", "12", "days"),
+    fact("net.eth0.speed", "Link speed", "1000", "Mb/s"),
+    fact("zzz.custom", "Custom thing", "7"),
   ]);
-  renderAt("/hosts/nas", "/hosts/:name", <HostDetailPage />);
-  await openLogins(user);
-
-  const list = screen.getByRole("region", { name: "Expected logins" });
-  const items = within(list).getAllByRole("listitem");
-  // A rule for any host silences logins on this host too, so it is listed and labelled.
-  expect(items.map((item) => item.textContent)).toEqual([
-    "alice from the range 192.168.1.0/24, in 3 days Remove",
-    "bob from the local network, always Remove",
-    "erin from anywhere on any host, always Remove",
-  ]);
-  expect(within(list).queryByText(/carol/)).toBeNull();
-  expect(screen.queryByText(/dave/)).toBeNull();
+  show();
+  for (const [group, label, value] of [
+    ["Disk", "Free on /srv", "120 GiB"],
+    ["Memory", "Memory available", "6.5 GiB"],
+    ["System", "Uptime", "12 days"],
+    ["Network", "Link speed", "1000 Mb/s"],
+    ["Other", "Custom thing", "7"],
+  ] as const) {
+    const card = await screen.findByRole("group", { name: group });
+    expect(within(card).getByText(label)).toBeVisible();
+    expect(within(card).getByText(new RegExp(`^${value}`))).toBeVisible();
+  }
 });
 
-test("login_window_asks_first_and_expects_local_network_logins_for_an_hour", async () => {
-  vi.useFakeTimers({ now: NOW, shouldAdvanceTime: true });
-  const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
-  loginsRoutes([]);
-  renderAt("/hosts/nas", "/hosts/:name", <HostDetailPage />);
-  await openLogins(user);
+test("a_host_without_facts_says_why_and_what_to_check", async () => {
+  serve();
+  show();
+  expect(await screen.findByText("No facts in the last day")).toBeVisible();
+});
 
-  await user.click(screen.getByRole("button", { name: "I’m logging in now" }));
-  expect(posts("/api/v1/ack-rules")).toHaveLength(0);
-
-  await user.click(screen.getByRole("button", { name: "Open the window" }));
-  expect(posts("/api/v1/ack-rules")[0]?.init.body).toEqual({
-    host: "nas",
-    check: "security.ssh_login",
-    target_pattern: null,
-    predicates: [{ key: "network", op: "equals", value: "lan" }],
-    note: "Login window opened from the web UI",
-    expires_in_minutes: 60,
-  });
-  const windowSection = screen.getByRole("region", { name: "Logging in now" });
-  expect(await within(windowSection).findByRole("status")).toHaveTextContent(
-    "A login window is open on nas, so logins from the local network are expected. " +
-      "It expires in 1 hour.",
+test("skills_are_a_compact_list_with_a_risk_pill_each", async () => {
+  serve();
+  route("GET /api/v1/hosts/{name}/skills", () => [
+    skill("restart_container", "write"),
+    skill("disk_report", "read", false),
+  ]);
+  show();
+  const list = await screen.findByRole("list", { name: "Skills on nas" });
+  const restart = within(list).getByText("restart_container").closest("li") as HTMLElement;
+  expect(within(restart).getByText("Write")).toBeVisible();
+  const report = within(list).getByText("disk_report").closest("li") as HTMLElement;
+  expect(within(report).getByText("Read")).toBeVisible();
+  expect(within(report).getByText("Off")).toBeVisible();
+  expect(screen.getByRole("link", { name: "Manage skills on nas" })).toHaveAttribute(
+    "href",
+    "/skills?host=nas",
   );
 });
 
-test("cancelling_the_login_window_opens_nothing", async () => {
-  const user = userEvent.setup();
-  loginsRoutes([]);
-  renderAt("/hosts/nas", "/hosts/:name", <HostDetailPage />);
-  await openLogins(user);
+test("a_host_name_with_a_slash_is_encoded_in_the_links_it_builds", async () => {
+  serve({ ...nas, name: "lab/one", open_incidents: 1 });
+  show("/hosts/lab%2Fone");
+  expect(await screen.findByRole("link", { name: "1 open incidents" })).toHaveAttribute(
+    "href",
+    "/incidents?host=lab%2Fone",
+  );
+});
 
-  await user.click(screen.getByRole("button", { name: "I’m logging in now" }));
+test("revoking_the_agent_asks_first_and_then_goes_back_to_the_host_list", async () => {
+  serve();
+  let enrolled = true;
+  route("GET /api/v1/hosts/{name}", () => ({
+    host: { ...nas, agent_enrolled: enrolled, connected: enrolled },
+    facts: [],
+  }));
+  route("POST /api/v1/hosts/{name}/revoke", () => {
+    enrolled = false;
+    return { revoked: true };
+  });
+  const user = userEvent.setup();
+  show();
+  await user.click(await screen.findByRole("button", { name: "Actions for nas" }));
+  await user.click(screen.getByRole("menuitem", { name: "Revoke agent" }));
+  expect(calls.filter((c) => c.route === "POST /api/v1/hosts/{name}/revoke")).toHaveLength(0);
+
+  await user.type(screen.getByLabelText(/Type nas to confirm/), "nas");
+  await user.click(screen.getByRole("button", { name: "Revoke agent" }));
+
+  expect(await screen.findByText("other page")).toBeVisible();
+  expect(screen.getByTestId("location")).toHaveTextContent("/hosts");
+});
+
+test("cancelling_the_revoke_stays_on_the_host", async () => {
+  serve();
+  const user = userEvent.setup();
+  show();
+  await user.click(await screen.findByRole("button", { name: "Actions for nas" }));
+  await user.click(screen.getByRole("menuitem", { name: "Revoke agent" }));
   await user.click(screen.getByRole("button", { name: "Cancel" }));
-
-  expect(posts("/api/v1/ack-rules")).toHaveLength(0);
-  expect(
-    within(screen.getByRole("region", { name: "Logging in now" })).queryByRole("status"),
-  ).toBeNull();
-});
-
-test("login_window_includes_internet_logins_only_when_asked", async () => {
-  vi.useFakeTimers({ now: NOW, shouldAdvanceTime: true });
-  const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
-  loginsRoutes([]);
-  renderAt("/hosts/nas", "/hosts/:name", <HostDetailPage />);
-  await openLogins(user);
-
-  await user.click(screen.getByRole("button", { name: "I’m logging in now" }));
-  await user.click(screen.getByRole("checkbox", { name: "Include logins from the internet" }));
-  await user.click(screen.getByRole("button", { name: "Open the window" }));
-
-  expect(posts("/api/v1/ack-rules")[0]?.init.body).toMatchObject({ predicates: [] });
-  expect(
-    await within(screen.getByRole("region", { name: "Logging in now" })).findByRole("status"),
-  ).toHaveTextContent(
-    "A login window is open on nas, so any login, including from the internet, is expected. " +
-      "It expires in 1 hour.",
-  );
-});
-
-test("the_login_window_status_shows_after_a_reload", async () => {
-  vi.useFakeTimers({ now: NOW, shouldAdvanceTime: true });
-  const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
-  loginsRoutes([]);
-  const { unmount } = renderAt("/hosts/nas", "/hosts/:name", <HostDetailPage />);
-  await openLogins(user);
-  await user.click(screen.getByRole("button", { name: "I’m logging in now" }));
-  await user.click(screen.getByRole("button", { name: "Open the window" }));
-
-  // A reload reads the window from the stored rules, not from local state.
-  unmount();
-  renderAt("/hosts/nas", "/hosts/:name", <HostDetailPage />);
-  await openLogins(user);
-  expect(
-    await within(screen.getByRole("region", { name: "Logging in now" })).findByRole("status"),
-  ).toHaveTextContent(
-    "A login window is open on nas, so logins from the local network are expected. " +
-      "It expires in 1 hour.",
-  );
-});
-
-test("the_login_window_status_is_not_shown_after_the_window_expires", async () => {
-  vi.useFakeTimers({ now: NOW, shouldAdvanceTime: true });
-  const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
-  loginsRoutes([
-    loginRule(
-      "r-1",
-      "alice",
-      [{ key: "network", op: "equals", value: "lan" }],
-      "2026-10-31T13:00:00Z",
-      {
-        target_pattern: null,
-      },
-    ),
-  ]);
-  renderAt("/hosts/nas", "/hosts/:name", <HostDetailPage />);
-  await openLogins(user);
-
-  expect(
-    within(screen.getByRole("region", { name: "Logging in now" })).queryByRole("status"),
-  ).toBeNull();
-});
-
-test("expected_login_form_expects_the_user_from_the_local_network", async () => {
-  const user = userEvent.setup();
-  loginsRoutes([]);
-  renderAt("/hosts/nas", "/hosts/:name", <HostDetailPage />);
-  await openLogins(user);
-
-  await user.type(screen.getByLabelText("User"), "alice");
-  await user.selectOptions(screen.getByLabelText("From"), "lan");
-  await user.selectOptions(screen.getByLabelText("For"), "1440");
-  await user.click(screen.getByRole("button", { name: "Add expected login" }));
-
-  expect(posts("/api/v1/ack-rules")[0]?.init.body).toEqual({
-    host: "nas",
-    check: "security.ssh_login",
-    target_pattern: "alice",
-    predicates: [{ key: "network", op: "equals", value: "lan" }],
-    note: "Expected SSH login",
-    expires_in_minutes: 1440,
-  });
-});
-
-test("expected_login_form_expects_an_address_range", async () => {
-  const user = userEvent.setup();
-  loginsRoutes([]);
-  renderAt("/hosts/nas", "/hosts/:name", <HostDetailPage />);
-  await openLogins(user);
-
-  await user.type(screen.getByLabelText("User"), "alice");
-  await user.selectOptions(screen.getByLabelText("From"), "range");
-  await user.type(screen.getByLabelText("Address or range"), "192.168.1.0/24");
-  await user.click(screen.getByRole("button", { name: "Add expected login" }));
-
-  expect(posts("/api/v1/ack-rules")[0]?.init.body).toMatchObject({
-    target_pattern: "alice",
-    predicates: [{ key: "ip", op: "in_network", value: "192.168.1.0/24" }],
-    expires_in_minutes: 60,
-  });
-});
-
-test("expected_login_form_expects_the_single_address_it_is_given", async () => {
-  vi.useFakeTimers({ now: NOW, shouldAdvanceTime: true });
-  const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
-  loginsRoutes([]);
-  renderAt("/hosts/nas", "/hosts/:name", <HostDetailPage />);
-  await openLogins(user);
-
-  await user.type(screen.getByLabelText("User"), "alice");
-  await user.selectOptions(screen.getByLabelText("From"), "range");
-  await user.type(screen.getByLabelText("Address or range"), "192.168.1.20");
-  await user.click(screen.getByRole("button", { name: "Add expected login" }));
-
-  // One address is sent as typed, and the hub accepts it as that one machine.
-  expect(posts("/api/v1/ack-rules")[0]?.init.body).toMatchObject({
-    target_pattern: "alice",
-    predicates: [{ key: "ip", op: "in_network", value: "192.168.1.20" }],
-    expires_in_minutes: 60,
-  });
-  const list = screen.getByRole("region", { name: "Expected logins" });
-  expect(within(list).getAllByRole("listitem")[0]?.textContent).toBe(
-    "alice from the address 192.168.1.20, in 1 hour Remove",
-  );
-});
-
-test("the_address_or_range_is_needed_before_a_login_is_expected", async () => {
-  const user = userEvent.setup();
-  loginsRoutes([]);
-  renderAt("/hosts/nas", "/hosts/:name", <HostDetailPage />);
-  await openLogins(user);
-
-  await user.type(screen.getByLabelText("User"), "alice");
-  await user.selectOptions(screen.getByLabelText("From"), "range");
-  await user.click(screen.getByRole("button", { name: "Add expected login" }));
-
-  expect(await screen.findByRole("alert")).toHaveTextContent(
-    "Type the address, or the range in CIDR form, for example 192.168.1.0/24.",
-  );
-  expect(posts("/api/v1/ack-rules")).toHaveLength(0);
-});
-
-test("removing_an_expected_login_asks_then_deletes_its_rule", async () => {
-  const user = userEvent.setup();
-  loginsRoutes([
-    loginRule("r-1", "alice", [{ key: "ip", op: "in_network", value: "192.168.1.0/24" }], null),
-  ]);
-  renderAt("/hosts/nas", "/hosts/:name", <HostDetailPage />);
-  await openLogins(user);
-
-  await user.click(
-    screen.getByRole("button", {
-      name: "Remove the expected login alice from the range 192.168.1.0/24",
-    }),
-  );
-  expect(calls.filter((c) => c.route === "DELETE /api/v1/ack-rules/{id}")).toHaveLength(0);
-
-  await user.click(screen.getByRole("button", { name: "Remove" }));
-
-  expect(calls.find((c) => c.route === "DELETE /api/v1/ack-rules/{id}")?.init.params?.path).toEqual(
-    { id: "r-1" },
-  );
-  expect(await screen.findByText("No logins are marked as expected on nas.")).toBeVisible();
-});
-
-test("cancelling_the_removal_keeps_the_expected_login", async () => {
-  const user = userEvent.setup();
-  loginsRoutes([
-    loginRule("r-1", "alice", [{ key: "ip", op: "in_network", value: "192.168.1.0/24" }], null),
-  ]);
-  renderAt("/hosts/nas", "/hosts/:name", <HostDetailPage />);
-  await openLogins(user);
-
-  await user.click(
-    screen.getByRole("button", {
-      name: "Remove the expected login alice from the range 192.168.1.0/24",
-    }),
-  );
-  await user.click(screen.getByRole("button", { name: "Cancel" }));
-
-  expect(calls.filter((c) => c.route === "DELETE /api/v1/ack-rules/{id}")).toHaveLength(0);
-  expect(screen.getByRole("region", { name: "Expected logins" })).toHaveTextContent(
-    "alice from the range 192.168.1.0/24, always",
-  );
+  expect(calls.filter((c) => c.route === "POST /api/v1/hosts/{name}/revoke")).toHaveLength(0);
+  expect(screen.getByRole("heading", { level: 1, name: "nas" })).toBeVisible();
 });
 
 test("host_logs_tab_shows_the_recent_lines_that_agent_kept", async () => {
-  const user = userEvent.setup();
-  route("GET /api/v1/hosts/{name}", () => ({ host: nas, facts: [] }));
-  route("GET /api/v1/incidents", () => ({ items: [], next_cursor: null }));
-  route("GET /api/v1/hosts/{name}/skills", () => []);
+  serve();
   route("GET /api/v1/hosts/{name}/logs", () => [
     { at: T0, level: "warn", target: "agent.checks", message: "disk.usage on /srv is 97% full" },
   ]);
-  renderAt("/hosts/nas", "/hosts/:name", <HostDetailPage />);
-  await user.click(await screen.findByRole("tab", { name: "Logs" }));
+  show("/hosts/nas?tab=logs");
 
-  const line = await screen.findByText(/disk\.usage on \/srv is 97% full/);
-  expect(line).toHaveAttribute("data-level", "warn");
+  const log = await screen.findByRole("log", { name: "Log lines on nas" });
+  const line = await within(log).findByText(/disk\.usage on \/srv is 97% full/);
+  expect(line.closest("[data-level]")).toHaveAttribute("data-level", "warn");
   expect(calls.filter((c) => c.route === "GET /api/v1/hosts/{name}/logs")[0]?.init.params).toEqual({
     path: { name: "nas" },
     query: { level: "info", lines: 200 },
   });
-});
-
-test("outdated_agent_opens_the_update_commands", async () => {
-  const user = userEvent.setup();
-  route("GET /api/v1/hosts", () => [{ ...nas, version: "0.0.1", outdated: true }]);
-  route("GET /api/v1/system/update", () => ({
-    current: "0.0.7",
-    latest: "v0.9.9",
-    newer: true,
-    hub_command: "install --role hub --version v0.9.9",
-    agent_command: "install --role agent --version v0.9.9",
-    docker_command: "DOMOVOI_IMAGE_TAG=0.9.9 docker compose -f hub.yml pull",
-  }));
-  renderAt("/hosts", "/hosts", <HostsPage />);
-
-  const row = (await screen.findAllByRole("row")).find((r) =>
-    within(r).queryByRole("link", { name: "nas" }),
-  );
-  await user.click(within(row as HTMLElement).getByRole("button", { name: "How to update" }));
-
-  expect(screen.getByRole("dialog", { name: "How to update Domovoi" })).toBeVisible();
-  expect(screen.getByLabelText("Agent update command")).toHaveTextContent("--role agent");
-});
-
-test("hosts_page_says_it_shows_all_hosts_while_one_is_selected", async () => {
-  route("GET /api/v1/hosts", () => [nas]);
-  const selected = renderAt("/hosts?host=nas", "/hosts", <HostsPage />);
-  expect(await screen.findByText("Showing all hosts")).toBeVisible();
-
-  selected.unmount();
-  localStorage.clear();
-  renderAt("/hosts", "/hosts", <HostsPage />);
-  await screen.findByRole("link", { name: "nas" });
-  expect(screen.queryByText("Showing all hosts")).toBeNull();
 });

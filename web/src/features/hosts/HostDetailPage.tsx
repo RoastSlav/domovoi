@@ -1,157 +1,125 @@
-import { Link, useParams } from "react-router";
+import { Link, useParams, useSearchParams } from "react-router";
 import { useHost } from "../../api/hooks/hosts";
-import { useIncidents } from "../../api/hooks/incidents";
-import { ApiFailure, type Fact } from "../../api/types";
-import { EmptyState, LoadError, Loading, RelativeTime, StatusPill, Tabs } from "../../components";
-import { incidentBadgeMeta } from "../../design/tone";
-import { triageNote } from "../incidents/badge";
-import { SkillList } from "../skills/SkillList";
+import { ApiFailure, type HostDetail } from "../../api/types";
+import {
+  EmptyState,
+  InlineMessage,
+  PageHeader,
+  QueryBoundary,
+  Skeleton,
+  Stack,
+  Tabs,
+  type Tab,
+} from "../../components";
 import { ChecksTab } from "./ChecksTab";
-import { DockerPanel } from "./DockerPanel";
-import { HostStatus, isHubOnly, VersionCell } from "./HostStatus";
+import { useFailingChecks } from "./checkState";
+import { HostActions } from "./HostActions";
+import { HostMeta, isHubOnly } from "./HostMeta";
+import { HostOverview } from "./HostOverview";
 import { LogsTab } from "./LogsTab";
 import { ProfileTab } from "./ProfileTab";
 import { SshLoginsTab } from "./SshLoginsTab";
-import styles from "./hosts.module.css";
 
-function Facts({ facts }: { facts: Fact[] }) {
-  if (facts.length === 0) {
-    return <p>No facts reported in the last day.</p>;
-  }
+/** The tabs a host's page has, by the value `?tab=` holds; the first is the default. */
+const TAB_IDS = ["overview", "profile", "checks", "logs", "ssh"] as const;
+
+/** Why the hub's own machine has no checks, and how to give it some. */
+function HubOnlyNote({ name }: { name: string }) {
   return (
-    <dl className={styles.facts}>
-      {facts.map((fact) => (
-        <div key={fact.key} className={styles.fact}>
-          <dt>{fact.label}</dt>
-          <dd>
-            {fact.value}
-            {fact.unit ? ` ${fact.unit}` : ""}{" "}
-            <small>
-              (<RelativeTime at={fact.observed_at} />)
-            </small>
-          </dd>
-        </div>
-      ))}
-    </dl>
+    <InlineMessage tone="info" title="This is the hub’s own machine.">
+      <p>
+        Domovoi records hub problems here, such as the hub losing its network. To also watch this
+        machine&rsquo;s disks, services and containers, install an agent on it and enroll it under
+        the name <strong>{name}</strong>. The hub can also run the agent in its own process with{" "}
+        <code>--with-local-agent /etc/domovoi/agent.toml</code>, where checks that need root report
+        errors.
+      </p>
+    </InlineMessage>
   );
 }
 
-function RecentIncidents({ host }: { host: string }) {
-  const incidents = useIncidents({ host });
-  const items = incidents.data?.pages[0]?.items.slice(0, 10) ?? [];
-  if (incidents.isPending) {
-    return <Loading />;
-  }
-  if (incidents.error && !incidents.data) {
-    return (
-      <LoadError error={incidents.error} context="load incidents" onRetry={incidents.refetch} />
-    );
-  }
-  if (items.length === 0) {
-    return <p>No incidents.</p>;
-  }
+/** The host's tabs, the open one kept in the URL so a link or a reload lands on it. */
+function HostTabs({ detail }: { detail: HostDetail }) {
+  const [params, setParams] = useSearchParams();
+  const failing = useFailingChecks(detail.host.name);
+  const name = detail.host.name;
+  const asked = params.get("tab");
+  const selected = TAB_IDS.find((id) => id === asked) ?? TAB_IDS[0];
+  const tabs: Tab[] = [
+    {
+      id: "overview",
+      label: "Overview",
+      content: <HostOverview name={name} facts={detail.facts} />,
+    },
+    {
+      id: "profile",
+      label: "Profile",
+      content: <ProfileTab host={name} connected={detail.host.connected} />,
+    },
+    {
+      id: "checks",
+      label: "Checks",
+      count: { value: failing.count, label: "failing", tone: "danger" },
+      content: <ChecksTab host={name} />,
+    },
+    { id: "logs", label: "Logs", content: <LogsTab host={name} /> },
+    { id: "ssh", label: "SSH logins", content: <SshLoginsTab host={name} /> },
+  ];
   return (
-    <ul>
-      {items.map((incident) => {
-        const note = triageNote(incident);
-        return (
-          <li key={incident.id}>
-            <StatusPill meta={incidentBadgeMeta(incident)} />{" "}
-            <Link to={`/incidents/${incident.id}`}>{incident.title}</Link> · {incident.status} ·{" "}
-            <RelativeTime at={incident.last_firing_at} />
-            {note && ` · ${note}`}
-          </li>
-        );
-      })}
-    </ul>
+    <Tabs
+      label={`${name} details`}
+      tabs={tabs}
+      selected={selected}
+      onSelect={(id) =>
+        setParams(
+          (now) => {
+            const next = new URLSearchParams(now);
+            if (id === TAB_IDS[0]) {
+              next.delete("tab");
+            } else {
+              next.set("tab", id);
+            }
+            return next;
+          },
+          { replace: true },
+        )
+      }
+    />
   );
 }
 
-/** One host: its agent, its facts, incidents and skills, its profile, checks, logins and logs. */
+/** One host: its agent, its facts, incidents and skills, its profile, checks, logs and logins. */
 export function HostDetailPage() {
   const { name = "" } = useParams();
   const host = useHost(name);
-
-  if (host.isPending) {
-    return <Loading />;
+  if (host.error instanceof ApiFailure && host.error.status === 404 && !host.data) {
+    return (
+      <EmptyState
+        icon="server"
+        title="No such host"
+        action={<Link to="/hosts">Back to hosts</Link>}
+      >
+        <p>It may have been removed, or the address is wrong.</p>
+      </EmptyState>
+    );
   }
-  if (host.error || !host.data) {
-    if (host.error instanceof ApiFailure && host.error.status === 404) {
-      return (
-        <EmptyState title="No such host" action={<Link to="/hosts">Back to hosts</Link>}>
-          <p>It may have been removed, or the address is wrong.</p>
-        </EmptyState>
-      );
-    }
-    return <LoadError error={host.error} context="load the host" onRetry={host.refetch} />;
-  }
-  const detail = host.data;
   return (
-    <>
-      <p>
-        <Link to="/hosts">Hosts</Link>
-      </p>
-      <h1>{detail.host.name}</h1>
-      {isHubOnly(detail.host) && (
-        <p className={styles.hint}>
-          This is the hub&rsquo;s own machine. Domovoi records hub problems here, such as the hub
-          losing its network. To also watch this machine&rsquo;s disks, services and containers,
-          install an agent on it and enroll it under the name <strong>{detail.host.name}</strong>.
-          The hub can also run the agent in its own process with{" "}
-          <code>--with-local-agent /etc/domovoi/agent.toml</code>, where checks that need root
-          report errors.
-        </p>
+    <QueryBoundary
+      query={host}
+      context="load the host"
+      loading={<Skeleton shape="rows" count={5} />}
+    >
+      {(detail) => (
+        <Stack gap={5}>
+          <PageHeader
+            title={detail.host.name}
+            meta={<HostMeta host={detail.host} />}
+            actions={<HostActions host={detail.host} />}
+          />
+          {isHubOnly(detail.host) && <HubOnlyNote name={detail.host.name} />}
+          <HostTabs detail={detail} />
+        </Stack>
       )}
-      <p>
-        <HostStatus host={detail.host} /> · agent <VersionCell host={detail.host} /> ·{" "}
-        {detail.host.kind}
-      </p>
-
-      <Tabs
-        label={`${detail.host.name} details`}
-        tabs={[
-          { label: "Overview", content: <Overview name={detail.host.name} facts={detail.facts} /> },
-          {
-            label: "Profile",
-            content: <ProfileTab host={detail.host.name} connected={detail.host.connected} />,
-          },
-          {
-            label: "Checks",
-            content: (
-              <>
-                <DockerPanel host={detail.host.name} />
-                <ChecksTab host={detail.host.name} />
-              </>
-            ),
-          },
-          { label: "Logs", content: <LogsTab host={detail.host.name} /> },
-          { label: "SSH logins", content: <SshLoginsTab host={detail.host.name} /> },
-        ]}
-      />
-    </>
-  );
-}
-
-function Overview({ name, facts }: { name: string; facts: Fact[] }) {
-  return (
-    <>
-      <section aria-labelledby="facts-heading">
-        <h2 id="facts-heading">Facts</h2>
-        <Facts facts={facts} />
-      </section>
-
-      <section aria-labelledby="incidents-heading">
-        <h2 id="incidents-heading">Recent incidents</h2>
-        <RecentIncidents host={name} />
-        <p>
-          <Link to={`/incidents?host=${encodeURIComponent(name)}`}>All incidents on {name}</Link>
-        </p>
-      </section>
-
-      <section aria-labelledby="skills-heading">
-        <h2 id="skills-heading">Skills</h2>
-        <SkillList host={name} />
-      </section>
-    </>
+    </QueryBoundary>
   );
 }

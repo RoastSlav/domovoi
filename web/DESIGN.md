@@ -272,18 +272,18 @@ and explains itself; do not use the bare `disabled` attribute in new code.
 
 ### Data
 
-| Component      | Use it for                                                                            | Do not use it for                 |
-| -------------- | ------------------------------------------------------------------------------------- | --------------------------------- |
-| `DataTable`    | Many things with the same fields; stacks into cards in a narrow container             | The details of one thing          |
-| `Timeline`     | The history of one thing, in words from `timelineMeta`; long ones collapse            | A list of different things        |
-| `KeyValueList` | The facts of one thing; `mono` for arguments, paths and IDs                           | Many things                       |
-| `FilterChips`  | The few filters people switch all the time, with counts; one scrolling row on a phone | Rare or long filters (`Select`)   |
-| `Tabs`         | A few views of the same object; a tab may carry a `count`                             | Different places (navigation)     |
-| `RelativeTime` | A time read at a glance; the exact time is its tooltip                                | Where the exact time is the point |
-| `Countdown`    | A deadline minutes away, ticking                                                      | Past times                        |
-| `CopyBlock`    | A command or value pasted elsewhere, in a monospace block                             | Prose                             |
-| `Markdown`     | Text written by the model or in notes; raw HTML is never rendered                     | UI text you wrote                 |
-| `ChatThread`   | A conversation with the model: turns, starters, a composer, Stop and Retry            | Anything else                     |
+| Component      | Use it for                                                                                                           | Do not use it for                 |
+| -------------- | -------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
+| `DataTable`    | Many things with the same fields; stacks into cards in a narrow container; columns can sort (see Add a table column) | The details of one thing          |
+| `Timeline`     | The history of one thing, in words from `timelineMeta`; long ones collapse                                           | A list of different things        |
+| `KeyValueList` | The facts of one thing; `mono` for arguments, paths and IDs                                                          | Many things                       |
+| `FilterChips`  | The few filters people switch all the time, with counts; one scrolling row on a phone                                | Rare or long filters (`Select`)   |
+| `Tabs`         | A few views of the same object; a tab may carry a `count`; the URL can keep the choice (see Add a tab)               | Different places (navigation)     |
+| `RelativeTime` | A time read at a glance; the exact time is its tooltip                                                               | Where the exact time is the point |
+| `Countdown`    | A deadline minutes away, ticking                                                                                     | Past times                        |
+| `CopyBlock`    | A command or value pasted elsewhere, in a monospace block                                                            | Prose                             |
+| `Markdown`     | Text written by the model or in notes; raw HTML is never rendered                                                    | UI text you wrote                 |
+| `ChatThread`   | A conversation with the model: turns, starters, a composer, Stop and Retry                                           | Anything else                     |
 
 ### Forms
 
@@ -481,9 +481,39 @@ with a `Tag` naming its source.
 
 ### Add a table column
 
-Add one entry to the `columns` of the `DataTable`: a `key`, a `label` (also the label in
-the stacked layout), a `cell`, `numeric` for numbers that should line up, and a `hint` if
-the header is not obvious. A status cell is a `StatusPill`; a time is a `RelativeTime`.
+Add one entry to the `columns` of the `DataTable`; the host checks table
+(`src/features/hosts/CheckTable.tsx`) is the worked example.
+
+- `key` is unique in the table. `label` is the header and also the label beside the value
+  when the table stacks into cards on a phone.
+- `cell` draws the value. A status is `<StatusPill meta={checkStateMeta(state)} />`, so its
+  label, tone, hint and icon come from `tone.ts`; a time is a `RelativeTime`.
+- `numeric` right-aligns tabular digits for numbers that should line up.
+- `hint` explains a header that is not obvious, behind an info button.
+- `hideLabel` keeps a header for screen readers only: for a column of row actions.
+
+To let people sort, mark the column `sortable`. The page owns the order: keep a
+`sort` (`{ key, direction }`) in state, pass it with an `onSort(key)` that flips the direction
+on a second click of the same column, and hand the table its rows already in that order. The
+header then becomes a button and carries `aria-sort`. Sort what the page holds whole (a list
+that is not paged); a paged list is sorted by the hub.
+
+### Add a tab
+
+Use `Tabs` for a few views of the same object. The host page (`HostDetailPage.tsx`) is the
+worked example.
+
+1. Give each tab a `label`, its `content` and, when the URL names it, an `id` (the label
+   is used when there is none). Add a `count` only for something that needs attention: it
+   shows above zero, with a tone and the word it counts.
+2. Keep the choice in the URL as `?tab=<id>`, so a reload or a shared link opens the same
+   tab. Read it with `useSearchParams`, fall back to the first tab when the value is missing
+   or unknown, pass the result as `selected`, and write it back from `onSelect` with
+   `replace` so Back does not step through tabs. Copy the other parameters (`?host=`) and
+   leave `tab` out for the first tab. Without `selected` the kit keeps the choice itself.
+3. The page title is the only `h1`. Inside a panel start at `Section` (`h2`), one level below
+   the title; do not repeat the tab's label as a second title.
+4. Only the selected panel is rendered, so a tab loads its data when it is opened.
 
 ### Add a component to the kit
 
