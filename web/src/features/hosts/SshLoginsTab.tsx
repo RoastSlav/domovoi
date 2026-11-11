@@ -15,7 +15,7 @@ import { ExpectedLogins } from "./ExpectedLogins";
 import { LoginWindow, LoginWindowNote } from "./LoginWindow";
 import { SshFilters } from "./SshFilters";
 import { SshLoginTable } from "./SshLoginTable";
-import { ALL_LOGINS, filterLogins, loginsOf, type LoginEntry } from "./sshLogins";
+import { ALL_LOGINS, appliedFilter, filterLogins, loginsOf, type LoginEntry } from "./sshLogins";
 import { SSH_CHECK, expectedOn, openWindow } from "./sshRules";
 
 /** The history of logins with its filters; with none yet it says how they get here. */
@@ -48,8 +48,12 @@ function RecentLogins({ host }: { host: string }) {
     >
       {(all) => (
         <Stack gap={3}>
-          <SshFilters entries={all} filter={filter} onChange={setFilter} />
-          <SshLoginTable all={all} host={host} shown={filterLogins(all, filter)} />
+          <SshFilters entries={all} filter={appliedFilter(all, filter)} onChange={setFilter} />
+          <SshLoginTable
+            all={all}
+            host={host}
+            shown={filterLogins(all, appliedFilter(all, filter))}
+          />
           {incidents.hasNextPage && (
             <div>
               <Button

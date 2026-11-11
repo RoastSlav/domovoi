@@ -196,6 +196,34 @@ test("turning_live_off_stops_the_page_asking_again_on_its_own", async () => {
   expect(logQueries().length, "on asks again").toBeGreaterThan(asked + 1);
 });
 
+/** Hides or shows the browser tab the way the browser does, and tells the page. */
+function setVisibility(state: "visible" | "hidden") {
+  Object.defineProperty(document, "visibilityState", { configurable: true, value: state });
+  document.dispatchEvent(new Event("visibilitychange"));
+}
+
+test("live_logs_stop_refreshing_while_the_tab_is_hidden", async () => {
+  vi.useFakeTimers({ now: new Date("2026-11-01T12:00:00Z"), shouldAdvanceTime: true });
+  try {
+    renderAt("/logs", "/logs", <LogsPage />);
+    await screen.findByText(/hub started hosts=1/);
+
+    await act(() => vi.advanceTimersByTimeAsync(LOGS_REFRESH_MS * 2 + 1_000));
+    const visible = logQueries().length;
+    expect(visible, "live asks again while the tab is visible").toBeGreaterThan(1);
+
+    act(() => setVisibility("hidden"));
+    await act(() => vi.advanceTimersByTimeAsync(LOGS_REFRESH_MS * 4));
+    expect(logQueries(), "a hidden tab asks for nothing").toHaveLength(visible);
+
+    act(() => setVisibility("visible"));
+    await act(() => vi.advanceTimersByTimeAsync(LOGS_REFRESH_MS * 2 + 1_000));
+    expect(logQueries().length, "showing the tab resumes the asking").toBeGreaterThan(visible);
+  } finally {
+    setVisibility("visible");
+  }
+});
+
 test("logs_start_on_the_selected_host_until_a_source_is_picked", async () => {
   route("GET /api/v1/hosts/{name}/logs", () => [
     { at: T0, level: "warn", target: "agent.checks", message: "disk.usage on /srv is 97% full" },

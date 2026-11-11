@@ -81,6 +81,8 @@ export function useHostLogs(
       ),
     enabled: name !== "" && enabled,
     refetchInterval: refresh ? LOGS_REFRESH_MS : false,
+    // Live logs pause while the browser tab is hidden and resume when it is shown again.
+    refetchIntervalInBackground: false,
   });
 }
 

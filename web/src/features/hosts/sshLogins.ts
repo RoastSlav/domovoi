@@ -72,3 +72,16 @@ export function filterLogins(entries: readonly LoginEntry[], filter: LoginFilter
       (filter.network === "all" || entry.network === filter.network),
   );
 }
+
+/** Whether the history holds a failed login, which is when a choice by result means anything. */
+export function hasFailures(entries: readonly LoginEntry[]): boolean {
+  return entries.some((entry) => entry.result === "failed");
+}
+
+/**
+ * The filter that applies to `entries`: a choice by result is dropped while the history has no
+ * failed login, so a selection made earlier cannot hide rows behind a control that is gone.
+ */
+export function appliedFilter(entries: readonly LoginEntry[], filter: LoginFilter): LoginFilter {
+  return hasFailures(entries) ? filter : { ...filter, result: "all" };
+}

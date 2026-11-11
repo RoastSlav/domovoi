@@ -4,9 +4,10 @@ import type { AckRule, AckRuleInput, Predicate } from "../../api/types";
 import { calls, failure, resetApi, route } from "../../test/apiMock";
 import { T0, incident } from "../../test/fixtures";
 import { renderAt } from "../../test/render";
+import { SshFilters } from "./SshFilters";
 import { SshLoginTable } from "./SshLoginTable";
 import { SshLoginsTab } from "./SshLoginsTab";
-import { MANY_FAILURES, loginsOf, type LoginEntry } from "./sshLogins";
+import { ALL_LOGINS, MANY_FAILURES, appliedFilter, loginsOf, type LoginEntry } from "./sshLogins";
 
 vi.mock("../../api/client", () => import("../../test/apiMock"));
 
@@ -126,6 +127,33 @@ test("the_source_filter_narrows_the_history_to_the_internet_or_the_local_network
   await user.click(screen.getByRole("radio", { name: "Local network" }));
   expect(within(table).getByText("alice")).toBeVisible();
   expect(within(table).queryByText("bob")).toBeNull();
+});
+
+test("result_filter_is_hidden_when_no_login_failed", async () => {
+  serve([], [login("alice", "192.168.1.20", "lan")]);
+  show();
+  await screen.findByRole("table", { name: "SSH logins on nas" });
+  expect(screen.queryByRole("radio", { name: "Failed" })).toBeNull();
+  expect(screen.queryByRole("radio", { name: "Accepted" })).toBeNull();
+  expect(screen.getByRole("radio", { name: "Internet" })).toBeVisible();
+});
+
+test("result_filter_appears_when_a_failed_login_is_in_the_history", () => {
+  const entries = [failed("203.0.113.7", "a"), { ...failed("10.0.0.2", "b"), result: "accepted" }];
+  renderAt(
+    "/",
+    "/",
+    <SshFilters entries={entries as LoginEntry[]} filter={ALL_LOGINS} onChange={() => {}} />,
+  );
+  expect(screen.getByRole("radio", { name: /Failed/ })).toBeVisible();
+  expect(screen.getByRole("radio", { name: /Accepted/ })).toBeVisible();
+});
+
+test("a_failed_selection_is_dropped_once_no_login_failed", () => {
+  const accepted = loginsOf([login("alice", "10.0.0.2", "lan")]);
+  const picked = { ...ALL_LOGINS, result: "failed" as const, network: "lan" as const };
+  expect(appliedFilter(accepted, picked)).toEqual({ result: "all", network: "lan" });
+  expect(appliedFilter([failed("203.0.113.7", "a")], picked)).toEqual(picked);
 });
 
 test("a_host_with_no_logins_says_how_they_get_there", async () => {

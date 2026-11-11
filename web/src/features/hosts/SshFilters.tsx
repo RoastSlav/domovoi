@@ -1,5 +1,5 @@
 import { Cluster, FilterChips, type Chip } from "../../components";
-import { filterLogins, type LoginEntry, type LoginFilter } from "./sshLogins";
+import { filterLogins, hasFailures, type LoginEntry, type LoginFilter } from "./sshLogins";
 
 function count(entries: readonly LoginEntry[], filter: LoginFilter, label: string) {
   return { value: filterLogins(entries, filter).length, label };
@@ -40,7 +40,7 @@ export function SshFilters({
   ];
   return (
     <Cluster gap={4}>
-      {entries.some((entry) => entry.result === "failed") && (
+      {hasFailures(entries) && (
         <FilterChips
           label="Result"
           options={results}
