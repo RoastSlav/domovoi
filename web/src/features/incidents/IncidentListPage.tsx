@@ -1,93 +1,149 @@
-import { useEffect, useRef } from "react";
-import { useSearchParams } from "react-router";
+import { useEffect, useState } from "react";
+import { Link, useSearchParams } from "react-router";
 import { useHostNames } from "../../api/hooks/hosts";
 import { useIncidents, type IncidentFilters } from "../../api/hooks/incidents";
+import { useOverview } from "../../api/hooks/overview";
+import type { Overview } from "../../api/types";
 import { useSelectedHost } from "../../app/HostContext";
-import { Button, EmptyState, LoadError, Loading, PageHeader } from "../../components";
+import {
+  EmptyState,
+  Field,
+  FilterChips,
+  PageHeader,
+  QueryBoundary,
+  Select,
+  Skeleton,
+  Tag,
+  TextInput,
+  useDebounced,
+  type Chip,
+} from "../../components";
+import {
+  INCIDENT_GROUP_ORDER,
+  incidentGroupMeta,
+  severityMeta,
+  type IncidentGroup,
+} from "../../design/tone";
 import { IncidentGroups } from "./IncidentGroups";
-import { IncidentRow } from "./IncidentRow";
+import { IncidentList } from "./IncidentList";
 import styles from "./incidents.module.css";
 
-const STATUSES = ["pending", "open", "acked", "muted", "resolved"];
 const SEVERITIES = ["critical", "warning", "info"];
 
-function Filter({
-  name,
-  label,
-  options,
-  value,
-  onChange,
-}: {
-  name: string;
-  label: string;
-  options: string[];
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  const id = `filter-${name}`;
+/** How long typing in the search box rests before the list is asked again. */
+export const SEARCH_DELAY_MS = 300;
+
+type Counts = Overview["incident_groups"];
+type ChipValue = "all" | IncidentGroup;
+
+/** What each group's emptiness means, as a sentence. */
+const EMPTY: Record<IncidentGroup, string> = {
+  needs_action: "Nothing needs action right now.",
+  monitor: "Nothing to keep an eye on right now.",
+  pending: "Nothing is waiting to be confirmed.",
+  expected: "No open incident is marked as expected.",
+  handled: "Nothing is acknowledged or muted.",
+  resolved: "Nothing has resolved yet.",
+};
+
+/** The page's one-line summary: what needs the person, as toned tags. */
+function Summary({ counts }: { counts: Counts | undefined }) {
+  if (!counts) {
+    return null;
+  }
+  const { needs_action: act, monitor, pending } = counts;
+  if (act + monitor + pending === 0) {
+    return <Tag tone="success">Nothing needs you</Tag>;
+  }
   return (
-    <div className={styles.filter}>
-      <label htmlFor={id}>{label}</label>
-      <select id={id} value={value} onChange={(e) => onChange(e.target.value)}>
-        <option value="">Any</option>
-        {options.map((option) => (
-          <option key={option} value={option}>
-            {option}
-          </option>
-        ))}
-      </select>
-    </div>
+    <>
+      {act > 0 && <Tag tone="danger">{act === 1 ? "1 needs action" : `${act} need action`}</Tag>}
+      {monitor > 0 && <Tag tone="warning">{`${monitor} to monitor`}</Tag>}
+      {pending > 0 && <Tag tone="pending">{`${pending} pending`}</Tag>}
+    </>
   );
 }
 
-/** Loads the next page when the end of the list scrolls into view. */
-function useLoadWhenVisible(load: () => void, enabled: boolean) {
-  const sentinel = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const target = sentinel.current;
-    if (!enabled || !target || typeof IntersectionObserver === "undefined") {
-      return undefined;
-    }
-    const observer = new IntersectionObserver((entries) => {
-      if (entries.some((entry) => entry.isIntersecting)) {
-        load();
+function chips(counts: Counts | undefined): Chip<ChipValue>[] {
+  const groups = INCIDENT_GROUP_ORDER.map((group): Chip<ChipValue> => {
+    const meta = incidentGroupMeta(group);
+    const value = group === "resolved" ? 0 : (counts?.[group] ?? 0);
+    return {
+      value: group,
+      label: meta.label,
+      tone: meta.tone,
+      ...(value > 0 ? { count: { value, label: "incidents" } } : {}),
+    };
+  });
+  return [{ value: "all", label: "All" }, ...groups];
+}
+
+/** One group on its own: the hub filters it, and its emptiness is said in words. */
+function OneGroup({
+  group,
+  filters,
+  hostNames,
+}: {
+  filters: IncidentFilters;
+  group: IncidentGroup;
+  hostNames: Map<string, string>;
+}) {
+  const incidents = useIncidents({ ...filters, group });
+  const label = incidentGroupMeta(group).label;
+  return (
+    <QueryBoundary
+      query={incidents}
+      context="load incidents"
+      loading={<Skeleton shape="rows" count={6} />}
+      isEmpty={(data) => data.pages.every((page) => page.items.length === 0)}
+      empty={
+        <EmptyState title={EMPTY[group]} action={<Link to="/incidents">Show all incidents</Link>}>
+          {(filters.q ?? filters.severity) && <p>The search and severity you chose still apply.</p>}
+        </EmptyState>
       }
-    });
-    observer.observe(target);
-    return () => observer.disconnect();
-  }, [load, enabled]);
-  return sentinel;
+    >
+      {() => <IncidentList query={incidents} hostNames={hostNames} caption={label} />}
+    </QueryBoundary>
+  );
 }
 
 /**
- * Incidents, newest first, filtered by status and severity from the URL and by the host
- * selected in the sidebar.
- * With no status filter the page groups the incidents by state; with one it lists them.
+ * Incidents, filtered by group, text and severity from the URL (so a view can be shared and
+ * survives a reload) and by the host selected for the whole app. With no group chosen the
+ * page shows every group, the most urgent first.
  */
 export function IncidentListPage() {
   const [params, setParams] = useSearchParams();
   const [host] = useSelectedHost();
-  const filters: IncidentFilters = {
-    status: params.get("status") ?? undefined,
-    host,
-    severity: params.get("severity") ?? undefined,
-  };
-  const grouped = !filters.status;
-  const incidents = useIncidents(filters, !grouped);
   const hostNames = useHostNames();
-  const { fetchNextPage, hasNextPage, isFetchingNextPage } = incidents;
-  const loadMore = () => void fetchNextPage();
-  const sentinel = useLoadWhenVisible(loadMore, hasNextPage && !isFetchingNextPage);
-  const items = incidents.data?.pages.flatMap((page) => page.items) ?? [];
+  const overview = useOverview(host);
+  const chosen = params.get("group");
+  const group = INCIDENT_GROUP_ORDER.find((known) => known === chosen);
+  const q = params.get("q") ?? "";
+  const [text, setText] = useState(q);
+  const settled = useDebounced(text.trim(), SEARCH_DELAY_MS);
 
-  const setFilter = (name: "status" | "severity", value: string) => {
+  const setParam = (name: string, value: string, replace = false) => {
     const next = new URLSearchParams(params);
     if (value) {
       next.set(name, value);
     } else {
       next.delete(name);
     }
-    setParams(next);
+    setParams(next, { replace });
+  };
+  useEffect(() => {
+    if (settled !== q) {
+      setParam("q", settled, true);
+    }
+    // Only a settled search writes the URL; the URL changing must not write it back.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settled]);
+
+  const filters: IncidentFilters = {
+    host,
+    q: q || undefined,
+    severity: params.get("severity") ?? undefined,
   };
 
   return (
@@ -96,59 +152,48 @@ export function IncidentListPage() {
         title="Incidents"
         docs="concepts/incidents.html"
         intro="Problems Domovoi found on your hosts. Confirmed ones are posted to chat, and triaged when a model is set up."
+        meta={<Summary counts={overview.data?.incident_groups} />}
       />
-      <form className={styles.filters} role="search" aria-label="Filter incidents">
-        <Filter
-          name="status"
-          label="Status"
-          options={STATUSES}
-          value={filters.status ?? ""}
-          onChange={(v) => setFilter("status", v)}
+      <form
+        className={styles.filters}
+        role="search"
+        aria-label="Filter incidents"
+        onSubmit={(event) => event.preventDefault()}
+      >
+        <FilterChips
+          label="Group"
+          value={group ?? "all"}
+          options={chips(overview.data?.incident_groups)}
+          onChange={(value) => setParam("group", value === "all" ? "" : value)}
         />
-        <Filter
-          name="severity"
-          label="Severity"
-          options={SEVERITIES}
-          value={filters.severity ?? ""}
-          onChange={(v) => setFilter("severity", v)}
-        />
-      </form>
-      {grouped ? (
-        <IncidentGroups filters={filters} hostNames={hostNames} />
-      ) : (
-        <>
-          {incidents.isPending && <Loading />}
-          {incidents.error && !incidents.data && (
-            <LoadError
-              error={incidents.error}
-              context="load incidents"
-              onRetry={incidents.refetch}
+        <div className={styles.filterRow}>
+          <Field label="Search">
+            <TextInput
+              type="search"
+              placeholder="Title, check or target"
+              value={text}
+              onChange={(event) => setText(event.target.value)}
             />
-          )}
-          {incidents.data && items.length === 0 && (
-            <EmptyState title="No incidents">
-              <p>Nothing matches these filters.</p>
-            </EmptyState>
-          )}
-          {items.length > 0 && (
-            <ul className={styles.list}>
-              {items.map((incident) => (
-                <IncidentRow
-                  key={incident.id}
-                  incident={incident}
-                  host={hostNames.get(incident.host_id)}
-                />
+          </Field>
+          <Field label="Severity">
+            <Select
+              value={filters.severity ?? ""}
+              onChange={(event) => setParam("severity", event.target.value)}
+            >
+              <option value="">Any</option>
+              {SEVERITIES.map((severity) => (
+                <option key={severity} value={severity}>
+                  {severityMeta(severity).label}
+                </option>
               ))}
-            </ul>
-          )}
-          {hasNextPage && (
-            <div className={styles.more} ref={sentinel}>
-              <Button onClick={loadMore} loading={isFetchingNextPage}>
-                Load more
-              </Button>
-            </div>
-          )}
-        </>
+            </Select>
+          </Field>
+        </div>
+      </form>
+      {group ? (
+        <OneGroup group={group} filters={filters} hostNames={hostNames} />
+      ) : (
+        <IncidentGroups filters={filters} hostNames={hostNames} />
       )}
     </>
   );

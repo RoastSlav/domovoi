@@ -1,10 +1,9 @@
-import { screen } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { calls, failure, resetApi, route } from "../../test/apiMock";
 import { nas } from "../../test/fixtures";
 import { renderAt } from "../../test/render";
 import { MAX_HISTORY_TURNS } from "../../components/ChatThread";
-import { SELECTED_HOST_KEY } from "../../app/HostContext";
 import { ChatPage } from "./ChatPage";
 
 vi.mock("../../api/client", () => import("../../test/apiMock"));
@@ -13,35 +12,42 @@ beforeEach(() => {
   resetApi();
   sessionStorage.clear();
   route("GET /api/v1/hosts", () => [nas, { ...nas, id: "host-pi", name: "pi", connected: false }]);
+  route("GET /api/v1/settings", () => ({ triage: { enabled: true } }));
   route("POST /api/v1/chat", (init) => {
     const { question } = init.body as { question: string };
     return { answer: `Answer to: ${question}` };
   });
 });
 
+function open(url = "/chat") {
+  return renderAt(url, "/chat", <ChatPage />);
+}
+
+function posts() {
+  return calls.filter((call) => call.route === "POST /api/v1/chat");
+}
+
+const composer = () => screen.getByLabelText("Ask about your servers");
+
 test("chat_sends_the_earlier_turns_and_clear_empties_them", async () => {
   const user = userEvent.setup();
-  renderAt("/chat", "/chat", <ChatPage />);
+  open();
 
   expect(
-    screen.getByText(
-      "Read-only. With a host chosen, it can look at that host's containers, logs, journal and read skills.",
-    ),
+    screen.getByText(/^Read-only\. It answers from a summary of every host/),
     "the hint says what the chat may do",
   ).toBeVisible();
 
-  const textarea = screen.getByLabelText("Ask about your servers");
-  await user.type(textarea, "Why is the NAS slow?");
+  await user.type(composer(), "Why is the NAS slow?");
   await user.click(screen.getByRole("button", { name: "Send" }));
   expect(await screen.findByText("Answer to: Why is the NAS slow?")).toBeVisible();
 
-  await user.type(textarea, "And now?");
+  await user.type(composer(), "And now?");
   await user.click(screen.getByRole("button", { name: "Send" }));
   expect(await screen.findByText("Answer to: And now?")).toBeVisible();
 
-  const posts = calls.filter((call) => call.route === "POST /api/v1/chat");
-  expect(posts, "the question reached the hub once").toHaveLength(2);
-  expect(posts[1]?.init.body, "the earlier turns are sent back").toEqual({
+  expect(posts(), "each question reached the hub once").toHaveLength(2);
+  expect(posts()[1]?.init.body, "the earlier turns are sent back").toEqual({
     history: [
       { role: "user", text: "Why is the NAS slow?" },
       { role: "assistant", text: "Answer to: Why is the NAS slow?" },
@@ -59,35 +65,74 @@ test("chat_sends_the_earlier_turns_and_clear_empties_them", async () => {
 
 test("chat_sends_only_the_newest_twenty_earlier_messages", async () => {
   const user = userEvent.setup();
-  renderAt("/chat", "/chat", <ChatPage />);
+  open();
 
-  const textarea = screen.getByLabelText("Ask about your servers");
   for (let n = 0; n < 12; n += 1) {
-    await user.type(textarea, `Question ${n}`);
+    await user.type(composer(), `Question ${n}`);
     await user.click(screen.getByRole("button", { name: "Send" }));
     expect(await screen.findByText(`Answer to: Question ${n}`)).toBeVisible();
   }
 
-  const posts = calls.filter((call) => call.route === "POST /api/v1/chat");
-  expect(posts, "every question still reaches the hub").toHaveLength(12);
-  const last = posts[11]?.init.body as {
-    history: { role: string; text: string }[];
-  };
+  expect(posts(), "every question still reaches the hub").toHaveLength(12);
+  const last = posts()[11]?.init.body as { history: { role: string; text: string }[] };
   expect(last.history, "the hub's limit is never exceeded").toHaveLength(MAX_HISTORY_TURNS);
   expect(last.history[0], "the oldest pair is dropped together").toEqual({
     role: "user",
     text: "Question 1",
   });
-  expect(last.history.at(-1)).toEqual({
-    role: "assistant",
-    text: "Answer to: Question 10",
-  });
+  expect(last.history.at(-1)).toEqual({ role: "assistant", text: "Answer to: Question 10" });
   expect(
-    posts.every(
+    posts().every(
       (post) => (post.init.body as { history: unknown[] }).history.length <= MAX_HISTORY_TURNS,
     ),
     "no request ever sends more than the limit",
   ).toBe(true);
+});
+
+test("enter_sends_and_shift_enter_does_not", async () => {
+  const user = userEvent.setup();
+  open();
+
+  await user.type(composer(), "First line");
+  await user.keyboard("{Shift>}{Enter}{/Shift}");
+  expect(posts(), "Shift+Enter is only a line break").toHaveLength(0);
+  expect(composer()).toHaveValue("First line\n");
+
+  await user.keyboard("second{Enter}");
+  expect(posts()).toHaveLength(1);
+  expect((posts()[0]?.init.body as { question: string }).question).toBe("First line\nsecond");
+  expect(await screen.findByText(/^Answer to: First line/)).toBeVisible();
+  expect(composer(), "the composer empties").toHaveValue("");
+});
+
+test("a_failed_answer_shows_retry_with_the_question_kept", async () => {
+  const user = userEvent.setup();
+  let sick = true;
+  route("POST /api/v1/chat", () =>
+    sick
+      ? failure(503, "unavailable", "the model is not available: connection refused")
+      : { answer: "It is fine." },
+  );
+  open();
+
+  await user.type(composer(), "Is it up?");
+  await user.click(screen.getByRole("button", { name: "Send" }));
+
+  const alert = await screen.findByRole("alert");
+  expect(alert).toHaveTextContent("Could not get an answer");
+  expect(alert).toHaveTextContent("The model is not available: connection refused.");
+  expect(screen.getByText("Is it up?"), "the question is kept").toBeVisible();
+  expect(composer(), "an ordinary failure leaves the composer usable").not.toHaveAttribute(
+    "aria-disabled",
+  );
+
+  sick = false;
+  await user.click(within(alert).getByRole("button", { name: "Retry" }));
+  expect(await screen.findByText("It is fine.")).toBeVisible();
+  expect(posts().map((post) => (post.init.body as { question: string }).question)).toEqual([
+    "Is it up?",
+    "Is it up?",
+  ]);
 });
 
 test("chat_says_when_the_monthly_model_budget_is_spent", async () => {
@@ -95,78 +140,115 @@ test("chat_says_when_the_monthly_model_budget_is_spent", async () => {
   route("POST /api/v1/chat", () =>
     failure(503, "budget_spent", "the monthly model budget is spent"),
   );
-  renderAt("/chat", "/chat", <ChatPage />);
+  open();
 
-  await user.type(screen.getByLabelText("Ask about your servers"), "Why?");
-  await user.click(screen.getByRole("button", { name: "Send" }));
-  expect(await screen.findByRole("alert")).toHaveTextContent("The monthly model budget is spent");
-});
-
-test("chat_says_when_the_model_is_not_available", async () => {
-  const user = userEvent.setup();
-  route("POST /api/v1/chat", () =>
-    failure(503, "unavailable", "the model is not available: connection refused"),
-  );
-  renderAt("/chat", "/chat", <ChatPage />);
-
-  await user.type(screen.getByLabelText("Ask about your servers"), "Why?");
+  await user.type(composer(), "Why?");
   await user.click(screen.getByRole("button", { name: "Send" }));
   expect(await screen.findByRole("alert")).toHaveTextContent(
-    "The model is not available right now",
+    "The monthly model budget is spent. It resets next month.",
   );
+  expect(composer(), "asking again would not help, so the composer says why").toHaveAttribute(
+    "aria-disabled",
+    "true",
+  );
+});
+
+test("a_disabled_composer_shows_its_reason", async () => {
+  route("GET /api/v1/settings", () => ({ triage: { enabled: false } }));
+  open();
+
+  const reason = "Triage is off, so there is no model to ask. Turn it on under Settings, Triage.";
+  expect(await screen.findByText(reason)).toBeVisible();
+  expect(composer()).toHaveAttribute("aria-disabled", "true");
+  expect(screen.getByRole("button", { name: "Send" })).toHaveAccessibleDescription(reason);
+});
+
+test("stop_cancels_the_question_and_hands_it_back", async () => {
+  const user = userEvent.setup();
+  route("POST /api/v1/chat", () => new Promise(() => undefined));
+  open();
+
+  await user.type(composer(), "A long one");
+  await user.click(screen.getByRole("button", { name: "Send" }));
+  expect(await screen.findByText("Thinking…")).toBeVisible();
+
+  await user.click(screen.getByRole("button", { name: "Stop" }));
+  await vi.waitFor(() => expect(screen.queryByText("Thinking…")).toBeNull());
+  expect(composer(), "the question is back to be edited or sent again").toHaveValue("A long one");
+  expect(screen.queryByRole("alert"), "stopping is not an error").toBeNull();
+});
+
+test("an_empty_chat_offers_starter_questions_about_the_selected_host", async () => {
+  const user = userEvent.setup();
+  open("/chat?host=nas");
+
+  const starters = within(screen.getByRole("group", { name: "Suggested questions" }));
+  expect(starters.getAllByRole("button").map((button) => button.textContent)).toEqual([
+    "Is anything wrong on nas right now?",
+    "What changed on nas in the last day?",
+    "Which containers on nas restarted recently?",
+    "How full are the disks on nas?",
+  ]);
+
+  await user.click(starters.getByRole("button", { name: "How full are the disks on nas?" }));
+  expect(await screen.findByText("Answer to: How full are the disks on nas?")).toBeVisible();
+  expect(posts()[0]?.init.body).toEqual({
+    host: "nas",
+    history: [],
+    question: "How full are the disks on nas?",
+  });
+  expect(
+    screen.queryByRole("group", { name: "Suggested questions" }),
+    "starters leave once the conversation has begun",
+  ).toBeNull();
+});
+
+test("the_header_says_which_host_the_chat_is_about", async () => {
+  const all = open();
+  expect(screen.getByText("About all hosts")).toBeVisible();
+  expect(screen.queryByLabelText("Host"), "the top bar owns the host choice").toBeNull();
+  all.unmount();
+
+  open("/chat?host=pi");
+  expect(screen.getByText("About pi")).toBeVisible();
+  expect(
+    await screen.findByText("pi is offline"),
+    "an offline host cannot be looked at",
+  ).toBeVisible();
+  expect(
+    screen.getByText(
+      /^Read-only\. It can look at the containers, logs, journal and read skills of pi\./,
+    ),
+  ).toBeVisible();
 });
 
 test("chat_keeps_a_separate_conversation_for_each_host", async () => {
   const user = userEvent.setup();
-  renderAt("/chat", "/chat", <ChatPage />);
-
-  // Each host has its own conversation, and with it its own composer.
-  const textarea = () => screen.getByLabelText("Ask about your servers");
-  await user.type(textarea(), "About everything?");
+  const everything = open();
+  await user.type(composer(), "About everything?");
   await user.click(screen.getByRole("button", { name: "Send" }));
   expect(await screen.findByText("Answer to: About everything?")).toBeVisible();
+  everything.unmount();
 
-  const select = () => screen.getByLabelText("Host");
-  await screen.findByRole("option", { name: "pi (offline: no tools)" });
-  await user.selectOptions(select(), "pi");
+  const pi = open("/chat?host=pi");
   expect(
     screen.queryByText("About everything?"),
     "another host starts a new conversation",
   ).not.toBeInTheDocument();
-
-  await user.type(textarea(), "About pi?");
+  await user.type(composer(), "About pi?");
   await user.click(screen.getByRole("button", { name: "Send" }));
   expect(await screen.findByText("Answer to: About pi?")).toBeVisible();
-
-  await user.selectOptions(select(), "");
-  expect(
-    await screen.findByText("Answer to: About everything?"),
-    "the first host's conversation is still there",
-  ).toBeVisible();
-  expect(screen.queryByText("Answer to: About pi?")).not.toBeInTheDocument();
-
-  const posts = calls.filter((call) => call.route === "POST /api/v1/chat");
-  expect(posts[1]?.init.body, "a chosen host is sent with the question").toEqual({
+  expect(posts()[1]?.init.body, "a chosen host is sent with the question").toEqual({
     host: "pi",
     history: [],
     question: "About pi?",
   });
-});
+  pi.unmount();
 
-test("chat_starts_on_the_selected_host_and_changing_it_here_changes_the_selection", async () => {
-  const user = userEvent.setup();
-  renderAt("/chat?host=pi", "/chat", <ChatPage />);
-  await screen.findByRole("option", { name: "pi (offline: no tools)" });
-  expect(screen.getByLabelText("Host")).toHaveValue("pi");
-
-  await user.type(screen.getByLabelText("Ask about your servers"), "Is it up?");
-  await user.click(screen.getByRole("button", { name: "Send" }));
-  await screen.findByText("Answer to: Is it up?");
-  const posts = calls.filter((call) => call.route === "POST /api/v1/chat");
-  expect(posts[0]?.init.body).toEqual({ host: "pi", history: [], question: "Is it up?" });
-
-  await user.selectOptions(screen.getByLabelText("Host"), "nas");
-  expect(screen.getByTestId("location")).toHaveTextContent("/chat?host=nas");
-  expect(localStorage.getItem(SELECTED_HOST_KEY)).toBe("nas");
-  expect(screen.getByLabelText("Host")).toHaveValue("nas");
+  open();
+  expect(
+    await screen.findByText("Answer to: About everything?"),
+    "the first conversation is still there",
+  ).toBeVisible();
+  expect(screen.queryByText("Answer to: About pi?")).not.toBeInTheDocument();
 });
