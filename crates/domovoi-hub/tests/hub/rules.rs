@@ -387,6 +387,8 @@ async fn a_rule_whose_host_is_gone_is_still_listed_and_deletable() {
         predicates: Vec::new(),
         note: "the host row was edited away by hand".to_owned(),
         expires_at: None,
+        created_at: None,
+        created_by: None,
     };
     AckRepo::put_rule(&*a.store, &rule).await.unwrap();
 
@@ -608,4 +610,63 @@ async fn a_login_from_the_one_expected_address_is_known() {
         change.notify,
         "a login from an address the rule does not name alerts"
     );
+}
+
+#[tokio::test]
+async fn a_rule_restored_with_its_exact_expiry_keeps_that_expiry() {
+    let a = api().await;
+    let login = a.admin().await;
+    let mut body = rule_body("expires_in_minutes", json!(null));
+    body["expires_at"] = json!("2030-01-02T03:04:05Z");
+    let created = created_rule(&a, &login, body).await;
+    assert_eq!(created["expires_at"], "2030-01-02T03:04:05Z");
+
+    // With both fields, the exact time wins over the minutes.
+    let mut both = rule_body("expires_in_minutes", json!(60));
+    both["expires_at"] = json!("2031-05-06T07:08:09Z");
+    let created = created_rule(&a, &login, both).await;
+    assert_eq!(created["expires_at"], "2031-05-06T07:08:09Z");
+
+    // A value that is not a time is refused, and nothing is stored.
+    let mut bad = rule_body("expires_in_minutes", json!(null));
+    bad["expires_at"] = json!("next tuesday");
+    let reply = a.post("/api/v1/ack-rules", &login, bad).await;
+    assert_eq!(reply.status, StatusCode::BAD_REQUEST, "{}", reply.text);
+    assert_eq!(listed_rules(&a, &login).await.len(), 2);
+}
+
+#[tokio::test]
+async fn a_created_rule_reports_who_created_it_and_when() {
+    let a = api().await;
+    let login = a.admin().await;
+    let created = created_rule(&a, &login, rule_body("note", json!("made by hand"))).await;
+    assert_eq!(created["created_by"], crate::api_harness::USERNAME);
+    assert_eq!(created["created_at"], a.now().to_string());
+
+    // A rule stored before the creator was recorded has no creator, and says so.
+    let old = AckRule {
+        id: AckRuleId::new(),
+        host: None,
+        check: CheckKey::parse("disk.usage").unwrap(),
+        target_pattern: None,
+        predicates: Vec::new(),
+        note: "stored before the creator was recorded".to_owned(),
+        expires_at: None,
+        created_at: None,
+        created_by: None,
+    };
+    AckRepo::put_rule(&*a.store, &old).await.unwrap();
+
+    let listed = listed_rules(&a, &login).await;
+    let row = |id: &Value| {
+        listed
+            .iter()
+            .find(|rule| rule["id"] == *id)
+            .unwrap()
+            .clone()
+    };
+    assert_eq!(row(&created["id"]), created);
+    let old_row = row(&json!(old.id.to_string()));
+    assert!(old_row["created_at"].is_null());
+    assert!(old_row["created_by"].is_null());
 }

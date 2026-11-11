@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { MemoryRouter, Route, Routes, useLocation } from "react-router";
+import { createMemoryRouter, Route, RouterProvider, Routes, useLocation } from "react-router";
 import { HostProvider } from "../app/HostContext";
 import { ToastProvider } from "../components/Toast";
 
@@ -16,16 +16,28 @@ export function renderAt(url: string, path: string, element: ReactNode) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
+  // A data router, as the app uses, so pages that hold back a navigation work in tests.
+  const router = createMemoryRouter(
+    [
+      {
+        path: "*",
+        element: (
+          <>
+            <Routes>
+              <Route path={path} element={<HostProvider>{element}</HostProvider>} />
+              <Route path="*" element={<p>other page</p>} />
+            </Routes>
+            <Location />
+          </>
+        ),
+      },
+    ],
+    { initialEntries: [url] },
+  );
   const result = render(
     <QueryClientProvider client={client}>
       <ToastProvider>
-        <MemoryRouter initialEntries={[url]}>
-          <Routes>
-            <Route path={path} element={<HostProvider>{element}</HostProvider>} />
-            <Route path="*" element={<p>other page</p>} />
-          </Routes>
-          <Location />
-        </MemoryRouter>
+        <RouterProvider router={router} />
       </ToastProvider>
     </QueryClientProvider>,
   );

@@ -935,6 +935,10 @@ export interface components {
         AckRuleDto: {
             /** @description The check the rule matches, for example `security.ssh_login`. */
             check: string;
+            /** @description When the rule was created; null for rules made before this was recorded. */
+            created_at?: string | null;
+            /** @description The username of the person who created the rule; null when unknown. */
+            created_by?: string | null;
             /** @description When the rule stops applying; null means it never expires. */
             expires_at?: string | null;
             /**
@@ -955,6 +959,12 @@ export interface components {
         AckRuleInput: {
             /** @description The check to match, for example `security.ssh_login`. */
             check: string;
+            /**
+             * @description The exact time the rule stops applying, as RFC 3339, such as `2026-12-01T10:00:00Z`.
+             *     When present it is used instead of `expires_in_minutes`, so a rule can be restored
+             *     with its original expiry; an unparseable value is refused.
+             */
+            expires_at?: string | null;
             /**
              * Format: int32
              * @description Minutes from now until the rule stops applying; null means it never expires.
@@ -1088,12 +1098,28 @@ export interface components {
             /** @description Thresholds merged over the agent's. */
             thresholds?: Record<string, never>;
         };
+        /** @description One host's part of the daily digest. */
+        DigestHostDto: {
+            /** @description The host's name. */
+            host: string;
+            /** @description What changed on the host, one plain sentence each. */
+            lines: string[];
+            /** @description True when nothing changed on the host and no incident or advisory is open for it. */
+            quiet: boolean;
+        };
         /** @description The daily digest as it would be sent now. */
         DigestPreview: {
             /** @description The day it is for. */
             date: string;
+            /**
+             * @description The same digest as one entry per host, in name order, for showing each host as its
+             *     own section. `markdown` holds the same content as one document.
+             */
+            hosts: components["schemas"]["DigestHostDto"][];
             /** @description The rendered Markdown. */
             markdown: string;
+            /** @description When the digest is next sent (RFC 3339); null when the digest is disabled. */
+            next_send_at?: string | null;
         };
         /** @description Discord. */
         DiscordSettings: {

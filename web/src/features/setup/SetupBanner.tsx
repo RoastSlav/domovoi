@@ -15,8 +15,9 @@ function wasDismissed(): boolean {
 }
 
 /**
- * Lists the first-run steps that are still open (Discord, a model, a host) until they are
- * done or the banner is dismissed. Shown only where settings are managed in the UI.
+ * Says what is left to configure (Discord, a model, a host) and links to the first-run
+ * steps, until it is all done or the banner is dismissed. Shown only where settings are
+ * managed in the UI.
  */
 export function SetupBanner() {
   const settings = useSettings();
@@ -54,7 +55,7 @@ export function SetupBanner() {
         </LinkButton>
       }
     >
-      Still to add: {missing.join(", ")}.
+      {`Still to add: ${new Intl.ListFormat("en").format(missing)}.`}
     </Banner>
   );
 }

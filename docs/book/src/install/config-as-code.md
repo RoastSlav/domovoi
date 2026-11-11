@@ -11,7 +11,9 @@ Each setting comes from the highest layer that sets it:
 3. `hub.toml`.
 4. `DOMOVOI_*` environment variables.
 
-The Settings page labels a field set in the file "Set in hub.toml", and one set in the environment "Set by `DOMOVOI_…`". Those fields are read-only there; change them where they are set.
+The Settings page tags every field with where its value comes from: "from hub.toml", "from environment", "set here" or "default". A field set in the file or the environment is read-only there and says so ("Set in hub.toml; edit the file to change it."); change it where it is set.
+
+Settings are grouped into sections, listed on the left, and each has its own address (`/settings/discord`). A section with unsaved changes is marked in the list, and so is one the hub found a problem in. One **Save** at the bottom saves every section's changes together and restarts the hub; the page shows "Restarting the hub…" and then "Back online". If a value is not accepted, the problem is shown under its field and listed at the top, where choosing it takes you to the field. A saved token or key is never shown: its field says "Set" or "Not set", and **Replace** lets you enter a new one. Sections that talk to something outside the hub (Discord, the model, webhooks, the heartbeat) have a **Test** button that tries the connection with the values on the page.
 
 `domovoi hub run` reads `--config <file>`, or `DOMOVOI_HUB_CONFIG`, or `/etc/domovoi/hub.toml` when that file exists. Without any of them the hub runs on defaults, the environment and the UI.
 

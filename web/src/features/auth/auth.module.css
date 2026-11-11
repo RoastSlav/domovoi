@@ -1,27 +1,25 @@
-.page {
-  max-width: 24rem;
-  margin: 0 auto;
-  padding: 3rem 1rem;
-}
-
 .form {
   display: grid;
-  gap: 0.9rem;
+  gap: var(--space-4);
 }
 
-.field {
+/* Holds the room an error needs, so the fields and the button do not move when one appears. */
+.status {
+  min-height: 4.5rem;
+}
+
+.rules {
   display: grid;
-  gap: 0.25rem;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-sm);
 }
 
-.hint {
-  margin: 0;
-  font-size: 0.85rem;
-  color: var(--color-text-muted);
-}
-
-.error {
-  margin: 0;
-  color: var(--tone-danger-fg);
-  font-weight: 600;
+.rule {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--tone-fg, var(--color-text-muted));
 }

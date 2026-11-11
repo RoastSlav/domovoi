@@ -1,249 +1,182 @@
-import { useState, type FormEvent } from "react";
-import { useHosts } from "../../api/hooks/hosts";
+import { useId, useState, type FormEvent } from "react";
 import { useCreateAckRule } from "../../api/hooks/rules";
-import type { AckRuleInput, Predicate, PredicateOp } from "../../api/types";
-import { Button, ErrorDetail, InlineMessage, useActionFeedback } from "../../components";
-import styles from "./rules.module.css";
+import {
+  Button,
+  Card,
+  Dialog,
+  ErrorDetail,
+  Field,
+  Grid,
+  InlineMessage,
+  Select,
+  Stack,
+  Text,
+  TextInput,
+  useActionFeedback,
+} from "../../components";
+import { ConditionRows } from "./ConditionRows";
+import { HostField } from "./HostField";
+import { EXPIRIES, previewSentence } from "./phrase";
+import {
+  NO_PROBLEMS,
+  buildBody,
+  emptyFields,
+  mergeProblems,
+  sortIssues,
+  type RuleFields,
+  type RuleProblems,
+} from "./ruleForm";
 
-/** A condition's operator and the words shown for it. */
-export const OPS: [PredicateOp, string][] = [
-  ["equals", "equals"],
-  ["contains", "contains"],
-  ["at_most", "is at most"],
-  ["at_least", "is at least"],
-  ["in_network", "is in network"],
-];
+// The words for an operator are shared with the expected logins on the host page.
+export { opLabel } from "./phrase";
 
-/** How long a rule lives, in minutes, with the words in the add form; "" means never. */
-export const EXPIRIES: [string, string][] = [
-  ["60", "1 hour"],
-  ["1440", "1 day"],
-  ["10080", "1 week"],
-  ["43200", "30 days"],
-  ["", "never"],
-];
-
-/** The add form starts at 1 hour. */
-const DEFAULT_EXPIRY = "60";
-
-/** Most conditions a rule can have, matching the hub's own limit. */
-export const MAX_CONDITIONS = 10;
-
-/** What the add form holds. */
-export interface AddRuleFields {
-  check: string;
-  host: string;
-  target: string;
-  note: string;
-  expiry: string;
-  conditions: Predicate[];
+/** The rule as the person has described it so far, in one sentence. */
+function Preview({ fields }: { fields: RuleFields }) {
+  const ready = fields.check.trim() !== "";
+  return (
+    <Card label="Preview of the known condition">
+      <Stack gap={1}>
+        <Text muted strong size="xs">
+          What this rule does
+        </Text>
+        <Text block>
+          {ready
+            ? previewSentence({ ...fields, predicates: fields.conditions })
+            : "Type the check to see the rule described here."}
+        </Text>
+      </Stack>
+    </Card>
+  );
 }
 
-/** The words the operator shows, for example "is at most". */
-export function opLabel(op: PredicateOp): string {
-  return OPS.find(([value]) => value === op)?.[1] ?? op;
-}
-
-/** The add form as a request body, or the words saying what to fix. */
-export function formBody(fields: AddRuleFields): AckRuleInput | string {
-  const check = fields.check.trim();
-  const note = fields.note.trim();
-  if (check === "") {
-    return "Type the check key the condition matches, for example security.ssh_login.";
-  }
-  if (note === "") {
-    return "Type why the condition is acceptable, in the note.";
-  }
-  if (fields.conditions.length > MAX_CONDITIONS) {
-    return `Remove a condition: a rule has at most ${MAX_CONDITIONS}.`;
-  }
-  const conditions: Predicate[] = [];
-  for (const [index, condition] of fields.conditions.entries()) {
-    const key = condition.key.trim();
-    const value = condition.value.trim();
-    if (key === "") {
-      return `Condition ${index + 1} has no key, for example disk_name.`;
-    }
-    if (value === "") {
-      return `Condition ${index + 1} has no value.`;
-    }
-    if (
-      (condition.op === "at_most" || condition.op === "at_least") &&
-      !Number.isFinite(Number(value))
-    ) {
-      return `Condition ${index + 1} compares a number, so its value is a number.`;
-    }
-    conditions.push({ key, op: condition.op, value });
-  }
-  return {
-    check,
-    host: fields.host === "" ? null : fields.host,
-    target_pattern: fields.target.trim() === "" ? null : fields.target.trim(),
-    note,
-    expires_in_minutes: fields.expiry === "" ? null : Number(fields.expiry),
-    predicates: conditions,
-  };
-}
-
-/** The form that adds a known condition. */
-export function AddRuleForm() {
+/**
+ * The dialog that adds a known condition: the check it matches, the host, a target, the
+ * conditions, how long it lasts and why, with a sentence that says what the rule will do.
+ * A mistake marks its field or condition row, from the form or from the hub; a failure
+ * stays in the dialog.
+ */
+export function AddRuleForm({
+  defaultHost,
+  onClose,
+}: {
+  defaultHost?: string | undefined;
+  onClose: () => void;
+}) {
+  const formId = useId();
   const create = useActionFeedback(useCreateAckRule(), {
     success: "Known condition added",
     error: "add the known condition",
     errorDisplay: "inline",
   });
-  const hosts = useHosts();
-  const [fields, setFields] = useState<AddRuleFields>({
-    check: "",
-    host: "",
-    target: "",
-    note: "",
-    expiry: DEFAULT_EXPIRY,
-    conditions: [],
-  });
-  const [problem, setProblem] = useState<string>();
+  const [fields, setFields] = useState<RuleFields>(() => emptyFields(defaultHost ?? ""));
+  const [found, setFound] = useState<RuleProblems>(NO_PROBLEMS);
 
-  const change = (patch: Partial<AddRuleFields>) => setFields({ ...fields, ...patch });
-
-  const setCondition = (index: number, patch: Partial<Predicate>) =>
-    setFields({
-      ...fields,
-      conditions: fields.conditions.map((condition, i) =>
-        i === index ? { ...condition, ...patch } : condition,
-      ),
-    });
+  const hub = sortIssues(create.error);
+  const problems = mergeProblems(found, hub.problems);
+  const change = (patch: Partial<RuleFields>) => {
+    setFields({ ...fields, ...patch });
+    setFound(NO_PROBLEMS);
+    if (create.error) {
+      create.reset();
+    }
+  };
 
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
-    const body = formBody(fields);
-    if (typeof body === "string") {
-      setProblem(body);
+    const built = buildBody(fields);
+    if (!("body" in built)) {
+      setFound(built);
       return;
     }
-    setProblem(undefined);
-    create.mutate(body, {
-      onSuccess: () =>
-        setFields({
-          check: "",
-          host: "",
-          target: "",
-          note: "",
-          expiry: DEFAULT_EXPIRY,
-          conditions: [],
-        }),
-    });
+    create.mutate(built.body, { onSuccess: onClose });
   };
 
   return (
-    <form className={styles.form} onSubmit={onSubmit} aria-label="Add a known condition">
-      <h2>Add a known condition</h2>
-      <div className={styles.grid}>
-        <label className={styles.field}>
-          Check key
-          <input
-            value={fields.check}
-            onChange={(e) => change({ check: e.target.value })}
-            placeholder="security.ssh_login"
-          />
-        </label>
-        <label className={styles.field}>
-          Host
-          <select value={fields.host} onChange={(e) => change({ host: e.target.value })}>
-            <option value="">Any host</option>
-            {(hosts.data ?? []).map((host) => (
-              <option key={host.id} value={host.name}>
-                {host.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className={styles.field}>
-          Target pattern
-          <input
-            value={fields.target}
-            onChange={(e) => change({ target: e.target.value })}
-            placeholder="/var/log/*"
-          />
-        </label>
-        <label className={styles.field}>
-          Expires in
-          <select value={fields.expiry} onChange={(e) => change({ expiry: e.target.value })}>
-            {EXPIRIES.map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-      <label className={styles.field}>
-        Note
-        <input
-          value={fields.note}
-          onChange={(e) => change({ note: e.target.value })}
-          placeholder="known backup window"
-        />
-      </label>
-      <div className={styles.conditions}>
-        <span>Conditions</span>
-        {fields.conditions.map((condition, index) => (
-          <div className={styles.row} key={index}>
-            <input
-              aria-label={`Condition ${index + 1} key`}
-              value={condition.key}
-              onChange={(e) => setCondition(index, { key: e.target.value })}
-              placeholder="disk_name"
-            />
-            <select
-              aria-label={`Condition ${index + 1} operator`}
-              value={condition.op}
-              onChange={(e) => setCondition(index, { op: e.target.value as PredicateOp })}
+    <Dialog
+      wide
+      title="Add a known condition"
+      onClose={onClose}
+      actions={
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="primary" type="submit" form={formId} loading={create.isPending}>
+            Add known condition
+          </Button>
+        </>
+      }
+    >
+      <form id={formId} onSubmit={onSubmit} noValidate>
+        <Stack gap={4}>
+          <Grid min="sm" gap={4}>
+            <Field
+              label="Check"
+              required
+              hint="The check the incident comes from, for example security.ssh_login."
+              error={problems.check}
             >
-              {OPS.map(([op, label]) => (
-                <option key={op} value={op}>
-                  {label}
-                </option>
-              ))}
-            </select>
-            <input
-              aria-label={`Condition ${index + 1} value`}
-              value={condition.value}
-              onChange={(e) => setCondition(index, { value: e.target.value })}
+              <TextInput
+                mono
+                value={fields.check}
+                placeholder="security.ssh_login"
+                onChange={(event) => change({ check: event.target.value })}
+              />
+            </Field>
+            <HostField
+              value={fields.host}
+              error={problems.host}
+              onChange={(host) => change({ host })}
             />
-            <Button
-              aria-label={`Remove condition ${index + 1}`}
-              onClick={() =>
-                change({
-                  conditions: fields.conditions.filter((_, i) => i !== index),
-                })
-              }
-            >
-              Remove
-            </Button>
-          </div>
-        ))}
-        <div className={styles.actions}>
-          <Button
-            onClick={() =>
-              change({
-                conditions: [...fields.conditions, { key: "", op: "equals", value: "" }],
-              })
-            }
-            disabled={fields.conditions.length >= MAX_CONDITIONS}
+          </Grid>
+          <Field
+            label="Target"
+            hint="Optional. Use * at the start or end to match more, for example /var/log/*."
+            error={problems.target}
           >
-            Add condition
-          </Button>
-          <Button type="submit" variant="primary" loading={create.isPending}>
-            Add
-          </Button>
-        </div>
-      </div>
-      {problem && <InlineMessage tone="danger" title={problem} />}
-      {create.error && (
-        <InlineMessage tone="danger" title={create.error.title}>
-          <ErrorDetail error={create.error} />
-        </InlineMessage>
-      )}
-    </form>
+            <TextInput
+              mono
+              value={fields.target}
+              placeholder="/var/log/*"
+              onChange={(event) => change({ target: event.target.value })}
+            />
+          </Field>
+          <ConditionRows
+            conditions={fields.conditions}
+            problems={problems.conditions}
+            onChange={(conditions) => change({ conditions })}
+          />
+          <Grid min="sm" gap={4}>
+            <Field
+              label="Lasts"
+              hint="After this the incidents notify again."
+              error={problems.expiry}
+            >
+              <Select
+                value={fields.expiry}
+                onChange={(event) => change({ expiry: event.target.value })}
+              >
+                {EXPIRIES.map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Note" required hint="Why this is acceptable." error={problems.note}>
+              <TextInput
+                value={fields.note}
+                placeholder="Known backup window"
+                onChange={(event) => change({ note: event.target.value })}
+              />
+            </Field>
+          </Grid>
+          <Preview fields={fields} />
+          {create.error && (
+            <InlineMessage tone="danger" title={create.error.title}>
+              <ErrorDetail error={{ ...create.error, issues: hub.rest }} />
+            </InlineMessage>
+          )}
+        </Stack>
+      </form>
+    </Dialog>
   );
 }

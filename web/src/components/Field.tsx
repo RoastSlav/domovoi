@@ -7,6 +7,8 @@ export interface FieldWiring {
   "aria-describedby"?: string | undefined;
   "aria-invalid"?: true | undefined;
   id?: string | undefined;
+  /** The field is locked: inputs inside it show their value but cannot change it. */
+  readOnly?: true | undefined;
   required?: boolean | undefined;
 }
 
@@ -28,7 +30,8 @@ export function fieldIdForPath(path: string): string {
  * `aria-describedby` and `aria-invalid` to the input.
  *
  * Use it around every input. `path` is the hub's settings path for the value, so
- * `FormErrorSummary` can link an issue to this field.
+ * `FormErrorSummary` can link an issue to this field. `locked` makes the input read-only and
+ * says why; `badges` sit beside the label (where a setting's value comes from, for example).
  */
 export function Field({
   label,
@@ -37,8 +40,12 @@ export function Field({
   required,
   id,
   path,
+  locked,
+  badges,
   children,
 }: {
+  /** Small tags beside the label. */
+  badges?: ReactNode;
   children: ReactNode;
   /** What is wrong with the value; replaces the hint. */
   error?: ReactNode;
@@ -46,26 +53,39 @@ export function Field({
   hint?: ReactNode;
   id?: string | undefined;
   label: ReactNode;
+  /** Why the value cannot be changed here; the input becomes read-only. */
+  locked?: ReactNode;
   path?: string;
   required?: boolean;
 }) {
   const generated = useId();
   const inputId = id ?? (path ? fieldIdForPath(path) : generated);
   const noteId = `${inputId}-note`;
+  const lockedId = `${inputId}-locked`;
   const invalid = Boolean(error);
+  const described = [locked && lockedId, (error || hint) && noteId].filter(Boolean).join(" ");
   const wiring: FieldWiring = {
     id: inputId,
     required,
+    readOnly: locked ? true : undefined,
     "aria-invalid": invalid || undefined,
-    "aria-describedby": error || hint ? noteId : undefined,
+    "aria-describedby": described || undefined,
   };
   return (
     <div className={styles.field}>
-      <label className={styles.label} htmlFor={inputId}>
-        {label}
-        {required && <span className={styles.required}>(required)</span>}
-      </label>
+      <div className={styles.labelRow}>
+        <label className={styles.label} htmlFor={inputId}>
+          {label}
+          {required && <span className={styles.required}>(required)</span>}
+        </label>
+        {badges}
+      </div>
       <FieldContext.Provider value={wiring}>{children}</FieldContext.Provider>
+      {locked && (
+        <p className={styles.hint} id={lockedId}>
+          {locked}
+        </p>
+      )}
       {error ? (
         <p className={styles.error} id={noteId} role="alert">
           <Icon name="alert-circle" size={14} />

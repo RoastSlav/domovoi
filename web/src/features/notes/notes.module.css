@@ -1,105 +1,72 @@
-.toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: end;
-  gap: 0.75rem;
-  margin-bottom: 1rem;
-}
-
-.field {
+.title {
   display: grid;
-  gap: 0.2rem;
+  gap: var(--space-1);
+  min-width: 0;
 }
 
-.search {
-  flex: 1 1 14rem;
-}
-
-.search input {
-  width: 100%;
-}
-
-.list {
-  display: grid;
-  gap: 0.5rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.item {
-  padding: 0.6rem 0.9rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-}
-
-.item p {
-  margin: 0.2rem 0 0;
-  color: var(--color-text-muted);
-  font-size: 0.9rem;
+.excerpt {
+  display: -webkit-box;
+  overflow: hidden;
   overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
 }
 
-.editor {
+.toolbar {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1rem;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: start;
+  margin-bottom: var(--space-4);
 }
 
 @media (max-width: 720px) {
-  .editor {
-    grid-template-columns: 1fr;
+  .toolbar {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
-.form {
+.panes {
   display: grid;
-  gap: 0.75rem;
-  align-content: start;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-4);
+  align-items: start;
 }
 
-.form input,
-.form select,
-.form textarea {
-  width: 100%;
+.switch {
+  display: none;
+  margin-bottom: var(--space-3);
 }
 
-.form textarea {
-  min-height: 18rem;
-  font-family: var(--font-mono);
-  font-size: 0.9rem;
+.pane {
+  min-width: 0;
+}
+
+.editorArea {
+  min-height: 24rem;
+}
+
+@media (max-width: 720px) {
+  .panes {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .switch {
+    display: block;
+  }
+
+  .panes[data-mode="write"] .previewPane,
+  .panes[data-mode="preview"] .writePane {
+    display: none;
+  }
 }
 
 .preview {
-  padding: 0.75rem 1rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface);
-  min-height: 10rem;
+  min-height: 12rem;
 }
 
-.preview h2 {
-  margin-top: 0;
-  font-size: 0.85rem;
-  color: var(--color-text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
-.error {
+.listOfFiles {
   margin: 0;
-  color: var(--tone-danger-fg);
-  font-weight: 600;
-}
-
-.result ul {
-  margin: 0.25rem 0 0;
-  padding-left: 1.25rem;
-  font-size: 0.9rem;
+  padding-left: var(--space-4);
 }

@@ -384,6 +384,14 @@ async fn advisories_digest_and_metrics() {
     let preview = a.get("/api/v1/digest/preview", &login).await;
     assert_eq!(preview.status, StatusCode::OK, "{}", preview.text);
     assert!(preview.body["markdown"].as_str().unwrap().contains("nas"));
+    let hosts = preview.body["hosts"].as_array().unwrap();
+    assert!(
+        hosts
+            .iter()
+            .any(|host| host["host"] == "nas" && host["lines"].is_array()),
+        "the preview lists each host as its own section: {}",
+        preview.text
+    );
     assert_eq!(
         a.post("/api/v1/digest/send", &login, json!({}))
             .await
@@ -634,4 +642,15 @@ async fn follow_up_history_for_an_unknown_incident_is_not_found() {
         "an id that parses but was never stored is not a cleared conversation: {}",
         missing.text,
     );
+}
+
+#[tokio::test]
+async fn digest_preview_says_when_the_next_send_is_due() {
+    let a = api().await;
+    let login = a.admin().await;
+    let preview = a.get("/api/v1/digest/preview", &login).await;
+    assert_eq!(preview.status, StatusCode::OK, "{}", preview.text);
+    // The clock is 12:00 UTC and the digest goes out at 09:00 UTC, so the next send is
+    // tomorrow morning.
+    assert_eq!(preview.body["next_send_at"], "2026-11-01T09:00:00Z");
 }

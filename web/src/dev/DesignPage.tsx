@@ -7,6 +7,7 @@ import { FormDemos } from "./FormDemos";
 import { RespondDemos } from "./RespondDemos";
 import { ControlDemos, OverlayDemos } from "./ControlDemos";
 import { FeedbackDemos, StatusDemos } from "./StatusDemos";
+import { SystemDemos } from "./SystemDemos";
 import tokensCss from "../styles/tokens.css?raw";
 import styles from "./design.module.css";
 
@@ -98,6 +99,7 @@ export default function DesignPage() {
       <OverlayDemos />
       <RespondDemos />
       <FleetDemos />
+      <SystemDemos />
 
       <section>
         <h2>Type scale</h2>

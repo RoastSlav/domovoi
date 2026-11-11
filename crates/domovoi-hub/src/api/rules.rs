@@ -75,6 +75,10 @@ pub struct AckRuleDto {
     pub note: String,
     /// When the rule stops applying; null means it never expires.
     pub expires_at: Option<String>,
+    /// When the rule was created; null for rules made before this was recorded.
+    pub created_at: Option<String>,
+    /// The username of the person who created the rule; null when unknown.
+    pub created_by: Option<String>,
 }
 
 /// A new rule.
@@ -92,6 +96,11 @@ pub struct AckRuleInput {
     pub note: String,
     /// Minutes from now until the rule stops applying; null means it never expires.
     pub expires_in_minutes: Option<u32>,
+    /// The exact time the rule stops applying, as RFC 3339, such as `2026-12-01T10:00:00Z`.
+    /// When present it is used instead of `expires_in_minutes`, so a rule can be restored
+    /// with its original expiry; an unparseable value is refused.
+    #[serde(default)]
+    pub expires_at: Option<String>,
 }
 
 fn parse_id(id: &str) -> Result<AckRuleId, ApiError> {
@@ -237,6 +246,8 @@ async fn rule_to_dto(state: &ApiState, rule: &AckRule) -> Result<AckRuleDto, Api
         predicates: rule.predicates.iter().map(predicate_to_dto).collect(),
         note: rule.note.clone(),
         expires_at: rule.expires_at.map(|at| at.to_string()),
+        created_at: rule.created_at.map(|at| at.to_string()),
+        created_by: rule.created_by.clone(),
     })
 }
 
@@ -341,8 +352,13 @@ pub(super) async fn create(
         .collect::<Result<Vec<_>, _>>()?;
     let host = host_limit(&state, input.host.as_ref()).await?;
     let now = state.deps.clock.now();
-    let expires_at = match input.expires_in_minutes {
-        Some(mins) => {
+    let expires_at = match (&input.expires_at, input.expires_in_minutes) {
+        (Some(text), _) => Some(text.trim().parse::<Timestamp>().map_err(|_| {
+            ApiError::BadRequest(
+                "expires_at is a time in RFC 3339 form, such as 2026-12-01T10:00:00Z".to_owned(),
+            )
+        })?),
+        (None, Some(mins)) => {
             if !(1..=MAX_EXPIRY_MINUTES).contains(&mins) {
                 return Err(ApiError::BadRequest(format!(
                     "minutes must be between 1 and {MAX_EXPIRY_MINUTES}"
@@ -353,7 +369,7 @@ pub(super) async fn create(
                     .map_err(|e| ApiError::BadRequest(e.to_string()))?,
             )
         }
-        None => None,
+        (None, None) => None,
     };
     let rule = AckRule {
         id: AckRuleId::new(),
@@ -363,6 +379,8 @@ pub(super) async fn create(
         predicates,
         note: note.to_owned(),
         expires_at,
+        created_at: Some(now),
+        created_by: Some(current.user.username.clone()),
     };
     state.deps.acks.put_rule(&rule).await?;
     audit_rule_created(&state, &current, &rule, now).await?;

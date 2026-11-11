@@ -1,89 +1,78 @@
 import { useState } from "react";
-import { Link } from "react-router";
 import { useNoteSearch, useNotes } from "../../api/hooks/notes";
 import { useSelectedHost } from "../../app/HostContext";
 import {
   Button,
   EmptyState,
+  Field,
   LinkButton,
-  LoadError,
-  Loading,
   PageHeader,
-  RelativeTime,
+  QueryBoundary,
+  Skeleton,
+  TextInput,
   useDebounced,
 } from "../../components";
 import { HostScope } from "./HostScope";
 import { ImportDialog } from "./ImportDialog";
+import { listRows, NotesTable } from "./NotesTable";
 import styles from "./notes.module.css";
 
 /** How long typing must pause before a search runs. */
 export const SEARCH_DEBOUNCE_MS = 300;
 
-/** The hub's own bookkeeping tags: they mark generated notes, and read as one word. */
-const BOOKKEEPING_TAGS = ["generated", "host-profile"];
-
-function tagLine(tags: string[]): string {
-  const visible = tags.filter((tag) => !BOOKKEEPING_TAGS.includes(tag));
-  if (tags.includes("generated")) {
-    visible.push("Generated");
-  }
-  return visible.join(", ");
-}
-
-function SearchResults({ q, host }: { q: string; host: string | undefined }) {
+function SearchResults({
+  q,
+  host,
+  onClear,
+}: {
+  host: string | undefined;
+  onClear: () => void;
+  q: string;
+}) {
   const hits = useNoteSearch(q, host);
-  if (hits.isPending) {
-    return <Loading label="Searching…" />;
-  }
-  if (hits.error) {
-    return <LoadError error={hits.error} context="search the notes" onRetry={hits.refetch} />;
-  }
-  if (hits.data.length === 0) {
-    return (
-      <EmptyState icon="search" title={`No notes match “${q}”`}>
-        <p>Try fewer or different words.</p>
-      </EmptyState>
-    );
-  }
   return (
-    <ul className={styles.list} aria-label="Search results">
-      {hits.data.map((hit) => (
-        <li key={hit.note.id} className={styles.item}>
-          <Link to={`/notes/${hit.note.id}`}>{hit.note.title}</Link>
-          <p>{hit.snippet}</p>
-        </li>
-      ))}
-    </ul>
+    <QueryBoundary
+      query={hits}
+      context="search the notes"
+      loading={<Skeleton shape="rows" count={4} />}
+      isEmpty={(data) => data.length === 0}
+      empty={
+        <EmptyState
+          icon="search"
+          title={`No notes match “${q}”`}
+          action={<Button onClick={onClear}>Clear search</Button>}
+        >
+          <p>Try fewer or different words.</p>
+        </EmptyState>
+      }
+    >
+      {(data) => (
+        <NotesTable
+          caption="Search results"
+          query={q}
+          rows={data.map((hit) => ({ note: hit.note, excerpt: hit.snippet }))}
+        />
+      )}
+    </QueryBoundary>
   );
 }
 
 function NoteList({ host }: { host: string | undefined }) {
   const notes = useNotes(host);
-  if (notes.isPending) {
-    return <Loading />;
-  }
-  if (notes.error) {
-    return <LoadError error={notes.error} context="load notes" onRetry={notes.refetch} />;
-  }
-  if (notes.data.length === 0) {
-    return (
-      <EmptyState icon="note" title="No notes here yet">
-        <p>Write one, or import a folder of Markdown runbooks.</p>
-      </EmptyState>
-    );
-  }
   return (
-    <ul className={styles.list} aria-label="Notes">
-      {notes.data.map((note) => (
-        <li key={note.id} className={styles.item}>
-          <Link to={`/notes/${note.id}`}>{note.title}</Link>
-          <p>
-            Updated <RelativeTime at={note.updated_at} />
-            {tagLine(note.tags) !== "" && ` · ${tagLine(note.tags)}`}
-          </p>
-        </li>
-      ))}
-    </ul>
+    <QueryBoundary
+      query={notes}
+      context="load notes"
+      loading={<Skeleton shape="rows" count={5} />}
+      isEmpty={(data) => data.length === 0}
+      empty={
+        <EmptyState icon="note" title="No notes here yet">
+          <p>Write one, or import a folder of Markdown runbooks.</p>
+        </EmptyState>
+      }
+    >
+      {(data) => <NotesTable caption="Notes" rows={listRows(data)} />}
+    </QueryBoundary>
   );
 }
 
@@ -94,7 +83,9 @@ export function NotesPage() {
   const [pick, setPick] = useState<{ base: string | undefined; host: string } | null>(null);
   const host = pick && pick.base === selected ? pick.host || undefined : selected;
   const [query, setQuery] = useState("");
-  const settled = useDebounced(query.trim(), SEARCH_DEBOUNCE_MS);
+  const debounced = useDebounced(query.trim(), SEARCH_DEBOUNCE_MS);
+  // Emptying the box goes back to the list at once; only typing waits.
+  const settled = query.trim() === "" ? "" : debounced;
   const [importing, setImporting] = useState(false);
 
   const setHost = (next: string) => setPick({ base: selected, host: next });
@@ -107,10 +98,12 @@ export function NotesPage() {
         intro="Runbooks in Markdown: how your setup works and how you fixed things before. Triage searches them and gives the relevant ones to the model."
         actions={
           <>
-            <Button onClick={() => setImporting(true)}>Import</Button>
+            <Button icon="plus" onClick={() => setImporting(true)}>
+              Import
+            </Button>
             <LinkButton
               variant="primary"
-              icon="plus"
+              icon="note"
               to={host ? `/notes/new?host=${encodeURIComponent(host)}` : "/notes/new"}
             >
               New note
@@ -119,22 +112,21 @@ export function NotesPage() {
         }
       />
       <div className={styles.toolbar} role="search">
-        <div className={`${styles.field} ${styles.search}`}>
-          <label htmlFor="notes-search">Search</label>
-          <input
-            id="notes-search"
+        <Field label="Search">
+          <TextInput
             type="search"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(event) => setQuery(event.target.value)}
             placeholder="Words in a title or body"
           />
-        </div>
-        <div className={styles.field}>
-          <label htmlFor="notes-host">Notes about</label>
-          <HostScope id="notes-host" value={host ?? ""} onChange={setHost} />
-        </div>
+        </Field>
+        <HostScope label="Notes about" value={host ?? ""} onChange={setHost} />
       </div>
-      {settled ? <SearchResults q={settled} host={host} /> : <NoteList host={host} />}
+      {settled ? (
+        <SearchResults q={settled} host={host} onClear={() => setQuery("")} />
+      ) : (
+        <NoteList host={host} />
+      )}
       {importing && <ImportDialog host={host} onClose={() => setImporting(false)} />}
     </>
   );

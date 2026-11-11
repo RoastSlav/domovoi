@@ -33,6 +33,8 @@ The first run walks through the rest. Each step can be skipped and done later on
 4. **Digest:** the time of the daily summary.
 5. **First host:** continue to the next step here.
 
+The bar above the steps shows where you are and which steps you finished or skipped. **Test** on a step checks the connection before you go on. If the page says the hub did not answer, the hub is unreachable: check that it is running and choose **Retry**. The last page lists what you set up and what you skipped, each with a link to its section of **Settings**.
+
 ## 4. Enroll the agent
 
 On **Hosts**, choose **Add host**, name it after the machine, and copy the command it shows. Run it with `sudo`:

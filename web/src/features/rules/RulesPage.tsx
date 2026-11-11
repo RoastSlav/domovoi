@@ -1,164 +1,107 @@
 import { useState } from "react";
-import { useAckRules, useDeleteAckRule } from "../../api/hooks/rules";
-import type { AckRule, Predicate } from "../../api/types";
+import { useAckRules } from "../../api/hooks/rules";
+import type { AckRule } from "../../api/types";
 import { useSelectedHost } from "../../app/HostContext";
 import {
   Button,
-  ConfirmDialog,
   EmptyState,
+  InfoTip,
   InlineMessage,
-  LoadError,
-  Loading,
   PageHeader,
-  RelativeTime,
-  useActionFeedback,
+  QueryBoundary,
+  Section,
+  Skeleton,
+  Stack,
 } from "../../components";
-import ui from "../../components/ui.module.css";
-import { AddRuleForm, opLabel } from "./AddRuleForm";
-import styles from "./rules.module.css";
+import { AddRuleForm } from "./AddRuleForm";
+import { RulesTable } from "./RulesTable";
 
-/** A rule's expiry as the table shows it. */
-function Expiry({ at }: { at: string | null }) {
-  if (at === null) {
-    return <span className={ui.muted}>never</span>;
-  }
-  const date = new Date(at);
-  const time = date.getTime();
-  if (Number.isNaN(time)) {
-    return <span>{at}</span>;
-  }
-  if (time <= new Date().getTime()) {
-    return <span className={styles.expired}>expired</span>;
-  }
-  return <RelativeTime at={at} />;
+/** A rule for every host applies to the selected one too. */
+function appliesTo(rule: AckRule, host: string | undefined): boolean {
+  return host === undefined || !rule.host || rule.host === host;
 }
 
-/** The conditions of a rule, in words, all of which must hold. */
-function conditionsText(conditions: Predicate[]): string {
-  if (conditions.length === 0) {
-    return "every signal";
-  }
-  return conditions.map((c) => `${c.key} ${opLabel(c.op)} ${c.value}`).join("; ");
-}
-
-/** Delete, asking first. */
-function DeleteButton({ rule }: { rule: AckRule }) {
-  const [open, setOpen] = useState(false);
-  const remove = useActionFeedback(useDeleteAckRule(), {
-    success: "Known condition deleted",
-    error: "delete the known condition",
-    errorDisplay: "inline",
-  });
-  const close = () => {
-    setOpen(false);
-    remove.reset();
-  };
-  return (
-    <>
-      <Button
-        variant="danger"
-        aria-label={`Delete the known condition ${rule.check}`}
-        onClick={() => setOpen(true)}
-      >
-        Delete
-      </Button>
-      {open && (
-        <ConfirmDialog
-          title={`Delete the known condition on ${rule.host ?? "any host"}?`}
-          consequence={
-            <>
-              Incidents matching <code>{rule.check}</code> on {rule.host ?? "any host"} start
-              notifying again. Ones that already matched stay in the history.
-            </>
-          }
-          confirmLabel="Delete"
-          tone="danger"
-          busy={remove.isPending}
-          error={remove.error}
-          onConfirm={() => remove.mutate(rule.id, { onSuccess: close })}
-          onCancel={close}
-        >
-          <p>“{rule.note}”</p>
-        </ConfirmDialog>
-      )}
-    </>
-  );
-}
-
-/** Known conditions: add, list and delete them. */
+/** Known conditions: list, add and delete them, for the host the selector names. */
 export function RulesPage() {
   const rules = useAckRules();
   const [selected] = useSelectedHost();
-  // A condition for any host applies to the selected one too.
-  const items = (rules.data ?? []).filter(
-    (rule) => selected === undefined || rule.host === selected || !rule.host,
-  );
-  const hidden = (rules.data?.length ?? 0) - items.length;
+  const [adding, setAdding] = useState(false);
+  const add = () => setAdding(true);
 
   return (
     <>
       <PageHeader
         title="Known conditions"
         docs="concepts/incidents.html#known-conditions"
-        intro="Incidents that match a known condition are kept in the history but never alert you and are not triaged."
+        intro={
+          <>
+            Conditions you expect, so matching incidents stay out of your way.{" "}
+            <InfoTip title="Known conditions">
+              Incidents that match are kept in the history and never notify. Triage skips them too.
+            </InfoTip>
+          </>
+        }
+        actions={
+          <Button variant="primary" icon="plus" onClick={add}>
+            Add known condition
+          </Button>
+        }
       />
-      {rules.isPending && <Loading />}
-      {rules.error && !rules.data && (
-        <LoadError
-          error={rules.error}
-          context="load the known conditions"
-          onRetry={rules.refetch}
-        />
-      )}
-      {selected !== undefined && hidden > 0 && (
-        <InlineMessage tone="info">
-          Showing the known conditions that apply to {selected}. Choose All hosts to see the others.
-        </InlineMessage>
-      )}
-      {rules.data && items.length === 0 && (
-        <EmptyState title="No known conditions">
-          <p>Add one below: matching incidents stay in the history and never alert you.</p>
-        </EmptyState>
-      )}
-      {items.length > 0 && (
-        <div className={ui.tableWrap}>
-          <table className={ui.table}>
-            <thead>
-              <tr>
-                <th scope="col">Host</th>
-                <th scope="col">Check</th>
-                <th scope="col">Target</th>
-                <th scope="col">Conditions</th>
-                <th scope="col">Note</th>
-                <th scope="col">Expires</th>
-                <th scope="col">
-                  <span className="visually-hidden">Delete</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((rule) => (
-                <tr key={rule.id}>
-                  <td>{rule.host ?? "any host"}</td>
-                  <td>
-                    <code>{rule.check}</code>
-                  </td>
-                  <td>{rule.target_pattern ?? "any target"}</td>
-                  <td>{conditionsText(rule.predicates)}</td>
-                  <td>{rule.note}</td>
-                  <td>
-                    <Expiry at={rule.expires_at ?? null} />
-                  </td>
-                  <td>
-                    <DeleteButton rule={rule} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-      <AddRuleForm />
+      <Stack gap={6}>
+        <Section
+          title="Conditions"
+          description="Each one covers the incidents of one check, on one host or on every host."
+        >
+          <QueryBoundary
+            query={rules}
+            context="load the known conditions"
+            loading={<Skeleton shape="rows" count={4} />}
+          >
+            {(data) => {
+              const items = data.filter((rule) => appliesTo(rule, selected));
+              const hidden = data.length - items.length;
+              if (items.length === 0) {
+                return (
+                  <EmptyState
+                    icon="rules"
+                    title={
+                      selected && hidden > 0
+                        ? `No known conditions for ${selected}`
+                        : "No known conditions yet"
+                    }
+                    action={
+                      <Button variant="primary" icon="plus" onClick={add}>
+                        Add known condition
+                      </Button>
+                    }
+                  >
+                    <p>
+                      {selected && hidden > 0
+                        ? "Conditions for other hosts exist. Choose All hosts to see them, or add one for this host."
+                        : "Every matching incident notifies you. Add a condition for something you expect, and matching incidents stay in the history without notifying you."}
+                    </p>
+                  </EmptyState>
+                );
+              }
+              return (
+                <Stack gap={3}>
+                  {selected !== undefined && hidden > 0 && (
+                    <InlineMessage tone="info">
+                      {`Showing the known conditions that apply to ${selected}. Choose All hosts to see the others.`}
+                    </InlineMessage>
+                  )}
+                  <RulesTable rules={items} />
+                </Stack>
+              );
+            }}
+          </QueryBoundary>
+        </Section>
+        {/*
+          Maintenance windows: add a second <Section title="Maintenance windows"> here, beside
+          the conditions above. The page's layout, header actions and host filter need no change.
+        */}
+      </Stack>
+      {adding && <AddRuleForm defaultHost={selected} onClose={() => setAdding(false)} />}
     </>
   );
 }

@@ -64,6 +64,8 @@ export type HostKind = "local" | "agent" | "container_agent" | "external";
 export type CheckState = "ok" | "failing" | "disabled";
 /** How one SSH login attempt ended; `many_failures` is a failed one from an address that keeps failing. */
 export type SshLogin = "accepted" | "failed" | "many_failures";
+/** Where one step of a guided flow stands. */
+export type StepState = "done" | "current" | "skipped" | "upcoming";
 
 type Table<K extends string> = Record<K, StatusMeta>;
 
@@ -519,6 +521,28 @@ export function hostConnectionOf(
   return host.last_seen || host.agent_enrolled ? "offline" : "never_connected";
 }
 
+const STEP_STATES: Table<StepState> = {
+  done: { label: "Done", tone: "success", hint: "This step is finished.", icon: "check-circle" },
+  current: {
+    label: "Current step",
+    tone: "progress",
+    hint: "This is the step you are on.",
+    icon: "chevron-right",
+  },
+  skipped: {
+    label: "Skipped",
+    tone: "neutral",
+    hint: "You skipped this step. It can be set up later in Settings.",
+    icon: "skip",
+  },
+  upcoming: { label: "Not started", tone: "neutral", hint: "This step comes later.", icon: "dot" },
+};
+
+/** How the state of one step of a guided flow is shown. */
+export function stepStateMeta(state: string): StatusMeta {
+  return lookup(STEP_STATES, state);
+}
+
 /** How the state of the live event stream is shown. */
 export function liveMeta(status: string): StatusMeta {
   return lookup(LIVE, status);
@@ -584,4 +608,5 @@ export const VOCABULARIES: {
   { name: "Host kind", meta: hostKindMeta, values: Object.keys(HOST_KINDS) },
   { name: "Check state", meta: checkStateMeta, values: Object.keys(CHECK_STATES) },
   { name: "SSH login", meta: sshLoginMeta, values: Object.keys(SSH_LOGINS) },
+  { name: "Step state", meta: stepStateMeta, values: Object.keys(STEP_STATES) },
 ];

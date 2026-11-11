@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useUpdate } from "../../api/hooks/updates";
-import { Banner, Button, Dialog, Markdown } from "../../components";
+import { Banner, Button, Dialog, Markdown, Stack, Text } from "../../components";
 import { HowToUpdateDialog } from "./HowToUpdateDialog";
 
 const DISMISSED_PREFIX = "update-dismissed:";
@@ -43,7 +43,7 @@ export function UpdateBanner() {
   return (
     <>
       <Banner
-        tone="warning"
+        tone="info"
         title={`Domovoi ${latest} is available`}
         onDismiss={dismiss}
         action={
@@ -66,14 +66,20 @@ export function UpdateBanner() {
           onClose={close}
           wide
         >
-          {info.notes ? <Markdown text={info.notes} /> : <p>No release notes for this version.</p>}
-          {info.url && (
-            <p>
+          <Stack gap={3}>
+            {info.notes ? (
+              <Markdown text={info.notes} />
+            ) : (
+              <Text block muted>
+                There are no release notes for this version.
+              </Text>
+            )}
+            {info.url && (
               <a href={info.url} target="_blank" rel="noreferrer noopener">
                 View the release on GitHub
               </a>
-            </p>
-          )}
+            )}
+          </Stack>
         </Dialog>
       )}
       {dialog === "how" && <HowToUpdateDialog onClose={close} />}

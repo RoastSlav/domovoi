@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use domovoi_config::HubConfig;
+use domovoi_core::HostDigest;
 use domovoi_core::ports::{
     AdvisoryRepo, Clock, FactRepo, HostRepo, IncidentFilter, IncidentRepo, Page, StoreError,
 };
@@ -26,6 +27,8 @@ pub(crate) struct DigestDeps {
 pub(crate) struct RenderedDigest {
     pub(crate) date: String,
     pub(crate) markdown: String,
+    /// The per-host parts the Markdown is made from.
+    pub(crate) hosts: Vec<HostDigest>,
 }
 
 /// Why a digest could not be assembled.
@@ -78,5 +81,6 @@ pub(crate) async fn build(deps: &DigestDeps) -> Result<RenderedDigest, DigestErr
     Ok(RenderedDigest {
         date: date.to_string(),
         markdown: domovoi_engine::render::digest(&digest),
+        hosts: digest.hosts,
     })
 }

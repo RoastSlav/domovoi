@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { calls, failure, resetApi, route } from "../../test/apiMock";
 import { renderAt } from "../../test/render";
@@ -41,7 +41,7 @@ test("first_run_stepper_skips_optional_steps_and_applies_once", async () => {
     /usernames, display names and tags do not work/,
   );
   await user.click(screen.getByRole("button", { name: "Set Bot token" }));
-  await user.type(screen.getByLabelText("New Bot token"), "typed-then-skipped");
+  await user.type(screen.getByLabelText("Bot token"), "typed-then-skipped");
   await user.click(screen.getByRole("button", { name: "Skip" }));
   expect(screen.getByRole("heading", { name: "Model" })).toBeVisible();
   await user.click(screen.getByRole("button", { name: "Skip" }));
@@ -66,6 +66,20 @@ test("first_run_stepper_skips_optional_steps_and_applies_once", async () => {
     notify: { digest: { time: "08:30" } },
   });
   expect(JSON.stringify(body)).not.toContain("typed-then-skipped");
+  const summary = screen.getByRole("heading", { name: "What you set up" }).closest("section");
+  const row = (title: string) =>
+    within(summary as HTMLElement)
+      .getByRole("link", { name: `Change ${title} in Settings` })
+      .closest("li") as HTMLElement;
+  expect(row("Hub")).toHaveTextContent("Done");
+  expect(row("Discord")).toHaveTextContent("Skipped");
+  expect(row("Model")).toHaveTextContent("Skipped");
+  expect(row("Digest and quiet hours")).toHaveTextContent("Done");
+  expect(row("Digest and quiet hours")).toHaveTextContent("1 setting saved.");
+  expect(screen.getByRole("link", { name: "Change Discord in Settings" })).toHaveAttribute(
+    "href",
+    "/settings/discord",
+  );
   await user.click(screen.getByRole("button", { name: "Finish" }));
   expect(await screen.findByTestId("location")).toHaveTextContent("/incidents");
 });
@@ -80,7 +94,7 @@ test("first_run_discord_test_sends_a_scalar_channel_id_and_shows_failures", asyn
   await user.click(screen.getByRole("button", { name: "Next" }));
 
   await user.click(screen.getByRole("button", { name: "Set Bot token" }));
-  await user.type(screen.getByLabelText("New Bot token"), "test-token");
+  await user.type(screen.getByLabelText("Bot token"), "test-token");
   await user.type(screen.getByLabelText("Channel ID"), "123456789012345678");
   await user.type(screen.getByLabelText("Users who may approve"), "234567890123456789");
   await user.click(screen.getByRole("button", { name: "Test" }));
@@ -126,11 +140,11 @@ test("first_run_discord_test_includes_the_public_url", async () => {
   await user.click(screen.getByRole("button", { name: "Next" }));
 
   await user.click(screen.getByRole("button", { name: "Set Bot token" }));
-  await user.type(screen.getByLabelText("New Bot token"), "test-token");
+  await user.type(screen.getByLabelText("Bot token"), "test-token");
   await user.type(screen.getByLabelText("Channel ID"), "123456789012345678");
   await user.click(screen.getByRole("button", { name: "Test" }));
 
-  expect(await screen.findByText(/Worked: /)).toBeVisible();
+  expect(await screen.findByText("The test worked")).toBeVisible();
   const sent = calls.find((c) => c.route === "POST /api/v1/settings/test/discord");
   const body = sent?.init.body as { changes: Record<string, unknown> };
   expect(body.changes.web).toEqual({ public_url: window.location.origin });
@@ -153,7 +167,7 @@ test("first_run_test_failure_lists_each_issue", async () => {
   await user.click(screen.getByRole("button", { name: "Next" }));
 
   await user.click(screen.getByRole("button", { name: "Set Bot token" }));
-  await user.type(screen.getByLabelText("New Bot token"), "test-token");
+  await user.type(screen.getByLabelText("Bot token"), "test-token");
   await user.type(screen.getByLabelText("Channel ID"), "123456789012345678");
   await user.click(screen.getByRole("button", { name: "Test" }));
 
@@ -170,15 +184,15 @@ test("first_run_secret_draft_survives_navigation_and_reports_pending", async () 
   await user.click(screen.getByRole("button", { name: "Next" }));
 
   await user.click(screen.getByRole("button", { name: "Set Bot token" }));
-  await user.type(screen.getByLabelText("New Bot token"), "draft-token");
+  await user.type(screen.getByLabelText("Bot token"), "draft-token");
   expect(screen.getByText("Will be set")).toBeVisible();
   await user.click(screen.getByRole("button", { name: /^Set$/ }));
-  expect(screen.queryByLabelText("New Bot token")).toBeNull();
+  expect(screen.queryByLabelText("Bot token")).toBeNull();
 
   await user.click(screen.getByRole("button", { name: "Next" }));
   expect(screen.getByRole("heading", { name: "Model" })).toBeVisible();
   await user.click(screen.getByRole("button", { name: "Back" }));
-  expect(screen.getByLabelText("New Bot token")).toHaveValue("draft-token");
+  expect(screen.getByLabelText("Bot token")).toHaveValue("draft-token");
   expect(screen.getByText("Will be set")).toBeVisible();
 });
 
@@ -210,4 +224,66 @@ test("first_run_model_setup_fetches_models_and_shows_only_provider_fields", asyn
   expect(screen.queryByRole("textbox", { name: "Model" })).toBeNull();
   expect(screen.queryByLabelText("Base URL")).toBeNull();
   expect(screen.queryByText("API key")).toBeNull();
+});
+
+test("first_run_says_the_hub_is_unreachable_and_not_that_settings_are_managed_in_hub_toml", async () => {
+  const user = userEvent.setup();
+  route("GET /api/v1/settings", () => {
+    throw new TypeError("Failed to fetch");
+  });
+  renderAt("/welcome", "/welcome", <FirstRun />);
+  const alert = await screen.findByRole("alert");
+  expect(alert).toHaveTextContent("Could not load settings");
+  expect(alert).toHaveTextContent("The hub did not answer.");
+  expect(screen.queryByText(/managed in hub\.toml/)).toBeNull();
+
+  route("GET /api/v1/settings", () => ({
+    editable: { revision: 0, values: {}, fields: {}, issues: [], last_apply: null },
+  }));
+  await user.click(screen.getByRole("button", { name: "Retry" }));
+  expect(await screen.findByRole("heading", { name: "Hub" })).toBeVisible();
+});
+
+test("first_run_says_settings_are_managed_in_hub_toml_only_when_the_hub_has_no_editable_settings", async () => {
+  route("GET /api/v1/settings", () => ({ editable: null }));
+  renderAt("/welcome", "/welcome", <FirstRun />);
+  expect(await screen.findByText("Settings are managed in hub.toml")).toBeVisible();
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Next" })).toBeNull();
+});
+
+test("first_run_stepper_marks_the_current_step_and_skip_says_what_it_leaves_out", async () => {
+  const user = userEvent.setup();
+  renderAt("/welcome", "/welcome", <FirstRun />);
+  expect(await screen.findByRole("heading", { name: "Hub" })).toBeVisible();
+  const steps = () =>
+    within(screen.getByRole("list", { name: "Setup steps" })).getAllByRole("listitem");
+  expect(steps()[0]).toHaveAttribute("aria-current", "step");
+  expect(steps()[1]).toHaveTextContent("Discord (not started)");
+
+  await user.click(screen.getByRole("button", { name: "Next" }));
+  expect(steps()[0]).toHaveTextContent("Hub (done)");
+  expect(steps()[1]).toHaveAttribute("aria-current", "step");
+  expect(screen.getByRole("button", { name: "Skip" })).toHaveAccessibleDescription(
+    "Incidents will not be posted to Discord. You can add it later in Settings.",
+  );
+
+  await user.click(screen.getByRole("button", { name: "Skip" }));
+  expect(steps()[1]).toHaveTextContent("Discord (skipped)");
+  expect(steps()[2]).toHaveAttribute("aria-current", "step");
+});
+
+test("first_run_save_failure_is_said_in_words_next_to_the_buttons", async () => {
+  const user = userEvent.setup();
+  route("PATCH /api/v1/settings", () => failure(409, "conflict", "the settings changed meanwhile"));
+  renderAt("/welcome", "/welcome", <FirstRun />);
+  expect(await screen.findByRole("heading", { name: "Hub" })).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Next" }));
+  await user.click(screen.getByRole("button", { name: "Skip" }));
+  await user.click(screen.getByRole("button", { name: "Skip" }));
+  await user.click(screen.getByRole("button", { name: "Skip" }));
+  const alert = await screen.findByRole("alert");
+  expect(alert).toHaveTextContent("Could not save the settings");
+  expect(alert).toHaveTextContent("The settings changed meanwhile.");
+  expect(screen.getByRole("button", { name: "Save and apply" })).toBeVisible();
 });

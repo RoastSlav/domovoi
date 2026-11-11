@@ -183,6 +183,8 @@ fn ack_rule_with_evidence_predicate_suppresses_matching_signals_only() {
         }],
         note: "backup disk is meant to be full".to_owned(),
         expires_at: None,
+        created_at: None,
+        created_by: None,
     });
     let backup = Sig::new(host, "disk.free", Some("/backup"))
         .immediate()

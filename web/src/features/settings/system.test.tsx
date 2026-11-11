@@ -58,6 +58,7 @@ test("settings_never_render_secret_values", async () => {
   const { container } = renderAt("/settings", "/settings", <SettingsPage />);
 
   expect(await screen.findByRole("heading", { name: "Settings" })).toBeVisible();
+  await screen.findByRole("region", { name: "Primary model" });
   expect(container.textContent).not.toContain(LEAKED);
   expect(container.textContent).not.toContain("sk-live");
 
@@ -118,6 +119,6 @@ test("digest_preview_and_send_now", async () => {
   route("POST /api/v1/digest/send", () => undefined);
   await user.click(screen.getByRole("button", { name: "Send now" }));
   await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Send digest" }));
-  expect(await screen.findByText("Digest sent")).toBeVisible();
+  expect(await screen.findByText("Digest sent to Discord")).toBeVisible();
   expect(calls.filter((c) => c.route === "POST /api/v1/digest/send")).toHaveLength(2);
 });

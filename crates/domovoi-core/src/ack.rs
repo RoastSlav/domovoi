@@ -171,6 +171,10 @@ pub struct AckRule {
     pub note: String,
     /// When the rule stops applying.
     pub expires_at: Option<Timestamp>,
+    /// When the rule was created; `None` for rules made before this was recorded.
+    pub created_at: Option<Timestamp>,
+    /// The username of the person who created the rule; `None` when unknown.
+    pub created_by: Option<String>,
 }
 
 impl AckRule {
@@ -254,6 +258,8 @@ mod tests {
             predicates: Vec::new(),
             note: "known old disk".to_owned(),
             expires_at: None,
+            created_at: None,
+            created_by: None,
         }
     }
 
@@ -405,6 +411,8 @@ mod tests {
             }],
             note: "expected SSH login".to_owned(),
             expires_at: None,
+            created_at: None,
+            created_by: None,
         }
     }
 

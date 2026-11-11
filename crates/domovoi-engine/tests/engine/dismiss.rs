@@ -103,6 +103,8 @@ fn known_condition_alerts_quietly_after_a_dismiss_rule() {
         predicates: Vec::new(),
         note: REASON.to_owned(),
         expires_at: None,
+        created_at: None,
+        created_by: None,
     });
     let again = sim.ingest(disk.firing(200), 200);
     assert!(

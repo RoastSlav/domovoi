@@ -265,6 +265,17 @@ pub struct AdvisoryDto {
     pub created_at: String,
 }
 
+/// One host's part of the daily digest.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
+pub struct DigestHostDto {
+    /// The host's name.
+    pub host: String,
+    /// True when nothing changed on the host and no incident or advisory is open for it.
+    pub quiet: bool,
+    /// What changed on the host, one plain sentence each.
+    pub lines: Vec<String>,
+}
+
 /// The daily digest as it would be sent now.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
 pub struct DigestPreview {
@@ -272,6 +283,11 @@ pub struct DigestPreview {
     pub date: String,
     /// The rendered Markdown.
     pub markdown: String,
+    /// When the digest is next sent (RFC 3339); null when the digest is disabled.
+    pub next_send_at: Option<String>,
+    /// The same digest as one entry per host, in name order, for showing each host as its
+    /// own section. `markdown` holds the same content as one document.
+    pub hosts: Vec<DigestHostDto>,
 }
 
 /// A change the web UI should show, sent on the event stream.

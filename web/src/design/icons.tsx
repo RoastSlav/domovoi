@@ -35,6 +35,7 @@ import {
   Search,
   Server,
   Settings,
+  SkipForward,
   SquareTerminal,
   Sun,
   Trash2,
@@ -92,6 +93,7 @@ const ICONS = {
   edit: Pencil,
   eye: Eye,
   "eye-off": EyeOff,
+  skip: SkipForward,
   // Theme
   sun: Sun,
   moon: Moon,

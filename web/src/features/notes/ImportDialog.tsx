@@ -1,15 +1,15 @@
 import { useState } from "react";
 import { useImportNotes } from "../../api/hooks/notes";
-import { Button, Dialog, InlineError, InlineMessage } from "../../components";
+import { Button, Dialog, DropZone, InlineError, InlineMessage, Stack } from "../../components";
 import { HostScope } from "./HostScope";
-import styles from "./notes.module.css";
+import { ImportResult } from "./ImportResult";
 
 /** The most files one import takes, as the hub enforces. */
 export const MAX_IMPORT_FILES = 200;
 
-/** The Markdown files among `list`; folders bring images and other files along. */
-export function markdownFiles(list: FileList | null): File[] {
-  return [...(list ?? [])].filter((file) => file.name.toLowerCase().endsWith(".md"));
+/** The Markdown files among `files`; folders bring images and other files along. */
+export function markdownFiles(files: readonly File[]): File[] {
+  return files.filter((file) => file.name.toLowerCase().endsWith(".md"));
 }
 
 /** Imports a folder (or a selection) of Markdown files as notes. */
@@ -25,10 +25,11 @@ export function ImportDialog({
   const importNotes = useImportNotes();
   const result = importNotes.data;
   const tooMany = files.length > MAX_IMPORT_FILES;
+  const limit = `Pick at most ${MAX_IMPORT_FILES} files at a time.`;
 
-  const pick = (list: FileList | null) => {
+  const pick = (chosen: File[]) => {
     importNotes.reset();
-    setFiles(markdownFiles(list));
+    setFiles(markdownFiles(chosen));
   };
 
   return (
@@ -44,11 +45,7 @@ export function ImportDialog({
               variant="primary"
               loading={importNotes.isPending}
               disabledReason={
-                files.length === 0
-                  ? "Pick Markdown files first."
-                  : tooMany
-                    ? `Pick at most ${MAX_IMPORT_FILES} files at a time.`
-                    : undefined
+                files.length === 0 ? "Pick Markdown files first." : tooMany ? limit : undefined
               }
               onClick={() => importNotes.mutate({ files, host: host || undefined })}
             >
@@ -58,64 +55,23 @@ export function ImportDialog({
         </>
       }
     >
-      <div className={styles.form}>
-        <p>
-          Each Markdown file becomes a note titled by its first <code># heading</code>, or its file
-          name. Files already imported are skipped.
-        </p>
-        <div className={styles.field}>
-          <label htmlFor="import-folder">Folder</label>
-          <input
-            id="import-folder"
-            type="file"
-            multiple
-            accept=".md,text/markdown"
-            {...{ webkitdirectory: "" }}
-            onChange={(e) => pick(e.target.files)}
-          />
-        </div>
-        <div className={styles.field}>
-          <label htmlFor="import-files">Or pick files</label>
-          <input
-            id="import-files"
-            type="file"
-            multiple
-            accept=".md,text/markdown"
-            onChange={(e) => pick(e.target.files)}
-          />
-        </div>
-        <div className={styles.field}>
-          <label htmlFor="import-host">Notes about</label>
-          <HostScope id="import-host" value={host} onChange={setHost} />
-        </div>
+      <Stack gap={3}>
+        <DropZone
+          label="Choose Markdown files or drop them here"
+          hint="Each file becomes a note titled by its first heading, or its file name. Files already imported are skipped."
+          accept=".md,text/markdown"
+          folderLabel="Choose a folder instead"
+          disabledReason={importNotes.isPending ? "Wait for the import to finish." : undefined}
+          onFiles={pick}
+        />
+        <HostScope label="Notes about" value={host} onChange={setHost} />
         <p role="status">
           {files.length} Markdown file{files.length === 1 ? "" : "s"} selected.
         </p>
-        {tooMany && (
-          <InlineMessage
-            tone="danger"
-            title={`Pick at most ${MAX_IMPORT_FILES} files at a time.`}
-          />
-        )}
+        {tooMany && <InlineMessage tone="danger" title={limit} />}
         <InlineError error={importNotes.error} context="import the notes" />
-        {result && (
-          <div className={styles.result} role="status">
-            <p>
-              Created {result.created} note{result.created === 1 ? "" : "s"}, skipped{" "}
-              {result.skipped}.
-            </p>
-            {result.skipped_files.length > 0 && (
-              <ul aria-label="Skipped files">
-                {result.skipped_files.map((file) => (
-                  <li key={file.name}>
-                    <code>{file.name}</code>: {file.reason}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        )}
-      </div>
+        {result && <ImportResult result={result} />}
+      </Stack>
     </Dialog>
   );
 }

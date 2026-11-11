@@ -75,8 +75,15 @@ export function Select({
   children,
   ...props
 }: Omit<SelectHTMLAttributes<HTMLSelectElement>, "title"> & { children: ReactNode }) {
+  // A select has no read-only state, so a locked field disables it; the reason stays in text.
+  const { readOnly, ...wiring } = useFieldWiring();
   return (
-    <select className={classes(styles.input, className)} {...useFieldWiring()} {...props}>
+    <select
+      className={classes(styles.input, className)}
+      {...wiring}
+      {...props}
+      disabled={props.disabled || readOnly}
+    >
       {children}
     </select>
   );
@@ -84,6 +91,8 @@ export function Select({
 
 interface ToggleProps {
   checked: boolean;
+  /** The id of the input, for a link that must focus it. */
+  id?: string | undefined;
   /** Why it cannot be changed now. */
   disabledReason?: string | undefined;
   /** One line under the label. */
@@ -93,6 +102,7 @@ interface ToggleProps {
 }
 
 function Toggle({
+  id,
   checked,
   onChange,
   label,
@@ -103,6 +113,7 @@ function Toggle({
   return (
     <label className={styles.check} data-disabled={disabledReason ? true : undefined}>
       <input
+        id={id}
         type="checkbox"
         role={switchRole ? "switch" : undefined}
         className={switchRole ? styles.switch : undefined}

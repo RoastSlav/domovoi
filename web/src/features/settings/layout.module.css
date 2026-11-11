@@ -1,0 +1,98 @@
+.layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-5);
+  align-items: start;
+}
+
+@media (min-width: 768px) {
+  .layout {
+    grid-template-columns: 14rem minmax(0, 1fr);
+  }
+}
+
+.nav {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+@media (min-width: 768px) {
+  .nav {
+    position: sticky;
+    top: var(--space-4);
+  }
+}
+
+.link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-height: 2.25rem;
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.link:hover {
+  background: var(--color-surface-raised);
+}
+
+.link[aria-current="page"] {
+  background: var(--color-surface-raised);
+  box-shadow: inset 3px 0 0 var(--color-primary);
+  font-weight: 600;
+}
+
+.dots {
+  display: inline-flex;
+  gap: var(--space-1);
+}
+
+.dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: var(--radius-pill);
+  background: var(--tone-fg);
+}
+
+.dot[data-tone="warning"] {
+  --tone-fg: var(--tone-warning-fg);
+}
+
+.dot[data-tone="danger"] {
+  --tone-fg: var(--tone-danger-fg);
+}
+
+.body {
+  min-width: 0;
+  max-width: 44rem;
+}
+
+.back {
+  display: block;
+  margin-bottom: var(--space-3);
+}
+
+/* On a phone the list and a section are separate views. */
+@media (max-width: 767px) {
+  .layout[data-view="list"] .body,
+  .layout[data-view="section"] .navColumn {
+    display: none;
+  }
+}
+
+@media (min-width: 768px) {
+  .back {
+    display: none;
+  }
+}
+
+.meter {
+  width: min(24rem, 100%);
+  height: 1rem;
+}
