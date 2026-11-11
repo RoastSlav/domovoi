@@ -9,7 +9,7 @@ export type ApplyPhase = "idle" | "applying" | "applied" | "saved" | "slow";
 
 /**
  * Saves settings and, when the hub restarts to apply them, waits until it answers again
- * and refetches everything, so the page and the live stream reconnect.
+ * and refetches what a restart changes: settings, hosts, the session and the release check.
  */
 export function useApplySettings() {
   const save = useSaveSettings();
@@ -22,7 +22,12 @@ export function useApplySettings() {
     if (saved.applied) {
       setPhase("applying");
       const back = await waitForHealthy();
-      await client.invalidateQueries();
+      // A restart changes what the hub is and who is connected to it, nothing else.
+      await Promise.all(
+        [keys.settings, keys.hosts, keys.session, keys.update, keys.overview].map((queryKey) =>
+          client.invalidateQueries({ queryKey }),
+        ),
+      );
       setPhase(back ? "applied" : "slow");
     } else {
       await client.invalidateQueries({ queryKey: keys.settings });

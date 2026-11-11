@@ -3,13 +3,13 @@ import { api } from "../client";
 import { keys } from "../queryClient";
 import { call, defined, type ActionPage } from "../types";
 
-/** Actions with `status` (all when absent), newest first. */
-export function useActions(status?: string) {
+/** Actions with `status` (all when absent) on `host` (by name; every host when absent), newest first. */
+export function useActions(status?: string, host?: string) {
   return useQuery({
-    queryKey: keys.actionList(status),
+    queryKey: keys.actionList(status, host),
     queryFn: () =>
       call<ActionPage>(
-        api.GET("/api/v1/actions", { params: { query: defined({ status, limit: 200 }) } }),
+        api.GET("/api/v1/actions", { params: { query: defined({ status, host, limit: 200 }) } }),
       ),
   });
 }
@@ -21,7 +21,9 @@ function useActionChange<T>(change: (input: T) => Promise<unknown>) {
     onSuccess: async () => {
       await Promise.all([
         client.invalidateQueries({ queryKey: keys.actions }),
-        client.invalidateQueries({ queryKey: keys.incidents }),
+        // An incident's page lists its actions; the incident lists do not.
+        client.invalidateQueries({ queryKey: keys.incidentDetails }),
+        client.invalidateQueries({ queryKey: keys.overview }),
       ]);
     },
   });

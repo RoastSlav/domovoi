@@ -28,7 +28,8 @@ export function route(key: string, handler: Handler): void {
   routes.set(key, handler);
 }
 
-/** A failed call's answer; return it from a handler. */
+/** A failed call's answer; return it from a handler. A handler may also return a promise,
+ * for a request that stays pending. */
 export function failure(
   status: number,
   error: string,
@@ -62,7 +63,7 @@ async function answer(method: string, path: string, init: Init = {}): Promise<An
   if (!handler) {
     throw new Error(`no test route for ${key}`);
   }
-  const result = handler(init);
+  const result = await handler(init);
   if (result instanceof Failure) {
     return {
       error: { error: result.error, message: result.message, issues: result.issues ?? [] },

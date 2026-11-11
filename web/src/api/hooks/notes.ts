@@ -64,13 +64,18 @@ export function useSaveNote() {
   });
 }
 
-/** Deletes a note. */
+/** Deletes a note and drops it from the cache, so nothing shows it again. */
 export function useDeleteNote() {
-  const onSuccess = useRefreshNotes();
+  const client = useQueryClient();
   return useMutation({
     mutationFn: (id: string) =>
       call(api.DELETE("/api/v1/notes/{id}", { params: { path: { id } } })),
-    onSuccess,
+    onSuccess: (_, id) => {
+      client.removeQueries({ queryKey: keys.note(id) });
+      // The lists and searches, not the other notes' own pages.
+      void client.invalidateQueries({ queryKey: [...keys.notes, "list"] });
+      void client.invalidateQueries({ queryKey: [...keys.notes, "search"] });
+    },
   });
 }
 

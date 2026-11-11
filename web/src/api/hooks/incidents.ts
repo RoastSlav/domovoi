@@ -1,4 +1,12 @@
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type InfiniteData,
+  type QueryClient,
+  type QueryKey,
+} from "@tanstack/react-query";
 import { api } from "../client";
 import { keys } from "../queryClient";
 import {
@@ -58,51 +66,110 @@ export function useFollowUps(id: string) {
   });
 }
 
-function useRefreshIncidents() {
-  const client = useQueryClient();
-  return () => client.invalidateQueries({ queryKey: keys.incidents });
+/**
+ * Refreshes what a change to incident `id` makes stale: its own page, the lists it appears
+ * in and the navigation's counts. The follow-up conversation is not touched.
+ */
+function refreshIncident(client: QueryClient, id: string): Promise<unknown> {
+  return Promise.all([
+    client.invalidateQueries({ queryKey: keys.incident(id) }),
+    client.invalidateQueries({ queryKey: keys.incidentLists }),
+    client.invalidateQueries({ queryKey: keys.overview }),
+  ]);
 }
 
-/** Acknowledges the incident. */
+type ListData = InfiniteData<IncidentPage>;
+
+/** What the cache held before an optimistic change, to put back if the hub refuses it. */
+interface Snapshot {
+  detail: IncidentDetail | undefined;
+  lists: [QueryKey, ListData | undefined][];
+}
+
+/** Shows incident `id` with `status` in the cached detail and lists right away. */
+async function showStatus(client: QueryClient, id: string, status: string): Promise<Snapshot> {
+  await Promise.all([
+    client.cancelQueries({ queryKey: keys.incident(id) }),
+    client.cancelQueries({ queryKey: keys.incidentLists }),
+  ]);
+  const snapshot: Snapshot = {
+    detail: client.getQueryData<IncidentDetail>(keys.incident(id)),
+    lists: client.getQueriesData<ListData>({ queryKey: keys.incidentLists }),
+  };
+  if (snapshot.detail) {
+    client.setQueryData<IncidentDetail>(keys.incident(id), {
+      ...snapshot.detail,
+      incident: { ...snapshot.detail.incident, status },
+    });
+  }
+  client.setQueriesData<ListData>(
+    { queryKey: keys.incidentLists },
+    (list) =>
+      list && {
+        ...list,
+        pages: list.pages.map((page) => ({
+          ...page,
+          items: page.items.map((item) => (item.id === id ? { ...item, status } : item)),
+        })),
+      },
+  );
+  return snapshot;
+}
+
+/** Puts back what `snapshot` saved. */
+function restore(client: QueryClient, id: string, snapshot: Snapshot | undefined): void {
+  if (!snapshot) {
+    return;
+  }
+  client.setQueryData(keys.incident(id), snapshot.detail);
+  for (const [queryKey, data] of snapshot.lists) {
+    client.setQueryData(queryKey, data);
+  }
+}
+
+/** Acknowledges the incident. It reads as acknowledged at once, and goes back to what it was
+ * if the hub refuses. */
 export function useAck(id: string) {
-  const onSuccess = useRefreshIncidents();
+  const client = useQueryClient();
   return useMutation({
     mutationFn: () => call(api.POST("/api/v1/incidents/{id}/ack", { params: { path: { id } } })),
-    onSuccess,
+    onMutate: () => showStatus(client, id, "acked"),
+    onError: (_error, _input, snapshot) => restore(client, id, snapshot),
+    onSettled: () => refreshIncident(client, id),
   });
 }
 
 /** Mutes the incident for some minutes. */
 export function useMute(id: string) {
-  const onSuccess = useRefreshIncidents();
+  const client = useQueryClient();
   return useMutation({
     mutationFn: (minutes: number) =>
       call(
         api.POST("/api/v1/incidents/{id}/mute", { params: { path: { id } }, body: { minutes } }),
       ),
-    onSuccess,
+    onSuccess: () => refreshIncident(client, id),
   });
 }
 
 /** Ends the incident's mute. */
 export function useUnmute(id: string) {
-  const onSuccess = useRefreshIncidents();
+  const client = useQueryClient();
   return useMutation({
     mutationFn: () => call(api.POST("/api/v1/incidents/{id}/unmute", { params: { path: { id } } })),
-    onSuccess,
+    onSuccess: () => refreshIncident(client, id),
   });
 }
 
 /** Closes the incident as a known condition, with the reason the human gives. `ignore_for_minutes`
  * keeps the check quiet for that many minutes, 0 means always, and null creates no rule, so the
- * check alerts again the next time it fires. The rule list changes, so it refreshes with the incidents. */
+ * check alerts again the next time it fires. The rule list changes, so it refreshes with the incident. */
 export function useDismiss(id: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (body: DismissInput) =>
       call(api.POST("/api/v1/incidents/{id}/dismiss", { params: { path: { id } }, body })),
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: keys.incidents });
+      void refreshIncident(client, id);
       void client.invalidateQueries({ queryKey: keys.ackRules });
     },
   });
@@ -120,14 +187,13 @@ export function useRetryTriage(id: string) {
         }),
       ),
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: keys.incident(id) });
-      void client.invalidateQueries({ queryKey: keys.incidents });
+      void refreshIncident(client, id);
     },
   });
 }
 
-/** Asks triage a follow-up question about the incident; the remembered turns refresh with
- * its answer. */
+/** Asks triage a follow-up question about the incident. The remembered turns refresh with
+ * its answer, and so does the incident, whose timeline gains a line. */
 export function useAsk(id: string) {
   const client = useQueryClient();
   return useMutation({
@@ -137,6 +203,7 @@ export function useAsk(id: string) {
       ),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: keys.followUps(id) });
+      void client.invalidateQueries({ queryKey: keys.incident(id) });
     },
   });
 }
