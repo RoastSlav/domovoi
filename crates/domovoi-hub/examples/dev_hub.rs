@@ -297,6 +297,9 @@ fn dev_logs() -> Vec<LogLine> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // The binary installs the process-wide provider; here nothing else does, and the
+    // release checker builds an HTTP client.
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let dir = tempfile::tempdir()?;
     let db = dir.path().join("hub.db");
     let store = Arc::new(Store::open(&db, StoreOptions::beside(&db, Timestamp::now())).await?);
