@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router";
 import { useLogin } from "../../api/hooks/session";
 import { ApiFailure } from "../../api/types";
-import { Button } from "../../components/Button";
+import { Button, InlineMessage } from "../../components";
 import styles from "./auth.module.css";
 
 /** What a failed login says. It never tells which of username and password was wrong. */
@@ -67,12 +67,8 @@ export function LoginPage() {
             required
           />
         </div>
-        {problem && (
-          <p className={styles.error} role="alert">
-            {problem}
-          </p>
-        )}
-        <Button type="submit" variant="primary" disabled={login.isPending}>
+        {problem && <InlineMessage tone="danger" title={problem} />}
+        <Button type="submit" variant="primary" loading={login.isPending}>
           Log in
         </Button>
       </form>

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useSettingsSchema } from "../../api/hooks/settings";
 import type { Editable } from "../../api/types";
-import { Button } from "../../components/Button";
+import { Button } from "../../components";
 import { DiscordSetupHelp } from "./DiscordSetupHelp";
 import { SectionForm } from "./SectionForm";
 import { SECTIONS } from "./sections";

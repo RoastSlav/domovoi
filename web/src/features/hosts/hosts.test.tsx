@@ -118,7 +118,9 @@ test("revoke_requires_confirmation", async () => {
   expect(posts("/api/v1/hosts/{name}/revoke")).toHaveLength(0);
 
   await user.click(screen.getByRole("button", { name: "Revoke" }));
-  await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Revoke" }));
+  await user.click(
+    within(screen.getByRole("dialog")).getByRole("button", { name: "Revoke agent" }),
+  );
   expect(posts("/api/v1/hosts/{name}/revoke")).toEqual([
     { route: "POST /api/v1/hosts/{name}/revoke", init: { params: { path: { name: "nas" } } } },
   ]);

@@ -35,7 +35,7 @@ test("docker_panel_names_the_engine_it_found_and_switches_it_off_from_the_hub", 
     await screen.findByText(/Podman found at unix:\/\/\/run\/podman\/podman.sock/),
   ).toBeVisible();
   await user.selectOptions(screen.getByLabelText("Containers"), "off");
-  expect(await screen.findByText("Sent to agent.")).toBeVisible();
+  expect(await screen.findByText("Container setting saved and sent to the agent")).toBeVisible();
   const put = calls.find((c) => c.route === "PUT /api/v1/hosts/{name}/docker");
   expect(put?.init.body).toEqual({ enabled: false });
 });

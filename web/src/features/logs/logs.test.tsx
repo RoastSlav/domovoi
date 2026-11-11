@@ -105,7 +105,9 @@ test("logs_refresh_button_asks_for_the_lines_again", async () => {
 test("logs_page_shows_the_hub_s_words_when_nothing_was_captured", async () => {
   route("GET /api/v1/system/logs", () => failure(503, "unavailable", "logs are not captured"));
   renderAt("/logs", "/logs", <LogsPage />);
-  expect(await screen.findByText("logs are not captured")).toBeVisible();
+  const alert = await screen.findByRole("alert");
+  expect(alert).toHaveTextContent("Could not load logs");
+  expect(alert).toHaveTextContent("Logs are not captured.");
 });
 
 test("logs_page_promises_more_lines_when_the_hub_logged_nothing_to_show", async () => {

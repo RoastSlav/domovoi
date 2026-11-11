@@ -8,8 +8,9 @@ import {
 } from "../../api/hooks/settings";
 import { keys } from "../../api/queryClient";
 import { ApiFailure, type Editable, type Issue } from "../../api/types";
-import { Button } from "../../components/Button";
-import { PasswordPrompt } from "../../components/PasswordPrompt";
+import { Button, InlineMessage, PasswordPrompt } from "../../components";
+import { describeError } from "../../design/messages";
+import type { Tone } from "../../design/tone";
 import { Field, ModelField, SecretField } from "./fields";
 import {
   buildChanges,
@@ -48,16 +49,35 @@ const TEST_LABEL: Record<TestTarget, string> = {
   heartbeat: "Ping the heartbeat URL",
 };
 
-function failureOf(error: unknown): { message: string; issues: Issue[]; stale: boolean } {
-  if (error instanceof ApiFailure) {
-    return {
-      message: error.message,
-      issues: error.issues,
-      stale: error.status === 409 && error.message.includes("changed elsewhere"),
-    };
-  }
-  return { message: "Could not save. Is the hub running?", issues: [], stale: false };
+interface SaveFailure {
+  detail?: string | undefined;
+  issues: Issue[];
+  stale: boolean;
+  title: string;
 }
+
+function failureOf(error: unknown): SaveFailure {
+  const described = describeError(error, "save the settings");
+  const stale =
+    error instanceof ApiFailure &&
+    error.status === 409 &&
+    error.message.includes("changed elsewhere");
+  return stale
+    ? {
+        title: "Settings changed elsewhere",
+        detail: "Reload to see the current values, then make your change again.",
+        issues: [],
+        stale,
+      }
+    : { title: described.title, detail: described.detail, issues: described.issues ?? [], stale };
+}
+
+const PHASE_TONE: Record<string, Tone> = {
+  applying: "progress",
+  applied: "success",
+  saved: "info",
+  slow: "warning",
+};
 
 /**
  * One settings section: its fields, a Save and apply button, and a connection test when
@@ -91,6 +111,7 @@ export function SectionForm({
   const apply = useApplySettings();
   const tester = useTestConnection(test ?? "heartbeat", testSlot ?? "primary");
   const client = useQueryClient();
+  const phase = phaseText(apply.phase);
   const id = `section-${title.toLowerCase().replace(/\W+/g, "-")}`;
 
   const visibleFields = fields.filter(
@@ -189,43 +210,48 @@ export function SectionForm({
           );
         })}
         {problem && (
-          <div role="alert" className={styles.alert}>
-            <p className={styles.status}>
-              {problem.stale ? "Settings changed elsewhere, reload." : problem.message}
-            </p>
+          <InlineMessage
+            tone="danger"
+            title={problem.title}
+            action={
+              problem.stale && (
+                <Button
+                  size="sm"
+                  icon="refresh"
+                  onClick={() => void client.invalidateQueries({ queryKey: keys.settings })}
+                >
+                  Reload
+                </Button>
+              )
+            }
+          >
+            {problem.detail}
             {unplaced.map((issue) => (
-              <p key={`${issue.path}:${issue.message}`} className={styles.status}>
+              <p key={`${issue.path}:${issue.message}`}>
                 {issue.path ? `${issue.path}: ` : ""}
                 {issue.message}
               </p>
             ))}
-            {problem.stale && (
-              <Button onClick={() => void client.invalidateQueries({ queryKey: keys.settings })}>
-                Reload
-              </Button>
-            )}
-          </div>
+          </InlineMessage>
         )}
         <div className={styles.actions}>
-          <Button type="submit" variant="primary" disabled={apply.pending}>
+          <Button type="submit" variant="primary" loading={apply.pending}>
             Save and apply
           </Button>
           {test && (
-            <Button disabled={tester.isPending} onClick={() => tester.mutate(changes())}>
+            <Button loading={tester.isPending} onClick={() => tester.mutate(changes())}>
               {testSlot === "secondary" ? "Test the fallback model" : TEST_LABEL[test]}
             </Button>
           )}
         </div>
-        {phaseText(apply.phase) && (
-          <p role="status" className={styles.status}>
-            {phaseText(apply.phase)}
-          </p>
-        )}
+        {phase && <InlineMessage tone={PHASE_TONE[apply.phase] ?? "info"} title={phase} />}
         {tester.data && (
-          <p role="status" className={styles.status}>
-            {tester.data.ok ? "Worked: " : "Failed: "}
+          <InlineMessage
+            tone={tester.data.ok ? "success" : "danger"}
+            title={tester.data.ok ? "The test worked" : "The test failed"}
+          >
             {tester.data.message} ({tester.data.latency_ms} ms)
-          </p>
+          </InlineMessage>
         )}
         <TestIssues error={tester.error} />
       </form>

@@ -1,11 +1,16 @@
 import { useState } from "react";
 import { useAckRules, useDeleteAckRule } from "../../api/hooks/rules";
 import type { AckRule, Predicate } from "../../api/types";
-import { Button } from "../../components/Button";
-import { ConfirmDialog } from "../../components/ConfirmDialog";
-import { EmptyState } from "../../components/EmptyState";
-import { PageIntro } from "../../components/PageIntro";
-import { RelativeTime } from "../../components/RelativeTime";
+import {
+  Button,
+  ConfirmDialog,
+  EmptyState,
+  LoadError,
+  Loading,
+  PageHeader,
+  RelativeTime,
+  useActionFeedback,
+} from "../../components";
 import ui from "../../components/ui.module.css";
 import { AddRuleForm, opLabel } from "./AddRuleForm";
 import styles from "./rules.module.css";
@@ -37,7 +42,11 @@ function conditionsText(conditions: Predicate[]): string {
 /** Delete, asking first. */
 function DeleteButton({ rule }: { rule: AckRule }) {
   const [open, setOpen] = useState(false);
-  const remove = useDeleteAckRule();
+  const remove = useActionFeedback(useDeleteAckRule(), {
+    success: "Known condition deleted",
+    error: "delete the known condition",
+    errorDisplay: "inline",
+  });
   const close = () => {
     setOpen(false);
     remove.reset();
@@ -54,22 +63,20 @@ function DeleteButton({ rule }: { rule: AckRule }) {
       {open && (
         <ConfirmDialog
           title={`Delete the known condition on ${rule.host ?? "any host"}?`}
+          consequence={
+            <>
+              Incidents matching <code>{rule.check}</code> on {rule.host ?? "any host"} start
+              notifying again. Ones that already matched stay in the history.
+            </>
+          }
           confirmLabel="Delete"
-          confirmVariant="danger"
+          tone="danger"
           busy={remove.isPending}
+          error={remove.error}
           onConfirm={() => remove.mutate(rule.id, { onSuccess: close })}
           onCancel={close}
         >
           <p>“{rule.note}”</p>
-          <p>
-            Incidents matching <code>{rule.check}</code> on {rule.host ?? "any host"} start
-            notifying again. Ones that already matched stay in the history.
-          </p>
-          {remove.error && (
-            <p className={styles.error} role="alert">
-              Could not delete the known condition. Try again.
-            </p>
-          )}
         </ConfirmDialog>
       )}
     </>
@@ -83,15 +90,19 @@ export function RulesPage() {
 
   return (
     <>
-      <div className={ui.pageHead}>
-        <h1>Known conditions</h1>
-      </div>
-      <PageIntro topic="known conditions" docs="concepts/incidents.html#known-conditions">
-        Incidents that match a known condition are kept in the history but never alert you and are
-        not triaged.
-      </PageIntro>
-      {rules.isPending && <p>Loading…</p>}
-      {rules.error && <EmptyState title="Could not load the known conditions" />}
+      <PageHeader
+        title="Known conditions"
+        docs="concepts/incidents.html#known-conditions"
+        intro="Incidents that match a known condition are kept in the history but never alert you and are not triaged."
+      />
+      {rules.isPending && <Loading />}
+      {rules.error && !rules.data && (
+        <LoadError
+          error={rules.error}
+          context="load the known conditions"
+          onRetry={rules.refetch}
+        />
+      )}
       {rules.data && items.length === 0 && (
         <EmptyState title="No known conditions">
           <p>Add one below: matching incidents stay in the history and never alert you.</p>

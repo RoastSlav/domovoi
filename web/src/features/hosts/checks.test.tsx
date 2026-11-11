@@ -29,7 +29,9 @@ test("host_checks_tab_saves_overrides_and_reports_offline_agent", async () => {
   await user.selectOptions(screen.getByLabelText("disk.usage runs"), "off");
   await user.type(screen.getByLabelText("disk.usage thresholds"), '{{"warn_percent": 70}');
   await user.click(screen.getByRole("button", { name: "Save checks" }));
-  expect(await screen.findByText("Agent offline, will apply on reconnect.")).toBeVisible();
+  expect(
+    await screen.findByText("The agent is offline. They apply when it reconnects."),
+  ).toBeVisible();
   const put = calls.find((c) => c.route === "PUT /api/v1/hosts/{name}/checks");
   expect(put?.init.params?.path).toEqual({ name: "nas" });
   expect(put?.init.body).toEqual({
@@ -40,5 +42,5 @@ test("host_checks_tab_saves_overrides_and_reports_offline_agent", async () => {
 
   route("PUT /api/v1/hosts/{name}/checks", () => ({ delivered: true }));
   await user.click(screen.getByRole("button", { name: "Save checks" }));
-  expect(await screen.findByText("Sent to agent.")).toBeVisible();
+  expect(await screen.findByText("Checks saved and sent to the agent")).toBeVisible();
 });

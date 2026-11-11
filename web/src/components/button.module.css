@@ -1,0 +1,119 @@
+.button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.25rem;
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  line-height: var(--leading-sm);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color var(--motion-fast) var(--ease-out),
+    border-color var(--motion-fast) var(--ease-out);
+}
+
+.sm {
+  min-height: 1.75rem;
+  padding: 0 var(--space-2);
+  font-size: var(--text-xs);
+}
+
+.content {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.button:hover,
+.button[data-hover] {
+  background: var(--color-surface-raised);
+}
+
+.primary {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.primary:hover,
+.primary[data-hover] {
+  background: var(--color-primary-hover);
+  border-color: var(--color-primary-hover);
+}
+
+.danger {
+  border-color: var(--tone-danger-fg);
+  color: var(--tone-danger-fg);
+}
+
+.danger:hover,
+.danger[data-hover] {
+  background: var(--tone-danger-bg);
+}
+
+.ghost {
+  background: transparent;
+  border-color: transparent;
+}
+
+.iconOnly {
+  min-width: 2.25rem;
+  padding: 0;
+}
+
+.iconOnly.sm {
+  min-width: 1.75rem;
+}
+
+.button:disabled,
+.button[aria-disabled="true"] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.button[data-loading] {
+  opacity: 1;
+  cursor: progress;
+}
+
+/* The label keeps its space while the spinner covers it, so the button does not resize. */
+.button[data-loading] .content {
+  opacity: 0;
+}
+
+.busy {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+
+/* Phones: primary controls are at least 44 px tall. */
+@media (pointer: coarse) {
+  .button {
+    min-height: 2.75rem;
+  }
+
+  .sm {
+    min-height: 2.25rem;
+  }
+
+  .iconOnly {
+    min-width: 2.75rem;
+  }
+
+  .iconOnly.sm {
+    min-width: 2.25rem;
+  }
+}
+
+.link {
+  text-decoration: none;
+}

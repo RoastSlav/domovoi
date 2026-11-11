@@ -1,20 +1,11 @@
-import { Button } from "../../components/Button";
-import { EmptyState } from "../../components/EmptyState";
-import { ApiFailure, type LogLine } from "../../api/types";
+import type { LogLine } from "../../api/types";
+import { Button, EmptyState, LoadError, Loading } from "../../components";
 import { LOGS_REFRESH_MS } from "../../api/hooks/system";
 import styles from "./logs.module.css";
 
 /** The level and line count asked for when a reader has not picked. */
 export const DEFAULT_LEVEL = "info";
 export const DEFAULT_LINES = 200;
-
-/** What a failed log call says to a person. */
-function failureText(error: unknown): string {
-  if (error instanceof ApiFailure) {
-    return error.message;
-  }
-  return "Something went wrong. Try again.";
-}
 
 /** The colour class a line is drawn in for its level; unrecognised levels stay plain. */
 function lineClass(level: string) {
@@ -58,11 +49,9 @@ export function LogViewer({
 }) {
   return (
     <>
-      {logs.loading && <p>Loading…</p>}
+      {logs.loading && <Loading />}
       {logs.error != null && (
-        <EmptyState title="Could not load logs">
-          <p>{failureText(logs.error)}</p>
-        </EmptyState>
+        <LoadError error={logs.error} context="load logs" onRetry={logs.refresh} />
       )}
       {logs.error == null && !logs.loading && logs.items.length === 0 && (
         <EmptyState title="No log lines">
@@ -80,7 +69,9 @@ export function LogViewer({
       )}
       <div className={styles.refresh}>
         <span className={styles.hint}>Auto-refresh every {LOGS_REFRESH_MS / 1000} s</span>
-        <Button onClick={() => void logs.refresh()}>Refresh</Button>
+        <Button icon="refresh" onClick={() => void logs.refresh()}>
+          Refresh
+        </Button>
       </div>
     </>
   );

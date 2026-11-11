@@ -1,7 +1,5 @@
 import { useUpdate } from "../../api/hooks/updates";
-import { Button } from "../../components/Button";
-import { CopyBlock } from "../../components/CopyBlock";
-import { Dialog } from "../../components/Dialog";
+import { Button, CopyBlock, Dialog } from "../../components";
 
 /** The commands that bring a deployment to the release the hub last saw. */
 export function HowToUpdateDialog({ onClose }: { onClose: () => void }) {

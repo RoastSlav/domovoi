@@ -3,19 +3,20 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { useHostNames } from "../../api/hooks/hosts";
 import { useCreateNote, useDeleteNote, useNote, useSaveNote } from "../../api/hooks/notes";
 import { ApiFailure, type Note, type NoteInput } from "../../api/types";
-import { Button } from "../../components/Button";
-import { ConfirmDialog } from "../../components/ConfirmDialog";
-import { EmptyState } from "../../components/EmptyState";
-import { Markdown } from "../../components/Markdown";
+import {
+  Button,
+  ConfirmDialog,
+  EmptyState,
+  ErrorDetail,
+  InlineMessage,
+  LoadError,
+  Loading,
+  Markdown,
+  PageHeader,
+  useActionFeedback,
+} from "../../components";
 import { HostScope } from "./HostScope";
 import styles from "./notes.module.css";
-
-function failureText(error: unknown): string {
-  if (error instanceof ApiFailure && error.status < 500) {
-    return error.message;
-  }
-  return "Could not save the note. Try again.";
-}
 
 function tagsOf(text: string): string[] {
   return text
@@ -30,9 +31,21 @@ function Editor({ note, host: initialHost }: { note: Note | undefined; host: str
   const [tags, setTags] = useState(note?.tags.join(", ") ?? "");
   const [body, setBody] = useState(note?.body_markdown ?? "");
   const [deleting, setDeleting] = useState(false);
-  const create = useCreateNote();
-  const save = useSaveNote();
-  const remove = useDeleteNote();
+  const create = useActionFeedback(useCreateNote(), {
+    success: "Note created",
+    error: "save the note",
+    errorDisplay: "inline",
+  });
+  const save = useActionFeedback(useSaveNote(), {
+    success: "Note saved",
+    error: "save the note",
+    errorDisplay: "inline",
+  });
+  const remove = useActionFeedback(useDeleteNote(), {
+    success: "Note deleted",
+    error: "delete the note",
+    errorDisplay: "inline",
+  });
   const navigate = useNavigate();
   const error = create.error ?? save.error;
 
@@ -74,16 +87,16 @@ function Editor({ note, host: initialHost }: { note: Note | undefined; host: str
             <textarea id="note-body" value={body} onChange={(e) => setBody(e.target.value)} />
           </div>
           {error && (
-            <p className={styles.error} role="alert">
-              {failureText(error)}
-            </p>
+            <InlineMessage tone="danger" title={error.title}>
+              <ErrorDetail error={error} />
+            </InlineMessage>
           )}
-          {save.isSuccess && !save.isPending && <p role="status">Saved.</p>}
           <div className={styles.actions}>
             <Button
               type="submit"
               variant="primary"
-              disabled={!title.trim() || create.isPending || save.isPending}
+              loading={create.isPending || save.isPending}
+              disabledReason={title.trim() ? undefined : "Give the note a title first."}
             >
               Save
             </Button>
@@ -102,16 +115,19 @@ function Editor({ note, host: initialHost }: { note: Note | undefined; host: str
       {deleting && note && (
         <ConfirmDialog
           title={`Delete “${note.title}”?`}
-          confirmLabel="Delete"
-          confirmVariant="danger"
+          consequence="Triage will no longer find it. This cannot be undone."
+          confirmLabel="Delete note"
+          tone="danger"
           busy={remove.isPending}
+          error={remove.error}
           onConfirm={() =>
             remove.mutate(note.id, { onSuccess: () => void navigate("/notes", { replace: true }) })
           }
-          onCancel={() => setDeleting(false)}
-        >
-          <p>Triage will no longer find it. This cannot be undone.</p>
-        </ConfirmDialog>
+          onCancel={() => {
+            setDeleting(false);
+            remove.reset();
+          }}
+        />
       )}
     </>
   );
@@ -126,14 +142,17 @@ export function NoteEditorPage() {
   const hostNames = useHostNames();
 
   if (!isNew && note.isPending) {
-    return <p>Loading…</p>;
+    return <Loading />;
   }
   if (!isNew && (note.error || !note.data)) {
-    return (
-      <EmptyState title="No such note">
-        <Link to="/notes">Back to notes</Link>
-      </EmptyState>
-    );
+    if (!note.error || (note.error instanceof ApiFailure && note.error.status === 404)) {
+      return (
+        <EmptyState title="No such note" action={<Link to="/notes">Back to notes</Link>}>
+          <p>It may have been deleted, or the address is wrong.</p>
+        </EmptyState>
+      );
+    }
+    return <LoadError error={note.error} context="load the note" onRetry={note.refetch} />;
   }
   const host = isNew
     ? (params.get("host") ?? "")
@@ -145,7 +164,7 @@ export function NoteEditorPage() {
       <p>
         <Link to="/notes">Notes</Link>
       </p>
-      <h1>{isNew ? "New note" : (note.data?.title ?? "Note")}</h1>
+      <PageHeader title={isNew ? "New note" : (note.data?.title ?? "Note")} />
       <Editor
         key={`${note.data?.id ?? "new"}-${host}`}
         note={isNew ? undefined : note.data}

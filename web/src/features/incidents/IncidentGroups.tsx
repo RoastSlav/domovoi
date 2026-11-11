@@ -1,7 +1,7 @@
 import { Link } from "react-router";
 import { INCIDENT_PAGE, useIncidents, type IncidentFilters } from "../../api/hooks/incidents";
 import type { IncidentPage, IncidentSummary } from "../../api/types";
-import { EmptyState } from "../../components/EmptyState";
+import { InlineMessage, LoadError, Loading } from "../../components";
 import { IncidentRow } from "./IncidentRow";
 import styles from "./incidents.module.css";
 
@@ -166,13 +166,24 @@ export function IncidentGroups({
   const stale = queries.some((incidents) => incidents.error && incidents.data);
 
   if (unreadable) {
-    return <EmptyState title="Could not load incidents" />;
+    const failed = queries.find((incidents) => incidents.error && !incidents.data);
+    return (
+      <LoadError
+        error={failed?.error}
+        context="load incidents"
+        onRetry={() => queries.forEach((incidents) => void incidents.refetch())}
+      />
+    );
   }
 
   return (
     <>
-      {loading && !loaded && <p>Loading…</p>}
-      {stale && <p className={styles.groupHint}>Could not refresh.</p>}
+      {loading && !loaded && <Loading />}
+      {stale && (
+        <InlineMessage tone="warning" title="Could not refresh">
+          This list may be out of date.
+        </InlineMessage>
+      )}
       {GROUPS.map((def) => (
         <Group
           key={def.title}

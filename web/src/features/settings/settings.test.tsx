@@ -104,7 +104,7 @@ test("settings_page_explains_that_file_values_are_locked", async () => {
   expect(await screen.findByText(/^How this hub runs\./)).toBeVisible();
   const intro = screen.getByText(/^How this hub runs\./);
   expect(intro.textContent, "the intro does not repeat the note").toBe(
-    "How this hub runs.Learn more",
+    "How this hub runs. Learn more",
   );
   const note = screen.getByText(/Fields set in hub\.toml or the environment are read-only here\./);
   expect(note).toBeVisible();
@@ -241,7 +241,7 @@ test("stale_revision_offers_a_reload", async () => {
   const incidents = await screen.findByRole("region", { name: "Incidents" });
   await user.type(within(incidents).getByLabelText("Reopen window"), "2h");
   await user.click(within(incidents).getByRole("button", { name: "Save and apply" }));
-  expect(await within(incidents).findByText("Settings changed elsewhere, reload.")).toBeVisible();
+  expect(await within(incidents).findByText("Settings changed elsewhere")).toBeVisible();
   expect(within(incidents).getByRole("button", { name: "Reload" })).toBeVisible();
 });
 

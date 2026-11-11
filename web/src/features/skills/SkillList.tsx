@@ -2,7 +2,16 @@ import { useState } from "react";
 
 import { useSetSkillEnabled, useSkills } from "../../api/hooks/hosts";
 import type { Skill } from "../../api/types";
-import { EmptyState } from "../../components/EmptyState";
+import {
+  Checkbox,
+  EmptyState,
+  LoadError,
+  Loading,
+  StatusPill,
+  Tag,
+  useActionFeedback,
+} from "../../components";
+import { riskMeta } from "../../design/tone";
 import { SkillDetail, kindText } from "./SkillDetail";
 import styles from "./skills.module.css";
 
@@ -16,9 +25,7 @@ function SkillCard({
   skill,
   open,
   save,
-  busy,
 }: {
-  busy: boolean;
   open: () => void;
   save: (checked: boolean) => void;
   skill: Skill;
@@ -32,19 +39,11 @@ function SkillCard({
     >
       <h4 className={styles.name}>
         <button onClick={open}>{skill.name}</button>
-        {destructive && <span className={styles.danger}>Destructive</span>}
-        {!skill.enabled && <span className={styles.disabled}>Disabled</span>}
+        {destructive && <StatusPill meta={riskMeta(skill.risk)} />}
+        {!skill.enabled && <Tag>Disabled</Tag>}
       </h4>
       <p>{skill.description}</p>
-      <label className={styles.switch}>
-        <input
-          type="checkbox"
-          checked={skill.enabled}
-          disabled={busy}
-          onChange={(event) => save(event.target.checked)}
-        />
-        Enabled
-      </label>
+      <Checkbox label="Enabled" checked={skill.enabled} onChange={save} />
       {skill.params.length > 0 && (
         <ul className={styles.params} aria-label={`Parameters of ${skill.name}`}>
           {skill.params.map((param) => (
@@ -68,16 +67,21 @@ function SkillCard({
 export function SkillList({ host }: { host: string }) {
   const [opened, setOpened] = useState<string | null>(null);
   const skills = useSkills(host);
-  const toggle = useSetSkillEnabled(host);
+  const raw = useSetSkillEnabled(host);
+  const toggle = useActionFeedback(raw, {
+    success: (_, change) => `${change.skill} ${change.enabled ? "enabled" : "disabled"}`,
+    error: "change the skill",
+    undo: (_, change) => void raw.mutateAsync({ ...change, enabled: !change.enabled }),
+  });
   if (skills.isPending) {
-    return <p>Loading…</p>;
+    return <Loading />;
   }
   if (skills.error) {
-    return <EmptyState title="Could not load skills" />;
+    return <LoadError error={skills.error} context="load skills" onRetry={skills.refetch} />;
   }
   if (skills.data.length === 0) {
     return (
-      <EmptyState title="No skills">
+      <EmptyState icon="tool" title="No skills">
         <p>The agent reports its skills when it connects.</p>
       </EmptyState>
     );
@@ -98,10 +102,9 @@ export function SkillList({ host }: { host: string }) {
             <ul className={styles.list}>
               {group.map((skill) => (
                 <SkillCard
-                  busy={toggle.isPending}
                   key={skill.name}
                   open={() => setOpened(skill.name)}
-                  save={(checked) => void toggle.mutate({ enabled: checked, skill: skill.name })}
+                  save={(checked) => toggle.mutate({ enabled: checked, skill: skill.name })}
                   skill={skill}
                 />
               ))}

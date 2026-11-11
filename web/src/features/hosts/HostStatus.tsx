@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Host } from "../../api/types";
-import { RelativeTime } from "../../components/RelativeTime";
+import { Button, RelativeTime, Tooltip } from "../../components";
+import { hostConnectionMeta } from "../../design/tone";
 import { HowToUpdateDialog } from "../updates/HowToUpdateDialog";
 import styles from "./hosts.module.css";
 
@@ -28,13 +29,11 @@ export function HostStatus({ host }: { host: Host }) {
   }
   if (isHubOnly(host)) {
     return (
-      <span
-        className={styles.status}
-        data-connected="hub"
-        title="The hub records its own problems here. No agent watches this machine."
-      >
-        Hub only, no agent
-      </span>
+      <Tooltip content={hostConnectionMeta("hub_only").hint}>
+        <span className={styles.status} data-connected="hub">
+          Hub only, no agent
+        </span>
+      </Tooltip>
     );
   }
   return (
@@ -57,9 +56,9 @@ export function VersionCell({ host }: { host: Host }) {
   const outdated = host.outdated;
   if (host.refused) {
     return (
-      <span className={styles.refused} title="The handshake was refused; update the older side">
-        {host.refused}
-      </span>
+      <Tooltip content={hostConnectionMeta("refused").hint}>
+        <span className={styles.refused}>{host.refused}</span>
+      </Tooltip>
     );
   }
   if (!host.version) {
@@ -70,14 +69,14 @@ export function VersionCell({ host }: { host: Host }) {
       <span className={styles.version}>
         {host.version}
         {outdated && (
-          <span className={styles.outdated} title="Older than the hub; update the agent">
-            Outdated
-          </span>
+          <Tooltip content="Older than the hub; update the agent.">
+            <span className={styles.outdated}>Outdated</span>
+          </Tooltip>
         )}
         {outdated && (
-          <button type="button" className={styles.update} onClick={() => setUpdating(true)}>
+          <Button size="sm" variant="ghost" onClick={() => setUpdating(true)}>
             How to update
-          </button>
+          </Button>
         )}
       </span>
       {updating && outdated && <HowToUpdateDialog onClose={() => setUpdating(false)} />}

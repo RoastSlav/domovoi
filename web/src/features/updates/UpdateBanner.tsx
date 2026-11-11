@@ -1,8 +1,6 @@
 import { useState } from "react";
 import { useUpdate } from "../../api/hooks/updates";
-import { Button } from "../../components/Button";
-import { Dialog } from "../../components/Dialog";
-import { Markdown } from "../../components/Markdown";
+import { Button, Dialog, Markdown } from "../../components";
 import { HowToUpdateDialog } from "./HowToUpdateDialog";
 import styles from "./updates.module.css";
 

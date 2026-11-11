@@ -1,9 +1,14 @@
 import { useState } from "react";
 import { useAsk, useClearFollowUps, useFollowUps } from "../../api/hooks/incidents";
-import { ChatThread, chatFailureText, type ChatTurn } from "../../components/ChatThread";
-import { ConfirmDialog } from "../../components/ConfirmDialog";
+import {
+  chatFailureText,
+  ChatThread,
+  type ChatTurn,
+  ConfirmDialog,
+  useActionFeedback,
+} from "../../components";
 
-export { MAX_QUESTION_CHARS } from "../../components/ChatThread";
+export { MAX_QUESTION_CHARS } from "../../components";
 
 /**
  * The chat with triage about one incident: the turns the model still remembers,
@@ -15,7 +20,11 @@ export { MAX_QUESTION_CHARS } from "../../components/ChatThread";
 export function IncidentChat({ incidentId, host }: { incidentId: string; host: string }) {
   const remembered = useFollowUps(incidentId);
   const ask = useAsk(incidentId);
-  const clear = useClearFollowUps(incidentId);
+  const clear = useActionFeedback(useClearFollowUps(incidentId), {
+    success: "Conversation cleared",
+    error: "clear the conversation",
+    errorDisplay: "inline",
+  });
   const [sending, setSending] = useState("");
   const [clearOpen, setClearOpen] = useState(false);
 
@@ -57,8 +66,10 @@ export function IncidentChat({ incidentId, host }: { incidentId: string; host: s
       {clearOpen && (
         <ConfirmDialog
           title="Clear the conversation?"
-          confirmLabel="Yes, clear it"
+          consequence="The model forgets this conversation. The questions stay in the timeline."
+          confirmLabel="Clear conversation"
           busy={clear.isPending || ask.isPending}
+          error={clear.error}
           onConfirm={() =>
             clear.mutate(undefined, {
               onSuccess: () => {
@@ -67,10 +78,11 @@ export function IncidentChat({ incidentId, host }: { incidentId: string; host: s
               },
             })
           }
-          onCancel={() => setClearOpen(false)}
-        >
-          <p>The model forgets this conversation. The questions stay in the timeline.</p>
-        </ConfirmDialog>
+          onCancel={() => {
+            setClearOpen(false);
+            clear.reset();
+          }}
+        />
       )}
     </>
   );

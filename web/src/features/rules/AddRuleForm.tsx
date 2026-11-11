@@ -1,8 +1,8 @@
 import { useState, type FormEvent } from "react";
 import { useHosts } from "../../api/hooks/hosts";
 import { useCreateAckRule } from "../../api/hooks/rules";
-import { ApiFailure, type AckRuleInput, type Predicate, type PredicateOp } from "../../api/types";
-import { Button } from "../../components/Button";
+import type { AckRuleInput, Predicate, PredicateOp } from "../../api/types";
+import { Button, ErrorDetail, InlineMessage, useActionFeedback } from "../../components";
 import styles from "./rules.module.css";
 
 /** A condition's operator and the words shown for it. */
@@ -87,7 +87,11 @@ export function formBody(fields: AddRuleFields): AckRuleInput | string {
 
 /** The form that adds a known condition. */
 export function AddRuleForm() {
-  const create = useCreateAckRule();
+  const create = useActionFeedback(useCreateAckRule(), {
+    success: "Known condition added",
+    error: "add the known condition",
+    errorDisplay: "inline",
+  });
   const hosts = useHosts();
   const [fields, setFields] = useState<AddRuleFields>({
     check: "",
@@ -127,10 +131,6 @@ export function AddRuleForm() {
           expiry: DEFAULT_EXPIRY,
           conditions: [],
         }),
-      onError: (error) =>
-        setProblem(
-          error instanceof ApiFailure ? error.message : "Could not add the known condition.",
-        ),
     });
   };
 
@@ -233,15 +233,16 @@ export function AddRuleForm() {
           >
             Add condition
           </Button>
-          <Button type="submit" variant="primary" disabled={create.isPending}>
+          <Button type="submit" variant="primary" loading={create.isPending}>
             Add
           </Button>
         </div>
       </div>
-      {problem && (
-        <p className={styles.error} role="alert">
-          {problem}
-        </p>
+      {problem && <InlineMessage tone="danger" title={problem} />}
+      {create.error && (
+        <InlineMessage tone="danger" title={create.error.title}>
+          <ErrorDetail error={create.error} />
+        </InlineMessage>
       )}
     </form>
   );

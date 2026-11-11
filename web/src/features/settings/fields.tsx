@@ -5,8 +5,7 @@ import {
   type SecretChange,
   useModelDiscovery,
 } from "../../api/hooks/settings";
-import { ApiFailure } from "../../api/types";
-import { Button } from "../../components/Button";
+import { Button, InlineError } from "../../components";
 import type { FieldSpec } from "./form";
 import styles from "./settings.module.css";
 
@@ -244,8 +243,8 @@ export function ModelField({
       </datalist>
       {!readOnly && (
         <div className={styles.actions}>
-          <Button disabled={discovery.isPending} onClick={() => discovery.mutate(candidate())}>
-            {discovery.isPending ? "Fetching models…" : "Fetch models"}
+          <Button loading={discovery.isPending} onClick={() => discovery.mutate(candidate())}>
+            Fetch models
           </Button>
         </div>
       )}
@@ -256,13 +255,7 @@ export function ModelField({
             : "The provider returned no models. Enter a model ID manually."}
         </p>
       )}
-      {discovery.error && (
-        <p role="alert" className={styles.alert}>
-          {discovery.error instanceof ApiFailure
-            ? discovery.error.message
-            : "Could not fetch models. Enter a model ID manually."}
-        </p>
-      )}
+      <InlineError error={discovery.error} context="fetch the models" />
       <Messages id={id} {...common} />
     </div>
   );

@@ -1,10 +1,16 @@
 import { useState, type FormEvent } from "react";
 import { ENROLL_POLL_MS, useCreateInvite, useHosts } from "../../api/hooks/hosts";
-import { ApiFailure, type Invite } from "../../api/types";
-import { Button } from "../../components/Button";
-import { CopyBlock } from "../../components/CopyBlock";
-import { Countdown, useRemaining } from "../../components/Countdown";
-import { Dialog } from "../../components/Dialog";
+import type { Invite } from "../../api/types";
+import {
+  Button,
+  CopyBlock,
+  Countdown,
+  Dialog,
+  Field,
+  TextInput,
+  useActionFeedback,
+  useRemaining,
+} from "../../components";
 import styles from "./hosts.module.css";
 
 function Waiting({ invite, name }: { invite: Invite; name: string }) {
@@ -33,13 +39,6 @@ function Waiting({ invite, name }: { invite: Invite; name: string }) {
   );
 }
 
-function failureText(error: unknown): string {
-  if (error instanceof ApiFailure && error.status === 400) {
-    return "Use a host name of lower-case letters, digits and dashes.";
-  }
-  return "Could not create the invite. Try again.";
-}
-
 /**
  * Adding a host: its name, then a one-time invite with the command to run on it and the
  * hub's fingerprint, then waiting until its agent connects.
@@ -47,7 +46,12 @@ function failureText(error: unknown): string {
 export function EnrollDialog({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState("");
   const [invite, setInvite] = useState<Invite>();
-  const create = useCreateInvite();
+  // The dialog itself shows the new invite, so success needs no toast.
+  const create = useActionFeedback(useCreateInvite(), {
+    success: () => null,
+    error: "create the invite",
+    errorDisplay: "inline",
+  });
 
   const request = () =>
     create.mutate(name.trim(), {
@@ -69,7 +73,7 @@ export function EnrollDialog({ onClose }: { onClose: () => void }) {
       actions={
         <>
           {invite && (
-            <Button onClick={request} disabled={create.isPending}>
+            <Button onClick={request} loading={create.isPending}>
               New invite
             </Button>
           )}
@@ -81,25 +85,31 @@ export function EnrollDialog({ onClose }: { onClose: () => void }) {
     >
       {!invite && (
         <form className={styles.form} onSubmit={onSubmit}>
-          <label htmlFor="enroll-name">Host name</label>
-          <input
-            id="enroll-name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            autoComplete="off"
-            spellCheck={false}
-            aria-describedby="enroll-name-hint"
-          />
-          <p id="enroll-name-hint" className={styles.hint}>
-            For example <code>nas</code> or <code>pi-garage</code>.
-          </p>
-          {create.error && (
-            <p className={styles.error} role="alert">
-              {failureText(create.error)}
-            </p>
-          )}
+          <Field
+            label="Host name"
+            hint={
+              <>
+                Lower-case letters, digits and dashes, for example <code>nas</code> or{" "}
+                <code>pi-garage</code>.
+              </>
+            }
+            error={create.error && `${create.error.title}. ${create.error.detail ?? ""}`}
+          >
+            <TextInput
+              mono
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              autoComplete="off"
+              spellCheck={false}
+            />
+          </Field>
           <div>
-            <Button type="submit" variant="primary" disabled={!name.trim() || create.isPending}>
+            <Button
+              type="submit"
+              variant="primary"
+              loading={create.isPending}
+              disabledReason={name.trim() ? undefined : "Enter a host name first."}
+            >
               Create invite
             </Button>
           </div>

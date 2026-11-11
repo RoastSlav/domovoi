@@ -89,3 +89,79 @@ label {
 .tabular-nums {
   font-variant-numeric: tabular-nums;
 }
+
+/*
+ * Tone scope: an element with data-tone gets --tone-bg, --tone-fg, --tone-border,
+ * --tone-solid and --tone-on-solid for that tone. Kit components style themselves with
+ * these, so no component repeats the seven tones.
+ */
+[data-tone="danger"] {
+  --tone-bg: var(--tone-danger-bg);
+  --tone-fg: var(--tone-danger-fg);
+  --tone-border: var(--tone-danger-border);
+  --tone-solid: var(--tone-danger-solid);
+  --tone-on-solid: var(--tone-danger-on-solid);
+}
+
+[data-tone="warning"] {
+  --tone-bg: var(--tone-warning-bg);
+  --tone-fg: var(--tone-warning-fg);
+  --tone-border: var(--tone-warning-border);
+  --tone-solid: var(--tone-warning-solid);
+  --tone-on-solid: var(--tone-warning-on-solid);
+}
+
+[data-tone="success"] {
+  --tone-bg: var(--tone-success-bg);
+  --tone-fg: var(--tone-success-fg);
+  --tone-border: var(--tone-success-border);
+  --tone-solid: var(--tone-success-solid);
+  --tone-on-solid: var(--tone-success-on-solid);
+}
+
+[data-tone="pending"] {
+  --tone-bg: var(--tone-pending-bg);
+  --tone-fg: var(--tone-pending-fg);
+  --tone-border: var(--tone-pending-border);
+  --tone-solid: var(--tone-pending-solid);
+  --tone-on-solid: var(--tone-pending-on-solid);
+}
+
+[data-tone="progress"] {
+  --tone-bg: var(--tone-progress-bg);
+  --tone-fg: var(--tone-progress-fg);
+  --tone-border: var(--tone-progress-border);
+  --tone-solid: var(--tone-progress-solid);
+  --tone-on-solid: var(--tone-progress-on-solid);
+}
+
+[data-tone="info"] {
+  --tone-bg: var(--tone-info-bg);
+  --tone-fg: var(--tone-info-fg);
+  --tone-border: var(--tone-info-border);
+  --tone-solid: var(--tone-info-solid);
+  --tone-on-solid: var(--tone-info-on-solid);
+}
+
+[data-tone="neutral"] {
+  --tone-bg: var(--tone-neutral-bg);
+  --tone-fg: var(--tone-neutral-fg);
+  --tone-border: var(--tone-neutral-border);
+  --tone-solid: var(--tone-neutral-solid);
+  --tone-on-solid: var(--tone-neutral-on-solid);
+}
+
+/* A 3 px left stripe in the element's tone, for rows and cards (see ToneStripe in the kit). */
+[data-stripe] {
+  box-shadow: inset 3px 0 0 var(--tone-solid, var(--color-border-strong));
+}
+
+/* An open modal dialog holds the page still behind it. */
+:root:has(dialog[open]) {
+  overflow: hidden;
+}
+
+/* A wrapper that does not take part in layout: its children lay out as its parent's. */
+.contents {
+  display: contents;
+}

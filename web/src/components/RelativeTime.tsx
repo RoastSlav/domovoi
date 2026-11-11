@@ -1,3 +1,6 @@
+import { Tooltip } from "./Tooltip";
+import styles from "./data.module.css";
+
 const UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
   ["day", 86_400],
   ["hour", 3_600],
@@ -17,15 +20,23 @@ export function relative(at: Date, now: Date): string {
   return "just now";
 }
 
-/** A timestamp shown relative to now, with the exact time on hover and for machines. */
+/**
+ * A timestamp shown relative to now ("5 minutes ago"), with the exact local time as its
+ * tooltip and the ISO time for machines.
+ *
+ * Use it for every time the person reads at a glance. Where the exact time is the point
+ * (a log line), print the time itself.
+ */
 export function RelativeTime({ at, now }: { at: string; now?: Date }) {
   const date = new Date(at);
   if (Number.isNaN(date.getTime())) {
     return <span>{at}</span>;
   }
   return (
-    <time dateTime={at} title={date.toLocaleString()}>
-      {relative(date, now ?? new Date())}
-    </time>
+    <Tooltip content={date.toLocaleString()}>
+      <time dateTime={at} className={styles.time}>
+        {relative(date, now ?? new Date())}
+      </time>
+    </Tooltip>
   );
 }

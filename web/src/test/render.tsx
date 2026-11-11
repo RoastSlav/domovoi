@@ -3,6 +3,7 @@ import { render } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import { HostProvider } from "../app/HostContext";
+import { ToastProvider } from "../components/Toast";
 
 /** Shows the current location, so tests can check where a page navigated. */
 export function Location() {
@@ -17,13 +18,15 @@ export function renderAt(url: string, path: string, element: ReactNode) {
   });
   const result = render(
     <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={[url]}>
-        <Routes>
-          <Route path={path} element={<HostProvider>{element}</HostProvider>} />
-          <Route path="*" element={<p>other page</p>} />
-        </Routes>
-        <Location />
-      </MemoryRouter>
+      <ToastProvider>
+        <MemoryRouter initialEntries={[url]}>
+          <Routes>
+            <Route path={path} element={<HostProvider>{element}</HostProvider>} />
+            <Route path="*" element={<p>other page</p>} />
+          </Routes>
+          <Location />
+        </MemoryRouter>
+      </ToastProvider>
     </QueryClientProvider>,
   );
   return { ...result, client };

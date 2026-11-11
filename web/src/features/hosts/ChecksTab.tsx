@@ -1,7 +1,14 @@
 import { useState, type FormEvent } from "react";
 import { useHostChecks, useSaveHostChecks, type Overrides } from "../../api/hooks/settings";
-import { ApiFailure, type HostCheck } from "../../api/types";
-import { Button } from "../../components/Button";
+import type { HostCheck } from "../../api/types";
+import {
+  Button,
+  ErrorDetail,
+  InlineMessage,
+  LoadError,
+  Loading,
+  useActionFeedback,
+} from "../../components";
 import styles from "./hosts.module.css";
 
 interface Row {
@@ -64,16 +71,26 @@ function overridesOf(rows: Record<string, Row>): Overrides | string {
  */
 export function ChecksTab({ host }: { host: string }) {
   const checks = useHostChecks(host);
-  const save = useSaveHostChecks(host);
+  const save = useActionFeedback(useSaveHostChecks(host), {
+    success: (saved) =>
+      saved.delivered
+        ? "Checks saved and sent to the agent"
+        : {
+            title: "Checks saved",
+            detail: "The agent is offline. They apply when it reconnects.",
+            tone: "info",
+          },
+    error: "save the checks",
+    errorDisplay: "inline",
+  });
   const [rows, setRows] = useState<Record<string, Row>>();
   const [problem, setProblem] = useState<string>();
-  const [result, setResult] = useState<string>();
 
   if (checks.isPending) {
-    return <p>Loading…</p>;
+    return <Loading />;
   }
   if (checks.error) {
-    return <p>Could not load the checks.</p>;
+    return <LoadError error={checks.error} context="load the checks" onRetry={checks.refetch} />;
   }
   const current = rows ?? Object.fromEntries(checks.data.checks.map((c) => [c.key, rowOf(c)]));
   const update = (key: string, change: Partial<Row>) =>
@@ -87,13 +104,7 @@ export function ChecksTab({ host }: { host: string }) {
       return;
     }
     setProblem(undefined);
-    setResult(undefined);
-    save.mutate(overrides, {
-      onSuccess: (saved) =>
-        setResult(saved.delivered ? "Sent to agent." : "Agent offline, will apply on reconnect."),
-      onError: (error) =>
-        setProblem(error instanceof ApiFailure ? error.message : "Could not save the checks."),
-    });
+    save.mutate(overrides);
   };
 
   if (checks.data.checks.length === 0) {
@@ -108,7 +119,9 @@ export function ChecksTab({ host }: { host: string }) {
   return (
     <form className={styles.form} onSubmit={onSubmit} noValidate>
       {!checks.data.connected && (
-        <p>The agent is offline. Changes are saved and sent when it reconnects.</p>
+        <InlineMessage tone="info" title="The agent is offline">
+          Changes are saved and sent when it reconnects.
+        </InlineMessage>
       )}
       <table className={styles.checks}>
         <thead>
@@ -165,14 +178,14 @@ export function ChecksTab({ host }: { host: string }) {
           })}
         </tbody>
       </table>
-      {problem && (
-        <p className={styles.error} role="alert">
-          {problem}
-        </p>
+      {problem && <InlineMessage tone="danger" title={problem} />}
+      {save.error && (
+        <InlineMessage tone="danger" title={save.error.title}>
+          <ErrorDetail error={save.error} />
+        </InlineMessage>
       )}
-      {result && <p role="status">{result}</p>}
       <div>
-        <Button type="submit" variant="primary" disabled={save.isPending}>
+        <Button type="submit" variant="primary" loading={save.isPending}>
           Save checks
         </Button>
       </div>

@@ -2,18 +2,26 @@ import { useState } from "react";
 import { Link } from "react-router";
 import { useHosts, useRevoke } from "../../api/hooks/hosts";
 import type { Host } from "../../api/types";
-import { Button } from "../../components/Button";
-import { ConfirmDialog } from "../../components/ConfirmDialog";
-import { EmptyState } from "../../components/EmptyState";
-import { PageIntro } from "../../components/PageIntro";
+import {
+  Button,
+  ConfirmDialog,
+  EmptyState,
+  LoadError,
+  Loading,
+  PageHeader,
+  useActionFeedback,
+} from "../../components";
 import ui from "../../components/ui.module.css";
 import { EnrollDialog } from "./EnrollDialog";
 import { HostStatus, VersionCell } from "./HostStatus";
-import styles from "./hosts.module.css";
 
 function RevokeButton({ host }: { host: Host }) {
   const [open, setOpen] = useState(false);
-  const revoke = useRevoke();
+  const revoke = useActionFeedback(useRevoke(), {
+    success: (_, name) => `Agent on ${name} revoked`,
+    error: "revoke the agent",
+    errorDisplay: "inline",
+  });
   const close = () => {
     setOpen(false);
     revoke.reset();
@@ -26,22 +34,14 @@ function RevokeButton({ host }: { host: Host }) {
       {open && (
         <ConfirmDialog
           title={`Revoke the agent on ${host.name}?`}
-          confirmLabel="Revoke"
-          confirmVariant="danger"
+          consequence="The agent is disconnected and its key stops working. To bring the host back, enroll it again."
+          confirmLabel="Revoke agent"
+          tone="danger"
           busy={revoke.isPending}
+          error={revoke.error}
           onConfirm={() => revoke.mutate(host.name, { onSuccess: close })}
           onCancel={close}
-        >
-          <p>
-            The agent is disconnected and its key stops working. To bring the host back, enroll it
-            again.
-          </p>
-          {revoke.error && (
-            <p className={styles.error} role="alert">
-              Could not revoke the agent. Try again.
-            </p>
-          )}
-        </ConfirmDialog>
+        />
       )}
     </>
   );
@@ -55,19 +55,22 @@ export function HostsPage() {
 
   return (
     <>
-      <div className={ui.pageHead}>
-        <h1>Hosts</h1>
-        <Button variant="primary" onClick={() => setEnrolling(true)}>
-          Add host
-        </Button>
-      </div>
-      <PageIntro topic="hosts" docs="concepts/hub-and-agent.html">
-        Machines Domovoi knows about: hosts running an agent, and hosts that webhooks report on.
-      </PageIntro>
-      {hosts.isPending && <p>Loading…</p>}
-      {hosts.error && <EmptyState title="Could not load hosts" />}
+      <PageHeader
+        title="Hosts"
+        docs="concepts/hub-and-agent.html"
+        intro="Machines Domovoi knows about: hosts running an agent, and hosts that webhooks report on."
+        actions={
+          <Button variant="primary" icon="plus" onClick={() => setEnrolling(true)}>
+            Add host
+          </Button>
+        }
+      />
+      {hosts.isPending && <Loading />}
+      {hosts.error && !hosts.data && (
+        <LoadError error={hosts.error} context="load hosts" onRetry={hosts.refetch} />
+      )}
       {hosts.data && items.length === 0 && (
-        <EmptyState title="No hosts yet">
+        <EmptyState icon="server" title="No hosts yet">
           <p>Add a host to enroll its agent.</p>
         </EmptyState>
       )}
@@ -90,7 +93,7 @@ export function HostsPage() {
               {items.map((host) => (
                 <tr key={host.id}>
                   <th scope="row">
-                    <Link to={`/hosts/${host.name}`}>{host.name}</Link>
+                    <Link to={`/hosts/${encodeURIComponent(host.name)}`}>{host.name}</Link>
                   </th>
                   <td>{host.kind}</td>
                   <td>

@@ -2,9 +2,7 @@ import type { ReactNode } from "react";
 import { useHostNames } from "../../api/hooks/hosts";
 import { useAdvisories, useSettings } from "../../api/hooks/system";
 import { SECRET_SET, type Settings } from "../../api/types";
-import { EmptyState } from "../../components/EmptyState";
-import { PageIntro } from "../../components/PageIntro";
-import { RelativeTime } from "../../components/RelativeTime";
+import { LoadError, Loading, PageHeader, RelativeTime } from "../../components";
 import { UpdateAbout } from "../updates/UpdateAbout";
 import { EditableSettings } from "./EditableSettings";
 import styles from "./settings.module.css";
@@ -94,10 +92,12 @@ function Advisories() {
   const advisories = useAdvisories();
   const hosts = useHostNames();
   if (advisories.isPending) {
-    return <p>Loading…</p>;
+    return <Loading />;
   }
   if (advisories.error) {
-    return <p>Could not load advisories.</p>;
+    return (
+      <LoadError error={advisories.error} context="load advisories" onRetry={advisories.refetch} />
+    );
   }
   if (advisories.data.length === 0) {
     return <p>None open.</p>;
@@ -124,19 +124,20 @@ function Advisories() {
 export function SettingsPage() {
   const settings = useSettings();
   if (settings.isPending) {
-    return <p>Loading…</p>;
+    return <Loading />;
   }
   if (settings.error) {
-    return <EmptyState title="Could not load settings" />;
+    return <LoadError error={settings.error} context="load settings" onRetry={settings.refetch} />;
   }
   const s = settings.data;
   if (s.editable) {
     return (
       <>
-        <h1>Settings</h1>
-        <PageIntro topic="settings" docs="install/config-as-code.html">
-          How this hub runs.
-        </PageIntro>
+        <PageHeader
+          title="Settings"
+          docs="install/config-as-code.html"
+          intro="How this hub runs."
+        />
         <p className={styles.note}>
           Changes apply right away: the hub restarts in a few seconds. Fields set in hub.toml or the
           environment are read-only here.
@@ -160,10 +161,7 @@ export function SettingsPage() {
   }
   return (
     <>
-      <h1>Settings</h1>
-      <PageIntro topic="settings" docs="install/config-as-code.html">
-        How this hub runs.
-      </PageIntro>
+      <PageHeader title="Settings" docs="install/config-as-code.html" intro="How this hub runs." />
       <p className={styles.note}>Read-only. Change settings in hub.toml and restart the hub.</p>
       <Section title="Hub">
         <Rows

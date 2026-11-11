@@ -1,7 +1,6 @@
 import { Link } from "react-router";
 import type { IncidentSummary } from "../../api/types";
-import { Badge } from "../../components/Badge";
-import { RelativeTime } from "../../components/RelativeTime";
+import { RelativeTime, StatusPill } from "../../components";
 import { incidentBadgeMeta } from "../../design/tone";
 import { triageNote } from "./badge";
 import styles from "./incidents.module.css";
@@ -18,7 +17,7 @@ export function IncidentRow({
   return (
     <li className={styles.row}>
       <div className={styles.rowHead}>
-        <Badge meta={incidentBadgeMeta(incident)} />
+        <StatusPill meta={incidentBadgeMeta(incident)} />
         <Link to={`/incidents/${incident.id}`} className={styles.title}>
           {incident.title}
         </Link>

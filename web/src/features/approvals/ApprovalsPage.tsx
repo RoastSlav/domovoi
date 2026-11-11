@@ -1,7 +1,6 @@
 import { useActions } from "../../api/hooks/actions";
 import { useHostNames } from "../../api/hooks/hosts";
-import { EmptyState } from "../../components/EmptyState";
-import { PageIntro } from "../../components/PageIntro";
+import { EmptyState, LoadError, Loading, PageHeader } from "../../components";
 import { ActionItem } from "./ActionItem";
 import styles from "./approvals.module.css";
 
@@ -13,15 +12,17 @@ export function ApprovalsPage() {
 
   return (
     <>
-      <h1>Approvals</h1>
-      <PageIntro topic="approvals" docs="concepts/actions.html">
-        Actions the model suggested. Nothing runs until you approve it; requests expire after an
-        hour.
-      </PageIntro>
-      {actions.isPending && <p>Loading…</p>}
-      {actions.error && <EmptyState title="Could not load approvals" />}
+      <PageHeader
+        title="Approvals"
+        docs="concepts/actions.html"
+        intro="Actions the model suggested. Nothing runs until you approve it; requests expire after an hour."
+      />
+      {actions.isPending && <Loading />}
+      {actions.error && !actions.data && (
+        <LoadError error={actions.error} context="load approvals" onRetry={actions.refetch} />
+      )}
       {actions.data && items.length === 0 && (
-        <EmptyState title="Nothing to approve">
+        <EmptyState icon="approve" title="Nothing to approve">
           <p>Actions triage proposes show up here.</p>
         </EmptyState>
       )}
