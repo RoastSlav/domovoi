@@ -1,3 +1,4 @@
+import { memo, useMemo } from "react";
 import { Link } from "react-router";
 import type { useIncidents } from "../../api/hooks/incidents";
 import type { IncidentSummary } from "../../api/types";
@@ -92,7 +93,7 @@ function columns(hostNames: Map<string, string>): Column<IncidentSummary>[] {
 }
 
 /** One incident as a card, for narrow screens: the table's facts in the table's order. */
-function IncidentCardRow({
+const IncidentCardRow = memo(function IncidentCardRow({
   incident,
   host,
 }: {
@@ -142,7 +143,10 @@ function IncidentCardRow({
       </Card>
     </li>
   );
-}
+});
+
+/** What the table tints a row by; a constant, so it never makes a row redraw. */
+const rowTone = (incident: IncidentSummary) => incidentStateMeta(incident).tone;
 
 /**
  * The loaded incidents of `query`: a table on a wide screen, cards on a narrow one, then
@@ -160,17 +164,19 @@ export function IncidentList({
   query: IncidentsQuery;
 }) {
   const wide = useMediaQuery(TABLE_QUERY);
-  const items = query.data?.pages.flatMap((page) => page.items) ?? [];
+  const pages = query.data?.pages;
+  const items = useMemo(() => pages?.flatMap((page) => page.items) ?? [], [pages]);
+  const tableColumns = useMemo(() => columns(hostNames), [hostNames]);
   const more = () => void query.fetchNextPage();
   return (
     <Stack gap={3}>
       {wide ? (
         <DataTable
           caption={caption}
-          columns={columns(hostNames)}
+          columns={tableColumns}
           rows={items}
           rowKey={(incident) => incident.id}
-          rowTone={(incident) => incidentStateMeta(incident).tone}
+          rowTone={rowTone}
           rowState={rowState}
         />
       ) : (

@@ -1,440 +1,42 @@
-import type { LiveStatus } from "../api/events";
 import type { Host, IncidentSummary } from "../api/types";
-import type { IconName } from "./icons";
+import { ACTION_STATUSES, RISKS, TRIAGE } from "./actionVocab";
+import {
+  CHECK_STATES,
+  HOST_CONNECTIONS,
+  HOST_KINDS,
+  ISSUE_SEVERITIES,
+  LIVE,
+  SSH_LOGINS,
+  STEP_STATES,
+} from "./fleetVocab";
+import { INCIDENT_GROUPS, INCIDENT_STATUSES, SEVERITIES, VERDICTS } from "./respondVocab";
+import { lookup, type HostConnection, type IncidentGroup, type StatusMeta } from "./status";
 
 /**
  * The single place where a status becomes a label, a tone, a hint and an icon.
- * Components never decide a status's wording or colour themselves: they ask here.
+ * Components never decide a status's wording or colour themselves: they ask here. The
+ * tables are in `respondVocab.ts`, `actionVocab.ts` and `fleetVocab.ts`, split only to keep
+ * files short; import from this file, never from them.
  */
 
-/** The closed set of status colours; each has `--tone-<tone>-*` tokens. */
-export type Tone = "danger" | "warning" | "success" | "pending" | "progress" | "info" | "neutral";
-
-/** Every tone, in the order the design guide lists them. */
-export const TONES: Tone[] = [
-  "danger",
-  "warning",
-  "success",
-  "pending",
-  "progress",
-  "info",
-  "neutral",
-];
-
-/** How a status is shown: its words, its colour, what it means and its icon. */
-export interface StatusMeta {
-  hint: string;
-  icon: IconName;
-  label: string;
-  tone: Tone;
-}
-
-/** What triage concluded about an incident. */
-export type Verdict = "ACTION_NEEDED" | "MONITOR" | "EXPECTED" | "FIXED";
-/** How bad a signal is. */
-export type Severity = "info" | "warning" | "critical";
-/** Where an incident is in its life. */
-export type IncidentStatus = "pending" | "open" | "acked" | "muted" | "resolved";
-/** What an incident asks of the operator; the incident list filters on it. */
-export type IncidentGroup =
-  "needs_action" | "monitor" | "pending" | "expected" | "handled" | "resolved";
-/** Where an action is in its life. */
-export type ActionStatus =
-  | "proposed"
-  | "approved"
-  | "denied"
-  | "expired"
-  | "dispatched"
-  | "rejected"
-  | "succeeded"
-  | "failed"
-  | "verified"
-  | "verify_failed";
-/** What a skill may do. */
-export type Risk = "read" | "write" | "destructive";
-/** How a triage run went. */
-export type TriageKind = "report" | "cached" | "skipped" | "failed";
-/** Whether a host's agent is reachable. */
-export type HostConnection = "connected" | "offline" | "never_connected" | "hub_only" | "refused";
-/** How serious a problem found in submitted settings is. */
-export type IssueSeverity = "error" | "warning";
-/** What kind of machine a host is. */
-export type HostKind = "local" | "agent" | "container_agent" | "external";
-/** Where a check stands on a host. */
-export type CheckState = "ok" | "failing" | "disabled";
-/** How one SSH login attempt ended; `many_failures` is a failed one from an address that keeps failing. */
-export type SshLogin = "accepted" | "failed" | "many_failures";
-/** Where one step of a guided flow stands. */
-export type StepState = "done" | "current" | "skipped" | "upcoming";
-
-type Table<K extends string> = Record<K, StatusMeta>;
-
-/** The meta of `value` in `table`, or a neutral one that shows the raw value: the hub may be newer than the UI. */
-function lookup<K extends string>(table: Table<K>, value: string): StatusMeta {
-  if (Object.hasOwn(table, value)) {
-    return table[value as K];
-  }
-  return {
-    label: value,
-    tone: "neutral",
-    hint: `"${value}" is not known to this version of the UI.`,
-    icon: "dot",
-  };
-}
-
-const VERDICTS: Table<Verdict> = {
-  ACTION_NEEDED: {
-    label: "Action needed",
-    tone: "danger",
-    hint: "Something is broken or will break soon; act now.",
-    icon: "alert",
-  },
-  MONITOR: {
-    label: "Monitor",
-    tone: "warning",
-    hint: "Off but not urgent; keep an eye on it.",
-    icon: "eye",
-  },
-  EXPECTED: {
-    label: "Expected",
-    tone: "neutral",
-    hint: "Explained by something intended, like a planned update or a nightly job.",
-    icon: "check",
-  },
-  FIXED: { label: "Fixed", tone: "success", hint: "Already recovered.", icon: "check-circle" },
-};
-
-const SEVERITIES: Table<Severity> = {
-  critical: {
-    label: "Critical",
-    tone: "danger",
-    hint: "The check reports a failure that needs attention now.",
-    icon: "alert-circle",
-  },
-  warning: {
-    label: "Warning",
-    tone: "warning",
-    hint: "The check reports something off that is not yet a failure.",
-    icon: "alert",
-  },
-  info: {
-    label: "Info",
-    tone: "info",
-    hint: "The check reports something worth knowing; nothing is wrong.",
-    icon: "info",
-  },
-};
-
-const INCIDENT_STATUSES: Table<IncidentStatus> = {
-  pending: {
-    label: "Pending",
-    tone: "pending",
-    hint: "Just opened; waiting to see whether it clears by itself before anyone is notified.",
-    icon: "clock",
-  },
-  open: {
-    label: "Open",
-    tone: "danger",
-    hint: "The problem is still there and nobody has taken it.",
-    icon: "alert-circle",
-  },
-  acked: {
-    label: "Acknowledged",
-    tone: "neutral",
-    hint: "Someone has seen it; reminders are stopped until it changes.",
-    icon: "check",
-  },
-  muted: {
-    label: "Muted",
-    tone: "neutral",
-    hint: "Notifications are silenced for a while; the incident stays open.",
-    icon: "mute",
-  },
-  resolved: {
-    label: "Resolved",
-    tone: "success",
-    hint: "The problem cleared.",
-    icon: "check-circle",
-  },
-};
-
-const INCIDENT_GROUPS: Table<IncidentGroup> = {
-  needs_action: {
-    label: "Action needed",
-    tone: "danger",
-    hint: "Open, and nobody has taken it. Triage did not call it expected or only worth watching.",
-    icon: "alert",
-  },
-  monitor: {
-    label: "Monitor",
-    tone: "warning",
-    hint: "Open, and triage said to keep an eye on it.",
-    icon: "eye",
-  },
-  pending: {
-    label: "Pending",
-    tone: "pending",
-    hint: "Not confirmed yet. Domovoi alerts if the check keeps failing.",
-    icon: "clock",
-  },
-  expected: {
-    label: "Expected",
-    tone: "neutral",
-    hint: "Open, but intended: triage or a known condition explains it.",
-    icon: "check",
-  },
-  handled: {
-    label: "Acknowledged or muted",
-    tone: "neutral",
-    hint: "Someone has seen it, or silenced it for a while. It still resolves by itself.",
-    icon: "mute",
-  },
-  resolved: {
-    label: "Resolved",
-    tone: "success",
-    hint: "The problem cleared.",
-    icon: "check-circle",
-  },
-};
-
-const ACTION_STATUSES: Table<ActionStatus> = {
-  proposed: {
-    label: "Waiting for approval",
-    tone: "pending",
-    hint: "Nothing runs until a person approves it.",
-    icon: "clock",
-  },
-  approved: {
-    label: "Approved",
-    tone: "progress",
-    hint: "Approved; about to be sent to the host's agent.",
-    icon: "loader",
-  },
-  dispatched: {
-    label: "Running",
-    tone: "progress",
-    hint: "Sent to the host's agent; waiting for the result.",
-    icon: "loader",
-  },
-  succeeded: {
-    label: "Succeeded",
-    tone: "success",
-    hint: "The skill ran and exited cleanly.",
-    icon: "check",
-  },
-  verified: {
-    label: "Verified",
-    tone: "success",
-    hint: "The skill ran and a follow-up check confirmed the fix.",
-    icon: "check-circle",
-  },
-  failed: {
-    label: "Failed",
-    tone: "danger",
-    hint: "The skill ran and reported an error; see its output.",
-    icon: "x-circle",
-  },
-  verify_failed: {
-    label: "Not fixed",
-    tone: "danger",
-    hint: "The skill ran, but the follow-up check still sees the problem.",
-    icon: "x-circle",
-  },
-  rejected: {
-    label: "Rejected by agent",
-    tone: "danger",
-    hint: "The agent refused to run it, for example because the skill is disabled or the arguments are invalid.",
-    icon: "ban",
-  },
-  denied: {
-    label: "Denied",
-    tone: "neutral",
-    hint: "A person declined it; nothing ran.",
-    icon: "x",
-  },
-  expired: {
-    label: "Expired",
-    tone: "neutral",
-    hint: "Nobody approved it in time; nothing ran.",
-    icon: "clock",
-  },
-};
-
-const RISKS: Table<Risk> = {
-  read: {
-    label: "Read",
-    tone: "info",
-    hint: "Only looks. Triage may run it on its own.",
-    icon: "eye",
-  },
-  write: {
-    label: "Write",
-    tone: "warning",
-    hint: "Changes something. Runs only after you approve it.",
-    icon: "edit",
-  },
-  destructive: {
-    label: "Destructive",
-    tone: "danger",
-    hint: "Can lose data. Needs the skill name typed to approve; never from chat.",
-    icon: "alert",
-  },
-};
-
-const TRIAGE: Table<TriageKind> = {
-  report: {
-    label: "Triaged",
-    tone: "success",
-    hint: "Triage ran and wrote a report.",
-    icon: "check",
-  },
-  cached: {
-    label: "Triaged (reused)",
-    tone: "success",
-    hint: "Triage reused an earlier report for the same evidence.",
-    icon: "check",
-  },
-  skipped: {
-    label: "Triage skipped",
-    tone: "warning",
-    hint: "Triage did not run; the reason is shown with the incident.",
-    icon: "pause",
-  },
-  failed: {
-    label: "Triage failed",
-    tone: "danger",
-    hint: "Triage ran into an error; you can run it again.",
-    icon: "x-circle",
-  },
-};
-
-const HOST_CONNECTIONS: Table<HostConnection> = {
-  connected: {
-    label: "Connected",
-    tone: "success",
-    hint: "The agent is connected and reporting.",
-    icon: "check-circle",
-  },
-  offline: {
-    label: "Offline",
-    tone: "danger",
-    hint: "The agent is not connected; checks on this host are not running.",
-    icon: "offline",
-  },
-  never_connected: {
-    label: "Never connected",
-    tone: "neutral",
-    hint: "The agent was enrolled but has not connected yet.",
-    icon: "clock",
-  },
-  hub_only: {
-    label: "Hub only, no agent",
-    tone: "neutral",
-    hint: "The hub records its own problems here. No agent watches this machine.",
-    icon: "server",
-  },
-  refused: {
-    label: "Refused",
-    tone: "danger",
-    hint: "The handshake was refused; update the older side.",
-    icon: "ban",
-  },
-};
-
-const LIVE: Table<LiveStatus> = {
-  live: { label: "Live", tone: "success", hint: "Changes appear as they happen.", icon: "dot" },
-  connecting: {
-    label: "Connecting",
-    tone: "progress",
-    hint: "Connecting to the hub for live updates.",
-    icon: "loader",
-  },
-  offline: {
-    label: "Offline",
-    tone: "danger",
-    hint: "Live updates are paused; the page may be out of date until the hub answers.",
-    icon: "offline",
-  },
-};
-
-const ISSUE_SEVERITIES: Table<IssueSeverity> = {
-  error: {
-    label: "Error",
-    tone: "danger",
-    hint: "Must be fixed before the settings can be saved.",
-    icon: "x-circle",
-  },
-  warning: {
-    label: "Warning",
-    tone: "warning",
-    hint: "The settings can be saved, but this probably is not what you want.",
-    icon: "alert",
-  },
-};
-
-const HOST_KINDS: Table<HostKind> = {
-  local: { label: "Hub", tone: "neutral", hint: "The machine the hub runs on.", icon: "server" },
-  agent: {
-    label: "Agent",
-    tone: "neutral",
-    hint: "A machine watched by an agent installed on it.",
-    icon: "server",
-  },
-  container_agent: {
-    label: "Container agent",
-    tone: "neutral",
-    hint: "An agent that runs in a container and watches its host through mounts.",
-    icon: "server",
-  },
-  external: {
-    label: "External",
-    tone: "neutral",
-    hint: "Something that reports to the hub through a webhook; no agent runs there.",
-    icon: "external",
-  },
-};
-
-const CHECK_STATES: Table<CheckState> = {
-  ok: {
-    label: "OK",
-    tone: "success",
-    hint: "The check runs and has nothing open.",
-    icon: "check-circle",
-  },
-  failing: {
-    label: "Failing",
-    tone: "danger",
-    hint: "The check has an incident that is not resolved yet.",
-    icon: "alert-circle",
-  },
-  disabled: {
-    label: "Disabled",
-    tone: "neutral",
-    hint: "The check is switched off, so it reports nothing on this host.",
-    icon: "ban",
-  },
-};
-
-const SSH_LOGINS: Table<SshLogin> = {
-  accepted: {
-    label: "Accepted",
-    tone: "neutral",
-    hint: "The login succeeded. Expected logins never alert; others raise an incident.",
-    icon: "check",
-  },
-  failed: {
-    label: "Failed",
-    tone: "warning",
-    hint: "The password or key was refused.",
-    icon: "alert",
-  },
-  many_failures: {
-    label: "Many failures",
-    tone: "danger",
-    hint: "This address failed to log in many times in a row, which looks like someone guessing passwords.",
-    icon: "alert-circle",
-  },
-};
+export { TONES } from "./status";
+export type {
+  ActionStatus,
+  CheckState,
+  HostConnection,
+  HostKind,
+  IncidentGroup,
+  IncidentStatus,
+  IssueSeverity,
+  Risk,
+  Severity,
+  SshLogin,
+  StatusMeta,
+  StepState,
+  Tone,
+  TriageKind,
+  Verdict,
+} from "./status";
 
 /** How a triage verdict is shown. */
 export function verdictMeta(verdict: string): StatusMeta {
@@ -520,23 +122,6 @@ export function hostConnectionOf(
   }
   return host.last_seen || host.agent_enrolled ? "offline" : "never_connected";
 }
-
-const STEP_STATES: Table<StepState> = {
-  done: { label: "Done", tone: "success", hint: "This step is finished.", icon: "check-circle" },
-  current: {
-    label: "Current step",
-    tone: "progress",
-    hint: "This is the step you are on.",
-    icon: "chevron-right",
-  },
-  skipped: {
-    label: "Skipped",
-    tone: "neutral",
-    hint: "You skipped this step. It can be set up later in Settings.",
-    icon: "skip",
-  },
-  upcoming: { label: "Not started", tone: "neutral", hint: "This step comes later.", icon: "dot" },
-};
 
 /** How the state of one step of a guided flow is shown. */
 export function stepStateMeta(state: string): StatusMeta {

@@ -68,7 +68,8 @@ export function Tabs({
 
   const current = tabs[selected];
   return (
-    <>
+    // One box, so a parent's Stack spaces the tabs as a whole, not the list and the panel apart.
+    <div>
       <div
         ref={list}
         role="tablist"
@@ -102,6 +103,6 @@ export function Tabs({
       <div role="tabpanel" id={`${base}-panel`} aria-labelledby={`${base}-tab-${selected}`}>
         {current?.content}
       </div>
-    </>
+    </div>
   );
 }

@@ -6,6 +6,7 @@
 # Web
 web/node_modules
 web/dist
+web/screens-out
 
 # Docs
 docs/book/book

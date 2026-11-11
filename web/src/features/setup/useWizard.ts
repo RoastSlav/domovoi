@@ -1,3 +1,4 @@
+// feedback-ok: WizardStep renders the test result and error from wizard.tester
 import { useState } from "react";
 import { useTestConnection, type Changes, type SecretChange } from "../../api/hooks/settings";
 import { ApiFailure, type Editable } from "../../api/types";

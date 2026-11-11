@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import { Link } from "react-router";
 import { Icon } from "../design/icons";
 import type { Tone } from "../design/tone";
@@ -39,6 +39,10 @@ export interface TableSort {
  * Sorting is the page's: mark columns `sortable`, pass the current `sort` and an `onSort`
  * that receives the clicked column's key, and hand the table rows already in that order.
  * The header then carries `aria-sort` and a button that says what it will do.
+ *
+ * Rows are memoized on the row object and on `columns`, so a live update that changes one
+ * row redraws one row: keep `columns` stable (`useMemo` or a module constant) and give
+ * unchanged rows the same object (TanStack Query does this by default).
  *
  * Use it for many things with the same fields. The details of one thing are a
  * `KeyValueList`; a handful of rich items are `Card`s.
@@ -139,27 +143,59 @@ export function DataTable<T>({
           )}
           {!loading &&
             rows.map((row) => (
-              <tr key={rowKey(row)} data-state={rowState?.(row)} {...toneStripe(rowTone?.(row))}>
-                {columns.map((column, index) => (
-                  <td
-                    key={column.key}
-                    data-label={column.hideLabel ? undefined : column.label}
-                    data-numeric={column.numeric || undefined}
-                    data-primary={index === 0 || undefined}
-                  >
-                    {index === 0 && rowHref ? (
-                      <Link to={rowHref(row)} className={styles.rowLink}>
-                        {column.cell(row)}
-                      </Link>
-                    ) : (
-                      column.cell(row)
-                    )}
-                  </td>
-                ))}
-              </tr>
+              <DataRow
+                key={rowKey(row)}
+                row={row}
+                columns={columns}
+                state={rowState?.(row)}
+                tone={rowTone?.(row)}
+                href={rowHref?.(row)}
+              />
             ))}
         </tbody>
       </table>
     </div>
   );
 }
+
+/** One body row. Memoized: it redraws only when its row, the columns or its look change. */
+const DataRow = memo(function DataRow<T>({
+  row,
+  columns,
+  state,
+  tone,
+  href,
+}: {
+  columns: readonly Column<T>[];
+  href: string | undefined;
+  row: T;
+  state: "urgent" | "quiet" | undefined;
+  tone: Tone | undefined;
+}) {
+  return (
+    <tr data-state={state} {...toneStripe(tone)}>
+      {columns.map((column, index) => (
+        <td
+          key={column.key}
+          data-label={column.hideLabel ? undefined : column.label}
+          data-numeric={column.numeric || undefined}
+          data-primary={index === 0 || undefined}
+        >
+          {index === 0 && href ? (
+            <Link to={href} className={styles.rowLink}>
+              {column.cell(row)}
+            </Link>
+          ) : (
+            column.cell(row)
+          )}
+        </td>
+      ))}
+    </tr>
+  );
+}) as <T>(props: {
+  columns: readonly Column<T>[];
+  href: string | undefined;
+  row: T;
+  state: "urgent" | "quiet" | undefined;
+  tone: Tone | undefined;
+}) => ReactNode;

@@ -2,33 +2,7 @@ import js from "@eslint/js";
 import globals from "globals";
 import reactHooks from "eslint-plugin-react-hooks";
 import tseslint from "typescript-eslint";
-
-/** Local rules that keep page code on the design system. */
-const domovoi = {
-  rules: {
-    "no-native-title": {
-      meta: {
-        type: "suggestion",
-        schema: [],
-        messages: {
-          title:
-            "Native title tooltips are unreliable on touch and keyboard; use Tooltip, InfoTip or visible text (web/DESIGN.md).",
-        },
-      },
-      create(context) {
-        return {
-          JSXAttribute(node) {
-            const element = node.parent.name;
-            const dom = element.type === "JSXIdentifier" && /^[a-z]/.test(element.name);
-            if (dom && node.name.name === "title") {
-              context.report({ node, messageId: "title" });
-            }
-          },
-        };
-      },
-    },
-  },
-};
+import domovoi from "./eslint/domovoi-rules.js";
 
 export default tseslint.config(
   { ignores: ["dist", "src/api/schema.d.ts"] },
@@ -69,14 +43,9 @@ export default tseslint.config(
     },
   },
   {
-    // The one table of every status in the product: a data file, kept whole on purpose.
-    files: ["src/design/tone.ts"],
-    rules: { "max-lines": ["error", { max: 540, skipBlankLines: true, skipComments: true }] },
-  },
-  {
     // Page code composes the kit; it does not style or explain things by hand (web/DESIGN.md).
-    files: ["src/features/**/*.tsx", "src/app/**/*.tsx"],
-    ignores: ["src/**/*.test.tsx"],
+    files: ["src/features/**/*.{ts,tsx}", "src/app/**/*.{ts,tsx}"],
+    ignores: ["src/**/*.test.{ts,tsx}"],
     plugins: { domovoi },
     rules: {
       "no-restricted-syntax": [
@@ -88,6 +57,10 @@ export default tseslint.config(
         },
       ],
       "domovoi/no-native-title": "error",
+      "domovoi/no-raw-button": "error",
+      "domovoi/no-status-literal": "error",
+      "domovoi/disabled-needs-reason": "error",
+      "domovoi/mutation-feedback": "error",
       "no-restricted-imports": [
         "error",
         {
@@ -97,7 +70,7 @@ export default tseslint.config(
               message: "Import generated types only inside src/api; expose hooks instead.",
             },
             {
-              regex: "/components/(?!ui\\.module\\.css$).+",
+              regex: "/components/.+",
               message: "Import kit components from the barrel: src/components (web/DESIGN.md).",
             },
             {

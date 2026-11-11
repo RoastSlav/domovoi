@@ -26,6 +26,8 @@ export function HostField({
   }
   return (
     <Field label="Host" hint="Leave it on Any host to cover every host." error={error}>
+      {/* The first option reads "Loading hosts…" while this is disabled. */}
+      {/* eslint-disable-next-line domovoi/disabled-needs-reason */}
       <Select value={value} disabled={loading} onChange={(event) => onChange(event.target.value)}>
         <option value="">{loading ? "Loading hosts…" : "Any host"}</option>
         {loading && value !== "" && <option value={value}>{value}</option>}

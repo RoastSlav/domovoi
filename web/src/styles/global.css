@@ -36,6 +36,13 @@ a {
   outline-offset: 2px;
 }
 
+/* The page heading and the main area take focus when a page opens, so a screen reader starts
+   there. They are not controls, so a ring around them would only be noise. */
+h1[tabindex="-1"]:focus-visible,
+main[tabindex="-1"]:focus-visible {
+  outline: none;
+}
+
 h1,
 h2,
 h3 {

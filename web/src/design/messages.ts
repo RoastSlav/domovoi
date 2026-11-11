@@ -78,7 +78,8 @@ const CATALOGUE: Record<HubCode, Entry> = {
 const NETWORK = "The hub did not answer. Check the connection and try again.";
 const TIMEOUT = "The hub took too long to answer. Try again.";
 const ABORTED = "The request was cancelled.";
-const UNKNOWN = "Something went wrong. Try again.";
+const UNKNOWN =
+  "The page did not understand what came back. Try again, and check the hub log if it keeps happening.";
 
 /** `text` as a sentence: a capital first letter and a full stop. */
 export function sentence(text: string): string {

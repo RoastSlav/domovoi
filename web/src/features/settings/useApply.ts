@@ -1,3 +1,4 @@
+// feedback-ok: the caller catches the thrown error and shows it next to the Save button
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { waitForHealthy } from "../../api/health";

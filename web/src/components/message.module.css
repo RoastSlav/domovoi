@@ -69,11 +69,6 @@
   margin-bottom: 0;
 }
 
-.issues {
-  margin: var(--space-1) 0 0;
-  padding-left: var(--space-4);
-}
-
 .action {
   flex: none;
   display: flex;
