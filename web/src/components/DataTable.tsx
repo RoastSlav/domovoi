@@ -9,6 +9,8 @@ import styles from "./data.module.css";
 /** One column of a data table. */
 export interface Column<T> {
   cell: (row: T) => ReactNode;
+  /** Keeps the header for assistive technology only: for a column of row actions. */
+  hideLabel?: boolean;
   /** Explains a header whose meaning is not obvious, behind an info button. */
   hint?: string;
   /** Unique within the table. */
@@ -34,6 +36,7 @@ export function DataTable<T>({
   rows,
   rowKey,
   rowTone,
+  rowState,
   rowHref,
   loading = false,
   empty,
@@ -48,6 +51,11 @@ export function DataTable<T>({
   /** Where a row leads; the first column's content becomes the link. */
   rowHref?: (row: T) => string;
   rowKey: (row: T) => string;
+  /**
+   * `urgent` gives the row a very faint danger tint: only for things that need a person
+   * now. `quiet` mutes its text: for things that are over.
+   */
+  rowState?: (row: T) => "urgent" | "quiet" | undefined;
   rowTone?: (row: T) => Tone | undefined;
   rows: readonly T[];
 }) {
@@ -60,7 +68,11 @@ export function DataTable<T>({
             {columns.map((column) => (
               <th key={column.key} scope="col" data-numeric={column.numeric || undefined}>
                 <span className={styles.headCell}>
-                  {column.label}
+                  {column.hideLabel ? (
+                    <span className="visually-hidden">{column.label}</span>
+                  ) : (
+                    column.label
+                  )}
                   {column.hint && <InfoTip title={column.label}>{column.hint}</InfoTip>}
                 </span>
               </th>
@@ -84,11 +96,11 @@ export function DataTable<T>({
           )}
           {!loading &&
             rows.map((row) => (
-              <tr key={rowKey(row)} {...toneStripe(rowTone?.(row))}>
+              <tr key={rowKey(row)} data-state={rowState?.(row)} {...toneStripe(rowTone?.(row))}>
                 {columns.map((column, index) => (
                   <td
                     key={column.key}
-                    data-label={column.label}
+                    data-label={column.hideLabel ? undefined : column.label}
                     data-numeric={column.numeric || undefined}
                     data-primary={index === 0 || undefined}
                   >

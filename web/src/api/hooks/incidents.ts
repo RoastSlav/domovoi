@@ -24,6 +24,10 @@ export interface IncidentFilters {
   status?: string | undefined;
   host?: string | undefined;
   severity?: string | undefined;
+  /** One group of the list: `needs_action`, `monitor`, `pending`, `expected`, `handled` or `resolved`. */
+  group?: string | undefined;
+  /** Text the title, check or target must contain. */
+  q?: string | undefined;
 }
 
 /** The page size of the incident list. */
@@ -71,11 +75,29 @@ export function useFollowUps(id: string) {
  * in and the navigation's counts. The follow-up conversation is not touched.
  */
 function refreshIncident(client: QueryClient, id: string): Promise<unknown> {
+  ownChanges.set(id, Date.now());
   return Promise.all([
     client.invalidateQueries({ queryKey: keys.incident(id) }),
     client.invalidateQueries({ queryKey: keys.incidentLists }),
     client.invalidateQueries({ queryKey: keys.overview }),
-  ]);
+  ]).finally(() => ownChanges.set(id, Date.now()));
+}
+
+/** How long after one of this page's own changes a status change still counts as its own. */
+const OWN_CHANGE_MS = 2_000;
+
+/** When this page last changed each incident, or finished reloading it afterwards. */
+const ownChanges = new Map<string, number>();
+
+/**
+ * Whether a status change of incident `id` seen now is this page's own doing (ack, mute,
+ * unmute, dismiss) and not news from elsewhere: one of those is running, or just finished.
+ */
+export function isOwnChange(client: QueryClient, id: string): boolean {
+  return (
+    client.isMutating({ mutationKey: keys.incidentChange(id) }) > 0 ||
+    Date.now() - (ownChanges.get(id) ?? 0) < OWN_CHANGE_MS
+  );
 }
 
 type ListData = InfiniteData<IncidentPage>;
@@ -88,6 +110,7 @@ interface Snapshot {
 
 /** Shows incident `id` with `status` in the cached detail and lists right away. */
 async function showStatus(client: QueryClient, id: string, status: string): Promise<Snapshot> {
+  ownChanges.set(id, Date.now());
   await Promise.all([
     client.cancelQueries({ queryKey: keys.incident(id) }),
     client.cancelQueries({ queryKey: keys.incidentLists }),
@@ -132,6 +155,7 @@ function restore(client: QueryClient, id: string, snapshot: Snapshot | undefined
 export function useAck(id: string) {
   const client = useQueryClient();
   return useMutation({
+    mutationKey: keys.incidentChange(id),
     mutationFn: () => call(api.POST("/api/v1/incidents/{id}/ack", { params: { path: { id } } })),
     onMutate: () => showStatus(client, id, "acked"),
     onError: (_error, _input, snapshot) => restore(client, id, snapshot),
@@ -143,6 +167,7 @@ export function useAck(id: string) {
 export function useMute(id: string) {
   const client = useQueryClient();
   return useMutation({
+    mutationKey: keys.incidentChange(id),
     mutationFn: (minutes: number) =>
       call(
         api.POST("/api/v1/incidents/{id}/mute", { params: { path: { id } }, body: { minutes } }),
@@ -155,6 +180,7 @@ export function useMute(id: string) {
 export function useUnmute(id: string) {
   const client = useQueryClient();
   return useMutation({
+    mutationKey: keys.incidentChange(id),
     mutationFn: () => call(api.POST("/api/v1/incidents/{id}/unmute", { params: { path: { id } } })),
     onSuccess: () => refreshIncident(client, id),
   });
@@ -166,12 +192,15 @@ export function useUnmute(id: string) {
 export function useDismiss(id: string) {
   const client = useQueryClient();
   return useMutation({
+    mutationKey: keys.incidentChange(id),
     mutationFn: (body: DismissInput) =>
       call(api.POST("/api/v1/incidents/{id}/dismiss", { params: { path: { id } }, body })),
-    onSuccess: () => {
-      void refreshIncident(client, id);
-      void client.invalidateQueries({ queryKey: keys.ackRules });
-    },
+    // Awaited, so the change still counts as this page's own while the incident reloads.
+    onSuccess: () =>
+      Promise.all([
+        refreshIncident(client, id),
+        client.invalidateQueries({ queryKey: keys.ackRules }),
+      ]),
   });
 }
 

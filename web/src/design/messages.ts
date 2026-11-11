@@ -81,7 +81,7 @@ const ABORTED = "The request was cancelled.";
 const UNKNOWN = "Something went wrong. Try again.";
 
 /** `text` as a sentence: a capital first letter and a full stop. */
-function sentence(text: string): string {
+export function sentence(text: string): string {
   const trimmed = text.trim();
   if (trimmed === "") {
     return trimmed;

@@ -3,6 +3,7 @@ import { ICON_NAMES, Icon } from "../design/icons";
 import { TONES } from "../design/tone";
 import { LayoutDemos, StateDemos } from "./ContentDemos";
 import { FormDemos } from "./FormDemos";
+import { RespondDemos } from "./RespondDemos";
 import { ControlDemos, OverlayDemos } from "./ControlDemos";
 import { FeedbackDemos, StatusDemos } from "./StatusDemos";
 import tokensCss from "../styles/tokens.css?raw";
@@ -94,6 +95,7 @@ export default function DesignPage() {
       <LayoutDemos />
       <FormDemos />
       <OverlayDemos />
+      <RespondDemos />
 
       <section>
         <h2>Type scale</h2>

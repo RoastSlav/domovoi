@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Icon, type IconName } from "../design/icons";
+import { Button } from "./Button";
 import { IconButton } from "./IconButton";
 import { Popover } from "./Popover";
 import styles from "./overlay.module.css";
@@ -21,7 +22,8 @@ export interface MenuItem {
  * Secondary actions behind a "More" icon button. Arrow keys, Home and End move between
  * entries; Enter chooses; Escape closes and returns focus to the button. `icon` changes the
  * button's icon, `header` is a line above the entries (who is signed in), and an entry with
- * `checked` is one of several exclusive choices.
+ * `checked` is one of several exclusive choices. `text` makes the trigger a button with that
+ * word and a chevron, for a menu of choices that complete it ("Mute", then "For 1 hour").
  *
  * Use it when a row or header has more than two or three actions. Keep the main action as a
  * visible `Button`; never hide the only way to do something important in a menu.
@@ -31,8 +33,17 @@ export function Menu({
   items,
   icon = "more",
   header,
+  text,
+  hint,
+  loading,
 }: {
   header?: ReactNode;
+  /** With `text`: what choosing from the menu does, as the button's tooltip. */
+  hint?: string;
+  /** With `text`: the chosen entry is running. */
+  loading?: boolean;
+  /** Shows the trigger as a button with this word; `label` stays its accessible name. */
+  text?: string;
   icon?: IconName;
   items: MenuItem[];
   label?: string;
@@ -72,15 +83,31 @@ export function Menu({
 
   return (
     <>
-      <IconButton
-        ref={button}
-        icon={icon}
-        label={label}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-controls={open ? id : undefined}
-        onClick={() => setOpen((now) => !now)}
-      />
+      {text ? (
+        <Button
+          ref={button}
+          aria-label={label}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-controls={open ? id : undefined}
+          hint={hint}
+          loading={loading}
+          onClick={() => setOpen((now) => !now)}
+        >
+          {text}
+          <Icon name="chevron-down" size={14} />
+        </Button>
+      ) : (
+        <IconButton
+          ref={button}
+          icon={icon}
+          label={label}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-controls={open ? id : undefined}
+          onClick={() => setOpen((now) => !now)}
+        />
+      )}
       {open && (
         <Popover anchor={button} id={id} label={label} role="menu" onClose={() => setOpen(false)}>
           <div ref={list} onKeyDown={onKeyDown}>

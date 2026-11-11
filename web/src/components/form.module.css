@@ -191,7 +191,20 @@
   min-width: 0;
 }
 
+/* On a phone the chips are one row that scrolls sideways, so they never push the list down. */
+@media (max-width: 600px) {
+  .chips {
+    flex-wrap: nowrap;
+    margin: calc(-1 * var(--space-1));
+    padding: var(--space-1);
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+}
+
 .chip {
+  flex: none;
+  white-space: nowrap;
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);

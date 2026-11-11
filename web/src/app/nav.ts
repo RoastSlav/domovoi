@@ -5,7 +5,9 @@ import { PAGES } from "./pages";
 
 /** A number beside a navigation link: which count of the overview, and what it counts. */
 export interface NavCount {
-  field: keyof Overview;
+  field: {
+    [K in keyof Overview]: Overview[K] extends number ? K : never;
+  }[keyof Overview];
   /** Read after the number by assistive technology: "2 waiting". */
   label: string;
   tone: Tone;

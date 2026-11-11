@@ -9,6 +9,7 @@ type Init = {
   params?: { path?: Record<string, string>; query?: Record<string, unknown> };
   body?: unknown;
   bodySerializer?: (body: unknown) => unknown;
+  signal?: AbortSignal;
 };
 type Handler = (init: Init) => unknown;
 
@@ -56,6 +57,15 @@ export function resetApi(): void {
   calls.length = 0;
 }
 
+/** Rejects like `fetch` does when `signal` aborts; never settles without a signal. */
+function aborted(signal: AbortSignal | undefined): Promise<never> {
+  return new Promise((_resolve, reject) => {
+    signal?.addEventListener("abort", () =>
+      reject(new DOMException("The request was aborted.", "AbortError")),
+    );
+  });
+}
+
 async function answer(method: string, path: string, init: Init = {}): Promise<Answer> {
   const key = `${method} ${path}`;
   calls.push({ route: key, init });
@@ -63,7 +73,7 @@ async function answer(method: string, path: string, init: Init = {}): Promise<An
   if (!handler) {
     throw new Error(`no test route for ${key}`);
   }
-  const result = await handler(init);
+  const result = await Promise.race([handler(init), aborted(init.signal)]);
   if (result instanceof Failure) {
     return {
       error: { error: result.error, message: result.message, issues: result.issues ?? [] },

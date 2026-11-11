@@ -1,4 +1,4 @@
-import type { Action, Host, IncidentDetail, IncidentSummary } from "../api/types";
+import type { Action, Host, IncidentDetail, IncidentSummary, Overview } from "../api/types";
 
 /** Times the fixtures use. */
 export const T0 = "2026-10-31T12:00:00Z";
@@ -73,4 +73,27 @@ export function detail(): IncidentDetail {
     actions: [action()],
     tools_used: [],
   };
+}
+
+/** The navigation's counts with nothing going on, overridable. */
+export function overview(overrides: Partial<Overview> = {}): Overview {
+  return {
+    incidents_action_needed: 0,
+    incidents_open: 0,
+    incident_groups: { needs_action: 0, monitor: 0, pending: 0, expected: 0, handled: 0 },
+    approvals_waiting: 0,
+    hosts_offline: 0,
+    hosts_total: 2,
+    ...overrides,
+  };
+}
+
+/** Makes every media query match or not, as on a wide or a narrow screen. Undo with `vi.unstubAllGlobals()`. */
+export function stubMedia(matches: boolean): void {
+  vi.stubGlobal("matchMedia", (media: string) => ({
+    matches,
+    media,
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+  }));
 }
