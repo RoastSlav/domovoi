@@ -5,15 +5,9 @@ import { Button } from "../../components/Button";
 import { Dialog } from "../../components/Dialog";
 import { Markdown } from "../../components/Markdown";
 import { RelativeTime } from "../../components/RelativeTime";
+import { riskMeta } from "../../design/tone";
 import styles from "./skills.module.css";
 import type { Skill } from "../../api/types";
-
-/** What each risk means to the person clicking. */
-const RISK_TEXT: Record<string, string> = {
-  read: "Only looks. Triage may run it on its own.",
-  write: "Changes something. Runs only after you approve it.",
-  destructive: "Can lose data. Needs the skill name typed to approve; never from chat.",
-};
 
 /** A parameter's type and limits, from the JSON the API sends. */
 export function kindText(kind: unknown): string {
@@ -57,7 +51,7 @@ export function SkillDetail({
       wide
       actions={<Button onClick={onClose}>Close</Button>}
     >
-      <p className={styles.meta}>{`Risk ${skill.risk}: ${RISK_TEXT[skill.risk]}`}</p>
+      <p className={styles.meta}>{`Risk ${skill.risk}: ${riskMeta(skill.risk).hint}`}</p>
       {skill.params.length > 0 && (
         <table className={styles.detail}>
           <caption>Parameters of {skill.name}</caption>

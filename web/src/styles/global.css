@@ -1,0 +1,91 @@
+@import "./tokens.css";
+
+:root {
+  /* 15 px on desktop when the browser default is 16 px; phones get 16 px (see below). */
+  font-size: 93.75%;
+  font-family: var(--font-sans);
+  line-height: 1.5;
+  color: var(--color-text);
+  background: var(--color-bg);
+}
+
+/* Phones: 16 px keeps iOS from zooming into focused inputs. */
+@media (max-width: 640px) {
+  :root {
+    font-size: 100%;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+}
+
+a {
+  color: var(--color-primary);
+}
+
+:focus-visible {
+  outline: 3px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+h1,
+h2,
+h3 {
+  line-height: 1.25;
+}
+
+code,
+kbd,
+pre,
+samp {
+  font-family: var(--font-mono);
+}
+
+input,
+select,
+textarea,
+button {
+  font: inherit;
+  color: inherit;
+}
+
+input,
+select,
+textarea {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  padding: 0.45rem 0.6rem;
+  max-width: 100%;
+  accent-color: var(--color-primary);
+}
+
+label {
+  font-weight: 600;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Numbers that line up in tables, counts and times. */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}

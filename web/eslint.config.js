@@ -3,6 +3,33 @@ import globals from "globals";
 import reactHooks from "eslint-plugin-react-hooks";
 import tseslint from "typescript-eslint";
 
+/** Local rules that keep page code on the design system. */
+const domovoi = {
+  rules: {
+    "no-native-title": {
+      meta: {
+        type: "suggestion",
+        schema: [],
+        messages: {
+          title:
+            "Native title tooltips are unreliable on touch and keyboard; explain through the kit (web/DESIGN.md).",
+        },
+      },
+      create(context) {
+        return {
+          JSXAttribute(node) {
+            const element = node.parent.name;
+            const dom = element.type === "JSXIdentifier" && /^[a-z]/.test(element.name);
+            if (dom && node.name.name === "title") {
+              context.report({ node, messageId: "title" });
+            }
+          },
+        };
+      },
+    },
+  },
+};
+
 export default tseslint.config(
   { ignores: ["dist", "src/api/schema.d.ts"] },
   {
@@ -31,6 +58,49 @@ export default tseslint.config(
           ],
         },
       ],
+    },
+  },
+  {
+    // Long files hide design drift; split a file before it passes the limit.
+    files: ["src/**/*.{ts,tsx}"],
+    ignores: ["src/**/*.test.{ts,tsx}", "src/test/**"],
+    rules: {
+      "max-lines": ["error", { max: 250, skipBlankLines: true, skipComments: true }],
+    },
+  },
+  {
+    // Over the limit before it existed. Split each one when its page is next reworked and
+    // remove it here; never add a file to this list.
+    files: [
+      "src/features/setup/FirstRun.tsx",
+      "src/features/hosts/SshLoginsTab.tsx",
+      "src/features/settings/sections.ts",
+      "src/features/settings/fields.tsx",
+      "src/features/settings/form.ts",
+    ],
+    rules: { "max-lines": "off" },
+  },
+  {
+    // The one table of every status in the product: a data file, kept whole on purpose.
+    files: ["src/design/tone.ts"],
+    rules: { "max-lines": ["error", { max: 400, skipBlankLines: true, skipComments: true }] },
+  },
+  {
+    // Page code composes the kit; it does not style or explain things by hand (web/DESIGN.md).
+    files: ["src/features/**/*.tsx", "src/app/**/*.tsx"],
+    ignores: ["src/**/*.test.tsx"],
+    plugins: { domovoi },
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "JSXAttribute[name.name='style']",
+          message:
+            "No inline styles in page code: use a CSS module with tokens. For a value computed at run time, disable this line with a comment that says why.",
+        },
+      ],
+      // Becomes an error once the kit has a Tooltip to replace the remaining ones.
+      "domovoi/no-native-title": "warn",
     },
   },
   {

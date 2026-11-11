@@ -7,10 +7,10 @@
   left: var(--space-2);
   top: -3rem;
   padding: var(--space-2) var(--space-3);
-  background: var(--accent);
-  color: var(--accent-fg);
-  border-radius: var(--radius);
-  z-index: 30;
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  border-radius: var(--radius-md);
+  z-index: var(--z-tooltip);
 }
 
 .skip:focus {
@@ -21,9 +21,21 @@
 .sidebar {
   position: sticky;
   top: 0;
-  z-index: 20;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
+  z-index: var(--z-sticky);
+
+  /* The frame is brown in both themes: inside it the semantic tokens take sidebar values. */
+  --color-bg: var(--color-sidebar-bg);
+  --color-surface: var(--color-sidebar-bg);
+  --color-surface-raised: var(--color-sidebar-raised);
+  --color-border: var(--color-sidebar-border);
+  --color-text: var(--color-sidebar-text);
+  --color-text-muted: var(--color-sidebar-text-muted);
+  --color-primary: var(--color-sidebar-accent);
+  --color-focus: var(--color-sidebar-accent);
+
+  color: var(--color-text);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .top {
@@ -36,7 +48,7 @@
 .brand {
   font-weight: 800;
   font-size: 1.1rem;
-  color: var(--fg);
+  color: var(--color-text);
   text-decoration: none;
 }
 
@@ -50,9 +62,9 @@
 .menuButton {
   min-height: 2rem;
   padding: 0.25rem 0.8rem;
-  border: 1px solid var(--border);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
-  background: var(--bg);
+  background: var(--color-bg);
   font-size: var(--text-sm);
   font-weight: 600;
   cursor: pointer;
@@ -67,9 +79,9 @@
   max-height: calc(100vh - 3.5rem);
   overflow-y: auto;
   padding: var(--space-2) var(--space-4) var(--space-4);
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
-  box-shadow: var(--shadow-1);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  box-shadow: var(--shadow-raised);
 }
 
 .panel[data-open="true"] {
@@ -89,29 +101,30 @@
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-2) var(--space-3);
-  color: var(--fg);
+  color: var(--color-text);
   text-decoration: none;
   font-size: var(--text-base);
   border-radius: var(--radius-sm);
 }
 
 .nav a:hover {
-  background: var(--surface-2);
+  background: var(--color-surface-raised);
 }
 
 .nav a.active {
-  background: var(--surface-2);
+  background: var(--color-surface-raised);
   font-weight: 700;
-  box-shadow: inset 3px 0 0 var(--accent);
+  box-shadow: inset 3px 0 0 var(--color-primary);
 }
 
 .badge {
   margin-left: auto;
   min-width: 1.35rem;
   padding: 0 0.4rem;
-  border-radius: 999px;
-  background: var(--action-needed);
-  color: #ffffff;
+  border-radius: var(--radius-pill);
+  background: var(--tone-pending-solid);
+  color: var(--tone-pending-on-solid);
+  font-variant-numeric: tabular-nums;
   font-size: 0.75rem;
   font-weight: 700;
   line-height: 1.35rem;
@@ -123,22 +136,22 @@
   flex-direction: column;
   gap: var(--space-2);
   padding-top: var(--space-3);
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--color-border);
 }
 
 .dot {
   width: 0.55rem;
   height: 0.55rem;
   border-radius: 50%;
-  background: var(--muted);
+  background: var(--color-text-muted);
 }
 
-.live[data-status="live"] .dot {
-  background: var(--ok);
+.live[data-tone="success"] .dot {
+  background: var(--tone-success-solid);
 }
 
-.live[data-status="offline"] .dot {
-  background: var(--danger);
+.live[data-tone="danger"] .dot {
+  background: var(--tone-danger-solid);
 }
 
 .live {
@@ -146,7 +159,17 @@
   align-items: center;
   gap: 0.35rem;
   font-size: var(--text-sm);
-  color: var(--muted);
+  color: var(--color-text-muted);
+}
+
+.live[data-tone="progress"] .dot {
+  background: var(--tone-progress-solid);
+}
+
+.userMenu {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
 }
 
 .user {
@@ -162,7 +185,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--text-sm);
-  color: var(--muted);
+  color: var(--color-text-muted);
 }
 
 .main {
@@ -187,7 +210,7 @@
     display: flex;
     flex-direction: column;
     border-bottom: none;
-    border-right: 1px solid var(--border);
+    border-right: 1px solid var(--color-border);
     overflow-y: auto;
   }
 

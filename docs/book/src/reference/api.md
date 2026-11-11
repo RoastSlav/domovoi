@@ -158,4 +158,4 @@ The reply counts what happened: `{"created": 2, "skipped": 0, "skipped_files": [
 - `GET /healthz` answers `ok` and needs no login.
 - `GET /metrics` serves Prometheus text.
 - Bodies are limited to 1 MiB, and requests other than the event stream to 120 seconds. The retry-triage endpoint runs a full triage inside its response, so a local model needs the request to outlive the per-run triage budget (default 90 seconds).
-- Every response carries a strict `Content-Security-Policy` and the other security headers.
+- Every response carries a strict `Content-Security-Policy` and the other security headers. The policy allows scripts from the hub itself plus the one inline theme script by its SHA-256 hash, computed from the built page.

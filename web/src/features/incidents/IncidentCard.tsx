@@ -1,5 +1,6 @@
 import type { Card } from "../../api/types";
-import { Badge, badgeLabel } from "../../components/Badge";
+import { Badge } from "../../components/Badge";
+import { verdictMeta } from "../../design/tone";
 import styles from "./incidents.module.css";
 
 /**
@@ -11,7 +12,7 @@ export function IncidentCard({ card, verdict }: { card: Card; verdict?: string |
     <section className={styles.card} data-resolved={card.resolved} aria-label="Summary">
       <Badge value={card.resolved ? "resolved" : card.badge} />
       {card.resolved && verdict && (
-        <span className={styles.meta}> Triage said {badgeLabel(verdict)}</span>
+        <span className={styles.meta}> Triage said {verdictMeta(verdict).label}</span>
       )}
       <h1>{card.headline}</h1>
       {card.bullets.length > 0 && (

@@ -42,11 +42,11 @@
 }
 
 .error {
-  color: var(--danger);
+  color: var(--tone-danger-fg);
   font-weight: 600;
 }
 
 .expired {
-  color: var(--danger);
+  color: var(--tone-danger-fg);
   font-weight: 600;
 }

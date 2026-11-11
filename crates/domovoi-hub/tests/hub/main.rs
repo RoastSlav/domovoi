@@ -18,6 +18,8 @@ mod api_routes;
 #[cfg(test)]
 mod api_updates;
 #[cfg(test)]
+mod csp;
+#[cfg(test)]
 mod dismiss;
 #[cfg(test)]
 mod enrollment;

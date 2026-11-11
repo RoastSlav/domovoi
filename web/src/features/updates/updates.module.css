@@ -5,13 +5,13 @@
   gap: 0.35rem;
   margin: 0 0 1rem;
   padding: 0.6rem 0.9rem;
-  border: 1px solid var(--monitor);
-  border-radius: var(--radius);
-  background: var(--surface);
+  border: 1px solid var(--tone-warning-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
 }
 
 .banner strong {
-  color: var(--monitor);
+  color: var(--tone-warning-fg);
 }
 
 .link,
@@ -19,7 +19,7 @@
   background: none;
   border: none;
   padding: 0;
-  color: var(--accent);
+  color: var(--color-primary);
   cursor: pointer;
   font: inherit;
   text-decoration: underline;
@@ -39,6 +39,6 @@
 }
 
 .error {
-  color: var(--danger);
+  color: var(--tone-danger-fg);
   font-weight: 600;
 }

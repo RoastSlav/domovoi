@@ -4,21 +4,19 @@ import type { LiveStatus } from "../api/events";
 import { useActions } from "../api/hooks/actions";
 import { useLogout, useSession } from "../api/hooks/session";
 import { Button } from "../components/Button";
+import { ThemeSwitch } from "../components/ThemeSwitch";
+import { Icon } from "../design/icons";
+import { liveMeta } from "../design/tone";
 import { HostSelect } from "./HostSelect";
 import styles from "./Layout.module.css";
-import { NAV, NavIcon } from "./NavIcon";
-
-const LIVE_TEXT: Record<LiveStatus, string> = {
-  live: "Live",
-  connecting: "Connecting",
-  offline: "Offline",
-};
+import { NAV } from "./nav";
 
 function LiveIndicator({ status }: { status: LiveStatus }) {
+  const meta = liveMeta(status);
   return (
-    <span className={styles.live} data-status={status} role="status" aria-live="polite">
+    <span className={styles.live} data-tone={meta.tone} role="status" aria-live="polite">
       <span className={styles.dot} aria-hidden="true" />
-      {LIVE_TEXT[status]}
+      {meta.label}
     </span>
   );
 }
@@ -48,11 +46,14 @@ function UserMenu() {
   const onLogout = () =>
     logout.mutate(undefined, { onSettled: () => void navigate("/login", { replace: true }) });
   return (
-    <div className={styles.user}>
-      <span className={styles.username}>{session.data?.user.username}</span>
-      <Button variant="ghost" onClick={onLogout} disabled={logout.isPending}>
-        Log out
-      </Button>
+    <div className={styles.userMenu}>
+      <ThemeSwitch />
+      <div className={styles.user}>
+        <span className={styles.username}>{session.data?.user.username}</span>
+        <Button variant="ghost" onClick={onLogout} disabled={logout.isPending}>
+          Log out
+        </Button>
+      </div>
     </div>
   );
 }
@@ -108,7 +109,7 @@ export function Sidebar({ live }: { live: LiveStatus }) {
               to={to}
               className={({ isActive }) => (isActive ? styles.active : undefined)}
             >
-              <NavIcon name={icon} />
+              <Icon name={icon} />
               <span>{label}</span>
               {to === "/approvals" && <ApprovalsBadge />}
             </NavLink>

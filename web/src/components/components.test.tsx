@@ -52,8 +52,8 @@ test("badges_carry_text_not_only_colour", () => {
       <Badge value="critical" />
     </>,
   );
-  expect(screen.getByText("Action needed")).toHaveAttribute("data-tone", "action-needed");
-  expect(screen.getByText("Critical")).toHaveAttribute("data-tone", "critical");
+  expect(screen.getByText("Action needed")).toHaveAttribute("data-tone", "danger");
+  expect(screen.getByText("Critical")).toHaveAttribute("data-tone", "danger");
 });
 
 test("badges_explain_their_verdicts_in_tooltips", () => {

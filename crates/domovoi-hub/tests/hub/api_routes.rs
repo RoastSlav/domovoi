@@ -246,13 +246,29 @@ async fn security_headers_present_on_api_and_healthz() {
     ];
     for reply in replies {
         let h = &reply.headers;
-        assert_eq!(
-            h["content-security-policy"],
-            "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'"
-        );
+        let csp = h["content-security-policy"].to_str().unwrap();
+        assert!(csp.starts_with(domovoi_hub::csp::BASE_POLICY), "{csp}");
+        assert!(csp.contains("script-src 'self'"), "{csp}");
+        assert!(!csp.contains("unsafe-eval"), "{csp}");
+        let scripts = csp.split("script-src").nth(1).unwrap();
+        assert!(!scripts.contains("unsafe-inline"), "{csp}");
         assert_eq!(h["x-content-type-options"], "nosniff");
         assert_eq!(h["referrer-policy"], "same-origin");
         assert_eq!(h["permissions-policy"], "interest-cohort=()");
+    }
+}
+
+#[tokio::test]
+async fn the_inline_scripts_of_the_served_page_match_the_policy() {
+    let a = api().await;
+    let page = a.send(Method::GET, "/incidents", None, None).await;
+    let csp = page.headers["content-security-policy"].to_str().unwrap();
+    let hashes = domovoi_hub::csp::inline_script_hashes(&page.text);
+    // The built page carries the theme script; without the UI there is nothing to allow.
+    #[cfg(feature = "embed-ui")]
+    assert_eq!(hashes.len(), 1, "{csp}");
+    for hash in hashes {
+        assert!(csp.contains(&hash), "{hash} missing from {csp}");
     }
 }
 

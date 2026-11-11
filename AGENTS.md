@@ -44,6 +44,16 @@ If the prompt and `ARCHITECTURE.md` disagree, stop and say so. Do not pick one s
 11. **Time.** Anything time-dependent takes the `Clock` port. Tests never sleep; they advance the fake clock from `domovoi-testkit`.
 12. **Secrets.** Secret config values are `secrecy::SecretString`. Never log, format into prompts, or return them from the API.
 
+## Web UI
+
+Read [`web/DESIGN.md`](web/DESIGN.md) before changing anything under `web/`.
+
+- Build pages from the kit in `web/src/components/`; do not invent styled primitives in feature code.
+- Colours, spacing, radii, shadows, motion and layers come only from tokens in `web/src/styles/tokens.css`. No other stylesheet has a raw colour.
+- A status's label, tone, hint and icon come only from `web/src/design/tone.ts`; icons only through `Icon` in `web/src/design/icons.tsx`.
+- No inline `style` and no native `title` in `src/features` and `src/app`; a source file stays at or under 250 lines.
+- The guardrails run with `cd web && npm run lint && npm test`. Check new work at `/dev/design` (dev server) in both themes.
+
 ## Tests
 
 - Every behaviour a prompt lists under **Tests required** gets a named test. Name tests after the behaviour (`resolves_incident_after_ttl_without_firing`), not the function.
