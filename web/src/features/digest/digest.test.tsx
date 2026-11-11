@@ -40,6 +40,26 @@ test("digest_page_shows_the_preview_as_it_will_be_sent", async () => {
   expect(screen.getByRole("region", { name: "Preview" })).toContainElement(preview);
 });
 
+test("digest_preview_shows_one_card_per_host_when_the_hub_gives_them", async () => {
+  route("GET /api/v1/digest/preview", () => ({
+    date: "2026-11-06",
+    markdown: "The whole digest message",
+    hosts: [
+      { host: "nas", quiet: false, lines: ["**2 incidents** resolved"] },
+      { host: "pi", quiet: true, lines: [] },
+    ],
+  }));
+  renderAt("/digest", "/digest", <DigestPage />);
+
+  const preview = await screen.findByRole("article", { name: "Digest for 2026-11-06" });
+  expect(within(preview).getByText("nas")).toBeVisible();
+  expect(within(preview).getByText("2 incidents").tagName).toBe("STRONG");
+  expect(within(preview).getByText("pi")).toBeVisible();
+  expect(within(preview).getByText("Nothing changed")).toBeVisible();
+  // The whole message stays below the host cards, so nothing the digest says is lost.
+  expect(await within(preview).findByText("The whole digest message")).toBeInTheDocument();
+});
+
 test("digest_send_now_confirms_in_a_toast_that_it_went_to_discord", async () => {
   const user = userEvent.setup();
   route("POST /api/v1/digest/send", () => ({ date: "2026-11-06", markdown: "sent" }));

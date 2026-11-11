@@ -366,6 +366,32 @@ test("cancelling_the_delete_keeps_the_rule", async () => {
   expect(calls.some((call) => call.route === DELETE)).toBe(false);
 });
 
+test("undo_after_deleting_recreates_the_rule_with_its_expiry", async () => {
+  const user = userEvent.setup();
+  renderAt("/rules", "/rules", <RulesPage />);
+  await screen.findByText("Security ssh login");
+
+  await user.click(screen.getByRole("button", { name: "Actions for disk.usage on nas" }));
+  await user.click(screen.getByRole("menuitem", { name: "Delete" }));
+  await user.click(
+    within(screen.getByRole("dialog")).getByRole("button", { name: "Delete known condition" }),
+  );
+  const toasts = await screen.findByRole("log", { name: "Notifications" });
+  await user.click(await within(toasts).findByRole("button", { name: "Undo" }));
+
+  expect(await screen.findByText("Known condition for disk.usage restored")).toBeVisible();
+  const created = calls.find((call) => call.route === CREATE)?.init.body as AckRuleInput;
+  expect(created).toEqual({
+    host: "nas",
+    check: "disk.usage",
+    target_pattern: "/srv",
+    predicates: [{ key: "used_percent", op: "at_most", value: "95" }],
+    note: "known backup window",
+    expires_in_minutes: null,
+    expires_at: BACKUP.expires_at,
+  });
+});
+
 test("a_failed_delete_stays_in_the_dialog_and_says_why", async () => {
   route(DELETE, () => failure(500, "internal", "The hub could not reach its database."));
   const user = userEvent.setup();

@@ -1,20 +1,36 @@
-import { useDeleteAckRule } from "../../api/hooks/rules";
-import type { AckRule } from "../../api/types";
+import { useCreateAckRule, useDeleteAckRule } from "../../api/hooks/rules";
+import type { AckRule, AckRuleInput } from "../../api/types";
 import { ConfirmDialog, Stack, Text, useActionFeedback } from "../../components";
 import { hostWords, matchPhrase } from "./phrase";
 
 /**
  * Asks before deleting a known condition: names the rule and says what changes. The result
- * is a toast once the dialog has closed; a failure stays in the dialog.
- *
- * There is no Undo: a rule's expiry is a number of minutes from now when it is created, so
- * creating it again would not restore it exactly.
+ * is a toast once the dialog has closed, with Undo, which creates the same rule again with
+ * its original expiry; a failure stays in the dialog.
  */
+/** The body that creates `rule` again, with the same expiry it had. */
+function restoreInput(rule: AckRule): AckRuleInput {
+  return {
+    host: rule.host ?? null,
+    check: rule.check,
+    target_pattern: rule.target_pattern ?? null,
+    predicates: rule.predicates,
+    note: rule.note,
+    expires_in_minutes: null,
+    expires_at: rule.expires_at ?? null,
+  };
+}
+
 export function DeleteRuleDialog({ rule, onClose }: { rule: AckRule; onClose: () => void }) {
+  const restore = useActionFeedback(useCreateAckRule(), {
+    success: `Known condition for ${rule.check} restored`,
+    error: "restore the known condition",
+  });
   const remove = useActionFeedback(useDeleteAckRule(), {
     success: `Known condition for ${rule.check} deleted`,
     error: "delete the known condition",
     errorDisplay: "inline",
+    undo: () => restore.mutate(restoreInput(rule)),
   });
   const close = () => {
     remove.reset();
