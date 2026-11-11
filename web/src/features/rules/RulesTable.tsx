@@ -75,6 +75,23 @@ const COLUMNS: Column<AckRule>[] = [
     label: "Host",
     cell: (rule) => (rule.host ? <span>{rule.host}</span> : <Tag>Any host</Tag>),
   },
+  {
+    key: "created",
+    label: "Created",
+    cell: (rule) =>
+      rule.created_at ? (
+        <Stack gap={1}>
+          <RelativeTime at={rule.created_at} />
+          {rule.created_by && (
+            <Text muted size="xs" block>
+              {rule.created_by}
+            </Text>
+          )}
+        </Stack>
+      ) : (
+        <Text muted>Unknown</Text>
+      ),
+  },
   { key: "expires", label: "Expires", cell: (rule) => <Expires at={rule.expires_at} /> },
   {
     key: "actions",

@@ -80,3 +80,20 @@ test("digest_preview_error_shows_retry_and_never_an_empty_digest", async () => {
   await user.click(within(alert).getByRole("button", { name: "Retry" }));
   expect(await screen.findByRole("article", { name: "Digest for 2026-11-06" })).toBeVisible();
 });
+
+test("digest_preview_says_when_the_next_send_is_due", async () => {
+  route("GET /api/v1/digest/preview", () => ({
+    date: "2026-11-06",
+    markdown: "all quiet",
+    next_send_at: inTwoHours(),
+  }));
+  renderAt("/digest", "/digest", <DigestPage />);
+
+  const preview = await screen.findByRole("article", { name: "Digest for 2026-11-06" });
+  expect(within(preview).getByText(/^Next scheduled send:/)).toBeVisible();
+});
+
+/** A time two hours from now, as the hub sends it. */
+function inTwoHours(): string {
+  return new Date(Date.now() + 2 * 3_600_000).toISOString();
+}

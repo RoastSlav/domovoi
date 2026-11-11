@@ -7,6 +7,7 @@ import {
   ConfirmDialog,
   PageHeader,
   QueryBoundary,
+  RelativeTime,
   Section,
   Skeleton,
   Stack,
@@ -60,6 +61,11 @@ export function DigestPage() {
                 <Card>
                   <Stack gap={3}>
                     <Text muted>{`For ${data.date}`}</Text>
+                    {data.next_send_at && (
+                      <Text muted size="xs" block>
+                        Next scheduled send: <RelativeTime at={data.next_send_at} />
+                      </Text>
+                    )}
                     <Markdown text={data.markdown} breaks />
                   </Stack>
                 </Card>

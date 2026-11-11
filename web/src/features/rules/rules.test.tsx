@@ -452,3 +452,16 @@ test("all_hosts_shows_every_rule_without_a_note", async () => {
   expect(await screen.findByText("Memory available")).toBeVisible();
   expect(screen.queryByText(/^Showing the known conditions that apply to/)).toBeNull();
 });
+
+test("rules_say_who_created_them_and_when_and_admit_when_that_is_unknown", async () => {
+  stored = [
+    { ...BACKUP, created_at: "2026-11-01T08:00:00Z", created_by: "admin" },
+    { ...OLD, created_at: null, created_by: null },
+  ];
+  renderAt("/rules", "/rules", <RulesPage />);
+
+  await screen.findByText("Disk usage on /srv, when used percent is at most 95");
+  const backup = rowOf("Disk usage on /srv, when used percent is at most 95");
+  expect(within(backup).getByText("admin")).toBeVisible();
+  expect(within(rowOf("Security ssh login")).getByText("Unknown")).toBeVisible();
+});
