@@ -209,6 +209,9 @@
     flex-wrap: nowrap;
     margin: calc(-1 * var(--space-1));
     padding: var(--space-1);
+    /* The visually hidden radio inputs are absolute: without this they sit outside the
+       scroller and widen the whole page. */
+    position: relative;
     overflow-x: auto;
     scrollbar-width: thin;
   }

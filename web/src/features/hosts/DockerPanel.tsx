@@ -73,6 +73,8 @@ export function DockerPanel({ host }: { host: string }) {
               >
                 <Select
                   value={choiceOf(state)}
+                  // The Field hint above says when the choice is fixed.
+                  // eslint-disable-next-line domovoi/disabled-needs-reason
                   disabled={fixed || save.isPending}
                   onChange={(event) => {
                     const value = event.target.value as Choice;

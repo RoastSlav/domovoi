@@ -128,7 +128,9 @@ cd web && npm run gen:api && cd ..  # writes web/src/api/schema.d.ts
 cargo xtask docs-config             # writes the configuration reference in the book
 ```
 
-**Web only** (in `web/`): `npm ci`, then `npm run lint`, `npm run typecheck`, `npm test` (or `npm run test:watch` while working), `npm run format:check` and `npm run build`. `npm run format` fixes formatting.
+**Web only** (in `web/`): `npm ci`, then `npm run lint`, `npm run typecheck`, `npm test` (or `npm run test:watch` while working), `npm run format:check` and `npm run build`. `npm run format` fixes formatting. `npm test` also proves colour contrast, runs axe over every page test's output and checks the voice rules; `npm run build` ends with `npm run size`, which fails when the first download, a chunk or the CSS is over budget (`web/DESIGN.md`).
+
+To look at every page at 375, 768, 1280 and 1920 px in light and dark, start the dev hub and `npm run dev`, then run `node scripts/screens.mjs` in `web/` (it drives an installed Chrome through Playwright, writes pictures to `web/screens-out`, and lists pages that scroll sideways; the header of the script lists its settings). It is not part of CI.
 
 ### Triage drills
 

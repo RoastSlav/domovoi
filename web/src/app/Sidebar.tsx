@@ -3,7 +3,7 @@ import { NavLink, useNavigate } from "react-router";
 import type { LiveStatus } from "../api/events";
 import { useOverview } from "../api/hooks/overview";
 import { useLogout, useSession } from "../api/hooks/session";
-import { Count, IconButton, Menu, StatusPill, Tooltip } from "../components";
+import { Count, IconButton, Menu, StatusPill, Tooltip, useActionFeedback } from "../components";
 import { Icon } from "../design/icons";
 import { useTheme, type Theme } from "../design/theme";
 import { liveMeta } from "../design/tone";
@@ -74,12 +74,12 @@ function LiveState({ status }: { status: LiveStatus }) {
 /** Who is signed in, the theme, and the way out. Account settings join this menu later. */
 function UserMenu() {
   const session = useSession();
-  const logout = useLogout();
   const navigate = useNavigate();
+  const logout = useActionFeedback(useLogout(), { success: () => null, error: "sign out" });
   const { theme, setTheme } = useTheme();
   const username = session.data?.user.username ?? "";
   const onLogout = () =>
-    logout.mutate(undefined, { onSettled: () => void navigate("/login", { replace: true }) });
+    logout.mutate(undefined, { onSuccess: () => void navigate("/login", { replace: true }) });
   return (
     <div className={styles.user}>
       <span className={styles.username}>{username}</span>
@@ -121,7 +121,7 @@ export function Sidebar({
 }) {
   const [host] = useSelectedHost();
   const overview = useOverview(host);
-  const sheet = useRef<HTMLElement>(null);
+  const sheet = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (open) {
@@ -153,7 +153,7 @@ export function Sidebar({
   };
 
   return (
-    <aside
+    <div
       ref={sheet}
       id={SIDEBAR_ID}
       className={styles.sidebar}
@@ -208,6 +208,6 @@ export function Sidebar({
         <LiveState status={live} />
         <UserMenu />
       </div>
-    </aside>
+    </div>
   );
 }

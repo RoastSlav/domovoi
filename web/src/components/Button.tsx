@@ -9,7 +9,10 @@ import styles from "./button.module.css";
 export type ButtonVariant = "primary" | "secondary" | "danger" | "ghost";
 
 /** What every kit button takes on top of a native button's attributes. */
-export interface ButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "title"> {
+export interface ButtonProps extends Omit<
+  ButtonHTMLAttributes<HTMLButtonElement>,
+  "title" | "disabled"
+> {
   /**
    * Why the button cannot be used now, and how to enable it. The button stays focusable and
    * explains itself in a tooltip; clicks do nothing.

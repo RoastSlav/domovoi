@@ -137,23 +137,34 @@ export function OptionPicker({
                 onChange={(event) => setFilter(event.target.value)}
               />
             )}
-            <div ref={list} id={id} role="listbox" aria-label={label} className={styles.pickerList}>
-              {shown.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  role="option"
-                  tabIndex={-1}
-                  aria-selected={option.value === value}
-                  className={styles.pickerOption}
-                  onClick={() => choose(option.value)}
-                >
-                  <span className={styles.pickerValue}>{option.label}</span>
-                  {option.meta}
-                </button>
-              ))}
-              {shown.length === 0 && <p className={styles.pickerNone}>Nothing matches.</p>}
-            </div>
+            {shown.length > 0 ? (
+              <div
+                ref={list}
+                id={id}
+                role="listbox"
+                aria-label={label}
+                className={styles.pickerList}
+              >
+                {shown.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    role="option"
+                    tabIndex={-1}
+                    aria-selected={option.value === value}
+                    className={styles.pickerOption}
+                    onClick={() => choose(option.value)}
+                  >
+                    <span className={styles.pickerValue}>{option.label}</span>
+                    {option.meta}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p role="status" className={styles.pickerNone}>
+                Nothing matches.
+              </p>
+            )}
           </div>
         </Popover>
       )}

@@ -1,3 +1,4 @@
+// feedback-ok: useIncidentActions wraps ack, mute and unmute in useActionFeedback
 import { useNavigate } from "react-router";
 import type { IncidentSummary } from "../../api/types";
 import { Menu, type MenuItem } from "../../components";

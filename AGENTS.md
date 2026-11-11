@@ -54,8 +54,9 @@ Read [`web/DESIGN.md`](web/DESIGN.md) before changing anything under `web/`.
 - Explain with `Tooltip`, `InfoTip`, a `Field` hint or a button's `hint`; a control that cannot be used gets `disabledReason`.
 - Colours, spacing, radii, shadows, motion and layers come only from tokens in `web/src/styles/tokens.css`. No other stylesheet has a raw colour.
 - A status's label, tone, hint and icon come only from `web/src/design/tone.ts`; icons only through `Icon` in `web/src/design/icons.tsx`.
-- No inline `style` and no native `title` in `src/features` and `src/app`; a source file stays at or under 250 lines.
-- The guardrails run with `cd web && npm run lint && npm test`. Check new work at `/dev/design` (dev server) in both themes.
+- No inline `style`, no native `title` and no raw `<button>` in `src/features` and `src/app`; a source file stays at or under 250 lines, with no exemptions.
+- Every page test is also an accessibility check (axe runs over what it leaves on screen). Token colour pairs must pass WCAG AA (`web/src/styles/contrast.test.ts`). The built bundle must stay inside the budget in `web/DESIGN.md` (`npm run size`, part of `npm run build`).
+- The guardrails run with `cd web && npm run lint && npm test`; `DESIGN.md` lists each one under "Checks that will fail your PR". Check new work at `/dev/design` (dev server) in both themes, and with `node scripts/screens.mjs` for every page at four widths.
 
 ## Tests
 
