@@ -122,7 +122,6 @@ pub fn policy(hashes: &[String]) -> String {
 pub fn header_value() -> HeaderValue {
     #[cfg(feature = "embed-ui")]
     let hashes = {
-        use rust_embed::Embed;
         crate::spa::WebDist::get("index.html")
             .and_then(|file| String::from_utf8(file.data.into_owned()).ok())
             .map(|html| inline_script_hashes(&html))
