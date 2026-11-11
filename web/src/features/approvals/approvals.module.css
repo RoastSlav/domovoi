@@ -10,8 +10,8 @@
   display: grid;
   gap: 0.4rem;
   padding: 0.9rem 1rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
 }
 
 .head {
@@ -23,24 +23,24 @@
 
 .skill {
   font-weight: 700;
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-family: var(--font-mono);
 }
 
 .risk {
   font-size: 0.8rem;
   font-weight: 700;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--color-text-muted);
 }
 
 .risk[data-risk="destructive"] {
-  color: var(--danger);
+  color: var(--tone-danger-fg);
 }
 
 .meta {
   margin: 0;
   font-size: 0.9rem;
-  color: var(--muted);
+  color: var(--color-text-muted);
 }
 
 .controls {
@@ -57,6 +57,6 @@
 
 .error {
   margin: 0;
-  color: var(--danger);
+  color: var(--tone-danger-fg);
   font-weight: 600;
 }

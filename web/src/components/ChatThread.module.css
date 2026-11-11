@@ -20,30 +20,30 @@
   justify-self: end;
   max-width: 85%;
   padding: 0.6rem 0.9rem;
-  border-radius: var(--radius);
-  background: var(--accent);
-  color: var(--accent-fg);
+  border-radius: var(--radius-md);
+  background: var(--color-primary);
+  color: var(--color-on-primary);
 }
 
 .pending {
-  color: var(--muted);
+  color: var(--color-text-muted);
   font-style: italic;
 }
 
 .answer {
   padding: 0.75rem 1rem;
-  border-radius: var(--radius);
-  background: var(--surface);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
 }
 
 .hint {
   margin: 0;
   font-size: 0.9rem;
-  color: var(--muted);
+  color: var(--color-text-muted);
 }
 
 .error {
   margin: 0;
-  color: var(--danger);
+  color: var(--tone-danger-fg);
   font-weight: 600;
 }

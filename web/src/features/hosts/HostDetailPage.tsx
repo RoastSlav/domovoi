@@ -6,7 +6,8 @@ import { Badge } from "../../components/Badge";
 import { EmptyState } from "../../components/EmptyState";
 import { RelativeTime } from "../../components/RelativeTime";
 import { Tabs } from "../../components/Tabs";
-import { incidentBadge, triageNote } from "../incidents/badge";
+import { incidentBadgeMeta } from "../../design/tone";
+import { triageNote } from "../incidents/badge";
 import { SkillList } from "../skills/SkillList";
 import { ChecksTab } from "./ChecksTab";
 import { DockerPanel } from "./DockerPanel";
@@ -53,7 +54,7 @@ function RecentIncidents({ host }: { host: string }) {
         const note = triageNote(incident);
         return (
           <li key={incident.id}>
-            <Badge value={incidentBadge(incident)} />{" "}
+            <Badge meta={incidentBadgeMeta(incident)} />{" "}
             <Link to={`/incidents/${incident.id}`}>{incident.title}</Link> · {incident.status} ·{" "}
             <RelativeTime at={incident.last_firing_at} />
             {note && ` · ${note}`}

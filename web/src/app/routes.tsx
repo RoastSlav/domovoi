@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { Navigate, Outlet, Route, Routes, useNavigate } from "react-router";
 import { setUnauthorizedHandler } from "../api/client";
 import { useSession } from "../api/hooks/session";
@@ -23,6 +23,9 @@ import { FirstRun } from "../features/setup/FirstRun";
 import { SkillsPage } from "../features/skills/SkillsPage";
 import { Layout } from "./Layout";
 import { Placeholder } from "./Placeholder";
+
+/** The design catalogue; the dev server only, so production bundles never contain it. */
+const DesignPage = import.meta.env.DEV ? lazy(() => import("../dev/DesignPage")) : null;
 
 /** Sends 401s to the login or setup page through the router instead of a full reload. */
 function UnauthorizedRedirect() {
@@ -57,6 +60,16 @@ export function AppRoutes() {
       <Routes>
         <Route path="/setup" element={<SetupPage />} />
         <Route path="/login" element={<LoginPage />} />
+        {DesignPage && (
+          <Route
+            path="/dev/design"
+            element={
+              <Suspense fallback={null}>
+                <DesignPage />
+              </Suspense>
+            }
+          />
+        )}
         <Route element={<RequireSession />}>
           <Route element={<Layout />}>
             <Route index element={<Navigate to="/incidents" replace />} />

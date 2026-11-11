@@ -2,7 +2,8 @@ import { Link } from "react-router";
 import type { IncidentSummary } from "../../api/types";
 import { Badge } from "../../components/Badge";
 import { RelativeTime } from "../../components/RelativeTime";
-import { incidentBadge, triageNote } from "./badge";
+import { incidentBadgeMeta } from "../../design/tone";
+import { triageNote } from "./badge";
 import styles from "./incidents.module.css";
 
 /** One incident in a list: its badge, title, host, status, when it last fired and triage's note. */
@@ -17,7 +18,7 @@ export function IncidentRow({
   return (
     <li className={styles.row}>
       <div className={styles.rowHead}>
-        <Badge value={incidentBadge(incident)} />
+        <Badge meta={incidentBadgeMeta(incident)} />
         <Link to={`/incidents/${incident.id}`} className={styles.title}>
           {incident.title}
         </Link>

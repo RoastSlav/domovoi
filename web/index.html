@@ -4,7 +4,17 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#f6f4ef" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#1a1816" media="(prefers-color-scheme: dark)" />
     <title>Domovoi</title>
+    <!-- Sets the saved theme before first paint. The hub's Content-Security-Policy allows
+         exactly this script by its hash, so keep it static. -->
+    <script>
+      try {
+        var t = localStorage.getItem("domovoi.theme");
+        if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

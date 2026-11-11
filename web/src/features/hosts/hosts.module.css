@@ -59,21 +59,21 @@
 
 .hint {
   font-size: 0.85rem;
-  color: var(--muted);
+  color: var(--color-text-muted);
 }
 
 .error {
-  color: var(--danger);
+  color: var(--tone-danger-fg);
   font-weight: 600;
 }
 
 .connected {
-  color: var(--ok);
+  color: var(--tone-success-fg);
   font-weight: 700;
 }
 
 .expired {
-  color: var(--danger);
+  color: var(--tone-danger-fg);
   font-weight: 600;
 }
 
@@ -84,15 +84,15 @@
   height: 0.55rem;
   margin-right: 0.35rem;
   border-radius: 50%;
-  background: var(--danger);
+  background: var(--tone-danger-fg);
 }
 
 .status[data-connected="true"]::before {
-  background: var(--ok);
+  background: var(--tone-success-fg);
 }
 
 .status[data-connected="hub"]::before {
-  background: var(--muted);
+  background: var(--color-text-muted);
 }
 
 .version {
@@ -104,26 +104,26 @@
 
 .outdated {
   padding: 0 0.45rem;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   font-size: 0.75rem;
   font-weight: 700;
-  color: #ffffff;
-  background: var(--monitor);
+  color: var(--tone-warning-on-solid);
+  background: var(--tone-warning-solid);
 }
 
 .refused {
   padding: 0 0.45rem;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   font-size: 0.75rem;
   font-weight: 700;
-  color: var(--danger);
+  color: var(--tone-danger-fg);
 }
 
 .update {
   background: none;
   border: none;
   padding: 0;
-  color: var(--accent);
+  color: var(--color-primary);
   cursor: pointer;
   font: inherit;
   text-decoration: underline;
@@ -137,7 +137,7 @@
 }
 
 .facts dt {
-  color: var(--muted);
+  color: var(--color-text-muted);
 }
 
 .facts dd {
@@ -158,7 +158,7 @@
 .checks td {
   text-align: left;
   padding: 0.3rem 0.5rem;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--color-border);
   vertical-align: top;
 }
 

@@ -1,6 +1,7 @@
 //! What every response gets: security headers, body and time limits, compression and
 //! request tracing with secrets redacted.
 
+use std::sync::LazyLock;
 use std::time::Duration;
 
 use axum::extract::Request;
@@ -8,6 +9,8 @@ use axum::http::{HeaderName, HeaderValue, StatusCode, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use tower_http::set_header::SetResponseHeaderLayer;
+
+use crate::csp;
 
 /// The largest API request body.
 pub const MAX_BODY_BYTES: usize = 1 << 20;
@@ -25,9 +28,6 @@ pub const MODEL_REQUEST_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 /// The path exempt from the timeout.
 pub const EVENTS_PATH: &str = "/api/v1/events";
 
-/// The Content-Security-Policy of every response.
-pub const CSP: &str = "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'";
-
 /// Headers whose values never appear in traces.
 pub const SENSITIVE: [HeaderName; 5] = [
     header::COOKIE,
@@ -40,11 +40,9 @@ pub const SENSITIVE: [HeaderName; 5] = [
 /// The security headers, each as a layer that overrides whatever a handler set.
 #[must_use]
 pub fn security_headers() -> [SetResponseHeaderLayer<HeaderValue>; 4] {
+    static CSP: LazyLock<HeaderValue> = LazyLock::new(csp::header_value);
     [
-        SetResponseHeaderLayer::overriding(
-            header::CONTENT_SECURITY_POLICY,
-            HeaderValue::from_static(CSP),
-        ),
+        SetResponseHeaderLayer::overriding(header::CONTENT_SECURITY_POLICY, CSP.clone()),
         SetResponseHeaderLayer::overriding(
             header::X_CONTENT_TYPE_OPTIONS,
             HeaderValue::from_static("nosniff"),

@@ -17,11 +17,11 @@
 .hint {
   margin: 0;
   font-size: 0.85rem;
-  color: var(--muted);
+  color: var(--color-text-muted);
 }
 
 .error {
   margin: 0;
-  color: var(--danger);
+  color: var(--tone-danger-fg);
   font-weight: 600;
 }

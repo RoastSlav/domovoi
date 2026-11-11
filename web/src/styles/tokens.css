@@ -1,0 +1,357 @@
+/*
+ * Design tokens: the only file that may contain raw colour values.
+ * Components use the semantic tokens (--color-*, --tone-*, --space-*, …), never --palette-*.
+ * See web/DESIGN.md for what each token is for.
+ */
+
+:root {
+  /* Palette primitives: paper and ink (light theme surfaces and text). */
+  --palette-paper-50: #fdfcf9;
+  --palette-paper-100: #f6f4ef;
+  --palette-paper-200: #efebe3;
+  --palette-paper-300: #ddd6ca;
+  --palette-paper-500: #8c8273;
+  --palette-ink-900: #2a2622;
+  --palette-ink-600: #645c53;
+  --palette-ink-500: #6b635a;
+
+  /* Charcoal and sand (dark theme surfaces and text). */
+  --palette-char-950: #141210;
+  --palette-char-900: #1a1816;
+  --palette-char-800: #22201d;
+  --palette-char-700: #2c2925;
+  --palette-char-600: #3a3631;
+  --palette-char-400: #7a7166;
+  --palette-sand-100: #ece6dc;
+  --palette-sand-400: #a89f93;
+  --palette-sand-500: #9c9387;
+
+  /* Moss: the green that acts. */
+  --palette-moss-200: #a6c19e;
+  --palette-moss-300: #8fae86;
+  --palette-moss-600: #4f6b4a;
+  --palette-moss-700: #425b3e;
+
+  /* Walnut: the brown that frames. */
+  --palette-walnut-300: #c09a7a;
+  --palette-walnut-600: #6f5440;
+  --palette-walnut-700: #4d4037;
+  --palette-walnut-800: #3b3029;
+
+  /* Status hues, light ramps: tint, border, text/solid. */
+  --palette-brick-100: #f6e3de;
+  --palette-brick-300: #e0b3a8;
+  --palette-brick-600: #9b3b2a;
+  --palette-ochre-100: #f5e9cf;
+  --palette-ochre-300: #dcc388;
+  --palette-ochre-600: #8a5f17;
+  --palette-ochre-700: #775010;
+  --palette-sage-100: #e2eddf;
+  --palette-sage-300: #b3cdb1;
+  --palette-sage-600: #3f6e45;
+  --palette-sage-700: #35603b;
+  --palette-plum-100: #ede3ee;
+  --palette-plum-300: #cdb9cf;
+  --palette-plum-600: #6b4f6e;
+  --palette-teal-100: #dcebe9;
+  --palette-teal-300: #abcbc8;
+  --palette-teal-600: #3c6663;
+  --palette-teal-700: #335a57;
+  --palette-slate-100: #dfe7ef;
+  --palette-slate-300: #b3c4d4;
+  --palette-slate-600: #46617a;
+  --palette-taupe-100: #ebe7e0;
+  --palette-taupe-300: #cdc6ba;
+  --palette-taupe-600: #6f675e;
+  --palette-taupe-700: #5f5850;
+
+  /* Status hues, dark ramps: tint, border, text, solid. */
+  --palette-brick-950: #3a221d;
+  --palette-brick-800: #6b3a30;
+  --palette-brick-250: #e8a091;
+  --palette-brick-350: #d98674;
+  --palette-ochre-950: #382c16;
+  --palette-ochre-800: #66501f;
+  --palette-ochre-250: #dcb669;
+  --palette-ochre-350: #cfa550;
+  --palette-sage-950: #223023;
+  --palette-sage-800: #3c5a3f;
+  --palette-sage-250: #9cc79f;
+  --palette-sage-350: #8fbc92;
+  --palette-plum-950: #302632;
+  --palette-plum-800: #56415a;
+  --palette-plum-250: #c9a9cc;
+  --palette-plum-350: #b995bd;
+  --palette-teal-950: #1e2f2e;
+  --palette-teal-800: #365754;
+  --palette-teal-250: #8fc4bf;
+  --palette-teal-350: #7fb5b0;
+  --palette-slate-950: #212b36;
+  --palette-slate-800: #3a4f64;
+  --palette-slate-250: #9dbbd6;
+  --palette-slate-350: #8dabc7;
+  --palette-taupe-950: #2c2925;
+  --palette-taupe-800: #48433d;
+  --palette-taupe-250: #b8afa3;
+  --palette-taupe-350: #a89f93;
+
+  --palette-white: #ffffff;
+  --palette-scrim-light: rgb(42 38 34 / 45%);
+  --palette-scrim-dark: rgb(0 0 0 / 60%);
+  --palette-shade-1: rgb(42 38 34 / 6%);
+  --palette-shade-2: rgb(42 38 34 / 10%);
+  --palette-shade-3: rgb(42 38 34 / 24%);
+  --palette-shade-dark-1: rgb(0 0 0 / 30%);
+  --palette-shade-dark-2: rgb(0 0 0 / 40%);
+  --palette-shade-dark-3: rgb(0 0 0 / 60%);
+
+  /* Space: a 4 px grid. */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+  --space-8: 4rem;
+
+  /* Shape. */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-pill: 999px;
+
+  /* Type: one sans stack, one mono stack, six steps. */
+  --font-sans: system-ui, -apple-system, "Segoe UI", roboto, "Helvetica Neue", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", "Roboto Mono", menlo, consolas, monospace;
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.375rem;
+  --text-2xl: 1.75rem;
+  --leading-xs: 1rem;
+  --leading-sm: 1.25rem;
+  --leading-base: 1.5rem;
+  --leading-lg: 1.625rem;
+  --leading-xl: 1.75rem;
+  --leading-2xl: 2.125rem;
+
+  /* Layout. */
+  --sidebar-width: 15rem;
+  --content-max: 1400px;
+
+  /* Layers. */
+  --z-sticky: 10;
+  --z-dropdown: 20;
+  --z-overlay: 30;
+  --z-toast: 40;
+  --z-tooltip: 50;
+
+  /* Motion: short, eases out, explains a change. */
+  --motion-fast: 120ms;
+  --motion-base: 180ms;
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  /* Semantic colours, light theme. */
+  color-scheme: light;
+
+  --color-bg: var(--palette-paper-100);
+  --color-surface: var(--palette-paper-50);
+  --color-surface-raised: var(--palette-paper-200);
+  --color-border: var(--palette-paper-300);
+  --color-border-strong: var(--palette-paper-500);
+  --color-text: var(--palette-ink-900);
+  --color-text-muted: var(--palette-ink-600);
+  --color-text-subtle: var(--palette-ink-500);
+  --color-primary: var(--palette-moss-600);
+  --color-primary-hover: var(--palette-moss-700);
+  --color-on-primary: var(--palette-white);
+  --color-frame: var(--palette-walnut-600);
+  --color-sidebar-bg: var(--palette-walnut-800);
+  --color-sidebar-text: var(--palette-sand-100);
+  --color-sidebar-text-muted: var(--palette-sand-400);
+  --color-sidebar-border: var(--palette-walnut-600);
+  --color-sidebar-raised: var(--palette-walnut-700);
+  --color-sidebar-accent: var(--palette-moss-300);
+  --color-focus: var(--palette-moss-600);
+  --color-overlay: var(--palette-scrim-light);
+  --shadow-raised: 0 1px 2px var(--palette-shade-1), 0 1px 3px var(--palette-shade-2);
+  --shadow-overlay: 0 12px 40px var(--palette-shade-3);
+
+  --tone-danger-bg: var(--palette-brick-100);
+  --tone-danger-fg: var(--palette-brick-600);
+  --tone-danger-border: var(--palette-brick-300);
+  --tone-danger-solid: var(--palette-brick-600);
+  --tone-danger-on-solid: var(--palette-white);
+  --tone-warning-bg: var(--palette-ochre-100);
+  --tone-warning-fg: var(--palette-ochre-700);
+  --tone-warning-border: var(--palette-ochre-300);
+  --tone-warning-solid: var(--palette-ochre-600);
+  --tone-warning-on-solid: var(--palette-white);
+  --tone-success-bg: var(--palette-sage-100);
+  --tone-success-fg: var(--palette-sage-700);
+  --tone-success-border: var(--palette-sage-300);
+  --tone-success-solid: var(--palette-sage-600);
+  --tone-success-on-solid: var(--palette-white);
+  --tone-pending-bg: var(--palette-plum-100);
+  --tone-pending-fg: var(--palette-plum-600);
+  --tone-pending-border: var(--palette-plum-300);
+  --tone-pending-solid: var(--palette-plum-600);
+  --tone-pending-on-solid: var(--palette-white);
+  --tone-progress-bg: var(--palette-teal-100);
+  --tone-progress-fg: var(--palette-teal-700);
+  --tone-progress-border: var(--palette-teal-300);
+  --tone-progress-solid: var(--palette-teal-600);
+  --tone-progress-on-solid: var(--palette-white);
+  --tone-info-bg: var(--palette-slate-100);
+  --tone-info-fg: var(--palette-slate-600);
+  --tone-info-border: var(--palette-slate-300);
+  --tone-info-solid: var(--palette-slate-600);
+  --tone-info-on-solid: var(--palette-white);
+  --tone-neutral-bg: var(--palette-taupe-100);
+  --tone-neutral-fg: var(--palette-taupe-700);
+  --tone-neutral-border: var(--palette-taupe-300);
+  --tone-neutral-solid: var(--palette-taupe-600);
+  --tone-neutral-on-solid: var(--palette-white);
+}
+
+/* Dark theme. The same block appears twice: once for an explicit choice, once for "System". */
+:root[data-theme="dark"] {
+  /* dark-theme:start */
+  color-scheme: dark;
+
+  --color-bg: var(--palette-char-900);
+  --color-surface: var(--palette-char-800);
+  --color-surface-raised: var(--palette-char-700);
+  --color-border: var(--palette-char-600);
+  --color-border-strong: var(--palette-char-400);
+  --color-text: var(--palette-sand-100);
+  --color-text-muted: var(--palette-sand-400);
+  --color-text-subtle: var(--palette-sand-500);
+  --color-primary: var(--palette-moss-300);
+  --color-primary-hover: var(--palette-moss-200);
+  --color-on-primary: var(--palette-char-900);
+  --color-frame: var(--palette-walnut-300);
+  --color-sidebar-bg: var(--palette-char-950);
+  --color-sidebar-text: var(--palette-sand-100);
+  --color-sidebar-text-muted: var(--palette-sand-400);
+  --color-sidebar-border: var(--palette-char-600);
+  --color-sidebar-raised: var(--palette-char-700);
+  --color-sidebar-accent: var(--palette-moss-300);
+  --color-focus: var(--palette-moss-300);
+  --color-overlay: var(--palette-scrim-dark);
+  --shadow-raised: 0 1px 2px var(--palette-shade-dark-1), 0 1px 3px var(--palette-shade-dark-2);
+  --shadow-overlay: 0 12px 40px var(--palette-shade-dark-3);
+
+  --tone-danger-bg: var(--palette-brick-950);
+  --tone-danger-fg: var(--palette-brick-250);
+  --tone-danger-border: var(--palette-brick-800);
+  --tone-danger-solid: var(--palette-brick-350);
+  --tone-danger-on-solid: var(--palette-char-900);
+  --tone-warning-bg: var(--palette-ochre-950);
+  --tone-warning-fg: var(--palette-ochre-250);
+  --tone-warning-border: var(--palette-ochre-800);
+  --tone-warning-solid: var(--palette-ochre-350);
+  --tone-warning-on-solid: var(--palette-char-900);
+  --tone-success-bg: var(--palette-sage-950);
+  --tone-success-fg: var(--palette-sage-250);
+  --tone-success-border: var(--palette-sage-800);
+  --tone-success-solid: var(--palette-sage-350);
+  --tone-success-on-solid: var(--palette-char-900);
+  --tone-pending-bg: var(--palette-plum-950);
+  --tone-pending-fg: var(--palette-plum-250);
+  --tone-pending-border: var(--palette-plum-800);
+  --tone-pending-solid: var(--palette-plum-350);
+  --tone-pending-on-solid: var(--palette-char-900);
+  --tone-progress-bg: var(--palette-teal-950);
+  --tone-progress-fg: var(--palette-teal-250);
+  --tone-progress-border: var(--palette-teal-800);
+  --tone-progress-solid: var(--palette-teal-350);
+  --tone-progress-on-solid: var(--palette-char-900);
+  --tone-info-bg: var(--palette-slate-950);
+  --tone-info-fg: var(--palette-slate-250);
+  --tone-info-border: var(--palette-slate-800);
+  --tone-info-solid: var(--palette-slate-350);
+  --tone-info-on-solid: var(--palette-char-900);
+  --tone-neutral-bg: var(--palette-taupe-950);
+  --tone-neutral-fg: var(--palette-taupe-250);
+  --tone-neutral-border: var(--palette-taupe-800);
+  --tone-neutral-solid: var(--palette-taupe-350);
+  --tone-neutral-on-solid: var(--palette-char-900);
+  /* dark-theme:end */
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    /* dark-theme:start */
+    color-scheme: dark;
+
+    --color-bg: var(--palette-char-900);
+    --color-surface: var(--palette-char-800);
+    --color-surface-raised: var(--palette-char-700);
+    --color-border: var(--palette-char-600);
+    --color-border-strong: var(--palette-char-400);
+    --color-text: var(--palette-sand-100);
+    --color-text-muted: var(--palette-sand-400);
+    --color-text-subtle: var(--palette-sand-500);
+    --color-primary: var(--palette-moss-300);
+    --color-primary-hover: var(--palette-moss-200);
+    --color-on-primary: var(--palette-char-900);
+    --color-frame: var(--palette-walnut-300);
+    --color-sidebar-bg: var(--palette-char-950);
+    --color-sidebar-text: var(--palette-sand-100);
+    --color-sidebar-text-muted: var(--palette-sand-400);
+    --color-sidebar-border: var(--palette-char-600);
+    --color-sidebar-raised: var(--palette-char-700);
+    --color-sidebar-accent: var(--palette-moss-300);
+    --color-focus: var(--palette-moss-300);
+    --color-overlay: var(--palette-scrim-dark);
+    --shadow-raised: 0 1px 2px var(--palette-shade-dark-1), 0 1px 3px var(--palette-shade-dark-2);
+    --shadow-overlay: 0 12px 40px var(--palette-shade-dark-3);
+
+    --tone-danger-bg: var(--palette-brick-950);
+    --tone-danger-fg: var(--palette-brick-250);
+    --tone-danger-border: var(--palette-brick-800);
+    --tone-danger-solid: var(--palette-brick-350);
+    --tone-danger-on-solid: var(--palette-char-900);
+    --tone-warning-bg: var(--palette-ochre-950);
+    --tone-warning-fg: var(--palette-ochre-250);
+    --tone-warning-border: var(--palette-ochre-800);
+    --tone-warning-solid: var(--palette-ochre-350);
+    --tone-warning-on-solid: var(--palette-char-900);
+    --tone-success-bg: var(--palette-sage-950);
+    --tone-success-fg: var(--palette-sage-250);
+    --tone-success-border: var(--palette-sage-800);
+    --tone-success-solid: var(--palette-sage-350);
+    --tone-success-on-solid: var(--palette-char-900);
+    --tone-pending-bg: var(--palette-plum-950);
+    --tone-pending-fg: var(--palette-plum-250);
+    --tone-pending-border: var(--palette-plum-800);
+    --tone-pending-solid: var(--palette-plum-350);
+    --tone-pending-on-solid: var(--palette-char-900);
+    --tone-progress-bg: var(--palette-teal-950);
+    --tone-progress-fg: var(--palette-teal-250);
+    --tone-progress-border: var(--palette-teal-800);
+    --tone-progress-solid: var(--palette-teal-350);
+    --tone-progress-on-solid: var(--palette-char-900);
+    --tone-info-bg: var(--palette-slate-950);
+    --tone-info-fg: var(--palette-slate-250);
+    --tone-info-border: var(--palette-slate-800);
+    --tone-info-solid: var(--palette-slate-350);
+    --tone-info-on-solid: var(--palette-char-900);
+    --tone-neutral-bg: var(--palette-taupe-950);
+    --tone-neutral-fg: var(--palette-taupe-250);
+    --tone-neutral-border: var(--palette-taupe-800);
+    --tone-neutral-solid: var(--palette-taupe-350);
+    --tone-neutral-on-solid: var(--palette-char-900);
+    /* dark-theme:end */
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-fast: 0ms;
+    --motion-base: 0ms;
+  }
+}
