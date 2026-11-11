@@ -1,22 +1,28 @@
 import { useState } from "react";
 import { useDigestPreview, useSendDigest } from "../../api/hooks/system";
+import { AllHostsNote } from "../../app/AllHostsNote";
 import {
   Button,
+  Card,
   ConfirmDialog,
-  LoadError,
-  Loading,
-  Markdown,
   PageHeader,
+  QueryBoundary,
+  Section,
+  Skeleton,
+  Stack,
+  Markdown,
+  Text,
   useActionFeedback,
 } from "../../components";
-import { AllHostsNote } from "../../app/AllHostsNote";
-import styles from "./digest.module.css";
 
-/** Today's digest as it will be sent, and sending it now. */
+/**
+ * Today's digest as it will be sent, and sending it now. The hub gives the digest as one
+ * piece of Markdown (a line or a few per host), so it is shown whole inside a card.
+ */
 export function DigestPage() {
   const preview = useDigestPreview();
   const send = useActionFeedback(useSendDigest(), {
-    success: "Digest sent",
+    success: "Digest sent to Discord",
     error: "send the digest",
   });
   const [confirming, setConfirming] = useState(false);
@@ -31,29 +37,42 @@ export function DigestPage() {
         actions={
           <Button
             variant="primary"
-            onClick={() => setConfirming(true)}
+            icon="digest"
+            hint="Sends today’s digest to Discord now, as well as at its usual time."
             loading={send.isPending}
             disabledReason={preview.data ? undefined : "The digest has not loaded yet."}
+            onClick={() => setConfirming(true)}
           >
             Send now
           </Button>
         }
       />
       <AllHostsNote>The digest is one summary of every host.</AllHostsNote>
-      {preview.isPending && <Loading />}
-      {preview.error && !preview.data && (
-        <LoadError error={preview.error} context="build the digest" onRetry={preview.refetch} />
-      )}
-      {preview.data && (
-        <article className={styles.preview} aria-label={`Digest for ${preview.data.date}`}>
-          <p className={styles.date}>For {preview.data.date}</p>
-          <Markdown text={preview.data.markdown} />
-        </article>
-      )}
+      <Stack gap={5}>
+        <Section title="Preview" description="This is what Discord gets if you send it now.">
+          <QueryBoundary
+            query={preview}
+            context="build the digest"
+            loading={<Skeleton shape="block" />}
+          >
+            {(data) => (
+              <article aria-label={`Digest for ${data.date}`}>
+                <Card>
+                  <Stack gap={3}>
+                    <Text muted>{`For ${data.date}`}</Text>
+                    <Markdown text={data.markdown} breaks />
+                  </Stack>
+                </Card>
+              </article>
+            )}
+          </QueryBoundary>
+        </Section>
+        {/* A "Cost" section (what this month's digests spent on the model) goes here. */}
+      </Stack>
       {confirming && (
         <ConfirmDialog
           title="Send the digest now?"
-          consequence="It goes to the configured chat now, as well as at its usual time."
+          consequence="It goes to Discord now, as well as at its usual time."
           confirmLabel="Send digest"
           busy={send.isPending}
           onConfirm={() => {
