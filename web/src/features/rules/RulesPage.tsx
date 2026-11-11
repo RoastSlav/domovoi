@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { useAckRules, useDeleteAckRule } from "../../api/hooks/rules";
 import type { AckRule, Predicate } from "../../api/types";
+import { useSelectedHost } from "../../app/HostContext";
 import {
   Button,
   ConfirmDialog,
   EmptyState,
+  InlineMessage,
   LoadError,
   Loading,
   PageHeader,
@@ -86,7 +88,12 @@ function DeleteButton({ rule }: { rule: AckRule }) {
 /** Known conditions: add, list and delete them. */
 export function RulesPage() {
   const rules = useAckRules();
-  const items = rules.data ?? [];
+  const [selected] = useSelectedHost();
+  // A condition for any host applies to the selected one too.
+  const items = (rules.data ?? []).filter(
+    (rule) => selected === undefined || rule.host === selected || !rule.host,
+  );
+  const hidden = (rules.data?.length ?? 0) - items.length;
 
   return (
     <>
@@ -102,6 +109,11 @@ export function RulesPage() {
           context="load the known conditions"
           onRetry={rules.refetch}
         />
+      )}
+      {selected !== undefined && hidden > 0 && (
+        <InlineMessage tone="info">
+          Showing the known conditions that apply to {selected}. Choose All hosts to see the others.
+        </InlineMessage>
       )}
       {rules.data && items.length === 0 && (
         <EmptyState title="No known conditions">

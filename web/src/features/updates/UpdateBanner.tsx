@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { useUpdate } from "../../api/hooks/updates";
-import { Button, Dialog, Markdown } from "../../components";
+import { Banner, Button, Dialog, Markdown } from "../../components";
 import { HowToUpdateDialog } from "./HowToUpdateDialog";
-import styles from "./updates.module.css";
 
 const DISMISSED_PREFIX = "update-dismissed:";
 
@@ -43,20 +42,23 @@ export function UpdateBanner() {
 
   return (
     <>
-      <aside className={styles.banner} aria-label="Update available">
-        <span>
-          <strong>Domovoi {latest}</strong> is available (this hub runs {info.current}).
-        </span>{" "}
-        <button type="button" className={styles.link} onClick={() => setDialog("notes")}>
-          What&apos;s new
-        </button>{" "}
-        <button type="button" className={styles.link} onClick={() => setDialog("how")}>
-          How to update
-        </button>{" "}
-        <button type="button" className={styles.dismiss} onClick={dismiss}>
-          Dismiss
-        </button>
-      </aside>
+      <Banner
+        tone="warning"
+        title={`Domovoi ${latest} is available`}
+        onDismiss={dismiss}
+        action={
+          <>
+            <Button size="sm" variant="ghost" onClick={() => setDialog("notes")}>
+              What&apos;s new
+            </Button>
+            <Button size="sm" onClick={() => setDialog("how")}>
+              How to update
+            </Button>
+          </>
+        }
+      >
+        This hub runs {info.current}.
+      </Banner>
       {dialog === "notes" && (
         <Dialog
           title={`What's new in Domovoi ${latest}`}

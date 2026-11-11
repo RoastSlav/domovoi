@@ -3,6 +3,7 @@ import { useHostNames } from "../../api/hooks/hosts";
 import { useAdvisories, useSettings } from "../../api/hooks/system";
 import { SECRET_SET, type Settings } from "../../api/types";
 import { LoadError, Loading, PageHeader, RelativeTime } from "../../components";
+import { AllHostsNote } from "../../app/AllHostsNote";
 import { UpdateAbout } from "../updates/UpdateAbout";
 import { EditableSettings } from "./EditableSettings";
 import styles from "./settings.module.css";
@@ -138,6 +139,7 @@ export function SettingsPage() {
           docs="install/config-as-code.html"
           intro="How this hub runs."
         />
+        <AllHostsNote>Settings belong to the hub, not to one host.</AllHostsNote>
         <p className={styles.note}>
           Changes apply right away: the hub restarts in a few seconds. Fields set in hub.toml or the
           environment are read-only here.
@@ -162,6 +164,7 @@ export function SettingsPage() {
   return (
     <>
       <PageHeader title="Settings" docs="install/config-as-code.html" intro="How this hub runs." />
+      <AllHostsNote>Settings belong to the hub, not to one host.</AllHostsNote>
       <p className={styles.note}>Read-only. Change settings in hub.toml and restart the hub.</p>
       <Section title="Hub">
         <Rows

@@ -11,6 +11,7 @@ import {
   PageHeader,
   useActionFeedback,
 } from "../../components";
+import { AllHostsNote } from "../../app/AllHostsNote";
 import ui from "../../components/ui.module.css";
 import { EnrollDialog } from "./EnrollDialog";
 import { HostStatus, VersionCell } from "./HostStatus";
@@ -65,6 +66,7 @@ export function HostsPage() {
           </Button>
         }
       />
+      <AllHostsNote>This is the list the host selector chooses from.</AllHostsNote>
       {hosts.isPending && <Loading />}
       {hosts.error && !hosts.data && (
         <LoadError error={hosts.error} context="load hosts" onRetry={hosts.refetch} />

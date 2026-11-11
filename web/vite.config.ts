@@ -17,6 +17,28 @@ export default defineConfig({
     outDir: "dist",
     sourcemap: false,
     assetsDir: "assets",
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          groups: [
+            // The libraries change far less often than the app: their own file stays cached
+            // across hub upgrades.
+            {
+              name: "vendor",
+              test: /node_modules[\\/](react|react-dom|react-router|scheduler|@tanstack|openapi-fetch)[\\/]/,
+              priority: 20,
+            },
+            // The Markdown stack is only fetched when Markdown is first shown
+            // (src/components/Markdown.tsx); everything it pulls in travels together.
+            {
+              name: "markdown",
+              test: /node_modules[\\/](?!(react|react-dom|react-router|scheduler|@tanstack|openapi-fetch|lucide-react)[\\/])/,
+              priority: 10,
+            },
+          ],
+        },
+      },
+    },
   },
   test: {
     environment: "jsdom",

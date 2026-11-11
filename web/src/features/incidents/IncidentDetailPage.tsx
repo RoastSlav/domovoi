@@ -9,6 +9,7 @@ import { IncidentChat } from "./IncidentChat";
 import { IncidentCard } from "./IncidentCard";
 import { IncidentControls } from "./IncidentControls";
 import { RetryTriage } from "./RetryTriage";
+import { usePageName } from "../../app/PageTitle";
 import styles from "./incidents.module.css";
 
 /** The timeline kind of a recorded follow-up question; the Chat section shows its text. */
@@ -34,6 +35,7 @@ function Timeline({ entries }: { entries: TimelineEntry[] }) {
 export function IncidentDetailPage() {
   const { id = "" } = useParams();
   const incident = useIncident(id);
+  usePageName(incident.data?.incident.title);
 
   if (incident.isPending) {
     return <Loading />;

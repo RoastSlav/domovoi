@@ -4,6 +4,7 @@ import { calls, failure, resetApi, route } from "../../test/apiMock";
 import { nas } from "../../test/fixtures";
 import { renderAt } from "../../test/render";
 import { MAX_HISTORY_TURNS } from "../../components/ChatThread";
+import { SELECTED_HOST_KEY } from "../../app/HostContext";
 import { ChatPage } from "./ChatPage";
 
 vi.mock("../../api/client", () => import("../../test/apiMock"));
@@ -119,24 +120,25 @@ test("chat_keeps_a_separate_conversation_for_each_host", async () => {
   const user = userEvent.setup();
   renderAt("/chat", "/chat", <ChatPage />);
 
-  const textarea = screen.getByLabelText("Ask about your servers");
-  await user.type(textarea, "About everything?");
+  // Each host has its own conversation, and with it its own composer.
+  const textarea = () => screen.getByLabelText("Ask about your servers");
+  await user.type(textarea(), "About everything?");
   await user.click(screen.getByRole("button", { name: "Send" }));
   expect(await screen.findByText("Answer to: About everything?")).toBeVisible();
 
-  const select = screen.getByLabelText("Host");
+  const select = () => screen.getByLabelText("Host");
   await screen.findByRole("option", { name: "pi (offline: no tools)" });
-  await user.selectOptions(select, "pi");
+  await user.selectOptions(select(), "pi");
   expect(
     screen.queryByText("About everything?"),
     "another host starts a new conversation",
   ).not.toBeInTheDocument();
 
-  await user.type(textarea, "About pi?");
+  await user.type(textarea(), "About pi?");
   await user.click(screen.getByRole("button", { name: "Send" }));
   expect(await screen.findByText("Answer to: About pi?")).toBeVisible();
 
-  await user.selectOptions(select, "");
+  await user.selectOptions(select(), "");
   expect(
     await screen.findByText("Answer to: About everything?"),
     "the first host's conversation is still there",
@@ -149,4 +151,22 @@ test("chat_keeps_a_separate_conversation_for_each_host", async () => {
     history: [],
     question: "About pi?",
   });
+});
+
+test("chat_starts_on_the_selected_host_and_changing_it_here_changes_the_selection", async () => {
+  const user = userEvent.setup();
+  renderAt("/chat?host=pi", "/chat", <ChatPage />);
+  await screen.findByRole("option", { name: "pi (offline: no tools)" });
+  expect(screen.getByLabelText("Host")).toHaveValue("pi");
+
+  await user.type(screen.getByLabelText("Ask about your servers"), "Is it up?");
+  await user.click(screen.getByRole("button", { name: "Send" }));
+  await screen.findByText("Answer to: Is it up?");
+  const posts = calls.filter((call) => call.route === "POST /api/v1/chat");
+  expect(posts[0]?.init.body).toEqual({ host: "pi", history: [], question: "Is it up?" });
+
+  await user.selectOptions(screen.getByLabelText("Host"), "nas");
+  expect(screen.getByTestId("location")).toHaveTextContent("/chat?host=nas");
+  expect(localStorage.getItem(SELECTED_HOST_KEY)).toBe("nas");
+  expect(screen.getByLabelText("Host")).toHaveValue("nas");
 });

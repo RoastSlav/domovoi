@@ -632,3 +632,15 @@ test("outdated_agent_opens_the_update_commands", async () => {
   expect(screen.getByRole("dialog", { name: "How to update Domovoi" })).toBeVisible();
   expect(screen.getByLabelText("Agent update command")).toHaveTextContent("--role agent");
 });
+
+test("hosts_page_says_it_shows_all_hosts_while_one_is_selected", async () => {
+  route("GET /api/v1/hosts", () => [nas]);
+  const selected = renderAt("/hosts?host=nas", "/hosts", <HostsPage />);
+  expect(await screen.findByText("Showing all hosts")).toBeVisible();
+
+  selected.unmount();
+  localStorage.clear();
+  renderAt("/hosts", "/hosts", <HostsPage />);
+  await screen.findByRole("link", { name: "nas" });
+  expect(screen.queryByText("Showing all hosts")).toBeNull();
+});

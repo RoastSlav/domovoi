@@ -183,3 +183,28 @@ test("removing_a_condition_row_leaves_it_out_of_the_body", async () => {
   const post = calls.find((call) => call.route === "POST /api/v1/ack-rules");
   expect(post?.init.body).toMatchObject({ predicates: [] });
 });
+
+test("known_conditions_follow_the_selected_host_and_keep_the_ones_for_any_host", async () => {
+  stored = [
+    BACKUP,
+    OLD,
+    { ...BACKUP, id: "0196ac01-0000-7000-8000-000000000209", host: "pi", check: "cpu.load" },
+  ];
+  renderAt("/rules?host=nas", "/rules", <RulesPage />);
+
+  expect(await screen.findByText("disk.usage")).toBeVisible();
+  expect(screen.getByText("security.ssh_login"), "a rule for any host applies here").toBeVisible();
+  expect(screen.queryByText("cpu.load")).toBeNull();
+  expect(screen.getByText(/^Showing the known conditions that apply to nas\./)).toBeVisible();
+});
+
+test("known_conditions_under_all_hosts_show_every_rule_without_a_note", async () => {
+  stored = [
+    BACKUP,
+    { ...BACKUP, id: "0196ac01-0000-7000-8000-000000000209", host: "pi", check: "cpu.load" },
+  ];
+  renderAt("/rules", "/rules", <RulesPage />);
+
+  expect(await screen.findByText("cpu.load")).toBeVisible();
+  expect(screen.queryByText(/^Showing the known conditions that apply to/)).toBeNull();
+});

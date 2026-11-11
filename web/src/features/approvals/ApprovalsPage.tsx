@@ -1,12 +1,14 @@
 import { useActions } from "../../api/hooks/actions";
 import { useHostNames } from "../../api/hooks/hosts";
+import { useSelectedHost } from "../../app/HostContext";
 import { EmptyState, LoadError, Loading, PageHeader } from "../../components";
 import { ActionItem } from "./ActionItem";
 import styles from "./approvals.module.css";
 
-/** Every action waiting for a human, newest first. */
+/** Every action waiting for a human, newest first: on the selected host, or on all of them. */
 export function ApprovalsPage() {
-  const actions = useActions("proposed");
+  const [selected] = useSelectedHost();
+  const actions = useActions("proposed", selected);
   const hosts = useHostNames();
   const items = actions.data?.items ?? [];
 
@@ -23,7 +25,11 @@ export function ApprovalsPage() {
       )}
       {actions.data && items.length === 0 && (
         <EmptyState icon="approve" title="Nothing to approve">
-          <p>Actions triage proposes show up here.</p>
+          <p>
+            {selected
+              ? `No action is waiting on ${selected}. Choose All hosts to see the others.`
+              : "Actions triage proposes show up here."}
+          </p>
         </EmptyState>
       )}
       {items.length > 0 && (

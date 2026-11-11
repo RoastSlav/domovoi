@@ -97,3 +97,23 @@ test("deny_sends_no_confirmation", async () => {
   expect(calls.map((c) => c.route)).toContain("POST /api/v1/actions/{id}/deny");
   expect(approvals()).toHaveLength(0);
 });
+
+test("approvals_ask_the_hub_for_the_selected_hosts_actions", async () => {
+  route("GET /api/v1/actions", () => ({ items: [], next_cursor: null }));
+  renderAt("/approvals?host=nas", "/approvals", <ApprovalsPage />);
+
+  expect(await screen.findByText(/^No action is waiting on nas\./)).toBeVisible();
+  const asked = calls.filter((call) => call.route === "GET /api/v1/actions");
+  expect(asked.map((call) => call.init.params?.query)).toEqual([
+    { status: "proposed", host: "nas", limit: 200 },
+  ]);
+});
+
+test("approvals_under_all_hosts_send_no_host_filter", async () => {
+  route("GET /api/v1/actions", () => ({ items: [], next_cursor: null }));
+  renderAt("/approvals", "/approvals", <ApprovalsPage />);
+
+  expect(await screen.findByText("Actions triage proposes show up here.")).toBeVisible();
+  const asked = calls.filter((call) => call.route === "GET /api/v1/actions");
+  expect(asked[0]?.init.params?.query).toEqual({ status: "proposed", limit: 200 });
+});

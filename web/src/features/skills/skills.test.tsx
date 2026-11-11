@@ -1,6 +1,6 @@
 import { screen, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
-import { calls, resetApi, route } from "../../test/apiMock";
+import { calls, failure, resetApi, route } from "../../test/apiMock";
 import { action, nas } from "../../test/fixtures";
 import { renderAt } from "../../test/render";
 import { SkillsPage } from "./SkillsPage";
@@ -55,14 +55,31 @@ test("skills_follow_the_host_selected_in_the_sidebar", async () => {
   expect(screen.queryByText(/Showing the skills of/)).toBeNull();
 });
 
-test("skills_show_the_first_host_when_all_hosts_are_selected", async () => {
+test("skills_under_all_hosts_ask_for_a_host_and_never_show_the_first_one", async () => {
+  const user = userEvent.setup();
   route("GET /api/v1/hosts", () => [nas, { ...nas, id: "host-pi", name: "pi" }]);
   route("GET /api/v1/hosts/{name}/skills", () => [skill("docker_ps", "read")]);
   renderAt("/skills", "/skills", <SkillsPage />);
 
+  expect(await screen.findByText("Choose a host to see its skills.")).toBeVisible();
+  const hosts = screen.getByRole("list", { name: "Hosts" });
+  expect(within(hosts).getByRole("link", { name: "nas" })).toHaveAttribute(
+    "href",
+    "/skills?host=nas",
+  );
+  expect(skillCalls(), "no host is guessed").toEqual([]);
+
+  await user.click(within(hosts).getByRole("link", { name: "pi" }));
   await screen.findByText("docker_ps");
-  expect(skillCalls().map((c) => c.init.params?.path)).toEqual([{ name: "nas" }]);
-  expect(screen.getByText(/Showing the skills of nas/)).toBeVisible();
+  expect(skillCalls().map((c) => c.init.params?.path)).toEqual([{ name: "pi" }]);
+});
+
+test("skills_page_says_when_hosts_cannot_load", async () => {
+  route("GET /api/v1/hosts", () => failure(503, "unavailable", "the hub is starting"));
+  renderAt("/skills", "/skills", <SkillsPage />);
+
+  expect(await screen.findByText("Could not load hosts")).toBeVisible();
+  expect(screen.getByRole("button", { name: "Retry" })).toBeVisible();
 });
 
 test("skills_grouped_by_risk_with_destructive_marked", async () => {
@@ -82,7 +99,7 @@ test("skills_grouped_by_risk_with_destructive_marked", async () => {
     skill("restart_container", "write"),
     skill("docker_ps", "read"),
   ]);
-  renderAt("/skills", "/skills", <SkillsPage />);
+  renderAt("/skills?host=nas", "/skills", <SkillsPage />);
 
   const groups = await screen.findAllByRole("region");
   expect(groups.map((g) => g.getAttribute("aria-label"))).toEqual([
@@ -128,7 +145,7 @@ test("skill_detail_dialog_opens_with_parameters_and_readme", async () => {
     }),
   ]);
   route("GET /api/v1/actions", () => ({ items: [action()], next_cursor: null }));
-  renderAt("/skills", "/skills", <SkillsPage />);
+  renderAt("/skills?host=nas", "/skills", <SkillsPage />);
 
   await user.click(await screen.findByRole("button", { name: "restart_container" }));
   const dialog = await screen.findByRole("dialog", { name: "restart_container" });
@@ -158,7 +175,7 @@ test("skill_detail_dialog_says_no_readme_when_absent", async () => {
     skill("disk_usage", "read", { manifest_hash: "f".repeat(64) }),
   ]);
   route("GET /api/v1/actions", () => ({ items: [], next_cursor: null }));
-  renderAt("/skills", "/skills", <SkillsPage />);
+  renderAt("/skills?host=nas", "/skills", <SkillsPage />);
 
   await user.click(await screen.findByRole("button", { name: "disk_usage" }));
   const dialog = await screen.findByRole("dialog", { name: "disk_usage" });
@@ -179,7 +196,7 @@ test("skills_disabled_skill_stays_listed_greyed_and_tagged", async () => {
     skill("disk_usage", "read"),
     skill("restart_container", "write", { enabled: false }),
   ]);
-  renderAt("/skills", "/skills", <SkillsPage />);
+  renderAt("/skills?host=nas", "/skills", <SkillsPage />);
 
   const groups = await screen.findAllByRole("region");
   expect(groups.map((g) => g.getAttribute("aria-label"))).toEqual(["Read skills", "Write skills"]);
@@ -199,7 +216,7 @@ test("switching_a_skill_off_on_its_card_saves_the_change", async () => {
   route("GET /api/v1/hosts", () => [nas]);
   route("GET /api/v1/hosts/{name}/skills", () => [skill("docker_ps", "read")]);
   route("PUT /api/v1/hosts/{name}/skills/{skill}", () => undefined);
-  renderAt("/skills", "/skills", <SkillsPage />);
+  renderAt("/skills?host=nas", "/skills", <SkillsPage />);
 
   await screen.findByText("docker_ps");
   const [card] = (await screen.findAllByRole("listitem")) as [HTMLElement];

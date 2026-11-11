@@ -3,25 +3,16 @@ import { Navigate, Outlet, Route, Routes, useNavigate } from "react-router";
 import { setUnauthorizedHandler } from "../api/client";
 import { useSession } from "../api/hooks/session";
 import { ApiFailure } from "../api/types";
-import { LoadError, Loading } from "../components";
-import { ApprovalsPage } from "../features/approvals/ApprovalsPage";
+import { LoadError } from "../components";
 import { LoginPage } from "../features/auth/LoginPage";
-import { ChatPage } from "../features/chat/ChatPage";
-import { DigestPage } from "../features/digest/DigestPage";
-import { LogsPage } from "../features/logs/LogsPage";
-import { HostDetailPage } from "../features/hosts/HostDetailPage";
-import { HostsPage } from "../features/hosts/HostsPage";
 import { SetupPage } from "../features/auth/SetupPage";
 import { IncidentDetailPage } from "../features/incidents/IncidentDetailPage";
 import { IncidentListPage } from "../features/incidents/IncidentListPage";
-import { NoteEditorPage } from "../features/notes/NoteEditorPage";
-import { NotesPage } from "../features/notes/NotesPage";
-import { RulesPage } from "../features/rules/RulesPage";
-import { SettingsPage } from "../features/settings/SettingsPage";
-import { FirstRun } from "../features/setup/FirstRun";
-import { SkillsPage } from "../features/skills/SkillsPage";
 import { Layout } from "./Layout";
-import { Placeholder } from "./Placeholder";
+import styles from "./Layout.module.css";
+import { NotFoundPage } from "./NotFoundPage";
+import { ShellSkeleton } from "./PageSkeleton";
+import { PAGES } from "./pages";
 
 /** The design catalogue; the dev server only, so production bundles never contain it. */
 const DesignPage = import.meta.env.DEV ? lazy(() => import("../dev/DesignPage")) : null;
@@ -41,20 +32,19 @@ function RequireSession() {
   }
   if (session.error && !(session.error instanceof ApiFailure && session.error.status === 401)) {
     return (
-      <main>
+      <main className={styles.content}>
         <LoadError error={session.error} context="reach the hub" onRetry={session.refetch} />
       </main>
     );
   }
-  // Never a blank screen: say that the session is being checked.
-  return (
-    <main>
-      <Loading />
-    </main>
-  );
+  // Never a blank screen: the shell's shape, until the session is known.
+  return <ShellSkeleton />;
 }
 
-/** Every page of the app. */
+/**
+ * Every page of the app. Incidents, Login and Setup are in the first download; the rest
+ * are fetched when first opened (see `pages.ts`), inside the layout's `Suspense`.
+ */
 export function AppRoutes() {
   return (
     <>
@@ -77,19 +67,19 @@ export function AppRoutes() {
             <Route index element={<Navigate to="/incidents" replace />} />
             <Route path="/incidents" element={<IncidentListPage />} />
             <Route path="/incidents/:id" element={<IncidentDetailPage />} />
-            <Route path="/chat" element={<ChatPage />} />
-            <Route path="/rules" element={<RulesPage />} />
-            <Route path="/approvals" element={<ApprovalsPage />} />
-            <Route path="/hosts" element={<HostsPage />} />
-            <Route path="/hosts/:name" element={<HostDetailPage />} />
-            <Route path="/skills" element={<SkillsPage />} />
-            <Route path="/notes" element={<NotesPage />} />
-            <Route path="/notes/:id" element={<NoteEditorPage />} />
-            <Route path="/digest" element={<DigestPage />} />
-            <Route path="/logs" element={<LogsPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
-            <Route path="/welcome" element={<FirstRun />} />
-            <Route path="*" element={<Placeholder title="Not found" />} />
+            <Route path="/chat" element={<PAGES.chat.Page />} />
+            <Route path="/rules" element={<PAGES.rules.Page />} />
+            <Route path="/approvals" element={<PAGES.approvals.Page />} />
+            <Route path="/hosts" element={<PAGES.hosts.Page />} />
+            <Route path="/hosts/:name" element={<PAGES.host.Page />} />
+            <Route path="/skills" element={<PAGES.skills.Page />} />
+            <Route path="/notes" element={<PAGES.notes.Page />} />
+            <Route path="/notes/:id" element={<PAGES.note.Page />} />
+            <Route path="/digest" element={<PAGES.digest.Page />} />
+            <Route path="/logs" element={<PAGES.logs.Page />} />
+            <Route path="/settings" element={<PAGES.settings.Page />} />
+            <Route path="/welcome" element={<PAGES.firstRun.Page />} />
+            <Route path="*" element={<NotFoundPage />} />
           </Route>
         </Route>
       </Routes>

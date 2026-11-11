@@ -1,0 +1,80 @@
+import { createContext, useContext, type ReactNode, type Ref } from "react";
+import { createPortal } from "react-dom";
+import { Link, NavLink } from "react-router";
+import { Button } from "../components";
+import { HostSelect } from "./HostSelect";
+import styles from "./Layout.module.css";
+import { useTrail } from "./PageTitle";
+import { SIDEBAR_ID } from "./Sidebar";
+
+/** The element in the top bar that holds the current page's actions. */
+export const TopBarSlot = createContext<HTMLElement | null>(null);
+
+/**
+ * Puts a page's actions in the top bar, where they stay in reach while the page scrolls.
+ * Use it for the one or two actions that belong to the whole page; everything else stays in
+ * the page's `PageHeader`. Outside the shell it renders nothing.
+ */
+export function TopBarActions({ children }: { children: ReactNode }) {
+  const slot = useContext(TopBarSlot);
+  return slot ? createPortal(children, slot) : null;
+}
+
+/** Where the page is: its section, and on a page about one thing, a way back and its name. */
+function Breadcrumb() {
+  const { section, sectionItem, detail } = useTrail();
+  return (
+    <nav aria-label="Breadcrumb" className={styles.crumbs}>
+      <ol>
+        {section && (
+          <li aria-current={detail ? undefined : "page"}>
+            {detail && sectionItem ? <Link to={sectionItem.to}>{section}</Link> : section}
+          </li>
+        )}
+        {detail && <li aria-current="page">{detail}</li>}
+      </ol>
+    </nav>
+  );
+}
+
+/**
+ * The slim bar above every page: where you are, the page's actions, and the host selector.
+ * On a phone it also carries the brand and the Menu button that opens the navigation.
+ */
+export function TopBar({
+  menu,
+  sheetOpen,
+  onMenu,
+  slot,
+}: {
+  /** The Menu button, so focus can return to it when the sheet closes. */
+  menu: Ref<HTMLButtonElement>;
+  onMenu: () => void;
+  sheetOpen: boolean;
+  /** Receives the element that `TopBarActions` fills. */
+  slot: (element: HTMLElement | null) => void;
+}) {
+  return (
+    <header className={styles.topbar}>
+      <NavLink to="/incidents" className={styles.topBrand ?? ""}>
+        Domovoi
+      </NavLink>
+      <Breadcrumb />
+      <div ref={slot} className={styles.topActions} />
+      <div className={styles.hostSelect}>
+        <HostSelect />
+      </div>
+      <span className={styles.menuButton}>
+        <Button
+          ref={menu}
+          icon="menu"
+          aria-expanded={sheetOpen}
+          aria-controls={SIDEBAR_ID}
+          onClick={onMenu}
+        >
+          Menu
+        </Button>
+      </span>
+    </header>
+  );
+}
