@@ -19,6 +19,7 @@ import {
   StatusPill,
   Tabs,
   Tag,
+  type TableSort,
 } from "../components";
 import { hostConnectionMeta, type Tone } from "../design/tone";
 import { Demo, Group } from "./Demo";
@@ -97,6 +98,11 @@ const HOSTS: HostRow[] = [
 export function LayoutDemos() {
   const [status, setStatus] = useState("open");
   const [kinds, setKinds] = useState<string[]>(["agent"]);
+  const [sort, setSort] = useState<TableSort>({ key: "name", direction: "ascending" });
+  const hosts = [...HOSTS].sort((a, b) => {
+    const order = sort.key === "open" ? a.incidents - b.incidents : a.name.localeCompare(b.name);
+    return sort.direction === "ascending" ? order : -order;
+  });
   return (
     <Group title="Layout and data">
       <Demo name="PageHeader, Section, Card, Grid, Stack, Cluster">
@@ -131,12 +137,20 @@ export function LayoutDemos() {
         <Stack gap={3}>
           <DataTable
             caption="Hosts"
-            rows={HOSTS}
+            rows={hosts}
+            sort={sort}
+            onSort={(key) =>
+              setSort({
+                key,
+                direction:
+                  sort.key === key && sort.direction === "ascending" ? "descending" : "ascending",
+              })
+            }
             rowKey={(host) => host.name}
             rowTone={(host) => host.tone}
             rowHref={() => "/dev/design"}
             columns={[
-              { key: "name", label: "Host", cell: (host) => host.name },
+              { key: "name", label: "Host", sortable: true, cell: (host) => host.name },
               {
                 key: "agent",
                 label: "Agent",
@@ -147,6 +161,7 @@ export function LayoutDemos() {
                 key: "open",
                 label: "Open incidents",
                 numeric: true,
+                sortable: true,
                 cell: (host) => host.incidents,
               },
             ]}

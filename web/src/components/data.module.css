@@ -82,6 +82,37 @@
   gap: var(--space-1);
 }
 
+/* A sortable header: reads as the header text, with a chevron that shows only when it is the sort. */
+.sortButton {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+
+.sortButton:hover,
+.sortButton[data-sorted] {
+  color: var(--color-text);
+}
+
+.sortButton svg {
+  opacity: 0;
+  transition: opacity var(--motion-fast) var(--ease-out);
+}
+
+.sortButton:hover svg,
+.sortButton:focus-visible svg,
+.sortButton[data-sorted] svg {
+  opacity: 1;
+}
+
 .emptyCell {
   padding: var(--space-4);
   background: var(--color-surface);

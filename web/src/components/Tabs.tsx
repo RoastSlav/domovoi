@@ -7,6 +7,8 @@ import styles from "./data.module.css";
 export interface Tab {
   content: ReactNode;
   count?: { label: string; tone?: Tone; value: number };
+  /** What a controlled `Tabs` calls this tab (a URL parameter); the label when not given. */
+  id?: string;
   label: string;
 }
 
@@ -16,9 +18,31 @@ export interface Tab {
  *
  * Use it for a few views of the same object (a host's checks, logs, profile). Different
  * places in the app are navigation, not tabs.
+ *
+ * It keeps its own selection unless `selected` (a tab's `id`) is given: then the page owns
+ * it, for example in the URL, and `onSelect` is told which tab was chosen.
  */
-export function Tabs({ tabs, label }: { label: string; tabs: Tab[] }) {
-  const [selected, setSelected] = useState(0);
+export function Tabs({
+  tabs,
+  label,
+  selected: controlled,
+  onSelect,
+}: {
+  label: string;
+  onSelect?: (id: string) => void;
+  selected?: string | undefined;
+  tabs: Tab[];
+}) {
+  const [own, setOwn] = useState(0);
+  const found = tabs.findIndex((tab) => (tab.id ?? tab.label) === controlled);
+  const selected = controlled === undefined ? own : Math.max(found, 0);
+  const setSelected = (index: number) => {
+    setOwn(index);
+    const tab = tabs[index];
+    if (tab) {
+      onSelect?.(tab.id ?? tab.label);
+    }
+  };
   const base = useId();
   const list = useRef<HTMLDivElement>(null);
 

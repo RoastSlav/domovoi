@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router";
+import { Icon } from "../design/icons";
 import type { Tone } from "../design/tone";
 import { InfoTip } from "./InfoTip";
 import { Skeleton } from "./Skeleton";
@@ -19,6 +20,14 @@ export interface Column<T> {
   label: string;
   /** Right-aligned tabular digits, for numbers that should line up. */
   numeric?: boolean;
+  /** The header becomes a button that asks the page to sort by this column (see `sort`). */
+  sortable?: boolean;
+}
+
+/** Which column a table is sorted by, and which way. */
+export interface TableSort {
+  direction: "ascending" | "descending";
+  key: string;
 }
 
 /**
@@ -26,6 +35,10 @@ export interface Column<T> {
  * makes the whole row clickable (the link stays the accessible element, in the first
  * column), skeleton rows while loading and an empty slot. In a narrow container it becomes
  * a list of stacked cards with each value labelled.
+ *
+ * Sorting is the page's: mark columns `sortable`, pass the current `sort` and an `onSort`
+ * that receives the clicked column's key, and hand the table rows already in that order.
+ * The header then carries `aria-sort` and a button that says what it will do.
  *
  * Use it for many things with the same fields. The details of one thing are a
  * `KeyValueList`; a handful of rich items are `Card`s.
@@ -40,6 +53,8 @@ export function DataTable<T>({
   rowHref,
   loading = false,
   empty,
+  sort,
+  onSort,
 }: {
   /** Names the table for assistive technology; not shown. */
   caption: string;
@@ -48,6 +63,10 @@ export function DataTable<T>({
   empty?: ReactNode;
   /** Shows skeleton rows in place of the data. */
   loading?: boolean;
+  /** Called with the key of a `sortable` column whose header was clicked. */
+  onSort?: (key: string) => void;
+  /** The column the rows are sorted by, so its header can say so. */
+  sort?: TableSort;
   /** Where a row leads; the first column's content becomes the link. */
   rowHref?: (row: T) => string;
   rowKey: (row: T) => string;
@@ -65,18 +84,42 @@ export function DataTable<T>({
         <caption className="visually-hidden">{caption}</caption>
         <thead>
           <tr>
-            {columns.map((column) => (
-              <th key={column.key} scope="col" data-numeric={column.numeric || undefined}>
-                <span className={styles.headCell}>
-                  {column.hideLabel ? (
-                    <span className="visually-hidden">{column.label}</span>
-                  ) : (
-                    column.label
-                  )}
-                  {column.hint && <InfoTip title={column.label}>{column.hint}</InfoTip>}
-                </span>
-              </th>
-            ))}
+            {columns.map((column) => {
+              const sorted = sort?.key === column.key ? sort.direction : undefined;
+              const label = column.hideLabel ? (
+                <span className="visually-hidden">{column.label}</span>
+              ) : (
+                column.label
+              );
+              return (
+                <th
+                  key={column.key}
+                  scope="col"
+                  data-numeric={column.numeric || undefined}
+                  aria-sort={column.sortable ? (sorted ?? "none") : undefined}
+                >
+                  <span className={styles.headCell}>
+                    {column.sortable && onSort ? (
+                      <button
+                        type="button"
+                        className={styles.sortButton}
+                        data-sorted={sorted}
+                        onClick={() => onSort(column.key)}
+                      >
+                        {label}
+                        <Icon
+                          name={sorted === "descending" ? "chevron-down" : "chevron-up"}
+                          size={14}
+                        />
+                      </button>
+                    ) : (
+                      label
+                    )}
+                    {column.hint && <InfoTip title={column.label}>{column.hint}</InfoTip>}
+                  </span>
+                </th>
+              );
+            })}
           </tr>
         </thead>
         <tbody>

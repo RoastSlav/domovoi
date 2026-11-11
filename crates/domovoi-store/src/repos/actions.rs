@@ -2,12 +2,15 @@
 //! place outside authentication that may build one (INV-1, ADR 0014).
 
 use std::borrow::Cow;
+use std::collections::BTreeMap;
 
 use async_trait::async_trait;
-use domovoi_core::ports::{ActionFilter, ActionRepo, Page, Paged, StoreError};
+use domovoi_core::ports::{ActionFilter, ActionRepo, Page, Paged, RAN_STATUSES, StoreError};
 use domovoi_core::{
-    ActionId, ActionRequest, ApprovalChannel, HumanApproval, Principal, StoredAction,
+    ActionId, ActionRequest, ApprovalChannel, HostId, HumanApproval, Principal, SkillName,
+    StoredAction,
 };
+use jiff::Timestamp;
 
 use crate::codec::{
     Cursor, fetch_limit, from_json, from_ms, from_name, hash32, json, ms, name, paginate, parse,
@@ -245,5 +248,24 @@ impl ActionRepo for Store {
             .await
             .map_err(db)?;
         row.map(ActionRow::into_action).transpose()
+    }
+
+    async fn last_run_by_skill(
+        &self,
+        host: HostId,
+    ) -> Result<BTreeMap<SkillName, Timestamp>, StoreError> {
+        const SQL: &str = "SELECT skill, MAX(updated_at) FROM actions \
+            WHERE host_id = ?1 \
+            AND json_extract(status, '$.type') IN (SELECT value FROM json_each(?2)) \
+            GROUP BY skill";
+        let rows: Vec<(String, i64)> = sqlx::query_as(SQL)
+            .bind(host.to_string())
+            .bind(json(&RAN_STATUSES)?)
+            .fetch_all(&self.read)
+            .await
+            .map_err(db)?;
+        rows.into_iter()
+            .map(|(skill, at)| Ok((from_name(&skill, "skill name")?, from_ms(at)?)))
+            .collect()
     }
 }

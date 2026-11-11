@@ -19,8 +19,8 @@ export const HOSTS_REFRESH_MS = 30_000;
 /** How often the host list refreshes while an enrollment waits for its agent. */
 export const ENROLL_POLL_MS = 2_000;
 
-/** Every host and whether its agent is connected; polls every `pollMs`. */
-export function useHosts(pollMs: number = HOSTS_REFRESH_MS) {
+/** Every host and whether its agent is connected; polls every `pollMs`, or never when `false`. */
+export function useHosts(pollMs: number | false = HOSTS_REFRESH_MS) {
   return useQuery({
     queryKey: keys.hosts,
     queryFn: () => call<Host[]>(api.GET("/api/v1/hosts")),
@@ -81,6 +81,8 @@ export function useHostLogs(
       ),
     enabled: name !== "" && enabled,
     refetchInterval: refresh ? LOGS_REFRESH_MS : false,
+    // Live logs pause while the browser tab is hidden and resume when it is shown again.
+    refetchIntervalInBackground: false,
   });
 }
 
@@ -99,17 +101,27 @@ export function useSetSkillEnabled(name: string) {
   });
 }
 
-/** Creates a one-time enrollment invite, creating the host if it is new. */
+/**
+ * Creates a one-time enrollment invite, creating the host if it is new. Only the host list
+ * and the navigation's counts change; the details of other hosts stay as they are.
+ */
 export function useCreateInvite() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (name: string) =>
       call<Invite>(api.POST("/api/v1/hosts/{name}/enrollment", { params: { path: { name } } })),
-    onSuccess: () => client.invalidateQueries({ queryKey: keys.hosts }),
+    onSuccess: () =>
+      Promise.all([
+        client.invalidateQueries({ queryKey: keys.hosts, exact: true }),
+        client.invalidateQueries({ queryKey: keys.overview }),
+      ]),
   });
 }
 
-/** Revokes a host's agent and disconnects it. */
+/**
+ * Revokes a host's agent and disconnects it. Refreshes the host list, that host's own page
+ * and the navigation's counts; nothing else about other hosts changed.
+ */
 export function useRevoke() {
   const client = useQueryClient();
   return useMutation({
@@ -117,6 +129,11 @@ export function useRevoke() {
       call<{ revoked: boolean }>(
         api.POST("/api/v1/hosts/{name}/revoke", { params: { path: { name } } }),
       ),
-    onSuccess: () => client.invalidateQueries({ queryKey: keys.hosts }),
+    onSuccess: (_, name) =>
+      Promise.all([
+        client.invalidateQueries({ queryKey: keys.hosts, exact: true }),
+        client.invalidateQueries({ queryKey: keys.host(name) }),
+        client.invalidateQueries({ queryKey: keys.overview }),
+      ]),
   });
 }

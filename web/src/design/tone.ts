@@ -60,6 +60,10 @@ export type HostConnection = "connected" | "offline" | "never_connected" | "hub_
 export type IssueSeverity = "error" | "warning";
 /** What kind of machine a host is. */
 export type HostKind = "local" | "agent" | "container_agent" | "external";
+/** Where a check stands on a host. */
+export type CheckState = "ok" | "failing" | "disabled";
+/** How one SSH login attempt ended; `many_failures` is a failed one from an address that keeps failing. */
+export type SshLogin = "accepted" | "failed" | "many_failures";
 
 type Table<K extends string> = Record<K, StatusMeta>;
 
@@ -388,6 +392,48 @@ const HOST_KINDS: Table<HostKind> = {
   },
 };
 
+const CHECK_STATES: Table<CheckState> = {
+  ok: {
+    label: "OK",
+    tone: "success",
+    hint: "The check runs and has nothing open.",
+    icon: "check-circle",
+  },
+  failing: {
+    label: "Failing",
+    tone: "danger",
+    hint: "The check has an incident that is not resolved yet.",
+    icon: "alert-circle",
+  },
+  disabled: {
+    label: "Disabled",
+    tone: "neutral",
+    hint: "The check is switched off, so it reports nothing on this host.",
+    icon: "ban",
+  },
+};
+
+const SSH_LOGINS: Table<SshLogin> = {
+  accepted: {
+    label: "Accepted",
+    tone: "neutral",
+    hint: "The login succeeded. Expected logins never alert; others raise an incident.",
+    icon: "check",
+  },
+  failed: {
+    label: "Failed",
+    tone: "warning",
+    hint: "The password or key was refused.",
+    icon: "alert",
+  },
+  many_failures: {
+    label: "Many failures",
+    tone: "danger",
+    hint: "This address failed to log in many times in a row, which looks like someone guessing passwords.",
+    icon: "alert-circle",
+  },
+};
+
 /** How a triage verdict is shown. */
 export function verdictMeta(verdict: string): StatusMeta {
   return lookup(VERDICTS, verdict);
@@ -488,6 +534,16 @@ export function hostKindMeta(kind: string): StatusMeta {
   return lookup(HOST_KINDS, kind);
 }
 
+/** How a check's state on a host is shown. */
+export function checkStateMeta(state: string): StatusMeta {
+  return lookup(CHECK_STATES, state);
+}
+
+/** How the result of an SSH login attempt is shown. */
+export function sshLoginMeta(result: string): StatusMeta {
+  return lookup(SSH_LOGINS, result);
+}
+
 /** The one badge an incident shows: Resolved once it resolved, else its verdict or severity. */
 export function incidentBadgeMeta(
   incident: Pick<IncidentSummary, "status" | "verdict" | "severity">,
@@ -526,4 +582,6 @@ export const VOCABULARIES: {
   { name: "Live updates", meta: liveMeta, values: Object.keys(LIVE) },
   { name: "Settings issue", meta: issueSeverityMeta, values: Object.keys(ISSUE_SEVERITIES) },
   { name: "Host kind", meta: hostKindMeta, values: Object.keys(HOST_KINDS) },
+  { name: "Check state", meta: checkStateMeta, values: Object.keys(CHECK_STATES) },
+  { name: "SSH login", meta: sshLoginMeta, values: Object.keys(SSH_LOGINS) },
 ];

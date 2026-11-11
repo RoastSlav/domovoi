@@ -1,54 +1,146 @@
+/* Placement and the log's own reading surface; every colour is a token. */
+
 .choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: var(--space-3);
+  align-items: end;
+  margin-bottom: var(--space-4);
+}
+
+.pickerField {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.pickerLabel {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.viewer {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.toolbar {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem;
-  margin-bottom: 1rem;
+  gap: var(--space-3);
+  align-items: end;
+  justify-content: space-between;
 }
 
-.choice {
-  display: grid;
-  gap: 0.2rem;
-  font-size: 0.9rem;
+.search {
+  flex: 1 1 14rem;
+  max-width: 24rem;
 }
 
-.block {
-  margin: 0;
-  padding: 0.75rem;
-  overflow-x: auto;
-  white-space: pre;
-  background: var(--color-surface);
+.switches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+}
+
+/* The area and its skeleton share a minimum height, so the lines arriving shifts nothing. */
+.frame {
+  position: relative;
+  min-width: 0;
+}
+
+.area {
+  min-height: 20rem;
+  max-height: min(70vh, 44rem);
+  overflow: auto;
+  padding: var(--space-2) var(--space-3);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
+  background: var(--color-surface);
   font-family: var(--font-mono);
-  font-size: 0.85rem;
-  line-height: 1.45;
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
 }
 
-.line {
-  color: var(--color-text);
+.row {
+  display: flex;
+  gap: var(--space-2);
+  width: max-content;
+  min-width: 100%;
 }
 
-.debug {
+.area[data-wrap] .row {
+  width: auto;
+}
+
+.time,
+.level {
+  flex: none;
   color: var(--color-text-muted);
 }
 
-.warn {
-  color: var(--tone-warning-fg);
+.level {
+  min-width: 5ch;
 }
 
-.error {
+.level[data-kind="error"] {
   color: var(--tone-danger-fg);
   font-weight: 600;
 }
 
-.refresh {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-top: 0.75rem;
+.level[data-kind="warn"] {
+  color: var(--tone-warning-fg);
+  font-weight: 600;
 }
 
-.hint {
-  color: var(--color-text-muted);
-  font-size: 0.9rem;
+.level[data-kind="info"] {
+  color: var(--color-text);
+}
+
+.level[data-kind="debug"] {
+  color: var(--color-text-subtle);
+}
+
+.text {
+  min-width: 0;
+  color: var(--color-text);
+  white-space: pre;
+}
+
+.area[data-wrap] .text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.row mark {
+  padding: 0 1px;
+  border-radius: 2px;
+  background: var(--tone-warning-bg);
+  color: inherit;
+  outline: 1px solid var(--tone-warning-border);
+}
+
+.older {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  padding-bottom: var(--space-2);
+  font-family: var(--font-sans);
+}
+
+.jump {
+  position: absolute;
+  right: var(--space-4);
+  bottom: var(--space-3);
+  z-index: var(--z-sticky);
+}
+
+.footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+  justify-content: space-between;
 }

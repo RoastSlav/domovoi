@@ -2,12 +2,16 @@
 //! catalogue, is saved under the host's settings key, and is re-read when the hub
 //! builds a new policy, so a restart keeps the switch.
 
+use std::collections::BTreeMap;
+
 use axum::http::{Method, StatusCode};
 
-use domovoi_core::ports::{AuditFilter, AuditLog, HostRepo, Page, SettingsRepo};
-use domovoi_core::{Risk, SkillName, SkillSummary};
+use domovoi_core::ports::{ActionRepo, AuditFilter, AuditLog, HostRepo, Page, SettingsRepo};
+use domovoi_core::{ActionRequest, Principal, Risk, SkillName, SkillSummary};
 use domovoi_hub::agent_server::{SkillPolicy, host_skills_key};
+use domovoi_testkit::approvals::human;
 use domovoi_testkit::build::manifest;
+use jiff::SignedDuration;
 use serde_json::json;
 
 use crate::api_harness::{Api, Login, api};
@@ -213,5 +217,73 @@ async fn a_skill_name_the_agent_could_not_have_is_refused() {
             .unwrap(),
         None,
         "the refused switch stored nothing",
+    );
+}
+
+/// Stores a request for `skill` on `nas` that the hub sent to the agent `after` the
+/// current instant, and answers with that instant.
+async fn sent(a: &Api, skill: &str, after: SignedDuration) -> jiff::Timestamp {
+    let summary = manifest(skill, Risk::Read).unwrap().summary();
+    let args = summary.validate_args(&BTreeMap::new()).unwrap();
+    let mut request = ActionRequest::propose(
+        a.incident.id(),
+        a.nas.id,
+        &summary,
+        &args,
+        Principal::System("triage".into()),
+        SignedDuration::from_hours(1),
+        a.now(),
+    );
+    request
+        .approve(human(domovoi_core::UserId::new()), a.now())
+        .unwrap();
+    let at = a.now().checked_add(after).unwrap();
+    request.dispatch(request.plan_hash(), at).unwrap();
+    ActionRepo::insert(&*a.store, &request).await.unwrap();
+    at
+}
+
+#[tokio::test]
+async fn skill_list_reports_when_each_skill_last_ran() {
+    let a = api().await;
+    let login = a.admin().await;
+    a.link.set_skills(a.nas.id, announced());
+
+    let before = a.get("/api/v1/hosts/nas/skills", &login).await;
+    assert!(
+        before
+            .body
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|item| item["last_used"].is_null()),
+        "nothing ran yet: {}",
+        before.text,
+    );
+
+    sent(&a, SHOWN, SignedDuration::from_secs(5)).await;
+    let latest = sent(&a, SHOWN, SignedDuration::from_secs(90)).await;
+
+    let reply = a.get("/api/v1/hosts/nas/skills", &login).await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.text);
+    let last_used = |skill: &str| {
+        let item = reply
+            .body
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["name"] == skill)
+            .unwrap();
+        item["last_used"].clone()
+    };
+    assert_eq!(
+        last_used(SHOWN),
+        json!(latest.to_string()),
+        "the latest run wins"
+    );
+    assert_eq!(
+        last_used(HIDDEN),
+        json!(null),
+        "a skill that never ran has no time"
     );
 }

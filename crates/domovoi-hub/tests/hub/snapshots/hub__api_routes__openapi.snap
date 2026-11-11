@@ -1960,6 +1960,13 @@ expression: spec
             "description": "Whether the hub may run and suggest this skill on the host.",
             "type": "boolean"
           },
+          "last_used": {
+            "description": "When the hub last sent this skill to the host's agent, as RFC 3339; absent when it\nnever has.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "manifest_hash": {
             "description": "Hash of the full manifest the agent has, as hex.",
             "type": "string"

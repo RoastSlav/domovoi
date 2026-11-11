@@ -1,49 +1,22 @@
 import { useState } from "react";
-import { Link } from "react-router";
-import { useHosts, useRevoke } from "../../api/hooks/hosts";
+import { useHosts } from "../../api/hooks/hosts";
 import type { Host } from "../../api/types";
-import {
-  Button,
-  ConfirmDialog,
-  EmptyState,
-  LoadError,
-  Loading,
-  PageHeader,
-  useActionFeedback,
-} from "../../components";
 import { AllHostsNote } from "../../app/AllHostsNote";
-import ui from "../../components/ui.module.css";
+import { Button, EmptyState, PageHeader, QueryBoundary, Skeleton, Tag } from "../../components";
+import { hostConnectionOf } from "../../design/tone";
 import { EnrollDialog } from "./EnrollDialog";
-import { HostStatus, VersionCell } from "./HostStatus";
+import { HostsTable } from "./HostsTable";
 
-function RevokeButton({ host }: { host: Host }) {
-  const [open, setOpen] = useState(false);
-  const revoke = useActionFeedback(useRevoke(), {
-    success: (_, name) => `Agent on ${name} revoked`,
-    error: "revoke the agent",
-    errorDisplay: "inline",
-  });
-  const close = () => {
-    setOpen(false);
-    revoke.reset();
-  };
+/** The page's one-line summary: how many hosts there are and how many need a look. */
+function Summary({ hosts }: { hosts: readonly Host[] }) {
+  const connections = hosts.map(hostConnectionOf);
+  const online = connections.filter((state) => state === "connected").length;
+  const offline = connections.filter((state) => state === "offline" || state === "refused").length;
   return (
     <>
-      <Button variant="danger" onClick={() => setOpen(true)}>
-        Revoke
-      </Button>
-      {open && (
-        <ConfirmDialog
-          title={`Revoke the agent on ${host.name}?`}
-          consequence="The agent is disconnected and its key stops working. To bring the host back, enroll it again."
-          confirmLabel="Revoke agent"
-          tone="danger"
-          busy={revoke.isPending}
-          error={revoke.error}
-          onConfirm={() => revoke.mutate(host.name, { onSuccess: close })}
-          onCancel={close}
-        />
-      )}
+      <Tag>{hosts.length === 1 ? "1 host" : `${hosts.length} hosts`}</Tag>
+      {online > 0 && <Tag tone="success">{`${online} online`}</Tag>}
+      {offline > 0 && <Tag tone="danger">{`${offline} offline`}</Tag>}
     </>
   );
 }
@@ -52,7 +25,7 @@ function RevokeButton({ host }: { host: Host }) {
 export function HostsPage() {
   const hosts = useHosts();
   const [enrolling, setEnrolling] = useState(false);
-  const items = hosts.data ?? [];
+  const add = () => setEnrolling(true);
 
   return (
     <>
@@ -60,68 +33,38 @@ export function HostsPage() {
         title="Hosts"
         docs="concepts/hub-and-agent.html"
         intro="Machines Domovoi knows about: hosts running an agent, and hosts that webhooks report on."
+        meta={hosts.data && hosts.data.length > 0 && <Summary hosts={hosts.data} />}
         actions={
-          <Button variant="primary" icon="plus" onClick={() => setEnrolling(true)}>
+          <Button variant="primary" icon="plus" onClick={add}>
             Add host
           </Button>
         }
       />
       <AllHostsNote>This is the list the host selector chooses from.</AllHostsNote>
-      {hosts.isPending && <Loading />}
-      {hosts.error && !hosts.data && (
-        <LoadError error={hosts.error} context="load hosts" onRetry={hosts.refetch} />
-      )}
-      {hosts.data && items.length === 0 && (
-        <EmptyState icon="server" title="No hosts yet">
-          <p>Add a host to enroll its agent.</p>
-        </EmptyState>
-      )}
-      {items.length > 0 && (
-        <div className={ui.tableWrap}>
-          <table className={ui.table}>
-            <thead>
-              <tr>
-                <th scope="col">Host</th>
-                <th scope="col">Kind</th>
-                <th scope="col">Agent</th>
-                <th scope="col">Version</th>
-                <th scope="col">Open incidents</th>
-                <th scope="col">
-                  <span className="visually-hidden">Actions</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((host) => (
-                <tr key={host.id}>
-                  <th scope="row">
-                    <Link to={`/hosts/${encodeURIComponent(host.name)}`}>{host.name}</Link>
-                  </th>
-                  <td>{host.kind}</td>
-                  <td>
-                    <HostStatus host={host} />
-                  </td>
-                  <td>
-                    <VersionCell host={host} />
-                  </td>
-                  <td>
-                    {host.open_incidents > 0 ? (
-                      <Link to={`/incidents?host=${encodeURIComponent(host.name)}`}>
-                        {host.open_incidents}
-                      </Link>
-                    ) : (
-                      0
-                    )}
-                  </td>
-                  <td>
-                    <RevokeButton host={host} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <QueryBoundary
+        query={hosts}
+        context="load hosts"
+        loading={<Skeleton shape="rows" count={5} />}
+        isEmpty={(data) => data.length === 0}
+        empty={
+          <EmptyState
+            icon="server"
+            title="No hosts yet"
+            action={
+              <Button variant="primary" icon="plus" onClick={add}>
+                Add your first host
+              </Button>
+            }
+          >
+            <p>
+              A host is a machine Domovoi watches. Each one runs a small agent that connects to this
+              hub and reports in. Add a host to get a one-time command to run on it.
+            </p>
+          </EmptyState>
+        }
+      >
+        {(data) => <HostsTable hosts={data} />}
+      </QueryBoundary>
       {enrolling && <EnrollDialog onClose={() => setEnrolling(false)} />}
     </>
   );

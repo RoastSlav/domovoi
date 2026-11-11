@@ -1,11 +1,14 @@
 //! Action requests.
 
+use std::collections::BTreeMap;
+
 use async_trait::async_trait;
 use jiff::Timestamp;
 
 use super::{Page, Paged, StoreError};
 use crate::action::ActionRequest;
 use crate::id::{ActionId, HostId, IncidentId};
+use crate::skill::SkillName;
 
 /// Which actions a listing returns. The default returns all of them.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -50,4 +53,23 @@ pub trait ActionRepo: Send + Sync {
         &self,
         hash: &[u8; 32],
     ) -> Result<Option<ActionRequest>, StoreError>;
+
+    /// When each skill last ran on `host`: the latest change of any request for it that was
+    /// sent to the agent (`dispatched`, `succeeded`, `failed`, `verified` or
+    /// `verify_failed`). Requests that never reached the agent do not count, and a skill
+    /// that never ran is absent.
+    async fn last_run_by_skill(
+        &self,
+        host: HostId,
+    ) -> Result<BTreeMap<SkillName, Timestamp>, StoreError>;
 }
+
+/// The status names of requests that reached the agent; see
+/// [`ActionRepo::last_run_by_skill`].
+pub const RAN_STATUSES: [&str; 5] = [
+    "dispatched",
+    "succeeded",
+    "failed",
+    "verified",
+    "verify_failed",
+];

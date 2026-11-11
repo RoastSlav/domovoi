@@ -183,6 +183,9 @@ pub struct SkillDto {
     pub readme: Option<String>,
     /// Whether the hub may run and suggest this skill on the host.
     pub enabled: bool,
+    /// When the hub last sent this skill to the host's agent, as RFC 3339; absent when it
+    /// never has.
+    pub last_used: Option<String>,
 }
 
 /// A note.
