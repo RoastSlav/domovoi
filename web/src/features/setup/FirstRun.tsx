@@ -1,408 +1,103 @@
-import { useState } from "react";
-import { useNavigate } from "react-router";
+import type { Editable } from "../../api/types";
 import { useSettings } from "../../api/hooks/system";
-import { useTestConnection, type SecretChange, type TestTarget } from "../../api/hooks/settings";
-import { ApiFailure, type Editable, type Issue } from "../../api/types";
-import { Button, EmptyState, LoadError, Loading, PasswordPrompt } from "../../components";
-import { EnrollDialog } from "../hosts/EnrollDialog";
-import { DiscordSetupHelp } from "../settings/DiscordSetupHelp";
-import { TestIssues } from "../settings/TestIssues";
-import { Field, ModelField, SecretField } from "../settings/fields";
 import {
-  buildChanges,
-  getIn,
-  isSecretSet,
-  isSensitive,
-  lockedBy,
-  setIn,
-  sourceOf,
-  toInput,
-  type FieldSpec,
-} from "../settings/form";
-import styles from "../settings/settings.module.css";
-import { phaseText, useApplySettings } from "../settings/useApply";
-
-interface Step {
-  title: string;
-  intro: string;
-  fields: FieldSpec[];
-  test?: TestTarget;
-  optional: boolean;
-}
-
-/** The steps before the first host; their settings are applied together. */
-export const STEPS: Step[] = [
-  {
-    title: "Hub",
-    intro: "What this hub is called and where people reach it.",
-    optional: false,
-    fields: [
-      { path: "hub.name", label: "Name", kind: "text" },
-      { path: "hub.timezone", label: "Time zone", kind: "text" },
-      { path: "web.public_url", label: "Public URL", kind: "text" },
-    ],
-  },
-  {
-    title: "Discord",
-    intro: "Incidents arrive as cards in a channel, with buttons to acknowledge and approve.",
-    optional: true,
-    test: "discord",
-    fields: [
-      { path: "discord.bot_token", label: "Bot token", kind: "secret" },
-      {
-        path: "discord.channel_id",
-        label: "Channel ID",
-        kind: "id",
-        hint: "Numeric channel ID. With Developer Mode enabled, right-click the channel and choose Copy Channel ID.",
-      },
-      {
-        path: "discord.allowed_user_ids",
-        label: "Users who may approve",
-        kind: "ids",
-        hint: "Numeric Discord user IDs, separated by commas. Use Copy User ID; usernames, display names and tags do not work.",
-      },
-    ],
-  },
-  {
-    title: "Model",
-    intro: "A model triages each incident: what happened, why, and what to do.",
-    optional: true,
-    test: "llm",
-    fields: [
-      {
-        path: "llm.primary.kind",
-        label: "Provider",
-        kind: "select",
-        options: ["", "anthropic", "openai_compatible", "cli"],
-      },
-      {
-        path: "llm.primary.model",
-        label: "Model",
-        kind: "model",
-        visibleWhen: {
-          path: "llm.primary.kind",
-          values: ["anthropic", "openai_compatible"],
-        },
-      },
-      {
-        path: "llm.primary.base_url",
-        label: "Base URL",
-        kind: "text",
-        placeholder: "http://localhost:11434/v1",
-        hint: "API root. Required for OpenAI-compatible providers; optional for Anthropic proxies.",
-        visibleWhen: {
-          path: "llm.primary.kind",
-          values: ["anthropic", "openai_compatible"],
-        },
-      },
-      {
-        path: "llm.primary.api_key",
-        label: "API key",
-        kind: "secret",
-        visibleWhen: {
-          path: "llm.primary.kind",
-          values: ["anthropic", "openai_compatible"],
-        },
-      },
-      {
-        path: "llm.primary.cli.preset",
-        label: "CLI preset",
-        kind: "select",
-        options: ["", "claude", "codex"],
-        visibleWhen: { path: "llm.primary.kind", values: ["cli"] },
-      },
-      { path: "triage.monthly_budget_usd", label: "Monthly budget (USD)", kind: "number" },
-      { path: "triage.enabled", label: "Triage incidents with this model", kind: "bool" },
-    ],
-  },
-  {
-    title: "Digest and quiet hours",
-    intro: "A daily summary, and hours when only critical alerts get through.",
-    optional: true,
-    fields: [
-      { path: "notify.digest.time", label: "Digest time", kind: "text", placeholder: "09:00" },
-      {
-        path: "notify.quiet_hours.start",
-        label: "Quiet hours start",
-        kind: "text",
-        placeholder: "00:00",
-      },
-      {
-        path: "notify.quiet_hours.end",
-        label: "Quiet hours end",
-        kind: "text",
-        placeholder: "09:00",
-      },
-    ],
-  },
-];
-
-/** The step titles shown in the progress line, the first host included. */
-const TITLES = [...STEPS.map((s) => s.title), "First host"];
-
-function browserTimeZone(): string {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone;
-  } catch {
-    return "UTC";
-  }
-}
+  EmptyState,
+  LinkButton,
+  LoadError,
+  Loading,
+  PageHeader,
+  PasswordPrompt,
+  Stack,
+  Stepper,
+  type StepperStep,
+} from "../../components";
+import { FinishStep } from "./FinishStep";
+import { HOST_TITLE, STEPS } from "./steps";
+import { useWizard } from "./useWizard";
+import { WizardStep } from "./WizardStep";
 
 function Wizard({ editable }: { editable: Editable }) {
-  const values = editable.values as Record<string, unknown>;
-  const all = STEPS.flatMap((s) => s.fields);
-  // What the hub has now; it does not change while the wizard runs.
-  const [baseline] = useState<Record<string, string | boolean>>(() =>
-    Object.fromEntries(
-      all
-        .filter((f) => f.kind !== "secret")
-        .map((f) => [f.path, toInput(getIn(values, f.path), f.kind)]),
-    ),
-  );
-  const [inputs, setInputs] = useState<Record<string, string | boolean>>(() => ({
-    ...baseline,
-    "hub.timezone":
-      getIn(values, "hub.timezone") && sourceOf(editable.fields, "hub.timezone") !== "default"
-        ? (baseline["hub.timezone"] ?? "")
-        : browserTimeZone(),
-    "web.public_url": baseline["web.public_url"] || window.location.origin,
-    "triage.enabled": true,
+  const wizard = useWizard(editable);
+  const current = STEPS[wizard.step];
+  const steps: StepperStep[] = [
+    ...STEPS.map((s) => ({ id: s.id, label: s.title })),
+    { id: "host", label: HOST_TITLE },
+  ].map((s, i) => ({
+    ...s,
+    state:
+      i === wizard.step
+        ? ("current" as const)
+        : i > wizard.step
+          ? ("upcoming" as const)
+          : wizard.skipped.has(i)
+            ? ("skipped" as const)
+            : ("done" as const),
   }));
-  const [secrets, setSecrets] = useState<Record<string, SecretChange>>({});
-  const [step, setStep] = useState(0);
-  const [skipped, setSkipped] = useState<Set<number>>(new Set());
-  const [asking, setAsking] = useState(false);
-  const [passwordError, setPasswordError] = useState<string>();
-  const [issues, setIssues] = useState<Issue[]>([]);
-  const [failure, setFailure] = useState<string>();
-  const [adding, setAdding] = useState(false);
-  const apply = useApplySettings();
-  const tester = useTestConnection(STEPS[step]?.test ?? "heartbeat");
-  const navigate = useNavigate();
-
-  const changes = (without: Set<number> = skipped, only?: number) => {
-    const kept = STEPS.filter((_, i) =>
-      only === undefined ? !without.has(i) : i === only,
-    ).flatMap((s) => s.fields);
-    const out = buildChanges(kept, baseline, inputs, secrets);
-    const token = secrets["discord.bot_token"];
-    const discordKept = only === undefined ? !without.has(1) : only === 1;
-    if (discordKept && token && "set" in token) {
-      setIn(out, "discord.enabled", true);
-    }
-    return out;
-  };
-
-  const testStep = () => {
-    const current = changes(skipped, step);
-    const isDiscord = STEPS[step]?.test === "discord";
-    tester.mutate(isDiscord ? { ...changes(skipped, 0), ...current } : current);
-  };
-
-  const save = async (pending: ReturnType<typeof changes>, password?: string) => {
-    setFailure(undefined);
-    setIssues([]);
-    setPasswordError(undefined);
-    try {
-      await apply.run({
-        base_revision: editable.revision,
-        changes: pending,
-        ...(password ? { password } : {}),
-      });
-      setAsking(false);
-      setStep(STEPS.length);
-    } catch (error) {
-      if (asking && error instanceof ApiFailure && error.status === 403) {
-        setPasswordError("That password is not right.");
-        return;
-      }
-      setAsking(false);
-      setFailure(
-        error instanceof ApiFailure ? error.message : "Could not save. Is the hub running?",
-      );
-      setIssues(error instanceof ApiFailure ? error.issues : []);
-    }
-  };
-
-  const [pending, setPending] = useState<ReturnType<typeof changes>>({});
-
-  const next = (skip: boolean) => {
-    const now = new Set(skipped);
-    if (skip) {
-      now.add(step);
-    } else {
-      now.delete(step);
-    }
-    setSkipped(now);
-    if (step < STEPS.length - 1) {
-      setStep(step + 1);
-      tester.reset();
-      return;
-    }
-    const all = changes(now);
-    setPending(all);
-    if (isSensitive(all)) {
-      setAsking(true);
-    } else {
-      void save(all);
-    }
-  };
-
-  const current = STEPS[step];
   return (
-    <>
-      <h1>Set up Domovoi</h1>
-      <ol className={styles.progress} aria-label="Setup steps">
-        {TITLES.map((title, i) => (
-          <li key={title} aria-current={i === step ? "step" : undefined}>
-            {title}
-            {skipped.has(i) ? " (skipped)" : ""}
-          </li>
-        ))}
-      </ol>
+    <Stack gap={4}>
+      <Stepper label="Setup steps" steps={steps} />
       {current ? (
-        <section aria-labelledby="step-heading" className={styles.form}>
-          <h2 id="step-heading">{current.title}</h2>
-          <p>{current.intro}</p>
-          {current.title === "Discord" && <DiscordSetupHelp />}
-          {current.fields
-            .filter(
-              (spec) =>
-                !spec.visibleWhen ||
-                spec.visibleWhen.values.includes(String(inputs[spec.visibleWhen.path] ?? "")),
-            )
-            .map((spec) => {
-              const locked = lockedBy(sourceOf(editable.fields, spec.path));
-              const errors = issues.filter((i) => i.path === spec.path).map((i) => i.message);
-              return spec.kind === "secret" ? (
-                <SecretField
-                  key={spec.path}
-                  spec={spec}
-                  hint={spec.hint}
-                  locked={locked}
-                  errors={errors}
-                  isSet={isSecretSet(values, spec.path)}
-                  change={secrets[spec.path] ?? { keep: true }}
-                  onChange={(change) => setSecrets((s) => ({ ...s, [spec.path]: change }))}
-                />
-              ) : spec.kind === "model" ? (
-                <ModelField
-                  key={spec.path}
-                  spec={spec}
-                  hint={spec.hint}
-                  locked={locked}
-                  errors={errors}
-                  value={String(inputs[spec.path] ?? "")}
-                  candidate={changes}
-                  onChange={(value) => setInputs((s) => ({ ...s, [spec.path]: value }))}
-                />
-              ) : (
-                <Field
-                  key={spec.path}
-                  spec={spec}
-                  hint={spec.hint}
-                  locked={locked}
-                  errors={errors}
-                  value={inputs[spec.path] ?? ""}
-                  onChange={(value) => setInputs((s) => ({ ...s, [spec.path]: value }))}
-                />
-              );
-            })}
-          {failure && (
-            <div role="alert" className={styles.alert}>
-              <p className={styles.status}>{failure}</p>
-              {issues.map((i) => (
-                <p key={`${i.path}:${i.message}`} className={styles.status}>
-                  {i.path ? `${i.path}: ` : ""}
-                  {i.message}
-                </p>
-              ))}
-            </div>
-          )}
-          <div className={styles.actions}>
-            {step > 0 && <Button onClick={() => setStep(step - 1)}>Back</Button>}
-            {current.test && (
-              <Button disabled={tester.isPending} onClick={testStep}>
-                Test
-              </Button>
-            )}
-            {current.optional && (
-              <Button disabled={apply.pending} onClick={() => next(true)}>
-                Skip
-              </Button>
-            )}
-            <Button variant="primary" disabled={apply.pending} onClick={() => next(false)}>
-              {step === STEPS.length - 1 ? "Save and apply" : "Next"}
-            </Button>
-          </div>
-          {tester.data && (
-            <p role="status" className={styles.status}>
-              {tester.data.ok ? "Worked: " : "Failed: "}
-              {tester.data.message}
-            </p>
-          )}
-          <TestIssues error={tester.error} />
-          {phaseText(apply.phase) && (
-            <p role="status" className={styles.status}>
-              {phaseText(apply.phase)}
-            </p>
-          )}
-        </section>
+        <WizardStep step={current} editable={editable} wizard={wizard} />
       ) : (
-        <section aria-labelledby="host-heading" className={styles.form}>
-          <h2 id="host-heading">Add your first host</h2>
-          {phaseText(apply.phase) && (
-            <p role="status" className={styles.status}>
-              {phaseText(apply.phase)}
-            </p>
-          )}
-          <p>
-            Install the agent on a machine you want watched, then enroll it with a one-time command.
-          </p>
-          <div className={styles.actions}>
-            <Button onClick={() => setAdding(true)}>Add a host</Button>
-            <Button
-              variant="primary"
-              onClick={() => void navigate("/incidents", { replace: true })}
-            >
-              Finish
-            </Button>
-          </div>
-          {adding && <EnrollDialog onClose={() => setAdding(false)} />}
-        </section>
+        <FinishStep wizard={wizard} />
       )}
-      {asking && (
+      {wizard.asking && (
         <PasswordPrompt
           reason="Saving a token or key needs your password again."
-          error={passwordError}
-          busy={apply.pending}
-          onConfirm={(password) => void save(pending, password)}
-          onCancel={() => setAsking(false)}
+          error={wizard.passwordError}
+          busy={wizard.apply.pending}
+          onConfirm={wizard.confirmPassword}
+          onCancel={wizard.cancelPassword}
         />
       )}
-    </>
+    </Stack>
   );
 }
 
-/**
- * The guided first run after the admin account exists: hub basics, Discord, a model, the
- * digest and quiet hours, applied together, then the first host. Every step but the first
- * can be skipped; the Settings page has all of it later.
- */
-export function FirstRun() {
+/** What the page shows once settings are known: a load failure, a read-only hub, or the steps. */
+function Body() {
   const settings = useSettings();
   if (settings.isPending) {
     return <Loading />;
   }
+  // A failed request is not "managed in hub.toml": the hub may simply not be reachable.
   if (settings.error) {
     return <LoadError error={settings.error} context="load settings" onRetry={settings.refetch} />;
   }
+  // The hub answered without editable settings: it runs from a fixed hub.toml.
   if (!settings.data.editable) {
     return (
-      <EmptyState title="Settings are managed in hub.toml on this hub">
-        <p>Edit hub.toml and restart the hub to change them.</p>
+      <EmptyState
+        title="Settings are managed in hub.toml"
+        action={
+          <LinkButton to="/incidents" variant="primary">
+            Go to incidents
+          </LinkButton>
+        }
+      >
+        <p>
+          This hub runs from hub.toml, so settings cannot be changed here. Edit hub.toml and restart
+          the hub.
+        </p>
       </EmptyState>
     );
   }
   return <Wizard editable={settings.data.editable} />;
+}
+
+/**
+ * The guided first run after the admin account exists: hub basics, Discord, a model, the
+ * digest and quiet hours, applied together, then the first host and a summary. Every step
+ * but the first can be skipped; Settings has all of it later.
+ */
+export function FirstRun() {
+  return (
+    <>
+      <PageHeader
+        title="Set up Domovoi"
+        intro="A few steps to get alerts, triage and your first host working. You can skip any step but the first and come back in Settings."
+      />
+      <Body />
+    </>
+  );
 }

@@ -1,77 +1,58 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router";
 import { useLogin } from "../../api/hooks/session";
-import { ApiFailure } from "../../api/types";
-import { Button, InlineMessage } from "../../components";
+import { AuthCard, Button, Field, InlineError, PasswordInput, TextInput } from "../../components";
 import styles from "./auth.module.css";
 
-/** What a failed login says. It never tells which of username and password was wrong. */
-export function loginFailureText(error: unknown): string {
-  if (error instanceof ApiFailure) {
-    if (error.status === 401) {
-      return "Wrong username or password.";
-    }
-    if (error.status === 429) {
-      const minutes = Math.max(1, Math.ceil((error.retryAfter ?? 60) / 60));
-      return `Too many attempts. Try again in ${minutes} minute${minutes === 1 ? "" : "s"}.`;
-    }
-  }
-  return "Could not log in. Is the hub running?";
-}
-
-/** Logs in the admin. */
+/** Logs in the admin. A failure says what happened in the status line under the button. */
 export function LoginPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [problem, setProblem] = useState<string>();
   const login = useLogin();
   const navigate = useNavigate();
 
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
-    setProblem(undefined);
     login.mutate(
       { username: username.trim(), password },
       {
         onSuccess: () => void navigate("/incidents", { replace: true }),
-        onError: (error) => {
-          setPassword("");
-          setProblem(loginFailureText(error));
-        },
+        onError: () => setPassword(""),
       },
     );
   };
 
   return (
-    <main className={styles.page}>
-      <h1>Log in to Domovoi</h1>
+    <AuthCard title="Log in to Domovoi">
       <form className={styles.form} onSubmit={onSubmit}>
-        <div className={styles.field}>
-          <label htmlFor="login-username">Username</label>
-          <input
-            id="login-username"
+        <Field label="Username">
+          <TextInput
             value={username}
-            onChange={(e) => setUsername(e.target.value)}
+            onChange={(event) => setUsername(event.target.value)}
             autoComplete="username"
-            required
           />
-        </div>
-        <div className={styles.field}>
-          <label htmlFor="login-password">Password</label>
-          <input
-            id="login-password"
-            type="password"
+        </Field>
+        <Field label="Password">
+          <PasswordInput
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            onChange={(event) => setPassword(event.target.value)}
             autoComplete="current-password"
-            required
           />
-        </div>
-        {problem && <InlineMessage tone="danger" title={problem} />}
-        <Button type="submit" variant="primary" loading={login.isPending}>
+        </Field>
+        <Button
+          type="submit"
+          variant="primary"
+          loading={login.isPending}
+          disabledReason={
+            username.trim() && password ? undefined : "Enter your username and password first."
+          }
+        >
           Log in
         </Button>
+        <div className={styles.status}>
+          {login.error && !login.isPending && <InlineError error={login.error} context="log in" />}
+        </div>
       </form>
-    </main>
+    </AuthCard>
   );
 }
