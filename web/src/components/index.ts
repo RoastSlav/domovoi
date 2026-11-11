@@ -65,6 +65,7 @@ export { Dialog, type DialogProps } from "./Dialog";
 export { ConfirmDialog, type ConfirmDialogProps } from "./ConfirmDialog";
 export { PasswordPrompt } from "./PasswordPrompt";
 export { Menu, type MenuItem } from "./Menu";
+export { OptionPicker, PICKER_FILTER_FROM, type PickerOption } from "./OptionPicker";
 export { Popover } from "./Popover";
 
 // Chat

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useChat, type ChatMessage } from "../../api/hooks/chat";
 import { useHosts } from "../../api/hooks/hosts";
+import { useSelectedHost } from "../../app/HostContext";
 import { chatFailureText, ChatThread, MAX_HISTORY_TURNS, PageHeader } from "../../components";
 import styles from "./chat.module.css";
 
@@ -60,24 +61,31 @@ function recentHistory(turns: ChatMessage[]): ChatMessage[] {
 
 /**
  * The general chat: one conversation per host, kept in sessionStorage, cleared on demand.
+ * The host is the one selected for the whole app, and changing it here changes it there.
  * With a host chosen the model may look at that host; with "All hosts" it answers from a
  * summary of every host. It only reads, and the hint under the composer says so.
  */
 export function ChatPage() {
+  const [host, select] = useSelectedHost();
+  // Each host has its own conversation: a new host starts from what was saved for it.
+  return <Conversation key={host ?? ""} host={host} onChoose={select} />;
+}
+
+function Conversation({
+  host,
+  onChoose,
+}: {
+  host: string | undefined;
+  onChoose: (name: string | undefined) => void;
+}) {
   const hosts = useHosts();
   const ask = useChat();
-  const [host, setHost] = useState<string | undefined>(undefined);
-  const [turns, setTurns] = useState<ChatMessage[]>(() => readConversation(undefined));
+  const [turns, setTurns] = useState<ChatMessage[]>(() => readConversation(host));
   const [pending, setPending] = useState("");
-
   const connected = (hosts.data ?? []).filter((item) => item.connected);
   const offline = (hosts.data ?? []).filter((item) => !item.connected);
-
-  const choose = (name: string | undefined): void => {
-    setHost(name);
-    setTurns(readConversation(name));
-    setPending("");
-  };
+  // A selected host the hub does not list (a stale link) still shows, so it can be changed.
+  const unknown = host !== undefined && hosts.data && !hosts.data.some((h) => h.name === host);
 
   const send = async (question: string): Promise<void> => {
     const trimmed = question.trim();
@@ -121,10 +129,11 @@ export function ChatPage() {
         <select
           id="chat-host"
           value={host ?? ""}
-          onChange={(event) => choose(event.target.value || undefined)}
+          onChange={(event) => onChoose(event.target.value || undefined)}
           disabled={ask.isPending}
         >
           <option value="">All hosts</option>
+          {unknown && <option value={host}>{host}</option>}
           {[...connected, ...offline].map((item) => (
             <option key={item.id} value={item.name}>
               {item.connected ? item.name : `${item.name} (offline: no tools)`}

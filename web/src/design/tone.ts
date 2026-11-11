@@ -1,5 +1,5 @@
 import type { LiveStatus } from "../api/events";
-import type { IncidentSummary } from "../api/types";
+import type { Host, IncidentSummary } from "../api/types";
 import type { IconName } from "./icons";
 
 /**
@@ -379,6 +379,22 @@ export function triageMeta(kind: string): StatusMeta {
 /** How a host's connection is shown. */
 export function hostConnectionMeta(connection: string): StatusMeta {
   return lookup(HOST_CONNECTIONS, connection);
+}
+
+/** Which connection state `host` is in, for `hostConnectionMeta`. */
+export function hostConnectionOf(
+  host: Pick<Host, "agent_enrolled" | "connected" | "kind" | "last_seen" | "refused">,
+): HostConnection {
+  if (host.connected) {
+    return "connected";
+  }
+  if (host.refused) {
+    return "refused";
+  }
+  if (host.kind === "local" && !host.agent_enrolled) {
+    return "hub_only";
+  }
+  return host.last_seen || host.agent_enrolled ? "offline" : "never_connected";
 }
 
 /** How the state of the live event stream is shown. */

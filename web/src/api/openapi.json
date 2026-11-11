@@ -7,7 +7,7 @@
       "name": "MIT OR Apache-2.0",
       "identifier": "MIT OR Apache-2.0"
     },
-    "version": "0.0.7"
+    "version": "0.0.8"
   },
   "paths": {
     "/api/v1/ack-rules": {
@@ -156,6 +156,15 @@
             }
           },
           {
+            "name": "host",
+            "in": "query",
+            "description": "Only actions on this host, by name.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "cursor",
             "in": "query",
             "description": "The `next_cursor` of the previous page.",
@@ -199,6 +208,16 @@
           },
           "401": {
             "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such host",
             "content": {
               "application/json": {
                 "schema": {
@@ -2514,6 +2533,58 @@
         }
       }
     },
+    "/api/v1/overview": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Counts for the navigation: incidents, approvals and offline hosts.",
+        "operationId": "overview",
+        "parameters": [
+          {
+            "name": "host",
+            "in": "query",
+            "description": "Only this host, by name. Every host when absent.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The counts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OverviewDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such host",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/session": {
       "get": {
         "tags": [
@@ -4592,6 +4663,49 @@
               "null"
             ],
             "description": "The host the notes are about, by name; absent for global notes."
+          }
+        }
+      },
+      "OverviewDto": {
+        "type": "object",
+        "description": "What needs the operator right now, as counts. Each count stops at 200.",
+        "required": [
+          "incidents_action_needed",
+          "incidents_open",
+          "approvals_waiting",
+          "hosts_offline",
+          "hosts_total"
+        ],
+        "properties": {
+          "approvals_waiting": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Actions waiting for a person to approve or deny them.",
+            "minimum": 0
+          },
+          "hosts_offline": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Hosts with an enrolled agent that is not connected.",
+            "minimum": 0
+          },
+          "hosts_total": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Hosts counted.",
+            "minimum": 0
+          },
+          "incidents_action_needed": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Open incidents nobody has acknowledged and triage did not judge expected.",
+            "minimum": 0
+          },
+          "incidents_open": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Incidents that are not resolved: pending, open, acknowledged or muted.",
+            "minimum": 0
           }
         }
       },

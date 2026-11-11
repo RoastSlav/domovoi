@@ -16,6 +16,7 @@ import {
   useActionFeedback,
 } from "../../components";
 import { HostScope } from "./HostScope";
+import { usePageName } from "../../app/PageTitle";
 import styles from "./notes.module.css";
 
 function tagsOf(text: string): string[] {
@@ -140,6 +141,7 @@ export function NoteEditorPage() {
   const isNew = id === "new";
   const note = useNote(isNew ? "" : id);
   const hostNames = useHostNames();
+  usePageName(isNew ? undefined : note.data?.title);
 
   if (!isNew && note.isPending) {
     return <Loading />;

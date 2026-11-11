@@ -34,8 +34,8 @@ beforeEach(() => {
 
 test("banner_shows_a_newer_release", async () => {
   renderBanner();
-  expect(await screen.findByText("Domovoi v0.2.0")).toBeVisible();
-  expect(screen.getByText(/this hub runs 0\.1\.0/)).toBeVisible();
+  expect(await screen.findByText("Domovoi v0.2.0 is available")).toBeVisible();
+  expect(screen.getByText("This hub runs 0.1.0.")).toBeVisible();
 });
 
 test("banner_hides_after_dismiss_and_remembers_the_version", async () => {

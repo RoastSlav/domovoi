@@ -9,6 +9,7 @@ import {
   PageHeader,
   useActionFeedback,
 } from "../../components";
+import { AllHostsNote } from "../../app/AllHostsNote";
 import styles from "./digest.module.css";
 
 /** Today's digest as it will be sent, and sending it now. */
@@ -38,6 +39,7 @@ export function DigestPage() {
           </Button>
         }
       />
+      <AllHostsNote>The digest is one summary of every host.</AllHostsNote>
       {preview.isPending && <Loading />}
       {preview.error && !preview.data && (
         <LoadError error={preview.error} context="build the digest" onRetry={preview.refetch} />

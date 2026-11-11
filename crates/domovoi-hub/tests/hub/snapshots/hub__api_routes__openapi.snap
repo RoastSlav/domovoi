@@ -1467,6 +1467,49 @@ expression: spec
         ],
         "type": "object"
       },
+      "OverviewDto": {
+        "description": "What needs the operator right now, as counts. Each count stops at 200.",
+        "properties": {
+          "approvals_waiting": {
+            "description": "Actions waiting for a person to approve or deny them.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "hosts_offline": {
+            "description": "Hosts with an enrolled agent that is not connected.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "hosts_total": {
+            "description": "Hosts counted.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "incidents_action_needed": {
+            "description": "Open incidents nobody has acknowledged and triage did not judge expected.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "incidents_open": {
+            "description": "Incidents that are not resolved: pending, open, acknowledged or muted.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "incidents_action_needed",
+          "incidents_open",
+          "approvals_waiting",
+          "hosts_offline",
+          "hosts_total"
+        ],
+        "type": "object"
+      },
       "ParamDto": {
         "description": "One declared skill parameter.",
         "properties": {
@@ -2527,6 +2570,15 @@ expression: spec
             }
           },
           {
+            "description": "Only actions on this host, by name.",
+            "in": "query",
+            "name": "host",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "description": "The `next_cursor` of the previous page.",
             "in": "query",
             "name": "cursor",
@@ -2577,6 +2629,16 @@ expression: spec
               }
             },
             "description": "Not logged in"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such host"
           }
         },
         "summary": "Actions, newest first.",
@@ -4886,6 +4948,58 @@ expression: spec
         "summary": "Replaces a note.",
         "tags": [
           "notes"
+        ]
+      }
+    },
+    "/api/v1/overview": {
+      "get": {
+        "operationId": "overview",
+        "parameters": [
+          {
+            "description": "Only this host, by name. Every host when absent.",
+            "in": "query",
+            "name": "host",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OverviewDto"
+                }
+              }
+            },
+            "description": "The counts"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such host"
+          }
+        },
+        "summary": "Counts for the navigation: incidents, approvals and offline hosts.",
+        "tags": [
+          "system"
         ]
       }
     },

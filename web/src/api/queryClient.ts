@@ -5,12 +5,17 @@ import { ApiFailure } from "./types";
 export const keys = {
   session: ["session"] as const,
   incidents: ["incidents"] as const,
+  incidentLists: ["incidents", "list"] as const,
+  incidentDetails: ["incidents", "detail"] as const,
   incidentList: (filters: object) => ["incidents", "list", filters] as const,
   incident: (id: string) => ["incidents", "detail", id] as const,
   followUps: (id: string) => ["incidents", "followups", id] as const,
   ackRules: ["ack-rules"] as const,
   actions: ["actions"] as const,
-  actionList: (status: string | undefined) => ["actions", "list", status ?? "all"] as const,
+  actionList: (status: string | undefined, host?: string) =>
+    ["actions", "list", status ?? "all", host ?? ""] as const,
+  overview: ["overview"] as const,
+  overviewFor: (host: string | undefined) => ["overview", host ?? ""] as const,
   hosts: ["hosts"] as const,
   host: (name: string) => ["hosts", "detail", name] as const,
   skills: (name: string) => ["hosts", "skills", name] as const,

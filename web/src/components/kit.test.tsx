@@ -10,6 +10,7 @@ import {
   IconButton,
   InfoTip,
   Menu,
+  OptionPicker,
   QueryBoundary,
   StatusPill,
   Tabs,
@@ -340,4 +341,102 @@ test("menu_moves_with_arrow_keys_and_runs_the_chosen_entry", async () => {
   expect(onEdit).not.toHaveBeenCalled();
   expect(screen.queryByRole("menu")).toBeNull();
   expect(more).toHaveFocus();
+});
+
+test("menu_shows_a_header_and_marks_the_chosen_one_of_exclusive_entries", async () => {
+  const user = userEvent.setup();
+  const onDark = vi.fn();
+  render(
+    <Menu
+      label="Account"
+      icon="user"
+      header="Signed in as admin"
+      items={[
+        { label: "Theme: light", checked: true, onSelect: () => undefined },
+        { label: "Theme: dark", checked: false, onSelect: onDark },
+        { label: "Log out", onSelect: () => undefined },
+      ]}
+    />,
+  );
+  await user.click(screen.getByRole("button", { name: "Account" }));
+
+  expect(screen.getByText("Signed in as admin")).toBeInTheDocument();
+  expect(screen.getByRole("menuitemradio", { name: "Theme: light" })).toBeChecked();
+  expect(screen.getByRole("menuitemradio", { name: "Theme: light" })).toHaveFocus();
+  await user.keyboard("{ArrowDown}{ArrowDown}");
+  expect(screen.getByRole("menuitem", { name: "Log out" })).toHaveFocus();
+  await user.click(screen.getByRole("menuitemradio", { name: "Theme: dark" }));
+  expect(onDark).toHaveBeenCalledOnce();
+});
+
+function Picker({ count = 3 }: { count?: number }) {
+  const [value, setValue] = useState("");
+  const hosts = Array.from({ length: count }, (_, index) => ({
+    value: `host-${index + 1}`,
+    label: `host-${index + 1}`,
+  }));
+  return (
+    <OptionPicker
+      label="Host"
+      value={value}
+      options={[{ value: "", label: "All hosts" }, ...hosts]}
+      onChange={setValue}
+    />
+  );
+}
+
+test("option_picker_opens_on_the_current_choice_and_arrow_keys_and_enter_choose", async () => {
+  const user = userEvent.setup();
+  render(<Picker />);
+  const picker = screen.getByRole("combobox", { name: "Host" });
+  expect(picker).toHaveTextContent("All hosts");
+  expect(picker).toHaveAttribute("aria-expanded", "false");
+
+  await user.click(picker);
+  expect(picker).toHaveAttribute("aria-expanded", "true");
+  expect(screen.getByRole("option", { name: "All hosts" })).toHaveFocus();
+  expect(screen.getByRole("option", { name: "All hosts" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  expect(screen.queryByRole("searchbox")).toBeNull();
+
+  await user.keyboard("{ArrowDown}{ArrowDown}{Enter}");
+  expect(screen.queryByRole("listbox")).toBeNull();
+  expect(picker).toHaveTextContent("host-2");
+  expect(picker).toHaveFocus();
+});
+
+test("option_picker_closes_on_escape_without_changing_the_choice", async () => {
+  const user = userEvent.setup();
+  render(<Picker />);
+  const picker = screen.getByRole("combobox", { name: "Host" });
+  await user.click(picker);
+  await user.keyboard("{ArrowDown}{Escape}");
+
+  expect(screen.queryByRole("listbox")).toBeNull();
+  expect(picker).toHaveTextContent("All hosts");
+  expect(picker).toHaveFocus();
+});
+
+test("option_picker_with_many_options_filters_as_you_type", async () => {
+  const user = userEvent.setup();
+  render(<Picker count={12} />);
+  await user.click(screen.getByRole("combobox", { name: "Host" }));
+
+  const filter = screen.getByRole("searchbox", { name: "Filter: Host" });
+  expect(filter).toHaveFocus();
+  await user.type(filter, "host-1");
+  expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
+    "host-1",
+    "host-10",
+    "host-11",
+    "host-12",
+  ]);
+  await user.type(filter, "2{Enter}");
+  expect(screen.getByRole("combobox", { name: "Host" })).toHaveTextContent("host-12");
+
+  await user.click(screen.getByRole("combobox", { name: "Host" }));
+  await user.type(screen.getByRole("searchbox", { name: "Filter: Host" }), "zzz");
+  expect(screen.getByText("Nothing matches.")).toBeInTheDocument();
 });

@@ -139,6 +139,7 @@
 
   /* Layout. */
   --sidebar-width: 15rem;
+  --sidebar-rail-width: 3.75rem;
   --content-max: 1400px;
 
   /* Layers. */

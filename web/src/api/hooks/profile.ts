@@ -7,15 +7,15 @@ import { call, type Profile } from "../types";
  * collects one about every minute, and this picks it up once it exists. */
 export const PROFILE_POLL_MS = 10_000;
 
-/** Host `name`'s profile; idle while `name` is blank. The query polls so the
- * collected profile stays fresh, and so the first one appears on its own. */
+/** Host `name`'s profile; idle while `name` is blank. While there is none yet the query
+ * polls, so the first one appears on its own; once it has one it stops. */
 export function useProfile(name: string) {
   return useQuery({
     queryKey: keys.hostProfile(name),
     queryFn: () =>
       call<Profile>(api.GET("/api/v1/hosts/{name}/profile", { params: { path: { name } } })),
     enabled: name !== "",
-    refetchInterval: PROFILE_POLL_MS,
+    refetchInterval: (query) => (query.state.data ? false : PROFILE_POLL_MS),
   });
 }
 

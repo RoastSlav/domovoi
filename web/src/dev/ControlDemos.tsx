@@ -12,13 +12,40 @@ import {
   Kbd,
   LinkButton,
   Menu,
+  OptionPicker,
   PasswordPrompt,
+  StatusPill,
   RelativeTime,
   Stack,
   Tooltip,
 } from "../components";
 import type { ButtonVariant } from "../components";
+import { hostConnectionMeta } from "../design/tone";
 import { Demo, Group } from "./Demo";
+
+const PICKER_HOSTS = [
+  { value: "", label: "All hosts" },
+  {
+    value: "nas-01",
+    label: "nas-01",
+    meta: <StatusPill size="sm" meta={hostConnectionMeta("connected")} />,
+  },
+  { value: "pi", label: "pi", meta: <StatusPill size="sm" meta={hostConnectionMeta("offline")} /> },
+  {
+    value: "hub",
+    label: "hub",
+    meta: <StatusPill size="sm" meta={hostConnectionMeta("hub_only")} />,
+  },
+];
+const PICKER_MANY = Array.from({ length: 12 }, (_, index) => ({
+  value: `host-${index + 1}`,
+  label: `host-${index + 1}`,
+}));
+
+function PickerDemo({ options }: { options: { label: string; value: string }[] }) {
+  const [value, setValue] = useState(options[0]?.value ?? "");
+  return <OptionPicker label="Host" value={value} options={options} onChange={setValue} />;
+}
 
 const FIVE_MINUTES_AGO = new Date(Date.now() - 300_000).toISOString();
 const VARIANTS: ButtonVariant[] = ["primary", "secondary", "danger", "ghost"];
@@ -106,6 +133,25 @@ export function OverlayDemos() {
   const close = () => setOpen(null);
   return (
     <Group title="Overlays">
+      <Demo name="OptionPicker: options with a status; more than eight can be filtered by typing">
+        <Cluster>
+          <PickerDemo options={PICKER_HOSTS} />
+          <PickerDemo options={PICKER_MANY} />
+        </Cluster>
+      </Demo>
+      <Demo name="Menu: with another icon, a header and one checked choice">
+        <Menu
+          label="Account"
+          icon="user"
+          header="Signed in as admin"
+          items={[
+            { label: "Theme: system", checked: true, onSelect: () => undefined },
+            { label: "Theme: light", checked: false, onSelect: () => undefined },
+            { label: "Theme: dark", checked: false, onSelect: () => undefined },
+            { label: "Log out", icon: "logout", onSelect: () => undefined },
+          ]}
+        />
+      </Demo>
       <Demo name="Dialog, ConfirmDialog, PasswordPrompt">
         <Cluster>
           <Button onClick={() => setOpen("dialog")}>Dialog</Button>

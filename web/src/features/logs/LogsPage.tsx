@@ -1,6 +1,7 @@
 import { useSearchParams } from "react-router";
 import { useHosts, useHostLogs } from "../../api/hooks/hosts";
 import { useLogs } from "../../api/hooks/system";
+import { useSelectedHost } from "../../app/HostContext";
 import { PageHeader } from "../../components";
 import { LogViewer, DEFAULT_LEVEL, DEFAULT_LINES } from "./LogViewer";
 import styles from "./logs.module.css";
@@ -58,13 +59,15 @@ function Choice({
 /**
  * Recent log lines, oldest first with the newest at the bottom: the hub's own, or a host
  * agent's. The page asks again on its own every 5 seconds while the Refresh dropdown is
- * on, and the Refresh button asks right away either way.
+ * on, and the Refresh button asks right away either way. Until a source is picked here, it
+ * is the host selected for the whole app, or the hub under "All hosts".
  */
 export function LogsPage() {
   const [params, setParams] = useSearchParams();
   const level = params.get("level") ?? DEFAULT_LEVEL;
   const count = params.get("lines") ?? String(DEFAULT_LINES);
-  const source = params.get("source") ?? "hub";
+  const [selected] = useSelectedHost();
+  const source = params.get("source") ?? selected ?? "hub";
   const captured = source === "hub";
   const refresh = params.get("refresh") ?? "on";
   const auto = refresh !== "off";

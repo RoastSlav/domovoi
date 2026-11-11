@@ -136,3 +136,18 @@
   gap: 0.5rem;
   margin-bottom: 0.4rem;
 }
+
+.hostList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hostList li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}

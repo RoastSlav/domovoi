@@ -705,6 +705,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Counts for the navigation: incidents, approvals and offline hosts. */
+        get: operations["overview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/session": {
         parameters: {
             query?: never;
@@ -1466,6 +1483,34 @@ export interface components {
             /** @description The host the notes are about, by name; absent for global notes. */
             host?: string | null;
         };
+        /** @description What needs the operator right now, as counts. Each count stops at 200. */
+        OverviewDto: {
+            /**
+             * Format: int32
+             * @description Actions waiting for a person to approve or deny them.
+             */
+            approvals_waiting: number;
+            /**
+             * Format: int32
+             * @description Hosts with an enrolled agent that is not connected.
+             */
+            hosts_offline: number;
+            /**
+             * Format: int32
+             * @description Hosts counted.
+             */
+            hosts_total: number;
+            /**
+             * Format: int32
+             * @description Open incidents nobody has acknowledged and triage did not judge expected.
+             */
+            incidents_action_needed: number;
+            /**
+             * Format: int32
+             * @description Incidents that are not resolved: pending, open, acknowledged or muted.
+             */
+            incidents_open: number;
+        };
         /** @description One declared skill parameter. */
         ParamDto: {
             /** @description What it means. */
@@ -1954,6 +1999,8 @@ export interface operations {
             query?: {
                 /** @description Only this status name, for example `proposed`. */
                 status?: string;
+                /** @description Only actions on this host, by name. */
+                host?: string;
                 /** @description The `next_cursor` of the previous page. */
                 cursor?: string;
                 /** @description Page size, 1 to 200. Default 50. */
@@ -1985,6 +2032,15 @@ export interface operations {
             };
             /** @description Not logged in */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such host */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3809,6 +3865,47 @@ export interface operations {
                 };
             };
             /** @description No such note */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    overview: {
+        parameters: {
+            query?: {
+                /** @description Only this host, by name. Every host when absent. */
+                host?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The counts */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OverviewDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such host */
             404: {
                 headers: {
                     [name: string]: unknown;

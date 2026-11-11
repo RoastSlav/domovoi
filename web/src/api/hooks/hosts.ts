@@ -37,12 +37,14 @@ export function useHostNames(): Map<string, string> {
   );
 }
 
-/** One host with its latest digest facts. */
+/** One host with its latest digest facts; refreshes as often as the host list, so its
+ * connection state does not go stale. */
 export function useHost(name: string) {
   return useQuery({
     queryKey: keys.host(name),
     queryFn: () =>
       call<HostDetail>(api.GET("/api/v1/hosts/{name}", { params: { path: { name } } })),
+    refetchInterval: HOSTS_REFRESH_MS,
   });
 }
 

@@ -166,3 +166,18 @@ test("the_auto_refresh_dropdown_decides_whether_the_page_asks_again_on_its_own",
   await act(() => vi.advanceTimersByTimeAsync(LOGS_REFRESH_MS + 1_000));
   expect(logQueries().length, "on asks again by itself").toBeGreaterThan(2);
 });
+
+test("logs_start_on_the_selected_host_until_a_source_is_picked", async () => {
+  route("GET /api/v1/hosts/{name}/logs", () => [
+    { at: T0, level: "warn", target: "agent.checks", message: "disk.usage on /srv is 97% full" },
+  ]);
+  const user = userEvent.setup();
+  renderAt("/logs?host=nas", "/logs", <LogsPage />);
+
+  expect(await screen.findByText(/disk\.usage on \/srv is 97% full/)).toBeVisible();
+  expect(screen.getByLabelText("Source")).toHaveValue("nas");
+  expect(logQueries(), "the hub's own lines were not asked for").toEqual([]);
+
+  await user.selectOptions(screen.getByLabelText("Source"), "hub");
+  expect(await screen.findByText(/hub started hosts=1/)).toBeVisible();
+});

@@ -14,6 +14,8 @@ mod api_harness;
 #[cfg(test)]
 mod api_logs;
 #[cfg(test)]
+mod api_overview;
+#[cfg(test)]
 mod api_routes;
 #[cfg(test)]
 mod api_updates;

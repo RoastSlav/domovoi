@@ -166,3 +166,114 @@
     min-height: 2.75rem;
   }
 }
+
+.menuHeader {
+  padding: var(--space-1) var(--space-2) var(--space-2);
+  margin-bottom: var(--space-1);
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+
+.menuLabel {
+  flex: 1 1 auto;
+}
+
+/* OptionPicker: a select whose options carry a status. */
+.pickerTrigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-width: 0;
+  max-width: 100%;
+  min-height: 2.25rem;
+  padding: var(--space-1) var(--space-2) var(--space-1) var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  transition: background var(--motion-fast) var(--ease-out);
+}
+
+.pickerTrigger:hover,
+.pickerTrigger[aria-expanded="true"] {
+  background: var(--color-surface-raised);
+}
+
+.pickerValue {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 14rem;
+  margin: calc(-1 * var(--space-2));
+}
+
+.pickerSearch {
+  width: 100%;
+  min-height: 2.25rem;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.pickerList {
+  display: flex;
+  flex-direction: column;
+  max-height: min(22rem, 60dvh);
+  overflow-y: auto;
+}
+
+.pickerOption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: 2.25rem;
+  padding: var(--space-1) var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.pickerOption:hover,
+.pickerOption:focus-visible {
+  background: var(--color-surface-raised);
+}
+
+.pickerOption[aria-selected="true"] {
+  font-weight: 700;
+  box-shadow: inset 3px 0 0 var(--color-primary);
+}
+
+.pickerNone {
+  margin: 0;
+  padding: var(--space-2);
+  color: var(--color-text-muted);
+}
+
+@media (pointer: coarse) {
+  .pickerTrigger,
+  .pickerOption {
+    min-height: 2.75rem;
+  }
+}

@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
-import { EVENTS_URL, MAX_RETRY_MS, retryDelay, useLiveEvents } from "./events";
+import { EVENTS_URL, MAX_RETRY_MS, PAUSED_AFTER_MS, retryDelay, useLiveEvents } from "./events";
 
 type Listener = (event: MessageEvent) => void;
 
@@ -62,10 +62,10 @@ afterEach(() => {
 test("live_event_invalidates_incident_queries", () => {
   const { hook, invalidate, source } = setup();
   expect(source.url).toBe(EVENTS_URL);
-  expect(hook.result.current).toBe("connecting");
+  expect(hook.result.current.status).toBe("connecting");
 
   act(() => source.emit("open"));
-  expect(hook.result.current).toBe("live");
+  expect(hook.result.current.status).toBe("live");
 
   act(() =>
     source.emit("incident", {
@@ -78,6 +78,7 @@ test("live_event_invalidates_incident_queries", () => {
   expect(invalidatedKeys(invalidate)).toEqual([
     ["incidents", "list"],
     ["incidents", "detail", "inc-1"],
+    ["overview"],
   ]);
 
   invalidate.mockClear();
@@ -100,16 +101,49 @@ test("live_events_reconnect_with_backoff", () => {
   vi.useFakeTimers();
   const { hook, source } = setup();
   act(() => source.emit("error"));
-  expect(hook.result.current).toBe("offline");
+  expect(hook.result.current.status).toBe("offline");
   expect(source.closed).toBe(true);
 
   act(() => vi.advanceTimersByTime(retryDelay(0) - 1));
   expect(FakeEventSource.all).toHaveLength(1);
   act(() => vi.advanceTimersByTime(1));
   expect(FakeEventSource.all).toHaveLength(2);
-  expect(hook.result.current).toBe("connecting");
+  expect(hook.result.current.status).toBe("connecting");
 
   expect(retryDelay(1)).toBe(2_000);
   expect(retryDelay(10)).toBe(MAX_RETRY_MS);
+  hook.unmount();
+});
+
+test("live_updates_read_as_paused_after_five_seconds_down_and_recover_on_reconnect", () => {
+  vi.useFakeTimers();
+  const { hook, source } = setup();
+  act(() => source.emit("open"));
+
+  act(() => source.emit("error"));
+  expect(hook.result.current.paused).toBe(false);
+  // Reconnect attempts that fail in the meantime do not restart the wait.
+  act(() => vi.advanceTimersByTime(retryDelay(0)));
+  act(() => FakeEventSource.all.at(-1)?.emit("error"));
+  act(() => vi.advanceTimersByTime(PAUSED_AFTER_MS - retryDelay(0) - 1));
+  expect(hook.result.current.paused).toBe(false);
+  act(() => vi.advanceTimersByTime(1));
+  expect(hook.result.current.paused).toBe(true);
+
+  act(() => vi.advanceTimersByTime(retryDelay(1)));
+  act(() => FakeEventSource.all.at(-1)?.emit("open"));
+  expect(hook.result.current).toEqual({ status: "live", paused: false });
+  hook.unmount();
+});
+
+test("a_short_outage_never_reads_as_paused", () => {
+  vi.useFakeTimers();
+  const { hook, source } = setup();
+  act(() => source.emit("error"));
+  act(() => vi.advanceTimersByTime(retryDelay(0)));
+  act(() => FakeEventSource.all.at(-1)?.emit("open"));
+
+  act(() => vi.advanceTimersByTime(PAUSED_AFTER_MS * 2));
+  expect(hook.result.current.paused).toBe(false);
   hook.unmount();
 });

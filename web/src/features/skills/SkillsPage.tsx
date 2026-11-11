@@ -1,19 +1,48 @@
+import { Link } from "react-router";
 import { useHosts } from "../../api/hooks/hosts";
 import { useSelectedHost } from "../../app/HostContext";
-import { EmptyState, LoadError, PageHeader } from "../../components";
-import ui from "../../components/ui.module.css";
+import { EmptyState, PageHeader, QueryBoundary, Stack, StatusPill } from "../../components";
+import { hostConnectionMeta, hostConnectionOf } from "../../design/tone";
 import { SkillList } from "./SkillList";
+import styles from "./skills.module.css";
+
+/** Under "All hosts": the hosts, each a link that selects it and shows its skills. */
+function ChooseHost() {
+  const hosts = useHosts();
+  return (
+    <QueryBoundary
+      query={hosts}
+      context="load hosts"
+      isEmpty={(list) => list.length === 0}
+      empty={
+        <EmptyState icon="server" title="No hosts yet">
+          <p>Skills come from an agent. Add a host on the Hosts page first.</p>
+        </EmptyState>
+      }
+    >
+      {(list) => (
+        <Stack gap={3}>
+          <p>Choose a host to see its skills.</p>
+          <ul className={styles.hostList} aria-label="Hosts">
+            {list.map((host) => (
+              <li key={host.id}>
+                <Link to={`/skills?host=${encodeURIComponent(host.name)}`}>{host.name}</Link>
+                <StatusPill size="sm" meta={hostConnectionMeta(hostConnectionOf(host))} />
+              </li>
+            ))}
+          </ul>
+        </Stack>
+      )}
+    </QueryBoundary>
+  );
+}
 
 /**
- * The skill catalogue of the host selected in the sidebar, grouped by risk. With "all hosts"
- * selected it shows the first host's skills, since a catalogue belongs to one host.
+ * The skill catalogue of the selected host, grouped by risk. A catalogue belongs to one
+ * host, so under "All hosts" the page asks for one instead of guessing.
  */
 export function SkillsPage() {
   const [selected] = useSelectedHost();
-  const hosts = useHosts();
-  const names = (hosts.data ?? []).map((h) => h.name);
-  const host = selected ?? names[0] ?? "";
-
   return (
     <>
       <PageHeader
@@ -21,20 +50,7 @@ export function SkillsPage() {
         docs="guide/skills.html"
         intro="Scripts an agent can run. Read skills only look, and triage may run them on its own. Write and destructive skills change things and need your approval. Disabled skills stay on the host but Domovoi never runs or suggests them."
       />
-      {hosts.error && !hosts.data && (
-        <LoadError error={hosts.error} context="load hosts" onRetry={hosts.refetch} />
-      )}
-      {hosts.data && names.length === 0 && (
-        <EmptyState icon="server" title="No hosts yet">
-          <p>Skills come from an agent. Add a host on the Hosts page first.</p>
-        </EmptyState>
-      )}
-      {host && selected === undefined && (
-        <p className={ui.muted}>
-          Showing the skills of {host}. Choose a host in the sidebar to see another.
-        </p>
-      )}
-      {host && <SkillList host={host} />}
+      {selected === undefined ? <ChooseHost /> : <SkillList host={selected} />}
     </>
   );
 }

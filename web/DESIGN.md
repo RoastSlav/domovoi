@@ -75,7 +75,7 @@ pill with an icon, primary is a filled button. Never fill a button with a tone's
 | `--font-sans`, `--font-mono`                                                  | UI text; commands, logs, arguments and IDs                                               |
 | `--z-sticky`, `-dropdown`, `-overlay`, `-toast`, `-tooltip`                   | Layers, lowest to highest. Never a bare `z-index` number                                 |
 | `--motion-fast`, `--motion-base`, `--ease-out`                                | 120 ms, 180 ms, the one easing curve                                                     |
-| `--sidebar-width`, `--content-max`                                            | The shell's layout                                                                       |
+| `--sidebar-width`, `--sidebar-rail-width`, `--content-max`                    | The shell's layout                                                                       |
 
 Type: the system sans stack and a system mono stack (no web font, so nothing to download
 and no layout shift). Base size is 15 px on desktop and 16 px on phones, which keeps iOS
@@ -153,6 +153,44 @@ Baseline, measured on the build before this design system existed:
 Targets: initial route JavaScript smaller than the baseline; no chunk over 120 kB; total
 CSS under 30 kB; nothing loaded from another origin at run time. The dev catalogue is not
 part of production builds.
+
+How the build stays inside it:
+
+- Incidents, Login and Setup are in the first download. Every other page is listed in
+  `src/app/pages.ts` and fetched when first opened; a navigation link starts the fetch on
+  hover or focus.
+- The Markdown renderer is its own file, fetched the first time `Markdown` is shown.
+- The libraries (`vendor`) are split from the app, so they stay cached across hub upgrades.
+- A mutation refreshes only what it changed (see the hooks in `src/api/hooks/`), and
+  polling stops when nothing can change or the tab is hidden.
+
+With the shell in place the first download is about 130 kB of JavaScript (gzip), the
+largest file is the libraries at 94 kB, and Markdown is 35 kB on demand.
+
+## The shell
+
+`src/app/` is the frame around every signed-in page. Pages do not draw any of it.
+
+| Part                | File                                | What it does                                                                                          |
+| ------------------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Sidebar             | `Sidebar.tsx`, `nav.ts`             | Brand, grouped navigation with counts, live state, account menu. A rail of icons on a tablet          |
+| Top bar             | `TopBar.tsx`                        | Breadcrumb, the page's actions (`TopBarActions`), the host selector; on a phone the brand and Menu    |
+| Host selector       | `HostSelect.tsx`, `HostContext.tsx` | The one app-wide host choice, kept in `?host=` and remembered. Pages read it with `useSelectedHost()` |
+| Page title          | `PageTitle.tsx`                     | The browser tab's title, the breadcrumb, and focus on the heading after a navigation                  |
+| Lazy pages          | `pages.ts`, `routes.tsx`            | Which pages are fetched on demand, and their routes                                                   |
+| Skeletons           | `PageSkeleton.tsx`                  | The page's shape while its code loads; the whole frame's shape while the session loads                |
+| "Showing all hosts" | `AllHostsNote.tsx`                  | The one line a page shows when it does not follow the host selector                                   |
+
+Widths: under 768 px the navigation is a full-height sheet behind the Menu button; from
+768 px it is a column, an icon rail by default up to 1023 px and full width above. The
+person can switch with the button at the top of the sidebar, and the choice is remembered.
+
+Every page either follows the host selector (filter on the hub with a `host` parameter
+where the list is paged) or renders `<AllHostsNote>` saying why it shows every host. A
+page that is about one host and has none selected asks for one; it never picks the first.
+
+The navigation's counts come from one request, `useOverview(host)`, refreshed by live
+events and at most every 30 seconds. Do not fetch a list to count it.
 
 ## Components
 
@@ -255,13 +293,14 @@ and explains itself; do not use the bare `disabled` attribute in new code.
 
 ### Overlays
 
-| Component        | Use it for                                                                                                               | Do not use it for            |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------ | ---------------------------- |
-| `Dialog`         | A question or short form that must be answered before going on                                                           | Explanations; results        |
-| `ConfirmDialog`  | Before something destructive: `title` names the object, `consequence`, a verb on the button; `requireText` for the worst | Actions that can be undone   |
-| `PasswordPrompt` | Password re-entry before a change that widens trust                                                                      | Logging in                   |
-| `Menu`           | Secondary actions behind a "More" button                                                                                 | The only way to do something |
-| `Popover`        | The floating panel under `InfoTip` and `Menu`                                                                            | Direct use in page code      |
+| Component        | Use it for                                                                                                               | Do not use it for                  |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------ | ---------------------------------- |
+| `Dialog`         | A question or short form that must be answered before going on                                                           | Explanations; results              |
+| `ConfirmDialog`  | Before something destructive: `title` names the object, `consequence`, a verb on the button; `requireText` for the worst | Actions that can be undone         |
+| `PasswordPrompt` | Password re-entry before a change that widens trust                                                                      | Logging in                         |
+| `Menu`           | Secondary actions behind a "More" button; `icon`, `header` and `checked` entries make the account menu                   | The only way to do something       |
+| `OptionPicker`   | A select whose options carry a pill or tag (the host selector); more than eight options can be filtered by typing        | Plain choices in a form (`Select`) |
+| `Popover`        | The floating panel under `InfoTip` and `Menu`                                                                            | Direct use in page code            |
 
 ## Messaging
 
@@ -338,12 +377,31 @@ Rules:
 
 ### Add a page
 
-1. Put it in `src/features/<area>/`, start it with `<PageHeader title intro docs />`.
-2. Load data with a hook from `src/api/hooks/` and wrap what it renders in `QueryBoundary`
+1. Put it in `src/features/<area>/`, start it with `<PageHeader title intro docs />`. The
+   title is the page's only `h1`: focus moves to it after a navigation.
+2. Add it to `PAGES` in `src/app/pages.ts` and give it a `<Route>` in `src/app/routes.tsx`
+   with `element={<PAGES.name.Page />}`. Do not import the page into `routes.tsx`: that
+   would put it in the first download.
+3. Load data with a hook from `src/api/hooks/` and wrap what it renders in `QueryBoundary`
    with a `context`, an `EmptyState` and, where the shape is known, a `Skeleton`.
-3. Lay it out with `Section`, `Stack`, `Cluster`, `Grid`, `Card` and `DataTable`. The page's
+4. Decide what the host selector means for it: filter by `useSelectedHost()`, or render
+   `<AllHostsNote>` with the reason it shows every host.
+5. Lay it out with `Section`, `Stack`, `Cluster`, `Grid`, `Card` and `DataTable`. The page's
    own CSS module only places things; it has no colours, borders or type of its own.
-4. Check it at 375 px and in both themes.
+6. The browser tab and the breadcrumb name the page from its navigation link. A page about
+   one thing calls `usePageName(thing.title)` once it knows the name, which gives
+   "nas-01 · Hosts · Domovoi".
+7. Check it at 375, 768 and 1280 px and in both themes.
+
+### Add a navigation item
+
+1. Add one entry to the right group of `NAV_GROUPS` in `src/app/nav.ts`: `to`, `label`,
+   an `icon` name, and `preload: PAGES.name.preload` so hovering the link fetches the page.
+2. For a number beside it, add the count to the hub's overview (`GET /api/v1/overview`,
+   `crates/domovoi-hub/src/api/overview.rs`), regenerate the API types, and set `count` to
+   its field, a tone and the word read after the number ("waiting"). It shows only above
+   zero, and follows the host selector because the overview does.
+3. Keep labels to one or two words: on the rail the label is the tooltip.
 
 ### Add a status
 

@@ -1,9 +1,8 @@
 import { useState } from "react";
-import { Link } from "react-router";
 import { useHosts } from "../../api/hooks/hosts";
 import { useSettings } from "../../api/hooks/system";
+import { Banner, LinkButton } from "../../components";
 import { getIn } from "../settings/form";
-import styles from "../settings/settings.module.css";
 
 const DISMISSED = "domovoi.setupBannerDismissed";
 
@@ -45,11 +44,17 @@ export function SetupBanner() {
     setDismissed(true);
   };
   return (
-    <aside className={styles.banner} aria-label="Setup incomplete">
-      Setup incomplete: add {missing.join(", ")}. <Link to="/welcome">Finish setup</Link>{" "}
-      <button type="button" className={styles.dismiss} onClick={dismiss}>
-        Dismiss
-      </button>
-    </aside>
+    <Banner
+      tone="info"
+      title="Setup is not finished"
+      onDismiss={dismiss}
+      action={
+        <LinkButton to="/welcome" size="sm">
+          Finish setup
+        </LinkButton>
+      }
+    >
+      Still to add: {missing.join(", ")}.
+    </Banner>
   );
 }
