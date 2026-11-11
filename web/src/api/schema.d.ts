@@ -935,6 +935,10 @@ export interface components {
         AckRuleDto: {
             /** @description The check the rule matches, for example `security.ssh_login`. */
             check: string;
+            /** @description When the rule was created; null for rules made before this was recorded. */
+            created_at?: string | null;
+            /** @description The username of the person who created the rule; null when unknown. */
+            created_by?: string | null;
             /** @description When the rule stops applying; null means it never expires. */
             expires_at?: string | null;
             /**
@@ -1094,6 +1098,8 @@ export interface components {
             date: string;
             /** @description The rendered Markdown. */
             markdown: string;
+            /** @description When the digest is next sent (RFC 3339); null when the digest is disabled. */
+            next_send_at?: string | null;
         };
         /** @description Discord. */
         DiscordSettings: {

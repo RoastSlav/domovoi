@@ -386,6 +386,8 @@ pub(super) async fn dismiss(
                 predicates: Vec::new(),
                 note: reason.to_owned(),
                 expires_at,
+                created_at: Some(now),
+                created_by: Some(current.user.username.clone()),
             };
             state.deps.acks.put_rule(&rule).await?;
             Some(rule)

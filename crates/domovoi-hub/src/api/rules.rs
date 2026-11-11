@@ -75,6 +75,10 @@ pub struct AckRuleDto {
     pub note: String,
     /// When the rule stops applying; null means it never expires.
     pub expires_at: Option<String>,
+    /// When the rule was created; null for rules made before this was recorded.
+    pub created_at: Option<String>,
+    /// The username of the person who created the rule; null when unknown.
+    pub created_by: Option<String>,
 }
 
 /// A new rule.
@@ -237,6 +241,8 @@ async fn rule_to_dto(state: &ApiState, rule: &AckRule) -> Result<AckRuleDto, Api
         predicates: rule.predicates.iter().map(predicate_to_dto).collect(),
         note: rule.note.clone(),
         expires_at: rule.expires_at.map(|at| at.to_string()),
+        created_at: rule.created_at.map(|at| at.to_string()),
+        created_by: rule.created_by.clone(),
     })
 }
 
@@ -363,6 +369,8 @@ pub(super) async fn create(
         predicates,
         note: note.to_owned(),
         expires_at,
+        created_at: Some(now),
+        created_by: Some(current.user.username.clone()),
     };
     state.deps.acks.put_rule(&rule).await?;
     audit_rule_created(&state, &current, &rule, now).await?;

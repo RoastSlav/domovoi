@@ -37,4 +37,23 @@ impl DigestService {
         }
         last_sent.is_none_or(|last| last.to_zoned(self.tz.clone()).date() < local.date())
     }
+
+    /// The next moment the digest is due after `now`: today at the local time if it has
+    /// not passed yet, otherwise tomorrow. `None` when the digest is disabled or the time
+    /// cannot be represented.
+    #[must_use]
+    pub fn next_due(&self, now: Timestamp) -> Option<Timestamp> {
+        if !self.enabled {
+            return None;
+        }
+        let local = now.to_zoned(self.tz.clone());
+        let mut day = local.date();
+        if local.time() >= self.time {
+            day = day.tomorrow().ok()?;
+        }
+        day.to_datetime(self.time)
+            .to_zoned(self.tz.clone())
+            .ok()
+            .map(|at| at.timestamp())
+    }
 }

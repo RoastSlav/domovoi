@@ -635,3 +635,14 @@ async fn follow_up_history_for_an_unknown_incident_is_not_found() {
         missing.text,
     );
 }
+
+#[tokio::test]
+async fn digest_preview_says_when_the_next_send_is_due() {
+    let a = api().await;
+    let login = a.admin().await;
+    let preview = a.get("/api/v1/digest/preview", &login).await;
+    assert_eq!(preview.status, StatusCode::OK, "{}", preview.text);
+    // The clock is 12:00 UTC and the digest goes out at 09:00 UTC, so the next send is
+    // tomorrow morning.
+    assert_eq!(preview.body["next_send_at"], "2026-11-01T09:00:00Z");
+}

@@ -170,6 +170,8 @@ pub async fn ack_repo_contract(repo: &dyn AckRepo) -> ContractResult {
         predicates: Vec::new(),
         note: "known".to_owned(),
         expires_at: Some(at(10)),
+        created_at: None,
+        created_by: None,
     };
     let other = AckRule {
         id: AckRuleId::new(),

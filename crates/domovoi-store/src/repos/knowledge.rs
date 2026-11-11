@@ -84,11 +84,13 @@ impl BaselineRepo for Store {
 impl AckRepo for Store {
     async fn put_rule(&self, rule: &AckRule) -> Result<(), StoreError> {
         const SQL: &str = "INSERT INTO ack_rules \
-            (id, host_id, check_key, target_pattern, predicates, note, expires_at) \
-            VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET \
+            (id, host_id, check_key, target_pattern, predicates, note, expires_at, \
+            created_at, created_by) \
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET \
             host_id = excluded.host_id, check_key = excluded.check_key, \
             target_pattern = excluded.target_pattern, predicates = excluded.predicates, \
-            note = excluded.note, expires_at = excluded.expires_at";
+            note = excluded.note, expires_at = excluded.expires_at, \
+            created_at = excluded.created_at, created_by = excluded.created_by";
         sqlx::query(SQL)
             .bind(rule.id.to_string())
             .bind(rule.host.map(|h| h.to_string()))
@@ -97,6 +99,8 @@ impl AckRepo for Store {
             .bind(json(&rule.predicates)?)
             .bind(&rule.note)
             .bind(rule.expires_at.map(ms))
+            .bind(rule.created_at.map(ms))
+            .bind(rule.created_by.as_deref())
             .execute(&self.write)
             .await
             .map_err(db)?;
@@ -114,7 +118,7 @@ impl AckRepo for Store {
 
     async fn list_rules(&self) -> Result<Vec<AckRule>, StoreError> {
         const SQL: &str = "SELECT id, host_id, check_key, target_pattern, predicates, note, \
-            expires_at FROM ack_rules ORDER BY id";
+            expires_at, created_at, created_by FROM ack_rules ORDER BY id";
         type Row = (
             String,
             Option<String>,
@@ -123,26 +127,32 @@ impl AckRepo for Store {
             String,
             String,
             Option<i64>,
+            Option<i64>,
+            Option<String>,
         );
         let rows: Vec<Row> = sqlx::query_as(SQL)
             .fetch_all(&self.read)
             .await
             .map_err(db)?;
         rows.into_iter()
-            .map(|(id, host, check, pattern, predicates, note, expires)| {
-                Ok(AckRule {
-                    id: parse(&id, "ack rule id")?,
-                    host: host.as_deref().map(|h| parse(h, "host id")).transpose()?,
-                    check: from_name(&check, "check key")?,
-                    target_pattern: pattern
-                        .as_deref()
-                        .map(|p| from_name(p, "target pattern"))
-                        .transpose()?,
-                    predicates: from_json(&predicates, "ack predicates")?,
-                    note,
-                    expires_at: from_ms_opt(expires)?,
-                })
-            })
+            .map(
+                |(id, host, check, pattern, predicates, note, expires, created, created_by)| {
+                    Ok(AckRule {
+                        id: parse(&id, "ack rule id")?,
+                        host: host.as_deref().map(|h| parse(h, "host id")).transpose()?,
+                        check: from_name(&check, "check key")?,
+                        target_pattern: pattern
+                            .as_deref()
+                            .map(|p| from_name(p, "target pattern"))
+                            .transpose()?,
+                        predicates: from_json(&predicates, "ack predicates")?,
+                        note,
+                        expires_at: from_ms_opt(expires)?,
+                        created_at: from_ms_opt(created)?,
+                        created_by,
+                    })
+                },
+            )
             .collect()
     }
 

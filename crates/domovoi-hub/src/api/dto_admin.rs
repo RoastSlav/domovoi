@@ -272,6 +272,8 @@ pub struct DigestPreview {
     pub date: String,
     /// The rendered Markdown.
     pub markdown: String,
+    /// When the digest is next sent (RFC 3339); null when the digest is disabled.
+    pub next_send_at: Option<String>,
 }
 
 /// A change the web UI should show, sent on the event stream.

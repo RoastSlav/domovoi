@@ -43,6 +43,11 @@ pub(super) async fn advisories(
 /// Today's digest, built now.
 pub(crate) async fn build(state: &ApiState) -> Result<DigestPreview, ApiError> {
     let deps = &state.deps;
+    let service = domovoi_engine::digest::DigestService {
+        enabled: deps.config.notify.digest.enabled,
+        time: deps.config.notify.digest.time.time(),
+        tz: deps.config.hub.timezone.zone().clone(),
+    };
     let rendered = crate::digest::build(&crate::digest::DigestDeps {
         config: deps.config.clone(),
         clock: deps.clock.clone(),
@@ -59,6 +64,7 @@ pub(crate) async fn build(state: &ApiState) -> Result<DigestPreview, ApiError> {
     Ok(DigestPreview {
         date: rendered.date,
         markdown: rendered.markdown,
+        next_send_at: service.next_due(deps.clock.now()).map(|at| at.to_string()),
     })
 }
 
