@@ -11,18 +11,25 @@ Lines come out oldest first, so the newest one is at the bottom:
 12:05:02 ERROR domovoi_hub.chat: gateway rejected key=[REDACTED]
 ```
 
-The time is the hub's clock, printed in your browser's zone. The name before the colon is what logged the line, and after the colon comes the message with its fields. The page prints one line at a time in red for `error` and amber for `warn`.
+The time is the hub's clock, printed in your browser's zone. The name before the colon is what logged the line, and after the colon comes the message with its fields. Only the level word is coloured, red for `error` and amber for `warn`.
 
-The page only reaches back as far as the hub kept in memory: the newest 2000 lines, since it started. Longer history goes to `journalctl` when you run the hub under systemd, or to whatever you redirected its standard error into. Lines whose message is longer than 2 KiB are cut.
+The page draws the newest 500 lines. When more were loaded, **Show older** adds 500 more. The page only reaches back as far as the hub kept in memory: the newest 2000 lines, since it started. Longer history goes to `journalctl` when you run the hub under systemd, or to whatever you redirected its standard error into. Lines whose message is longer than 2 KiB are cut.
 
 ## Choosing what to read
 
 - **Level and above.** `error`, `warn`, `info` (the default) or `debug`. What exists at all depends on how the hub was started: `--log-level`, or `RUST_LOG`, decides what it logs in the first place. A hub started at `warn` logged nothing at `info`, and the page has nothing to show for that level.
 - **Lines.** How many to ask for, 100 to 1000 in the page; the hub answers up to 2000.
 - **Source.** The hub, or one of the hosts with an agent. The hub's recent lines are captured in memory; an agent's lines stay on its own machine, but the hub asks the agent for the newest ones through its link, so picking a host shows what that agent was doing there. The lines come back scrubbed again on the hub's side, so an agent that logged a secret without scrubbing it is still safe. A window of lines that does not fit one link frame is asked for in parts and joined back on the hub. An agent from a release that cannot send logs answers "the agent is too old to send logs; update it", and the page shows that.
-- **Auto-refresh.** Every 5 seconds, or only when the person clicks. The Refresh button asks right away either way.
+- **Live.** On by default. While it is on, the page asks again every 5 seconds. Switch it off to stop the asking and read in peace. The Refresh button asks right away either way.
 
-The page asks again by itself every 5 seconds while Auto-refresh is on, and the Refresh button asks right away in all cases.
+## Reading the lines
+
+- **Search lines** filters the lines to those whose time, level, source or message contains your text, and highlights the match.
+- **Wrap lines** folds long lines instead of scrolling them sideways.
+- Scroll up and the page stops following new lines. **Jump to latest** takes you back to the bottom.
+- **Copy visible lines** copies the lines on screen as plain text.
+
+The level, the number of lines, the source and the Live switch are kept in the address of the page, so a link or a reload opens the same view. A host's page has a **Logs** tab that reads the same way for that host's agent, with the same search, Live switch and **Show older**. Its link is the host's page with `?tab=logs`.
 
 ## Secrets
 

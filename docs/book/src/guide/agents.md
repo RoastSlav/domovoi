@@ -4,14 +4,18 @@ An agent runs on each host Domovoi watches. It connects out to the hub, so the h
 
 ## Enrolling a host
 
-1. On the hub, create a token for the host. If the host is new, this registers it.
-2. The hub prints one command, valid for 15 minutes:
+In the web UI, open **Hosts** and choose **Add host**. The dialog has three steps:
+
+1. **Create an invite.** Type a name for the host, in lower-case letters, digits and dashes, and choose **Create invite**. If the host is new, this registers it.
+2. **Copy the command.** The dialog shows one command, valid for 15 minutes, with a countdown to its expiry. Below it is the hub's certificate fingerprint. The command already carries it, and the agent prints the same value, so you can check that they match.
 
    ```text
    domovoi agent enroll --hub wss://hub.lan:7421/ --token <token> --fingerprint 3A:9F:…:C2
    ```
 
-3. Run it on the host. The agent makes a new key pair, connects, checks that the hub's certificate matches the fingerprint, and sends its public key together with the token.
+3. **Wait for the agent.** Run the command on the host. The agent makes a new key pair, connects, checks that the hub's certificate matches the fingerprint, and sends its public key together with the token. The dialog notices when the agent connects, says which host it is and links to its page.
+
+If the invite runs out first, the dialog says so. Choose **New invite** for a fresh command. **Done** closes the dialog.
 
 The token works once. The hub keeps only its SHA-256, so a copy of the database cannot enroll anything. A wrong, used or expired token is refused after a short delay.
 
@@ -31,9 +35,9 @@ The hub refuses an agent that it does not know, one that has been revoked, or on
 
 ## Revoking and re-enrolling
 
-Revoking a host's agent closes its connection at once, and the agent can never connect again with that key.
+Revoking a host's agent closes its connection at once, and the agent can never connect again with that key. In the web UI, open the host's page, choose its actions menu and then **Revoke agent** (the same entry is in the menu of each row on **Hosts**). The dialog names the host and asks you to type its name before the button works.
 
-To reinstall a host, create a new token for it and enroll again. The new agent replaces the old one, and the old key is revoked.
+To reinstall a host, create a new invite for it with **Add host** and enroll again. The new agent replaces the old one, and the old key is revoked.
 
 ## Host down, agent down, or the hub's own network
 

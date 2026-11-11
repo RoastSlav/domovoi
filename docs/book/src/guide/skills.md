@@ -43,12 +43,18 @@ Each skill is a folder under the agent's skills directory, `/etc/domovoi/skills`
 - The folder must not be world-writable. Keep the whole tree owned by root.
 - The agent reads the folder when it starts. After adding or changing a skill, run `domovoi check skills /etc/domovoi/skills`, then restart the agent.
 
-Opening a skill on the Skills page (or on a host's Skills tab) shows its full details: what its risk means, every parameter with its limits, what it applies to, its timeout, its verification, its manifest hash, its recent runs on that host, and the folder's `README.md` when it has one.
+The Skills page lists the skills of the host chosen in the host selector. Under **All hosts** it asks you to pick one. Each row of the table shows:
 
-You can also turn a skill off without touching the host. Each card on the Skills page has an
-**Enabled** checkbox; unchecking it keeps the skill on the host and in the list, shown greyed and
-tagged "Disabled", and the hub stops running it and stops offering it to triage. The switch is
-saved per host, so it survives a hub restart, and checking the box again turns the skill back on.
+- the skill's name and description,
+- its **Risk**, with the harmless skills first and destructive skills marked,
+- its **Timeout**, how long one run may take before the agent stops it,
+- **Applies to**, the checks the skill is suggested for, or "Any check" when it names none,
+- **Last used**, when Domovoi last sent the skill to that host's agent, or "Never",
+- an **Enabled** switch.
+
+Choose a skill's name (also on the Overview tab of a host's page) to open its details: what its risk means, its timeout, what it applies to, its verification and its manifest hash, then a **Parameters** table with the type, constraints and description of every parameter, the folder's `README.md` when it has one, and its **Recent runs** on that host. Each run links to its incident.
+
+You can also turn a skill off without touching the host. Switch **Enabled** off in its row: the skill stays on the host and in the list, shown greyed and tagged "Disabled", and the hub stops running it and stops offering it to triage. The switch is saved per host, so it survives a hub restart, and switching it on again turns the skill back on.
 
 Editing a manifest changes its hash, which cancels any pending approval for that skill: you always approve exactly what runs.
 
