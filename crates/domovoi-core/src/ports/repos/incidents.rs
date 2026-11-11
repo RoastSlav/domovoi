@@ -43,6 +43,10 @@ pub struct IncidentFilter {
     pub status: Option<String>,
     /// Only incidents of this severity.
     pub severity: Option<crate::Severity>,
+    /// Only incidents in this group.
+    pub group: Option<crate::IncidentGroup>,
+    /// Only incidents whose title, check or target contains this text, ignoring case.
+    pub text: Option<String>,
 }
 
 /// One line in an incident's timeline.

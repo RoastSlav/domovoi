@@ -185,6 +185,8 @@
   --tone-danger-border: var(--palette-brick-300);
   --tone-danger-solid: var(--palette-brick-600);
   --tone-danger-on-solid: var(--palette-white);
+  /* The one row tint: mixed from the theme's own danger tint and surface, so it needs no dark value. */
+  --tone-danger-faint: color-mix(in srgb, var(--tone-danger-bg) 40%, var(--color-surface));
   --tone-warning-bg: var(--palette-ochre-100);
   --tone-warning-fg: var(--palette-ochre-700);
   --tone-warning-border: var(--palette-ochre-300);

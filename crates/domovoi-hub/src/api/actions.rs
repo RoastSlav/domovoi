@@ -38,7 +38,7 @@ async fn load(state: &ApiState, id: ActionId) -> Result<ActionRequest, ApiError>
     params(ActionQuery),
     responses(
         (status = 200, description = "One page", body = ActionPage),
-        (status = 400, description = "Unknown status", body = ErrorBody),
+        (status = 400, description = "Unknown status, or a time that does not parse", body = ErrorBody),
         (status = 401, description = "Not logged in", body = ErrorBody),
         (status = 404, description = "No such host", body = ErrorBody),
     )
@@ -57,9 +57,19 @@ pub(super) async fn list(
         Some(name) => Some(host_named(&state, name).await?.id),
         None => None,
     };
+    let updated_since = match &query.since {
+        Some(since) => Some(
+            since
+                .parse()
+                .map_err(|_| ApiError::BadRequest(format!("`{since}` is not a time")))?,
+        ),
+        None => None,
+    };
     let filter = ActionFilter {
         host,
         status: query.status.clone(),
+        decided: query.decided,
+        updated_since,
         ..ActionFilter::default()
     };
     let got = state

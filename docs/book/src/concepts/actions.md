@@ -25,6 +25,14 @@ stateDiagram-v2
 - **Succeeded or Failed:** what the skill's run reported. Failures are posted in the incident's thread.
 - **Verified or VerifyFailed:** whether the check that raised the incident passes again afterwards. A verified action marks the incident as fixed. A failed verification is posted in the thread.
 
+## In the web UI
+
+An action looks the same on the incident's page and on the **Approvals** page: the skill, its risk (the info button beside it says what that risk level allows), its state, the host, the arguments it would run with, who suggested it, and, while it waits, the time left to decide. The countdown turns to a warning in the last ten minutes. On the incident's page the card also shows why triage proposed it.
+
+**Approve** always asks first, naming the skill, its arguments and the host; a destructive skill also needs its name typed. **Deny** is one click: nothing runs, and triage can propose the action again. After you approve, the card shows the action being sent and running, and a short message tells you how it ended, wherever on the page you are. An action that failed shows the reason; one that expired says that nobody decided in time and that nothing ran.
+
+The **Approvals** page lists what is **Waiting for you**, the soonest to expire first, and, in a section that starts closed, what was **Recently decided** in the last 24 hours. It follows the host chosen in the top bar.
+
 ## Safety rules
 
 - **Only people approve.** An approval comes from a signed-in web session or an allowed chat user. The model, alert text, log lines and other automation can never approve an action. The model's read-only tools include nothing that can change an action.

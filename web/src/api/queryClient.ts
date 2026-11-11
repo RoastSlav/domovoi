@@ -9,11 +9,11 @@ export const keys = {
   incidentDetails: ["incidents", "detail"] as const,
   incidentList: (filters: object) => ["incidents", "list", filters] as const,
   incident: (id: string) => ["incidents", "detail", id] as const,
+  incidentChange: (id: string) => ["incidents", "change", id] as const,
   followUps: (id: string) => ["incidents", "followups", id] as const,
   ackRules: ["ack-rules"] as const,
   actions: ["actions"] as const,
-  actionList: (status: string | undefined, host?: string) =>
-    ["actions", "list", status ?? "all", host ?? ""] as const,
+  actionList: (filters: object) => ["actions", "list", filters] as const,
   overview: ["overview"] as const,
   overviewFor: (host: string | undefined) => ["overview", host ?? ""] as const,
   hosts: ["hosts"] as const,

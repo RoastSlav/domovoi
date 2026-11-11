@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { useApprove, useDeny } from "../../api/hooks/actions";
 import type { Action } from "../../api/types";
-import { Button, ConfirmDialog, useActionFeedback } from "../../components";
-import styles from "./approvals.module.css";
+import { Button, Cluster, ConfirmDialog, useActionFeedback } from "../../components";
 
 function argsText(action: Action): string {
   return Object.entries(action.args)
@@ -10,12 +9,22 @@ function argsText(action: Action): string {
     .join(", ");
 }
 
+/** What approving does, in a sentence that names the skill, its arguments and the host. */
+function consequence(action: Action, host: string | undefined): string {
+  const args = argsText(action);
+  const what = args ? `${action.skill} with ${args}` : action.skill;
+  const where = host ? `on ${host}` : "on the host";
+  return action.risk === "destructive"
+    ? `${what} runs ${where} as soon as you approve. It can lose data, and it cannot be undone.`
+    : `${what} runs ${where} as soon as you approve.`;
+}
+
 /**
- * Approve and Deny for a proposed action. Read and write skills ask for a simple
- * confirmation; destructive skills need their name typed exactly, which is sent to the hub
- * as `confirm_text` (INV-6).
+ * Approve and Deny for a waiting action. Approving always asks first, saying what will run
+ * and where; a destructive skill also needs its name typed exactly, which is sent to the hub
+ * as `confirm_text` (INV-6). Denying is one click: nothing runs, and triage can ask again.
  */
-export function ApproveControl({ action }: { action: Action }) {
+export function ApproveControl({ action, host }: { action: Action; host?: string | undefined }) {
   const [open, setOpen] = useState(false);
   const [typed, setTyped] = useState("");
   const approve = useActionFeedback(useApprove(), {
@@ -28,7 +37,6 @@ export function ApproveControl({ action }: { action: Action }) {
     error: "deny the action",
   });
   const destructive = action.risk === "destructive";
-  const args = argsText(action);
 
   const close = () => {
     setOpen(false);
@@ -42,22 +50,25 @@ export function ApproveControl({ action }: { action: Action }) {
     });
 
   return (
-    <div className={styles.controls}>
-      <Button variant={destructive ? "danger" : "primary"} onClick={() => setOpen(true)}>
+    <Cluster>
+      <Button
+        variant="primary"
+        hint="Asks you to confirm, then runs the skill on the host."
+        onClick={() => setOpen(true)}
+      >
         Approve
       </Button>
-      <Button onClick={() => deny.mutate(action.id)} loading={deny.isPending}>
+      <Button
+        hint="Declines it. Nothing runs, and triage can propose it again."
+        onClick={() => deny.mutate(action.id)}
+        loading={deny.isPending}
+      >
         Deny
       </Button>
       {open && (
         <ConfirmDialog
           title={destructive ? `Run destructive action ${action.skill}?` : `Run ${action.skill}?`}
-          consequence={
-            <>
-              <strong>{action.skill}</strong>
-              {args ? ` with ${args}` : ""} runs on the host as soon as you approve.
-            </>
-          }
+          consequence={consequence(action, host)}
           confirmLabel="Approve"
           tone={destructive ? "danger" : "primary"}
           requireText={destructive ? action.skill : undefined}
@@ -68,6 +79,6 @@ export function ApproveControl({ action }: { action: Action }) {
           onCancel={close}
         />
       )}
-    </div>
+    </Cluster>
   );
 }

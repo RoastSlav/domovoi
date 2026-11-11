@@ -7,6 +7,7 @@
 
 pub mod dto;
 pub mod dto_admin;
+pub mod dto_query;
 pub mod error;
 pub mod notes_import;
 

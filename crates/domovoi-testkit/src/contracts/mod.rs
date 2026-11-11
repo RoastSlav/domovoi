@@ -7,6 +7,7 @@
 mod accounts;
 mod actions;
 mod hosts;
+mod incident_groups;
 mod incidents;
 mod knowledge;
 mod notify;

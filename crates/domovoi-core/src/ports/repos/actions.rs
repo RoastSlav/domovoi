@@ -1,6 +1,7 @@
 //! Action requests.
 
 use async_trait::async_trait;
+use jiff::Timestamp;
 
 use super::{Page, Paged, StoreError};
 use crate::action::ActionRequest;
@@ -16,6 +17,11 @@ pub struct ActionFilter {
     /// Only actions with this status name (see
     /// [`ActionStatus::NAMES`](crate::ActionStatus::NAMES)).
     pub status: Option<String>,
+    /// `Some(true)`: only actions a person or time has decided (anything but `proposed`);
+    /// `Some(false)`: only those still waiting.
+    pub decided: Option<bool>,
+    /// Only actions that last changed at or after this instant.
+    pub updated_since: Option<Timestamp>,
 }
 
 /// Stored action requests. Listings order by `created_at`, newest first.

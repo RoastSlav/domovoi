@@ -13,15 +13,18 @@ export interface ChatInput {
   host?: string | undefined;
   history: ChatMessage[];
   question: string;
+  /** Cancels the request: the person pressed Stop. */
+  signal?: AbortSignal | undefined;
 }
 
 /** Asks the model about the operator's servers; it can only read. */
 export function useChat() {
   return useMutation({
-    mutationFn: ({ host, history, question }: ChatInput) =>
+    mutationFn: ({ host, history, question, signal }: ChatInput) =>
       call<ChatResponse>(
         api.POST("/api/v1/chat", {
           body: host ? { host, history, question } : { history, question },
+          ...(signal ? { signal } : {}),
         }),
       ),
   });

@@ -138,18 +138,16 @@ mod tests {
     }
 
     /// Waits for the restart a save starts. The runtime answers the save before it stops,
-    /// so a health check can still reach the old one; wait for its listener to close and
-    /// then for the new runtime to answer.
+    /// so a health check can still reach the old one; wait for it to go away and then for
+    /// the new runtime to answer. The old one goes away either as a refused connection
+    /// (its listener closed) or as a request cut off mid-way (reset, closed before the
+    /// reply): both mean it is stopping.
     async fn wait_restarted(client: &reqwest::Client, base: &str) {
         let deadline = Instant::now() + Duration::from_secs(30);
         while Instant::now() < deadline {
-            match client.get(format!("{base}/healthz")).send().await {
-                Err(err) if err.is_connect() => {
-                    wait_healthy(client, base).await;
-                    return;
-                }
-                Err(err) => panic!("{err}"),
-                Ok(_) => {}
+            if client.get(format!("{base}/healthz")).send().await.is_err() {
+                wait_healthy(client, base).await;
+                return;
             }
             tokio::time::sleep(Duration::from_millis(10)).await;
         }

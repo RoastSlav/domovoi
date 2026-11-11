@@ -3,14 +3,24 @@ import { api } from "../client";
 import { keys } from "../queryClient";
 import { call, defined, type ActionPage } from "../types";
 
-/** Actions with `status` (all when absent) on `host` (by name; every host when absent), newest first. */
-export function useActions(status?: string, host?: string) {
+/** Which actions a list shows. */
+export interface ActionFilters {
+  /** `true`: no longer waiting for approval; `false`: still waiting. */
+  decided?: boolean | undefined;
+  /** Only this host, by name. */
+  host?: string | undefined;
+  /** Only actions that changed at or after this time, RFC 3339. */
+  since?: string | undefined;
+  /** Only this status name. */
+  status?: string | undefined;
+}
+
+/** Actions matching `filters` (all of them when empty), newest first. */
+export function useActions(filters: ActionFilters = {}) {
+  const query = defined({ ...filters, limit: 200 });
   return useQuery({
-    queryKey: keys.actionList(status, host),
-    queryFn: () =>
-      call<ActionPage>(
-        api.GET("/api/v1/actions", { params: { query: defined({ status, host, limit: 200 }) } }),
-      ),
+    queryKey: keys.actionList(query),
+    queryFn: () => call<ActionPage>(api.GET("/api/v1/actions", { params: { query } })),
   });
 }
 

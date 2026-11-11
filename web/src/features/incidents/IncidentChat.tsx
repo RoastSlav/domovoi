@@ -1,25 +1,19 @@
 import { useState } from "react";
 import { useAsk, useClearFollowUps, useFollowUps } from "../../api/hooks/incidents";
-import {
-  chatFailureText,
-  ChatThread,
-  type ChatTurn,
-  ConfirmDialog,
-  useActionFeedback,
-} from "../../components";
+import { ChatThread, type ChatTurn, ConfirmDialog, useActionFeedback } from "../../components";
+import { useChatOff } from "../chat/useChatOff";
 
 export { MAX_QUESTION_CHARS } from "../../components";
 
 /**
- * The chat with triage about one incident: the turns the model still remembers,
- * questions right-aligned in accent bubbles and answers left-aligned as Markdown; the
- * next question stays visible with a Thinking bubble while the model works, an answer
- * the hub did not manage to remember is shown from the response, and the Clear
- * conversation button has it forget the whole thing.
+ * The chat with triage about one incident: the turns the model still remembers, the next
+ * question visible with "Thinking…" while the model works, an answer the hub did not manage
+ * to remember shown from the response, and Clear conversation to have it forget the lot.
  */
 export function IncidentChat({ incidentId, host }: { incidentId: string; host: string }) {
   const remembered = useFollowUps(incidentId);
   const ask = useAsk(incidentId);
+  const off = useChatOff();
   const clear = useActionFeedback(useClearFollowUps(incidentId), {
     success: "Conversation cleared",
     error: "clear the conversation",
@@ -39,7 +33,7 @@ export function IncidentChat({ incidentId, host }: { incidentId: string; host: s
   const thread: ChatTurn[] = [];
   for (const turn of turns) {
     thread.push({ role: "user", text: turn.question, at: turn.at });
-    thread.push({ role: "assistant", text: turn.answer, at: turn.at });
+    thread.push({ role: "assistant", text: turn.answer });
   }
   if (unremembered) {
     thread.push({ role: "user", text: asked }, { role: "assistant", text: unremembered });
@@ -50,16 +44,17 @@ export function IncidentChat({ incidentId, host }: { incidentId: string; host: s
       <ChatThread
         turns={thread}
         pending={pending}
-        error={ask.error ? chatFailureText(ask.error) : undefined}
         hint={`Uses read-only tools on ${host}. It cannot change anything.`}
         label="Ask about this incident"
+        disabledReason={off}
         sending={ask.isPending}
         clearing={clearOpen || clear.isPending}
         loading={remembered.isPending}
-        loadFailed={Boolean(remembered.error)}
+        loadError={remembered.data ? undefined : remembered.error}
+        onReload={() => void remembered.refetch()}
         onSend={(question) => {
           setSending(question);
-          return ask.mutateAsync(question).then(() => undefined);
+          return ask.mutateAsync(question);
         }}
         onClear={() => setClearOpen(true)}
       />

@@ -48,7 +48,7 @@ pub use id::{
     UserId,
 };
 pub use incident::{
-    Incident, IncidentChange, IncidentEvent, IncidentPolicy, IncidentStatus, apply,
+    Incident, IncidentChange, IncidentEvent, IncidentGroup, IncidentPolicy, IncidentStatus, apply,
 };
 pub use interaction::{Interaction, InteractionKind, InteractionReply};
 pub use note::Note;

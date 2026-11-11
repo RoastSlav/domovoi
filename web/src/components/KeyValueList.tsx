@@ -17,9 +17,16 @@ export interface KeyValue {
  * Use it for the details of a single object (a host, a skill). Many objects with the same
  * fields are a `DataTable`.
  */
-export function KeyValueList({ items }: { items: readonly KeyValue[] }) {
+export function KeyValueList({
+  items,
+  mono = false,
+}: {
+  items: readonly KeyValue[];
+  /** Values in the monospace font, wrapped anywhere: for arguments, paths and IDs. */
+  mono?: boolean;
+}) {
   return (
-    <dl className={styles.kv}>
+    <dl className={styles.kv} data-mono={mono || undefined}>
       {items.map((item) => (
         <div key={item.label} className="contents">
           <dt>

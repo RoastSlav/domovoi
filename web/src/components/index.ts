@@ -41,6 +41,7 @@ export { Cluster, Grid, Stack, type Gap } from "./Stack";
 export { PageHeader } from "./PageHeader";
 export { Section } from "./Section";
 export { Card } from "./Card";
+export { Text } from "./Text";
 
 // Data
 export { DataTable, type Column } from "./DataTable";
@@ -48,6 +49,7 @@ export { KeyValueList, type KeyValue } from "./KeyValueList";
 export { FilterChips, type Chip } from "./FilterChips";
 export { Tabs, type Tab } from "./Tabs";
 export { RelativeTime } from "./RelativeTime";
+export { Timeline, TIMELINE_PREVIEW, type TimelineItem } from "./Timeline";
 export { Countdown, formatRemaining, useRemaining } from "./Countdown";
 export { CopyBlock } from "./CopyBlock";
 export { Markdown } from "./Markdown";
@@ -73,8 +75,8 @@ export {
   ChatThread,
   MAX_HISTORY_TURNS,
   MAX_QUESTION_CHARS,
-  chatFailureText,
   type ChatThreadProps,
+  type ChatTool,
   type ChatTurn,
 } from "./ChatThread";
 

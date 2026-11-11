@@ -1073,6 +1073,49 @@ expression: spec
         ],
         "type": "object"
       },
+      "IncidentGroupsDto": {
+        "description": "How many unresolved incidents are in each group of the incident list.",
+        "properties": {
+          "expected": {
+            "description": "Open, and expected: triage said so, or a known condition does.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "handled": {
+            "description": "Acknowledged or muted.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "monitor": {
+            "description": "Open, and triage said to keep an eye on it.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "needs_action": {
+            "description": "Open, and triage did not say to only watch it or that it is expected.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "pending": {
+            "description": "Not confirmed yet.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "needs_action",
+          "monitor",
+          "pending",
+          "expected",
+          "handled"
+        ],
+        "type": "object"
+      },
       "IncidentPage": {
         "description": "One page of incidents, newest first.",
         "properties": {
@@ -1488,6 +1531,10 @@ expression: spec
             "minimum": 0,
             "type": "integer"
           },
+          "incident_groups": {
+            "$ref": "#/components/schemas/IncidentGroupsDto",
+            "description": "The incidents that are not resolved, counted by the group the list filters on."
+          },
           "incidents_action_needed": {
             "description": "Open incidents nobody has acknowledged and triage did not judge expected.",
             "format": "int32",
@@ -1504,6 +1551,7 @@ expression: spec
         "required": [
           "incidents_action_needed",
           "incidents_open",
+          "incident_groups",
           "approvals_waiting",
           "hosts_offline",
           "hosts_total"
@@ -2579,6 +2627,24 @@ expression: spec
             }
           },
           {
+            "description": "`true`: only actions that are no longer waiting for approval; `false`: only those\nthat are.",
+            "in": "query",
+            "name": "decided",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Only actions that last changed at or after this time, RFC 3339.",
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "description": "The `next_cursor` of the previous page.",
             "in": "query",
             "name": "cursor",
@@ -2618,7 +2684,7 @@ expression: spec
                 }
               }
             },
-            "description": "Unknown status"
+            "description": "Unknown status, or a time that does not parse"
           },
           "401": {
             "content": {
@@ -3941,6 +4007,24 @@ expression: spec
             "description": "Only this severity: `info`, `warning` or `critical`.",
             "in": "query",
             "name": "severity",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only this group: `needs_action`, `monitor`, `pending`, `expected`, `handled` or\n`resolved`. An open incident is in `monitor` or `expected` when triage said so, and\nin `needs_action` otherwise; `handled` is acknowledged or muted.",
+            "in": "query",
+            "name": "group",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only incidents whose title, check or target contains this text, ignoring case.",
+            "in": "query",
+            "name": "q",
             "required": false,
             "schema": {
               "type": "string"

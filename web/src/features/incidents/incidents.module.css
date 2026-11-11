@@ -1,163 +1,107 @@
+/* Placement only: colours, borders and type come from the kit. */
+
 .filters {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-  margin-bottom: 1rem;
+  display: grid;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
 }
 
-.filter {
+/* Side by side on a phone too: the first incident must not start a screen down. */
+.filterRow {
   display: grid;
-  gap: 0.2rem;
-  font-size: 0.9rem;
+  grid-template-columns: minmax(0, 24rem) minmax(7rem, 12rem);
+  gap: var(--space-3);
+  align-items: start;
 }
 
-.list {
+.cards {
   display: grid;
-  gap: 0.5rem;
+  gap: var(--space-2);
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.row {
-  display: grid;
-  gap: 0.2rem;
-  padding: 0.75rem 1rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-}
-
-.rowHead {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.title {
-  font-weight: 600;
-  overflow-wrap: anywhere;
-}
-
-.meta {
-  margin: 0;
-  font-size: 0.9rem;
-  color: var(--color-text-muted);
-}
-
 .more {
   display: flex;
   justify-content: center;
-  margin-top: 1rem;
 }
 
-.groupSummary {
-  margin-bottom: 0.2rem;
-}
-
-.groupHeading {
-  margin: 0 0 0.2rem;
-  font-size: 1.15rem;
-}
-
-.groupHint {
-  margin: 0 0 0.5rem;
-  font-size: 0.9rem;
-  color: var(--color-text-muted);
-}
-
-.groupEmpty {
-  margin: 0.2rem 0 0;
-  font-size: 0.9rem;
-  color: var(--color-text-muted);
-}
-
-.groupLink {
-  display: inline-block;
-  margin-top: 0.5rem;
-}
-
-.card {
-  padding: 1rem 1.1rem;
-  border: 1px solid var(--color-border);
-  border-left: 6px solid var(--color-primary);
-  border-radius: var(--radius-md);
-  background: var(--color-surface);
-}
-
-.card[data-resolved="true"] {
-  border-left-color: var(--tone-success-solid);
-}
-
-.card h1 {
-  margin: 0.4rem 0 0.5rem;
-  font-size: 1.35rem;
-  overflow-wrap: anywhere;
-}
-
-.card ul {
-  margin: 0 0 0.5rem;
-  padding-left: 1.25rem;
-}
-
-.nextStep {
+.bullets {
   margin: 0;
+  padding-left: var(--space-5);
 }
 
-.checklist {
-  margin: 0;
-  padding-left: 1.5rem;
-}
-
-.checklist li {
-  margin-bottom: 0.35rem;
-}
-
-.section {
-  margin-top: 1.75rem;
-}
-
-.section h2 {
-  font-size: 1.1rem;
-}
-
-.toolbar {
+/* One column: the summary, the proposed actions, the story, then the history. */
+.detail {
   display: flex;
-  flex-wrap: wrap;
-  align-items: end;
-  gap: 0.5rem;
-  margin-top: 1rem;
+  flex-direction: column;
+  min-width: 0;
 }
 
-.timeline {
-  margin: 0;
-  padding-left: 1.25rem;
+.side {
+  display: contents;
 }
 
-.timeline li {
-  margin-bottom: 0.35rem;
+.summary {
+  order: 1;
 }
 
-.kind {
-  font-family: var(--font-mono);
-  font-size: 0.85rem;
-  color: var(--color-text-muted);
+.actions {
+  order: 2;
 }
 
-.hint {
-  margin: 0;
-  font-size: 0.9rem;
-  color: var(--color-text-muted);
+.main {
+  order: 3;
 }
 
-.error {
-  margin: 0;
-  color: var(--tone-danger-fg);
-  font-weight: 600;
+.history {
+  order: 4;
 }
 
-.triage {
-  flex-basis: 100%;
-  margin: 0;
-  color: var(--color-text-muted);
+.summary,
+.actions,
+.main,
+.history {
+  min-width: 0;
+}
+
+/* Two columns: the story on the left, what to do and what happened on the right. */
+.detail[data-columns="2"] {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  grid-template-rows: auto 1fr;
+  column-gap: var(--space-5);
+  align-items: start;
+}
+
+.detail[data-columns="2"] .summary {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.detail[data-columns="2"] .main {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.detail[data-columns="2"] .side {
+  display: block;
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  min-width: 0;
+}
+
+/* The right column's first section lines up with the summary card. */
+.detail[data-columns="2"] .actions > :first-child {
+  margin-top: 0;
+}
+
+@media (min-height: 800px) {
+  .detail[data-columns="2"] .side {
+    position: sticky;
+    top: var(--space-4);
+    max-height: calc(100vh - var(--space-6));
+    overflow-y: auto;
+  }
 }

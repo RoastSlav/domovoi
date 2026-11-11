@@ -1,107 +1,52 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useChat, type ChatMessage } from "../../api/hooks/chat";
 import { useHosts } from "../../api/hooks/hosts";
 import { useSelectedHost } from "../../app/HostContext";
-import { chatFailureText, ChatThread, MAX_HISTORY_TURNS, PageHeader } from "../../components";
-import styles from "./chat.module.css";
-
-/** The stored conversation for `host`; `undefined` is every host. */
-function storageKey(host: string | undefined): string {
-  return `chat:${host ?? "all"}`;
-}
-
-function isMessage(value: unknown): value is ChatMessage {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "role" in value &&
-    "text" in value &&
-    (value.role === "user" || value.role === "assistant") &&
-    typeof value.text === "string"
-  );
-}
-
-/** The conversation saved for `host`, or nothing when storage is empty or unavailable. */
-function readConversation(host: string | undefined): ChatMessage[] {
-  try {
-    const saved = sessionStorage.getItem(storageKey(host));
-    const parsed: unknown = saved ? JSON.parse(saved) : [];
-    return Array.isArray(parsed) ? parsed.filter(isMessage) : [];
-  } catch {
-    return [];
-  }
-}
-
-/** Remembers the conversation for `host`; storage may be blocked. */
-function saveConversation(host: string | undefined, turns: ChatMessage[]): void {
-  try {
-    sessionStorage.setItem(storageKey(host), JSON.stringify(turns));
-  } catch {
-    // Private windows and blocked site data: the conversation lasts for the visit only.
-  }
-}
-
-/** Forgets the conversation for `host`; storage may be blocked. */
-function forgetConversation(host: string | undefined): void {
-  try {
-    sessionStorage.removeItem(storageKey(host));
-  } catch {
-    // See saveConversation.
-  }
-}
-
-/**
- * The newest earlier turns the hub accepts. Only whole question/answer pairs are sent, so
- * a conversation that has outgrown the limit keeps working instead of every request failing.
- */
-function recentHistory(turns: ChatMessage[]): ChatMessage[] {
-  const start = Math.max(0, turns.length - MAX_HISTORY_TURNS);
-  return turns.slice(turns[start]?.role === "assistant" ? start + 1 : start);
-}
+import { ChatThread, InlineMessage, PageHeader, Stack, Tag } from "../../components";
+import {
+  forgetConversation,
+  readConversation,
+  recentHistory,
+  saveConversation,
+  starters,
+} from "./conversation";
+import { useChatOff } from "./useChatOff";
 
 /**
  * The general chat: one conversation per host, kept in sessionStorage, cleared on demand.
- * The host is the one selected for the whole app, and changing it here changes it there.
- * With a host chosen the model may look at that host; with "All hosts" it answers from a
- * summary of every host. It only reads, and the hint under the composer says so.
+ * It is about the host selected for the whole app (the header says which); with a host
+ * chosen the model may look at that host, with "All hosts" it answers from a summary of
+ * every host. It only reads, and the hint under the composer says so.
  */
 export function ChatPage() {
-  const [host, select] = useSelectedHost();
+  const [host] = useSelectedHost();
   // Each host has its own conversation: a new host starts from what was saved for it.
-  return <Conversation key={host ?? ""} host={host} onChoose={select} />;
+  return <Conversation key={host ?? ""} host={host} />;
 }
 
-function Conversation({
-  host,
-  onChoose,
-}: {
-  host: string | undefined;
-  onChoose: (name: string | undefined) => void;
-}) {
+function Conversation({ host }: { host: string | undefined }) {
   const hosts = useHosts();
   const ask = useChat();
+  const off = useChatOff();
   const [turns, setTurns] = useState<ChatMessage[]>(() => readConversation(host));
   const [pending, setPending] = useState("");
-  const connected = (hosts.data ?? []).filter((item) => item.connected);
-  const offline = (hosts.data ?? []).filter((item) => !item.connected);
-  // A selected host the hub does not list (a stale link) still shows, so it can be changed.
-  const unknown = host !== undefined && hosts.data && !hosts.data.some((h) => h.name === host);
+  const request = useRef<AbortController | null>(null);
+  const offline = host !== undefined && hosts.data?.some((h) => h.name === host && !h.connected);
 
   const send = async (question: string): Promise<void> => {
-    const trimmed = question.trim();
-    if (!trimmed || ask.isPending) {
-      return;
-    }
-    setPending(trimmed);
+    const controller = new AbortController();
+    request.current = controller;
+    setPending(question);
     try {
       const response = await ask.mutateAsync({
         host,
         history: recentHistory(turns),
-        question: trimmed,
+        question,
+        signal: controller.signal,
       });
       const next: ChatMessage[] = [
         ...turns,
-        { role: "user", text: trimmed },
+        { role: "user", text: question },
         { role: "assistant", text: response.answer },
       ];
       setTurns(next);
@@ -123,34 +68,31 @@ function Conversation({
         title="Chat"
         docs="concepts/how-it-works.html"
         intro="Ask about your servers in general. It can read what the agents report, and it never changes anything."
+        meta={<Tag tone="info">{host ? `About ${host}` : "About all hosts"}</Tag>}
       />
-      <div className={styles.host}>
-        <label htmlFor="chat-host">Host</label>
-        <select
-          id="chat-host"
-          value={host ?? ""}
-          onChange={(event) => onChoose(event.target.value || undefined)}
-          disabled={ask.isPending}
-        >
-          <option value="">All hosts</option>
-          {unknown && <option value={host}>{host}</option>}
-          {[...connected, ...offline].map((item) => (
-            <option key={item.id} value={item.name}>
-              {item.connected ? item.name : `${item.name} (offline: no tools)`}
-            </option>
-          ))}
-        </select>
-      </div>
-      <ChatThread
-        turns={turns}
-        pending={pending}
-        error={ask.error ? chatFailureText(ask.error) : undefined}
-        hint="Read-only. With a host chosen, it can look at that host's containers, logs, journal and read skills."
-        label="Ask about your servers"
-        sending={ask.isPending}
-        onSend={send}
-        onClear={clear}
-      />
+      <Stack gap={4}>
+        {offline && (
+          <InlineMessage tone="warning" title={`${host} is offline`}>
+            The model cannot look at it now. It answers from what the hub last knew.
+          </InlineMessage>
+        )}
+        <ChatThread
+          turns={turns}
+          pending={pending}
+          hint={
+            host
+              ? `Read-only. It can look at the containers, logs, journal and read skills of ${host}.`
+              : "Read-only. It answers from a summary of every host; choose a host in the top bar to let it look closer."
+          }
+          label="Ask about your servers"
+          disabledReason={off}
+          sending={ask.isPending}
+          starters={starters(host)}
+          onSend={send}
+          onStop={() => request.current?.abort()}
+          onClear={clear}
+        />
+      </Stack>
     </>
   );
 }

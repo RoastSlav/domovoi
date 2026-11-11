@@ -35,6 +35,9 @@ export type Verdict = "ACTION_NEEDED" | "MONITOR" | "EXPECTED" | "FIXED";
 export type Severity = "info" | "warning" | "critical";
 /** Where an incident is in its life. */
 export type IncidentStatus = "pending" | "open" | "acked" | "muted" | "resolved";
+/** What an incident asks of the operator; the incident list filters on it. */
+export type IncidentGroup =
+  "needs_action" | "monitor" | "pending" | "expected" | "handled" | "resolved";
 /** Where an action is in its life. */
 export type ActionStatus =
   | "proposed"
@@ -139,6 +142,45 @@ const INCIDENT_STATUSES: Table<IncidentStatus> = {
     label: "Muted",
     tone: "neutral",
     hint: "Notifications are silenced for a while; the incident stays open.",
+    icon: "mute",
+  },
+  resolved: {
+    label: "Resolved",
+    tone: "success",
+    hint: "The problem cleared.",
+    icon: "check-circle",
+  },
+};
+
+const INCIDENT_GROUPS: Table<IncidentGroup> = {
+  needs_action: {
+    label: "Action needed",
+    tone: "danger",
+    hint: "Open, and nobody has taken it. Triage did not call it expected or only worth watching.",
+    icon: "alert",
+  },
+  monitor: {
+    label: "Monitor",
+    tone: "warning",
+    hint: "Open, and triage said to keep an eye on it.",
+    icon: "eye",
+  },
+  pending: {
+    label: "Pending",
+    tone: "pending",
+    hint: "Not confirmed yet. Domovoi alerts if the check keeps failing.",
+    icon: "clock",
+  },
+  expected: {
+    label: "Expected",
+    tone: "neutral",
+    hint: "Open, but intended: triage or a known condition explains it.",
+    icon: "check",
+  },
+  handled: {
+    label: "Acknowledged or muted",
+    tone: "neutral",
+    hint: "Someone has seen it, or silenced it for a while. It still resolves by itself.",
     icon: "mute",
   },
   resolved: {
@@ -361,6 +403,40 @@ export function incidentStatusMeta(status: string): StatusMeta {
   return lookup(INCIDENT_STATUSES, status);
 }
 
+/** Every incident group, most urgent first. */
+export const INCIDENT_GROUP_ORDER = Object.keys(INCIDENT_GROUPS) as IncidentGroup[];
+
+/** How a group of the incident list is shown. */
+export function incidentGroupMeta(group: string): StatusMeta {
+  return lookup(INCIDENT_GROUPS, group);
+}
+
+/** The group `incident` is in, by the hub's rule: status first, then triage's verdict. */
+export function incidentGroupOf(incident: Pick<IncidentSummary, "status" | "verdict">): string {
+  if (incident.status === "acked" || incident.status === "muted") {
+    return "handled";
+  }
+  if (incident.status !== "open") {
+    return incident.status;
+  }
+  if (incident.verdict === "MONITOR") {
+    return "monitor";
+  }
+  return incident.verdict === "EXPECTED" ? "expected" : "needs_action";
+}
+
+/**
+ * The one pill that says where an incident stands: its status, except that an open incident
+ * shows what triage concluded, once it has.
+ */
+export function incidentStateMeta(
+  incident: Pick<IncidentSummary, "status" | "verdict">,
+): StatusMeta {
+  return incident.status === "open" && incident.verdict
+    ? verdictMeta(incident.verdict)
+    : incidentStatusMeta(incident.status);
+}
+
 /** How an action's status is shown. */
 export function actionStatusMeta(status: string): StatusMeta {
   return lookup(ACTION_STATUSES, status);
@@ -442,6 +518,7 @@ export const VOCABULARIES: {
   { name: "Verdict", meta: verdictMeta, values: Object.keys(VERDICTS) },
   { name: "Severity", meta: severityMeta, values: Object.keys(SEVERITIES) },
   { name: "Incident status", meta: incidentStatusMeta, values: Object.keys(INCIDENT_STATUSES) },
+  { name: "Incident group", meta: incidentGroupMeta, values: Object.keys(INCIDENT_GROUPS) },
   { name: "Action status", meta: actionStatusMeta, values: Object.keys(ACTION_STATUSES) },
   { name: "Skill risk", meta: riskMeta, values: Object.keys(RISKS) },
   { name: "Triage", meta: triageMeta, values: Object.keys(TRIAGE) },

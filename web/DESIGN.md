@@ -68,6 +68,7 @@ pill with an icon, primary is a filled button. Never fill a button with a tone's
 | `--color-overlay`                                                             | The scrim behind dialogs                                                                 |
 | `--tone-<tone>-bg`, `-fg`, `-border`                                          | A status pill or banner: tint, text, edge. `-fg` also passes on the page and on surfaces |
 | `--tone-<tone>-solid`, `-on-solid`                                            | Counts (navigation badges, filter chips) and a page-level critical banner. Nothing else  |
+| `--tone-danger-faint`                                                         | The one row tint: a table row that needs a person now (`DataTable` `rowState="urgent"`)  |
 | `--space-1` … `--space-8`                                                     | 4, 8, 12, 16, 24, 32, 48, 64 px. All gaps, padding and margins                           |
 | `--radius-sm`, `-md`, `-lg`, `-pill`                                          | 6 px controls, 10 px cards and dialogs, 14 px large panels, pills                        |
 | `--shadow-raised`, `--shadow-overlay`                                         | A card that floats; a dialog, menu or toast                                              |
@@ -98,7 +99,9 @@ One closed set. Every status in the product maps to exactly one tone in `tone.ts
 
 **Pills, not paint.** A status reads as a pill: `-bg` tint, `-fg` text, an icon, the label.
 `-solid` is for counts and one page-level critical banner. A row or card may carry a 3 px
-left stripe in its tone; whole rows are never tinted.
+left stripe in its tone. Whole rows are never tinted, with one exception: a table row for
+something that needs a person now may carry the very faint `--tone-danger-faint`
+(`DataTable`'s `rowState`). Do not use that token anywhere else.
 
 A value the UI does not know (the hub may be newer) shows as a `neutral` pill with the raw
 value as its label. Never throw on an unknown status.
@@ -129,6 +132,7 @@ These fail `npm run lint` or `npm test`, not a review.
 | No raw colour and no `--palette-*` outside `tokens.css`                                             | `src/styles/cssGuard.test.ts`           |
 | The two dark theme blocks are identical                                                             | `src/styles/cssGuard.test.ts`           |
 | Every status value has a label, tone, hint and icon; unknown values fall back                       | `src/design/tone.test.ts`               |
+| Every known timeline kind reads as words; an unknown one shows as it is                             | `src/design/timeline.test.ts`           |
 | No inline `style` in `src/features` and `src/app`                                                   | ESLint `no-restricted-syntax`           |
 | No native `title` attribute in `src/features` and `src/app`; kit buttons and inputs do not take one | ESLint `domovoi/no-native-title`, types |
 | Kit components come from the `src/components` barrel; icons only through `Icon`                     | ESLint `no-restricted-imports`          |
@@ -164,7 +168,7 @@ How the build stays inside it:
 - A mutation refreshes only what it changed (see the hooks in `src/api/hooks/`), and
   polling stops when nothing can change or the tab is hidden.
 
-With the shell in place the first download is about 130 kB of JavaScript (gzip), the
+The first download is about 135 kB of JavaScript (gzip), the
 largest file is the libraries at 94 kB, and Markdown is 35 kB on demand.
 
 ## The shell
@@ -258,26 +262,28 @@ and explains itself; do not use the bare `disabled` attribute in new code.
 
 ### Layout
 
-| Component                  | Use it for                                                                         | Do not use it for              |
-| -------------------------- | ---------------------------------------------------------------------------------- | ------------------------------ |
-| `PageHeader`               | The top of every page: `title` (the only `h1`), `meta`, `intro`, `docs`, `actions` | Headings inside a page         |
-| `Section`                  | A titled part of a page (`h2`), with a description and actions                     | Nesting inside another section |
-| `Card`                     | One thing among several; `tone` adds a stripe, `to` makes it a link                | Cards inside cards             |
-| `Stack`, `Cluster`, `Grid` | A column, a wrapping row, equal columns; `gap` is a step of the spacing scale      | Margins on children            |
+| Component                  | Use it for                                                                            | Do not use it for              |
+| -------------------------- | ------------------------------------------------------------------------------------- | ------------------------------ |
+| `PageHeader`               | The top of every page: `title` (the only `h1`), `meta`, `intro`, `docs`, `actions`    | Headings inside a page         |
+| `Section`                  | A titled part of a page (`h2`), with a description and actions; `collapsed` closes it | Nesting inside another section |
+| `Card`                     | One thing among several; `tone` adds a stripe, `to` makes it a link                   | Cards inside cards             |
+| `Text`                     | A quieter, smaller or monospace run of text: `muted`, `mono`, `strong`, `size`        | A status, a label, a heading   |
+| `Stack`, `Cluster`, `Grid` | A column, a wrapping row, equal columns; `gap` is a step of the spacing scale         | Margins on children            |
 
 ### Data
 
-| Component      | Use it for                                                                    | Do not use it for                 |
-| -------------- | ----------------------------------------------------------------------------- | --------------------------------- |
-| `DataTable`    | Many things with the same fields; stacks into cards in a narrow container     | The details of one thing          |
-| `KeyValueList` | The facts of one thing                                                        | Many things                       |
-| `FilterChips`  | The few filters people switch all the time, with counts; single or `multiple` | Rare or long filters (`Select`)   |
-| `Tabs`         | A few views of the same object; a tab may carry a `count`                     | Different places (navigation)     |
-| `RelativeTime` | A time read at a glance; the exact time is its tooltip                        | Where the exact time is the point |
-| `Countdown`    | A deadline minutes away, ticking                                              | Past times                        |
-| `CopyBlock`    | A command or value pasted elsewhere, in a monospace block                     | Prose                             |
-| `Markdown`     | Text written by the model or in notes; raw HTML is never rendered             | UI text you wrote                 |
-| `ChatThread`   | A conversation with the model: turns, a composer, a Thinking bubble           | Anything else                     |
+| Component      | Use it for                                                                            | Do not use it for                 |
+| -------------- | ------------------------------------------------------------------------------------- | --------------------------------- |
+| `DataTable`    | Many things with the same fields; stacks into cards in a narrow container             | The details of one thing          |
+| `Timeline`     | The history of one thing, in words from `timelineMeta`; long ones collapse            | A list of different things        |
+| `KeyValueList` | The facts of one thing; `mono` for arguments, paths and IDs                           | Many things                       |
+| `FilterChips`  | The few filters people switch all the time, with counts; one scrolling row on a phone | Rare or long filters (`Select`)   |
+| `Tabs`         | A few views of the same object; a tab may carry a `count`                             | Different places (navigation)     |
+| `RelativeTime` | A time read at a glance; the exact time is its tooltip                                | Where the exact time is the point |
+| `Countdown`    | A deadline minutes away, ticking                                                      | Past times                        |
+| `CopyBlock`    | A command or value pasted elsewhere, in a monospace block                             | Prose                             |
+| `Markdown`     | Text written by the model or in notes; raw HTML is never rendered                     | UI text you wrote                 |
+| `ChatThread`   | A conversation with the model: turns, starters, a composer, Stop and Retry            | Anything else                     |
 
 ### Forms
 
@@ -293,14 +299,14 @@ and explains itself; do not use the bare `disabled` attribute in new code.
 
 ### Overlays
 
-| Component        | Use it for                                                                                                               | Do not use it for                  |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------ | ---------------------------------- |
-| `Dialog`         | A question or short form that must be answered before going on                                                           | Explanations; results              |
-| `ConfirmDialog`  | Before something destructive: `title` names the object, `consequence`, a verb on the button; `requireText` for the worst | Actions that can be undone         |
-| `PasswordPrompt` | Password re-entry before a change that widens trust                                                                      | Logging in                         |
-| `Menu`           | Secondary actions behind a "More" button; `icon`, `header` and `checked` entries make the account menu                   | The only way to do something       |
-| `OptionPicker`   | A select whose options carry a pill or tag (the host selector); more than eight options can be filtered by typing        | Plain choices in a form (`Select`) |
-| `Popover`        | The floating panel under `InfoTip` and `Menu`                                                                            | Direct use in page code            |
+| Component        | Use it for                                                                                                                    | Do not use it for                  |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
+| `Dialog`         | A question or short form that must be answered before going on                                                                | Explanations; results              |
+| `ConfirmDialog`  | Before something destructive: `title` names the object, `consequence`, a verb on the button; `requireText` for the worst      | Actions that can be undone         |
+| `PasswordPrompt` | Password re-entry before a change that widens trust                                                                           | Logging in                         |
+| `Menu`           | Secondary actions behind a "More" button; `icon`, `header` and `checked` entries make the account menu; `text` a labelled one | The only way to do something       |
+| `OptionPicker`   | A select whose options carry a pill or tag (the host selector); more than eight options can be filtered by typing             | Plain choices in a form (`Select`) |
+| `Popover`        | The floating panel under `InfoTip` and `Menu`                                                                                 | Direct use in page code            |
 
 ## Messaging
 
@@ -321,6 +327,8 @@ sentences as one string; never build a sentence by joining fragments.
 | A page or panel cannot load                         | `LoadError` in place of the content, with Retry                            | "Could not load hosts. The hub did not answer." [Retry]                                       |
 | The hub is unreachable, live updates lost           | One `Banner` at the top of the main area                                   | "Live updates paused. Reconnecting…"                                                          |
 | Something long is running                           | `Progress` where the result will appear                                    | "Triage is reading the logs…"                                                                 |
+| Something the person started finished later         | Toast, when the page sees it end (`useActionOutcomes`)                     | "restart_container succeeded on nas-01"                                                       |
+| What is on screen changed without the person        | Info toast, once                                                           | "This incident resolved"                                                                      |
 | Rate limited                                        | Inline or toast; the kit counts down from `retryAfter`                     | "Too many attempts. Try again in 28 s."                                                       |
 | Destructive or irreversible                         | `ConfirmDialog` naming the object and the consequence                      | "Revoke agent nas-01? It disconnects now and needs a new invite to come back." [Revoke agent] |
 | Nothing to show                                     | `EmptyState` saying why, with the next step                                | "No incidents. Everything your agents watch is healthy."                                      |
@@ -405,14 +413,28 @@ Rules:
 
 ### Add a status
 
+The incident page (`src/features/incidents/`) is the worked example: every pill on it comes
+from `tone.ts`, and every line of its timeline from `timeline.ts`.
+
 1. Add the value to its vocabulary's type and table in `src/design/tone.ts`, with a label,
    one of the seven tones, a hint that says what it means (and what to do, if anything)
-   and an icon name.
+   and an icon name. If it is a new vocabulary, add it to `VOCABULARIES` too.
 2. Run `npm test`: the tone test covers it and the catalogue shows it.
 3. Render it with `<StatusPill meta={…Meta(value)} />`. Do not write its label or pick its
-   colour anywhere else.
+   colour anywhere else. A row or card takes its stripe from the same meta:
+   `rowTone={(row) => incidentStateMeta(row).tone}`.
+4. If the hub records it in an incident's timeline under a new kind, add the kind to
+   `KINDS` in `src/design/timeline.ts` with a phrase, a tone and an icon. Until then the
+   timeline shows the raw kind, which is the signal that the entry is missing.
+5. If the list should filter on it, the hub does the filtering: add the filter to the
+   endpoint (see `group` on `GET /api/v1/incidents`), regenerate the API types, and pass it
+   through the hook. Do not filter loaded pages in the browser.
 
 ### Show an action's result
+
+The incident page is the worked example again: Acknowledge, Mute and Dismiss in
+`IncidentControls.tsx` and `useIncidentActions.ts`, Approve and Deny in
+`src/features/approvals/ApproveControl.tsx`.
 
 ```tsx
 const ack = useActionFeedback(useAck(id), {
@@ -429,6 +451,19 @@ const ack = useActionFeedback(useAck(id), {
 for "nothing changed" or `null` when the page itself shows the result. Inside a dialog, or
 where the person must fix their input, add `errorDisplay: "inline"` and render `ack.error`
 with `InlineMessage` (or pass it to `ConfirmDialog`'s `error`).
+
+Three more cases, each with one place that handles it:
+
+- **The same action from two places** (a row's menu and the page's button): put the
+  `useActionFeedback` calls in one hook, as `useIncidentActions` does, so both say the same
+  words.
+- **The result arrives later** (an approved action runs on a host): the mutation's toast
+  says what was started ("Approved restart_container. It runs now."), the card shows
+  `Progress` while it runs, and `useActionOutcomes(actions, hosts)` on the page announces
+  the end. Call it once per page with every action the page has loaded.
+- **Something long the person started** (triage): show `Progress` where the result will
+  appear while the mutation is pending, and return `null` from `success` for an outcome the
+  panel itself explains, so it is not said twice.
 
 ### Show a load error
 

@@ -106,6 +106,23 @@ pub async fn action_repo_contract(repo: &dyn ActionRepo) -> ContractResult {
             .items
             .is_empty()
     );
+
+    // `first` was approved at T0 + 60 s; the other two are still proposed, unchanged since T0.
+    let decided = |decided: bool, since: Option<i64>| ActionFilter {
+        decided: Some(decided),
+        updated_since: since.map(at),
+        ..ActionFilter::default()
+    };
+    let cases = [
+        (decided(true, None), 1, "decided"),
+        (decided(false, None), 2, "still waiting"),
+        (decided(true, Some(60)), 1, "changed since"),
+        (decided(true, Some(61)), 0, "changed before"),
+    ];
+    for (filter, expected, what) in cases {
+        let got = repo.list(&filter, &Page::first(10)).await?.items.len();
+        assert_eq!(got, expected, "{what}");
+    }
     Ok(())
 }
 

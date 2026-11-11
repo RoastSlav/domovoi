@@ -7,7 +7,9 @@ use async_trait::async_trait;
 use domovoi_core::ports::{
     IncidentFilter, IncidentRepo, IncidentTimelineEntry, Page, Paged, SignalRepo, StoreError,
 };
-use domovoi_core::{Fingerprint, Incident, IncidentId, IncidentStatus, Signal, SignalStatus};
+use domovoi_core::{
+    Fingerprint, Incident, IncidentGroup, IncidentId, IncidentStatus, Signal, SignalStatus,
+};
 use jiff::Timestamp;
 
 use crate::codec::{Cursor, fetch_limit, from_json, from_ms, json, ms, name, paginate};
@@ -23,6 +25,20 @@ fn status_text(status: IncidentStatus) -> &'static str {
         IncidentStatus::Muted { .. } => "muted",
         IncidentStatus::Resolved => "resolved",
     }
+}
+
+/// A `LIKE` pattern matching anything that contains `text` literally, with `!` as the escape.
+fn like_pattern(text: &str) -> String {
+    let mut pattern = String::with_capacity(text.len() + 2);
+    pattern.push('%');
+    for c in text.chars() {
+        if matches!(c, '%' | '_' | '!') {
+            pattern.push('!');
+        }
+        pattern.push(c);
+    }
+    pattern.push('%');
+    pattern
 }
 
 fn signal_status(status: SignalStatus) -> &'static str {
@@ -215,6 +231,15 @@ impl IncidentRepo for Store {
               AND (?4 IS NULL OR opened_at < ?4 OR (opened_at = ?4 AND id < ?5)) \
               AND (?7 IS NULL OR status = ?7) \
               AND (?8 IS NULL OR severity = ?8) \
+              AND (?9 IS NULL OR ?9 = CASE \
+                    WHEN status = 'open' THEN CASE json_extract(body, '$.verdict') \
+                        WHEN 'MONITOR' THEN 'monitor' \
+                        WHEN 'EXPECTED' THEN 'expected' \
+                        ELSE 'needs_action' END \
+                    WHEN status IN ('acked', 'muted') THEN 'handled' \
+                    ELSE status END) \
+              AND (?10 IS NULL OR title LIKE ?10 ESCAPE '!' OR check_key LIKE ?10 ESCAPE '!' \
+                   OR target LIKE ?10 ESCAPE '!') \
             ORDER BY opened_at DESC, id DESC LIMIT ?6";
         let (after_key, after_id) = Cursor::bind(page.cursor.as_deref())?;
         let limit = page.effective_limit();
@@ -227,6 +252,8 @@ impl IncidentRepo for Store {
             .bind(fetch_limit(limit))
             .bind(filter.status.as_deref())
             .bind(filter.severity.map(|s| name(&s)).transpose()?)
+            .bind(filter.group.map(IncidentGroup::name))
+            .bind(filter.text.as_deref().map(like_pattern))
             .fetch_all(&self.read)
             .await
             .map_err(db)?;

@@ -83,7 +83,7 @@ export default tseslint.config(
   {
     // The one table of every status in the product: a data file, kept whole on purpose.
     files: ["src/design/tone.ts"],
-    rules: { "max-lines": ["error", { max: 400, skipBlankLines: true, skipComments: true }] },
+    rules: { "max-lines": ["error", { max: 480, skipBlankLines: true, skipComments: true }] },
   },
   {
     // Page code composes the kit; it does not style or explain things by hand (web/DESIGN.md).

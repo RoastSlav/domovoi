@@ -1,49 +1,89 @@
 .chat {
   display: grid;
-  gap: 0.75rem;
-}
-
-.chat textarea {
-  width: 100%;
-  min-height: 4.5rem;
+  gap: var(--space-3);
+  min-width: 0;
 }
 
 .turns {
   display: grid;
-  gap: 0.5rem;
+  gap: var(--space-3);
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
+.turns:empty {
+  display: none;
+}
+
+/* The operator's line: right, on a raised surface, squared like a console and not a messenger. */
 .question {
   justify-self: end;
-  max-width: 85%;
-  padding: 0.6rem 0.9rem;
-  border-radius: var(--radius-md);
-  background: var(--color-primary);
-  color: var(--color-on-primary);
+  display: grid;
+  gap: var(--space-1);
+  max-width: min(85%, 60ch);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.question[data-failed] {
+  border-color: var(--tone-danger-border);
+}
+
+/* The model's line: left, on the page itself, with the frame's accent down its side. */
+.answer {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  max-width: 80ch;
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--color-frame);
+}
+
+.question time,
+.answer time {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
 }
 
 .pending {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   color: var(--color-text-muted);
-  font-style: italic;
+  font-size: var(--text-sm);
 }
 
-.answer {
-  padding: 0.75rem 1rem;
-  border-radius: var(--radius-md);
-  background: var(--color-surface);
+.failure {
+  justify-self: end;
+  width: min(100%, 60ch);
 }
 
-.hint {
-  margin: 0;
-  font-size: 0.9rem;
+.tools,
+.starters,
+.composerRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.composer {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.composer .box {
+  min-height: 2.5rem;
+  max-height: 40vh;
+  resize: none;
+}
+
+.count {
   color: var(--color-text-muted);
-}
-
-.error {
-  margin: 0;
-  color: var(--tone-danger-fg);
-  font-weight: 600;
+  font-size: var(--text-xs);
 }
