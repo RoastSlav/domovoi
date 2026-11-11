@@ -9,7 +9,7 @@ use domovoi_engine::ApprovalError;
 
 use super::dto::{ActionDto, ActionPage, ActionQuery, ApproveRequest};
 use super::error::{ApiError, ErrorBody};
-use super::{ApiState, Authed, page};
+use super::{ApiState, Authed, host_named, page};
 use crate::auth::approval::web_approval;
 
 fn parse_id(id: &str) -> Result<ActionId, ApiError> {
@@ -40,6 +40,7 @@ async fn load(state: &ApiState, id: ActionId) -> Result<ActionRequest, ApiError>
         (status = 200, description = "One page", body = ActionPage),
         (status = 400, description = "Unknown status", body = ErrorBody),
         (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 404, description = "No such host", body = ErrorBody),
     )
 )]
 pub(super) async fn list(
@@ -52,7 +53,12 @@ pub(super) async fn list(
     {
         return Err(ApiError::BadRequest(format!("unknown status `{status}`")));
     }
+    let host = match &query.host {
+        Some(name) => Some(host_named(&state, name).await?.id),
+        None => None,
+    };
     let filter = ActionFilter {
+        host,
         status: query.status.clone(),
         ..ActionFilter::default()
     };

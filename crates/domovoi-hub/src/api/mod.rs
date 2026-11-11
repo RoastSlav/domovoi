@@ -20,6 +20,7 @@ pub(crate) mod hosts;
 pub(crate) mod incidents;
 mod logs;
 mod notes;
+mod overview;
 pub(crate) mod profile;
 mod rules;
 pub(crate) mod settings;
@@ -369,6 +370,7 @@ pub fn routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(system::digest_preview))
         .routes(routes!(system::digest_send))
         .routes(routes!(updates::show, updates::check))
+        .routes(routes!(overview::show))
         .routes(routes!(events::stream))
         .routes(routes!(system::healthz))
         .routes(routes!(system::metrics))

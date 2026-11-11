@@ -389,6 +389,8 @@ pub struct ActionPage {
 pub struct ActionQuery {
     /// Only this status name, for example `proposed`.
     pub status: Option<String>,
+    /// Only actions on this host, by name.
+    pub host: Option<String>,
     /// The `next_cursor` of the previous page.
     pub cursor: Option<String>,
     /// Page size, 1 to 200. Default 50.
