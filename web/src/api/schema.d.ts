@@ -1335,6 +1335,34 @@ export interface components {
             tools_used: components["schemas"]["ToolUsageDto"][];
             triage?: components["schemas"]["TriageStateDto"] | null;
         };
+        /** @description How many unresolved incidents are in each group of the incident list. */
+        IncidentGroupsDto: {
+            /**
+             * Format: int32
+             * @description Open, and expected: triage said so, or a known condition does.
+             */
+            expected: number;
+            /**
+             * Format: int32
+             * @description Acknowledged or muted.
+             */
+            handled: number;
+            /**
+             * Format: int32
+             * @description Open, and triage said to keep an eye on it.
+             */
+            monitor: number;
+            /**
+             * Format: int32
+             * @description Open, and triage did not say to only watch it or that it is expected.
+             */
+            needs_action: number;
+            /**
+             * Format: int32
+             * @description Not confirmed yet.
+             */
+            pending: number;
+        };
         /** @description One page of incidents, newest first. */
         IncidentPage: {
             /** @description The incidents. */
@@ -1500,6 +1528,8 @@ export interface components {
              * @description Hosts counted.
              */
             hosts_total: number;
+            /** @description The incidents that are not resolved, counted by the group the list filters on. */
+            incident_groups: components["schemas"]["IncidentGroupsDto"];
             /**
              * Format: int32
              * @description Open incidents nobody has acknowledged and triage did not judge expected.
@@ -2001,6 +2031,13 @@ export interface operations {
                 status?: string;
                 /** @description Only actions on this host, by name. */
                 host?: string;
+                /**
+                 * @description `true`: only actions that are no longer waiting for approval; `false`: only those
+                 *     that are.
+                 */
+                decided?: boolean;
+                /** @description Only actions that last changed at or after this time, RFC 3339. */
+                since?: string;
                 /** @description The `next_cursor` of the previous page. */
                 cursor?: string;
                 /** @description Page size, 1 to 200. Default 50. */
@@ -2021,7 +2058,7 @@ export interface operations {
                     "application/json": components["schemas"]["ActionPage"];
                 };
             };
-            /** @description Unknown status */
+            /** @description Unknown status, or a time that does not parse */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -3078,6 +3115,14 @@ export interface operations {
                 host?: string;
                 /** @description Only this severity: `info`, `warning` or `critical`. */
                 severity?: string;
+                /**
+                 * @description Only this group: `needs_action`, `monitor`, `pending`, `expected`, `handled` or
+                 *     `resolved`. An open incident is in `monitor` or `expected` when triage said so, and
+                 *     in `needs_action` otherwise; `handled` is acknowledged or muted.
+                 */
+                group?: string;
+                /** @description Only incidents whose title, check or target contains this text, ignoring case. */
+                q?: string;
                 /** @description The `next_cursor` of the previous page. */
                 cursor?: string;
                 /** @description Page size, 1 to 200. Default 50. */

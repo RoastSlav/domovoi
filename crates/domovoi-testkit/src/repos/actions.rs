@@ -54,6 +54,12 @@ impl ActionRepo for InMemoryStore {
                     .as_deref()
                     .is_none_or(|s| a.status().name() == s)
             })
+            .filter(|a| {
+                filter
+                    .decided
+                    .is_none_or(|decided| (a.status().name() != "proposed") == decided)
+            })
+            .filter(|a| filter.updated_since.is_none_or(|t| a.updated_at() >= t))
             .map(|a| {
                 (
                     (a.created_at().as_nanosecond(), a.id().to_string()),

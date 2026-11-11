@@ -83,6 +83,7 @@ pub async fn signal_repo_contract(repo: &dyn SignalRepo) -> ContractResult {
 pub async fn incident_repo_contract(repo: &dyn IncidentRepo) -> ContractResult {
     fingerprints(repo).await?;
     listing(repo).await?;
+    super::incident_groups::groups_and_text(repo).await?;
     timeline(repo).await?;
     discard(repo).await?;
     search(repo).await

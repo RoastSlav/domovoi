@@ -11,6 +11,15 @@ fn is_active(incident: &Incident) -> bool {
     !matches!(incident.status(), IncidentStatus::Resolved)
 }
 
+/// Whether the title, check or target of `incident` contains `text`, ignoring case.
+fn mentions(incident: &Incident, text: &str) -> bool {
+    let text = text.to_lowercase();
+    let has = |field: &str| field.to_lowercase().contains(&text);
+    has(incident.title())
+        || has(&incident.check().to_string())
+        || incident.target().is_some_and(|t| has(&t.to_string()))
+}
+
 /// Whether storing `incident` would leave two active incidents with one fingerprint.
 fn second_active(state: &State, incident: &Incident) -> bool {
     is_active(incident)
@@ -145,6 +154,8 @@ impl IncidentRepo for InMemoryStore {
                     .is_none_or(|s| i.status().name() == s)
             })
             .filter(|i| filter.severity.is_none_or(|s| i.severity() == s))
+            .filter(|i| filter.group.is_none_or(|g| i.group() == g))
+            .filter(|i| filter.text.as_deref().is_none_or(|t| mentions(i, t)))
             .map(|i| {
                 (
                     (i.opened_at().as_nanosecond(), i.id().to_string()),

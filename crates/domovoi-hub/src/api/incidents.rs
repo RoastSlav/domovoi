@@ -5,8 +5,8 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use domovoi_core::ports::{ActionFilter, IncidentFilter, Page};
 use domovoi_core::{
-    AckRule, AckRuleId, Incident, IncidentId, IncidentStatus, Severity, TargetPattern,
-    TriageOutcome,
+    AckRule, AckRuleId, Incident, IncidentGroup, IncidentId, IncidentStatus, Severity,
+    TargetPattern, TriageOutcome,
 };
 use domovoi_engine::CommandError;
 use domovoi_engine::cards::{CardLinks, build_card};
@@ -73,10 +73,20 @@ pub(super) async fn list(
         Some(name) => Some(host_named(&state, name).await?.id),
         None => None,
     };
+    let group = match &query.group {
+        Some(name) => Some(
+            IncidentGroup::parse(name)
+                .ok_or_else(|| ApiError::BadRequest(format!("unknown group `{name}`")))?,
+        ),
+        None => None,
+    };
+    let text = query.q.as_deref().map(str::trim).filter(|q| !q.is_empty());
     let filter = IncidentFilter {
         host,
         status: query.status.clone(),
         severity: query.severity.as_deref().map(severity).transpose()?,
+        group,
+        text: text.map(str::to_owned),
         ..IncidentFilter::default()
     };
     let got = state

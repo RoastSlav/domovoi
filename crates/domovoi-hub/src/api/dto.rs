@@ -9,7 +9,9 @@ use domovoi_core::{
 };
 use domovoi_engine::triage::Turn;
 use serde::{Deserialize, Serialize};
-use utoipa::{IntoParams, ToSchema};
+use utoipa::ToSchema;
+
+pub use super::dto_query::{ActionQuery, IncidentQuery, LogsQuery, RetryQuery};
 
 /// The wire name of `verdict`, for example `ACTION_NEEDED`.
 fn verdict_name(verdict: Verdict) -> String {
@@ -83,30 +85,6 @@ pub struct IncidentPage {
     pub next_cursor: Option<String>,
 }
 
-/// Filters for the incident list.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, IntoParams)]
-#[into_params(parameter_in = Query)]
-pub struct IncidentQuery {
-    /// Only this status: `pending`, `open`, `acked`, `muted` or `resolved`.
-    pub status: Option<String>,
-    /// Only this host, by name.
-    pub host: Option<String>,
-    /// Only this severity: `info`, `warning` or `critical`.
-    pub severity: Option<String>,
-    /// The `next_cursor` of the previous page.
-    pub cursor: Option<String>,
-    /// Page size, 1 to 200. Default 50.
-    pub limit: Option<u16>,
-}
-
-/// Options for running triage again.
-#[derive(Debug, Clone, Default, Deserialize, IntoParams)]
-#[into_params(parameter_in = Query)]
-pub struct RetryQuery {
-    /// Run the model again even when a cached report would fit. Default false.
-    pub fresh: Option<bool>,
-}
-
 /// One captured log line.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
 pub struct LogLineDto {
@@ -118,16 +96,6 @@ pub struct LogLineDto {
     pub target: String,
     /// The message with its fields as `key=value` pairs, secrets removed.
     pub message: String,
-}
-
-/// Filters for the log lines.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, IntoParams)]
-#[into_params(parameter_in = Query)]
-pub struct LogsQuery {
-    /// How many lines to return, 1 to 2000. Default 200.
-    pub lines: Option<u16>,
-    /// The least severe level to return: `error`, `warn`, `info`, `debug` or `trace`.
-    pub level: Option<String>,
 }
 
 /// One piece of evidence in a report.
@@ -381,20 +349,6 @@ pub struct ActionPage {
     pub items: Vec<ActionDto>,
     /// Pass as `cursor` for the next page; absent on the last.
     pub next_cursor: Option<String>,
-}
-
-/// Filters for the action list.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, IntoParams)]
-#[into_params(parameter_in = Query)]
-pub struct ActionQuery {
-    /// Only this status name, for example `proposed`.
-    pub status: Option<String>,
-    /// Only actions on this host, by name.
-    pub host: Option<String>,
-    /// The `next_cursor` of the previous page.
-    pub cursor: Option<String>,
-    /// Page size, 1 to 200. Default 50.
-    pub limit: Option<u16>,
 }
 
 /// Approving an action.

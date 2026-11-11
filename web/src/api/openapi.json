@@ -165,6 +165,24 @@
             }
           },
           {
+            "name": "decided",
+            "in": "query",
+            "description": "`true`: only actions that are no longer waiting for approval; `false`: only those\nthat are.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "description": "Only actions that last changed at or after this time, RFC 3339.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "cursor",
             "in": "query",
             "description": "The `next_cursor` of the previous page.",
@@ -197,7 +215,7 @@
             }
           },
           "400": {
-            "description": "Unknown status",
+            "description": "Unknown status, or a time that does not parse",
             "content": {
               "application/json": {
                 "schema": {
@@ -1527,6 +1545,24 @@
             "name": "severity",
             "in": "query",
             "description": "Only this severity: `info`, `warning` or `critical`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "group",
+            "in": "query",
+            "description": "Only this group: `needs_action`, `monitor`, `pending`, `expected`, `handled` or\n`resolved`. An open incident is in `monitor` or `expected` when triage said so, and\nin `needs_action` otherwise; `handled` is acknowledged or muted.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Only incidents whose title, check or target contains this text, ignoring case.",
             "required": false,
             "schema": {
               "type": "string"
@@ -4272,6 +4308,49 @@
           }
         }
       },
+      "IncidentGroupsDto": {
+        "type": "object",
+        "description": "How many unresolved incidents are in each group of the incident list.",
+        "required": [
+          "needs_action",
+          "monitor",
+          "pending",
+          "expected",
+          "handled"
+        ],
+        "properties": {
+          "expected": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Open, and expected: triage said so, or a known condition does.",
+            "minimum": 0
+          },
+          "handled": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Acknowledged or muted.",
+            "minimum": 0
+          },
+          "monitor": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Open, and triage said to keep an eye on it.",
+            "minimum": 0
+          },
+          "needs_action": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Open, and triage did not say to only watch it or that it is expected.",
+            "minimum": 0
+          },
+          "pending": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Not confirmed yet.",
+            "minimum": 0
+          }
+        }
+      },
       "IncidentPage": {
         "type": "object",
         "description": "One page of incidents, newest first.",
@@ -4672,6 +4751,7 @@
         "required": [
           "incidents_action_needed",
           "incidents_open",
+          "incident_groups",
           "approvals_waiting",
           "hosts_offline",
           "hosts_total"
@@ -4694,6 +4774,10 @@
             "format": "int32",
             "description": "Hosts counted.",
             "minimum": 0
+          },
+          "incident_groups": {
+            "$ref": "#/components/schemas/IncidentGroupsDto",
+            "description": "The incidents that are not resolved, counted by the group the list filters on."
           },
           "incidents_action_needed": {
             "type": "integer",
