@@ -1,8 +1,10 @@
-import { Badge } from "../components/Badge";
-import { Button } from "../components/Button";
-import { ThemeSwitch } from "../components/ThemeSwitch";
+import { StatusPill, ThemeSwitch } from "../components";
 import { ICON_NAMES, Icon } from "../design/icons";
-import { TONES, VOCABULARIES } from "../design/tone";
+import { TONES } from "../design/tone";
+import { LayoutDemos, StateDemos } from "./ContentDemos";
+import { FormDemos } from "./FormDemos";
+import { ControlDemos, OverlayDemos } from "./ControlDemos";
+import { FeedbackDemos, StatusDemos } from "./StatusDemos";
 import tokensCss from "../styles/tokens.css?raw";
 import styles from "./design.module.css";
 
@@ -28,7 +30,8 @@ function Swatches({ prefix }: { prefix: string }) {
 const TYPE_STEPS = ["xs", "sm", "base", "lg", "xl", "2xl"];
 
 /**
- * The living catalogue: every token, tone, status and icon as it renders now. Served only by
+ * The living catalogue: every token, tone, status, icon and kit component as it renders now,
+ * grouped like web/DESIGN.md. Served only by
  * the dev server at /dev/design; check new work against it in both themes.
  */
 export default function DesignPage() {
@@ -62,7 +65,9 @@ export default function DesignPage() {
               <tr key={tone}>
                 <th scope="row">{tone}</th>
                 <td>
-                  <Badge meta={{ label: tone, tone, hint: `The ${tone} tone.`, icon: "dot" }} />
+                  <StatusPill
+                    meta={{ label: tone, tone, hint: `The ${tone} tone.`, icon: "dot" }}
+                  />
                 </td>
                 <td style={{ color: `var(--tone-${tone}-fg)` }}>Text in {tone}</td>
                 <td>
@@ -82,32 +87,13 @@ export default function DesignPage() {
         </table>
       </section>
 
-      <section>
-        <h2>Statuses</h2>
-        {VOCABULARIES.map((vocabulary) => (
-          <div key={vocabulary.name} className={styles.row}>
-            <h3>{vocabulary.name}</h3>
-            <div className={styles.cluster}>
-              {[...vocabulary.values, "unknown_value"].map((value) => (
-                <Badge key={value} meta={vocabulary.meta(value)} />
-              ))}
-            </div>
-          </div>
-        ))}
-      </section>
-
-      <section>
-        <h2>Buttons</h2>
-        <div className={styles.cluster}>
-          <Button variant="primary">Primary</Button>
-          <Button>Secondary</Button>
-          <Button variant="danger">Danger</Button>
-          <Button variant="ghost">Ghost</Button>
-          <Button variant="primary" disabled>
-            Disabled
-          </Button>
-        </div>
-      </section>
+      <StatusDemos />
+      <FeedbackDemos />
+      <ControlDemos />
+      <StateDemos />
+      <LayoutDemos />
+      <FormDemos />
+      <OverlayDemos />
 
       <section>
         <h2>Type scale</h2>

@@ -1,5 +1,5 @@
 import ReactMarkdown, { type Components } from "react-markdown";
-import styles from "./ui.module.css";
+import styles from "./data.module.css";
 
 const components: Components = {
   a: ({ href, children }) => (

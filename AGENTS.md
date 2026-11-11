@@ -48,7 +48,10 @@ If the prompt and `ARCHITECTURE.md` disagree, stop and say so. Do not pick one s
 
 Read [`web/DESIGN.md`](web/DESIGN.md) before changing anything under `web/`.
 
-- Build pages from the kit in `web/src/components/`; do not invent styled primitives in feature code.
+- Build pages from the kit in `web/src/components/`, imported from its barrel (`from "../../components"`); do not invent styled primitives in feature code. A new primitive goes into the kit, `DESIGN.md` and `/dev/design` together.
+- Every mutation reports its result through `useActionFeedback`; every load goes through `QueryBoundary` or shows `Loading`, `LoadError` and `EmptyState` itself. A failed request never reads as an empty list.
+- Error text comes only from `describeError` in `web/src/design/messages.ts`; never show a raw code or write error sentences in a feature.
+- Explain with `Tooltip`, `InfoTip`, a `Field` hint or a button's `hint`; a control that cannot be used gets `disabledReason`.
 - Colours, spacing, radii, shadows, motion and layers come only from tokens in `web/src/styles/tokens.css`. No other stylesheet has a raw colour.
 - A status's label, tone, hint and icon come only from `web/src/design/tone.ts`; icons only through `Icon` in `web/src/design/icons.tsx`.
 - No inline `style` and no native `title` in `src/features` and `src/app`; a source file stays at or under 250 lines.

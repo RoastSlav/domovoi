@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { useChat, type ChatMessage } from "../../api/hooks/chat";
 import { useHosts } from "../../api/hooks/hosts";
-import { ChatThread, MAX_HISTORY_TURNS, chatFailureText } from "../../components/ChatThread";
-import { PageIntro } from "../../components/PageIntro";
+import { chatFailureText, ChatThread, MAX_HISTORY_TURNS, PageHeader } from "../../components";
 import styles from "./chat.module.css";
 
 /** The stored conversation for `host`; `undefined` is every host. */
@@ -112,11 +111,11 @@ export function ChatPage() {
 
   return (
     <>
-      <h1>Chat</h1>
-      <PageIntro topic="chat" docs="concepts/how-it-works.html">
-        Ask about your servers in general. It can read what the agents report, and it never changes
-        anything.
-      </PageIntro>
+      <PageHeader
+        title="Chat"
+        docs="concepts/how-it-works.html"
+        intro="Ask about your servers in general. It can read what the agents report, and it never changes anything."
+      />
       <div className={styles.host}>
         <label htmlFor="chat-host">Host</label>
         <select

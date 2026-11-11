@@ -1,11 +1,18 @@
 import { useState, type FormEvent } from "react";
 import { useAckRules, useCreateAckRule, useDeleteAckRule } from "../../api/hooks/rules";
-import { ApiFailure, type AckRule, type AckRuleInput, type Predicate } from "../../api/types";
-import { Button } from "../../components/Button";
-import { ConfirmDialog } from "../../components/ConfirmDialog";
-import { EmptyState } from "../../components/EmptyState";
-import { PageIntro } from "../../components/PageIntro";
-import { RelativeTime } from "../../components/RelativeTime";
+import type { AckRule, AckRuleInput, Predicate } from "../../api/types";
+import {
+  Button,
+  Checkbox,
+  ConfirmDialog,
+  DocsLink,
+  ErrorDetail,
+  InlineMessage,
+  LoadError,
+  Loading,
+  RelativeTime,
+  useActionFeedback,
+} from "../../components";
 import { opLabel } from "../rules/AddRuleForm";
 import styles from "./hosts.module.css";
 
@@ -148,7 +155,11 @@ function openWindows(
 /** Delete one expected login, asking first. */
 function RemoveButton({ rule }: { rule: AckRule }) {
   const [asking, setAsking] = useState(false);
-  const remove = useDeleteAckRule();
+  const remove = useActionFeedback(useDeleteAckRule(), {
+    success: "Expected login removed",
+    error: "remove the expected login",
+    errorDisplay: "inline",
+  });
   const close = () => {
     setAsking(false);
     remove.reset();
@@ -166,22 +177,20 @@ function RemoveButton({ rule }: { rule: AckRule }) {
       {asking && (
         <ConfirmDialog
           title={`Remove the expected login on ${rule.host ?? "any host"}?`}
+          consequence={
+            <>
+              <strong>{words}</strong> starts alerting again. A login that already matched stays in
+              the history.
+            </>
+          }
           confirmLabel="Remove"
-          confirmVariant="danger"
+          tone="danger"
           busy={remove.isPending}
+          error={remove.error}
           onConfirm={() => remove.mutate(rule.id, { onSuccess: close })}
           onCancel={close}
         >
           <p>“{rule.note}”</p>
-          <p>
-            <strong>{words}</strong> starts alerting again. A login that already matched stays in
-            the history.
-          </p>
-          {remove.error && (
-            <p className={styles.error} role="alert">
-              Could not remove the expected login. Try again.
-            </p>
-          )}
         </ConfirmDialog>
       )}
     </>
@@ -194,7 +203,16 @@ function RemoveButton({ rule }: { rule: AckRule }) {
  */
 export function SshLoginsTab({ host }: { host: string }) {
   const rules = useAckRules();
-  const create = useCreateAckRule();
+  const create = useActionFeedback(useCreateAckRule(), {
+    success: "Expected login added",
+    error: "add the expected login",
+    errorDisplay: "inline",
+  });
+  const windowOpen = useActionFeedback(useCreateAckRule(), {
+    success: `Login window opened on ${host} for 1 hour`,
+    error: "open the login window",
+    errorDisplay: "inline",
+  });
   const [fields, setFields] = useState<Fields>(EMPTY);
   const [problem, setProblem] = useState<string>();
   const [asking, setAsking] = useState(false);
@@ -208,9 +226,6 @@ export function SshLoginsTab({ host }: { host: string }) {
   const windowRule = openWindows(all, host, new Date().toISOString())[0];
   const change = (patch: Partial<Fields>) => setFields({ ...fields, ...patch });
 
-  const show = (error: unknown) =>
-    setProblem(error instanceof ApiFailure ? error.message : "Could not add the expected login.");
-
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
     const body = loginBody(host, fields);
@@ -219,14 +234,11 @@ export function SshLoginsTab({ host }: { host: string }) {
       return;
     }
     setProblem(undefined);
-    create.mutate(body, {
-      onSuccess: () => setFields(EMPTY),
-      onError: show,
-    });
+    create.mutate(body, { onSuccess: () => setFields(EMPTY) });
   };
 
   const openWindow = () => {
-    create.mutate(loginWindow(host, internet), {
+    windowOpen.mutate(loginWindow(host, internet), {
       onSuccess: () => {
         setAsking(false);
         setInternet(false);
@@ -236,10 +248,11 @@ export function SshLoginsTab({ host }: { host: string }) {
 
   return (
     <>
-      <PageIntro topic="expected SSH logins" docs="reference/checks.html#securityssh_login">
+      <p className={styles.hint}>
         Every successful SSH login raises an incident. Logins you mark as expected are still
-        recorded but never alert you.
-      </PageIntro>
+        recorded but never alert you.{" "}
+        <DocsLink topic="expected SSH logins" docs="reference/checks.html#securityssh_login" />
+      </p>
 
       <section aria-labelledby="ssh-window-heading">
         <h2 id="ssh-window-heading">Logging in now</h2>
@@ -247,7 +260,7 @@ export function SshLoginsTab({ host }: { host: string }) {
           Opens a window of one hour, in which logins on {host} are recorded and never alert. By
           default it covers logins from the local network, not from the internet.
         </p>
-        <Button variant="primary" disabled={create.isPending} onClick={() => setAsking(true)}>
+        <Button variant="primary" onClick={() => setAsking(true)}>
           I&rsquo;m logging in now
         </Button>
         {windowRule && (
@@ -262,39 +275,36 @@ export function SshLoginsTab({ host }: { host: string }) {
         {asking && (
           <ConfirmDialog
             title={`Open a login window on ${host}?`}
+            consequence={`For one hour, logins on ${host} by anyone are recorded and never alert you. Use it for the login you are about to make.`}
             confirmLabel="Open the window"
-            busy={create.isPending}
+            busy={windowOpen.isPending}
+            error={windowOpen.error}
             onConfirm={openWindow}
             onCancel={() => {
               setAsking(false);
               setInternet(false);
+              windowOpen.reset();
             }}
           >
-            <p>
-              For one hour, logins on {host} by anyone are recorded and never alert you. Use it for
-              the login you are about to make.
-            </p>
-            <label className={styles.check}>
-              <input
-                type="checkbox"
-                checked={internet}
-                onChange={(e) => setInternet(e.target.checked)}
-              />
-              Include logins from the internet
-            </label>
-            {create.error && (
-              <p className={styles.error} role="alert">
-                Could not open the login window. Try again.
-              </p>
-            )}
+            <Checkbox
+              label="Include logins from the internet"
+              checked={internet}
+              onChange={setInternet}
+            />
           </ConfirmDialog>
         )}
       </section>
 
       <section aria-labelledby="ssh-expected-heading">
         <h2 id="ssh-expected-heading">Expected logins</h2>
-        {rules.isPending && <p>Loading…</p>}
-        {rules.error && <EmptyState title="Could not load the known conditions" />}
+        {rules.isPending && <Loading />}
+        {rules.error && !rules.data && (
+          <LoadError
+            error={rules.error}
+            context="load the expected logins"
+            onRetry={rules.refetch}
+          />
+        )}
         {rules.data && expected.length === 0 && <p>No logins are marked as expected on {host}.</p>}
         {expected.length > 0 && (
           <ul className={styles.logins}>
@@ -359,14 +369,15 @@ export function SshLoginsTab({ host }: { host: string }) {
           <input value={fields.note} onChange={(e) => change({ note: e.target.value })} />
         </label>
         <div className={styles.actions}>
-          <Button type="submit" variant="primary" disabled={create.isPending}>
+          <Button type="submit" variant="primary" loading={create.isPending}>
             Add expected login
           </Button>
         </div>
-        {problem && (
-          <p className={styles.error} role="alert">
-            {problem}
-          </p>
+        {problem && <InlineMessage tone="danger" title={problem} />}
+        {create.error && (
+          <InlineMessage tone="danger" title={create.error.title}>
+            <ErrorDetail error={create.error} />
+          </InlineMessage>
         )}
       </form>
     </>

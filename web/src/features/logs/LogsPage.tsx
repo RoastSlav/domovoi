@@ -1,7 +1,7 @@
 import { useSearchParams } from "react-router";
 import { useHosts, useHostLogs } from "../../api/hooks/hosts";
 import { useLogs } from "../../api/hooks/system";
-import { PageIntro } from "../../components/PageIntro";
+import { PageHeader } from "../../components";
 import { LogViewer, DEFAULT_LEVEL, DEFAULT_LINES } from "./LogViewer";
 import styles from "./logs.module.css";
 
@@ -84,21 +84,24 @@ export function LogsPage() {
 
   return (
     <>
-      <h1>Logs</h1>
-      <PageIntro topic="logs" docs="concepts/logs.html">
-        {captured ? (
-          <>
-            What the hub itself was doing. The newest lines are at the bottom, and secrets are
-            removed before a line is shown.
-          </>
-        ) : (
-          <>
-            What the agent on <strong>{source}</strong> was doing. The newest lines are at the
-            bottom, and secrets are removed before a line is shown, again here in case the agent was
-            not careful enough.
-          </>
-        )}
-      </PageIntro>
+      <PageHeader
+        title="Logs"
+        docs="concepts/logs.html"
+        intro={
+          captured ? (
+            <>
+              What the hub itself was doing. The newest lines are at the bottom, and secrets are
+              removed before a line is shown.
+            </>
+          ) : (
+            <>
+              What the agent on <strong>{source}</strong> was doing. The newest lines are at the
+              bottom, and secrets are removed before a line is shown, again here in case the agent
+              was not careful enough.
+            </>
+          )
+        }
+      />
       <form className={styles.choices} aria-label="Choose the log lines to read">
         <Choice
           name="source"

@@ -1,6 +1,6 @@
 import { useRetryTriage } from "../../api/hooks/incidents";
-import { ApiFailure, type TriageState } from "../../api/types";
-import { Button } from "../../components/Button";
+import type { TriageState } from "../../api/types";
+import { Button, ErrorDetail, InlineMessage, useActionFeedback } from "../../components";
 import styles from "./incidents.module.css";
 
 /** One line on how a triage run went. */
@@ -27,15 +27,21 @@ export function RetryTriage({
   incidentId: string;
   triage: TriageState | null | undefined;
 }) {
-  const retry = useRetryTriage(incidentId);
+  const mutation = useRetryTriage(incidentId);
+  const retry = useActionFeedback(mutation, {
+    success: (state) =>
+      state.kind === "report" || state.kind === "cached" ? "Triage finished" : null, // The line under the button says why there is no report.
+    error: "run triage",
+    errorDisplay: "inline",
+  });
   // A report is already on the card; only a skip or a failure is worth a line of its own.
   const state =
-    retry.data ?? (triage?.kind === "skipped" || triage?.kind === "failed" ? triage : undefined);
+    mutation.data ?? (triage?.kind === "skipped" || triage?.kind === "failed" ? triage : undefined);
   const fresh = triage?.kind === "report" || triage?.kind === "cached";
   return (
     <div className={styles.toolbar}>
-      <Button onClick={() => retry.mutate(fresh)} disabled={retry.isPending}>
-        {retry.isPending ? "Triaging…" : fresh ? "Run triage again" : "Retry triage"}
+      <Button onClick={() => retry.mutate(fresh)} loading={retry.isPending}>
+        {fresh ? "Run triage again" : "Retry triage"}
       </Button>
       <p className={styles.triage}>
         Runs the model again with the current skills, notes and evidence. Counts against the hourly
@@ -47,9 +53,9 @@ export function RetryTriage({
         </p>
       )}
       {retry.error && (
-        <p className={styles.error} role="alert">
-          {retry.error instanceof ApiFailure ? retry.error.message : "Something went wrong."}
-        </p>
+        <InlineMessage tone="danger" title={retry.error.title}>
+          <ErrorDetail error={retry.error} />
+        </InlineMessage>
       )}
     </div>
   );

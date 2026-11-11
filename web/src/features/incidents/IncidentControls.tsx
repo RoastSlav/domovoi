@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { useAck, useDismiss, useMute, useUnmute } from "../../api/hooks/incidents";
-import { ApiFailure, type IncidentSummary } from "../../api/types";
-import { Button } from "../../components/Button";
-import { Dialog } from "../../components/Dialog";
+import type { IncidentSummary } from "../../api/types";
+import { Button, Dialog, ErrorDetail, InlineMessage, useActionFeedback } from "../../components";
 import styles from "./incidents.module.css";
 
 const MUTE_OPTIONS: [number, string][] = [
@@ -11,6 +10,11 @@ const MUTE_OPTIONS: [number, string][] = [
   [1440, "1 day"],
   [10080, "1 week"],
 ];
+
+/** How a mute of `minutes` reads in a sentence: "1 hour". */
+function muteLabel(minutes: number): string {
+  return MUTE_OPTIONS.find(([value]) => value === minutes)?.[1] ?? `${minutes} minutes`;
+}
 
 /** How long a dismissal keeps the check quiet; `null` is "No", which creates no rule. */
 const DISMISS_OPTIONS: [number | null, string][] = [
@@ -28,7 +32,11 @@ export const MAX_REASON_CHARS = 500;
 function DismissDialog({ incident, onClose }: { incident: IncidentSummary; onClose: () => void }) {
   const [reason, setReason] = useState("");
   const [quiet, setQuiet] = useState<number | null>(DISMISS_OPTIONS[1]?.[0] ?? 1440);
-  const dismiss = useDismiss(incident.id);
+  const dismiss = useActionFeedback(useDismiss(incident.id), {
+    success: "Incident dismissed as a known condition",
+    error: "dismiss the incident",
+    errorDisplay: "inline",
+  });
 
   return (
     <Dialog
@@ -39,7 +47,8 @@ function DismissDialog({ incident, onClose }: { incident: IncidentSummary; onClo
           <Button onClick={onClose}>Cancel</Button>
           <Button
             variant="primary"
-            disabled={reason.trim() === "" || dismiss.isPending}
+            loading={dismiss.isPending}
+            disabledReason={reason.trim() === "" ? "Say why first." : undefined}
             onClick={() =>
               dismiss.mutate(
                 { reason: reason.trim(), ignore_for_minutes: quiet },
@@ -47,7 +56,7 @@ function DismissDialog({ incident, onClose }: { incident: IncidentSummary; onClo
               )
             }
           >
-            {dismiss.isPending ? "Dismissing…" : "Dismiss"}
+            Dismiss
           </Button>
         </>
       }
@@ -83,9 +92,9 @@ function DismissDialog({ incident, onClose }: { incident: IncidentSummary; onClo
           is quiet too.
         </p>
         {dismiss.error && (
-          <p className={styles.error} role="alert">
-            {dismiss.error instanceof ApiFailure ? dismiss.error.message : "Something went wrong."}
-          </p>
+          <InlineMessage tone="danger" title={dismiss.error.title}>
+            <ErrorDetail error={dismiss.error} />
+          </InlineMessage>
         )}
       </div>
     </Dialog>
@@ -96,10 +105,19 @@ function DismissDialog({ incident, onClose }: { incident: IncidentSummary; onClo
 export function IncidentControls({ incident }: { incident: IncidentSummary }) {
   const [minutes, setMinutes] = useState(MUTE_OPTIONS[0]?.[0] ?? 60);
   const [dismissing, setDismissing] = useState(false);
-  const ack = useAck(incident.id);
-  const mute = useMute(incident.id);
-  const unmute = useUnmute(incident.id);
-  const error = ack.error ?? mute.error ?? unmute.error;
+  const ack = useActionFeedback(useAck(incident.id), {
+    success: "Incident acknowledged",
+    error: "acknowledge the incident",
+  });
+  const unmute = useActionFeedback(useUnmute(incident.id), {
+    success: "Incident unmuted",
+    error: "unmute the incident",
+  });
+  const mute = useActionFeedback(useMute(incident.id), {
+    success: (_, muted) => `Incident muted for ${muteLabel(muted)}`,
+    error: "mute the incident",
+    undo: () => unmute.mutate(),
+  });
 
   if (incident.status === "resolved") {
     return null;
@@ -108,18 +126,18 @@ export function IncidentControls({ incident }: { incident: IncidentSummary }) {
     <div className={styles.toolbar}>
       {incident.status !== "acked" && (
         <Button
-          title="Stops reminders; the incident stays listed until the problem clears."
+          hint="Stops reminders; the incident stays listed until the problem clears."
           onClick={() => ack.mutate()}
-          disabled={ack.isPending}
+          loading={ack.isPending}
         >
           Ack
         </Button>
       )}
       {incident.status === "muted" ? (
         <Button
-          title="Lifts the mute, so alerts and reminders start again."
+          hint="Lifts the mute, so alerts and reminders start again."
           onClick={() => unmute.mutate()}
-          disabled={unmute.isPending}
+          loading={unmute.isPending}
         >
           Unmute
         </Button>
@@ -140,9 +158,9 @@ export function IncidentControls({ incident }: { incident: IncidentSummary }) {
             </select>
           </div>
           <Button
-            title="No alerts or reminders until the time you pick."
+            hint="No alerts or reminders until the time you pick."
             onClick={() => mute.mutate(minutes)}
-            disabled={mute.isPending}
+            loading={mute.isPending}
           >
             Mute
           </Button>
@@ -152,16 +170,11 @@ export function IncidentControls({ incident }: { incident: IncidentSummary }) {
           button would only offer a refusal. It appears once the incident is open. */}
       {incident.status !== "pending" && (
         <Button
-          title="Closes the incident as a known condition, so it stops alerting."
+          hint="Closes the incident as a known condition, so it stops alerting."
           onClick={() => setDismissing(true)}
         >
           Dismiss
         </Button>
-      )}
-      {error && (
-        <p className={styles.error} role="alert">
-          {error instanceof ApiFailure ? error.message : "Something went wrong."}
-        </p>
       )}
       {dismissing && <DismissDialog incident={incident} onClose={() => setDismissing(false)} />}
     </div>

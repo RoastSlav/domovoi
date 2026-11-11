@@ -1,0 +1,110 @@
+import type { ReactNode } from "react";
+import { Link } from "react-router";
+import type { Tone } from "../design/tone";
+import { InfoTip } from "./InfoTip";
+import { Skeleton } from "./Skeleton";
+import { toneStripe } from "./ToneStripe";
+import styles from "./data.module.css";
+
+/** One column of a data table. */
+export interface Column<T> {
+  cell: (row: T) => ReactNode;
+  /** Explains a header whose meaning is not obvious, behind an info button. */
+  hint?: string;
+  /** Unique within the table. */
+  key: string;
+  /** The header text; also the label beside the value when the table is stacked. */
+  label: string;
+  /** Right-aligned tabular digits, for numbers that should line up. */
+  numeric?: boolean;
+}
+
+/**
+ * A semantic table: sticky header, an optional tone stripe per row, an optional link that
+ * makes the whole row clickable (the link stays the accessible element, in the first
+ * column), skeleton rows while loading and an empty slot. In a narrow container it becomes
+ * a list of stacked cards with each value labelled.
+ *
+ * Use it for many things with the same fields. The details of one thing are a
+ * `KeyValueList`; a handful of rich items are `Card`s.
+ */
+export function DataTable<T>({
+  caption,
+  columns,
+  rows,
+  rowKey,
+  rowTone,
+  rowHref,
+  loading = false,
+  empty,
+}: {
+  /** Names the table for assistive technology; not shown. */
+  caption: string;
+  columns: readonly Column<T>[];
+  /** Shown in place of the rows when there are none: an `EmptyState`. */
+  empty?: ReactNode;
+  /** Shows skeleton rows in place of the data. */
+  loading?: boolean;
+  /** Where a row leads; the first column's content becomes the link. */
+  rowHref?: (row: T) => string;
+  rowKey: (row: T) => string;
+  rowTone?: (row: T) => Tone | undefined;
+  rows: readonly T[];
+}) {
+  return (
+    <div className={styles.wrap}>
+      <table className={styles.table} aria-busy={loading || undefined}>
+        <caption className="visually-hidden">{caption}</caption>
+        <thead>
+          <tr>
+            {columns.map((column) => (
+              <th key={column.key} scope="col" data-numeric={column.numeric || undefined}>
+                <span className={styles.headCell}>
+                  {column.label}
+                  {column.hint && <InfoTip title={column.label}>{column.hint}</InfoTip>}
+                </span>
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {loading && (
+            <tr>
+              <td colSpan={columns.length} className={styles.emptyCell}>
+                <Skeleton shape="rows" />
+              </td>
+            </tr>
+          )}
+          {!loading && rows.length === 0 && empty && (
+            <tr>
+              <td colSpan={columns.length} className={styles.emptyCell}>
+                {empty}
+              </td>
+            </tr>
+          )}
+          {!loading &&
+            rows.map((row) => (
+              <tr key={rowKey(row)} {...toneStripe(rowTone?.(row))}>
+                {columns.map((column, index) => (
+                  <td
+                    key={column.key}
+                    data-label={column.label}
+                    data-numeric={column.numeric || undefined}
+                    data-primary={index === 0 || undefined}
+                  >
+                    {index === 0 && rowHref ? (
+                      <Link to={rowHref(row)} className={styles.rowLink}>
+                        {column.cell(row)}
+                      </Link>
+                    ) : (
+                      column.cell(row)
+                    )}
+                  </td>
+                ))}
+              </tr>
+            ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}

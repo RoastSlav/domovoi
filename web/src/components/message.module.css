@@ -1,0 +1,119 @@
+.message,
+.banner,
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  border: 1px solid var(--tone-border, var(--color-border));
+  background: var(--tone-bg, var(--color-surface-raised));
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+}
+
+.message {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+}
+
+.banner {
+  align-items: center;
+  padding: var(--space-2) var(--space-4);
+  border-width: 0 0 1px;
+}
+
+/* The one filled message: a page-level critical banner. */
+.banner[data-solid] {
+  background: var(--tone-solid);
+  border-color: var(--tone-solid);
+  color: var(--tone-on-solid);
+}
+
+.banner[data-solid] .icon,
+.banner[data-solid] .title {
+  color: inherit;
+}
+
+.icon {
+  flex: none;
+  display: inline-flex;
+  margin-top: 0.125rem;
+  color: var(--tone-fg, var(--color-text-muted));
+}
+
+.banner .icon {
+  margin-top: 0;
+}
+
+.text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.title {
+  margin: 0;
+  color: var(--tone-fg, var(--color-text));
+  font-weight: 600;
+}
+
+.body {
+  margin: 0;
+}
+
+.body > :first-child {
+  margin-top: 0;
+}
+
+.body > :last-child {
+  margin-bottom: 0;
+}
+
+.issues {
+  margin: var(--space-1) 0 0;
+  padding-left: var(--space-4);
+}
+
+.action {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.viewport {
+  position: fixed;
+  right: var(--space-4);
+  bottom: calc(var(--space-4) + env(safe-area-inset-bottom, 0px));
+  z-index: var(--z-toast);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: min(24rem, calc(100vw - var(--space-5)));
+  pointer-events: none;
+}
+
+.toast {
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  border-left: 3px solid var(--tone-solid, var(--color-border-strong));
+  box-shadow: var(--shadow-overlay);
+  pointer-events: auto;
+  animation: enter var(--motion-base) var(--ease-out);
+}
+
+@keyframes enter {
+  from {
+    opacity: 0;
+    transform: translateY(var(--space-2));
+  }
+}
+
+/* Phones: centred above the safe area, full width. */
+@media (max-width: 640px) {
+  .viewport {
+    right: 50%;
+    transform: translateX(50%);
+  }
+}

@@ -1,8 +1,6 @@
 import { useState } from "react";
 import { useImportNotes } from "../../api/hooks/notes";
-import { ApiFailure } from "../../api/types";
-import { Button } from "../../components/Button";
-import { Dialog } from "../../components/Dialog";
+import { Button, Dialog, InlineError, InlineMessage } from "../../components";
 import { HostScope } from "./HostScope";
 import styles from "./notes.module.css";
 
@@ -12,13 +10,6 @@ export const MAX_IMPORT_FILES = 200;
 /** The Markdown files among `list`; folders bring images and other files along. */
 export function markdownFiles(list: FileList | null): File[] {
   return [...(list ?? [])].filter((file) => file.name.toLowerCase().endsWith(".md"));
-}
-
-function failureText(error: unknown): string {
-  if (error instanceof ApiFailure && error.status < 500) {
-    return error.message;
-  }
-  return "The import failed. Try again.";
 }
 
 /** Imports a folder (or a selection) of Markdown files as notes. */
@@ -51,10 +42,17 @@ export function ImportDialog({
           {!result && (
             <Button
               variant="primary"
-              disabled={files.length === 0 || tooMany || importNotes.isPending}
+              loading={importNotes.isPending}
+              disabledReason={
+                files.length === 0
+                  ? "Pick Markdown files first."
+                  : tooMany
+                    ? `Pick at most ${MAX_IMPORT_FILES} files at a time.`
+                    : undefined
+              }
               onClick={() => importNotes.mutate({ files, host: host || undefined })}
             >
-              {importNotes.isPending ? "Importing…" : `Import ${files.length} files`}
+              {`Import ${files.length} files`}
             </Button>
           )}
         </>
@@ -94,15 +92,12 @@ export function ImportDialog({
           {files.length} Markdown file{files.length === 1 ? "" : "s"} selected.
         </p>
         {tooMany && (
-          <p className={styles.error} role="alert">
-            Pick at most {MAX_IMPORT_FILES} files at a time.
-          </p>
+          <InlineMessage
+            tone="danger"
+            title={`Pick at most ${MAX_IMPORT_FILES} files at a time.`}
+          />
         )}
-        {importNotes.error && (
-          <p className={styles.error} role="alert">
-            {failureText(importNotes.error)}
-          </p>
-        )}
+        <InlineError error={importNotes.error} context="import the notes" />
         {result && (
           <div className={styles.result} role="status">
             <p>

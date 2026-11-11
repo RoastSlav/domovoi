@@ -1,6 +1,6 @@
-import { useState } from "react";
 import { useHostDocker, useSetHostDocker } from "../../api/hooks/settings";
-import { ApiFailure, type HostDocker } from "../../api/types";
+import type { HostDocker } from "../../api/types";
+import { LoadError, useActionFeedback } from "../../components";
 import styles from "./hosts.module.css";
 
 type Choice = "" | "on" | "off";
@@ -34,28 +34,33 @@ function describe(state: HostDocker): string {
  */
 export function DockerPanel({ host }: { host: string }) {
   const docker = useHostDocker(host);
-  const save = useSetHostDocker(host);
-  const [result, setResult] = useState<string>();
-  const [problem, setProblem] = useState<string>();
+  const save = useActionFeedback(useSetHostDocker(host), {
+    success: (saved) =>
+      saved.delivered
+        ? "Container setting saved and sent to the agent"
+        : {
+            title: "Container setting saved",
+            detail: "The agent is offline. It applies when it reconnects.",
+            tone: "info",
+          },
+    error: "save the container setting",
+  });
 
   if (docker.isPending) {
     return null;
   }
   if (docker.error) {
-    return <p>Could not load the container runtime.</p>;
+    return (
+      <LoadError
+        error={docker.error}
+        context="load the container runtime"
+        onRetry={docker.refetch}
+      />
+    );
   }
   const state = docker.data;
   const fixed = state.reported && state.locked;
-  const onChange = (value: Choice) => {
-    setProblem(undefined);
-    setResult(undefined);
-    save.mutate(value === "" ? null : value === "on", {
-      onSuccess: (saved) =>
-        setResult(saved.delivered ? "Sent to agent." : "Agent offline, will apply on reconnect."),
-      onError: (error) =>
-        setProblem(error instanceof ApiFailure ? error.message : "Could not save the choice."),
-    });
-  };
+  const onChange = (value: Choice) => save.mutate(value === "" ? null : value === "on");
   return (
     <section className={styles.form} aria-label="Container runtime">
       <h3>Container runtime</h3>
@@ -74,12 +79,6 @@ export function DockerPanel({ host }: { host: string }) {
           <option value="off">Off</option>
         </select>
       </label>
-      {problem && (
-        <p className={styles.error} role="alert">
-          {problem}
-        </p>
-      )}
-      {result && <p role="status">{result}</p>}
     </section>
   );
 }

@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { Tooltip } from "./Tooltip";
+import styles from "./data.module.css";
 
 /** `ms` as "m:ss", or "h:mm:ss" from an hour up. */
 export function formatRemaining(ms: number): string {
@@ -22,11 +24,18 @@ export function useRemaining(until: string): number {
   return Math.max(0, end - now);
 }
 
-/** Time left until `until`, ticking each second, as a `<time>` element. */
+/**
+ * Time left until `until` as "m:ss", with the exact end time as its tooltip. The caller ticks
+ * it with `useRemaining`.
+ *
+ * Use it for a deadline minutes away (an approval window, a login window).
+ */
 export function Countdown({ remaining, until }: { remaining: number; until: string }) {
   return (
-    <time dateTime={until} title={new Date(until).toLocaleString()}>
-      {formatRemaining(remaining)}
-    </time>
+    <Tooltip content={new Date(until).toLocaleString()}>
+      <time dateTime={until} className={styles.time}>
+        {formatRemaining(remaining)}
+      </time>
+    </Tooltip>
   );
 }

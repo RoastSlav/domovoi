@@ -2,12 +2,16 @@ import { useState } from "react";
 import { Link } from "react-router";
 import { useNoteSearch, useNotes } from "../../api/hooks/notes";
 import { useSelectedHost } from "../../app/HostContext";
-import { Button } from "../../components/Button";
-import { EmptyState } from "../../components/EmptyState";
-import { PageIntro } from "../../components/PageIntro";
-import { RelativeTime } from "../../components/RelativeTime";
-import ui from "../../components/ui.module.css";
-import { useDebounced } from "../../components/useDebounced";
+import {
+  Button,
+  EmptyState,
+  LinkButton,
+  LoadError,
+  Loading,
+  PageHeader,
+  RelativeTime,
+  useDebounced,
+} from "../../components";
 import { HostScope } from "./HostScope";
 import { ImportDialog } from "./ImportDialog";
 import styles from "./notes.module.css";
@@ -29,13 +33,17 @@ function tagLine(tags: string[]): string {
 function SearchResults({ q, host }: { q: string; host: string | undefined }) {
   const hits = useNoteSearch(q, host);
   if (hits.isPending) {
-    return <p>Searching…</p>;
+    return <Loading label="Searching…" />;
   }
   if (hits.error) {
-    return <EmptyState title="Search failed" />;
+    return <LoadError error={hits.error} context="search the notes" onRetry={hits.refetch} />;
   }
   if (hits.data.length === 0) {
-    return <EmptyState title={`No notes match “${q}”`} />;
+    return (
+      <EmptyState icon="search" title={`No notes match “${q}”`}>
+        <p>Try fewer or different words.</p>
+      </EmptyState>
+    );
   }
   return (
     <ul className={styles.list} aria-label="Search results">
@@ -52,14 +60,14 @@ function SearchResults({ q, host }: { q: string; host: string | undefined }) {
 function NoteList({ host }: { host: string | undefined }) {
   const notes = useNotes(host);
   if (notes.isPending) {
-    return <p>Loading…</p>;
+    return <Loading />;
   }
   if (notes.error) {
-    return <EmptyState title="Could not load notes" />;
+    return <LoadError error={notes.error} context="load notes" onRetry={notes.refetch} />;
   }
   if (notes.data.length === 0) {
     return (
-      <EmptyState title="No notes here yet">
+      <EmptyState icon="note" title="No notes here yet">
         <p>Write one, or import a folder of Markdown runbooks.</p>
       </EmptyState>
     );
@@ -93,22 +101,23 @@ export function NotesPage() {
 
   return (
     <>
-      <div className={ui.pageHead}>
-        <h1>Notes</h1>
-        <div className={styles.actions}>
-          <Button onClick={() => setImporting(true)}>Import</Button>
-          <Link
-            className={`${ui.button} ${ui.primary}`}
-            to={host ? `/notes/new?host=${encodeURIComponent(host)}` : "/notes/new"}
-          >
-            New note
-          </Link>
-        </div>
-      </div>
-      <PageIntro topic="notes" docs="guide/migrating.html#4-bring-your-notes">
-        Runbooks in Markdown: how your setup works and how you fixed things before. Triage searches
-        them and gives the relevant ones to the model.
-      </PageIntro>
+      <PageHeader
+        title="Notes"
+        docs="guide/migrating.html#4-bring-your-notes"
+        intro="Runbooks in Markdown: how your setup works and how you fixed things before. Triage searches them and gives the relevant ones to the model."
+        actions={
+          <>
+            <Button onClick={() => setImporting(true)}>Import</Button>
+            <LinkButton
+              variant="primary"
+              icon="plus"
+              to={host ? `/notes/new?host=${encodeURIComponent(host)}` : "/notes/new"}
+            >
+              New note
+            </LinkButton>
+          </>
+        }
+      />
       <div className={styles.toolbar} role="search">
         <div className={`${styles.field} ${styles.search}`}>
           <label htmlFor="notes-search">Search</label>

@@ -158,7 +158,8 @@ test("first_run_test_failure_lists_each_issue", async () => {
   await user.click(screen.getByRole("button", { name: "Test" }));
 
   const alert = await screen.findByRole("alert");
-  expect(alert).toHaveTextContent("the settings are not valid");
+  expect(alert).toHaveTextContent("Could not run the test");
+  expect(alert).toHaveTextContent("Some values are not valid.");
   expect(screen.getByText("discord.channel_id: bad id")).toBeVisible();
 });
 

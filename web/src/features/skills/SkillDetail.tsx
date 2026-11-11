@@ -1,10 +1,7 @@
 import { Link } from "react-router";
 import { useActions } from "../../api/hooks/actions";
 import { useHosts } from "../../api/hooks/hosts";
-import { Button } from "../../components/Button";
-import { Dialog } from "../../components/Dialog";
-import { Markdown } from "../../components/Markdown";
-import { RelativeTime } from "../../components/RelativeTime";
+import { Button, Dialog, Markdown, RelativeTime, Tooltip } from "../../components";
 import { riskMeta } from "../../design/tone";
 import styles from "./skills.module.css";
 import type { Skill } from "../../api/types";
@@ -82,7 +79,9 @@ export function SkillDetail({
         {` · times out after ${skill.timeout_secs} s`}
         {` · ${verificationText(skill.verify)}`}
         {" · manifest hash "}
-        <code title={hash}>{hash.slice(0, 12)}</code>
+        <Tooltip content={hash}>
+          <code>{hash.slice(0, 12)}</code>
+        </Tooltip>
       </p>
       {skill.readme ? <Markdown text={skill.readme} /> : <p className={styles.meta}>No README</p>}
       <h3 className={styles.runsHead}>Recent runs on {host}</h3>

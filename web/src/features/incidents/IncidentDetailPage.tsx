@@ -1,9 +1,7 @@
 import { Link, useParams } from "react-router";
 import { useIncident } from "../../api/hooks/incidents";
 import { ApiFailure, type TimelineEntry } from "../../api/types";
-import { EmptyState } from "../../components/EmptyState";
-import { Markdown } from "../../components/Markdown";
-import { RelativeTime } from "../../components/RelativeTime";
+import { EmptyState, LoadError, Loading, Markdown, RelativeTime } from "../../components";
 import ui from "../../components/ui.module.css";
 import { ActionItem } from "../approvals/ActionItem";
 import approvals from "../approvals/approvals.module.css";
@@ -38,14 +36,21 @@ export function IncidentDetailPage() {
   const incident = useIncident(id);
 
   if (incident.isPending) {
-    return <p>Loading…</p>;
+    return <Loading />;
   }
   if (incident.error || !incident.data) {
-    const missing = incident.error instanceof ApiFailure && incident.error.status === 404;
+    if (incident.error instanceof ApiFailure && incident.error.status === 404) {
+      return (
+        <EmptyState
+          title="No such incident"
+          action={<Link to="/incidents">Back to incidents</Link>}
+        >
+          <p>It may have been removed, or the address is wrong.</p>
+        </EmptyState>
+      );
+    }
     return (
-      <EmptyState title={missing ? "No such incident" : "Could not load the incident"}>
-        <Link to="/incidents">Back to incidents</Link>
-      </EmptyState>
+      <LoadError error={incident.error} context="load the incident" onRetry={incident.refetch} />
     );
   }
 

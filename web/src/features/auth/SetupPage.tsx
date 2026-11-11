@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { useSetup } from "../../api/hooks/session";
 import { ApiFailure } from "../../api/types";
-import { Button } from "../../components/Button";
+import { Button, InlineMessage } from "../../components";
 import styles from "./auth.module.css";
 
 /** The hub's shortest accepted password, in characters. */
@@ -112,12 +112,8 @@ export function SetupPage() {
             required
           />
         </div>
-        {problem && (
-          <p className={styles.error} role="alert">
-            {problem}
-          </p>
-        )}
-        <Button type="submit" variant="primary" disabled={setup.isPending}>
+        {problem && <InlineMessage tone="danger" title={problem} />}
+        <Button type="submit" variant="primary" loading={setup.isPending}>
           Create account
         </Button>
         <p className={styles.hint}>

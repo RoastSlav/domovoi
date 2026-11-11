@@ -140,10 +140,8 @@ test("skill_detail_dialog_opens_with_parameters_and_readme", async () => {
   expect(within(dialog).getByText(/^required$/)).toBeVisible();
   expect(within(dialog).getByText(/Restarts one container managed by compose\./)).toBeVisible();
   expect(within(dialog).getByText(/re-runs the check after 600 s/)).toBeVisible();
-  const hashCell = dialog.querySelector("code[title]");
-  expect(hashCell).toHaveTextContent(/^0123456789ab$/);
-  expect(hashCell).toHaveAttribute(
-    "title",
+  const hashCell = within(dialog).getByText("0123456789ab");
+  expect(hashCell).toHaveAccessibleDescription(
     "0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab",
   );
   expect(within(dialog).getByRole("link", { name: "inc-1" })).toHaveAttribute(

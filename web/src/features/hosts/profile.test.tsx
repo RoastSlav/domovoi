@@ -75,7 +75,7 @@ test("profile_refresh_repeats_that_the_agent_is_not_connected", async () => {
   show();
   await screen.findByText("Agent version 0.6.0.");
   await user.click(screen.getByRole("button", { name: "Refresh" }));
-  expect(await screen.findByText("the agent is not connected")).toBeVisible();
+  expect(await screen.findByText("The agent is not connected.")).toBeVisible();
 });
 
 test("profile_tab_promises_a_first_profile_for_a_connected_host_without_one", async () => {

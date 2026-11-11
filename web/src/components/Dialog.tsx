@@ -1,36 +1,50 @@
 import { useEffect, useId, useRef, type KeyboardEvent, type ReactNode } from "react";
-import styles from "./ui.module.css";
+import styles from "./overlay.module.css";
 
 const FOCUSABLE =
-  'button:not([disabled]), input:not([disabled]), select, textarea, a[href], [tabindex]:not([tabindex="-1"])';
+  'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])';
 
 /** What a dialog shows. */
 export interface DialogProps {
-  title: string;
-  children?: ReactNode;
   /** The buttons along the bottom. */
   actions: ReactNode;
+  children?: ReactNode;
   /** Called on Escape. */
   onClose: () => void;
+  title: string;
   wide?: boolean;
 }
 
 /**
- * A modal dialog, shown while mounted: labelled by its title, keeping focus inside until
- * it closes, closing on Escape, and returning focus to where it was.
+ * A modal dialog, shown while mounted, on the native `<dialog>`: labelled by its title,
+ * keeping focus inside until it closes, closing on Escape, holding the page still behind
+ * it and returning focus to where it was.
+ *
+ * Use it for a question or a short form that must be answered before going on. Do not use
+ * it for an explanation (`InfoTip`) or for the result of an action (toast).
  */
 export function Dialog({ title, children, actions, onClose, wide = false }: DialogProps) {
   const titleId = useId();
-  const dialog = useRef<HTMLDivElement>(null);
+  const dialog = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
+    const node = dialog.current;
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    dialog.current?.querySelector<HTMLElement>(FOCUSABLE)?.focus();
-    return () => opener?.focus();
+    if (node && !node.open) {
+      node.showModal();
+    }
+    node?.querySelector<HTMLElement>(FOCUSABLE)?.focus();
+    return () => {
+      if (node?.open) {
+        node.close();
+      }
+      opener?.focus();
+    };
   }, []);
 
-  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+  const onKeyDown = (event: KeyboardEvent<HTMLDialogElement>) => {
     if (event.key === "Escape") {
+      event.preventDefault();
       event.stopPropagation();
       onClose();
       return;
@@ -54,19 +68,23 @@ export function Dialog({ title, children, actions, onClose, wide = false }: Dial
   };
 
   return (
-    <div className={styles.backdrop}>
-      <div
-        ref={dialog}
-        className={wide ? `${styles.dialog} ${styles.wide}` : styles.dialog}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        onKeyDown={onKeyDown}
-      >
-        <h2 id={titleId}>{title}</h2>
-        {children}
-        <div className={styles.dialogActions}>{actions}</div>
-      </div>
-    </div>
+    <dialog
+      ref={dialog}
+      className={wide ? `${styles.dialog} ${styles.wide}` : styles.dialog}
+      aria-modal="true"
+      aria-labelledby={titleId}
+      onKeyDown={onKeyDown}
+      onCancel={(event) => {
+        // Escape is handled above; this keeps the browser from closing it behind React's back.
+        event.preventDefault();
+        onClose();
+      }}
+    >
+      <h2 id={titleId} className={styles.dialogTitle}>
+        {title}
+      </h2>
+      {children}
+      <div className={styles.dialogActions}>{actions}</div>
+    </dialog>
   );
 }

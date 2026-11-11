@@ -3,8 +3,7 @@ import { Navigate, Outlet, Route, Routes, useNavigate } from "react-router";
 import { setUnauthorizedHandler } from "../api/client";
 import { useSession } from "../api/hooks/session";
 import { ApiFailure } from "../api/types";
-import { Button } from "../components/Button";
-import { EmptyState } from "../components/EmptyState";
+import { LoadError, Loading } from "../components";
 import { ApprovalsPage } from "../features/approvals/ApprovalsPage";
 import { LoginPage } from "../features/auth/LoginPage";
 import { ChatPage } from "../features/chat/ChatPage";
@@ -43,13 +42,16 @@ function RequireSession() {
   if (session.error && !(session.error instanceof ApiFailure && session.error.status === 401)) {
     return (
       <main>
-        <EmptyState title="Cannot reach the hub">
-          <Button onClick={() => void session.refetch()}>Try again</Button>
-        </EmptyState>
+        <LoadError error={session.error} context="reach the hub" onRetry={session.refetch} />
       </main>
     );
   }
-  return null;
+  // Never a blank screen: say that the session is being checked.
+  return (
+    <main>
+      <Loading />
+    </main>
+  );
 }
 
 /** Every page of the app. */

@@ -3,9 +3,7 @@ import { useNavigate } from "react-router";
 import { useSettings } from "../../api/hooks/system";
 import { useTestConnection, type SecretChange, type TestTarget } from "../../api/hooks/settings";
 import { ApiFailure, type Editable, type Issue } from "../../api/types";
-import { Button } from "../../components/Button";
-import { EmptyState } from "../../components/EmptyState";
-import { PasswordPrompt } from "../../components/PasswordPrompt";
+import { Button, EmptyState, LoadError, Loading, PasswordPrompt } from "../../components";
 import { EnrollDialog } from "../hosts/EnrollDialog";
 import { DiscordSetupHelp } from "../settings/DiscordSetupHelp";
 import { TestIssues } from "../settings/TestIssues";
@@ -394,10 +392,17 @@ function Wizard({ editable }: { editable: Editable }) {
 export function FirstRun() {
   const settings = useSettings();
   if (settings.isPending) {
-    return <p>Loading…</p>;
+    return <Loading />;
   }
-  if (settings.error || !settings.data.editable) {
-    return <EmptyState title="Settings are managed in hub.toml on this hub" />;
+  if (settings.error) {
+    return <LoadError error={settings.error} context="load settings" onRetry={settings.refetch} />;
+  }
+  if (!settings.data.editable) {
+    return (
+      <EmptyState title="Settings are managed in hub.toml on this hub">
+        <p>Edit hub.toml and restart the hub to change them.</p>
+      </EmptyState>
+    );
   }
   return <Wizard editable={settings.data.editable} />;
 }

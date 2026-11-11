@@ -1,5 +1,5 @@
 import type { Card } from "../../api/types";
-import { Badge } from "../../components/Badge";
+import { BadgePill } from "../../components";
 import { verdictMeta } from "../../design/tone";
 import styles from "./incidents.module.css";
 
@@ -10,7 +10,7 @@ import styles from "./incidents.module.css";
 export function IncidentCard({ card, verdict }: { card: Card; verdict?: string | null }) {
   return (
     <section className={styles.card} data-resolved={card.resolved} aria-label="Summary">
-      <Badge value={card.resolved ? "resolved" : card.badge} />
+      <BadgePill value={card.resolved ? "resolved" : card.badge} />
       {card.resolved && verdict && (
         <span className={styles.meta}> Triage said {verdictMeta(verdict).label}</span>
       )}

@@ -2,10 +2,7 @@ import { Link, useParams } from "react-router";
 import { useHost } from "../../api/hooks/hosts";
 import { useIncidents } from "../../api/hooks/incidents";
 import { ApiFailure, type Fact } from "../../api/types";
-import { Badge } from "../../components/Badge";
-import { EmptyState } from "../../components/EmptyState";
-import { RelativeTime } from "../../components/RelativeTime";
-import { Tabs } from "../../components/Tabs";
+import { EmptyState, LoadError, Loading, RelativeTime, StatusPill, Tabs } from "../../components";
 import { incidentBadgeMeta } from "../../design/tone";
 import { triageNote } from "../incidents/badge";
 import { SkillList } from "../skills/SkillList";
@@ -43,7 +40,12 @@ function RecentIncidents({ host }: { host: string }) {
   const incidents = useIncidents({ host });
   const items = incidents.data?.pages[0]?.items.slice(0, 10) ?? [];
   if (incidents.isPending) {
-    return <p>Loading…</p>;
+    return <Loading />;
+  }
+  if (incidents.error && !incidents.data) {
+    return (
+      <LoadError error={incidents.error} context="load incidents" onRetry={incidents.refetch} />
+    );
   }
   if (items.length === 0) {
     return <p>No incidents.</p>;
@@ -54,7 +56,7 @@ function RecentIncidents({ host }: { host: string }) {
         const note = triageNote(incident);
         return (
           <li key={incident.id}>
-            <Badge meta={incidentBadgeMeta(incident)} />{" "}
+            <StatusPill meta={incidentBadgeMeta(incident)} />{" "}
             <Link to={`/incidents/${incident.id}`}>{incident.title}</Link> · {incident.status} ·{" "}
             <RelativeTime at={incident.last_firing_at} />
             {note && ` · ${note}`}
@@ -71,15 +73,17 @@ export function HostDetailPage() {
   const host = useHost(name);
 
   if (host.isPending) {
-    return <p>Loading…</p>;
+    return <Loading />;
   }
   if (host.error || !host.data) {
-    const missing = host.error instanceof ApiFailure && host.error.status === 404;
-    return (
-      <EmptyState title={missing ? "No such host" : "Could not load the host"}>
-        <Link to="/hosts">Back to hosts</Link>
-      </EmptyState>
-    );
+    if (host.error instanceof ApiFailure && host.error.status === 404) {
+      return (
+        <EmptyState title="No such host" action={<Link to="/hosts">Back to hosts</Link>}>
+          <p>It may have been removed, or the address is wrong.</p>
+        </EmptyState>
+      );
+    }
+    return <LoadError error={host.error} context="load the host" onRetry={host.refetch} />;
   }
   const detail = host.data;
   return (

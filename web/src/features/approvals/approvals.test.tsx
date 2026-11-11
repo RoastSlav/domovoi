@@ -30,12 +30,12 @@ test("destructive_approval_requires_exact_skill_name", async () => {
   const confirm = within(dialog).getByRole("button", { name: "Approve" });
   const input = within(dialog).getByLabelText("Type delete_volume to confirm");
   expect(input).toHaveFocus();
-  expect(confirm).toBeDisabled();
+  expect(confirm).toHaveAttribute("aria-disabled", "true");
 
   for (const wrong of ["Delete_volume", "delete_volume ", " delete_volume", "delete"]) {
     await user.clear(input);
     await user.type(input, wrong);
-    expect(confirm, JSON.stringify(wrong)).toBeDisabled();
+    expect(confirm, JSON.stringify(wrong)).toHaveAttribute("aria-disabled", "true");
   }
   await user.click(confirm);
   expect(approvals()).toHaveLength(0);

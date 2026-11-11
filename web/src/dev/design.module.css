@@ -132,3 +132,23 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+.demo {
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--color-border);
+}
+
+.demo:first-of-type {
+  border-top: 0;
+}
+
+.demoBody {
+  margin-top: var(--space-2);
+}
+
+.striped {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+}

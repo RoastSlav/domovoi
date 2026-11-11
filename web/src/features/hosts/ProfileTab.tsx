@@ -1,18 +1,15 @@
 import { Link } from "react-router";
 import { useProfile, useRefreshProfile } from "../../api/hooks/profile";
 import { ApiFailure, type ProfileSection } from "../../api/types";
-import { Button } from "../../components/Button";
-import { Markdown } from "../../components/Markdown";
-import { RelativeTime } from "../../components/RelativeTime";
+import {
+  Button,
+  LoadError,
+  Loading,
+  Markdown,
+  RelativeTime,
+  useActionFeedback,
+} from "../../components";
 import styles from "./hosts.module.css";
-
-/** What a failed API call says to a person; server-side faults get no useful words. */
-function failureText(error: unknown): string {
-  if (error instanceof ApiFailure && error.status < 500) {
-    return error.message;
-  }
-  return "Something went wrong. Try again.";
-}
 
 /** The sections whose tool did not answer, as one line of gaps. */
 function Gaps({ sections }: { sections: ProfileSection[] }) {
@@ -33,18 +30,19 @@ function Gaps({ sections }: { sections: ProfileSection[] }) {
  */
 export function ProfileTab({ host, connected }: { host: string; connected: boolean }) {
   const profile = useProfile(host);
-  const refresh = useRefreshProfile(host);
+  const refresh = useActionFeedback(useRefreshProfile(host), {
+    success: "Profile collected",
+    error: "collect the profile",
+  });
 
   if (profile.isPending) {
-    return <p>Loading…</p>;
+    return <Loading />;
   }
   if (profile.error || !profile.data) {
     const missing = profile.error instanceof ApiFailure && profile.error.status === 404;
     if (!missing) {
       return (
-        <p className={styles.hint} role="alert">
-          {failureText(profile.error)}
-        </p>
+        <LoadError error={profile.error} context="load the profile" onRetry={profile.refetch} />
       );
     }
     return (
@@ -74,14 +72,9 @@ export function ProfileTab({ host, connected }: { host: string; connected: boole
       <Gaps sections={seen.sections} />
       <Markdown text={seen.markdown} />
       {connected && (
-        <Button onClick={() => refresh.mutate(host)} disabled={refresh.isPending}>
+        <Button icon="refresh" onClick={() => refresh.mutate(host)} loading={refresh.isPending}>
           Refresh
         </Button>
-      )}
-      {refresh.error && (
-        <p className={styles.hint} role="alert">
-          {failureText(refresh.error)}
-        </p>
       )}
     </>
   );

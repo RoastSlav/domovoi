@@ -12,7 +12,7 @@ const domovoi = {
         schema: [],
         messages: {
           title:
-            "Native title tooltips are unreliable on touch and keyboard; explain through the kit (web/DESIGN.md).",
+            "Native title tooltips are unreliable on touch and keyboard; use Tooltip, InfoTip or visible text (web/DESIGN.md).",
         },
       },
       create(context) {
@@ -99,8 +99,26 @@ export default tseslint.config(
             "No inline styles in page code: use a CSS module with tokens. For a value computed at run time, disable this line with a comment that says why.",
         },
       ],
-      // Becomes an error once the kit has a Tooltip to replace the remaining ones.
-      "domovoi/no-native-title": "warn",
+      "domovoi/no-native-title": "error",
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["**/api/schema"],
+              message: "Import generated types only inside src/api; expose hooks instead.",
+            },
+            {
+              regex: "/components/(?!ui\\.module\\.css$).+",
+              message: "Import kit components from the barrel: src/components (web/DESIGN.md).",
+            },
+            {
+              group: ["lucide-react"],
+              message: "Draw icons through Icon in src/design/icons.tsx.",
+            },
+          ],
+        },
+      ],
     },
   },
   {

@@ -90,11 +90,10 @@ test("digest_send_failure_shows_why_discord_refused", async () => {
 
   await screen.findByRole("article", { name: "Digest for 2026-11-01" });
   await user.click(screen.getByRole("button", { name: "Send now" }));
-  await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Send" }));
+  await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Send digest" }));
   const alert = await screen.findByRole("alert");
-  expect(alert).toHaveTextContent("Discord did not take the digest");
+  expect(alert).toHaveTextContent("Could not send the digest");
   expect(alert).toHaveTextContent("Missing Access");
-  expect(alert).not.toHaveTextContent("No chat is configured");
 });
 
 test("digest_preview_and_send_now", async () => {
@@ -111,12 +110,14 @@ test("digest_preview_and_send_now", async () => {
   expect(within(preview).getByText("2 incidents").tagName).toBe("STRONG");
 
   await user.click(screen.getByRole("button", { name: "Send now" }));
-  await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Send" }));
-  expect(await screen.findByRole("alert")).toHaveTextContent("No chat is configured to send to.");
+  await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Send digest" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "Could not send the digest" + "No notifier.",
+  );
 
   route("POST /api/v1/digest/send", () => undefined);
   await user.click(screen.getByRole("button", { name: "Send now" }));
-  await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Send" }));
-  expect(await screen.findByText("Sent.")).toBeVisible();
+  await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Send digest" }));
+  expect(await screen.findByText("Digest sent")).toBeVisible();
   expect(calls.filter((c) => c.route === "POST /api/v1/digest/send")).toHaveLength(2);
 });

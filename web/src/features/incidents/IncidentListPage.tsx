@@ -3,9 +3,7 @@ import { useSearchParams } from "react-router";
 import { useHostNames } from "../../api/hooks/hosts";
 import { useIncidents, type IncidentFilters } from "../../api/hooks/incidents";
 import { useSelectedHost } from "../../app/HostContext";
-import { Button } from "../../components/Button";
-import { EmptyState } from "../../components/EmptyState";
-import { PageIntro } from "../../components/PageIntro";
+import { Button, EmptyState, LoadError, Loading, PageHeader } from "../../components";
 import { IncidentGroups } from "./IncidentGroups";
 import { IncidentRow } from "./IncidentRow";
 import styles from "./incidents.module.css";
@@ -94,11 +92,11 @@ export function IncidentListPage() {
 
   return (
     <>
-      <h1>Incidents</h1>
-      <PageIntro topic="incidents" docs="concepts/incidents.html">
-        Problems Domovoi found on your hosts. Confirmed ones are posted to chat, and triaged when a
-        model is set up.
-      </PageIntro>
+      <PageHeader
+        title="Incidents"
+        docs="concepts/incidents.html"
+        intro="Problems Domovoi found on your hosts. Confirmed ones are posted to chat, and triaged when a model is set up."
+      />
       <form className={styles.filters} role="search" aria-label="Filter incidents">
         <Filter
           name="status"
@@ -119,8 +117,14 @@ export function IncidentListPage() {
         <IncidentGroups filters={filters} hostNames={hostNames} />
       ) : (
         <>
-          {incidents.isPending && <p>Loading…</p>}
-          {incidents.error && <EmptyState title="Could not load incidents" />}
+          {incidents.isPending && <Loading />}
+          {incidents.error && !incidents.data && (
+            <LoadError
+              error={incidents.error}
+              context="load incidents"
+              onRetry={incidents.refetch}
+            />
+          )}
           {incidents.data && items.length === 0 && (
             <EmptyState title="No incidents">
               <p>Nothing matches these filters.</p>
@@ -139,8 +143,8 @@ export function IncidentListPage() {
           )}
           {hasNextPage && (
             <div className={styles.more} ref={sentinel}>
-              <Button onClick={loadMore} disabled={isFetchingNextPage}>
-                {isFetchingNextPage ? "Loading…" : "Load more"}
+              <Button onClick={loadMore} loading={isFetchingNextPage}>
+                Load more
               </Button>
             </div>
           )}

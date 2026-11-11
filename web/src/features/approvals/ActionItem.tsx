@@ -1,6 +1,7 @@
 import { Link } from "react-router";
 import type { Action } from "../../api/types";
-import { RelativeTime } from "../../components/RelativeTime";
+import { RelativeTime, StatusPill } from "../../components";
+import { actionStatusMeta, riskMeta } from "../../design/tone";
 import styles from "./approvals.module.css";
 import { ApproveControl } from "./ApproveControl";
 
@@ -19,10 +20,8 @@ export function ActionItem({
     <li className={styles.item}>
       <div className={styles.head}>
         <span className={styles.skill}>{action.skill}</span>
-        <span className={styles.risk} data-risk={action.risk}>
-          {action.risk}
-        </span>
-        <span>{action.status}</span>
+        <StatusPill meta={riskMeta(action.risk)} />
+        <StatusPill meta={actionStatusMeta(action.status)} />
         {host && <span className={styles.meta}>on {host}</span>}
       </div>
       {args.length > 0 && (

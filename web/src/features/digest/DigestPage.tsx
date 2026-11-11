@@ -1,53 +1,47 @@
 import { useState } from "react";
 import { useDigestPreview, useSendDigest } from "../../api/hooks/system";
-import { ApiFailure } from "../../api/types";
-import { Button } from "../../components/Button";
-import { ConfirmDialog } from "../../components/ConfirmDialog";
-import { EmptyState } from "../../components/EmptyState";
-import { Markdown } from "../../components/Markdown";
-import { PageIntro } from "../../components/PageIntro";
-import ui from "../../components/ui.module.css";
+import {
+  Button,
+  ConfirmDialog,
+  LoadError,
+  Loading,
+  Markdown,
+  PageHeader,
+  useActionFeedback,
+} from "../../components";
 import styles from "./digest.module.css";
-
-function sendFailureText(error: unknown): string {
-  if (error instanceof ApiFailure && error.status === 503) {
-    return "No chat is configured to send to. Enable the Discord bot or set a webhook URL.";
-  }
-  if (error instanceof ApiFailure && error.status === 502) {
-    return `Discord did not take the digest: ${error.message}`;
-  }
-  return "Could not send the digest. Try again.";
-}
 
 /** Today's digest as it will be sent, and sending it now. */
 export function DigestPage() {
   const preview = useDigestPreview();
-  const send = useSendDigest();
+  const send = useActionFeedback(useSendDigest(), {
+    success: "Digest sent",
+    error: "send the digest",
+  });
   const [confirming, setConfirming] = useState(false);
 
   return (
     <>
-      <div className={ui.pageHead}>
-        <h1>Digest</h1>
-        <Button
-          variant="primary"
-          onClick={() => setConfirming(true)}
-          disabled={!preview.data || send.isPending}
-        >
-          Send now
-        </Button>
-      </div>
-      <PageIntro topic="the digest" docs="concepts/digest.html">
-        One summary of every host per day: what changed, trends and open incidents.
-      </PageIntro>
-      {send.isSuccess && <p role="status">Sent.</p>}
-      {send.error && (
-        <p className={styles.error} role="alert">
-          {sendFailureText(send.error)}
-        </p>
+      <PageHeader
+        title="Digest"
+        topic="the digest"
+        docs="concepts/digest.html"
+        intro="One summary of every host per day: what changed, trends and open incidents."
+        actions={
+          <Button
+            variant="primary"
+            onClick={() => setConfirming(true)}
+            loading={send.isPending}
+            disabledReason={preview.data ? undefined : "The digest has not loaded yet."}
+          >
+            Send now
+          </Button>
+        }
+      />
+      {preview.isPending && <Loading />}
+      {preview.error && !preview.data && (
+        <LoadError error={preview.error} context="build the digest" onRetry={preview.refetch} />
       )}
-      {preview.isPending && <p>Loading…</p>}
-      {preview.error && <EmptyState title="Could not build the digest" />}
       {preview.data && (
         <article className={styles.preview} aria-label={`Digest for ${preview.data.date}`}>
           <p className={styles.date}>For {preview.data.date}</p>
@@ -57,13 +51,16 @@ export function DigestPage() {
       {confirming && (
         <ConfirmDialog
           title="Send the digest now?"
-          confirmLabel="Send"
+          consequence="It goes to the configured chat now, as well as at its usual time."
+          confirmLabel="Send digest"
           busy={send.isPending}
-          onConfirm={() => send.mutate(undefined, { onSettled: () => setConfirming(false) })}
+          onConfirm={() => {
+            // The result arrives as a toast, which needs the dialog out of the way.
+            setConfirming(false);
+            send.mutate(undefined);
+          }}
           onCancel={() => setConfirming(false)}
-        >
-          <p>It goes to the configured chat now, as well as at its usual time.</p>
-        </ConfirmDialog>
+        />
       )}
     </>
   );

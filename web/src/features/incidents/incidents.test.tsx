@@ -266,7 +266,7 @@ test("incident_list_keeps_its_groups_when_a_refresh_fails", async () => {
 
   client.invalidateQueries({ queryKey: ["incidents"] });
 
-  expect(await screen.findByText("Could not refresh.")).toBeVisible();
+  expect(await screen.findByText("Could not refresh")).toBeVisible();
   expect(
     group("Needs attention (1)").getByRole("link", { name: "Open one" }),
     "the rows stay over a failed refetch",
@@ -309,7 +309,8 @@ test("resolved_card_shows_resolved_badge_and_keeps_the_verdict", async () => {
   renderAt("/incidents/inc-1", "/incidents/:id", <IncidentDetailPage />);
 
   const card = await screen.findByRole("region", { name: "Summary" });
-  expect(card).toHaveTextContent("Resolved Triage said Action needed");
+  expect(within(card).getByText("Resolved")).toBeVisible();
+  expect(card).toHaveTextContent("Triage said Action needed");
 });
 
 test("resolved_card_without_triage_claims_no_verdict", async () => {
@@ -464,12 +465,10 @@ test("ack_and_mute_say_what_they_do", async () => {
   renderAt("/incidents/inc-1", "/incidents/:id", <IncidentDetailPage />);
 
   const ack = await screen.findByRole("button", { name: "Ack" });
-  expect(ack).toHaveAttribute(
-    "title",
+  expect(ack).toHaveAccessibleDescription(
     "Stops reminders; the incident stays listed until the problem clears.",
   );
-  expect(screen.getByRole("button", { name: "Mute" })).toHaveAttribute(
-    "title",
+  expect(screen.getByRole("button", { name: "Mute" })).toHaveAccessibleDescription(
     "No alerts or reminders until the time you pick.",
   );
 });
@@ -635,7 +634,7 @@ test("chat_clear_button_forgets_the_conversation_after_confirming", async () => 
     "the dialog says what clearing does",
   ).toBeVisible();
 
-  await user.click(within(dialog).getByRole("button", { name: "Yes, clear it" }));
+  await user.click(within(dialog).getByRole("button", { name: "Clear conversation" }));
   expect(
     calls.filter((call) => call.route === "POST /api/v1/incidents/{id}/followups/clear"),
     "the hub cleared the conversation",
@@ -826,7 +825,7 @@ test("dismiss_dialog_without_a_period_sends_no_rule", async () => {
   expect(
     within(dialog).getByRole("button", { name: "Dismiss" }),
     "an empty reason cannot be sent",
-  ).toBeDisabled();
+  ).toHaveAttribute("aria-disabled", "true");
 
   await user.type(
     within(dialog).getByLabelText("Why is this not a real problem?"),
