@@ -613,6 +613,29 @@ async fn a_login_from_the_one_expected_address_is_known() {
 }
 
 #[tokio::test]
+async fn a_rule_restored_with_its_exact_expiry_keeps_that_expiry() {
+    let a = api().await;
+    let login = a.admin().await;
+    let mut body = rule_body("expires_in_minutes", json!(null));
+    body["expires_at"] = json!("2030-01-02T03:04:05Z");
+    let created = created_rule(&a, &login, body).await;
+    assert_eq!(created["expires_at"], "2030-01-02T03:04:05Z");
+
+    // With both fields, the exact time wins over the minutes.
+    let mut both = rule_body("expires_in_minutes", json!(60));
+    both["expires_at"] = json!("2031-05-06T07:08:09Z");
+    let created = created_rule(&a, &login, both).await;
+    assert_eq!(created["expires_at"], "2031-05-06T07:08:09Z");
+
+    // A value that is not a time is refused, and nothing is stored.
+    let mut bad = rule_body("expires_in_minutes", json!(null));
+    bad["expires_at"] = json!("next tuesday");
+    let reply = a.post("/api/v1/ack-rules", &login, bad).await;
+    assert_eq!(reply.status, StatusCode::BAD_REQUEST, "{}", reply.text);
+    assert_eq!(listed_rules(&a, &login).await.len(), 2);
+}
+
+#[tokio::test]
 async fn a_created_rule_reports_who_created_it_and_when() {
     let a = api().await;
     let login = a.admin().await;

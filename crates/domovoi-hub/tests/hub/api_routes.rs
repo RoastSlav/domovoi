@@ -384,6 +384,14 @@ async fn advisories_digest_and_metrics() {
     let preview = a.get("/api/v1/digest/preview", &login).await;
     assert_eq!(preview.status, StatusCode::OK, "{}", preview.text);
     assert!(preview.body["markdown"].as_str().unwrap().contains("nas"));
+    let hosts = preview.body["hosts"].as_array().unwrap();
+    assert!(
+        hosts
+            .iter()
+            .any(|host| host["host"] == "nas" && host["lines"].is_array()),
+        "the preview lists each host as its own section: {}",
+        preview.text
+    );
     assert_eq!(
         a.post("/api/v1/digest/send", &login, json!({}))
             .await

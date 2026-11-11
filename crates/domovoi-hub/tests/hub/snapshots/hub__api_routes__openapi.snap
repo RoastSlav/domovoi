@@ -78,6 +78,13 @@ expression: spec
             "description": "The check to match, for example `security.ssh_login`.",
             "type": "string"
           },
+          "expires_at": {
+            "description": "The exact time the rule stops applying, as RFC 3339, such as `2026-12-01T10:00:00Z`.\nWhen present it is used instead of `expires_in_minutes`, so a rule can be restored\nwith its original expiry; an unparseable value is refused.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "expires_in_minutes": {
             "description": "Minutes from now until the rule stops applying; null means it never expires.",
             "format": "int32",
@@ -434,12 +441,45 @@ expression: spec
         },
         "type": "object"
       },
+      "DigestHostDto": {
+        "description": "One host's part of the daily digest.",
+        "properties": {
+          "host": {
+            "description": "The host's name.",
+            "type": "string"
+          },
+          "lines": {
+            "description": "What changed on the host, one plain sentence each.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "quiet": {
+            "description": "True when nothing changed on the host and no incident or advisory is open for it.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "host",
+          "quiet",
+          "lines"
+        ],
+        "type": "object"
+      },
       "DigestPreview": {
         "description": "The daily digest as it would be sent now.",
         "properties": {
           "date": {
             "description": "The day it is for.",
             "type": "string"
+          },
+          "hosts": {
+            "description": "The same digest as one entry per host, in name order, for showing each host as its\nown section. `markdown` holds the same content as one document.",
+            "items": {
+              "$ref": "#/components/schemas/DigestHostDto"
+            },
+            "type": "array"
           },
           "markdown": {
             "description": "The rendered Markdown.",
@@ -455,7 +495,8 @@ expression: spec
         },
         "required": [
           "date",
-          "markdown"
+          "markdown",
+          "hosts"
         ],
         "type": "object"
       },

@@ -6,7 +6,7 @@ use axum::http::{StatusCode, header};
 use axum::response::IntoResponse;
 use domovoi_core::ports::OutboundMessage;
 
-use super::dto_admin::{AdvisoryDto, DigestPreview};
+use super::dto_admin::{AdvisoryDto, DigestHostDto, DigestPreview};
 use super::error::{ApiError, ErrorBody};
 use super::{ApiState, Authed};
 
@@ -61,10 +61,20 @@ pub(crate) async fn build(state: &ApiState) -> Result<DigestPreview, ApiError> {
         crate::digest::DigestError::Store(err) => ApiError::from(err),
         crate::digest::DigestError::DayStart(err) => ApiError::internal("digest day start", err),
     })?;
+    let hosts = rendered
+        .hosts
+        .iter()
+        .map(|host| DigestHostDto {
+            host: host.host.to_string(),
+            quiet: host.quiet,
+            lines: host.lines.clone(),
+        })
+        .collect();
     Ok(DigestPreview {
         date: rendered.date,
         markdown: rendered.markdown,
         next_send_at: service.next_due(deps.clock.now()).map(|at| at.to_string()),
+        hosts,
     })
 }
 

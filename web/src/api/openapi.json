@@ -3319,6 +3319,13 @@
             "type": "string",
             "description": "The check to match, for example `security.ssh_login`."
           },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The exact time the rule stops applying, as RFC 3339, such as `2026-12-01T10:00:00Z`.\nWhen present it is used instead of `expires_in_minutes`, so a rule can be restored\nwith its original expiry; an unparseable value is refused."
+          },
           "expires_in_minutes": {
             "type": [
               "integer",
@@ -3669,17 +3676,51 @@
           }
         }
       },
+      "DigestHostDto": {
+        "type": "object",
+        "description": "One host's part of the daily digest.",
+        "required": [
+          "host",
+          "quiet",
+          "lines"
+        ],
+        "properties": {
+          "host": {
+            "type": "string",
+            "description": "The host's name."
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "What changed on the host, one plain sentence each."
+          },
+          "quiet": {
+            "type": "boolean",
+            "description": "True when nothing changed on the host and no incident or advisory is open for it."
+          }
+        }
+      },
       "DigestPreview": {
         "type": "object",
         "description": "The daily digest as it would be sent now.",
         "required": [
           "date",
-          "markdown"
+          "markdown",
+          "hosts"
         ],
         "properties": {
           "date": {
             "type": "string",
             "description": "The day it is for."
+          },
+          "hosts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DigestHostDto"
+            },
+            "description": "The same digest as one entry per host, in name order, for showing each host as its\nown section. `markdown` holds the same content as one document."
           },
           "markdown": {
             "type": "string",
