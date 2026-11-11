@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Icon, type IconName } from "../design/icons";
 import { IconButton } from "./IconButton";
 import { Popover } from "./Popover";
@@ -6,6 +6,8 @@ import styles from "./overlay.module.css";
 
 /** One entry in a menu. */
 export interface MenuItem {
+  /** Set (true or false) for one of several exclusive choices; the chosen one shows a check. */
+  checked?: boolean;
   /** Why it cannot be chosen now; shown under the label. */
   disabledReason?: string | undefined;
   icon?: IconName;
@@ -17,19 +19,31 @@ export interface MenuItem {
 
 /**
  * Secondary actions behind a "More" icon button. Arrow keys, Home and End move between
- * entries; Enter chooses; Escape closes and returns focus to the button.
+ * entries; Enter chooses; Escape closes and returns focus to the button. `icon` changes the
+ * button's icon, `header` is a line above the entries (who is signed in), and an entry with
+ * `checked` is one of several exclusive choices.
  *
  * Use it when a row or header has more than two or three actions. Keep the main action as a
  * visible `Button`; never hide the only way to do something important in a menu.
  */
-export function Menu({ label = "More actions", items }: { items: MenuItem[]; label?: string }) {
+export function Menu({
+  label = "More actions",
+  items,
+  icon = "more",
+  header,
+}: {
+  header?: ReactNode;
+  icon?: IconName;
+  items: MenuItem[];
+  label?: string;
+}) {
   const [open, setOpen] = useState(false);
   const button = useRef<HTMLButtonElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const id = useId();
 
   const entries = (): HTMLElement[] => [
-    ...(list.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? []),
+    ...(list.current?.querySelectorAll<HTMLElement>('[role^="menuitem"]') ?? []),
   ];
   useEffect(() => {
     if (open) {
@@ -60,7 +74,7 @@ export function Menu({ label = "More actions", items }: { items: MenuItem[]; lab
     <>
       <IconButton
         ref={button}
-        icon="more"
+        icon={icon}
         label={label}
         aria-haspopup="menu"
         aria-expanded={open}
@@ -70,11 +84,13 @@ export function Menu({ label = "More actions", items }: { items: MenuItem[]; lab
       {open && (
         <Popover anchor={button} id={id} label={label} role="menu" onClose={() => setOpen(false)}>
           <div ref={list} onKeyDown={onKeyDown}>
+            {header && <div className={styles.menuHeader}>{header}</div>}
             {items.map((item) => (
               <button
                 key={item.label}
                 type="button"
-                role="menuitem"
+                role={item.checked === undefined ? "menuitem" : "menuitemradio"}
+                aria-checked={item.checked}
                 tabIndex={-1}
                 className={styles.menuItem}
                 data-tone={item.tone}
@@ -89,10 +105,11 @@ export function Menu({ label = "More actions", items }: { items: MenuItem[]; lab
                 }}
               >
                 {item.icon && <Icon name={item.icon} />}
-                <span>
+                <span className={styles.menuLabel}>
                   {item.label}
                   {item.disabledReason && <small> ({item.disabledReason})</small>}
                 </span>
+                {item.checked && <Icon name="check" size={14} />}
               </button>
             ))}
           </div>

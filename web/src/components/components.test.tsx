@@ -33,13 +33,14 @@ test("confirm_dialog_traps_focus_and_closes_on_escape", async () => {
   expect(onCancel).toHaveBeenCalledOnce();
 });
 
-test("markdown_never_renders_raw_html", () => {
+test("markdown_never_renders_raw_html", async () => {
   const { container } = render(
     <Markdown
       text={'**bold** <script>alert(1)</script><img src=x onerror="x"> [x](javascript:alert(1))'}
     />,
   );
-  expect(screen.getByText("bold").tagName).toBe("STRONG");
+  // The renderer is loaded on demand; the text shows as written until it arrives.
+  expect((await screen.findByText("bold")).tagName).toBe("STRONG");
   expect(container.querySelector("script")).toBeNull();
   expect(container.querySelector("img")).toBeNull();
   expect(screen.getByText("x").getAttribute("href") ?? "").not.toContain("javascript");
