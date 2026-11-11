@@ -53,6 +53,7 @@ export { Timeline, TIMELINE_PREVIEW, type TimelineItem } from "./Timeline";
 export { Countdown, formatRemaining, useRemaining } from "./Countdown";
 export { CopyBlock } from "./CopyBlock";
 export { Markdown } from "./Markdown";
+export { Highlight } from "./Highlight";
 
 // Forms
 export { Field, fieldIdForPath } from "./Field";
@@ -60,7 +61,12 @@ export { Checkbox, NumberInput, Select, Switch, TextInput, Textarea } from "./in
 export { SegmentedControl, type Segment } from "./SegmentedControl";
 export { FormErrorSummary } from "./FormErrorSummary";
 export { SubmitBar } from "./SubmitBar";
+export { DropZone } from "./DropZone";
 export { ThemeSwitch } from "./ThemeSwitch";
+export { PasswordInput } from "./PasswordInput";
+export { Stepper, type StepperStep } from "./Stepper";
+export { AuthCard } from "./AuthCard";
+export { BrandMark } from "./BrandMark";
 
 // Overlays
 export { Dialog, type DialogProps } from "./Dialog";

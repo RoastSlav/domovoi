@@ -233,6 +233,11 @@
   overflow-wrap: anywhere;
 }
 
+.markdown[data-breaks] p,
+.markdown[data-breaks] li {
+  white-space: pre-line;
+}
+
 .markdown pre {
   padding: var(--space-3);
   border-radius: var(--radius-md);

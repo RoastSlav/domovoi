@@ -8,11 +8,13 @@ const MarkdownView = lazy(() => import("./MarkdownView"));
  * download, fetched the first time Markdown is shown; until it arrives the text shows as
  * written, so nothing is blank and little moves.
  *
- * Use it for text written by the model or in notes. Do not use it for UI text you wrote.
+ * `breaks` keeps single line breaks as written, for text composed for a chat app that shows
+ * them (the digest). Use it for text written by the model or in notes. Do not use it for UI
+ * text you wrote.
  */
-export function Markdown({ text }: { text: string }) {
+export function Markdown({ text, breaks }: { breaks?: boolean; text: string }) {
   return (
-    <div className={styles.markdown}>
+    <div className={styles.markdown} data-breaks={breaks || undefined}>
       <Suspense fallback={<p className={styles.markdownPlain}>{text}</p>}>
         <MarkdownView text={text} />
       </Suspense>

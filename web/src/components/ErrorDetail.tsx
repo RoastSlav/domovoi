@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { retryAfterText, type DescribedError } from "../design/messages";
+import { RETRY_NOW_TEXT, retryAfterText, type DescribedError } from "../design/messages";
 
 /** Seconds left of `seconds`, counted down once a second. */
 function useCountdown(seconds: number | undefined): number | undefined {
@@ -22,7 +22,8 @@ function useCountdown(seconds: number | undefined): number | undefined {
  */
 export function ErrorDetail({ error }: { error: DescribedError }) {
   const left = useCountdown(error.retryAfter);
-  const detail = left !== undefined && left > 0 ? retryAfterText(left) : error.detail;
+  const detail =
+    left === undefined ? error.detail : left > 0 ? retryAfterText(left) : RETRY_NOW_TEXT;
   const issues = error.issues ?? [];
   if (!detail && issues.length === 0) {
     return null;

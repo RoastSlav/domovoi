@@ -97,6 +97,9 @@ export function retryAfterText(seconds: number): string {
   return `Too many attempts. Try again in ${Math.max(0, Math.ceil(seconds))} s.`;
 }
 
+/** What a rate-limited message says once its wait is over. */
+export const RETRY_NOW_TEXT = "You can try again now.";
+
 function reasonFor(error: unknown): { reason: string; server?: string } {
   if (error instanceof ApiFailure) {
     if (Object.hasOwn(CATALOGUE, error.code)) {
@@ -154,4 +157,28 @@ export function errorText(error: unknown, context?: string): string {
   const { title, detail } = describeError(error, context);
   const first = /[.!?…]$/.test(title) ? title : `${title}.`;
   return detail ? `${first} ${detail}` : first;
+}
+
+/**
+ * A failed account setup in words. A 403 means the link's token is wrong or spent, or the
+ * page is opened from an address other than the hub's public URL; the hub's message says
+ * which. Everything else is described as any failed request.
+ */
+export function describeSetupError(error: unknown): DescribedError {
+  const title = "Could not create the account";
+  if (error instanceof ApiFailure) {
+    if (error.status === 403) {
+      return {
+        title,
+        detail:
+          error.message === "cross-origin requests are not allowed"
+            ? "This address does not match the hub's public URL. Set DOMOVOI_WEB__PUBLIC_URL to this page's origin and restart the hub."
+            : "This setup link is wrong, used or expired. Use the latest link from the hub's log.",
+      };
+    }
+    if (error.status === 409) {
+      return { title, detail: "Setup is already done. Log in instead." };
+    }
+  }
+  return describeError(error, "create the account");
 }

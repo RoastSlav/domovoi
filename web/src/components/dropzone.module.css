@@ -1,0 +1,58 @@
+.wrap {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+}
+
+.zone {
+  position: relative;
+  display: grid;
+  gap: var(--space-1);
+  justify-items: center;
+  width: 100%;
+  padding: var(--space-5) var(--space-4);
+  border: 2px dashed var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  text-align: center;
+  cursor: pointer;
+  transition:
+    border-color var(--motion-fast) var(--ease-out),
+    background var(--motion-fast) var(--ease-out);
+}
+
+.zone:hover,
+.zone[data-dragging] {
+  border-color: var(--color-primary);
+  background: var(--color-surface-raised);
+}
+
+.zone:focus-within {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.zone[data-disabled] {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.label {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.hint {
+  font-size: var(--text-sm);
+}
+
+/* The real input stays in the page, focusable and reachable through the label. */
+.input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  opacity: 0;
+  overflow: hidden;
+}
