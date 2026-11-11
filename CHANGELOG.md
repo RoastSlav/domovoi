@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.0.9](https://github.com/RoastSlav/domovoi/compare/v0.0.8...v0.0.9) - 2026-11-11
+
+### Added
+
+- *(web)* rebuild incidents, approvals and chat around what needs the operator ([#102](https://github.com/RoastSlav/domovoi/pull/102))
+- *(web)* rebuild known conditions, notes, digest, settings, first run and sign-in from the kit ([#104](https://github.com/RoastSlav/domovoi/pull/104))
+- *(web)* rebuild hosts, host detail, skills and logs from the kit ([#103](https://github.com/RoastSlav/domovoi/pull/103))
+- *(web)* rebuild the shell with grouped navigation, a host selector every page follows and lazy pages ([#101](https://github.com/RoastSlav/domovoi/pull/101))
+- *(web)* add design tokens, themes, the tone system and icons ([#98](https://github.com/RoastSlav/domovoi/pull/98))
+
 ## [0.0.8](https://github.com/RoastSlav/domovoi/compare/v0.0.7...v0.0.8) - 2026-11-10
 
 ### Added
