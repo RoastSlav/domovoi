@@ -239,12 +239,14 @@ pub(super) async fn skills(
     Path(name): Path<String>,
 ) -> Result<Json<Vec<SkillDto>>, ApiError> {
     let host = host_named(&state, &name).await?;
+    let last_run = state.deps.actions.last_run_by_skill(host.id).await?;
     let skills = state
         .deps
         .agents
         .skills(host.id)
         .into_iter()
         .map(|s| SkillDto {
+            last_used: last_run.get(&s.name).map(ToString::to_string),
             name: s.name.to_string(),
             description: s.description.clone(),
             risk: serde_json::to_value(s.risk)

@@ -3,12 +3,18 @@
 use domovoi_core::ports::{
     ActionFilter, ActionRepo, AuditEvent, AuditFilter, AuditLog, Page, StoreError,
 };
-use domovoi_core::{ActionId, ActionRequest, ActionStatus, HostId, IncidentId, Risk, UserId};
+use std::collections::BTreeMap;
+
+use domovoi_core::{
+    ActionError, ActionId, ActionRequest, ActionStatus, HostId, IncidentId, PlanHash, Principal,
+    Risk, UserId,
+};
+use jiff::{SignedDuration, Timestamp};
 use serde_json::{Value, json};
 
 use super::{ContractError, ContractResult};
 use crate::approvals::human;
-use crate::build::{T0, action, at};
+use crate::build::{BuildError, T0, action, at, manifest};
 
 /// Exercises inserts, updates, chat tokens and listing on an empty `repo`.
 pub async fn action_repo_contract(repo: &dyn ActionRepo) -> ContractResult {
@@ -123,6 +129,74 @@ pub async fn action_repo_contract(repo: &dyn ActionRepo) -> ContractResult {
         let got = repo.list(&filter, &Page::first(10)).await?.items.len();
         assert_eq!(got, expected, "{what}");
     }
+    last_run_by_skill_contract(repo).await
+}
+
+/// An action for `skill` on `host`, approved at `T0 + 1 s` and sent to the agent at
+/// `dispatched_at`, or sent with the wrong plan hash so that it is rejected.
+async fn sent(
+    repo: &dyn ActionRepo,
+    host: HostId,
+    skill: &str,
+    dispatched_at: i64,
+    stale_plan: bool,
+) -> Result<ActionRequest, ContractError> {
+    let setup = |e: ActionError| ContractError::Setup(e.to_string());
+    let summary = manifest(skill, Risk::Read)?.summary();
+    let args = summary
+        .validate_args(&BTreeMap::new())
+        .map_err(BuildError::from)?;
+    let mut request = ActionRequest::propose(
+        IncidentId::new(),
+        host,
+        &summary,
+        &args,
+        Principal::System("triage".into()),
+        SignedDuration::from_hours(1),
+        T0,
+    );
+    repo.insert(&request).await?;
+    request
+        .approve(human(UserId::new()), at(1))
+        .map_err(setup)?;
+    let plan = if stale_plan {
+        PlanHash::compute(&summary.name, summary.manifest_hash, HostId::new(), &args)
+    } else {
+        request.plan_hash()
+    };
+    request.dispatch(plan, at(dispatched_at)).map_err(setup)?;
+    repo.update(&request).await?;
+    Ok(request)
+}
+
+/// When each skill last ran on a host: only requests the agent received count, the latest
+/// change wins, and other hosts do not leak in.
+async fn last_run_by_skill_contract(repo: &dyn ActionRepo) -> ContractResult {
+    let (host, other) = (HostId::new(), HostId::new());
+    assert!(
+        repo.last_run_by_skill(host).await?.is_empty(),
+        "nothing ran yet"
+    );
+
+    let mut restart = sent(repo, host, "restart_container", 100, false).await?;
+    restart
+        .complete(Ok(()), at(180))
+        .map_err(|e| ContractError::Setup(e.to_string()))?;
+    repo.update(&restart).await?;
+    sent(repo, host, "restart_container", 150, false).await?;
+    sent(repo, host, "prune_logs", 300, false).await?;
+    sent(repo, host, "zpool_status", 400, true).await?;
+    sent(repo, other, "restart_container", 900, false).await?;
+    repo.insert(&action(IncidentId::new(), host, Risk::Read)?)
+        .await?;
+
+    let last = repo.last_run_by_skill(host).await?;
+    let got: Vec<(&str, Timestamp)> = last.iter().map(|(k, v)| (k.as_str(), *v)).collect();
+    assert_eq!(
+        got,
+        vec![("prune_logs", at(300)), ("restart_container", at(180))],
+        "the latest change per skill; rejected and merely proposed requests do not count",
+    );
     Ok(())
 }
 

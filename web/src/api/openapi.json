@@ -5206,6 +5206,13 @@
             "type": "boolean",
             "description": "Whether the hub may run and suggest this skill on the host."
           },
+          "last_used": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "When the hub last sent this skill to the host's agent, as RFC 3339; absent when it\nnever has."
+          },
           "manifest_hash": {
             "type": "string",
             "description": "Hash of the full manifest the agent has, as hex."

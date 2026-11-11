@@ -1694,6 +1694,11 @@ export interface components {
             description: string;
             /** @description Whether the hub may run and suggest this skill on the host. */
             enabled: boolean;
+            /**
+             * @description When the hub last sent this skill to the host's agent, as RFC 3339; absent when it
+             *     never has.
+             */
+            last_used?: string | null;
             /** @description Hash of the full manifest the agent has, as hex. */
             manifest_hash: string;
             /** @description Skill name. */

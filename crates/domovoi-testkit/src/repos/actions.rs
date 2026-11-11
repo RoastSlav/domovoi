@@ -1,6 +1,9 @@
+use std::collections::BTreeMap;
+
 use async_trait::async_trait;
-use domovoi_core::ports::{ActionFilter, ActionRepo, Page, Paged, StoreError};
-use domovoi_core::{ActionId, ActionRequest};
+use domovoi_core::ports::{ActionFilter, ActionRepo, Page, Paged, RAN_STATUSES, StoreError};
+use domovoi_core::{ActionId, ActionRequest, HostId, SkillName};
+use jiff::Timestamp;
 
 use super::{InMemoryStore, conflict, paginate};
 
@@ -80,5 +83,22 @@ impl ActionRepo for InMemoryStore {
             .values()
             .find(|a| a.chat_token_hash() == Some(hash))
             .cloned())
+    }
+
+    async fn last_run_by_skill(
+        &self,
+        host: HostId,
+    ) -> Result<BTreeMap<SkillName, Timestamp>, StoreError> {
+        let state = self.begin()?;
+        let mut last = BTreeMap::new();
+        for action in state.actions.values() {
+            if action.host() == host && RAN_STATUSES.contains(&action.status().name()) {
+                let at = last
+                    .entry(action.skill().clone())
+                    .or_insert_with(|| action.updated_at());
+                *at = (*at).max(action.updated_at());
+            }
+        }
+        Ok(last)
     }
 }
