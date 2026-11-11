@@ -11,6 +11,8 @@ Once a day, at `[notify.digest] time` in `[hub] timezone` (09:00 by default), Do
 
 Facts come from checks and skills (disk usage, pool free space, image ages, temperatures).
 
+The **Digest** page in the web UI shows today's digest as it would be sent. **Send now** sends it to Discord straight away, as well as at its usual time; if Discord does not take it, the page says why.
+
 ## Advisories
 
 Advisories are hygiene findings that are worth knowing but not worth waking up for. They appear in the digest and the web UI and never notify on their own. Each one resolves by itself once its condition clears.

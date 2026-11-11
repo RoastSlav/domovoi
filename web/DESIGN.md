@@ -141,8 +141,8 @@ These fail `npm run lint` or `npm test`, not a review.
 | `fetch` only inside `src/api`                                                                       | ESLint `no-restricted-globals`          |
 
 A value computed at run time (a width from data, a position) may use inline `style` behind
-an `eslint-disable-next-line` comment that says why. The list of files exempt from
-`max-lines` in `eslint.config.js` only shrinks.
+an `eslint-disable-next-line` comment that says why. No file is exempt from `max-lines`
+(`tone.ts`, a data file, has its own higher limit); split a file, do not add an exemption.
 
 ## Performance budget
 
@@ -168,8 +168,9 @@ How the build stays inside it:
 - A mutation refreshes only what it changed (see the hooks in `src/api/hooks/`), and
   polling stops when nothing can change or the tab is hidden.
 
-The first download is about 135 kB of JavaScript (gzip), the
-largest file is the libraries at 94 kB, and Markdown is 35 kB on demand.
+The first download is about 155 kB of JavaScript (gzip), the largest file is the libraries
+at 112 kB, and Markdown is 35 kB on demand. About 18 kB of the libraries is the router's
+navigation blocking, which lets a page with unsaved work hold back a link or the Back button.
 
 ## The shell
 
@@ -206,13 +207,13 @@ this table and to `/dev/design`; do not style it inside the feature.
 
 ### Status
 
-| Component    | Use it for                                                                                | Do not use it for                                    |
-| ------------ | ----------------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| `StatusPill` | Every status: `<StatusPill meta={verdictMeta(v)} />`. The hint is its tooltip             | Labels that are not a status; numbers                |
-| `BadgePill`  | A chat card's badge, where one field holds a verdict, a severity or "resolved"            | Anything whose vocabulary you know: use `StatusPill` |
-| `Tag`        | Non-status labels: host kind, "maintenance", "hub-managed", the source of a setting       | A status                                             |
-| `Count`      | The filled number on navigation items, tabs and filter chips; `label` says what it counts | A number inside a sentence                           |
-| `toneStripe` | A 3 px left stripe on a row or card: `<li {...toneStripe(meta.tone)}>`                    | Tinting a whole row                                  |
+| Component    | Use it for                                                                                                                | Do not use it for                                    |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| `StatusPill` | Every status: `<StatusPill meta={verdictMeta(v)} />`. The hint is its tooltip                                             | Labels that are not a status; numbers                |
+| `BadgePill`  | A chat card's badge, where one field holds a verdict, a severity or "resolved"                                            | Anything whose vocabulary you know: use `StatusPill` |
+| `Tag`        | Non-status labels: host kind, "maintenance", "hub-managed", the source of a setting; `hint` explains it on hover or focus | A status                                             |
+| `Count`      | The filled number on navigation items, tabs and filter chips; `label` says what it counts                                 | A number inside a sentence                           |
+| `toneStripe` | A 3 px left stripe on a row or card: `<li {...toneStripe(meta.tone)}>`                                                    | Tinting a whole row                                  |
 
 ### Messages and feedback
 
@@ -227,12 +228,13 @@ this table and to `/dev/design`; do not style it inside the feature.
 
 ### Hints
 
-| Component  | Use it for                                                                      | Do not use it for                       |
-| ---------- | ------------------------------------------------------------------------------- | --------------------------------------- |
-| `Tooltip`  | A few words on hover or focus                                                   | Anything essential or interactive       |
-| `InfoTip`  | A sentence or two behind an info button, with an optional "Learn more"          | A few words (`Tooltip`); a field's hint |
-| `DocsLink` | "Learn more" to a page of the book, after text that already carries the meaning | The only explanation of something       |
-| `Kbd`      | A key in a shortcut hint                                                        | Code or commands                        |
+| Component   | Use it for                                                                      | Do not use it for                       |
+| ----------- | ------------------------------------------------------------------------------- | --------------------------------------- |
+| `Tooltip`   | A few words on hover or focus                                                   | Anything essential or interactive       |
+| `InfoTip`   | A sentence or two behind an info button, with an optional "Learn more"          | A few words (`Tooltip`); a field's hint |
+| `DocsLink`  | "Learn more" to a page of the book, after text that already carries the meaning | The only explanation of something       |
+| `Kbd`       | A key in a shortcut hint                                                        | Code or commands                        |
+| `Highlight` | The words of a search query marked inside a title or excerpt                    | Emphasis or status                      |
 
 ### Buttons
 
@@ -268,6 +270,8 @@ and explains itself; do not use the bare `disabled` attribute in new code.
 | `Section`                  | A titled part of a page (`h2`), with a description and actions; `collapsed` closes it | Nesting inside another section |
 | `Card`                     | One thing among several; `tone` adds a stripe, `to` makes it a link                   | Cards inside cards             |
 | `Text`                     | A quieter, smaller or monospace run of text: `muted`, `mono`, `strong`, `size`        | A status, a label, a heading   |
+| `AuthCard`                 | The frame of a page before there is a session: a centred card with the brand mark     | Pages inside the shell         |
+| `BrandMark`                | The brand on a page that has no sidebar                                               | A link or a heading            |
 | `Stack`, `Cluster`, `Grid` | A column, a wrapping row, equal columns; `gap` is a step of the spacing scale         | Margins on children            |
 
 ### Data
@@ -275,6 +279,7 @@ and explains itself; do not use the bare `disabled` attribute in new code.
 | Component      | Use it for                                                                                                           | Do not use it for                 |
 | -------------- | -------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
 | `DataTable`    | Many things with the same fields; stacks into cards in a narrow container; columns can sort (see Add a table column) | The details of one thing          |
+| `Stepper`      | The steps of a short guided flow with their states (`stepStateMeta`); the current one is `aria-current="step"`       | Tabs; navigation between pages    |
 | `Timeline`     | The history of one thing, in words from `timelineMeta`; long ones collapse                                           | A list of different things        |
 | `KeyValueList` | The facts of one thing; `mono` for arguments, paths and IDs                                                          | Many things                       |
 | `FilterChips`  | The few filters people switch all the time, with counts; one scrolling row on a phone                                | Rare or long filters (`Select`)   |
@@ -287,15 +292,17 @@ and explains itself; do not use the bare `disabled` attribute in new code.
 
 ### Forms
 
-| Component                                        | Use it for                                                        | Do not use it for                       |
-| ------------------------------------------------ | ----------------------------------------------------------------- | --------------------------------------- |
-| `Field`                                          | Around every input: label, hint, error, `required`, `path`        | Checkboxes and switches (self-labelled) |
-| `TextInput`, `NumberInput`, `Textarea`, `Select` | The input inside a `Field`; `mono` for commands, paths and IDs    | Use outside a `Field`                   |
-| `Checkbox`                                       | One of several independent choices, saved with the form           | An on/off setting                       |
-| `Switch`                                         | A setting that is simply on or off                                | A choice inside a list                  |
-| `SegmentedControl`                               | Two to four exclusive choices that fit in a word each             | Filters over a list (`FilterChips`)     |
-| `FormErrorSummary`                               | The problems of a long form at its top, each linking to its field | Short forms                             |
-| `SubmitBar`                                      | The sticky bottom of a long form: unsaved count, Discard, Save    | Dialogs and short forms                 |
+| Component                                        | Use it for                                                                                                                                | Do not use it for                       |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| `Field`                                          | Around every input: label, hint, error, `required`, `path`; `locked` makes it read-only and says why; `badges` puts tags beside the label | Checkboxes and switches (self-labelled) |
+| `PasswordInput`                                  | A typed password: a Show/Hide button and a Caps Lock note                                                                                 | Tokens and keys that are only pasted    |
+| `DropZone`                                       | Uploading files: a drop target over a real file input                                                                                     | A single value inside a form            |
+| `TextInput`, `NumberInput`, `Textarea`, `Select` | The input inside a `Field`; `mono` for commands, paths and IDs                                                                            | Use outside a `Field`                   |
+| `Checkbox`                                       | One of several independent choices, saved with the form                                                                                   | An on/off setting                       |
+| `Switch`                                         | A setting that is simply on or off                                                                                                        | A choice inside a list                  |
+| `SegmentedControl`                               | Two to four exclusive choices that fit in a word each                                                                                     | Filters over a list (`FilterChips`)     |
+| `FormErrorSummary`                               | The problems of a long form at its top, each linking to its field                                                                         | Short forms                             |
+| `SubmitBar`                                      | The sticky bottom of a long form: unsaved count, Discard, Save                                                                            | Dialogs and short forms                 |
 
 ### Overlays
 
@@ -474,10 +481,36 @@ host" with a link back.
 
 ### Add a setting
 
-Wrap the input in `<Field label hint path="the.settings.path">`. The hint says what the
-value is for and its range; the hub's validation issue for that path becomes the field's
-`error`, and `FormErrorSummary` links to it. A value fixed in `hub.toml` is shown disabled
-with a `Tag` naming its source.
+The Settings page (`src/features/settings/`) is built from data: a setting is one entry,
+not new markup.
+
+1. Add the setting to the hub's configuration first and regenerate the API types; the hub
+   sends its help text, its value, and where the value comes from.
+2. Add one `FieldSpec` to the right section in `src/features/settings/sections/`: `path`
+   (the dotted path in `hub.toml`, for example `notify.digest.time`), a sentence-case
+   `label` and a `kind` (`text`, `number`, `bool`, `select`, `list`, `id`, `ids`, `secret`,
+   `model`, `json`). Use `visibleWhen` to show it only for some value of another field.
+3. That is all. The field renderers in `src/features/settings/fields/` give it the hint, the
+   source `Tag` ("from hub.toml", "from environment", "set here", "default"), the read-only
+   state with its reason when the file or the environment fixes it, and for a `secret` the
+   Set / Not set tag with Replace. A secret's value is never sent to the browser.
+4. The hub's validation issue for that path shows under the field and in the
+   `FormErrorSummary`, and its section gets a `danger` dot in the section list; an unsaved
+   edit gives it a `warning` dot. Do not write validation sentences in the page.
+5. A new section is one entry in `SECTIONS` (`sections/index.ts`): an `id` (its URL,
+   `/settings/<id>`), a `title` and either `fields` or a `view` component for a section that
+   shows status instead of a form. A connection test is the section's `test` entry.
+
+Outside Settings, wrap an input in `<Field label hint path="the.path">`: the hint says what
+the value is for and its range, and an issue for that path becomes the field's `error`.
+
+### Guard unsaved work
+
+A page that edits something long (the note editor is the worked example) calls
+`useLeaveGuard(dirty)` from `src/features/notes/useLeaveGuard.tsx`, renders the `guard` it
+returns, and calls `allowLeaving()` just before it navigates away on purpose after a save or
+a delete. Links, Back and closing the tab then ask first. Show an "Unsaved changes" `Tag`
+while `dirty`, so the question is never a surprise.
 
 ### Add a table column
 
