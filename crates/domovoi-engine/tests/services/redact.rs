@@ -93,3 +93,57 @@ async fn a_failed_chat_never_shows_a_secret_from_the_provider_error() {
         "neither the configured secret nor the provider's token is shown: {failed}",
     );
 }
+
+#[tokio::test]
+async fn every_provider_in_the_chain_has_its_failure_redacted() {
+    let w = world(Setup {
+        secondary: true,
+        ..Setup::default()
+    })
+    .await;
+    w.primary.push_err(provider_failure());
+    w.secondary.push_err(LlmError::InvalidResponse(format!(
+        "response excerpt: {{\"error\": \"{SECRET}\"}}"
+    )));
+
+    let failed = w
+        .triage
+        .follow_up(w.incident.id(), "Why does nginx restart?", UserId::new())
+        .await
+        .unwrap_err()
+        .to_string();
+    assert_eq!(
+        failed.matches(REDACTED).count(),
+        3,
+        "the bearer token and the secret in the first reason, the secret in the second: {failed}",
+    );
+    assert!(
+        !failed.contains(SECRET) && !failed.contains("abc.def"),
+        "neither the configured secret nor the provider's token is shown: {failed}",
+    );
+}
+
+#[tokio::test]
+async fn a_long_provider_failure_reason_is_cut_at_the_limit() {
+    let w = world(Setup::default()).await;
+    w.primary.push_err(LlmError::Transport("x".repeat(5_000)));
+
+    let failed = w
+        .triage
+        .chat(None, "Two hosts.", &Vec::new(), "Anything wrong?")
+        .await
+        .unwrap_err()
+        .to_string();
+    let reason = failed
+        .strip_prefix("the model is not available: ")
+        .expect("the provider failure keeps its Display prefix");
+    assert_eq!(
+        reason.chars().count(),
+        500,
+        "a long upstream body is cut to the limit: {reason}",
+    );
+    assert!(
+        reason.ends_with('…'),
+        "the cut is marked with an ellipsis: {reason}",
+    );
+}
