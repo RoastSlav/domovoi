@@ -1,13 +1,16 @@
 use domovoi_core::ports::LlmError;
 use domovoi_core::ports::{AdvisoryRepo, IncidentRepo, IncidentTimelineEntry, UsageRepo};
-use domovoi_core::{Incident, IncidentId, TriageOutcome, UserId};
+use domovoi_core::{ActionStatus, Incident, IncidentId, TriageOutcome, UserId};
 use domovoi_engine::EventKind;
-use domovoi_engine::triage::{FAILED_RETRY_LIMIT, TriageSettings};
+use domovoi_engine::triage::{FAILED_RETRY_LIMIT, TriageSettings, token_hash};
 use domovoi_testkit::build::{open_incident, resolved_incident};
 use jiff::SignedDuration;
+use serde_json::json;
 use tokio::task::yield_now;
 
-use crate::harness::{Setup, World, disk, host_id, report, world};
+use crate::harness::{
+    Setup, World, add_signal, disk, host_id, report, report_json, restart_skill, world,
+};
 
 /// Gives the service's tasks turns to run their own awaits between clock jumps.
 async fn settle() {
@@ -186,6 +189,200 @@ async fn repeat_incident_uses_cache_without_model_call() {
     w.primary.push_text(report());
     assert!(matches!(w.run().await, TriageOutcome::Report(_)));
     assert_eq!(w.primary.requests().len(), 2);
+}
+
+#[tokio::test]
+async fn a_cached_report_stores_its_proposals_as_actions() {
+    let mut w = world(Setup::default()).await;
+    w.link.set_skills(host_id(), vec![restart_skill()]);
+    let answer = report_json(
+        "ACTION_NEEDED",
+        json!([{"skill": "restart_container", "args": {"container": "nginx"}, "reason": "It is stuck."}]),
+    );
+    w.primary.push_text(answer);
+    let TriageOutcome::Report(first) = w.run().await else {
+        panic!("the first run calls the model");
+    };
+    assert_eq!(first.proposals.len(), 1, "the fresh run kept the proposal");
+    w.drain();
+
+    // The first incident closes, then the same problem files as a new open incident
+    // after the reopen window; the evidence buckets the same as the cached run's.
+    w.manager
+        .dismiss(
+            w.incident.id(),
+            UserId::new(),
+            "closed on the test".to_owned(),
+        )
+        .await
+        .unwrap();
+    w.clock.advance(SignedDuration::from_hours(7));
+    settle().await;
+    let again = open_incident(host_id(), "docker.container", Some("nginx")).unwrap();
+    IncidentRepo::insert(&*w.store, &again).await.unwrap();
+    add_signal(&w.store, &again, disk(92.1), w.now()).await;
+
+    assert_eq!(
+        w.triage.triage(&again).await,
+        TriageOutcome::Cached {
+            report: first,
+            from: w.incident.id()
+        },
+    );
+    assert_eq!(
+        w.primary.requests().len(),
+        1,
+        "the repeat never calls the model"
+    );
+
+    let tokens = w.tokens();
+    assert_eq!(tokens.len(), 1, "the cached report minted one chat token");
+    let stored = w
+        .actions()
+        .await
+        .into_iter()
+        .filter(|a| a.incident() == again.id())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        stored.len(),
+        1,
+        "the cached report stored one action for the repeat"
+    );
+    assert_eq!(stored[0].status(), &ActionStatus::Proposed);
+    assert_eq!(
+        stored[0].chat_token_hash(),
+        Some(&token_hash(tokens.get(&stored[0].id()).unwrap())),
+        "the event carries the new action's token",
+    );
+}
+
+#[tokio::test]
+async fn a_cached_proposal_for_a_removed_skill_is_dropped() {
+    let mut w = world(Setup::default()).await;
+    w.link.set_skills(host_id(), vec![restart_skill()]);
+    let answer = report_json(
+        "ACTION_NEEDED",
+        json!([{"skill": "restart_container", "args": {"container": "nginx"}, "reason": "It is stuck."}]),
+    );
+    w.primary.push_text(answer);
+    let TriageOutcome::Report(first) = w.run().await else {
+        panic!("the first run calls the model");
+    };
+    assert_eq!(
+        first.proposals.len(),
+        1,
+        "the fresh run kept the proposal in the cache"
+    );
+
+    // The first incident closes, then the same problem files as a new open incident
+    // after the reopen window.
+    w.manager
+        .dismiss(
+            w.incident.id(),
+            UserId::new(),
+            "closed on the test".to_owned(),
+        )
+        .await
+        .unwrap();
+    w.clock.advance(SignedDuration::from_hours(7));
+    settle().await;
+    let again = open_incident(host_id(), "docker.container", Some("nginx")).unwrap();
+    IncidentRepo::insert(&*w.store, &again).await.unwrap();
+    add_signal(&w.store, &again, disk(92.1), w.now()).await;
+
+    // The host lost the skill before the repeat incident was triaged.
+    w.link.set_skills(host_id(), Vec::new());
+    w.drain();
+    let TriageOutcome::Cached { report, from } = w.triage.triage(&again).await else {
+        panic!("the repeat uses the cache");
+    };
+    assert_eq!(from, w.incident.id());
+    assert_eq!(
+        w.primary.requests().len(),
+        1,
+        "the repeat never calls the model"
+    );
+    assert!(
+        report.proposals.is_empty(),
+        "the dropped proposal is not offered"
+    );
+    assert!(
+        report.details.contains("not a skill on this host"),
+        "the report says why it was dropped: {}",
+        report.details,
+    );
+    assert!(w.tokens().is_empty(), "no chat token was minted");
+    let orphaned = w
+        .actions()
+        .await
+        .iter()
+        .filter(|a| a.incident() == again.id())
+        .count();
+    assert_eq!(orphaned, 0, "no action was stored for the removed skill");
+}
+
+#[tokio::test]
+async fn a_cached_report_does_not_duplicate_a_waiting_action() {
+    let mut w = world(Setup::default()).await;
+    w.link.set_skills(host_id(), vec![restart_skill()]);
+    w.primary.push_text(report_json(
+        "ACTION_NEEDED",
+        json!([{"skill": "restart_container", "args": {"container": "nginx"}, "reason": "It is stuck."}]),
+    ));
+    let TriageOutcome::Report(first) = w.run().await else {
+        panic!("the first run calls the model");
+    };
+    assert_eq!(
+        first.proposals.len(),
+        1,
+        "the fresh run offered the proposal"
+    );
+    assert_eq!(w.actions().await.len(), 1, "the proposal waits for a human");
+    let first_tokens = w.tokens();
+    assert_eq!(
+        first_tokens.len(),
+        1,
+        "the fresh run handed a chat token to its card"
+    );
+
+    let earlier = resolved_incident(host_id(), "docker.container", Some("nginx"), w.now()).unwrap();
+    IncidentRepo::insert(&*w.store, &earlier).await.unwrap();
+    w.signal(disk(92.1)).await;
+    w.drain();
+
+    let TriageOutcome::Cached { report, from } = w.run().await else {
+        panic!("the repeat uses the cache");
+    };
+    assert_eq!(from, earlier.id());
+    assert_eq!(
+        w.primary.requests().len(),
+        1,
+        "the repeat never calls the model"
+    );
+    assert!(
+        report.proposals.is_empty(),
+        "the waiting duplicate is not offered again"
+    );
+    let waiting = w.actions().await;
+    assert_eq!(waiting.len(), 1, "the waiting action is not stored twice");
+    let tokens = w.tokens();
+    assert_eq!(
+        tokens.len(),
+        1,
+        "the cached run hands its card one replacement chat token"
+    );
+    let replacement = tokens.get(&waiting[0].id()).unwrap();
+    assert_eq!(
+        waiting[0].chat_token_hash(),
+        Some(&token_hash(replacement)),
+        "the waiting action now stores the replacement token"
+    );
+    let rotated = first_tokens.get(&waiting[0].id()).unwrap();
+    assert_ne!(
+        waiting[0].chat_token_hash(),
+        Some(&token_hash(rotated)),
+        "the token the first card carried stops working once rotated"
+    );
 }
 
 #[tokio::test]
