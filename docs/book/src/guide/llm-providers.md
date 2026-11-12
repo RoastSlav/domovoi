@@ -116,6 +116,19 @@ price = { input_per_mtok_usd = 3.0, output_per_mtok_usd = 15.0 }
 
 Domovoi has no built-in price list. Without `price`, the cost of a turn is unknown and does not count toward the budget. CLI turns never have a cost.
 
+## Runs per hour
+
+Triage answers at most `per_hour_runs` times an hour (6 by default), and keeps
+`reserved_for_incidents` of them free for triage itself (2 by default, or one fewer than
+the hour when that is smaller). Follow-up questions
+(web and Discord) and the general chat count against the same hourly limit, but they may
+only use it while more than `reserved_for_incidents` runs are left, so a few questions can
+never push a new incident's triage out of the hour. When the hour is used up, triage waits
+for the oldest run to leave it; a question or a chat says so at once, and the API answers
+429 with a `Retry-After` header. One question counts as one run whatever the number of tool
+calls its answer makes, and no model call starts without passing this check. The monthly
+`monthly_budget_usd` is checked in the same place, before every model call.
+
 ## Failures
 
 Each request has a total time limit of 120 seconds, and connecting has 10 seconds. A failed turn is reported as one of:

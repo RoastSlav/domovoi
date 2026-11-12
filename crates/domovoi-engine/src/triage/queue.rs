@@ -9,6 +9,7 @@ use jiff::Timestamp;
 use tokio::sync::{Notify, broadcast};
 use tokio::task::JoinSet;
 
+use super::admission::{free_slots, next_slot, slot_after};
 use super::{FAILED_RETRY_LIMIT, RetryReason, Shared, run};
 use crate::events::{DomainEvent, EventKind};
 
@@ -109,10 +110,10 @@ async fn retry_deferred(shared: Arc<Shared>) {
             return;
         }
         let now = shared.deps.clock.now();
-        let mut free = run::free_slots(&shared, now);
+        let mut free = free_slots(&shared, now);
         for (id, reason) in take_due(&shared, now) {
             if free == 0 {
-                if let Some(at) = run::next_slot(&shared).or(run::slot_after(now)) {
+                if let Some(at) = next_slot(&shared).or(slot_after(now)) {
                     shared.defer(id, at, reason);
                 }
                 continue;

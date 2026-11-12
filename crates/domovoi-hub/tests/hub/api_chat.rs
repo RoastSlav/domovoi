@@ -1,7 +1,7 @@
-//! The general chat: the limits on what it accepts, the overview the model sees, and the
-//! refusal when triage is off.
+//! The general chat: the limits on what it accepts, the overview the model sees, the
+//! refusal when the hour's model runs are used up, and the refusal when triage is off.
 
-use axum::http::StatusCode;
+use axum::http::{StatusCode, header};
 use domovoi_core::ports::Presence;
 use serde_json::{Value, json};
 
@@ -147,6 +147,49 @@ async fn chat_about_an_offline_host_offers_the_model_no_tools() {
     assert!(
         seen.contains("nas"),
         "the overview still names the offline host: {seen}"
+    );
+}
+
+#[tokio::test]
+async fn chat_answers_429_when_the_hourly_limit_is_reached() {
+    let a = api_with_triage().await;
+    let login = a.admin().await;
+    // The harness triage has the default limits: 6 runs an hour, 2 of them kept for
+    // triage, so 4 questions share the hour and the next one has to wait.
+    for _ in 0..4 {
+        a.llm.push_text("Answered.");
+        let reply = a
+            .post(
+                "/api/v1/chat",
+                &login,
+                json!({ "question": "Why is the NAS slow?" }),
+            )
+            .await;
+        assert_eq!(reply.status, StatusCode::OK, "{}", reply.text);
+    }
+    let reply = a
+        .post(
+            "/api/v1/chat",
+            &login,
+            json!({ "question": "One more question?" }),
+        )
+        .await;
+    assert_eq!(
+        reply.status,
+        StatusCode::TOO_MANY_REQUESTS,
+        "{}",
+        reply.text
+    );
+    assert_eq!(
+        a.llm.requests().len(),
+        4,
+        "the refused question never reached the model"
+    );
+    let retry_after = reply.headers[header::RETRY_AFTER].to_str().unwrap();
+    assert!(
+        retry_after.parse::<u64>().is_ok_and(|seconds| seconds > 0),
+        "Retry-After says when to come back: {retry_after} in {}",
+        reply.text
     );
 }
 

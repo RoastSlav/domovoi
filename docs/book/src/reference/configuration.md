@@ -211,6 +211,7 @@ Automatic triage of new incidents.
 | `enabled` | boolean | Whether new incidents are triaged automatically. Default `false`. |
 | `monthly_budget_usd` | number | Spending cap per calendar month, in US dollars. Optional. |
 | `per_hour_runs` | integer | Runs started per hour at most. Default 6. |
+| `reserved_for_incidents` | integer | Runs the hour always keeps free for triage: questions and chat may not use these last runs of the hour. When set it must be less than `per_hour_runs`. When omitted it is 2, or one fewer than `per_hour_runs` when that is smaller. Ignored when `per_hour_runs` is 0. |
 
 #### `[triage.per_run]`
 

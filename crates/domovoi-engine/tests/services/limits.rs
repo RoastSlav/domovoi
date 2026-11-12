@@ -2,7 +2,7 @@ use domovoi_core::ports::LlmError;
 use domovoi_core::ports::{AdvisoryRepo, IncidentRepo, IncidentTimelineEntry, UsageRepo};
 use domovoi_core::{ActionStatus, Incident, IncidentId, TriageOutcome, UserId};
 use domovoi_engine::EventKind;
-use domovoi_engine::triage::{FAILED_RETRY_LIMIT, TriageSettings, token_hash};
+use domovoi_engine::triage::{FAILED_RETRY_LIMIT, TriageError, TriageSettings, token_hash};
 use domovoi_testkit::build::{open_incident, resolved_incident};
 use jiff::SignedDuration;
 use serde_json::json;
@@ -1041,4 +1041,342 @@ async fn failed_run_is_not_retried_once_triage_is_degraded() {
     settle().await;
     let again = w.primary.requests().len();
     assert_eq!(again, 5, "nothing retries again while degraded");
+}
+
+#[tokio::test]
+async fn questions_count_against_the_hourly_limit() {
+    let settings = TriageSettings {
+        per_hour_runs: 3,
+        reserved_for_incidents: 1,
+        ..TriageSettings::default()
+    };
+    let w = world(Setup {
+        settings,
+        ..Setup::default()
+    })
+    .await;
+    w.primary.push_text("First answer.");
+    w.primary.push_text("Second answer.");
+    w.triage
+        .follow_up(w.incident.id(), "First?", UserId::new())
+        .await
+        .unwrap();
+    w.triage
+        .follow_up(w.incident.id(), "Second?", UserId::new())
+        .await
+        .unwrap();
+    assert_eq!(
+        w.primary.requests().len(),
+        2,
+        "both questions used the model"
+    );
+
+    let refused = w
+        .triage
+        .follow_up(w.incident.id(), "Third?", UserId::new())
+        .await;
+    assert!(
+        refused.is_err(),
+        "the third question is refused at the hourly model limit",
+    );
+    let refused_at = match refused {
+        Err(TriageError::Busy { retry_at: Some(at) }) => at,
+        Err(err) => panic!("the refusal should be hourly busy: {err}"),
+        Ok(answered) => panic!("the third question was not refused: {answered}"),
+    };
+    let freed = w
+        .now()
+        .checked_add(SignedDuration::from_hours(1))
+        .and_then(|at| at.checked_add(SignedDuration::from_secs(1)))
+        .unwrap();
+    assert_eq!(
+        refused_at, freed,
+        "the refusal names when the hour frees an admissible slot",
+    );
+    assert_eq!(
+        w.primary.requests().len(),
+        2,
+        "a refused question calls no model",
+    );
+}
+
+#[tokio::test]
+async fn questions_cannot_use_the_reserved_runs() {
+    let settings = TriageSettings {
+        per_hour_runs: 3,
+        reserved_for_incidents: 1,
+        ..TriageSettings::default()
+    };
+    let w = world(Setup {
+        settings,
+        ..Setup::default()
+    })
+    .await;
+    w.primary.push_text("First answer.");
+    w.primary.push_text("Second answer.");
+    w.triage
+        .follow_up(w.incident.id(), "First?", UserId::new())
+        .await
+        .unwrap();
+    w.triage
+        .follow_up(w.incident.id(), "Second?", UserId::new())
+        .await
+        .unwrap();
+    let refused = w
+        .triage
+        .follow_up(w.incident.id(), "Third?", UserId::new())
+        .await;
+    assert!(
+        matches!(refused, Err(TriageError::Busy { retry_at: Some(_) })),
+        "the third question may not spend the run kept for triage",
+    );
+    assert_eq!(
+        w.primary.requests().len(),
+        2,
+        "a refused question calls no model",
+    );
+
+    w.primary.push_text(report());
+    assert!(
+        matches!(w.run().await, TriageOutcome::Report(_)),
+        "triage still gets the run the hour keeps free for it",
+    );
+    assert_eq!(
+        w.primary.requests().len(),
+        3,
+        "the triage used the reserved run",
+    );
+
+    let again = w
+        .triage
+        .follow_up(w.incident.id(), "Fourth?", UserId::new())
+        .await;
+    assert!(
+        matches!(again, Err(TriageError::Busy { retry_at: Some(_) })),
+        "questions can never use the reserved runs of the hour",
+    );
+}
+
+#[tokio::test]
+async fn follow_up_is_refused_when_the_monthly_budget_is_spent() {
+    let settings = TriageSettings {
+        monthly_budget_micros: Some(1_000),
+        ..TriageSettings::default()
+    };
+    let w = world(Setup {
+        settings,
+        ..Setup::default()
+    })
+    .await;
+    UsageRepo::record(&*w.store, "anthropic", 10, 10, 1_000, w.now())
+        .await
+        .unwrap();
+    let refused = w
+        .triage
+        .follow_up(w.incident.id(), "Anything?", UserId::new())
+        .await;
+    assert_eq!(
+        refused,
+        Err(TriageError::BudgetSpent),
+        "the question names the spent budget",
+    );
+    let refused_message = match refused {
+        Err(err) => err.to_string(),
+        Ok(answered) => answered,
+    };
+    assert_eq!(
+        refused_message, "the monthly model budget is spent",
+        "the message is the one the hub shows the operator",
+    );
+    assert!(
+        w.primary.requests().is_empty(),
+        "no model call for a spent budget"
+    );
+}
+
+#[tokio::test]
+async fn a_second_question_at_once_is_busy() {
+    let settings = TriageSettings {
+        concurrency: 1,
+        ..TriageSettings::default()
+    };
+    let w = world(Setup {
+        settings,
+        ..Setup::default()
+    })
+    .await;
+    w.primary.hold();
+    w.primary.push_text("One answer.");
+    let incident = w.incident.id();
+    let triage = w.triage.clone();
+    let running =
+        tokio::spawn(async move { triage.follow_up(incident, "Running?", UserId::new()).await });
+    w.primary.wait_for_request().await;
+    let busy = w
+        .triage
+        .follow_up(incident, "Asked while another runs?", UserId::new())
+        .await;
+    assert!(
+        matches!(busy, Err(TriageError::Busy { retry_at: None })),
+        "the second question at once is refused as busy",
+    );
+    let busy_message = match busy {
+        Err(err) => err.to_string(),
+        Ok(answered) => answered,
+    };
+    assert_eq!(
+        busy_message, "another question is being answered; try again in a moment",
+        "the busy message says to try again shortly"
+    );
+    w.primary.release(1);
+    let answered = running.await.unwrap().unwrap();
+    assert_eq!(
+        answered,
+        "One answer.".to_owned(),
+        "the question still running got its answer",
+    );
+    assert_eq!(
+        w.primary.requests().len(),
+        1,
+        "the busy question never called the model",
+    );
+    assert_eq!(
+        count(&w, incident, domovoi_engine::triage::FOLLOW_UP_KIND).await,
+        1,
+        "only the answered question lands on the timeline",
+    );
+}
+
+#[tokio::test]
+async fn a_question_refused_as_busy_takes_no_run_of_the_hour() {
+    let settings = TriageSettings {
+        concurrency: 1,
+        per_hour_runs: 2,
+        reserved_for_incidents: 0,
+        ..TriageSettings::default()
+    };
+    let w = world(Setup {
+        settings,
+        ..Setup::default()
+    })
+    .await;
+    w.primary.hold();
+    w.primary.push_text("One answer.");
+    w.primary.push_text("Third answer.");
+    let incident = w.incident.id();
+    let triage = w.triage.clone();
+    let running =
+        tokio::spawn(async move { triage.follow_up(incident, "Running?", UserId::new()).await });
+    w.primary.wait_for_request().await;
+    let busy = w
+        .triage
+        .follow_up(incident, "Asked while another runs?", UserId::new())
+        .await;
+    assert!(
+        matches!(busy, Err(TriageError::Busy { retry_at: None })),
+        "the second question at once is refused as busy",
+    );
+    w.primary.release(1);
+    assert_eq!(running.await.unwrap().unwrap(), "One answer.");
+
+    // The busy refusal took no run: the hour of two still admits this one.
+    w.primary.release(1);
+    let answered = w
+        .triage
+        .follow_up(incident, "After the first finishes?", UserId::new())
+        .await;
+    assert_eq!(
+        answered.unwrap(),
+        "Third answer.",
+        "the busy refusal left the second run of the hour free",
+    );
+    assert_eq!(
+        w.primary.requests().len(),
+        2,
+        "only the two admitted questions called the model",
+    );
+}
+
+#[tokio::test]
+async fn an_unknown_incident_takes_no_run_of_the_hour() {
+    let settings = TriageSettings {
+        per_hour_runs: 1,
+        reserved_for_incidents: 0,
+        ..TriageSettings::default()
+    };
+    let w = world(Setup {
+        settings,
+        ..Setup::default()
+    })
+    .await;
+    let unknown = IncidentId::new();
+    let refused = w
+        .triage
+        .follow_up(unknown, "What happened?", UserId::new())
+        .await;
+    assert!(
+        matches!(refused, Err(TriageError::UnknownIncident(id)) if id == unknown),
+        "an unknown incident is refused as unknown",
+    );
+    w.primary.push_text("One answer.");
+    assert_eq!(
+        w.triage
+            .follow_up(w.incident.id(), "And this one?", UserId::new())
+            .await
+            .unwrap(),
+        "One answer.",
+        "the unknown incident took no run of the hour",
+    );
+    assert_eq!(w.primary.requests().len(), 1);
+}
+
+#[tokio::test]
+async fn the_refusal_names_the_run_that_makes_room_for_a_question() {
+    let settings = TriageSettings {
+        per_hour_runs: 3,
+        reserved_for_incidents: 1,
+        ..TriageSettings::default()
+    };
+    let w = world(Setup {
+        settings,
+        ..Setup::default()
+    })
+    .await;
+    let mut others = Vec::new();
+    for name in ["b", "c", "d"] {
+        let other = open_incident(host_id(), "docker.container", Some(name)).unwrap();
+        IncidentRepo::insert(&*w.store, &other).await.unwrap();
+        others.push(other);
+    }
+    // Three triage runs ten minutes apart use the whole hour, including the run the hour
+    // keeps for triage.
+    for other in &others {
+        w.primary.push_text(report());
+        assert!(matches!(
+            w.triage.triage(other).await,
+            TriageOutcome::Report(_)
+        ));
+        w.clock.advance(SignedDuration::from_mins(10));
+    }
+
+    // A question may only use two of the three starts, so the second start has to leave
+    // the hour before one fits, not the first.
+    let refused = w
+        .triage
+        .follow_up(w.incident.id(), "Now?", UserId::new())
+        .await;
+    let retry_at = match refused {
+        Err(TriageError::Busy { retry_at: Some(at) }) => at,
+        Err(err) => panic!("the refusal should name when a run frees: {err}"),
+        Ok(answer) => panic!("the question was not refused: {answer}"),
+    };
+    let expected = w
+        .now()
+        .checked_add(SignedDuration::from_mins(40))
+        .and_then(|at| at.checked_add(SignedDuration::from_secs(1)))
+        .unwrap();
+    assert_eq!(
+        retry_at, expected,
+        "the retry waits for the start that leaves the question room",
+    );
 }

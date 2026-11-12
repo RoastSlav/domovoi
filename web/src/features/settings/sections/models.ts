@@ -14,6 +14,11 @@ export const MODEL_SECTIONS: SectionSpec[] = [
       { path: "triage.monthly_budget_usd", label: "Monthly budget (USD)", kind: "number" },
       { path: "triage.concurrency", label: "Runs at once", kind: "number" },
       { path: "triage.per_hour_runs", label: "Runs per hour", kind: "number" },
+      {
+        path: "triage.reserved_for_incidents",
+        label: "Runs kept for triage",
+        kind: "number",
+      },
       { path: "triage.cache_days", label: "Reuse a report for (days)", kind: "number" },
       { path: "triage.per_run.tool_calls", label: "Tool calls per run", kind: "number" },
       {

@@ -18,7 +18,7 @@ use super::dto::{
     IncidentQuery, IncidentSummary, MuteRequest, ReportDto, RetryQuery, TimelineEntryDto,
     TriageStateDto,
 };
-use super::error::{ApiError, ErrorBody};
+use super::error::{ApiError, ErrorBody, busy};
 use super::rules;
 use super::tool_usage::tool_usage;
 use super::{ApiState, Authed, host_named, page};
@@ -417,6 +417,7 @@ pub(super) async fn dismiss(
         (status = 401, description = "Not logged in", body = ErrorBody),
         (status = 404, description = "No such incident", body = ErrorBody),
         (status = 503, description = "Triage is off or the model is unavailable", body = ErrorBody),
+        (status = 429, description = "The hourly model limit is reached; Retry-After says when to come back", body = ErrorBody),
     )
 )]
 pub(super) async fn ask(
@@ -444,6 +445,7 @@ pub(super) async fn ask(
             TriageError::UnknownIncident(_) => ApiError::NotFound,
             TriageError::Provider(err) => ApiError::Unavailable(err),
             TriageError::BudgetSpent => ApiError::BudgetSpent,
+            TriageError::Busy { retry_at } => busy(state.deps.clock.now(), retry_at),
             TriageError::Store(err) => ApiError::internal("follow-up failed", err),
         })?;
     Ok(Json(AskResponse { answer }))

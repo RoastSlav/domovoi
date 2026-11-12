@@ -42,6 +42,19 @@ impl Validate for HubConfig {
                 "must be at least 1",
             ));
         }
+        // Only an explicit reservation can be wrong: an omitted one is derived from the
+        // hour, and a zero hour has nothing to keep free.
+        if self.triage.per_hour_runs > 0
+            && self
+                .triage
+                .reserved_for_incidents
+                .is_some_and(|reserved| reserved >= self.triage.per_hour_runs)
+        {
+            issues.push(ConfigIssue::error(
+                "triage.reserved_for_incidents",
+                "must be less than `per_hour_runs`; the hour must still admit triage runs",
+            ));
+        }
         if self
             .triage
             .monthly_budget_usd

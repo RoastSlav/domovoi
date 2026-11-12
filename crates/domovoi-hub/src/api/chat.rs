@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use super::dto::IncidentSummary;
-use super::error::{ApiError, ErrorBody};
+use super::error::{ApiError, ErrorBody, busy};
 use super::hosts::{FACT_WINDOW, host_dto};
 use super::{ApiState, Authed, host_named};
 
@@ -69,6 +69,7 @@ pub struct ChatResponse {
         (status = 401, description = "Not logged in", body = ErrorBody),
         (status = 404, description = "No such host", body = ErrorBody),
         (status = 503, description = "Triage is off, the monthly model budget is spent, or the model is unavailable", body = ErrorBody),
+        (status = 429, description = "The hourly model limit is reached; Retry-After says when to come back", body = ErrorBody),
     )
 )]
 pub(super) async fn chat(
@@ -136,6 +137,7 @@ pub(super) async fn chat(
                 TriageError::UnknownIncident(_) => ApiError::NotFound,
                 TriageError::Provider(err) => ApiError::Unavailable(err),
                 TriageError::BudgetSpent => ApiError::BudgetSpent,
+                TriageError::Busy { retry_at } => busy(state.deps.clock.now(), retry_at),
                 TriageError::Store(err) => ApiError::internal("chat failed", err),
             })?;
     Ok(Json(ChatResponse { answer }))

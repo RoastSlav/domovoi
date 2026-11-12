@@ -119,6 +119,57 @@ fn zero_concurrency_is_rejected() {
 }
 
 #[test]
+fn reserved_runs_must_leave_room_in_the_hour() {
+    let errors = hub_errors("[triage]\nper_hour_runs = 2\nreserved_for_incidents = 2\n");
+    assert_issue(
+        &errors,
+        "triage.reserved_for_incidents",
+        "less than `per_hour_runs`",
+    );
+    let errors = hub_errors("[triage]\nper_hour_runs = 1\nreserved_for_incidents = 0\n");
+    assert!(
+        errors
+            .iter()
+            .all(|e| e.path != "triage.reserved_for_incidents"),
+        "one run left after reserving none is a valid hour"
+    );
+}
+
+#[test]
+fn a_legacy_short_hour_loads_with_the_runs_it_can_keep() {
+    let (one, issues) =
+        hub("[triage]\nper_hour_runs = 1\n").expect("a legacy hour of one run still loads");
+    assert!(
+        issues
+            .iter()
+            .all(|i| i.path != "triage.reserved_for_incidents"),
+        "the derived reservation never fails validation: {issues:#?}"
+    );
+    assert_eq!(
+        one.triage.runs_reserved_for_incidents(),
+        0,
+        "an hour of one run keeps none free"
+    );
+
+    let (two, _) = hub("[triage]\nper_hour_runs = 2\n").expect("an hour of two runs still loads");
+    assert_eq!(
+        two.triage.runs_reserved_for_incidents(),
+        1,
+        "an hour of two runs keeps one free"
+    );
+
+    let (none, _) = hub("[triage]\nper_hour_runs = 0\n").expect("a zero hour stays valid");
+    assert_eq!(none.triage.runs_reserved_for_incidents(), 0);
+
+    let (default, _) = hub("").expect("the default config loads");
+    assert_eq!(
+        default.triage.runs_reserved_for_incidents(),
+        2,
+        "the default hour keeps two runs"
+    );
+}
+
+#[test]
 fn webhook_names_are_validated() {
     let errors = hub_errors(
         "[webhooks.\"My Hook\"]\nkind = \"generic\"\nauth = \"hmac\"\nsecret = { env = \"S\" }\n",

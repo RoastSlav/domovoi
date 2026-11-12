@@ -38,6 +38,7 @@ pub(super) fn triage(config: &HubConfig) -> TriageSettings {
         concurrency: config.triage.concurrency,
         queue: domovoi_engine::triage::DEFAULT_QUEUE,
         per_hour_runs: config.triage.per_hour_runs,
+        reserved_for_incidents: config.triage.runs_reserved_for_incidents(),
         monthly_budget_micros: config.triage.monthly_budget_usd.and_then(|budget| {
             (budget.is_finite() && budget >= 0.0).then_some((budget * 1_000_000.0).round() as u64)
         }),

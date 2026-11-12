@@ -119,6 +119,10 @@ export function ReadOnlySettings({ settings: s }: { settings: Settings }) {
             { label: "Enabled", value: yesNo(s.triage.enabled) },
             { label: "Runs at once", value: String(s.triage.concurrency) },
             { label: "Runs per hour", value: String(s.triage.per_hour_runs) },
+            {
+              label: "Runs kept for triage",
+              value: String(s.triage.reserved_for_incidents),
+            },
             ...usageRows(s),
             ...(budgetOf(s) === undefined
               ? []

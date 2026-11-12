@@ -27,7 +27,13 @@ function settings() {
     },
     llm_primary: { kind: "anthropic", model: "claude", base_url: null, api_key: "[set]" },
     llm_secondary: { kind: "openai_compatible", model: "local", base_url: null, api_key: LEAKED },
-    triage: { enabled: true, concurrency: 2, per_hour_runs: 20, monthly_budget_usd: 10 },
+    triage: {
+      enabled: true,
+      concurrency: 2,
+      per_hour_runs: 20,
+      reserved_for_incidents: 4,
+      monthly_budget_usd: 10,
+    },
     discord: {
       enabled: true,
       channel_id: "123",

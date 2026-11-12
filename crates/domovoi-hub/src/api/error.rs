@@ -6,6 +6,8 @@ use axum::response::{IntoResponse, Response};
 use serde::Serialize;
 use utoipa::ToSchema;
 
+use jiff::Timestamp;
+
 use crate::auth::AuthError;
 
 /// The body of every error response.
@@ -113,6 +115,13 @@ impl ApiError {
         tracing::error!(%err, "{context}");
         Self::Internal
     }
+}
+
+/// The 429 for a busy model hour: `retry_at` is when the hour has room again, if
+/// the engine knows; the `Retry-After` header tells the browser when to come back.
+pub fn busy(now: Timestamp, retry_at: Option<Timestamp>) -> ApiError {
+    let seconds = retry_at.map_or(30, |at| at.duration_since(now).as_secs().max(1));
+    ApiError::TooMany(seconds)
 }
 
 impl IntoResponse for ApiError {
