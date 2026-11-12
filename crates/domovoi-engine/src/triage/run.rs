@@ -10,6 +10,7 @@ use domovoi_core::{
 };
 use jiff::{SignedDuration, Timestamp};
 
+use super::admission::{Purpose, Refusal, admit};
 use super::agent::{self, ToolUse, text_of};
 use super::cache::evidence_digest;
 use super::report::{parse_report, redact_report};
@@ -22,12 +23,13 @@ use crate::events::{DomainEvent, EventKind};
 /// Run starts in the last hour and the failure streak.
 #[derive(Debug, Default)]
 pub(crate) struct Limits {
-    starts: VecDeque<Timestamp>,
-    failures: u32,
-    degraded: bool,
+    pub(crate) starts: VecDeque<Timestamp>,
+    pub(crate) failures: u32,
+    pub(crate) degraded: bool,
 }
 
-fn limits(shared: &Shared) -> std::sync::MutexGuard<'_, Limits> {
+/// Guards the run window and failure streak for every gate and outcome path.
+pub(crate) fn limits(shared: &Shared) -> std::sync::MutexGuard<'_, Limits> {
     shared
         .limits
         .lock()
@@ -54,10 +56,10 @@ async fn outcome(
     incident: &Incident,
     fresh: bool,
 ) -> (TriageOutcome, BTreeMap<ActionId, String>) {
-    if let Some(cap) = over_cap(shared).await {
-        let reason = match cap {
-            Cap::Monthly => "the monthly triage budget is spent".to_owned(),
-            Cap::Hourly { retry_at } => {
+    if let Err(refusal) = admit(shared, Purpose::Triage).await {
+        let reason = match refusal {
+            Refusal::BudgetSpent => "the monthly triage budget is spent".to_owned(),
+            Refusal::Hourly { retry_at } => {
                 if let Some(at) = retry_at {
                     shared.defer(incident.id(), at, RetryReason::Cap);
                     format!(
@@ -127,97 +129,6 @@ async fn outcome(
         tracing::warn!(%err, incident = %incident.id(), "could not record the triage tool use");
     }
     outcome
-}
-
-/// Why a run may not start.
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum Cap {
-    /// The monthly model budget is spent; nothing retries it before the next month.
-    Monthly,
-    /// The hourly run limit is reached; `retry_at` is when a run slot frees, and `None`
-    /// when the limit is zero and no slot ever will.
-    Hourly { retry_at: Option<Timestamp> },
-}
-
-/// The start of the rolling hour that the hourly run limit counts.
-fn hour_ago(now: Timestamp) -> Timestamp {
-    now.checked_sub(SignedDuration::from_hours(1))
-        .unwrap_or(now)
-}
-
-/// When a run that started at `oldest` frees its slot, or `None` when the arithmetic
-/// leaves the timestamp range.
-pub(crate) fn slot_after(oldest: Timestamp) -> Option<Timestamp> {
-    oldest
-        .checked_add(SignedDuration::from_hours(1))
-        .and_then(|at| at.checked_add(SignedDuration::from_secs(1)))
-        .ok()
-}
-
-/// Whether the monthly model budget is spent, reading the model spending for the current
-/// calendar month (UTC). A failed read is not a spent budget: triage still runs.
-pub(crate) async fn budget_spent(shared: &Shared) -> bool {
-    let Some(budget) = shared.settings.monthly_budget_micros else {
-        return false;
-    };
-    let month = shared
-        .deps
-        .clock
-        .now()
-        .to_zoned(jiff::tz::TimeZone::UTC)
-        .date();
-    match shared.deps.usage.month_total(month).await {
-        Ok(total) => total.cost_micros >= budget,
-        Err(err) => {
-            tracing::warn!(%err, "could not read model spending; triaging anyway");
-            false
-        }
-    }
-}
-
-/// Why this run may not start, or `None` after recording its start.
-async fn over_cap(shared: &Shared) -> Option<Cap> {
-    let deps = &shared.deps;
-    let settings = &shared.settings;
-    let now = deps.clock.now();
-    if budget_spent(shared).await {
-        return Some(Cap::Monthly);
-    }
-    let since = hour_ago(now);
-    let mut limits = limits(shared);
-    while limits.starts.front().is_some_and(|t| *t <= since) {
-        limits.starts.pop_front();
-    }
-    if limits.starts.len() >= settings.per_hour_runs as usize {
-        return Some(Cap::Hourly {
-            retry_at: limits.starts.front().and_then(|t| slot_after(*t)),
-        });
-    }
-    limits.starts.push_back(now);
-    None
-}
-
-/// How many recorded run starts have already left the rolling hour.
-fn expired_runs(starts: &VecDeque<Timestamp>, since: Timestamp) -> usize {
-    starts.iter().take_while(|t| **t <= since).count()
-}
-
-/// Free run slots in the current hour.
-pub(crate) fn free_slots(shared: &Shared, now: Timestamp) -> usize {
-    let since = hour_ago(now);
-    let window = limits(shared);
-    let used = window.starts.len() - expired_runs(&window.starts, since);
-    let capacity = shared.settings.per_hour_runs as usize;
-    capacity.saturating_sub(used)
-}
-
-/// When the oldest run still in the window frees its slot, if any run is.
-pub(crate) fn next_slot(shared: &Shared) -> Option<Timestamp> {
-    let now = shared.deps.clock.now();
-    let since = hour_ago(now);
-    let window = limits(shared);
-    let expired = expired_runs(&window.starts, since);
-    window.starts.get(expired).and_then(|t| slot_after(*t))
 }
 
 /// A cached report for the same fingerprint and evidence, and the resolved incident it

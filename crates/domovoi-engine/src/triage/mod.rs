@@ -7,6 +7,7 @@
 //! providers after it in order; a failed run still leaves the card that already went out (INV-11). Valid
 //! action proposals become `Proposed` actions; nothing the model writes is ever run (INV-9).
 
+mod admission;
 mod agent;
 mod cache;
 mod chat;
@@ -71,6 +72,9 @@ pub struct TriageSettings {
     pub queue: usize,
     /// Runs started per rolling hour at most.
     pub per_hour_runs: u32,
+    /// Runs the hour always keeps free for triage: questions and chat may not use these
+    /// last runs of the hour.
+    pub reserved_for_incidents: u32,
     /// Spending cap per calendar month (UTC), in millionths of a US dollar.
     pub monthly_budget_micros: Option<u64>,
     /// Days a report is reused for the same incident and evidence.
@@ -85,6 +89,7 @@ impl Default for TriageSettings {
             concurrency: 2,
             queue: DEFAULT_QUEUE,
             per_hour_runs: 6,
+            reserved_for_incidents: 2,
             monthly_budget_micros: None,
             cache_days: 7,
             budget: TriageBudget {
@@ -93,6 +98,18 @@ impl Default for TriageSettings {
                 max_output_tokens: 2000,
             },
         }
+    }
+}
+
+/// The sentence a refused question shows: `retry_at` names the time the hourly model
+/// limit frees an admissible slot; `None` means another question is being answered now.
+fn busy_text(retry_at: &Option<jiff::Timestamp>) -> String {
+    match retry_at {
+        Some(at) => format!(
+            "the hourly model limit is reached; try again after {}",
+            at.to_zoned(jiff::tz::TimeZone::UTC).strftime("%H:%M UTC"),
+        ),
+        None => "another question is being answered; try again in a moment".to_owned(),
     }
 }
 
@@ -148,6 +165,14 @@ pub enum TriageError {
     /// The store failed.
     #[error("store error: {0}")]
     Store(String),
+    /// The hourly model limit is reached, or another question is being answered. `retry_at`
+    /// names the time an admissible slot frees when it is known.
+    #[error("{busy}", busy = busy_text(retry_at))]
+    Busy {
+        /// When an admissible slot frees, or `None` when the refusal is transient (another
+        /// question is being answered) or the hour can never admit a question.
+        retry_at: Option<jiff::Timestamp>,
+    },
 }
 
 /// Why a triage run was deferred for a retry.
@@ -164,6 +189,9 @@ pub(crate) struct Shared {
     pub(crate) deps: TriageDeps,
     pub(crate) settings: TriageSettings,
     pub(crate) limits: std::sync::Mutex<run::Limits>,
+    /// One answer in flight per worker: questions and chat hold a permit while their
+    /// model call runs.
+    pub(crate) questions: tokio::sync::Semaphore,
     pub(crate) queue: queue::Queue,
     pub(crate) deferred: std::sync::Mutex<Vec<(jiff::Timestamp, IncidentId, RetryReason)>>,
     pub(crate) deferred_ready: tokio::sync::Notify,
@@ -221,6 +249,7 @@ impl TriageService {
         let shared = Arc::new(Shared {
             queue: queue::Queue::new(settings.queue.max(1)),
             limits: std::sync::Mutex::new(run::Limits::default()),
+            questions: tokio::sync::Semaphore::new(usize::from(settings.concurrency.max(1))),
             deferred: std::sync::Mutex::new(Vec::new()),
             deferred_ready: tokio::sync::Notify::new(),
             deps,

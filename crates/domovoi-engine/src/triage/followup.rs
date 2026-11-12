@@ -5,6 +5,7 @@ use domovoi_core::ports::{LlmMessage, Part, Role};
 use domovoi_core::triage::MAX_PROPOSALS;
 use domovoi_core::{ActionProposal, ActionStatus, IncidentId, UserId};
 
+use super::admission::{Purpose, Refusal, admit};
 use super::history::{Turn, count_clear, since_clear};
 use super::incident_context::about;
 use super::{Shared, TriageError, agent, context, proposals, tools};
@@ -133,6 +134,19 @@ pub(crate) async fn answer(
     question: &str,
     asked_by: UserId,
 ) -> Result<String, TriageError> {
+    // One gate for every model-backed task: a question may not start when the hourly
+    // model limit is reached or the monthly budget is spent.
+    if let Err(refusal) = admit(shared, Purpose::Question).await {
+        return Err(match refusal {
+            Refusal::BudgetSpent => TriageError::BudgetSpent,
+            Refusal::Hourly { retry_at } => TriageError::Busy { retry_at },
+        });
+    }
+    // One answer in flight per worker: a second question at once is refused as busy.
+    let _answer_permit = match shared.questions.try_acquire() {
+        Ok(permit) => permit,
+        Err(_) => return Err(TriageError::Busy { retry_at: None }),
+    };
     let deps = &shared.deps;
     let incident = deps
         .incidents

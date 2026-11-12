@@ -4,8 +4,9 @@
 use domovoi_core::ports::{LlmError, LlmMessage, LlmRequest, Part, Redactor, Role};
 use domovoi_core::{HostId, ReadToolCall, Risk, SkillSummary};
 
+use super::admission::{Purpose, Refusal, admit};
 use super::followup::{MAX_ANSWER_CHARS, clip};
-use super::run::{budget_spent, provider_name};
+use super::run::provider_name;
 use super::tools::{Scope, cut, run};
 use super::{Shared, TriageError, agent, context};
 
@@ -138,9 +139,19 @@ pub(crate) async fn answer(
     history: &[ChatTurn],
     question: &str,
 ) -> Result<String, TriageError> {
-    if budget_spent(shared).await {
-        return Err(TriageError::BudgetSpent);
+    // The same hourly and monthly gate follow-up questions and triage runs pass: chat
+    // counts against the hourly model limit too, keeping the reserved triage runs free.
+    if let Err(refusal) = admit(shared, Purpose::Question).await {
+        return Err(match refusal {
+            Refusal::BudgetSpent => TriageError::BudgetSpent,
+            Refusal::Hourly { retry_at } => TriageError::Busy { retry_at },
+        });
     }
+    // One answer in flight per worker, like follow-up questions.
+    let _answer_permit = match shared.questions.try_acquire() {
+        Ok(permit) => permit,
+        Err(_) => return Err(TriageError::Busy { retry_at: None }),
+    };
     let deps = &shared.deps;
     let skills: Vec<SkillSummary> = match host {
         Some(host) => deps.link.skills(host),
