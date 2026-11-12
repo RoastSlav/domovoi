@@ -52,16 +52,21 @@ Do not expose hidden model chain-of-thought. Expose useful and auditable informa
 
 ### Presentation profiles
 
-Recommended starting profiles:
+Three profiles ship in v1, plus Custom. They are one set of components with a category-to-visibility table (section 5), not three layouts. The profiles, the table and the shared visibility mechanism are defined before any page is implemented.
 
 | Profile | Behavior | Intended use |
 |---|---|---|
-| **Detailed** | Full operational trace and technical metadata expanded where the page can support it. | Reference design; operators who want to know exactly what is happening. |
-| **Standard** | Phase/step progress and key findings visible; low-level tool outputs and metadata are grouped but one click away. | Balanced everyday use. |
-| **Essential** | Primary state, consequence and next action emphasized; technical detail remains accessible. | People who prefer a quieter surface. |
-| **Custom** | Independent visibility/expanded-state preferences by page and information category. | Users who want a compact dashboard and detailed operations, or another combination. |
+| **Detailed** | Everything shown. The default for a new owner. | Reference design; operators who want to know exactly what is happening. |
+| **Standard** | P0 and P1 shown; P2 and P3 collapsed (one click away, with a count). | Balanced everyday use. |
+| **Essential** | P0 and P1 shown; P2 collapsed; P3 hidden, with a visible "+N details" indicator that reveals them. | People who prefer a quieter surface. |
+| **Custom** | Per-page overrides of one of the profiles above. | Users who want a compact dashboard and detailed operations, or another combination. |
 
-These profiles are display preferences only. They must never change authorization, tool availability, audit retention, execution behavior or security controls. A setting that affects authority belongs in the policy system, not the display profile.
+Rules:
+
+- **P0 is never hidden or collapsed in any profile**, including Custom. A test renders each page in every profile with the same fixture and asserts that every P0 element is present and expanded.
+- Hidden or collapsed content stays reachable and is not rendered until revealed; profiles never delete or omit durable history.
+- These profiles are display preferences only. They must never change authorization, tool availability, audit retention, execution behavior or security controls. A setting that affects authority belongs in the policy system, not the display profile.
+- The UI reads the profile through one provider. Whether it is stored on the hub or only in the browser is a backend decision (see doc 17, section 11); the behavior above does not depend on it.
 
 ## 4. Understandable terminology without dumbing down
 
@@ -103,10 +108,21 @@ Every meaningful page element receives two independent classifications.
 
 | Priority | Definition |
 |---|---|
-| **P0 — Essential** | Core to the page's purpose or urgent to a user's decision. Immediately visible in the detailed baseline. |
-| **P1 — High** | Frequently used or important contextual information. Visible without navigating away; may share space with P0. |
-| **P2 — Supporting** | Useful diagnostics, history or secondary actions. May be in a tab, secondary section or expandable group. |
-| **P3 — On demand** | Rarely needed, verbose or low-frequency technical metadata. Available through an inspector, details drawer or advanced section. |
+| **P0 — Safety and state** | Safety, approval, audit and current-state content: what is happening now, what needs a decision, what authority applies, what was recorded. Never hidden or collapsed in any profile. |
+| **P1 — Primary** | The page's main content and frequent actions. Visible without navigating away; may share space with P0. |
+| **P2 — Technical detail** | Useful diagnostics, raw inputs and outputs, history and secondary actions. Collapsed in Standard and Essential. |
+| **P3 — Metadata** | Rarely needed, verbose or low-frequency metadata (ids, timings, model parameters). Collapsed in Standard; hidden behind "+N details" in Essential. |
+
+Every page element carries exactly one category, written in its page specification and in the code through the shared visibility primitive. Visibility per profile follows from the category alone:
+
+| Category | Detailed | Standard | Essential |
+|---|---|---|---|
+| P0 | shown | shown | shown |
+| P1 | shown | shown | shown |
+| P2 | shown | collapsed | collapsed |
+| P3 | shown | collapsed | hidden, "+N details" indicator |
+
+A page that needs a different result for one element changes the element's category, not the table.
 
 ### Space requirement
 
@@ -139,13 +155,13 @@ Tabs must not be used as a hiding place for P0 information. If the user needs tw
 
 Recommended customization:
 
-- Detailed/Standard/Essential/Custom presentation profiles.
+- Detailed/Standard/Essential presentation profiles, with Custom as per-page overrides of one of them.
 - Overview dashboard widgets can be added, removed, rearranged, resized and saved per user.
 - Per-page preferences for density and default expanded sections.
 - Persist filters, table columns, sort order and selected views where it helps repeat workflows.
 - A user may reset to a strong default layout at any time.
 
-Do not require the user to customize the UI before it becomes useful. Defaults must be carefully designed and coherent.
+Do not require the user to customize the UI before it becomes useful. Defaults must be carefully designed and coherent. The default profile for a new owner is Detailed; Standard and Essential are one setting away and remembered. Because the default shows everything, the Detailed layouts of every page are designed first and tested on a phone and a laptop, not only on a wide desktop.
 
 ## 8. Control-plane principle
 
@@ -157,22 +173,26 @@ A control may remain outside ordinary UI management only for a deliberate securi
 
 A beautiful screen that has stale state, lost context, confusing actions or flaky interactions is not a good UI.
 
-Every important control must have predictable behavior and feedback. Every data view must distinguish loading, empty, failed, unavailable, stale, offline and partially available states. Live updates must not reorder or replace content in a way that loses user focus or an inspector selection.
+Every important control must have predictable behavior and feedback. Every data view must distinguish the states in the canonical taxonomy (doc 15, section 10): loading, empty, first-load error, refresh error, stale, offline, unavailable, partial and unknown value. Live updates must not reorder or replace content in a way that loses user focus or an inspector selection.
 
 The UI should feel dynamic because the product is genuinely active, not because it constantly animates. Motion must communicate state changes, direction, hierarchy or spatial relationships.
 
-## 10. Design review questions
+## 10. One owner in v1
+
+Through v1 Domovoi has a single owner and no roles. The UI therefore has no permission-denied states and does not filter search or lists by permission. Where a future role would change what is shown, the specification names the place as a hook "for future roles" (for example the single function every action check goes through) and builds nothing more. Actor identity is still shown wherever an action is attributed (owner, system component, agent, policy rule).
+
+## 11. Design review questions
 
 Before approving a page specification, answer:
 
 1. What user question does this page answer?
-2. What is P0, P1, P2 and P3 here?
+2. What is P0, P1, P2 and P3 here (category, not size)?
 3. What is dominant/large/medium/compact/contextual?
-4. Is there enough screen area for every dominant item?
+4. Is there enough screen area for every dominant item at the minimum sizes in doc 16, section 5?
 5. Should content be a page, subpage, tab, section, expansion or inspector—and why?
 6. What can the user do here, and what happens after each action?
 7. What changes live while the page is open?
-8. What are all meaningful page states?
+8. Which states from the canonical taxonomy apply, and what does each look like?
 9. What must survive navigation, reload, collapse/expand and reconnect?
-10. How does the same page work at different densities and viewport sizes?
+10. How does the same page work in each presentation profile and at different viewport sizes?
 11. What is the acceptance test for a correct, polished implementation?

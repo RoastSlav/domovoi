@@ -30,6 +30,13 @@ Current implementation includes:
 
 Use these as a code/quality starting point after checking that they fit the new product. New graph/inspector/operation components may need a distinct design system extension rather than forcing existing generic components to do work they were not designed for.
 
+The guardrails in `web/DESIGN.md` stay in force. Where the graph genuinely needs something they forbid, the amendment is written in `web/DESIGN.md` (its "planned, added with the operation UI" section) before the code, not worked around:
+
+- **Computed geometry** (node positions, viewBox, transforms) uses SVG attributes and CSS custom properties set through one kit helper; there is no blanket exemption from the inline-style rule.
+- **File size:** the 250-line cap is not relaxed. The graph is split by responsibility (layout, rendering, interaction, keyboard, outline).
+- **Motion** gets the second class and tokens described in doc 15, section 2.
+- **Layout worker:** if layout runs in a worker, it is a same-origin hashed asset (the content policy does not allow `blob:` workers).
+
 ## 3. Modern feel without visual noise
 
 Recommended visual characteristics:
@@ -51,33 +58,23 @@ Avoid:
 - Color-only states or status without a textual explanation.
 - Dense pages that achieve density by shrinking text or clickable targets below usable sizes.
 
-## 4. Information density modes
+## 4. Presentation profiles
 
-Detailed is the reference design. Build layouts with the complete information model, then allow alternate presentation preferences.
+Detailed is the reference design and the default for a new owner. Build layouts with the complete information model, then derive the other profiles by hiding or collapsing, never with a different layout. The mechanism (a profile provider, one visibility primitive keyed by category, and the table below) is built before any page, after the shared visibility infrastructure.
 
-### Detailed
+| Category | Detailed | Standard | Essential |
+|---|---|---|---|
+| P0 safety, approval, audit, current state | shown | shown | shown |
+| P1 primary | shown | shown | shown |
+| P2 technical detail | shown | collapsed | collapsed |
+| P3 metadata | shown | collapsed | hidden, "+N details" indicator |
 
-- Full status metadata, exact timestamps where useful, phase/step detail, evidence, inputs/outputs, policy rationale, tool results and history.
-- P0 and P1 items expanded by default where space permits.
-- Raw/verbose payloads remain available in inspectors/tabs, with secrets redacted.
+- **Detailed:** full status metadata, exact timestamps where useful, phase/step detail, evidence, inputs/outputs, policy rationale, tool results and history. Raw/verbose payloads remain in inspectors/tabs, with secrets redacted.
+- **Standard:** primary content and the primary action and waiting state are obvious; capability calls, long outputs and secondary metadata are grouped and one click away.
+- **Essential:** outcome, current status and next action; technical detail stays reachable through collapsed sections and the "+N details" indicator. Nothing is deleted or inaccessible.
+- **Custom:** per-page overrides of one of the profiles (and table columns, dashboard layout, saved filters, graph defaults). A person can choose a compact overview and a Detailed operation workspace.
 
-### Standard
-
-- Phase-level execution and important results visible.
-- Individual capability calls, long outputs and secondary metadata grouped/expandable.
-- Primary action and waiting state remain obvious.
-
-### Essential
-
-- High-level outcome, current status and next action emphasized.
-- Detailed information is never deleted or inaccessible; it is collapsed/available through a clear details path.
-
-### Custom
-
-- Per-area visibility/expanded defaults, table columns, dashboard layout, saved filters and operation graph defaults.
-- The user can choose a compact overview but a detailed operation workspace.
-
-These are not separate application versions. They are view preferences over the same information and controls.
+P0 is never hidden or collapsed in any profile, Custom included; a test asserts it for every page. Collapsed and hidden content is not rendered until revealed, so profiles also keep cost down. These are view preferences over the same information and controls, never separate application versions and never a change to authority.
 
 ## 5. Responsive design and real-estate rules
 
@@ -91,10 +88,10 @@ Design references to validate:
 Requirements:
 
 - Do not simply scale desktop columns down. Reconsider which areas become tabs, stacked sections, sheets or full-screen inspectors.
-- Dominant graphs need a minimum practical viewport. On phones, use a focused graph canvas plus a node list/inspector sheet; do not render a tiny unreadable desktop graph.
+- Dominant graphs need at least 640 x 400 CSS px of canvas. Below that, and on phones, show the outline plus a node sheet; do not render a tiny unreadable desktop graph. P0 safety actions (approve, deny, stop) work on a phone.
 - Keep high-priority state/actions visible; use sticky action summaries only when they do not obstruct content.
 - Avoid horizontal page scrolling. A graph may have its own pan/zoom canvas; a data table may have a deliberate responsive stacked form.
-- Side-by-side Operator/operation workspaces should become a tab/split toggle on narrow screens while retaining the same underlying context.
+- Side-by-side Operator/operation workspaces should become a tab/split toggle on narrow screens while retaining the same underlying context. The right-hand slot follows the precedence rule in doc 13.
 - Tables must support responsive column selection or card/list transformation without losing key fields.
 - Dialogs must fit touch screens and allow the content/action area to scroll.
 
@@ -135,34 +132,44 @@ Don't make every entity a card. Don't put a graph in a generic Card just because
 - Color is never the only signal.
 - Support zoom and text scaling without clipping controls or losing graph access.
 - Respect reduced motion.
-- Provide a non-canvas/list representation of graph structure and a keyboard-accessible node navigation model.
-- Test with automated accessibility checks and manual keyboard/screen-reader review for complex interactions.
+- Provide the non-canvas outline of graph structure (the screen-reader path) and the keyboard navigation model defined in doc 15, section 4.
+- Test with automated accessibility checks and manual keyboard review; complex interactions get a manual screen-reader pass with NVDA and Firefox and with VoiceOver and Safari.
 
 ## 9. Performance and stability requirements
 
+Budgets win over presentation: when Detailed would exceed a budget on a given device, it degrades by rendering less at once (outline instead of canvas, collapsed groups, virtualised lists), never by dropping information.
+
 - Avoid layout shift during initial load and live updates.
 - Keep global shell responsive even when a graph or table is large.
-- Use route-level lazy loading and component-level lazy loading for heavy visualizations/editors where useful.
-- Virtualize long lists, logs, event streams and graph detail lists when measurements justify it.
+- Use route-level lazy loading and component-level lazy loading for heavy visualizations/editors. The graph is its own lazy chunk under the existing 120 kB gzip chunk limit; initial JavaScript stays inside the budget in `web/DESIGN.md`.
+- Virtualize long lists, logs, event streams and graph detail lists.
 - Memoize stable list/table rows and avoid re-rendering the full graph for a single node status update.
-- Batch live event processing and throttle high-frequency rendering without losing durable events.
-- Keep graph layout and physics work off the main UI thread where necessary; use deterministic/cached layout for stable historical traces.
-- Ensure search/index data is permission-filtered and never stale without an indicator.
+- Batch live event processing and throttle high-frequency rendering without losing durable events; coalesce animation as in doc 15, section 2.
+- Keep graph layout and physics work off the main UI thread where necessary; use deterministic layout for stable historical traces. A layout version is recorded so a historical trace renders the same after a release.
+- Search results carry a freshness indicator; nothing is presented as current when it is stale.
 - Keep the hub as the only required origin for bundled web assets unless an external service is explicitly required; do not introduce remote fonts or untrusted scripts by default.
-- Maintain an explicit bundle/performance budget and test at realistic fleet sizes.
+- Test at fixed fleet sizes: 50 hosts, 5,000 operations, 2,000 nodes in one operation and 100,000 log lines. Interaction stays responsive and a single node update re-renders only that node.
 
 ## 10. Quality requirements for every page
 
 Every page must explicitly design and test:
 
-- Loading, empty, first-load error, refresh error, offline, partial, stale and permission-denied states.
+- Every state in the canonical taxonomy that applies (doc 15, section 10): loading, empty, first-load error, refresh error, stale, offline/unavailable, partial and unknown value. Permission-denied is not a v1 state (single owner).
 - Dense and sparse data.
 - Long names, long logs, missing values and unknown enum values from newer agents/providers.
 - Keyboard and screen-reader behavior.
-- 375, 768, 1280 and 1920 px layouts (or justified equivalents).
 - Both light and dark themes.
-- Detailed, Standard and Essential presentation profiles.
+- Detailed, Standard and Essential presentation profiles, with the P0-never-hidden assertion.
 - Live updates while the user is interacting with or inspecting content.
 - Long-running work, reconnects, uncertain outcomes and duplicate event delivery.
+
+### Sampling rule for the review matrix
+
+The full product of profiles, themes, widths and states is not run for every page. Required:
+
+- **Every page:** all three profiles x both themes at two widths (375 and 1280 px).
+- **Default profile (Detailed) only:** the four widths 375, 768, 1280 and 1920 px, both themes.
+- **States:** each applicable state from the taxonomy is covered once per page, in the default profile, in one theme and one width; the visual snapshot uses the layout that is most at risk.
+- **Graph pages:** the graph states in doc 15 are covered by component tests on fixtures, not repeated per page and profile.
 
 A UI is not accepted only because the happy path looks good in a screenshot.

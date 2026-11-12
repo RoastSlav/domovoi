@@ -2,7 +2,9 @@
 
 ## Principle
 
-An incident is a durable operational task, not a single LLM prompt. The orchestrator owns lifecycle and state; the reasoner handles interpretation and proposes next steps. Phases are responsibilities and contracts, not a rigid linear workflow. The engine may complete simple phases without an LLM call, and paths may loop or branch.
+The work done about an incident is a durable operational task, not a single LLM prompt. That task is an **Operation**, an aggregate distinct from the incident (owner decision D-02, RW-04): the incident is the detected condition, the operation is the work performed, and an operation may also start from a user request or a schedule with no incident at all. The orchestrator owns lifecycle and state; the reasoner handles interpretation and proposes next steps. Phases are responsibilities and contracts, not a rigid linear workflow. The engine may complete simple phases without an LLM call, and paths may loop or branch.
+
+**How phases are stored.** An operation has a **coarse status** (for example running, waiting, paused, succeeded, failed, escalated, cancelled). Its work is a growing list of **typed, immutable steps** (reasoning turn, evidence request, plan, policy decision, approval, execution, verification, notification, question); a step's progress is recorded as append-only events. A phase in this document is therefore a label over a group of step kinds, not a stored state. The orchestrator decides on typed step outcomes, never on model text. State machines and outcomes are in [`docs/rework/04 §3`](../rework/04-target-architecture.md) and RW-05.
 
 ## Lifecycle
 
@@ -40,7 +42,7 @@ flowchart TD
 | **Verify / monitor** | Check whether the original condition is gone and whether dependent services remain healthy. | Verified, verification failed, inconclusive or regression detected. |
 | **Resolve / escalate** | Close the incident only when the condition is demonstrably resolved; otherwise continue or escalate. | Terminal state or a new bounded cycle. |
 
-A phase may return `complete`, `needs_evidence`, `waiting`, `failed`, `not_applicable` or `escalate`. Store these states explicitly; do not treat missing output as a successful phase.
+A phase may return `complete`, `needs_evidence`, `waiting`, `failed`, `not_applicable` or `escalate`. Store these outcomes explicitly on the steps; do not treat missing output as a successful phase. An execution whose result is lost (a dropped link, a restart mid-dispatch) is `OutcomeUnknown`, not `Failed`: it is reconciled against the agent's action journal, and it blocks unattended re-execution of the same capability on the same target until a human or a verification step resolves it (RW-09).
 
 ## Context model
 
@@ -49,7 +51,7 @@ Do not create one universal questionnaire or giant prompt. Build context in laye
 1. **Common incident context:** incident/host identity, triggering signal, severity, time, recent changes and current work state.
 2. **Domain context:** relevant Docker, storage, network, security, database or application details.
 3. **Knowledge context:** applicable facts, constraints, dependencies, preferences and recovery paths.
-4. **Experience context:** similar incidents, prior plans, failures and successful verification evidence.
+4. **Experience context:** similar past operations (found through their resolution summaries and the host-scoped `search_experience` read capability), prior plans, failures and successful verification evidence. Each item supplied to the reasoner carries its operation id, date, verified flag and source, inside a block labelled historical evidence, not authorization (owner decision D-02, RW-25).
 5. **Action-specific context:** only facts needed to evaluate a specific operation (for example, trusted management addresses before firewall changes).
 
 Every requested field/evidence item should have a state: `available`, `unknown`, `unavailable`, `failed`, `stale` or `not_applicable`. Missing data is not equivalent to `false`. Include source and observed time. Distinguish user-confirmed, automatically observed and inferred information.
@@ -80,11 +82,13 @@ The plan is a proposal, not authorization. The policy engine evaluates each cons
 
 Record phase transitions and meaningful events with timestamp, actor/component, incident, input/output reference, evidence references, decision/rationale, policy result, operation identity and outcome. Preserve enough to reconstruct the lifecycle without persisting secrets or unlimited raw logs.
 
+The experience record **is the journal**: one append-only table of typed events that also feeds live UI replay, not a separate experience store (RW-15). Security-relevant facts (who authorized what, policy and settings changes, refusals) go to the separate hash-chained audit record, written in the same transaction. When an operation ends it gets a **resolution summary**: deterministic fields filled by code (subjects, capabilities executed, verification results, outcome) and narrative fields (problem, cause, fix) drafted by the model, marked as model-sourced and editable or confirmable by the owner. The UI shows similar past operations on incident and operation pages. A past approval or success never satisfies policy.
+
 ## Example: a fix reveals a second problem
 
 A Plex container is unhealthy. Domovoi inspects logs and dependencies, then proposes or performs an owner-authorized Plex restart. The restart command succeeds, but the application health check still fails. Domovoi records that failure as new evidence, returns to assessment, notices database-connection errors, checks the database service and its recent history, then proposes a separate database restart. If that operation is not covered by autonomous policy, it asks for approval. After the database restart it verifies both the database and Plex, watches for regression, and resolves only when the original Plex condition is healthy.
 
-The important behavior is not the Plex-specific sequence: it is **failed postcondition → new evidence → revised diagnosis → new authorization decision → verification**. No blind retry and no assumption that a successful process exit means the incident is fixed.
+The important behavior is not the Plex-specific sequence: it is **failed postcondition → new evidence → revised diagnosis → new authorization decision → verification**. No blind retry and no assumption that a successful process exit means the incident is fixed. A retry is always a new execution step with its own authorization; reconciling an unknown outcome is not a retry.
 
 ## LLM efficiency
 

@@ -40,12 +40,14 @@ The eventual schema should contain:
 
 This is a conceptual contract, not a final serialized schema. Avoid requiring every provider to implement fields that are genuinely not applicable; represent not-applicable explicitly rather than guessing.
 
+**Who owns which fields (owner decision D-02, [RW-07](../rework/03-architecture-decisions.md)).** The contract is **hub-owned and typed**: identity, version, input schema, effect class (`Read`, `Mutate`, `Contain`, `Destructive`), risk, reversibility, idempotency, timeout, output limit, verification and the arguments a host ceiling may constrain are defined by the hub, not by the provider. Providers and agents advertise only implementation facts: which contract ids and versions they implement, an implementation hash, availability and a summary of the local ceiling. An advertised id the hub does not define is shown as unknown and is never dispatchable. Skills are the exception that proves the rule: their effect class comes from the owner's local manifest (the existing trust boundary), with a hub floor the owner may raise but never lower; an unknown class is treated as `Destructive`.
+
 ## Discovery and invocation
 
-1. Providers register a validated descriptor with the hub or agent registry.
-2. Agent handshake reports local capabilities and versions, not just script filenames.
+1. The hub holds the typed contracts; providers register the implementations they can offer against those contracts.
+2. Agent handshake reports which contracts and versions it implements, with an implementation hash and availability, not just script filenames. Availability is `Known`, `Unknown` (no session yet since hub start) or `Absent`; an unknown host is waited for, never rejected.
 3. Hub builds a scoped catalogue for the incident: only capabilities that exist for the target and whose basic prerequisites are met.
-4. Reasoner may ask to inspect a capability's schema or request an operation using typed arguments.
+4. Reasoner may ask to inspect a capability's schema or request an operation using typed arguments. The model sees a closed set of meta-tools (list and describe capabilities, request evidence, search experience, propose a plan, ask the user, finish); none of them approves or executes anything.
 5. Engine checks the schema, scope, freshness, budget and current policy before dispatch.
 6. Provider and agent validate again at the enforcement point.
 7. Result returns as structured outcome plus bounded, redacted evidence.
@@ -74,6 +76,15 @@ Do not model every log line or metric as a capability. Capabilities are operatio
 - The model may draft a new skill/provider definition as a **proposal**. It must not install, enable or grant authority to that extension itself.
 - A proposed extension needs human review, static validation, sandboxed tests, manifest/hash review, provider installation and an explicit policy decision before use.
 
+### Installing capabilities from the UI (owner decision D-11, RW-26)
+
+Capability install and deploy from the UI is part of v1, with these properties:
+
+- A capability package is signed. The agent installs it only if the host opted in (`allow_install`, off by default), the signature verifies against a key in the agent's **locally** trusted keys, and the package is compatible with the agent. The hub only relays the bytes and cannot add trusted keys, so a compromised hub cannot make an agent accept an unsigned package.
+- Installing never enables or authorizes anything. Install, enable (hub) and unattended use (policy plus the host ceiling) remain three separate steps.
+- **Open:** third-party or community packages. Recommendation for v1: first-party signed packages plus packages signed with the owner's own key; no arbitrary third-party registries.
+- Agent self-update stays out of scope (see the catalogue flags in `11`).
+
 ## Missing capabilities
 
 If the needed operation does not exist on the relevant host or through an integration, the reasoner should say so, explain which part of the response is blocked, and propose a typed capability/provider extension. It must not pretend that an unavailable action exists or fall back to arbitrary shell execution. The proposed extension follows the review, test, install and explicit-policy path above.
@@ -84,4 +95,4 @@ Playbooks are advisory assets that can describe known diagnostic patterns, usefu
 
 ## Open design items
 
-Finalize capability schema, version negotiation, discovery refresh, provider lifecycle, third-party integration trust, and how generated capability drafts are reviewed. See [`09-open-questions.md`](09-open-questions.md).
+The ownership split above is decided; the exact schema and version negotiation are specified in `docs/rework` (RW-07, RW-17). Still open: discovery refresh details, provider lifecycle for hub-side integrations, third-party package trust, and how generated capability drafts are reviewed. See [`09-open-questions.md`](09-open-questions.md).

@@ -1,77 +1,68 @@
 # 07 — Implementation prompt index (DRAFT)
 
-**Status: draft. The detailed prompts (08+) will be written after you approve the direction and
-answer `99-open-decisions.md`.** Writing them now would bake in decisions you have not made
-(RW-02, RW-12, RW-13 especially).
-
-Each prompt = one branch, one PR, one Conventional Commit scope. Every prompt will follow the
-template in §3. "∥" = can run in parallel with the listed prompts.
+**Status: draft. No prompts are generated until the architecture (03/04) is reviewed and approved.**
+Each row will become one prompt = one branch = one PR with one Conventional Commit scope. Each prompt
+names the `ARCHITECTURE.md` sections it updates (D-15).
 
 ## 1. Sequence
 
-| # | Prompt (branch name) | Milestone | Depends on | ∥ with | Scope summary |
-|---|---|---|---|---|---|
-| 08 | `store-unit-of-work` | M0 | — | 10, 11, 12 | core port + SQLite/InMemory impl + contract tests; no callers yet |
-| 09 | `atomic-action-writes` | M0 | 08 | 13 | action writer + audit in one tx; audit failure fails transition |
-| 10 | `atomic-incident-writes` | M0 | 08 | 09 | incident manager batch commit; `version` column |
-| 11 | `approval-freshness` | M0 | — | 08 | expiry + incident-open check at dispatch and catch-up; catch-up waits for agent |
-| 12 | `structured-approval-cards` | M0 | — | 08 | web + Discord render plan; approve carries plan hash |
-| 13 | `settings-step-up` | M0 | — | any | declarative sensitive list incl. `llm.cli.*`; test |
-| 14 | `durable-verification-timers` | M0 | 08 | 15 | timers table + scheduler; remove in-memory sleep |
-| 15 | `triage-restart-safety` | M0 | 08 | 14 | queue reload at start; persisted admission; fail-closed; per-call deadline; prompt cap; host-scoped similar |
-| 16 | `protocol-tolerance` | M0 | — | any | major-only reject, features set, tolerant enums, golden frames |
-| 17 | `ops-readiness` | M0 | — | any | `/readyz`, metrics auth, FULL sync, quick_check, `domovoi restore`, delivery-after-send |
-| 18 | `crash-harness` | M0 | 08 | — | `CrashingStore`, restart helper, sweep over 09/10/14 scenarios |
-| 19 | `agent-action-journal` | M1 | 16 | 20 | agent journal, dedupe, `action_status` responder |
-| 20 | `outcome-unknown` | M1 | 09 | 19 | status, hub reconcile, old-agent fallback |
-| 21 | `plan-hash-v2` | M1 | 19, 20 | — | script bytes, target, step id; Authorization enum; compile-time seal |
-| 22 | `single-execution-boundary` | M1 | 21 | — | one execute path + arch rule |
-| 23 | `capability-contracts` | M2 | 16 | 19–22 | core types, built-ins, skill adapter + floor |
-| 24 | `capability-registry` | M2 | 22, 23 | — | registry, catalogue feature, replace PolicyLink, inventory UI |
-| 25 | `operation-aggregate` | M3 | 08, 22, 24 | — | tables, writer, pure decide, effects, simulator |
-| 26 | `investigate-operation` | M3 | 25 | 27 | triage behind flag, parity suite |
-| 27 | `sse-v2` | M3 | 25 | 26 | journal ids, replay, topics; web live layer |
-| 28 | `operations-ui` | M3/U1 | 26, 27 | — | shell slots, Operations list/detail timeline, Playwright smoke |
-| 29 | `meta-tools-and-plan-validation` | M4 | 26 | 31, 33 | closed meta-tools, validator, remove text protocol |
-| 30 | `layered-context` | M4 | 29 | 31, 33 | statuses, caps, cycles, shared provider loop |
-| 31 | `knowledge-store` | M5 | 08 | 29, 33 | facts/relations, rename metric_samples, discovery backfill |
-| 32 | `knowledge-ui` | M5 | 31 | 30 | browser, detail, edit, proposals |
-| 33 | `operator-conversations` | M6 | 27 | 29, 31 | aggregate, streaming, panel + workspace |
-| 34 | `policy-evaluator` | M7 | 23 | 25+ | pure evaluator + table/property tests |
-| 35 | `policy-shadow-and-ui` | M7 | 34, 26 | — | versions, shadow decisions, editor, simulator, step-up |
-| 36 | `policy-permit-autonomy` | M8 | 30, 35 | — | permit seal, ceilings, guardrails, pause, first L2 contracts, drills |
-| 37+ | UI U2 items, graph spike, Capability Center, search | U2 | per item | — | written after M3 |
+| # | Branch | Milestone | Depends on | Parallel with | Scope | ARCHITECTURE.md sections |
+|---|---|---|---|---|---|---|
+| 08 | `store-unit-of-work` | F1 | — | 13 | port, SQLite + InMemory impl, contract suite, `journal`/`effects` tables, `schema_compat` | §6, §9 |
+| 09 | `audit-hash-chain` | F1 | 08 | 13 | chain columns, anchor row, verify command, startup verify, `Actor` enum | §9, §15 |
+| 10 | `atomic-action-writes` | F1 | 09 | 11 | action writer via unit of work; audit failure fails transition | §5.6, §12 |
+| 11 | `atomic-incident-writes` | F1 | 09 | 10 | incident manager via unit of work; timeline into journal; `version` | §5.3, §9 |
+| 12 | `crash-harness` | F1 | 10, 11 | — | `CrashingStore`, restart helper, sweep | §17 |
+| 13 | `protocol-tolerance` | F3 | — | 08–12 | major-only reject, features, `Open<T>`, unsupported reply, hub ping, golden frames | §8 |
+| 14 | `recovery-order` | F2 | 10 | 15 | availability states, startup order, freshness checks at dispatch | §5.6, §7.1 |
+| 15 | `durable-timers` | F2 | 08 | 14 | `Wake` effects, verification resume, triage reload at start | §5.5, §7.1 |
+| 16 | `delivery-durability` | F2 | 08 | 14, 15 | spool-before-state, notify-after-delivery, read errors | §7.2, §13 |
+| 17 | `llm-reliability` | F4 | 08 | 18, 19 | admission persistence, fail-closed, cache, deadline, prompt cap, attribution, redaction, host-scoped similar | §11 |
+| 18 | `structured-approvals` | F4 | — | 17 | web + Discord cards, plan hash on approve | §12, §13, §15 |
+| 19 | `ops-readiness` | F4 | 08 | 17 | step-up list, `/readyz`, metrics auth, FULL sync, quick_check, backup verify, restore, pruning | §14, §16 |
+| 20 | `agent-action-journal` | M1 | 13, 16 | 21 | journal + epoch, dedupe, `action_status`, agent rate limit | §7.2, §8 |
+| 21 | `outcome-unknown-reconcile` | M1 | 14 | 20 | status, reconcile on hello, old-agent fallback | §5.6, §12 |
+| 22 | `plan-hash-v2-and-authorization` | M1 | 20, 21 | — | plan hash v2, `Authorization` enum, constructor enforcement (clippy + arch rule) | §12, §15 (INV-1) |
+| 23 | `single-execution-boundary` | M1 | 22 | 24 | one execute path + arch rule | §4, §12 |
+| 24 | `capability-contracts` | M2 | 13 | 20–23 | core contract types, built-ins, skill adapter + floor | §5.6, §6 |
+| 25 | `capability-registry` | M2 | 23, 24 | — | availability, catalogue paging, replace PolicyLink, inventory UI | §6, §8, §12 |
+| 26 | `operation-aggregate` | M3 | 23, 25 | — | tables, writer + execution module, decide, effects, budgets, simulator, trace golden fixtures | §5 (new subsection), §7.1 |
+| 27 | `investigate-operation` | M3 | 26 | 28 | triage behind flag, parity suite, legacy projection | §5.5, §11 |
+| 28 | `journal-sse` | M3 | 26 | 27 | SSE ids/replay/reset, `as_of_seq`, `incident_events` copy | §9, §10 |
+| 29 | `use-case-layer` | M3 | 26 | 27, 28 | hub services + module-edge rule | §4, §7.1 |
+| 30 | `operations-ui-timeline` | U1 | 27, 28 | 31 | shell, Operations list/detail, step tree, inspector, approval card, Playwright | §10 |
+| 31 | `meta-tools-and-validation` | M4 | 27 | 30, 34, 36 | closed meta-tools, validator, target resolution, remove text protocol | §11, §15 |
+| 32 | `layered-context` | M4 | 31 | 34, 36 | statuses, caps, shared provider loop | §11 |
+| 33 | `graph-spike` | U2 | 30 | 31–36 | library choice under CSP/style/bundle; DESIGN.md amendment (no product code merged) | §10 |
+| 34 | `knowledge-store` | M5 | 11 | 31, 36 | facts/relations/entities, rename, backfill | §5 (new), §9 |
+| 35 | `experience-search` | M5 | 27, 34 | 32 | resolution summaries, FTS, `search_experience`, similar operations UI | §9, §11 |
+| 36 | `operator-conversations` | M6 | 28 | 31, 34 | aggregate, streaming, panel + workspace | §5 (new), §10, §13 |
+| 37 | `visibility-profiles` | U3 | 30 | 33–36 | categories, `useVisibility`, preferences, P0 test | §10 |
+| 38 | `graph-canvas` | U2 | 33 | 37 | graph view, keyboard model, motion | §10 |
+| 39 | `policy-evaluator` | M7 | 24 | 26+ | pure evaluator + 04 §7.7 tests | §15 (new policy subsection) |
+| 40 | `policy-shadow` | M7 | 39, 27 | — | versions, shadow decisions, simulator, step-up publish | §9, §15 |
+| 41 | `packages-agent` | P1 | 13, 25 | 26+ | package format, agent verify/install/uninstall/rollback | §7.2, §8 |
+| 42 | `packages-hub-and-wizard` | P1 | 41, 37 | — | index, relay, jobs, audit, install wizard | §8, §10 |
+| 43 | `policy-knowledge-capability-pages` | U4 | 37, 35, 40, 42 | — | split per page when written | §10 |
+| 44 | `docker-write-adr` | M8 | — | any | ADR only | §15 (ADR reference) |
+| 45 | `policy-permit-autonomy` | M8 | 32, 40, 44 | — | PermitIssuer, ceiling enforcement, guardrails, pause, first L2 contracts | §12, §15 (INV-1 wording) |
+| 46 | `containment` | M9 | 45, 41, 34 | — | first set (split per capability when written) | §12, §15 |
 
-## 2. Integration contracts between parallel prompts
+Section numbers are `ARCHITECTURE.md` headings at baseline 64117f0 (4 layout, 5 domain, 6 ports, 7 runtime, 8 protocol, 9 persistence, 10 API/web, 11 LLM, 12 skills/actions, 13 chat, 14 config, 15 security invariants, 16 observability, 17 testing); re-check when writing each prompt.
 
-- **08 → all writers:** the `commit(Batch)` signature and error type are frozen by 08; 09/10/14/15
-  only consume it.
-- **19 ∥ 20:** wire shapes of `action_status` request/response frozen in 16's golden frames before
-  either starts.
-- **26 ∥ 27:** trace schema (operation, step, effect event JSON) frozen in 25 with golden fixtures
-  under `crates/domovoi-proto` or `domovoi-core` tests and mirrored in `web/src/test/fixtures`.
-- **29/30 ∥ 31 ∥ 33:** only touch their own aggregates; shared surface is the context-builder
-  retrieval port defined in 30 (knowledge supplies an implementation in 31 after 30 merges).
+## 2. Integration contracts frozen before parallel work
 
-## 3. Prompt template (every prompt 08+ will contain)
+- 08 freezes `Transaction`, `CommitError`, `CommitReceipt`.
+- 13 freezes golden frames incl. `features`; 20/21 add `action_status` frames in their first commit.
+- 24 freezes contract type shapes used by 25, 31, 39.
+- 26 freezes the trace schema (Rust + `web/src/test/fixtures`) used by 28, 30, 38.
+- 31 freezes the context retrieval port used by 34/35 (experience and knowledge implementations).
+- 37 freezes visibility categories used by every page prompt after it.
 
-1. Objective (one paragraph).
-2. Relevant decisions (RW ids, repo ADRs, invariants) with links.
-3. Exact scope — files/modules expected to change.
-4. Out of scope — explicit list; "no unrelated refactoring; report out-of-scope bugs in the PR".
-5. Inspect first — files to read before coding; "verify paths, types and signatures; do not assume
-   this prompt's paths are current".
-6. Expected changes, step by step.
-7. Interfaces and contracts (signatures, wire shapes, events), frozen where other prompts depend.
-8. Database changes (additive migration, N-1 test).
-9. Error and recovery behaviour, stated per failure (store error, link drop, restart mid-step).
-10. Security requirements (seals, arch rules, step-up, redaction).
-11. Tests required, by name.
-12. Acceptance criteria (checkable).
-13. Migration/compatibility (old agents, old DB, feature switch).
-14. Docs to update (book page, ARCHITECTURE.md only if stated, ADR to add).
-15. Completion report format: changed files, criteria met with evidence, tests added, deferred items,
-    out-of-scope findings.
+## 3. Prompt template (unchanged)
 
-Prompts follow `AGENTS.md`: branch named after the change, one-line Conventional Commit subjects,
-no mention of prompts or AI in committed files, scoped checks only.
+Objective; relevant RW/D decisions and invariants; exact scope; out of scope (no unrelated
+refactoring, report outside-scope bugs in the PR); files to inspect first (verify current paths and
+signatures); expected changes; interfaces and contracts; DB changes with N-1 test; error and
+recovery behaviour per failure; security requirements; named tests; acceptance criteria;
+migration/compatibility; docs incl. ARCHITECTURE.md sections; completion report format.

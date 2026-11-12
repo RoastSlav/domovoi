@@ -1,172 +1,219 @@
 # 06 — Implementation roadmap
 
-Ordered by dependency and risk, not by feature appeal. Categories: **F** foundational, **C** core,
-**U** user-facing, **A** advanced, **H** hardening. Each milestone is one or more PRs; the prompt
-split is in `07`.
+Ordered by dependency and risk. No separate v0.1 release (D-01). Categories: **F** foundation,
+**C** core, **U** user-facing, **A** advanced (autonomy), **H** hardening. Every milestone ends with
+`ARCHITECTURE.md` updated for what it changed (D-15). Contracts referenced as `04 §n`.
 
 ```mermaid
 flowchart LR
-  M0[M0 v0.1 hardening] --> M1[M1 Execution foundation]
-  M0 --> M2[M2 Capability contracts]
-  M1 --> M3[M3 Operation aggregate]
+  F1[F1 Unit of work + audit chain] --> F2[F2 Recovery + freshness]
+  F1 --> F4[F4 LLM + ops reliability]
+  F3[F3 Protocol tolerance] --> M1
+  F2 --> M1[M1 Execution journal + reconciliation]
+  F3 --> M2[M2 Capability contracts + registry]
+  M1 --> M3[M3 Operation aggregate + journal SSE]
   M2 --> M3
   M3 --> M4[M4 Dynamic investigation]
-  M3 --> M5[M5 Knowledge v1]
+  M3 --> M5[M5 Knowledge + experience]
   M3 --> M6[M6 Operator]
   M2 --> M7[M7 Policy shadow]
   M3 --> M7
   M4 --> M8[M8 L2 autonomy]
   M7 --> M8
-  M3 --> U1[UI: shell + Operations]
-  U1 --> U2[UI: graph, Control Room, Capability Center, Knowledge, Policies]
-  M8 --> V1[v1.0 drills + release]
-  M5 --> V1
-  M6 --> V1
+  M8 --> M9[M9 L3 containment]
+  M2 --> P1[P1 Packages + UI install]
+  F3 --> P1
+  M3 --> U1[U1 Shell + Operations timeline]
+  U1 --> U2[U2 Graph canvas]
+  U1 --> U3[U3 Visibility infra + profiles]
+  U3 --> U4[U4 Policy / Knowledge / Capability / Attention / Audit pages]
+  M5 --> U4
+  M7 --> U4
+  P1 --> U4
+  M9 --> V1[v1.0 gate]
   U2 --> V1
+  U4 --> V1
+  M6 --> V1
 ```
 
-Parallel-safe after their prerequisites: M1 ∥ M2; M5 ∥ M4 ∥ M6 (different aggregates, shared only
-through M3 contracts); M7 evaluator work (pure) can start alongside M3; UI tracks run beside backend
-once the trace schema (M3) is frozen with golden fixtures.
+**Parallel-safe** after prerequisites: F1 ∥ F3; F2 ∥ F4 (after F1); M1 ∥ M2; M4 ∥ M5 ∥ M6
+(different aggregates; shared surface is the context retrieval port frozen in M4's first PR); M7
+evaluator (pure) can start once M2 contract types land; P1 ∥ M3–M6; U2 ∥ U3. **Strictly sequential:**
+F1 → anything that writes state; M1 → M3; M8 → M9.
 
 ---
 
-## M0 — v0.1 hardening (H/F) — fix the current product
+## F1 — Unit of work and audit chain (F)
 
-- **Goal:** the current product is trustworthy enough to release; the rework's base is atomic and
-  restart-safe.
-- **Prereqs:** none. Decision RW-02.
-- **Backend:** unit-of-work port + all writers (RW-03); audit failure fails the transition; approval
-  expiry + incident-open check at dispatch and on catch-up; catch-up waits for the agent instead of
-  rejecting (D36); persisted verification timers (replace `recheck.rs` sleep); triage queue reload at
-  start; admission gate persisted + fail-closed; per-call LLM deadline; total prompt cap; host-scoped
-  `similar()`; step-up for `llm.cli.*` (RW-24); structured approval rendering in web + Discord
-  (RW-22); `/readyz`; `/metrics` auth; notification state saved after delivery (D37); `synchronous=FULL`,
-  `quick_check`, `domovoi restore`.
-- **Protocol:** version rule fix + tolerant decoding (RW-17 part 1) — must land **before** any
-  minor bump.
-- **Frontend:** approval card shows plan; approve POST sends plan hash; `QueryBoundary` stale/refresh
-  error state.
-- **DB:** `version` columns, `schema_version` in incident body, timers table.
-- **Security:** closes E risks 1, 3, 6, part of 5.
-- **Tests:** `CrashingStore` + restart helper; tests named for each defect (e.g.
-  `stale_approval_is_not_run_after_restart`, `catch_up_waits_for_agent_reconnect`,
-  `audit_failure_rolls_back_transition`, `verification_resumes_after_restart`,
-  `newer_minor_agent_is_accepted`).
-- **Acceptance:** every D01–D09, D36, D37 defect has a failing-then-passing test; N-1 upgrade test.
-- **Risk:** unit of work touches every writer → split per writer.
-- **Done:** v0.1.0 tagged.
+- **Goal:** state, journal (incident timeline for now), audit and effects commit atomically; audit
+  chain from the first post-migration row.
+- **Backend:** `UnitOfWork` port + SQLite + InMemory (04 §5); action writer and incident manager
+  commit through it; audit failure fails the transition; `Actor` enum (RW-29); hash chain + anchor row
+  (05 §2); `domovoi audit verify`; startup verify of last N.
+- **DB:** `journal` (incident kinds only), `effects`, `version` columns, `schema_compat`, audit chain
+  columns.
+- **Tests:** `unit_of_work` contract suite on both stores; `audit_failure_rolls_back_transition`;
+  `incident_write_is_atomic`; `audit_chain_detects_edit`; `CrashingStore` + restart helper (harness).
+- **Acceptance:** crash sweep over every action and incident write shows no state without its audit
+  and journal row; N-1 upgrade test passes.
+- **Risk:** touches every writer → one PR per writer after the port PR.
 
-## M1 — Execution foundation (F)
+## F2 — Recovery order and approval freshness (F/H)
 
-- **Goal:** no execution can be duplicated or silently lost.
-- **Prereqs:** M0.
-- **Backend:** step/action id as idempotency key; `OutcomeUnknown` status; reconcile via
-  `action_status` on reconnect; plan hash v2 (script bytes, target, step id); `Authorization` enum
-  with `Human` only; compile-time seal for `HumanApproval` (RW-11 part 1); single execution boundary
-  + arch rule (RW-08).
-- **Agent:** on-disk action journal, dedupe, `action_status` responder, `authorization_kind` field.
-- **Protocol:** `journal` feature, `action_status`.
-- **Tests:** stateful `FakeAgent` (drop/duplicate/delay); `FakeAgentLink` deadline enforcement;
-  `duplicate_dispatch_runs_once`, `lost_reply_reconciles_to_finished`, `journal_lost_is_outcome_unknown`,
-  golden frames.
-- **Acceptance:** sweep crash points across dispatch: never two runs, never `Succeeded` without a
-  result.
+- **Prereqs:** F1.
+- **Backend:** agent availability `Known|Unknown|Absent` (RW-09) and startup order (RW-30) on the
+  current action path; dispatch checks `expires_at`, incident open, plan hash; persisted verification
+  timers (`Wake` effects) replacing `recheck.rs` sleep; triage queue reloaded at start (interim until
+  M3); agent saves check state only after spool push; hub saves notification state after delivery;
+  state read error is an error (01 D37).
+- **Tests:** `catch_up_waits_for_unknown_host`, `stale_approval_not_dispatched_after_restart`,
+  `verification_resumes_after_restart`, `untriaged_incident_triaged_after_restart`,
+  `check_state_not_saved_when_spool_push_fails`, `notification_state_saved_only_after_delivery`.
+- **Acceptance:** each listed defect (01 D04, D07, D09, D36, D37) has a test that fails on the
+  baseline and passes after.
 
-## M2 — Capability contracts (F)
+## F3 — Protocol tolerance (F)
 
-- **Goal:** one registry the model, UI and executor share; available ≠ authorized.
-- **Prereqs:** M0 (tolerant decoding).
-- **Backend:** contract types in core; built-ins from ReadTool; `skill.<name>` adapter with hub floor;
-  registry = contracts × availability × enable state × ceiling; replace `PolicyLink` with registry
-  checks inside the execution boundary.
-- **Protocol:** `catalog_v1` feature, catalogue hash, paged `get_catalog`; remove `Hello.capabilities`.
-- **Frontend:** read-only capability inventory per host (replaces Skills page), lifecycle states.
+- **Backend/agent:** major-only reject, `features` negotiation, `Open<T>` decoding replacing
+  `serde(other)` where the value matters, `unsupported{type}` reply, hub pings, `MIN_AGENT_VERSION`
+  policy (support window OPEN).
+- **Tests:** golden frames for 1.1 committed; `newer_minor_agent_is_accepted`,
+  `unknown_enum_value_preserved`, `unsupported_message_does_not_end_session`.
+- **Acceptance:** a hub built from this slice talks to the baseline agent and vice versa (fixture test).
+- **Must land before any protocol minor bump.**
+
+## F4 — LLM, approval-surface and ops reliability (H)
+
+- **Prereqs:** F1.
+- **Backend:** persisted admission, fail-closed rules, cache hits free (04 §16); per-call deadline;
+  prompt total cap; attribution on success and failure; failed-call usage; redaction of replayed
+  history and provider errors; host-scoped `similar()`; step-up list incl. `llm.cli.*` (RW-24);
+  structured approval rendering in web and Discord (RW-22), approve request carries plan hash;
+  `/readyz`, metrics auth, `synchronous=FULL`, `quick_check`, backup verification, `domovoi restore`,
+  `pre-migrate-*` pruning.
+- **Tests:** `admission_survives_restart`, `cache_hit_uses_no_slot`, `call_deadline_enforced`,
+  `failed_call_records_usage`, `provider_error_redacted`, `llm_cli_change_requires_step_up`,
+  `discord_card_names_target_and_args`, `approve_with_stale_plan_hash_refused`.
+- **Acceptance:** 01 defects D01, D03, D38 closed; `/readyz` false when the writer is stalled.
+
+## M1 — Execution journal and reconciliation (F)
+
+- **Prereqs:** F2, F3.
+- **Agent:** journal with epoch, fsync `accepted` before start, dedupe by step id, `action_status`,
+  `authorization_kind` field, rate limit for all mutating kinds.
+- **Backend:** `OutcomeUnknown`; reconcile on `hello`; plan hash v2 (script bytes); `Authorization`
+  enum (Human only usable yet); constructor enforcement (RW-11); single execution boundary + arch rule.
+- **Protocol:** `journal`, `action_status`, `run_capability` (skills only).
+- **Tests:** stateful `FakeAgent`; `FakeAgentLink` enforces deadlines; `duplicate_dispatch_runs_once`,
+  `lost_reply_reconciles_to_finished`, `journal_lost_is_outcome_unknown`,
+  `not_found_with_epoch_is_not_run`, `old_agent_link_loss_is_outcome_unknown`,
+  `single_execution_boundary` gate.
+- **Acceptance:** crash sweep across dispatch: never two runs, never `Succeeded` without a result.
+
+## M2 — Capability contracts and registry (F)
+
+- **Prereqs:** F3.
+- **Backend:** contract types (RW-07), built-ins from `ReadTool`, `skill.<name>` adapter with floor,
+  availability states (04 §11.1), registry replaces `PolicyLink`; catalogue hash + paging.
+- **Frontend:** read-only capability inventory per host (replaces Skills page), availability states,
+  ceiling summary read-only.
 - **Tests:** `provider_cannot_lower_effect_class`, `unknown_effect_is_destructive`,
-  `disabled_capability_refused_at_boundary`, old-agent adapter compatibility.
+  `disabled_capability_refused_at_boundary`, `old_agent_adapter_lists_skills`.
 
-## M3 — Operation aggregate, journal and SSE v2 (F/C)
+## M3 — Operation aggregate and journal-backed SSE (F/C)
 
-- **Goal:** durable, resumable work; triage becomes an Investigate operation with identical behaviour.
 - **Prereqs:** M1, M2.
-- **Backend:** operation + steps + effects tables; operation writer; pure `decide`; effect runner;
-  timers; triage path behind `orchestration.enabled`; parity suite; use-case layer for start/cancel/
-  approve (RW-19); SSE v2 with journal sequence ids + replay.
-- **Frontend:** Operations list; operation detail with step tree/timeline + inspector; incident
-  detail links to operations; live layer on SSE v2. Trace schema golden fixtures shared by backend
-  and web tests.
-- **Tests:** orchestration simulator; crash sweep over operation writes; `operation_resumes_after_restart`,
-  `failed_verification_starts_new_cycle`, `budget_exhaustion_pauses`, `sse_replays_missed_events`.
-- **Acceptance:** with the flag on, all existing triage drills pass unchanged; flag off = today.
-- **Done:** old triage queue and `recheck.rs` removed in a follow-up PR.
+- **Backend:** `operations`, `steps`, `executions`, `operation_incidents`; operation writer with
+  execution module (RW-04); pure `decide`; effect runner; budgets; Investigate operation behind
+  `orchestration.enabled` with parity suite; legacy action projection (RW-32); use-case services
+  (RW-19); journal SSE with `as_of_seq` snapshots (04 §6); `incident_events` copy.
+- **Contract freeze:** trace schema golden fixtures (Rust + `web/src/test/fixtures`).
+- **Tests:** seeded orchestration simulator; `operation_resumes_after_restart`,
+  `failed_verification_starts_new_cycle`, `budget_exhaustion_pauses`, `no_blind_retry_of_failed_step`,
+  `sse_replays_missed_events`, `sse_resets_beyond_retention`, `lagged_subscriber_loses_nothing`.
+- **Acceptance:** flag on → all existing triage drills pass unchanged; flag off → baseline behaviour;
+  then a follow-up PR removes the triage queue and `recheck.rs`.
 
 ## M4 — Dynamic investigation (C)
 
 - **Prereqs:** M3.
-- **Backend:** meta-tool surface (RW-07); plan validator (RW-06); layered context builder with item
-  statuses; evidence dedupe; cycle/budget enforcement; remove `PROPOSALS:` protocol; one shared
-  provider-chain loop with model attribution.
-- **Tests:** `model_meta_tools_are_closed` gate; `invalid_plan_step_is_refused_with_reason`;
-  `missing_evidence_is_unknown_not_false`; novel-incident drill with no playbook.
+- **Backend:** closed meta-tools incl. `search_experience` stub (filled in M5); plan validator with
+  target resolution (D-07); layered context with item statuses; evidence dedupe; one provider-chain
+  loop; `PROPOSALS:` removed.
+- **Tests:** `model_meta_tools_are_closed` gate, `invalid_plan_step_is_refused_with_reason`,
+  `missing_evidence_is_unknown_not_false`, `model_target_resolved_or_refused`, novel-incident drill.
 
-## M5 — Knowledge v1 (C/U) — parallel with M4/M6
+## M5 — Knowledge and experience (C/U)
 
-- **Prereqs:** M3 (for proposals); store work can start after M0.
-- **Backend:** facts/relations/entities (RW-14), predicate enum, discovery writes facts, conflict →
-  disputed, retraction cleans FTS, notes subject links, `metric_samples` rename, context retrieval.
-- **Frontend:** Knowledge browser, subject detail (facts, relations, notes, incidents), edit/confirm/
-  dispute/retract, proposals inbox.
+- **Prereqs:** M3 (summaries); fact storage may start after F1.
+- **Backend:** facts/relations/entities (04 §10), `metric_samples` rename, profile backfill,
+  resolution summaries + FTS, `search_experience`, conflict and retraction rules.
+- **Frontend:** similar past operations on incident/operation pages (U4 hosts the full Knowledge pages).
 - **Tests:** `inferred_fact_never_becomes_confirmed_without_user`, `retracted_fact_not_retrievable`,
-  `conflicting_sources_kept_as_disputed`.
+  `conflicting_sources_kept_as_disputed`, `experience_search_is_host_scoped`,
+  `experience_block_labelled_not_authorization`.
 
-## M6 — Operator (U) — parallel with M4/M5
+## M6 — Operator (U)
 
-- **Prereqs:** M3; M4 for anything beyond Q&A.
-- **Backend:** conversation aggregate, streaming replies over SSE v2, conversation → operation.
-- **Frontend:** side panel + full workspace on the same records; right-slot precedence rule.
-- **Tests:** `closing_panel_does_not_stop_operation`, `operator_has_no_executor` (arch rule).
+- **Prereqs:** M3 (M4 for anything beyond Q&A).
+- **Backend:** conversation aggregate, streaming, conversation → operation, explicit scope, stale
+  response discard by request id.
+- **Frontend:** side panel + workspace on the same records; composer draft retention; right-slot rule.
+- **Tests:** `closing_panel_does_not_stop_operation`, `stale_reply_discarded`,
+  `global_scope_is_explicit`, arch rule `operator_has_no_executor`.
 
 ## M7 — Policy in shadow (C/U)
 
-- **Prereqs:** M2 (contracts), M3 (decisions recorded as steps).
-- **Backend:** policy sets (versioned), pure evaluator (RW-10), decisions recorded for every
-  mutating step in shadow, historical simulator over recorded steps, step-up on edits.
-- **Frontend:** policy editor (rules list + host × capability matrix showing inherited/explicit),
-  decision explanation on every approval card, simulator.
-- **Tests:** evaluator table + property tests (`deny_always_wins`, `allows_intersect`,
-  `destructive_never_allowed`, `unknown_fact_never_allows`), simulator uses the live function.
+- **Prereqs:** M2, M3.
+- **Backend:** policy versions, evaluator (04 §7), decisions recorded on every mutating step, simulator,
+  step-up on publish.
+- **Frontend:** in U4 (editor, matrix, effective-policy explanation, simulator).
+- **Tests:** 04 §7.7 complete.
+- **Acceptance:** for 2 weeks of the owner's real incidents (or the drill suite), shadow decisions are
+  recorded and the simulator reproduces each one exactly.
 
-## M8 — Bounded autonomy L2 (A)
+## M8 — L2 bounded autonomy (A)
 
-- **Prereqs:** M4, M7, decisions RW-12, RW-13.
-- **Backend:** `PolicyPermit` + seal (RW-11), guardrails (RW-23), circuit breaker, global pause,
-  first reviewed L2 contracts (`container.restart`, `unit.restart`), postcondition verification.
-- **Agent:** `[policy] unattended` ceiling enforced on `authorization_kind = policy`.
-- **Frontend:** "authorized by policy rule X v N" vs "approved by <user>" everywhere; pause switch.
-- **Tests:** gate `no_permit_without_policy_allow`; `agent_refuses_policy_dispatch_outside_ceiling`;
-  `circuit_breaker_suspends_rule`; drill suite (injection tries to trigger a rule on another
-  target → refused).
+- **Prereqs:** M4, M7; ADR for Docker socket write access; host ceiling format (04 §8.3).
+- **Backend:** `PermitIssuer` (RW-11), hard limits, guardrails (RW-23), circuit breaker, global
+  pause, first L2 contracts `container.restart`, `unit.restart` with postconditions.
+- **Agent:** ceiling enforcement for `policy` kind; ceiling hash in `hello`.
+- **Frontend:** "authorized by rule X vN" vs "approved by owner" everywhere; pause switch.
+- **Tests:** `no_permit_without_policy_allow` gate, `agent_refuses_policy_dispatch_outside_ceiling`,
+  `circuit_breaker_suspends_rule`, `pause_blocks_new_permits`, injection drill (log text asks to
+  restart another target → refused/approval).
+
+## M9 — L3 containment (A)
+
+- **Prereqs:** M8; P1 (helpers ship as first-party packages); management-path facts (M5).
+- **Backend/agent:** first set (04 §9, OPEN); detector-only triggering; watchdog for connectivity
+  contracts; reconciliation of active containments.
+- **Tests:** all 04 §9 drills; `containment_expires_without_agent`, `excluded_address_refused`,
+  `model_cannot_trigger_containment`.
+
+## P1 — Capability packages and UI installation (C/U)
+
+- **Prereqs:** M2, F3.
+- **Backend/agent:** package format, index fetch, relay, agent verification with local keys, staging
+  install, uninstall, one-step rollback, install jobs, audit (04 §11.2).
+- **Frontend:** install wizard (in U4): choose package → choose hosts → progress per host → result;
+  enable is a separate step.
+- **Tests:** `agent_rejects_untrusted_signature`, `hub_cannot_add_trusted_key`, `install_never_enables`,
+  `partial_install_reports_per_host`, `install_refused_when_allow_install_false`.
 
 ## UI track
 
-- **U1 (after M3):** shell + IA reshuffle, right-slot manager, Operations, Playwright smoke in CI.
-- **U2:** graph canvas (after spike V3), Control Room, Capability Center (install flow only after
-  ADR V1), Knowledge and Policies pages from M5/M7, global search.
-- **U3 (post-v1 or late):** presentation profiles, customizable widgets.
+- **U1 (after M3):** shell and nav, attention centre skeleton, right-slot manager, Operations list,
+  operation detail with step tree/timeline + inspector, structured approval card, Playwright smoke in CI.
+- **U2 (after U1 + graph spike):** interactive graph canvas (primary on operation detail), keyboard
+  model, live progression motion, reduced-motion behaviour.
+- **U3 (after U1, before U4):** visibility categories, `useVisibility`, profile preferences
+  (Detailed/Standard/Essential), `p0_visible_in_every_profile` test; existing pages annotated.
+- **U4:** Policies (editor, matrix, explanation, simulator), Knowledge, Capability Center (inventory,
+  install wizard, ceiling view), Audit (chain status), retention settings, Control Room, global search.
 
-## v1.0 release gate
+## v1.0 gate
 
-Pack doc 10 acceptance gates, minus L3/offline (RW-13), plus: crash sweep green, N-1 upgrade green,
-protocol golden frames for previous release, drill suite green, `OutcomeUnknown` never auto-retried.
-
-## M9 — Security autonomy L3 (A) — in v1
-
-- **Prereqs:** M8.
-- General `Contain` contracts (first: temporary source block via one firewall provider; then
-  workload isolation, exposure restriction), each with TTL/auto-expiry, enforcement-point check,
-  trusted management paths (owner-confirmed facts; unknown → refuse), caps on simultaneous
-  containments, verification that management access still works, drills.
-
-## After v1 (planned)
-
-Offline emergency permits; owner-signed policy bundles; host tags in policy; multi-user and roles.
+Pack doc 10 acceptance gates (as updated) plus: crash sweep green; N-1 upgrade green; golden frames
+for the previous release decode; drill suite (L2 and L3) green; `OutcomeUnknown` never auto-retried;
+P0 present in every profile; audit chain verifies.

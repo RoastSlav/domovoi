@@ -21,45 +21,48 @@ Keep these as logically distinct modules even if they share one SQLite file:
 
 1. **Operational state:** hosts, agents, incidents, signals, actions, approvals, policies, settings, audit and orchestration state.
 2. **Knowledge graph:** entities, typed relationships and sourced facts/claims.
-3. **Experience log:** append-only incident/phase/plan/operation/verification events and links to relevant entities/evidence.
+3. **Experience = the journal:** one append-only table of typed events for incidents, operations, conversations and knowledge, with a global sequence number. It is also the change stream the live UI replays, so there is no separate experience event store (owner decision D-02, RW-15). Beside it sit the hash-chained **audit** record (the security record, written in the same transaction) and the **effects** outbox (pending side effects, not an event store).
 4. **Documents:** existing Markdown notes/runbooks and their FTS index.
 5. **Search structures:** ordinary indexes, FTS5 and (later, if justified) vector embeddings.
 
 ## Conceptual schema
 
-Not final DDL; IDs, constraints, normalization and lifecycle fields require a later specification.
+Not final DDL; the authoritative schemas are in [`docs/rework/04 §10`](../rework/04-target-architecture.md) (RW-14, RW-15, RW-25). IDs, constraints, normalization and lifecycle fields require that specification.
 
 ```sql
-entities(
-  id, kind, name, scope_type, scope_id,
-  attributes_json, lifecycle, created_at, updated_at
+-- Subjects are typed refs: host:<id>, container:<host>/<name>,
+-- unit:<host>/<name>, entity:<uuid>. Observed inventory stays in the
+-- baselines tables, which own it; facts and relations only point at it.
+entities(                       -- user-defined subjects only
+  id, kind, name, attributes_json, lifecycle, created_at, updated_at
 )
 
-relationships(
-  id, source_entity_id, relation_type, target_entity_id,
-  properties_json, source, verification_status,
+relations(
+  id, subject_ref, relation_type, object_ref,
+  properties_json, source, status,
   valid_from, valid_until, observed_at, last_verified_at
 )
 
-knowledge_facts(
-  id, subject_entity_id, predicate, value_json,
-  scope_type, scope_id, source_type, source_ref,
-  confidence, status, valid_from, valid_until,
-  observed_at, last_verified_at, supersedes_id,
-  created_at, updated_at
+facts(
+  id, subject_ref, predicate, value_json,
+  source, status, observed_at, valid_until, last_verified_at,
+  supersedes_id, evidence_ref, created_at, updated_at
+)                               -- no numeric confidence column
+
+journal(                        -- the experience record and the SSE change stream
+  seq, occurred_at, actor, kind, topic,
+  operation_id, incident_id, subject_refs, payload_json
 )
 
-experience_events(
-  id, incident_id, event_type, phase, actor_type, actor_id,
-  occurred_at, summary, payload_json, correlation_id
-)
-
-experience_links(
-  event_id, entity_id, link_type
+resolution_summaries(           -- one per terminal operation, full-text indexed
+  operation_id, subjects, capabilities_executed, verification, outcome,
+  problem, cause, fix, narrative_source, confirmed_by, updated_at
 )
 ```
 
-Use typed definitions/validation for entity kinds, relationship types and predicates. Do not create unconstrained EAV where every field is a free-form string. Keep stable/query-critical fields relational; put only variable optional properties in JSON. Store evidence references/hashes and bounded summaries rather than unlimited raw logs or secrets.
+The earlier draft had `experience_events` and `experience_links` tables and a numeric `confidence`. Both are dropped: the journal is the experience record, links to subjects live on the journal entry as typed refs, and a fact carries a status and a source, not a number. The `digest_facts` table, which holds metric samples and collides with the word "facts", is renamed `metric_samples` first.
+
+Use typed definitions/validation for relation types and predicates (a closed enum in v1). Do not create unconstrained EAV where every field is a free-form string. Keep stable/query-critical fields relational; put only variable optional properties in JSON. Store evidence references/hashes and bounded summaries rather than unlimited raw logs or secrets.
 
 ## Search strategy
 
@@ -82,7 +85,7 @@ Expose domain operations rather than raw database queries, for example:
 - `get_facts(entity_id, predicates, freshness)`
 - `get_relationships(entity_id, relation_types, direction)`
 - `traverse_graph(start_entity, relation_filter, max_depth, max_nodes)`
-- `search_experience(query, scope, time_range)`
+- `search_experience(query, scope, time_range)` — a host-scoped read capability over resolution summaries and journal entries; the model sees it as a meta-tool, and results carry operation id, date, verified flag and source
 - `get_incident_experience(incident_id)`
 - `get_notes(query, entity/host scope)`
 - `propose_knowledge_change(...)`
@@ -94,16 +97,18 @@ Every traversal must be bounded by depth, node count, relationship filters and r
 - Hub is canonical for long-lived knowledge, policy and experience.
 - Agent caches contain only the signed/versioned subset required for local enforcement or a permitted offline emergency action.
 - Track policy/knowledge versions and reconcile cached data on reconnect.
-- Keep experience events append-only for auditability, with explicit retention/redaction rules for sensitive payloads.
+- Keep journal entries append-only for auditability, with explicit retention/redaction rules for sensitive payloads.
+- **All retention is configurable** (owner decision D-09, RW-28). Current defaults stay where they exist (for example the 90-day incident timeline), raw step output and durable resolution summaries are separate retention classes, and the interaction with full-text indexes, backups and the audit chain is defined in `docs/rework/04 §14`. Proposed default values are still open (see `09`).
+- Audit entries are hash-chained (owner decision D-14); pruning writes a chained checkpoint row, so retention never silently breaks verification.
 - Keep current facts mutable through superseding/retraction, not destructive overwrites that erase provenance.
 - A deletion workflow must clean derived FTS/vector/cache data and prevent retrieval of the deleted content.
 
 ## Migration approach
 
-1. Keep current relational operational tables unchanged initially.
+1. Keep current relational operational tables unchanged initially. New tables are additive migrations; existing action records are retained and shown through a read-only legacy projection rather than rewritten (RW-32).
 2. Add a new knowledge repository/service alongside `NoteRepo`; do not overload the current `knowledge.rs` module that currently implements notes, baselines, acknowledgements and digest facts.
 3. Add typed tables and indexes through append-only migrations.
-4. Link existing hosts, skills, notes, incidents and signals to stable entity IDs incrementally.
+4. Link existing hosts, skills, notes, incidents and signals to typed subject refs incrementally; do not copy baseline inventory into new tables.
 5. Retain existing notes and `notes_fts`; add entity linkage without forcing Markdown into structured facts.
 6. Add graph and semantic search only behind service interfaces.
 

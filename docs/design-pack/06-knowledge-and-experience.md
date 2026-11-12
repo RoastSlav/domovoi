@@ -8,7 +8,7 @@
 | **Policy** | What is Domovoi allowed to do, under which conditions? | Allow `restart_service` on `plex`; deny all file deletion; require approval for host reboot. | A fact about the environment or a historical observation. |
 | **Experience** | What happened, what did Domovoi decide/do, and what was the outcome? | Incident timeline, evidence requests, plan attempts, approval/denial, execution, verification, operator correction. | A guaranteed current fact or an authorization grant. |
 
-They inform one another but cannot be merged semantically. An observed fact may inform a policy proposal; a human must explicitly accept a policy change. An experience may suggest a knowledge update; it does not overwrite facts without provenance-aware validation.
+They inform one another but cannot be merged semantically. They stay separate in meaning, not necessarily in storage: **the experience record is the operational journal** (one append-only table of typed events, RW-15), not a third event store, and the knowledge facts reference inventory that already exists rather than copying it. An observed fact may inform a policy proposal; a human must explicitly accept a policy change. An experience may suggest a knowledge update; it does not overwrite facts without provenance-aware validation.
 
 ## Knowledge categories
 
@@ -23,7 +23,9 @@ They inform one another but cannot be merged semantically. An observed fact may 
 
 ## Entity and relationship model
 
-Represent meaningful things as entities: host, service, container, database, filesystem, disk, storage pool, network, router, domain, integration, user-defined operational concept. Connect them with typed relationships such as `runs_on`, `depends_on`, `routes_to`, `stores_on`, `backs_up_to`, `exposed_through`, `managed_by` and `managed_from`.
+Represent meaningful things as subjects: host, service, container, database, filesystem, disk, storage pool, network, router, domain, integration, user-defined operational concept. Connect them with typed relationships such as `runs_on`, `depends_on`, `routes_to`, `stores_on`, `backs_up_to`, `exposed_through`, `managed_by` and `managed_from`.
+
+**Owner decision D-02 / [RW-14](../rework/03-architecture-decisions.md).** Subjects are **typed references** (a host, a container on a host, a unit on a host, or a user-defined entity), not a second copy of the inventory. The learned baselines remain the owner of observed containers, units and ports; facts and relations point at them. A small entities table exists only for subjects the user defines (for example "VPN" or "NAS pool"). The set of predicates is a closed, typed list in v1.
 
 Do not create graph nodes for every log line or metric. Those belong in event/measurement records; link only useful incidents, facts and experiences to relevant entities.
 
@@ -34,7 +36,7 @@ A fact/claim should carry, at minimum:
 - Subject entity and typed predicate/value.
 - Scope (global, host, entity or service).
 - Source (user-confirmed, agent-discovered, integration-reported, inferred, imported).
-- Confidence/verification status; never treat model confidence as calibrated probability.
+- Verification status (for example observed, user-confirmed, inferred). There is **no numeric confidence** field: model confidence is not a calibrated probability, and a number would suggest otherwise.
 - Observed/valid-from time and optional valid-until time.
 - Last-verified time and freshness policy.
 - Creator/updater and timestamps.
@@ -44,6 +46,16 @@ A fact/claim should carry, at minimum:
 Missing or unreadable data remains `unknown`/`unavailable`; do not write false or empty values as confirmed facts. When sources conflict, preserve provenance and surface the conflict instead of silently selecting the newest text.
 
 Lifecycle: discovered or supplied → validated → used in context → reverified/updated → superseded, expired or retracted. AI inference cannot become user-confirmed merely because it is repeated.
+
+## Experience: finding past operations (owner decision D-02, RW-25)
+
+Past incidents and how they were solved must be easy to query.
+
+- The journal holds typed events linked to subjects, so an operator can ask "what happened to this container" and get a precise answer, not a text search over prose.
+- Every finished operation gets a **resolution summary**: deterministic fields filled by code (subjects, capabilities executed, verification results, outcome) and narrative fields (problem, cause, fix) drafted by the model, marked as model-sourced and editable or confirmable by the owner. Summaries are full-text indexed.
+- The model has a host-scoped `search_experience` read capability. The UI shows **similar past operations** on incident and operation pages.
+- When experience is supplied to the reasoner, each item carries its operation id, date, verified flag and source, inside a block labelled historical evidence, not authorization. **Past approvals and past successes are evidence and never satisfy policy.**
+- Retention of raw step output and of durable summaries are separate, both configurable (owner decision D-09; see `07`).
 
 ## Onboarding and discovery
 
@@ -72,7 +84,7 @@ Make knowledge a first-class, editable area:
 - Search/browse by host, entity, category, source, status and freshness.
 - Edit, confirm, dispute, supersede and delete records.
 - View an entity's facts, relationships, notes, incidents, experiences and relevant policy.
-- Provide a graph explorer for relationships and an experience explorer for timelines/cycles.
-- Show provenance and confidence/status wherever a fact influences a diagnosis or action.
+- Provide a graph explorer for relationships and an experience view of past operations (timelines, cycles, resolution summaries, similar operations).
+- Show provenance and status wherever a fact influences a diagnosis or action.
 
 The UI should make it easy to fix incorrect knowledge; users should not need SQL or file edits.

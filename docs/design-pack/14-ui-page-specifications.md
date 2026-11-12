@@ -4,7 +4,7 @@ This document defines what each target page must contain and do, before visual l
 
 ## 1. Priority and space legend
 
-**Priority:** P0 essential · P1 high · P2 supporting · P3 on demand.
+**Priority (category):** P0 safety, approval, audit and current state · P1 primary · P2 technical detail · P3 metadata. The category decides what each presentation profile shows (doc 12, section 5); P0 is shown in every profile.
 
 **Space:** Dominant · Large · Medium · Compact · Contextual.
 
@@ -16,7 +16,7 @@ The space classification is the amount of useful screen area required, not a fix
 |---|---|---|---|
 | Control Room / Overview | What is happening across the environment? | Active work visualization or attention workspace (Large) | Critical attention, active operations, environment health |
 | Operations list | What work is Domovoi doing or has done? | Filterable operation list (Large) | Running, waiting, blocked and failed work |
-| Operation detail | Exactly how did / is this work progressing? | Orchestration graph (Dominant) | Graph, current activity, outcome/next step, operation controls |
+| Operation detail | Exactly how did / is this work progressing? | Orchestration graph (Dominant) | Graph, current state, approval card when a decision is due, operation controls |
 | Incidents list | What problems were detected? | Incident table/list (Dominant) | Severity, state, target, host, age, needed attention |
 | Incident detail | What happened and what response is being taken? | Evidence/story with related operations (Large) | Problem statement, evidence, state, linked operations/actions |
 | Operator side panel | Ask or request something from anywhere | Conversation and current operation summary (Large within panel) | Context, transcript, composer, active work |
@@ -30,6 +30,8 @@ The space classification is the amount of useful screen area required, not a fix
 | Policies & Autonomy | What is Domovoi allowed to do? | Policy matrix/editor (Large) | Inheritance, allow/approval/deny, constraints and effective result |
 | Policy simulator | What would this policy allow in a real situation? | Scenario/result comparison (Large) | Selected scenario, policy versions, exact deterministic result |
 | Integrations | Which external systems are connected? | Integration inventory (Large) | Connection health, scope, actions, reauthentication |
+| Attention center | What needs a decision or a look? | Attention list (Large) | Approvals, questions, failures, manual interventions |
+| Audit log | Who did what, and is the record intact? | Audit table (Large) | Actor, action, target, outcome, chain verification status |
 | System settings | Configure hub-wide behavior | Settings sections/forms (Medium–Large) | Editable settings, source, validation, save/restart impact |
 
 ## 3. Control Room / Overview
@@ -43,9 +45,9 @@ Answer at a glance: “Is anything wrong?”, “What is Domovoi doing right now
 | Content | Priority | Space | Behavior |
 |---|---:|---:|---|
 | Critical attention queue | P0 | Large | Most urgent incidents, blocked operations, failed agents and security warnings; direct links to the right workspace. |
-| Active operations overview | P0 | Large | Show active operation count and meaningful in-progress summaries; select one to open its live graph. Do not squeeze a full complex graph into a tiny card. |
+| Active operations overview | P0 | Large | Active operation count and, per operation, only what the engine reports: current phase name, waiting reason and elapsed time. Select one to open it. Do not squeeze a full complex graph into a tiny card. |
 | Environment health | P0 | Medium | Hosts online/offline, services with issues, storage pressure and other high-value health indicators. |
-| Waiting for user | P0 | Medium | Approvals, questions, permission changes and manual intervention requests, with age and expiry. |
+| Waiting for you | P0 | Medium | The first items of the attention center: each approval is the shared approval card (compact), others link to their canonical page; age and expiry shown. |
 | Recent activity | P1 | Medium | Chronological events across incidents and operations; filter by host/type. |
 | Fleet/service summary | P1 | Medium–Large | Host groups, service status, key resource trends. |
 | LLM/provider status and usage | P2 | Compact–Medium | Provider availability, usage, latency, tokens/cost and budget pressure. |
@@ -55,10 +57,12 @@ Answer at a glance: “Is anything wrong?”, “What is Domovoi doing right now
 ### Interaction requirements
 
 - Clicking any status/count opens a correctly filtered destination.
-- Active operation entries show true progress and update live; do not claim a stage is active if only a periodic summary is known.
+- Active operation entries update live from reported state; do not claim a stage is active, and show no percentage, unless the engine reported it.
 - Users can pin a favorite host, service or operation.
 - Widget configuration is separate from operational permissions.
 - The overview must not become a wall of charts. Each widget needs a user question it answers.
+- A count appears once within a widget and once in the default layout. User-rearranged layouts may repeat a widget; that is the user's choice and not an acceptance failure.
+- The autonomy state (paused, rule suspended) is part of environment health and links to Policies & Autonomy.
 
 ### Space decision
 
@@ -93,7 +97,19 @@ Priority P0: name/goal, status, origin, target/host, started/updated time, curre
 
 ### Purpose
 
-The primary workspace for understanding exactly what Domovoi is doing or did. The orchestration graph is a defining UI element and receives dominant screen space.
+The primary workspace for understanding exactly what Domovoi is doing or did. Two representations of one trace are in v1: a **step timeline/tree** (built first) and the **interactive orchestration graph**, which is the primary visualization and receives dominant screen space. Both read the same trace schema, frozen with golden fixtures before either is built; neither invents data the other lacks. A non-canvas **outline** of the graph is always available and is the screen-reader path.
+
+### Space allocation (1280 x 720 reference)
+
+| Region | Content | Size |
+|---|---|---|
+| Header strip | Goal, status, origin, targets, phase/cycle, duration, budget use, what it waits for, operation controls | Compact-Medium, always above everything else |
+| Approval card | When a decision is due: the structured approval card, directly under the header strip | Medium, only while a decision is pending |
+| Graph canvas | Orchestration graph (timeline/tree selectable as the alternative view) | Dominant; at least 640 x 400 CSS px; below that, outline plus node sheet |
+| Right slot | Node inspector or Operator panel (precedence rule, doc 13) | Contextual, 320-480 px |
+| Below the graph | Tabs: Findings, Plan, Conversation, Capability calls, Evidence, Logs/output, Model usage, Policy decisions, Audit/events | P1 and P2 content; one tab visible at a time |
+
+P0 content (header strip, approval card) is never in a tab. Findings and plan are P1 and sit in the first two tabs; on screens too small for graph and tabs together, the graph yields to outline plus sheet before P0 yields to anything.
 
 ### P0 / dominant
 
@@ -102,26 +118,36 @@ The primary workspace for understanding exactly what Domovoi is doing or did. Th
 - Show actual phases, branch structure, parallel activity, loops/cycles, waits, retries/replans, execution and verification.
 - Show active node(s), completed and failed nodes, skipped nodes and nodes waiting for external input/approval.
 - Preserve individual event/node identity as new events arrive.
-- Support zoom, pan, fit-to-view, minimap/overview for large graphs, cycle filter, branch filter and live-follow toggle.
+- Support zoom, pan, fit-to-view, minimap/overview for large graphs, cycle filter, branch filter and a live-follow toggle.
 - Collapsed node groups must communicate count/status and be expandable into exact activity.
 - Selecting a node opens an inspector without navigating away.
 - Do not flatten a branched/parallel graph into a fake linear progress bar.
+- Keyboard navigation and the outline are specified in doc 15, section 4.
 
-**Current state and next action** (Compact–Medium):
+**Current state and next action** (Compact-Medium):
 
-- Operation goal, status, origin, target(s), start time/duration, current phase/cycle, budget use and what it is waiting for.
+- Operation goal, status, origin, target(s) and the pinned subjects they came from, start time/duration, current phase/cycle, budget use and what it is waiting for.
+- A step outside the operation's scope is flagged "outside operation scope" and can only be approved, never run automatically.
 - If user input/approval is required, present the exact request and controls at the point of need.
+
+**Structured approval card** (one component, used everywhere an approval appears; canonical home is this page):
+
+- Renders from deterministic data: contract, target, arguments, effect class, reversibility, expiry, plan-hash prefix, and the policy decision with its winning rule.
+- Model-written text is secondary and labelled as model text.
+- One primary action per context; destructive approvals name the target and consequence and ask for confirmation.
+- Embedded or linked from incident detail, the Control Room, the Operator and the attention center; they never reimplement it.
 
 ### P1 / large or medium
 
 - Findings/hypotheses: facts, inferred hypotheses, uncertainties, evidence links and discarded hypotheses with reasons.
 - Current/approved plan: actions, intended effects, preconditions, dependencies, risk, policy outcome, verification and rollback/expiry.
 - Related incidents, hosts, services, capabilities and knowledge.
+- **Similar past operations:** earlier operations with their resolution summaries (outcome, what was done, verified or not, source of each narrative field). Each is marked "historical, not authorization"; past approvals and successes never count toward the current decision.
 - Operation conversation and user messages.
 
 ### P2 / tabs or expandable sections
 
-Recommended technical views: Timeline, Capability calls, Evidence, Logs/output, Model usage, Policy decisions, Audit/events. The detailed baseline should make these readily accessible; large raw data can live in tabs/inspectors rather than being dumped all around the graph.
+Technical views: Timeline, Capability calls, Evidence, Logs/output, Model usage, Policy decisions, Audit/events. Large raw data lives in tabs and the inspector rather than around the graph.
 
 ### Node inspector
 
@@ -129,7 +155,7 @@ Contextual panel; P1 when a node is selected, otherwise closed. It shows:
 
 - Node type/name/status and why it exists.
 - Owner component (orchestrator, reasoner, context builder, policy engine, executor, provider, verifier, user).
-- Start/end/duration and correlation IDs.
+- Start/end/duration and correlation IDs (P3).
 - Inputs and outputs with evidence/provenance references.
 - Capability ID/version, target and typed arguments where applicable.
 - Result, error, retry/replan relation and next node(s).
@@ -144,7 +170,7 @@ The user may inspect any completed or running node; opening an inspector must ne
 
 Retain the current ability to filter/group by status/severity and quickly find an incident, but plan the future around links to operations.
 
-P0 fields: severity, title/problem, host/target, current incident status, last firing/opened time, whether action is needed, related active operation. P1: check/source, recurrence count, assigned/acknowledged state, last update. P2: detailed signal/evidence count.
+P0 fields: severity, title/problem, host/target, current incident status, last firing/opened time, whether action is needed, related active operation. P1: check/source, recurrence count, acknowledged state, last update. P2: detailed signal/evidence count.
 
 A dense table/list should support saved filters, grouping, sort, pagination/virtualization and responsive rendering. Avoid repeated counts/status labels in multiple places.
 
@@ -154,7 +180,7 @@ The incident describes the problem, not the work engine.
 
 P0: problem statement, severity/state, target/host, current measured facts, key evidence, whether problem persists, related active operation and user attention request.
 
-P1: related operations (one or several), incident timeline, recurrence, historical similar cases, relevant knowledge and recommended next step.
+P1: related operations (one or several), incident timeline, recurrence, similar past operations with resolution summaries (marked historical, not authorization), relevant knowledge and recommended next step. A pending approval for any related operation is shown as the shared approval card, embedded or linked to its operation.
 
 P2: raw signal payloads, complete logs, check metadata and detailed source information.
 
@@ -168,7 +194,7 @@ Keep incident-specific actions such as acknowledge/mute/dismiss clearly separate
 
 Fast conversational access from any page, without replacing the dedicated Operator workspace.
 
-P0: current conversation, composer, selected context, request/stop control, active operation status and approvals/questions relevant to this conversation.
+P0: current conversation, composer, selected context, request/stop control, active operation status and approvals/questions relevant to this conversation (approvals render the shared approval card).
 
 P1: recent conversations, recent operations, starter prompts, scope selector and “open full workspace”.
 
@@ -181,7 +207,9 @@ P2: model/provider metadata and technical tool details, accessible by expanding 
 - User can start a task, then continue browsing; the operation continues independently.
 - Expand into full workspace with same conversation/task IDs and scroll position where sensible.
 - Side panel can be resized on desktop; mobile uses full-screen sheet/workspace behavior.
-- It must communicate the active scope. “All hosts” is not the same as one host or selected incident.
+- It must communicate the active scope. “All hosts” is not the same as one host or selected incident. Scope is explicit per conversation.
+- Conversations are durable. A stale response for a superseded request is discarded, and the composer draft is kept until the send is committed.
+- It shares the right-hand slot with the inspector under the precedence rule in doc 13.
 
 ## 8. Operator full workspace
 
@@ -218,6 +246,8 @@ One canonical page per host. Recommended high-level tabs (exact grouping to vali
 7. **Activity** — operations, incidents, capability runs, configuration changes and agent events.
 
 Logs may remain a standalone global view with host filter and also be reachable from Workloads/Activity. Do not create a separate tab solely to expose a large raw log dump unless user workflows justify it.
+
+The host page shows the **host-local unattended ceiling** read-only (the most the host itself allows to run without a person), with the explanation that it is edited in the agent's configuration on the host, not here. Policy can only narrow it.
 
 Host actions (rename, enroll/revoke, maintenance, update agent) should be discoverable in page-level actions, with destructive actions contextual and confirmed.
 
@@ -260,7 +290,11 @@ A guided wizard or dedicated deployment workspace:
 9. Run a safe test/health check.
 10. Show result and allow rollback/uninstall where supported.
 
-**Critical distinctions:** installed ≠ enabled; enabled ≠ authorized; authorized ≠ skipped local validation.
+**Critical distinctions:** installed ≠ enabled; enabled ≠ authorized; authorized ≠ skipped local validation. No control installs and enables in one step; each is its own action, and enabling and starting an installation each ask for password re-entry.
+
+**Trust model shown in the UI:** packages are signed archives. The hub only relays the bytes; the **agent** verifies the signature against keys in its own local trusted-key list and installs only if the host has opted in (off by default) and the package is compatible. The UI shows, per host: opted in or not (with where to change it), which key signed the package, and the verification result reported by the agent. A host that has not opted in is shown as "does not accept installs", not as a failure. v1 scope (proposed): first-party signed packages plus packages signed with a key the owner added locally; no third-party registry.
+
+**Progress and recovery:** the deployment view shows one row per host (queued, delivered, verifying, installed, failed with the agent's reason, pending because offline), the overall result as "N of M hosts", retry for failed hosts only, and uninstall/rollback where the package declares it.
 
 AI-generated capability drafts may be reviewed and tested, but the model cannot self-install, grant itself new privileges or alter its own trust roots.
 
@@ -296,13 +330,24 @@ Present proposed learnings with evidence and suggested scope. User can accept, e
 
 ### Policy overview/editor
 
-P0: effective policy by host and capability/operation, clear Allow automatically / Ask for approval / Deny semantics, inherited versus explicit values, rule precedence and “why” explanation.
+P0: effective policy by host and capability/operation, clear Allow automatically / Ask for approval / Deny semantics, inherited versus explicit values, rule precedence and a "why" explanation (below); the autonomy pause switch and any rule suspended by its circuit breaker; rules in shadow mode (new rules start there) clearly marked as not yet acting.
 
-P1: conditions, target restrictions, time windows, TTL, rate limits, blast-radius caps, trusted paths, recovery requirements and policy versioning.
+P1: conditions, target restrictions, time windows, TTL, rate limits, blast-radius caps, trusted paths, recovery requirements and policy versioning. Publishing a policy version asks for password re-entry.
 
 P2: raw rule representation, import/export and policy-as-code support later.
 
 A matrix view is recommended for host-by-capability review, but complex condition editing needs a dedicated policy detail/editor rather than an unreadable mega-table.
+
+### Effective-policy explanation
+
+For any host, capability and context the page answers "why this result?" using the production evaluator, never a re-implementation. It shows:
+
+- **All matching rules**, each with its effect (Allow, Ask, Deny) and specificity.
+- **The winning rule** and **why it won**, as one of: strictly more specific than the others; equal specificity where Deny wins; incomparable specificity resolved by the fallback.
+- **Which broader rules it overrides.**
+- **Hard limits shown separately from rules**: the host-local ceiling (read-only, edited on the host), the global pause, rate limits and target binding. A hard limit is never presented as a rule that could be edited here.
+- **Dangerous exceptions made obvious**: a specific Allow that overrides a broad Deny is marked with a warning tone, an icon and the text "Allow overrides a broader Deny", in the matrix, the explanation and the editor's diff before publishing.
+- Missing or unavailable context is named; the result may be "cannot determine".
 
 ### What-if policy simulator
 
@@ -311,12 +356,11 @@ Dedicated page/panel with:
 - Scenario selector: historical incident/operation, saved scenario or manually defined context.
 - Policy selector: original policy at the time, current policy, draft/proposed policy.
 - Reconstructed context: target, evidence, available capabilities, policy version, relevant host/operation metadata and missing data.
-- Deterministic evaluation output for each proposed operation: allow automatically, require approval, deny, unavailable or cannot determine.
-- Exact matched rules, inheritance, failed constraints and reason for every result.
+- Deterministic evaluation output for each proposed operation: allow automatically, require approval, deny, unavailable or cannot determine, with the full effective-policy explanation above.
 - Side-by-side differences and consequence summary.
 - Save/apply draft policy after review, not from the simulator result alone.
 
-The simulator must call the same deterministic policy evaluator as real dispatch. It is read-only and must never execute a capability. Missing historical facts must be labelled; do not silently simulate with today's environment and claim it was historically exact.
+The simulator calls the production evaluator through a side-effect-free path. It is read-only and must never execute a capability. A historical scenario needs the stored context snapshot and policy version recorded when the decision was made (a backend requirement, doc 17 section 11); missing historical facts are labelled, and the page never silently simulates with today's environment and claims it was historically exact.
 
 ## 13. Integrations
 
@@ -336,7 +380,7 @@ Settings should be grouped by the user's goal, not by implementation crate:
 - Models and AI providers (primary/fallback, context limits, budgets, cost controls).
 - Notifications and channels.
 - Agent enrollment/trust and update policy.
-- Data, retention, backups and restore.
+- Data, retention, backups and restore. Every retention value is editable (raw data and durable summaries are separate classes); the page states what each change deletes and when, and changing retention asks for password re-entry.
 - Account/security/session management.
 - UI preferences (theme, density, presentation profile, dashboard layouts, shortcuts).
 - Updates, diagnostics and system health.
@@ -353,13 +397,13 @@ P0: source/host, severity, time range, search, live/pause, clear stale indicator
 
 ### Audit log
 
-P0: who/what/when/target/outcome and exact policy/action transition. P1: filters by actor, host, operation, capability, policy and date; links back to the original object. P2: export, retention and integrity verification.
+P0: who/what/when/target/outcome, exact policy/action transition, and the **hash-chain verification status** (last verified time, result, head hash, and any checkpoint left by pruning). A failed verification is a page-level danger banner naming the first bad entry. P1: filters by actor, host, operation, capability, policy and date; links back to the original object. P2: export, retention and a "verify now" control. The page states what the chain detects (accidental corruption, edits that do not recompute it, deletion mid-chain) and what it does not (an attacker who rewrites the whole database).
 
 The audit view is not the same as the user-facing operation timeline. Operation timeline explains work; audit captures security-sensitive changes and authority decisions. They should link to each other.
 
 ## 16. Notifications and attention center
 
-A dedicated attention center should unify pending approvals, questions, manual interventions, warnings and important completion/failure notices. Each notification links to the relevant canonical object. Users can configure channels, priority, grouping, quiet hours and preferences. A toast is transient feedback, not the only durable record of something requiring action.
+A dedicated attention center is the single list of pending approvals, questions, manual interventions, warnings and important completion/failure notices. The Control Room "Waiting for you" widget and the Approvals page are views over this same list, not separate queries with separate rules. An approval item renders the shared approval card or links to its operation; every other item links to its canonical object. Users can configure channels, priority, grouping, quiet hours and preferences. A toast is transient feedback, not the only durable record of something requiring action.
 
 ## 17. Page design deliverable template
 
@@ -371,8 +415,8 @@ Every implementation-ready page specification must include:
 4. Recommended containment: page, subpage, tabs, section, expansion, inspector, dialog or popover—with rationale.
 5. Interaction matrix: action, trigger, result, confirmation, state change and navigation.
 6. Live update contract and what may update without user action.
-7. Loading, empty, error, unavailable, stale, offline, partial and permission-denied states.
-8. Responsive behavior and density profile behavior.
+7. The states from the canonical taxonomy (doc 15, section 10) that apply. Permission-denied states are not part of v1 (single owner); name the hook for future roles instead.
+8. Responsive behavior and presentation-profile behavior: the P0-P3 category of every element, and what Standard and Essential collapse or hide.
 9. Keyboard, focus, screen-reader and reduced-motion behavior.
 10. Animation/motion references from the global motion specification.
 11. Data needed, freshness and source of truth.

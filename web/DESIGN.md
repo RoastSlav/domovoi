@@ -26,8 +26,11 @@ component: check your work there in both themes.
    `src/design/icons.tsx`. Error sentences: `src/design/messages.ts`. Nothing else decides
    them.
 
-Motion is 120 to 180 ms, eases out, explains a change, and is off under
-`prefers-reduced-motion` (the motion tokens become `0ms`: always use them).
+Motion has two classes. **Micro-interactions** (hover, focus, disclosure, menus, dialogs) are
+120 to 180 ms. **Visualization and transitions** (graph nodes and edges, layout changes, side
+panels, playback) are a separate class, specified under "Planned" below. Both ease out, explain a
+change, and become instant under `prefers-reduced-motion` (the motion tokens become `0ms`: always
+use them); state changes stay visible without motion.
 
 ## Brand roles, tokens, type
 
@@ -156,15 +159,16 @@ allows it by hash, so keep it static.
   ("All hosts" or a name), the chosen host's status dot and a chevron. Its popover has a
   search box (always above 8 hosts), "All hosts" with a count, a divider, then each host
   with a status dot, its name and its status in muted text, and a check on the chosen one.
-  Opening a page about one host selects that host, and the choice stays until changed: the
-  selector never says "All hosts" on a page about `nas`.
+  Opening a page about one host shows that host in the selector, so it never says "All hosts"
+  on a page about `nas`; leaving the page brings back the person's own earlier choice.
 - **Content**: at most `--content-max` wide, centred, `--content-pad` padding,
   `scrollbar-gutter: stable` so nothing shifts when a scrollbar appears.
 - **Phones** (under 768 px): a top bar with the logo, the host selector and a menu button;
   the sidebar is a sheet.
 
-Lazy pages live in `pages.ts`. Every page follows the host selector (filter on the hub with
-`host`) or renders `<AllHostsNote>` saying why not. Navigation counts come from
+Lazy pages live in `pages.ts`. Every signed-in page follows the host selector (filter on the
+hub with `host`) or renders `<AllHostsNote>` saying why not; the setup, login, welcome and
+not-found pages are outside the shell's host scope and need no note. Navigation counts come from
 `useOverview(host)`: never fetch a list to count it.
 
 ## Components
@@ -338,7 +342,7 @@ decision, who decided and when, in a compact list.
 
 **Check one host.**
 
-- Anything scoped to one host updates the host selector to that host, and leaving keeps it.
+- Anything scoped to one host shows that host in the selector, and leaving restores the earlier choice.
 - Host actions (revoke, enroll, …) are visible secondary buttons in the header; the dangerous
   one sits in a menu, not behind a lone "…".
 - Skills with "All hosts" shows one card per host; a host only the hub knows sorts last and its
@@ -355,6 +359,76 @@ sideways. Every control in a row has the same height and baseline, and every pag
 left edge. Every focusable thing shows a focus ring. The "Live" indicator is truthful: if the
 event stream really drops, the UI says "Reconnecting", and the fault is fixed in the hub, not
 hidden here.
+
+## Planned (added with the operation UI)
+
+Nothing in this section exists in the code yet, and no test reads it. It records the agreed
+direction from `docs/design-pack` so work on operations, the graph and the new pages starts from
+one set of rules. Each item moves into the sections above in the PR that builds it, together
+with its tokens, kit component, `/dev/design` demo and test.
+
+**Visualization and transition motion** (a second class beside the 120/180 ms tokens).
+
+| Planned token / behavior                            | Value                    | Use                                                              |
+| --------------------------------------------------- | ------------------------ | ---------------------------------------------------------------- |
+| `--motion-panel` (side panel, inspector)            | 240 ms, `transform` only | Open and close; content is padded, never reflowed mid-transition |
+| `--motion-graph` (node entry, state, status settle) | 240 ms                   | Graph nodes and status changes                                   |
+| `--motion-graph-edge`                               | up to 400 ms             | Active-path reveal, used sparingly                               |
+| `--motion-layout`                                   | 240 to 400 ms            | Group collapse and expand, re-layout, fit to view                |
+| Playback                                            | user-controlled speed    | Replay of a completed operation                                  |
+
+- Recommended 240 to 400 ms. A single transition never exceeds 600 ms; a test reads the tokens
+  and fails above it.
+- A JS reader of the same tokens returns 0 under reduced motion, so script-driven motion obeys it.
+- Event bursts are batched: animation never delays showing state, at most five nodes animate at
+  once, the rest appear in their final state. "Once" emphasis is remembered by node id and state
+  version, so a reload or reconnect does not replay it.
+- Reduced motion: transitions are instant, state changes stay visible (label, icon, outline, text),
+  and no information is carried only by motion. No page transition on route change; lazy pages
+  show their skeleton in place.
+
+**Presentation profiles.** Detailed (default for a new owner), Standard and Essential, with Custom
+as per-page overrides. One set of components; every element carries a category, and visibility
+follows from it:
+
+| Category                                  | Detailed | Standard  | Essential                      |
+| ----------------------------------------- | -------- | --------- | ------------------------------ |
+| P0 safety, approval, audit, current state | shown    | shown     | shown                          |
+| P1 primary                                | shown    | shown     | shown                          |
+| P2 technical detail                       | shown    | collapsed | collapsed                      |
+| P3 metadata                               | shown    | collapsed | hidden, "+N details" indicator |
+
+P0 is never hidden or collapsed in any profile (a test asserts it for every page). Profiles are
+built before any page that uses them, after the shared visibility infrastructure. They change what
+is shown, never authority.
+
+**Shell additions.** One right-hand slot shared by the Operator panel and the inspector: side by
+side when the page keeps at least 640 px of content, otherwise the surface opened most recently wins
+and the other collapses to a tab; a full-screen sheet on phones; never over content. Escape closes
+one thing per press: tooltip, popover or menu; dialog or palette; the panel or inspector with
+focus; then the graph selection. An attention-centre entry and an autonomy-state indicator join
+the shell.
+
+**New kit components** (each added to the kit, this list and `/dev/design` together): a graph
+canvas with an outline (real DOM, the screen-reader path) and keyboard navigation (arrows move
+between connected nodes, Enter opens the inspector, Home and End go to the first and last node, a
+key jumps to the active node); an inspector; a split pane with a keyboard-operable divider; a
+virtual list; the one structured approval card (contract, target, arguments, effect class,
+reversibility, expiry, plan-hash prefix, policy decision; model text secondary and labelled); a
+freshness label; the profile provider and visibility primitive.
+
+**Lint and size amendments the graph will need, each written here before the code.** Computed
+geometry goes through one kit helper that sets SVG attributes and CSS custom properties; there is
+no blanket exemption from the inline-style rule. The 250-line file cap is not relaxed: split the
+graph by responsibility. A layout worker, if used, is a same-origin hashed file (no `blob:`). The
+graph is its own lazy chunk inside the 120 kB chunk limit.
+
+**Freshness.** `QueryBoundary` gains refreshing, stale and refresh-error states and a "last
+updated" label, so a failed refetch no longer hides behind old data. "Live" will describe the
+event stream the page uses, not only incidents and actions.
+
+**New statuses** (operation, node including uncertain and planned, policy outcome, capability
+install, enable and authorize, knowledge state) follow the "Add a status" recipe.
 
 ## Checks that will fail your PR
 

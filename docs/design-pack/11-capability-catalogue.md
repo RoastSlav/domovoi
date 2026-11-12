@@ -1,8 +1,37 @@
 # 11 — Capability catalogue and opportunity map
 
-This is an intentionally broad inventory of things Domovoi could eventually observe, diagnose, explain or operate. It is not a v1.0 commitment. A listed item becomes a real capability only when there is a provider, typed contract, clear scope, policy, verification and tests.
+This is an intentionally broad inventory of things Domovoi could eventually observe, diagnose, explain or operate. It is not a v1.0 commitment. A listed item becomes a real capability only when there is a hub-owned typed contract, an implementation, clear scope, policy, verification and tests.
 
-**Priority shorthand:** `v0.1` = current release surface; `v1` = initial adaptive operator; `v1.x` = useful expansion; `later` = scale/niche/research. `R` = read, `W` = bounded write, `S` = security/protective, `D` = destructive/high-impact. A risk label is indicative; actual policy must consider context.
+**Priority shorthand:** `v0.1` = exists in the current product (there is no separate v0.1 release; owner decision D-01); `v1` = initial adaptive operator; `v1.x` = useful expansion; `later` = scale/niche/research. `R` = read, `W` = bounded write, `S` = security/protective (the **Contain** effect class), `D` = destructive/high-impact. A risk label is indicative; actual policy must consider context, and the hub, not a provider, owns the effect class (RW-07).
+
+## How to read this catalogue after the rework
+
+### The v1 first set
+
+Most `v1` rows are read capabilities and are part of the initial supported set in `10`. The **mutating and containing** capabilities that ship in v1 are deliberately few. Marked below with **first set**; everything else that mutates or contains is `v1.x` or later.
+
+| Capability | Class | Milestone | Status |
+|---|---|---|---|
+| Restart one named container (not recreate) | W | M8, L2 | First set. Needs the Docker write ADR below. |
+| Restart one named systemd unit | W | M8, L2 | First set. |
+| Temporary inbound block of one external address or small prefix (`firewall.block_source`, kernel-enforced timeout) | S | M9, L3 | **First set, proposed, open for owner confirmation.** |
+| Pause one named container with a time limit (`container.pause`) | S | M9, L3 | **First set, proposed, open.** Needs the Docker write ADR. |
+| Stop one named systemd unit with a time limit, excluding management units (`unit.stop_temporary`) | S | M9, L3 | **First set, proposed, open.** |
+
+Later containment candidates (container network isolation, SSH session termination, account lock) are deferred because their lockout or recovery stories are weaker. Automatic containment is triggered only by a deterministic detector's typed signal naming a target that is the operation's pinned subject, never by free-form model output (owner decision D-04, RW-13). Destructive entries are never policy-allowed in v1 (owner decision D-06); a human can still approve one with typed confirmation.
+
+### Entries flagged unsafe until a prerequisite lands
+
+The repository investigation ([`docs/rework/investigations/D-protocol.md`](../rework/investigations/D-protocol.md)) judged the following entries unsafe or contradictory with current invariants. Each is marked `[FLAG]` in its row. They stay in the catalogue as ideas; none may be built before its prerequisite.
+
+| Flag | Entries | Why | Prerequisite |
+|---|---|---|---|
+| **Self-upgrade** | Agent and hub upgrade/restart; self-upgrade plan. | Pushes executable code to a host, contradicting the invariant that the hub cannot push scripts (INV-3) and that the hub never executes commands; restarting the agent mid-action destroys the channel its result travels on. Signed capability packages (owner decision D-11) are for capabilities, not for upgrading the agent or hub. | Keep upgrades out-of-band (package manager or installer), or design signed artifacts pinned on the host in an ADR. |
+| **Lost result** | Host reboot/shutdown, update-then-reboot, power cycle, IPMI/PDU control, UPS-driven shutdown, cloud instance reboot, reboot coordination. | The connection drops mid-action by design. | `OutcomeUnknown` handling and boot-id based reconciliation (RW-09), plus a dependency model that knows what powers the hub. |
+| **Docker socket write** | Pull/redeploy/rollback, container stop, pause, network disconnect, container isolation, restart/recreate. | Write access to the Docker socket is root on the host, so the existing read-only rationale and the automatic default no longer hold. | An ADR and a separate off-by-default switch not covered by the automatic setting. |
+| **Secret handling** | Rotate an API key, certificate or credential; disable an account; revoke a token; rotate VPN keys. | No secret store or redaction design exists for values that must be generated, delivered and replaced; secret handling contradicts the redaction invariant until one does. | A secret-store design (not planned for v1). |
+
+The investigation also flagged file and volume destruction (never a typed-path capability without a path-scope model), third-party deployment and smart-home entries (outside the overseer's trust envelope until third-party trust is decided), message retry and failover (need real idempotency keys), and hub-side router/hypervisor/cloud providers (a different security design that holds third-party credentials). Treat those as non-goals for v1.
 
 ## 1. Generic Linux host operations
 
@@ -18,19 +47,21 @@ This is an intentionally broad inventory of things Domovoi could eventually obse
 | Network interfaces, addresses, routes, neighbors, DNS config and resolver status | R | v1 | Do not expose secrets from network config. |
 | Listening sockets, connection counts, firewall state and packet counters | R | v0.1/v1 | Firewall changes are separate privileged capabilities. |
 | Package inventory, repository status, pending updates, held packages | R | v1 | Cross-distribution providers. |
-| Controlled package update, rollback and reboot orchestration | W | v1.x | Approval by default; maintenance windows and snapshot/backup prerequisites. |
+| Controlled package update, rollback and reboot orchestration | W | v1.x | Approval by default; maintenance windows and snapshot/backup prerequisites. **[FLAG: lost result]** the reboot step needs `OutcomeUnknown` handling. |
 | Time sync, NTP offset, clock drift, timezone | R/W | v1 | Time drift affects TLS and offline authorization. |
 | Users, groups, sudoers summary, login sessions, SSH config summary | R | v1 | Never return password hashes or private keys. |
-| Host reboot/shutdown | W | v1.x | Human approval; recovery path and dependency impact mandatory. |
+| Host reboot/shutdown | W | v1.x | Human approval; recovery path and dependency impact mandatory. **[FLAG: lost result]** the link drops mid-action; needs `OutcomeUnknown` and boot-id reconciliation first. |
 | Agent self-diagnostics, version, config validation, queue/spool state | R | v0.1/v1 | Domovoi must be able to diagnose itself. |
-| Agent upgrade/restart and hub upgrade/restart | W | v1.x | Staged, health-checked and recoverable. |
+| Agent upgrade/restart and hub upgrade/restart | W | later | **[FLAG: self-upgrade]** contradicts INV-3 (the hub cannot push scripts) and destroys the result channel. Keep out-of-band or design signed host-pinned artifacts in an ADR first. Not part of the capability-package install path. |
 
 ## 2. Service and workload management
 
 | Capability ideas | Typical class | Priority | Notes |
 |---|---:|---|---|
 | Discover services and relationships (systemd, container, supervisor) | R | v0.1/v1 | Feed the entity graph. |
-| Start, stop, restart or reload one named systemd unit | W | v1 | L2 only for opted-in, low-impact units; dependency-aware. |
+| Restart one named systemd unit | W | v1 | **First set (M8, L2)** only for opted-in, low-impact units; dependency-aware. |
+| Stop one named systemd unit temporarily (time limit, management units excluded) | S | v1 | **First set, proposed (M9, L3):** `unit.stop_temporary`. Open for owner confirmation. |
+| Start, stop or reload other systemd units | W | v1.x | Human approval initially; no time-limit-free unattended stop. |
 | Inspect service dependencies and reverse dependants | R | v1 | Essential before planned restarts. |
 | Compare service config fingerprints/mtime and known-good baseline | R | v1.x | Avoid storing secret config contents. |
 | Validate service config before reload | R | v1.x | Use native validation commands with fixed argv. |
@@ -44,13 +75,14 @@ This is an intentionally broad inventory of things Domovoi could eventually obse
 |---|---:|---|---|
 | Docker container list, inspect, logs, events, stats, health and restart history | R | v0.1 | Current foundation. |
 | Docker Compose project/stack inventory and service dependencies | R | v1 | Link containers to projects and volumes. |
-| Restart/recreate one selected container | W | v1 | Verify health and dependent services. |
+| Restart one selected container | W | v1 | **First set (M8, L2).** Verify health and dependent services. **[FLAG: Docker socket write]** needs the Docker write ADR first. Recreate is later. |
 | Start/stop a Compose service or restart a selected stack | W | v1.x | Approval initially; concurrency and downtime constraints. |
 | Compose config validation and rendered diff | R | v1.x | Avoid exposing secrets in rendered config. |
 | Image inventory, digest drift, outdated image and vulnerability metadata | R | v1.x | Scanning can be an external provider. |
-| Pull image, redeploy service, rollback to previous digest | W | v1.x | Human approval by default, known-good image required for rollback. |
+| Pull image, redeploy service, rollback to previous digest | W | v1.x | Human approval by default, known-good image required for rollback. **[FLAG: Docker socket write]** |
 | Docker network/volume inventory and dangling-resource reporting | R | v1 | Never infer that unused means safe to delete. |
-| Container isolation, pause, stop or network disconnect | S/W | v1.x | Security action with scope, TTL/recovery and owner policy. |
+| Pause one named container with a time limit | S | v1 | **First set, proposed (M9, L3):** `container.pause`. Open for owner confirmation. **[FLAG: Docker socket write]** |
+| Container isolation, stop or network disconnect | S/W | v1.x | Security action with scope, TTL/recovery and owner policy. Deferred: weaker lockout/recovery story. **[FLAG: Docker socket write]** |
 | Podman and containerd providers | R/W | v1.x | Reuse the container capability family. |
 | Kubernetes cluster/node/pod/deployment/service/ingress inventory | R | later | Need cluster and namespace scope. |
 | Kubernetes rollout status, restart deployment, scale replicas | W | later | Requires workload ownership and availability budgets. |
@@ -75,7 +107,7 @@ This is an intentionally broad inventory of things Domovoi could eventually obse
 | Restore an entire host/service from backup | W | later | Guided human-approved disaster recovery. |
 | Backup policy coverage and RPO/RTO compliance reporting | R | v1.x | Requires owner-provided importance and target objectives. |
 | Safe cleanup candidates (cache/temp/log retention) | R | v1 | Report candidates first; never broad recursive deletion. |
-| File deletion, volume destruction, formatting, backup pruning | D | later/deny-default | Never generic autonomy. Require explicit target and typed human confirmation. |
+| File deletion, volume destruction, formatting, backup pruning | D | later/deny-default | Never policy-allowed in v1 (owner decision D-06). Human approval with typed confirmation only. A generic typed-path deletion capability would need a path-scope model; prefer documented manual runbooks. |
 
 ## 5. Network and connectivity
 
@@ -90,9 +122,9 @@ This is an intentionally broad inventory of things Domovoi could eventually obse
 | Reverse proxy route/health/config status (Nginx, Traefik, Caddy, NPM) | R | v1.x | Start read-only; config validation before reload. |
 | Reload/restart reverse proxy after validated config | W | v1.x | Verify routes and management access. |
 | VPN tunnel and peer health (WireGuard, Tailscale, OpenVPN) | R | v1.x | Know whether the tunnel is a management path. |
-| Add/remove or rotate VPN peers/keys | W | later | Approval and identity/recovery model required. |
+| Add/remove or rotate VPN peers/keys | W | later | Approval and identity/recovery model required. **[FLAG: secret handling]** |
 | Router inventory, WAN status, routes, DHCP, DNS and port forwards | R | v1.x | API provider for selected router vendor. |
-| Temporary block of a confirmed external source IP | S | v1 limited | L3 candidate only with allowlists, TTL, rate limits and management-path protection. |
+| Temporary block of a confirmed external source IP | S | v1 limited | **First set, proposed (M9, L3):** `firewall.block_source`, with a kernel-enforced timeout. Only with agent-enforced management-path exclusions, rate limits, dead-man revert and `OutcomeUnknown` handling, because the agent dials out and a rule can sever its own control link. Triggered only by a deterministic detector's typed signal. |
 | Remove/restrict a port forward or WAN exposure | S/W | v1.x | Higher blast radius; stage and verify alternate access. |
 | Firewall rule changes, network segmentation and VLAN changes | W/S | later | Human approval until robust simulation and rollback exist. |
 | ISP/WAN outage diagnosis and failover status | R/W | later | Depends on router dual-WAN support. |
@@ -111,11 +143,11 @@ This is an intentionally broad inventory of things Domovoi could eventually obse
 | Suspicious process, persistence, cron/service and startup change | R | v1.x | Heuristic findings require evidence and uncertainty labels. |
 | Secret leak detection in logs/config/repository | R | v1.x | Never echo the secret value; show location and type. |
 | Container privilege/capability/mount exposure audit | R | v1.x | Policy recommendations, not automatic hardening at first. |
-| Temporary block offending external IP at host firewall | S | v1 limited | Must exclude trusted ranges, gateway, VPN and current management session. |
+| Temporary block offending external IP at host firewall | S | v1 limited | **First set, proposed (M9, L3)**, same capability as above. Must exclude trusted ranges, gateway, VPN and current management session. |
 | Add temporary Fail2ban jail/ban with expiry | S | v1.x | Prefer native expiry and verify the rule. |
-| Isolate one compromised container/network namespace | S | v1.x | Preserve forensic evidence and dependencies. |
+| Isolate one compromised container/network namespace | S | v1.x | Preserve forensic evidence and dependencies. Deferred containment candidate. **[FLAG: Docker socket write]** |
 | Disable compromised account or revoke session/token | S/W | later | Requires identity provider integration, owner controls and recovery. |
-| Rotate exposed API key/certificate/credential | W/S | later | Secret handling and dependent service reload make this high impact. |
+| Rotate exposed API key/certificate/credential | W/S | later | Secret handling and dependent service reload make this high impact. **[FLAG: secret handling]** no secret store design exists. |
 | Restrict WAN SSH to VPN/trusted IPs | S/W | later | Safe only with tested alternate management route. |
 | Incident evidence collection and forensic snapshot | R/W | v1.x | Preserve bounded, integrity-protected artifacts. |
 | Host isolation / quarantine | S | later | Emergency response with explicit break-glass recovery. |
@@ -132,7 +164,7 @@ This is an intentionally broad inventory of things Domovoi could eventually obse
 | Create backup/snapshot before a supported update | W | v1.x | Verify backup is usable, not just scheduled. |
 | Stage an update and show a diff/plan | W | v1.x | Human approval for applying. |
 | Apply updates, restart affected services and verify | W | later/v1.x | Explicit host policy, rollback and outage budget. |
-| Reboot coordination across dependent hosts | W | later | Respect quorum and criticality. |
+| Reboot coordination across dependent hosts | W | later | Respect quorum and criticality. **[FLAG: lost result]** |
 | Certificate renew and service reload | W | v1.x | Good L2 candidate when provider is deterministic. |
 | Log rotation and bounded cache cleanup | W | v1.x | Exact age/path/size constraints, never broad delete. |
 | Retire/decommission host or service | W/D | later | Must preserve dependencies, secrets and backups. |
@@ -190,9 +222,9 @@ These should be application profiles layered over generic capabilities. Do not c
 | Start/stop/restart VM; snapshots and controlled migration | W | later | Respect service dependencies and storage. |
 | Proxmox/Libvirt API integration | R/W | v1.x/later | Start read-only. |
 | IPMI/Redfish power, temperature, fan, PSU and sensor health | R | later |
-| Remote power cycle or reset | W | later | Break-glass only, explicit owner authorization. |
+| Remote power cycle or reset | W | later | Break-glass only, explicit owner authorization. **[FLAG: lost result]** needs a model of what powers the hub. |
 | UPS/NUT status, battery runtime, load and test | R | v1.x |
-| Graceful shutdown on low runtime / power loss | W | v1.x | Policy plus dependency-aware shutdown order. |
+| Graceful shutdown on low runtime / power loss | W | v1.x | Policy plus dependency-aware shutdown order. **[FLAG: lost result]** |
 | Smart PDU outlet status/control | R/W | later | Risk of cutting off networking or hub. |
 
 ## 12. External systems and integration providers
@@ -223,7 +255,7 @@ These should be application profiles layered over generic capabilities. Do not c
 - Database backup age, integrity-check status, migration version and restore test.
 - Action queue, outstanding approvals, policy denials and expired permits.
 - Notification delivery failure and webhook signature failure.
-- Self-upgrade plan, config validation, rollback and post-upgrade self-test.
+- Config validation, rollback and post-upgrade self-test. Self-upgrade itself is **[FLAG: self-upgrade]**: out-of-band only until an ADR designs signed host-pinned artifacts.
 - Detect a misbehaving agent/provider and automatically disable its capability from discovery (not silently alter its owner policy).
 
 ## 14. Knowledge and experience capabilities
@@ -260,7 +292,7 @@ These should be application profiles layered over generic capabilities. Do not c
 | VM, instance, disk, load balancer and network health | R | later | Link cloud resources to services and owners. |
 | Cloud metrics, logs, events, audit events and service health | R | later | Add provider-specific evidence adapters. |
 | Cloud budget, quota, usage and spend anomaly detection | R | later | Do not autonomously scale cost-bearing resources by default. |
-| Start/stop/reboot a selected instance | W | later | Approval, dependency and cost controls. |
+| Start/stop/reboot a selected instance | W | later | Approval, dependency and cost controls. **[FLAG: lost result]** for reboot; needs hub-side provider design with third-party credentials. |
 | Resize instance or managed database | W | later | High-impact operation with cost and downtime preview. |
 | Manage security group / firewall ingress | S/W | later | Same trusted-path and temporary-rule safety model. |
 | Object storage inventory, capacity and lifecycle policy status | R | later | Avoid collecting object contents. |
@@ -295,7 +327,7 @@ These should be application profiles layered over generic capabilities. Do not c
 | Secret manager health, secret version age and rotation status | R | later | Do not fetch secret values into model context. |
 | Detect overbroad or expiring API tokens and SSH keys | R | later | Report fingerprint/owner/scope, not private material. |
 | Revoke selected token or SSH key | S/W | later | High impact; require identity confirmation and recovery. |
-| Rotate a service credential and update dependent services | W | later | Multi-step operation with staged rollback and secret-safe execution. |
+| Rotate a service credential and update dependent services | W | later | Multi-step operation with staged rollback and secret-safe execution. **[FLAG: secret handling]** no secret store design exists. |
 | SSO/OIDC/SAML integration for Domovoi users | R/W | v2+ | Organization-scale access control. |
 | Break-glass user and recovery access validation | R/W | later | Ensure emergency access remains available and audited. |
 

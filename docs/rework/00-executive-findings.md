@@ -1,94 +1,90 @@
 # 00 — Executive findings
 
-Baseline: `overhaul-investigation` at `64117f0` (main + #112, #113). Planning output lives in
-`docs/rework/`; the design pack it reviews is in `docs/design-pack/` and was not modified.
+Baseline `64117f0`. `docs/design-pack/` is the **product-intent** reference; `docs/rework/` is the
+validated **technical direction** (decisions in `03`, contracts in `04`). Owner decisions are D-01…D-15
+in `99`; open items O-16…O-24.
 
-Files: `01` repository reality · `02` pack validation · `03` decisions (RW-01…24) · `04` target
-architecture · `05` migration · `06` roadmap · `07` prompt index (draft) · `99` open decisions ·
-`investigations/` raw evidence (A–G + inventory).
+Files: `01` repository reality (facts) · `02` pack validation · `03` decisions RW-01…32 · `04` target
+architecture · `05` migration · `06` roadmap · `07` prompt index (draft) · `99` decisions and open items ·
+`investigations/` evidence snapshots.
 
-## What is sound
+## Direction
 
-- The pack's direction: adaptive reasoning inside a deterministic control plane; available ≠
-  authorized; knowledge, policy and experience kept separate; Operation separate from Incident;
-  SQLite only, with no vector database, graph database, workflow engine or broker. The evidence
-  supports all of it.
-- The repository's safety core is real and worth keeping:
-  - single-writer incident and action services;
-  - the `HumanApproval` seal plus its gate tests;
-  - plan hash checked by both hub and agent;
-  - argv-only runner, closed read-tool set, channel-bound agent identity;
-  - ~900 Rust tests, plus strong web guardrails.
-- Evolve the existing code. A rewrite is not justified (RW-01).
+Evolve the existing workspace (RW-01). Foundation first, inside the rework (no v0.1 release, D-01):
+atomic writes with an audit chain (F1), restart-safe recovery and approval freshness (F2), protocol
+tolerance (F3), LLM and ops reliability (F4). Then execution journal and reconciliation (M1),
+hub-owned capability contracts (M2), the Operation aggregate with a journal-backed live stream (M3),
+dynamic investigation (M4), knowledge and experience search (M5), the Operator (M6), policy in
+shadow (M7), L2 autonomy (M8), L3 containment (M9), signed packages with UI install (P1), and the UI
+track (timeline, graph, profiles, policy/knowledge/capability pages).
 
-## What needs correction in the pack
+## Key architecture choices
 
-1. **Capability descriptors must be hub-owned** (RW-07). As written, the provider declares its own
-   risk and scope. Today the hub already trusts an agent's `risk = read` label, and such a skill runs
-   with no human step.
-2. **Phases should not be the state machine** (RW-05). Use a coarse operation status plus typed,
-   append-only steps. Phases become step labels. This is what makes "dynamic, yet resumable" possible.
-3. **Experience is the journal, not a third log** (RW-15). The pack's `experience_events` would
-   dual-write beside `incident_events` and `audit_log`.
-4. **Knowledge model is too big** (RW-14). Use typed subject references and facts with provenance.
-   Drop the generic `entities` table (it duplicates baselines) and numeric confidence.
-5. **Policy precedence is underspecified** (RW-10). Proposed fix: deny wins, then the most specific
-   rule decides; equal allows intersect; a fixed default table; `Destructive` cannot be
-   policy-allowed in v1.
-6. **The UI spec is graph-first and profile-first** (RW-21). It also conflicts with `DESIGN.md`
-   (motion durations, the no-inline-style rule, the bundle budget). Proposed fix: ship a step
-   timeline first and the graph after a spike; defer profiles.
-7. **Offline emergency permits and L3 containment add risk with little v1 value** (RW-13).
-   Recommend deferring both past v1.
-8. **Gap analysis and lessons overstate current safeguards.**
-   - Plan binding omits the script bytes, and the approve request carries no hash.
-   - Verification and the triage queue are not restart-safe.
-   - Doc 18 covers 110 of 113 PRs.
+- **One owner per aggregate.** Execution is a typed Step of the Operation, written only by the
+  operation writer (ADR 0019's action writer becomes its execution module). One dispatch attempt per
+  step; retries are new steps.
+- **One journal.** Typed operational events for all aggregates, global sequence assigned inside the
+  single-writer transaction; it is experience, the change stream and the SSE replay source. Audit is a
+  separate hash-chained security record in the same transaction; `effects` is the work outbox.
+- **Policy.** Pure evaluator; scope is a partial order over host × capability × target; the most
+  specific matching rule wins even over a broader Deny (D-05); ties → Deny; incomparable conflicts →
+  Deny > RequireApproval > Allow (O-19). Hard limits (host ceiling, Destructive, containment
+  exclusions, pinned targets, unknown safety facts, pause) are applied after rules and cannot be
+  overridden.
+- **Authorization in Rust.** `HumanApproval` and `PolicyPermit` live in `domovoi-core` (the engine
+  must use them and cannot depend on the hub). Construction sites are restricted by path-resolved
+  clippy `disallowed-methods`, an arch rule on the `expect` attribute, and the existing text scan —
+  CI controls, not runtime security. Earlier "compile-time seal" claim corrected.
+- **Host ceiling.** The agent enforces an owner-edited `[unattended]` list (capability, targets, rate,
+  constrained args, TTL/active caps) for policy-authorized runs and rate limits all mutations. It
+  bounds a buggy or misconfigured hub; it does not stop a compromised hub labelling a run "human".
+  Signed approvals/bundles are post-v1.
+- **Recovery.** Agent journal with an epoch and fsync-before-start makes `not_found` mean "never
+  started"; otherwise `OutcomeUnknown`. Hosts are `Unknown` until they connect; nothing is rejected
+  for that reason.
+- **Packages.** Signed archives; the agent verifies against locally trusted keys and only installs if
+  the owner enabled installs on that host; the hub relays bytes; install never enables or authorizes.
 
-## What the pack misses entirely
+## Current-product findings that drive the foundation (detail in `01` §11)
 
-- **Atomicity.** State, timeline and audit are written in separate statements (RW-03).
-- **Outcome-unknown and idempotency.** The agent does not deduplicate, and a dropped link becomes
-  `Failed` while the skill keeps running (RW-09).
-- **Approval freshness.** Approved actions re-run after restart with no age or incident-open check
-  (RW-08).
-- **Agent-side proof of authorization.** `RunSkill` carries none. Autonomy built on the current wire
-  format would make a compromised hub silent (RW-12).
-- **Live-update replay.** SSE events have no ids and slow clients drop events (RW-18).
-- **Protocol version rule.** A newer-minor agent is refused for good (RW-17).
+H: approval cards show model prose without target/args; LLM CLI command changeable without step-up;
+approved actions run after restart with no freshness check; catch-up runs before agents reconnect
+(static reading, not reproduced); audit writes outside the state transaction; triage queue and
+verification lost on restart; no outcome-unknown or agent deduplication. M: spool/notification state
+saved before success; admission in memory and fail-open; no model attribution or per-call deadline;
+`/healthz` constant; no restore command.
 
-## Important discoveries (current product defects; full table in `01` §11)
+## What changed in this revision
 
-| Sev | Defect |
-|---|---|
-| H | Discord Approve/Deny buttons show no skill, host or args. The card text is model prose. |
-| H | An admin session can set the LLM CLI provider's command (an arbitrary program on the hub) without re-entering the password. |
-| H | Stale approvals run after restart. Separately, catch-up runs before agents reconnect, so valid approvals are rejected. This was found by reading code; it still needs a test. |
-| H | Audit failures are swallowed. The loop guard is rebuilt from audit rows that may be missing. |
-| H | Triage queue and verification are lost on restart. Admission budget fails open. There is no total prompt cap. |
-| M | `/healthz` always returns ok; `/metrics` is unauthenticated; backups are unverified and there is no restore command. |
+All owner decisions applied; RW-11 rewritten for real Rust visibility; RW-15/RW-18 merged into one
+sequence model; Step/Execution ownership made unambiguous; policy formalised with a decision table;
+containment, packages, audit chain, retention, actor identity, startup order, schema rollback and
+legacy projection got their own decisions; roadmap split into foundation slices; design pack,
+lessons document and `web/DESIGN.md` reconciled.
 
-## Recommended direction
+## What is now safe to turn into implementation prompts, and what is not yet safe
 
-1. **M0 — fix the current product and release v0.1.** Every M0 fix is also a rework prerequisite.
-2. **M1 — execution foundation:** idempotency, outcome-unknown, plan hash v2, single execution
-   boundary.
-3. **M2 — capability contracts:** hub-owned contracts and the registry.
-4. **M3 — Operation aggregate.** Triage becomes an Investigate operation with identical behaviour.
-   Live updates move to SSE v2.
-5. **M4 / M5 / M6 in parallel:** dynamic investigation, knowledge, and the Operator.
-6. **M7 — policy in shadow mode.**
-7. **M8 — L2 autonomy,** behind a host-local ceiling and guardrails.
+**Safe now** (decided by the owner and fully specified, with no open item blocking):
+- F1: unit of work, audit chain, atomic action and incident writes, crash harness. Retention numbers
+  only affect config defaults.
+- F2: recovery order, approval freshness, durable timers, delivery durability.
+- F4: LLM reliability, structured approvals, ops readiness.
+- M1: agent journal, reconciliation, plan hash v2, `Authorization` enum (human only), constructor
+  enforcement, single execution boundary.
+- M2: capability contracts and registry.
+- M3: Operation aggregate, Investigate parity, journal SSE, use-case layer; also U1 (timeline UI).
+- M4: dynamic investigation.
+- M5: knowledge and experience search.
+- M6: Operator.
+- M7: policy evaluator and shadow mode. The incomparable-rule fallback must be configurable until
+  O-19 is answered, or written with the recommended default and flagged.
+- U3: visibility infrastructure and profiles.
 
-The UI track runs alongside, starting at M3. Details are in `06`.
-
-## Decisions I need from you (top five; all 15 in `99`)
-
-1. **O-1:** fix and release v0.1 first?
-2. **O-2:** accept the core corrections (hub-owned contracts, operation model, journal as
-   experience, unit of work)?
-3. **O-3:** anchor autonomy with a host-local `unattended` list, or with signed policy bundles?
-4. **O-4:** defer L3 containment and offline permits past v1?
-5. **O-8:** step timeline first and graph second, in v1?
-
-The detailed implementation prompts (08+) wait for these answers.
+**Not yet safe:**
+- **F3, the protocol support window:** needs O-20. The tolerance mechanics themselves are safe.
+- **P1, packages:** needs O-16 (trust scope).
+- **M8, L2 autonomy:** needs O-18 (ceiling scope), O-23 (whether the owner can approve a denied step)
+  and O-24 (Docker write access via ADR).
+- **M9, containment:** needs O-17 (first set) and O-22 (watchdog), and depends on M8.
+- **U2, graph canvas:** needs the library spike (prompt 33) first.
+- **U4 page prompts:** need P1/M7/M5 outcomes.

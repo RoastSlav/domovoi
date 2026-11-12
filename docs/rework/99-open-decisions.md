@@ -1,43 +1,42 @@
-# 99 — Open decisions that need you
+# 99 — Owner decisions and remaining open items
 
-Ordered by how much they block. Each has my recommendation; nothing here is decided until you say so.
+## A. Decided by the owner (authoritative; do not reopen)
 
-| # | Decision | Options | Recommendation | Blocks |
+| ID | Decision | Where applied |
+|---|---|---|
+| D-01 | No separate v0.1 release; former M0 becomes foundation slices F1–F4 inside the rework | RW-02, 06 |
+| D-02 | Hub-owned typed contracts; Operation aggregate ≠ Incident; coarse status + typed steps; unit of work; experience = journal (no third store); past operations easy to retrieve (typed journal linked to subjects, resolution summary per operation, FTS, host-scoped `search_experience`, similar past operations in UI, provenance in reasoning); past approvals/successes are evidence, never authorization | RW-03/04/05/07/15/25 |
+| D-03 | Host-local unattended ceiling on the agent; hub cannot modify or widen; UI read-only; hub policy may only narrow; human vs policy authorization distinguishable; agent enforces independently; owner-signed policy bundles after v1 | RW-12, 04 §8 |
+| D-04 | L3 containment in v1 as M9 under a general `Contain` class, not limited to firewall; offline emergency permits after v1 | RW-13, 04 §9 |
+| D-05 | Most specific rule wins, including over a broader Deny; equal specificity → Deny; host ids in v1, tags after v1 | RW-10, 04 §7 |
+| D-06 | `Destructive` never policy-allowed in v1 (evaluator hard limit); human approval with typed confirmation remains | RW-10, 04 §7.3 |
+| D-07 | Unattended targets: pinned subject + targets named by the matching rule | RW-23 |
+| D-08 | Both step timeline and interactive graph in v1; timeline first; shared frozen trace schema | RW-21, U1/U2 |
+| D-09 | All retention values configurable | RW-28, 04 §14 |
+| D-10 | Detailed/Standard/Essential profiles in v1 | RW-21, U3 |
+| D-11 | Capability install/deploy from the UI in v1 | RW-26, P1 |
+| D-12 | Longer motion allowed for visualization/transitions; reduced motion mandatory | RW-21, `web/DESIGN.md` |
+| D-13 | Single owner through v1; multi-user after v1; identities ready for roles | RW-29 |
+| D-14 | Audit hash chain in v1 | RW-27 |
+| D-15 | `ARCHITECTURE.md` updated once per milestone; each prompt names its sections | 06, 07 |
+
+## B. Still open — each has a recommendation and is not assumed in code until answered
+
+| # | Question | Alternatives and consequences | Recommendation | Blocks |
 |---|---|---|---|---|
-| O-1 | Release v0.1 before the rework? (RW-02) | (a) M0 then tag v0.1, then rework; (b) rework and release later; (c) tag now | (a) | everything |
-| O-2 | Approve the core corrections: hub-owned capability contracts (RW-07), Operation as aggregate with coarse status + typed steps (RW-04/05), journal-as-experience with no third log (RW-15), unit of work (RW-03) | accept / amend | accept | M0–M3 |
-| O-3 | How autonomy is anchored on the host (RW-12) | (a) agent-local `unattended` list set on the host, read-only in UI; (b) owner-signed policy bundles; (c) trust hub | (a) for v1 | M8 |
-| O-4 | L3 containment and offline permits in v1? (RW-13) | defer past v1 / one narrow L3 in v1 | defer | M8, v1 scope |
-| O-5 | Policy precedence details (RW-10) | host tags in v1 or host ids only; confirm deny-wins + most-specific + allow-intersection + default table | ids only in v1; confirm the rest | M7 |
-| O-6 | May `Destructive` ever be policy-allowed? | never in v1 (enforced in evaluator) / configurable | never in v1 | M7 |
-| O-7 | Should model-proposed targets ever be autonomous, or only the operation's pinned subject (RW-23)? | pinned only / rule may list extra targets / any in scope | pinned, plus targets a rule names explicitly | M8 |
-| O-8 | Graph canvas in v1, or step timeline in v1 and graph in v1.x (RW-21)? | timeline-first / graph-first | timeline first, graph after spike, still aiming for v1 | U1/U2 |
-| O-9 | Retention: incident timeline is deleted at 90 days while docs say incidents are kept; operation step outputs vs summaries | keep summaries forever + raw 90 d / configurable / keep all | summaries kept, raw configurable (default 90 d) | M3 |
-| O-10 | Presentation profiles (Detailed/Standard/Essential) in v1? | defer / v1 | defer to after core pages | U3 |
-| O-11 | Capability install/deploy to agents from the UI in v1? (needs an ADR on file transfer, integrity, INV-3) | v1 / v1.x | v1.x; v1 shows inventory and enable/disable | U2 |
-| O-12 | Motion: keep DESIGN.md 120–180 ms or adopt doc 15's longer durations | keep / amend DESIGN.md | keep | U1 |
-| O-13 | Multi-user/roles: stay single-owner through v1? (affects "permission-filtered search", who may edit policy) | single owner / basic roles | single owner, step-up for sensitive edits | M7, search |
-| O-14 | Audit hash chain in v1 (tamper evidence) | v1 / later | v1, it is small once audit is in the tx | M0/M1 |
-| O-15 | The repo's `ARCHITECTURE.md` is the contract for coding agents; the target changes INV-1 wording and adds aggregates. Update it per milestone (each prompt names the section) or once up front? | per milestone / up front | per milestone | all prompts |
+| O-16 | Package trust in v1 | (a) first-party signed only; (b) (a) + owner-added keys on the agent; (c) arbitrary third-party registries. (c) makes every registry author able to ship code that runs as the agent user once the owner clicks Install. | (b) | P1 |
+| O-17 | First containment set in M9 | `firewall.block_source`, `container.pause`, `unit.stop_temporary` (04 §9); alternatives add container network isolation, SSH session kill, account lock (weaker recovery stories) | the three listed | M9 |
+| O-18 | Scope of the host-local ceiling | (a) capability ids only; (b) + explicit targets + `max_per_hour`; (c) (b) + declared-constrainable args + `max_active`/`max_ttl` for Contain + exclusions | (c), with (b) the minimum for M8 | M8, M9 |
+| O-19 | Incomparable conflicting rules | Deny > RequireApproval > Allow (conservative), or "first-created rule wins" (non-deterministic to users), or reject the policy at publish time with an error | Deny > RequireApproval > Allow, plus a publish-time warning listing incomparable conflicts | M7 |
+| O-20 | Old agent support window | current + previous two minors until 1.0 (then same major); or only the previous minor; or indefinite (untestable) | current + previous two minors | F3 |
+| O-21 | Retention defaults | proposed: signals 30 d (current), incident timeline 90 d (current), operation journal events 180 d, raw execution outputs 30 d, operations + resolution summaries kept, audit kept (checkpoint pruning only if configured), retracted fact content purged after 30 d, conversations 180 d, notifications 30 d, nightly backups 7 (current), pre-migrate backups last 3 | as proposed | F1 config, M3, M5 |
+| O-22 | Watchdog / dead-man for Contain contracts that can affect connectivity | required for all such contracts (agent self-reverts if hub confirmation does not arrive within 30 s), or only for `firewall.block_source` | required for all connectivity-affecting Contain contracts | M9 |
+| O-23 | Policy `Deny` and the owner: may the owner still approve a step that policy denies? | (a) no — Deny means not offered, owner edits policy; (b) yes with typed confirmation | (a); keeps Deny meaningful and visible | M7 |
+| O-24 | Docker socket write access for `container.restart`/`container.pause` | grant the agent write access to the socket (root-equivalent on the host, ADR 0018) or ship a narrow first-party helper that only performs restart/pause of named containers | narrow helper via package; ADR in M8 | M8 |
+| O-25 | Historical playback of an operation on the graph in v1 | ship last in U2 after the live graph / defer to v1.x | ship last in U2; the timeline already provides history | U2 |
+| O-26 | Should the owner be able to mark a Deny rule as **locked** (not overridable by narrower rules)? | (a) no — D-05 as is; families that must never run are covered only by hard limits (Destructive); (b) yes — an explicit `locked` flag, default off, shown prominently | (b); it keeps D-05 as the default while letting "never on this host" stay true | M7 |
+| O-27 | Agent-side `max_per_hour` also for human-approved runs | (a) yes — bounds a compromised hub that labels runs "human"; may block a burst of real approvals; (b) unattended only | (a), with a clear "host rate limit reached" refusal shown on the approval card | M1, M8 |
 
-## Answers received (2026-11-13)
-
-| # | Answer |
-|---|---|
-| O-1 | No separate v0.1 release. Fold the M0 fixes into the rework; keep the ones the rework depends on (atomic writes, protocol tolerance, approval freshness) first. |
-| O-6 | `Destructive` never policy-allowed in v1. |
-| O-8 | Both the step timeline and the graph canvas in v1 (timeline first). |
-| O-9 | As recommended, all retention values configurable. |
-| O-10 | Presentation profiles in v1. |
-| O-11 | Capability install/deploy from the UI in v1 (needs its ADR). |
-| O-12 | Longer motion durations allowed; amend DESIGN.md, keep reduced-motion support. |
-| O-13 | Single owner through v1; multi-user after v1. |
-| O-14 | Audit hash chain in v1. |
-| O-15 | Update ARCHITECTURE.md once per milestone. |
-| O-2, O-3, O-4, O-5, O-7 | Pending explanation. |
-| O-2 | Accepted all four. Past incidents and how they were solved must be easy to query: typed journal entries linked to subjects, a resolution summary per operation in FTS, a host-scoped `search_experience` read tool for the model, and "similar past operations" in the UI (M4/M5). |
-| O-3 | Host-local `unattended` list in v1; owner-signed policy bundles planned after v1. |
-| O-4 | L3 in v1 as a general containment class (not only firewall), milestone M9. Offline permits after v1. |
-| O-5 | Most specific rule wins, even over a broader deny; tie at equal specificity → deny. Destructive and the host ceiling stay hard limits. Host ids in v1, tags after v1. |
-| O-7 | Pinned subject plus targets a rule names explicitly. |
-| O-12 | Longer motion allowed; reduced-motion support kept. |
+Technical questions that do not need the owner (decided in 03/04 as PROPOSAL): journal sequence
+source, unit-of-work shape, Execution-as-typed-Step, model-call retry rules, tolerant decoding,
+audit chain format, legacy-action projection, startup order, profile preference storage (hub-side, single owner).

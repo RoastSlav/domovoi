@@ -1,7 +1,6 @@
 # Domovoi — Combined Target Architecture and Product Design
 
-This is a convenience reading copy. The individual numbered files remain the canonical editable documents.
-
+This is a convenience reading copy, regenerated from the numbered files, which remain the canonical editable documents. Technical decisions and contracts live in `docs/rework/` (see README, "Relationship to docs/rework").
 
 ---
 
@@ -79,7 +78,6 @@ A design is on the right track when it answers **both** questions:
 
 If the first answer is no, the system is too workflow-bound. If the second is no, the system is too permissive.
 
-
 ---
 
 # 01 — Principles and decisions
@@ -90,16 +88,16 @@ This is the compact decision ledger for the target product. Each choice includes
 |---|---|---|---|
 | D-01 | Agreed direction | Build an **adaptive operations agent**, not a catalogue of predefined fixes. | Unforeseen incidents cannot all be encoded as scripts. The reasoner must investigate and compose responses from what is actually available. |
 | D-02 | Agreed direction | Put a deterministic control plane between reasoning and execution. | Model output is probabilistic and untrusted; authorization, validation, dispatch and state transitions must be enforceable and testable. |
-| D-03 | Agreed direction | Use a general **capability** abstraction; skills are one provider. | Native tools, scripts and service APIs expose different implementations of useful operations. The reasoner needs a consistent typed contract. |
+| D-03 | Agreed direction | Use a general **capability** abstraction; skills are one provider. Contracts are **hub-owned and typed**; providers and agents advertise availability and implementation facts only (owner decision D-02, RW-07). | Native tools, scripts and service APIs expose different implementations of useful operations. The reasoner needs a consistent typed contract, and a provider must never define its own authority. |
 | D-04 | Agreed direction | Playbooks are optional guidance, not mandatory workflows. | Known patterns benefit from reusable hints, but playbooks must not fence in novel investigations. |
 | D-05 | Agreed direction | Orchestrate incidents through durable, resumable phases. | Separating detection, context, assessment, planning, authorization, execution and verification keeps work focused and recoverable. |
 | D-06 | Agreed direction | Support multiple investigation and execution cycles. | A failed fix is new evidence. Re-diagnose and re-plan; never blindly retry. |
 | D-07 | Agreed direction | Keep **knowledge**, **policy** and **experience** separate. | Facts about the environment, permission to act and records of past events answer different questions and must not substitute for one another. |
 | D-08 | Agreed direction | Build editable structured environment knowledge alongside Markdown notes. | Notes are good for human runbooks; facts, dependencies, constraints and provenance need typed searchable records. |
 | D-09 | Recommended default | Start with one SQLite database: relational tables, typed graph edges, JSON attributes and FTS5. | It fits the self-hosted single-hub footprint and avoids operating a second database before there is a measured need. |
-| D-10 | Agreed direction | Make autonomy granular by host, capability/category and operation constraints; explicit deny wins. | A host-wide switch is too coarse: the NAS may allow a service restart but never file deletion. |
+| D-10 | Agreed direction (**changed by owner decision D-05**) | Make autonomy granular by host, capability/category and operation constraints. A strictly more specific matching rule overrides a broader one, **including a broader Deny**; at equal specificity Deny wins. Hard limits are not rules and cannot be overridden (RW-10). | A host-wide switch is too coarse: the NAS may allow a service restart but never file deletion. The original principle "explicit deny always wins" was deliberately replaced: an owner must be able to say "deny everything on this host except restarting this one container" and have the narrower rule take effect. |
 | D-11 | Agreed direction | Treat defensive security containment as a distinct autonomy class. | A fast protective action can also lock out the owner; scope, trusted access paths, expiry and recovery must be first-class. |
-| D-12 | Agreed direction | Keep local agent enforcement; design offline autonomy deliberately. | A hub outage or compromise must not create a path around local validation. Only a narrow owner-authorized cached permit may work offline. |
+| D-12 | Agreed direction | Keep local agent enforcement; design offline autonomy deliberately. In v1 the agent holds a **host-local unattended ceiling** (owner decision D-03, RW-12); offline emergency permits come after v1 (owner decision D-04). | A hub outage or compromise must not create a path around local validation. The ceiling is an enforcement limit the hub cannot widen; it is not a cryptographic proof of owner approval, which is why owner-signed bundles and permits are planned after v1. |
 | D-13 | Agreed direction | Suggest learnings; never infer permissions. | Repeated user behavior may indicate a preference, but cannot grant authority to automate it. |
 | D-14 | Agreed direction | Make knowledge, policy and experience user-visible, editable and reviewable. | The user must be able to correct the system, understand decisions and revoke information or authority. |
 | D-15 | Recommended default | Keep the hub database canonical; agents cache only the scoped data needed for local execution and explicitly permitted offline response. | One source of truth avoids conflicting edits while preserving narrowly bounded local operation. |
@@ -111,7 +109,7 @@ This is the compact decision ledger for the target product. Each choice includes
 | D-21 | Agreed direction | Treat the web UI as the primary operational control plane, not merely a dashboard. | Users must be able to inspect operations and manage almost all product configuration in one coherent interface. |
 | D-22 | Agreed direction | Design from a detailed information model first; allow users to choose a simpler presentation. | Technical transparency must not be sacrificed to make the UI appear simple. |
 | D-23 | Agreed direction | Provide the Operator as both a global side panel and a full workspace over the same conversation/operation state. | Quick requests should be possible anywhere, while complex investigations need substantial room. |
-| D-24 | Agreed direction | Make Operation a first-class concept separate from Incident. | A detected problem is not the same as work performed; user requests and scheduled work may have no incident. |
+| D-24 | Agreed direction | Make Operation a first-class concept separate from Incident: its own aggregate with a coarse status and typed, immutable steps (owner decision D-02, RW-04/RW-05). | A detected problem is not the same as work performed; user requests and scheduled work may have no incident. Execution is a typed step of an operation, not a second source of truth. |
 | D-25 | Agreed direction | Use a page-planning specification with priority and space requirements before layout implementation. | Important large visualizations (especially the orchestration graph) need deliberate real-estate allocation; page boundaries must follow content and workflows. |
 | D-26 | Agreed direction | Preserve the valued current color identity and semantic status language, but do not preserve current layouts by default. | Visual continuity is desirable; existing layout decisions must not constrain a better target experience. |
 | D-27 | Agreed direction | UI management is the default for supported configuration; external-only controls need a deliberate security/recovery reason. | Users should not need CLI/config edits for ordinary supported product management. |
@@ -129,12 +127,36 @@ These are product-level properties to preserve through whatever implementation i
 6. Logs, alerts, command output, webhook bodies and remote API content are untrusted input.
 7. Secrets are redacted from model context, logs, chat, UI and audit payloads; credentials are scoped and rotatable.
 8. Consequential state transitions and actions are traceable; audit history is tamper-resistant.
-9. Destructive and irreversible actions remain denied by default and require a deliberately designed exception path, not generic autonomy.
+9. Destructive and irreversible actions are never policy-allowed in v1 (owner decision D-06): the evaluator treats this as a hard limit. A human can still approve one, with typed confirmation.
 10. Budgets, timeouts, rate limits, output limits, cancellation and recovery are part of capability contracts.
+
+## Owner decisions since the first snapshot
+
+On 2026-11-13 the owner answered the open decisions in [`docs/rework/99-open-decisions.md`](../rework/99-open-decisions.md). They are binding product direction and are reflected in the documents named below. Technical detail lives in the linked `RW` decision.
+
+| Owner decision | Outcome | Reflected in | Technical detail |
+|---|---|---|---|
+| D-01 | No separate v0.1 release. Foundation work comes first inside the rework. | 10 | RW-02 |
+| D-02 | Hub-owned typed capability contracts; Operation aggregate distinct from Incident with coarse status and typed immutable steps; transactional unit of work; the journal is the experience record; past operations are searchable and shown as evidence, never authorization. | 03, 04, 06, 07 | RW-03, 04, 05, 07, 14, 15, 25 |
+| D-03 | Host-local unattended ceiling on the agent; the hub cannot widen it; the UI shows it read-only; owner-signed policy bundles after v1. | 02, 05 | RW-12 |
+| D-04 | L3 containment ships in v1 (milestone M9) as a general Contain class; offline emergency permits after v1. | 05, 10, 11 | RW-13 |
+| D-05 | Most specific rule wins, even over a broader Deny; equal specificity: Deny wins; hard limits stay hard; host ids in v1, tags after. | 01, 05, 09 | RW-10 |
+| D-06 | Destructive is never policy-allowed in v1. | 01, 05 | RW-10 |
+| D-07 | Unattended targets are limited to the operation's pinned subjects plus targets the matching rule names. | 05 | RW-23 |
+| D-08 | Step timeline and interactive graph both ship in v1; timeline first, on one frozen trace schema. | 10 | RW-21 |
+| D-09 | All retention is configurable. | 07, 09 | RW-28 |
+| D-10 | Detailed, Standard and Essential presentation profiles ship in v1. | 10 | RW-21 |
+| D-11 | Capability install and deploy from the UI in v1: signed packages verified by the agent against locally trusted keys. | 03, 10 | RW-26 |
+| D-12 | Longer motion is allowed for visualization and transitions; reduced motion is mandatory. | 10 | RW-21 |
+| D-13 | Single owner through v1; actor identity is designed for later roles. | 09, 10 | RW-29 |
+| D-14 | Audit hash chain in v1, with an honest threat model. | 05 | RW-27 |
+| D-15 | `ARCHITECTURE.md` is updated once per milestone. | README | none (process rule) |
+
+Ledger rows above that an owner decision changed say so in their Status column.
 
 ## Existing behavior versus target behavior
 
-The current code uses authenticated human approval for mutating skills and has a separate local risk allowlist. That is a fact about the current implementation, not a permanent product limitation. The target adds explicit owner-created autonomous authorization alongside human approval. It must not fake a human approval or route around existing checks: implement a separate, typed policy decision and local execution gate, with migration and tests that prove the replacement is at least as safe.
+The current code uses authenticated human approval for mutating skills and has a separate local risk allowlist. That is a fact about the current implementation, not a permanent product limitation. The target adds explicit owner-created autonomous authorization alongside human approval. It must not fake a human approval or route around existing checks: implement a separate, typed policy decision and local execution gate, with migration and tests that prove the replacement is at least as safe. The enforcement is honest about its limits: `HumanApproval` is restricted by lint rules and a line-based scan, not sealed by the compiler, and a hub permit is not a cryptographic proof of owner approval (RW-11, RW-12).
 
 ## Decision recording
 
@@ -148,7 +170,6 @@ For a significant new design, record: context, decision, why, alternatives, cons
 - Assign independent display priority (P0–P3) and space requirement (Dominant/Large/Medium/Compact/Contextual) to every significant page element.
 - Use page, subpage, tab, section, expansion, inspector, drawer and dialog based on workflow and space—not convenience or component availability.
 - The current UI overhaul is a reference for visual identity and current functionality, not a target layout mandate.
-
 
 ---
 
@@ -180,21 +201,23 @@ flowchart TB
   EXP --> UI
 ```
 
+> **Implementation direction.** The technical form of this architecture (aggregates, one transactional unit of work, effect runner, crate placement) is in [`docs/rework/04-target-architecture.md`](../rework/04-target-architecture.md) and decisions RW-03, RW-04, RW-07 and RW-08. This document stays at product level.
+
 ## Responsibilities and boundaries
 
 | Component | Owns | Must not own |
 |---|---|---|
-| **Incident orchestrator** | Durable incident work state, phase transitions, deadlines, budgets, retries/loops, interruption and resume. | Diagnosis, permission decisions or direct host execution. |
+| **Incident orchestrator** | Durable work state of an **Operation** (an aggregate distinct from the incident): coarse status, typed immutable steps, deadlines, budgets, retries/loops, interruption and resume. The incident remains the detected condition. | Diagnosis, permission decisions or direct host execution. |
 | **Context builder** | Selects relevant evidence, knowledge, capabilities and history; tracks missing/failed/stale data. | Inventing facts or making policy decisions. |
 | **Reasoning engine** | Hypotheses, interpretation, evidence requests, plan proposals and concise explanations. | Authorization, raw database access, arbitrary shell or direct state mutation. |
-| **Capability registry** | Describes available operations, providers, schemas, scopes, prerequisites, risk, verification and version. | Deciding whether a requested operation is allowed in the current context. |
+| **Capability registry** | Holds hub-owned typed contracts (schema, effect class, risk, reversibility, verification, version) joined with the availability that agents and providers advertise. | Deciding whether a requested operation is allowed in the current context; letting a provider define its own risk or authority. |
 | **Policy engine** | Deterministic authorization decision using owner policy and current context. | Learning or changing permissions from model output/history. |
 | **Execution coordinator** | Validated dispatch, idempotency, operation state, timeouts, result capture and rollback/expiry coordination. | Bypassing the policy engine or provider-specific validation. |
 | **Capability provider** | Implements an operation using its specific host/API mechanism. | Granting its own authority or broadening its scope. |
-| **Host agent** | Local discovery, local manifest/policy revalidation, bounded execution, emergency policy enforcement and local audit buffer. | Trusting a hub/model authorization flag without validating its own contract. |
+| **Host agent** | Local discovery, local manifest revalidation, bounded execution, the host-local unattended ceiling, an action journal for idempotency and reconciliation, and a local audit buffer. | Trusting a hub/model authorization flag without validating its own contract and ceiling. |
 | **Verification service** | Checks postconditions and monitors for regression over a defined window. | Treating process exit code as proof of recovery. |
 | **Knowledge service** | Structured facts, entities, relationships, provenance, lifecycle and search. | Storing permissions or silently converting inference into confirmed fact. |
-| **Experience service** | Append-only operational events and searchable summaries of what happened. | Becoming the source of current environment truth or permissions. |
+| **Experience service** | The append-only journal of typed operational events, plus a searchable resolution summary per operation. There is no separate experience event store (owner decision D-02, RW-15, RW-25). | Becoming the source of current environment truth or permissions. |
 
 ## Core interaction rule
 
@@ -207,14 +230,15 @@ A capability request should carry at least: capability ID/version, target host/e
 - The **hub** is the canonical coordinator and persistent store for incidents, policies, structured knowledge and experience.
 - Each **agent** exposes the host capabilities it can safely provide, validates host-scoped operations locally and reports results/evidence.
 - Capabilities may also be provided by hub-side or external integration adapters (for example, a router API); they must declare their enforcement point and security boundary.
-- Agents may cache a signed, versioned subset of policy and emergency authorizations. Cache scope, expiry, revocation and reconciliation are explicit; an agent does not invent new policy while offline.
+- The agent enforces a **host-local unattended ceiling**: owner-controlled configuration on the host that lists which capabilities may run without a human, on which explicit targets, how often and with which argument limits. The hub cannot modify or widen it, the UI shows it read-only, and hub policy can only narrow it (owner decision D-03, RW-12). The ceiling is an enforcement limit, not a signature: a hub permit is not a cryptographic proof of owner approval.
+- Owner-signed policy bundles and cached offline emergency permits are planned after v1. Until then an agent does not invent or cache new policy while offline.
 - When a host disconnects, the orchestrator records that the operation is unavailable or uncertain. It must not treat missing responses as success.
 
 ## Durable state and concurrency
 
 Persist the incident work item and each phase transition. It must be possible to stop the hub, restart it and resume from the latest durable state without repeating a non-idempotent action blindly.
 
-Use explicit state owners/single-writer patterns for aggregates where concurrent decisions could race, as the current project already does for incidents and actions. Use optimistic store guards where appropriate. Notifications and UI updates should be derived from committed state transitions, not emitted before a write succeeds.
+Use explicit state owners/single-writer patterns for aggregates where concurrent decisions could race, as the current project already does for incidents and actions. A state change, its journal entries, its audit record and any new pending side effects commit in **one transaction** (owner decision D-02, RW-03); a transition whose audit record cannot be written does not happen. Use optimistic store guards where appropriate. Notifications and UI updates should be derived from committed state transitions, not emitted before a write succeeds.
 
 ## Resilience and budgets
 
@@ -238,8 +262,7 @@ The UI can change layout, view state and presentation profile, but all consequen
 
 ## Extension path
 
-Add capabilities through providers/adapters behind the common contract. Preserve current `ReadTool`, skill and action behavior during migration by wrapping them as legacy providers first. Avoid coupling orchestration or policy to Docker, systemd, a particular firewall, or one script format.
-
+Add capabilities through providers/adapters behind the common hub-owned contract. Preserve current `ReadTool`, skill and action behavior during migration by wrapping them first; existing action records stay as they are and are shown as legacy (RW-32). Avoid coupling orchestration or policy to Docker, systemd, a particular firewall, or one script format. Capability packages can be installed from the UI, but only as signed packages that the agent verifies against locally trusted keys; the hub merely relays them (owner decision D-11, RW-26).
 
 ---
 
@@ -285,12 +308,14 @@ The eventual schema should contain:
 
 This is a conceptual contract, not a final serialized schema. Avoid requiring every provider to implement fields that are genuinely not applicable; represent not-applicable explicitly rather than guessing.
 
+**Who owns which fields (owner decision D-02, [RW-07](../rework/03-architecture-decisions.md)).** The contract is **hub-owned and typed**: identity, version, input schema, effect class (`Read`, `Mutate`, `Contain`, `Destructive`), risk, reversibility, idempotency, timeout, output limit, verification and the arguments a host ceiling may constrain are defined by the hub, not by the provider. Providers and agents advertise only implementation facts: which contract ids and versions they implement, an implementation hash, availability and a summary of the local ceiling. An advertised id the hub does not define is shown as unknown and is never dispatchable. Skills are the exception that proves the rule: their effect class comes from the owner's local manifest (the existing trust boundary), with a hub floor the owner may raise but never lower; an unknown class is treated as `Destructive`.
+
 ## Discovery and invocation
 
-1. Providers register a validated descriptor with the hub or agent registry.
-2. Agent handshake reports local capabilities and versions, not just script filenames.
+1. The hub holds the typed contracts; providers register the implementations they can offer against those contracts.
+2. Agent handshake reports which contracts and versions it implements, with an implementation hash and availability, not just script filenames. Availability is `Known`, `Unknown` (no session yet since hub start) or `Absent`; an unknown host is waited for, never rejected.
 3. Hub builds a scoped catalogue for the incident: only capabilities that exist for the target and whose basic prerequisites are met.
-4. Reasoner may ask to inspect a capability's schema or request an operation using typed arguments.
+4. Reasoner may ask to inspect a capability's schema or request an operation using typed arguments. The model sees a closed set of meta-tools (list and describe capabilities, request evidence, search experience, propose a plan, ask the user, finish); none of them approves or executes anything.
 5. Engine checks the schema, scope, freshness, budget and current policy before dispatch.
 6. Provider and agent validate again at the enforcement point.
 7. Result returns as structured outcome plus bounded, redacted evidence.
@@ -319,6 +344,15 @@ Do not model every log line or metric as a capability. Capabilities are operatio
 - The model may draft a new skill/provider definition as a **proposal**. It must not install, enable or grant authority to that extension itself.
 - A proposed extension needs human review, static validation, sandboxed tests, manifest/hash review, provider installation and an explicit policy decision before use.
 
+### Installing capabilities from the UI (owner decision D-11, RW-26)
+
+Capability install and deploy from the UI is part of v1, with these properties:
+
+- A capability package is signed. The agent installs it only if the host opted in (`allow_install`, off by default), the signature verifies against a key in the agent's **locally** trusted keys, and the package is compatible with the agent. The hub only relays the bytes and cannot add trusted keys, so a compromised hub cannot make an agent accept an unsigned package.
+- Installing never enables or authorizes anything. Install, enable (hub) and unattended use (policy plus the host ceiling) remain three separate steps.
+- **Open:** third-party or community packages. Recommendation for v1: first-party signed packages plus packages signed with the owner's own key; no arbitrary third-party registries.
+- Agent self-update stays out of scope (see the catalogue flags in `11`).
+
 ## Missing capabilities
 
 If the needed operation does not exist on the relevant host or through an integration, the reasoner should say so, explain which part of the response is blocked, and propose a typed capability/provider extension. It must not pretend that an unavailable action exists or fall back to arbitrary shell execution. The proposed extension follows the review, test, install and explicit-policy path above.
@@ -329,8 +363,7 @@ Playbooks are advisory assets that can describe known diagnostic patterns, usefu
 
 ## Open design items
 
-Finalize capability schema, version negotiation, discovery refresh, provider lifecycle, third-party integration trust, and how generated capability drafts are reviewed. See [`09-open-questions.md`](09-open-questions.md).
-
+The ownership split above is decided; the exact schema and version negotiation are specified in `docs/rework` (RW-07, RW-17). Still open: discovery refresh details, provider lifecycle for hub-side integrations, third-party package trust, and how generated capability drafts are reviewed. See [`09-open-questions.md`](09-open-questions.md).
 
 ---
 
@@ -338,7 +371,9 @@ Finalize capability schema, version negotiation, discovery refresh, provider lif
 
 ## Principle
 
-An incident is a durable operational task, not a single LLM prompt. The orchestrator owns lifecycle and state; the reasoner handles interpretation and proposes next steps. Phases are responsibilities and contracts, not a rigid linear workflow. The engine may complete simple phases without an LLM call, and paths may loop or branch.
+The work done about an incident is a durable operational task, not a single LLM prompt. That task is an **Operation**, an aggregate distinct from the incident (owner decision D-02, RW-04): the incident is the detected condition, the operation is the work performed, and an operation may also start from a user request or a schedule with no incident at all. The orchestrator owns lifecycle and state; the reasoner handles interpretation and proposes next steps. Phases are responsibilities and contracts, not a rigid linear workflow. The engine may complete simple phases without an LLM call, and paths may loop or branch.
+
+**How phases are stored.** An operation has a **coarse status** (for example running, waiting, paused, succeeded, failed, escalated, cancelled). Its work is a growing list of **typed, immutable steps** (reasoning turn, evidence request, plan, policy decision, approval, execution, verification, notification, question); a step's progress is recorded as append-only events. A phase in this document is therefore a label over a group of step kinds, not a stored state. The orchestrator decides on typed step outcomes, never on model text. State machines and outcomes are in [`docs/rework/04 §3`](../rework/04-target-architecture.md) and RW-05.
 
 ## Lifecycle
 
@@ -376,7 +411,7 @@ flowchart TD
 | **Verify / monitor** | Check whether the original condition is gone and whether dependent services remain healthy. | Verified, verification failed, inconclusive or regression detected. |
 | **Resolve / escalate** | Close the incident only when the condition is demonstrably resolved; otherwise continue or escalate. | Terminal state or a new bounded cycle. |
 
-A phase may return `complete`, `needs_evidence`, `waiting`, `failed`, `not_applicable` or `escalate`. Store these states explicitly; do not treat missing output as a successful phase.
+A phase may return `complete`, `needs_evidence`, `waiting`, `failed`, `not_applicable` or `escalate`. Store these outcomes explicitly on the steps; do not treat missing output as a successful phase. An execution whose result is lost (a dropped link, a restart mid-dispatch) is `OutcomeUnknown`, not `Failed`: it is reconciled against the agent's action journal, and it blocks unattended re-execution of the same capability on the same target until a human or a verification step resolves it (RW-09).
 
 ## Context model
 
@@ -385,7 +420,7 @@ Do not create one universal questionnaire or giant prompt. Build context in laye
 1. **Common incident context:** incident/host identity, triggering signal, severity, time, recent changes and current work state.
 2. **Domain context:** relevant Docker, storage, network, security, database or application details.
 3. **Knowledge context:** applicable facts, constraints, dependencies, preferences and recovery paths.
-4. **Experience context:** similar incidents, prior plans, failures and successful verification evidence.
+4. **Experience context:** similar past operations (found through their resolution summaries and the host-scoped `search_experience` read capability), prior plans, failures and successful verification evidence. Each item supplied to the reasoner carries its operation id, date, verified flag and source, inside a block labelled historical evidence, not authorization (owner decision D-02, RW-25).
 5. **Action-specific context:** only facts needed to evaluate a specific operation (for example, trusted management addresses before firewall changes).
 
 Every requested field/evidence item should have a state: `available`, `unknown`, `unavailable`, `failed`, `stale` or `not_applicable`. Missing data is not equivalent to `false`. Include source and observed time. Distinguish user-confirmed, automatically observed and inferred information.
@@ -416,16 +451,17 @@ The plan is a proposal, not authorization. The policy engine evaluates each cons
 
 Record phase transitions and meaningful events with timestamp, actor/component, incident, input/output reference, evidence references, decision/rationale, policy result, operation identity and outcome. Preserve enough to reconstruct the lifecycle without persisting secrets or unlimited raw logs.
 
+The experience record **is the journal**: one append-only table of typed events that also feeds live UI replay, not a separate experience store (RW-15). Security-relevant facts (who authorized what, policy and settings changes, refusals) go to the separate hash-chained audit record, written in the same transaction. When an operation ends it gets a **resolution summary**: deterministic fields filled by code (subjects, capabilities executed, verification results, outcome) and narrative fields (problem, cause, fix) drafted by the model, marked as model-sourced and editable or confirmable by the owner. The UI shows similar past operations on incident and operation pages. A past approval or success never satisfies policy.
+
 ## Example: a fix reveals a second problem
 
 A Plex container is unhealthy. Domovoi inspects logs and dependencies, then proposes or performs an owner-authorized Plex restart. The restart command succeeds, but the application health check still fails. Domovoi records that failure as new evidence, returns to assessment, notices database-connection errors, checks the database service and its recent history, then proposes a separate database restart. If that operation is not covered by autonomous policy, it asks for approval. After the database restart it verifies both the database and Plex, watches for regression, and resolves only when the original Plex condition is healthy.
 
-The important behavior is not the Plex-specific sequence: it is **failed postcondition → new evidence → revised diagnosis → new authorization decision → verification**. No blind retry and no assumption that a successful process exit means the incident is fixed.
+The important behavior is not the Plex-specific sequence: it is **failed postcondition → new evidence → revised diagnosis → new authorization decision → verification**. No blind retry and no assumption that a successful process exit means the incident is fixed. A retry is always a new execution step with its own authorization; reconciling an unknown outcome is not a retry.
 
 ## LLM efficiency
 
 An LLM conversation may span multiple phase transitions when useful; phase boundaries do not require one model call each. Use concise summaries and on-demand detail. Enforce incident-wide limits for turns, tokens, tool calls, time, cost and execution cycles.
-
 
 ---
 
@@ -444,20 +480,24 @@ Autonomy is a permission to perform a defined operation under defined conditions
 
 These are capability categories, not a single host-wide ranking. A host may allow L2 service recovery and L3 network containment while explicitly denying deletion and host reboot.
 
+**v1 scope (owner decisions D-03, D-04).** L2 ships as a reviewed set of reversible operations. L3 also ships in v1, as milestone M9, under a general **Contain** effect class that is not limited to firewall blocking. Every unattended step is bounded by a **host-local ceiling** (below). Offline emergency permits and owner-signed policy bundles are after v1.
+
 ## Policy scope and precedence
 
-**Agreed direction:** support global defaults, per-host defaults, capability/category rules and specific capability overrides. Explicit deny always wins.
+**Agreed direction:** support rules scoped by host, capability/category and target, plus defaults. **Changed by owner decision D-05:** the first draft said "explicit deny always wins". The owner replaced that principle: a more specific rule overrides a broader one, even a broader Deny, so that "deny everything on this host, except restarting this one container" works as written.
 
-**Recommended default precedence:**
+**Precedence (owner decision D-05; formalisation in [RW-10](../rework/03-architecture-decisions.md)):**
 
-1. Any applicable explicit deny → denied.
-2. Most specific applicable rule → capability/operation override.
-3. Category rule.
-4. Host default.
-5. Global default.
-6. No matching grant → approval required or denied, according to the action class; never implicitly allow.
+1. A rule's scope is its host, capability and target dimensions. Rule A is **strictly more specific** than rule B when A's scope is a subset of B's on every dimension and a strict subset on at least one. This is a partial order; there is no numeric score.
+2. The strictly more specific matching rule overrides the broader one, **including a broader Deny**.
+3. At **equal specificity, Deny wins**.
+4. Conflicting rules that are **incomparable** (neither is more specific) resolve by the recommended default **Deny > RequireApproval > Allow**. This tie-break is **open** for owner confirmation (see `09`).
+5. No matching rule → approval required or denied according to the operation class; never implicitly allow.
+6. Host ids only in v1; host tags come after v1.
 
-This precedence is a recommended starting point. The policy evaluator must be deterministic and produce an explainable decision record; record the final choice in the policy specification and tests.
+**Hard limits are not rules.** They apply after rule resolution and cannot be overridden by any rule, however specific: the host-local ceiling, Destructive operations never being policy-allowed in v1 (owner decision D-06), the mandatory containment exclusions, and unknown or stale safety-critical facts never yielding Allow.
+
+The evaluator is pure and deterministic, produces an explainable decision record naming the winning rule, and is the same function the simulator calls.
 
 Policy should constrain more than a risk label:
 
@@ -469,11 +509,11 @@ Policy should constrain more than a risk label:
 - Reversibility and rollback requirements.
 - Trusted management networks, VPN paths and critical services.
 - Allowed time windows or maintenance state where relevant.
-- Whether the operation remains allowed when the hub is offline.
+- Whether the operation remains allowed when the hub is offline (after v1; in v1 nothing runs unattended while the hub is unreachable).
 
 ## Illustrative per-host policy profile
 
-This example captures the intended granularity; it is **not** a default policy or an instruction to enable these permissions automatically.
+This example captures the intended granularity; it is **not** a default policy or an instruction to enable these permissions automatically. Because a more specific rule beats a broader Deny, a "deny" written at host scope can be overridden by a narrower Allow; where the owner wants a denial to be final for a capability, it should be written at that capability's scope, or be a hard limit (Destructive operations always are).
 
 | Scope | Automatically allowed | Approval required | Explicitly denied |
 |---|---|---|---|
@@ -481,6 +521,16 @@ This example captures the intended granularity; it is **not** a default policy o
 | **AI host** | Restart Ollama; unload a model from memory when the target is known and the operation is safe. | Host reboot; GPU driver changes; model downloads or environment changes with broad impact. | Delete model files or user data. |
 
 The exact capability names and constraints would be configured per environment. The example demonstrates that one machine can have high autonomy for selected operations while retaining explicit denials for data loss, and another can allow only a narrow subset of local AI operations.
+
+## Unattended execution guardrails
+
+Beyond the policy decision, an unattended (policy-authorized) step is bounded by three further controls.
+
+- **Host-local ceiling (owner decision D-03, [RW-12](../rework/03-architecture-decisions.md)).** Owner-controlled configuration on the agent's host lists, per capability, the explicit targets, a maximum rate per hour, constrained arguments where the contract allows them, and for Contain capabilities a maximum lifetime and maximum number of active containments. No entry means nothing runs unattended. The hub cannot change or widen it, the UI shows it read-only, and hub policy may only narrow it. Human-approved and policy-authorized executions stay distinguishable. The agent applies its rate limit to both kinds of execution, which bounds the damage a lying hub could do.
+- **Target binding (owner decision D-07, RW-23).** An unattended step may target only the operation's **pinned subjects** plus targets **explicitly named by the matching owner-authored rule**. A target outside that set can only be routed to human approval, flagged as outside the operation's scope. Pinned subjects change only by owner command.
+- **Operational brakes.** Per-rule and global rate limits, a human-only global **pause autonomy** switch, a circuit breaker that suspends a rule after repeated failed or unknown results, and shadow mode for every new rule.
+
+**What the ceiling does not do.** It is an enforcement limit, not a signature. A compromised hub could label a dispatch as human-approved and run anything the host's local risk allowlist permits; that is today's exposure, now rate-bounded. A hub permit is therefore not a cryptographic proof of owner approval. Owner-signed approvals and policy bundles, planned after v1, are the fix.
 
 ## Knowledge is not authority
 
@@ -490,13 +540,17 @@ Learning and permission changes are separate user actions. An experience suggest
 
 ## Separate authorization types
 
-Keep the current human approval path distinct from autonomous authorization. A future design should introduce a typed policy authorization/permit that records the owner-defined rule, policy version, relevant conditions and execution scope. Do not create a fake `HumanApproval` or allow model output to satisfy a human gate.
+Keep the current human approval path distinct from autonomous authorization. The target introduces a typed policy permit that records the owner-defined rule, policy version, relevant conditions and execution scope (RW-11). Do not create a fake `HumanApproval` or allow model output to satisfy a human gate. Be precise about what enforces this: `HumanApproval` is a public type restricted by lint rules and a line-based scan in CI, not sealed by the compiler. Those controls stop careless code paths in review; they are not a runtime boundary against a compromised hub, which is why the plan hash, the agent's local checks and the audit chain exist.
 
-Every action should carry a decision trace: requested operation, relevant policy rule/version, decision, conditions evaluated, actor/principal, plan hash, execution outcome and verification. The UI must make clear whether a human approved it or a policy authorized it.
+Every action should carry a decision trace: requested operation, relevant policy rule/version, decision, conditions evaluated, actor/principal, plan hash, execution outcome and verification. The UI must make clear whether a human approved it or a policy authorized it. Past approvals and past successes are evidence for the reasoner and never authorization: they cannot satisfy a policy condition.
+
+**Audit tamper evidence (owner decision D-14, RW-27).** Audit entries are hash-chained, computed inside the same transaction as the state change. The honest threat model: the chain detects accidental corruption, out-of-band edits and deletion in the middle of the chain; it does **not** stop an attacker who can rewrite the whole database and recompute the chain. As a cheap external anchor, the current head hash appears in the daily digest, so the owner holds off-host copies. Stronger anchoring is after v1.
 
 The current implementation is human-approval-only for mutations. Treat that as a migration starting point, not as a permanent design limit. The target adds a separate owner-policy authorization path; never fabricate a human approval. Replace the current gate only when a typed policy decision, local enforcement, audit, migration and failure tests are ready together.
 
-## Offline emergency authorization
+## Offline emergency authorization (after v1)
+
+**Owner decision D-04:** offline emergency permits are **not part of v1**. In v1 an agent runs nothing unattended without a live hub permit inside its host ceiling. The design below is the direction for the later release; it is not open for v1.
 
 For security or protective operations that must work during hub disconnection, the agent may hold a small, signed, time-limited emergency policy cache. It must be:
 
@@ -508,6 +562,14 @@ For security or protective operations that must work during hub disconnection, t
 - Safe under restart, clock uncertainty and duplicate execution.
 
 When the cached permit is stale, expired or ambiguous, fail closed. This mechanism is not general offline autonomous reasoning with unrestricted powers.
+
+## Containment in v1 (owner decision D-04, RW-13)
+
+Containment (L3) ships in v1 as milestone M9, after bounded L2 autonomy is complete. It is a general **Contain** class, so the safeguards below apply to any contain capability, not just firewall rules.
+
+- **Proposed first set (open for owner confirmation):** a temporary inbound block of one external address or small prefix using a kernel-enforced timeout (`firewall.block_source`); pausing one named container with a time limit (`container.pause`); stopping one named systemd unit with a time limit and a hard-coded exclusion of management units (`unit.stop_temporary`). Container network isolation, SSH session termination and account lock are later candidates because their lockout or recovery stories are weaker.
+- **Triggering.** Automatic containment is eligible only when a deterministic detector emitted a typed signal whose structured fields name the target (for example a source address) and that target is the operation's pinned subject. **Free-form model output never triggers or targets automatic containment.** The model may investigate, explain and recommend; its recommendations go through human approval.
+- **Safeguards.** Mandatory management-path exclusions (owner-confirmed facts; unknown means refuse), expiry on every containment, caps on simultaneous containments, a dead-man timer, verification that management access still works, outcome-unknown handling, and drills before any host is enabled.
 
 ## Security containment example: suspected SSH brute force
 
@@ -525,13 +587,12 @@ Do not reflexively stop SSH or apply a broad firewall policy: that can lock the 
 
 ## Hard safety boundaries
 
-- Destructive data operations (delete files, pools, backups, databases or user data) are denied by default and should remain human-only unless a separately reviewed product decision establishes otherwise.
+- Destructive data operations (delete files, pools, backups, databases or user data) are **never policy-allowed in v1** (owner decision D-06): the evaluator enforces this as a hard limit that no rule can override. A human can still approve one, with typed confirmation.
 - Policy/configuration changes, host reboot, updates, credential changes and broad network changes require explicit handling; they are not ordinary L2 actions.
 - The model cannot modify its own policy, grant itself capabilities, approve its plan or disable audit.
 - A capability must declare target, effect, prerequisites, rollback/expiry and verification. If it cannot be bounded, it is not eligible for autonomous execution.
 - Agent-side validation is mandatory even after hub authorization.
 - Unknown, stale, conflicting or unavailable safety-critical context means no autonomous execution.
-
 
 ---
 
@@ -545,7 +606,7 @@ Do not reflexively stop SSH or apply a broad firewall policy: that can lock the 
 | **Policy** | What is Domovoi allowed to do, under which conditions? | Allow `restart_service` on `plex`; deny all file deletion; require approval for host reboot. | A fact about the environment or a historical observation. |
 | **Experience** | What happened, what did Domovoi decide/do, and what was the outcome? | Incident timeline, evidence requests, plan attempts, approval/denial, execution, verification, operator correction. | A guaranteed current fact or an authorization grant. |
 
-They inform one another but cannot be merged semantically. An observed fact may inform a policy proposal; a human must explicitly accept a policy change. An experience may suggest a knowledge update; it does not overwrite facts without provenance-aware validation.
+They inform one another but cannot be merged semantically. They stay separate in meaning, not necessarily in storage: **the experience record is the operational journal** (one append-only table of typed events, RW-15), not a third event store, and the knowledge facts reference inventory that already exists rather than copying it. An observed fact may inform a policy proposal; a human must explicitly accept a policy change. An experience may suggest a knowledge update; it does not overwrite facts without provenance-aware validation.
 
 ## Knowledge categories
 
@@ -560,7 +621,9 @@ They inform one another but cannot be merged semantically. An observed fact may 
 
 ## Entity and relationship model
 
-Represent meaningful things as entities: host, service, container, database, filesystem, disk, storage pool, network, router, domain, integration, user-defined operational concept. Connect them with typed relationships such as `runs_on`, `depends_on`, `routes_to`, `stores_on`, `backs_up_to`, `exposed_through`, `managed_by` and `managed_from`.
+Represent meaningful things as subjects: host, service, container, database, filesystem, disk, storage pool, network, router, domain, integration, user-defined operational concept. Connect them with typed relationships such as `runs_on`, `depends_on`, `routes_to`, `stores_on`, `backs_up_to`, `exposed_through`, `managed_by` and `managed_from`.
+
+**Owner decision D-02 / [RW-14](../rework/03-architecture-decisions.md).** Subjects are **typed references** (a host, a container on a host, a unit on a host, or a user-defined entity), not a second copy of the inventory. The learned baselines remain the owner of observed containers, units and ports; facts and relations point at them. A small entities table exists only for subjects the user defines (for example "VPN" or "NAS pool"). The set of predicates is a closed, typed list in v1.
 
 Do not create graph nodes for every log line or metric. Those belong in event/measurement records; link only useful incidents, facts and experiences to relevant entities.
 
@@ -571,7 +634,7 @@ A fact/claim should carry, at minimum:
 - Subject entity and typed predicate/value.
 - Scope (global, host, entity or service).
 - Source (user-confirmed, agent-discovered, integration-reported, inferred, imported).
-- Confidence/verification status; never treat model confidence as calibrated probability.
+- Verification status (for example observed, user-confirmed, inferred). There is **no numeric confidence** field: model confidence is not a calibrated probability, and a number would suggest otherwise.
 - Observed/valid-from time and optional valid-until time.
 - Last-verified time and freshness policy.
 - Creator/updater and timestamps.
@@ -581,6 +644,16 @@ A fact/claim should carry, at minimum:
 Missing or unreadable data remains `unknown`/`unavailable`; do not write false or empty values as confirmed facts. When sources conflict, preserve provenance and surface the conflict instead of silently selecting the newest text.
 
 Lifecycle: discovered or supplied → validated → used in context → reverified/updated → superseded, expired or retracted. AI inference cannot become user-confirmed merely because it is repeated.
+
+## Experience: finding past operations (owner decision D-02, RW-25)
+
+Past incidents and how they were solved must be easy to query.
+
+- The journal holds typed events linked to subjects, so an operator can ask "what happened to this container" and get a precise answer, not a text search over prose.
+- Every finished operation gets a **resolution summary**: deterministic fields filled by code (subjects, capabilities executed, verification results, outcome) and narrative fields (problem, cause, fix) drafted by the model, marked as model-sourced and editable or confirmable by the owner. Summaries are full-text indexed.
+- The model has a host-scoped `search_experience` read capability. The UI shows **similar past operations** on incident and operation pages.
+- When experience is supplied to the reasoner, each item carries its operation id, date, verified flag and source, inside a block labelled historical evidence, not authorization. **Past approvals and past successes are evidence and never satisfy policy.**
+- Retention of raw step output and of durable summaries are separate, both configurable (owner decision D-09; see `07`).
 
 ## Onboarding and discovery
 
@@ -609,11 +682,10 @@ Make knowledge a first-class, editable area:
 - Search/browse by host, entity, category, source, status and freshness.
 - Edit, confirm, dispute, supersede and delete records.
 - View an entity's facts, relationships, notes, incidents, experiences and relevant policy.
-- Provide a graph explorer for relationships and an experience explorer for timelines/cycles.
-- Show provenance and confidence/status wherever a fact influences a diagnosis or action.
+- Provide a graph explorer for relationships and an experience view of past operations (timelines, cycles, resolution summaries, similar operations).
+- Show provenance and status wherever a fact influences a diagnosis or action.
 
 The UI should make it easy to fix incorrect knowledge; users should not need SQL or file edits.
-
 
 ---
 
@@ -640,45 +712,48 @@ Keep these as logically distinct modules even if they share one SQLite file:
 
 1. **Operational state:** hosts, agents, incidents, signals, actions, approvals, policies, settings, audit and orchestration state.
 2. **Knowledge graph:** entities, typed relationships and sourced facts/claims.
-3. **Experience log:** append-only incident/phase/plan/operation/verification events and links to relevant entities/evidence.
+3. **Experience = the journal:** one append-only table of typed events for incidents, operations, conversations and knowledge, with a global sequence number. It is also the change stream the live UI replays, so there is no separate experience event store (owner decision D-02, RW-15). Beside it sit the hash-chained **audit** record (the security record, written in the same transaction) and the **effects** outbox (pending side effects, not an event store).
 4. **Documents:** existing Markdown notes/runbooks and their FTS index.
 5. **Search structures:** ordinary indexes, FTS5 and (later, if justified) vector embeddings.
 
 ## Conceptual schema
 
-Not final DDL; IDs, constraints, normalization and lifecycle fields require a later specification.
+Not final DDL; the authoritative schemas are in [`docs/rework/04 §10`](../rework/04-target-architecture.md) (RW-14, RW-15, RW-25). IDs, constraints, normalization and lifecycle fields require that specification.
 
 ```sql
-entities(
-  id, kind, name, scope_type, scope_id,
-  attributes_json, lifecycle, created_at, updated_at
+-- Subjects are typed refs: host:<id>, container:<host>/<name>,
+-- unit:<host>/<name>, entity:<uuid>. Observed inventory stays in the
+-- baselines tables, which own it; facts and relations only point at it.
+entities(                       -- user-defined subjects only
+  id, kind, name, attributes_json, lifecycle, created_at, updated_at
 )
 
-relationships(
-  id, source_entity_id, relation_type, target_entity_id,
-  properties_json, source, verification_status,
+relations(
+  id, subject_ref, relation_type, object_ref,
+  properties_json, source, status,
   valid_from, valid_until, observed_at, last_verified_at
 )
 
-knowledge_facts(
-  id, subject_entity_id, predicate, value_json,
-  scope_type, scope_id, source_type, source_ref,
-  confidence, status, valid_from, valid_until,
-  observed_at, last_verified_at, supersedes_id,
-  created_at, updated_at
+facts(
+  id, subject_ref, predicate, value_json,
+  source, status, observed_at, valid_until, last_verified_at,
+  supersedes_id, evidence_ref, created_at, updated_at
+)                               -- no numeric confidence column
+
+journal(                        -- the experience record and the SSE change stream
+  seq, occurred_at, actor, kind, topic,
+  operation_id, incident_id, subject_refs, payload_json
 )
 
-experience_events(
-  id, incident_id, event_type, phase, actor_type, actor_id,
-  occurred_at, summary, payload_json, correlation_id
-)
-
-experience_links(
-  event_id, entity_id, link_type
+resolution_summaries(           -- one per terminal operation, full-text indexed
+  operation_id, subjects, capabilities_executed, verification, outcome,
+  problem, cause, fix, narrative_source, confirmed_by, updated_at
 )
 ```
 
-Use typed definitions/validation for entity kinds, relationship types and predicates. Do not create unconstrained EAV where every field is a free-form string. Keep stable/query-critical fields relational; put only variable optional properties in JSON. Store evidence references/hashes and bounded summaries rather than unlimited raw logs or secrets.
+The earlier draft had `experience_events` and `experience_links` tables and a numeric `confidence`. Both are dropped: the journal is the experience record, links to subjects live on the journal entry as typed refs, and a fact carries a status and a source, not a number. The `digest_facts` table, which holds metric samples and collides with the word "facts", is renamed `metric_samples` first.
+
+Use typed definitions/validation for relation types and predicates (a closed enum in v1). Do not create unconstrained EAV where every field is a free-form string. Keep stable/query-critical fields relational; put only variable optional properties in JSON. Store evidence references/hashes and bounded summaries rather than unlimited raw logs or secrets.
 
 ## Search strategy
 
@@ -701,7 +776,7 @@ Expose domain operations rather than raw database queries, for example:
 - `get_facts(entity_id, predicates, freshness)`
 - `get_relationships(entity_id, relation_types, direction)`
 - `traverse_graph(start_entity, relation_filter, max_depth, max_nodes)`
-- `search_experience(query, scope, time_range)`
+- `search_experience(query, scope, time_range)` — a host-scoped read capability over resolution summaries and journal entries; the model sees it as a meta-tool, and results carry operation id, date, verified flag and source
 - `get_incident_experience(incident_id)`
 - `get_notes(query, entity/host scope)`
 - `propose_knowledge_change(...)`
@@ -713,16 +788,18 @@ Every traversal must be bounded by depth, node count, relationship filters and r
 - Hub is canonical for long-lived knowledge, policy and experience.
 - Agent caches contain only the signed/versioned subset required for local enforcement or a permitted offline emergency action.
 - Track policy/knowledge versions and reconcile cached data on reconnect.
-- Keep experience events append-only for auditability, with explicit retention/redaction rules for sensitive payloads.
+- Keep journal entries append-only for auditability, with explicit retention/redaction rules for sensitive payloads.
+- **All retention is configurable** (owner decision D-09, RW-28). Current defaults stay where they exist (for example the 90-day incident timeline), raw step output and durable resolution summaries are separate retention classes, and the interaction with full-text indexes, backups and the audit chain is defined in `docs/rework/04 §14`. Proposed default values are still open (see `09`).
+- Audit entries are hash-chained (owner decision D-14); pruning writes a chained checkpoint row, so retention never silently breaks verification.
 - Keep current facts mutable through superseding/retraction, not destructive overwrites that erase provenance.
 - A deletion workflow must clean derived FTS/vector/cache data and prevent retrieval of the deleted content.
 
 ## Migration approach
 
-1. Keep current relational operational tables unchanged initially.
+1. Keep current relational operational tables unchanged initially. New tables are additive migrations; existing action records are retained and shown through a read-only legacy projection rather than rewritten (RW-32).
 2. Add a new knowledge repository/service alongside `NoteRepo`; do not overload the current `knowledge.rs` module that currently implements notes, baselines, acknowledgements and digest facts.
 3. Add typed tables and indexes through append-only migrations.
-4. Link existing hosts, skills, notes, incidents and signals to stable entity IDs incrementally.
+4. Link existing hosts, skills, notes, incidents and signals to typed subject refs incrementally; do not copy baseline inventory into new tables.
 5. Retain existing notes and `notes_fts`; add entity linkage without forcing Markdown into structured facts.
 6. Add graph and semantic search only behind service interfaces.
 
@@ -735,12 +812,13 @@ Every traversal must be bounded by depth, node count, relationship filters and r
 
 Until then, a SQLite-first hybrid model is simpler and sufficient for the target scale.
 
-
 ---
 
 # 08 — Current-state gap analysis
 
 > **Snapshot only:** verified code baseline `393694b` (UI overhaul merged). Existing architecture docs and ADRs may be outdated; they are navigation clues, not binding design authority.
+>
+> **Corrections (2026-11-13):** the repository investigation in [`docs/rework/01-repository-reality.md`](../rework/01-repository-reality.md) found four statements below to be wrong or imprecise. They are corrected in place: the agent link is not mutual TLS; the plan hash covers the manifest, not the script bytes, and the approve API carries no hash; verification and the triage queue are in memory and not restart-safe; and `HumanApproval` is restricted by a line-based scan, not sealed by the compiler. The rest of this table is unchanged and still a point-in-time inspection.
 
 ## Current state vs target
 
@@ -765,18 +843,18 @@ The largest missing pieces are: a general capability contract beyond skills/read
 | Area | Current `main` | Target | Gap |
 |---|---|---|---|
 | Product role | Monitoring, LLM triage, chat notifications and human-approved skill execution. | Adaptive operations agent with bounded autonomy. | **Major product expansion**, while preserving the current monitoring loop. |
-| Deployment | One Rust binary with hub and agent roles; agent dials out over mutually authenticated TLS WebSocket. | Same basic hub/agent split, with external capability providers as needed. | **Mostly reuse**; extend provider/protocol discovery. |
+| Deployment | One Rust binary with hub and agent roles; agent dials out over a TLS WebSocket. The agent pins the hub's certificate; the agent's identity is an ed25519 challenge bound to the TLS channel (this is **not** mutual TLS). | Same basic hub/agent split, with external capability providers as needed. | **Mostly reuse**; extend provider/protocol discovery. |
 | Process safety | `domovoi-runner` is the only process spawner; argv-only, no shell; skills have typed manifests, limits and redaction. | Same invariant applies to legacy skills; general operations use typed capability providers. | **Preserve and generalize**, do not weaken. |
 | Skill system | Local `skill.toml`; read/write/destructive risk; typed args; hosts/applies_to; timeout/output; optional verify/revert; hub per-host enabled state; agent local `allow_risk` and manifest/hash/arg revalidation. | Skills become one capability provider among native tools and integrations. | **Partial**: strong script execution boundary, but not a cross-provider capability catalogue. |
 | Read tools | Closed `ReadTool` / `ReadToolCall` enum: Docker, host overview, journal, listening ports, SMART, incident history, notes search and read skills. | Discoverable typed observation and operation capabilities. | **Partial**: extensible only through code/schema changes; no general provider registry. |
 | Discovery | Agent handshake shares host facts, check inventory and skill summaries/catalogue metadata. | Agent/provider announces typed operations, prerequisites, effects, verification, scope and version. | **Partial**: inventory exists, but capability semantics are incomplete. |
 | Checks and signals | Built-in host/container/system/network/security checks; webhook and probe ingestion; incident correlation and deduplication. | Same detection layer feeds phase-based orchestration and richer context. | **Reuse**; likely add domain-specific checks and context sources incrementally. |
-| Incident lifecycle | Durable incident state machine, signal history/timeline, confirmation, ack/mute/resolve/reopen, incident manager single writer. | Incident becomes durable work item with resumable phase/cycle state. | **Partial**: durable incident/timeline exists; orchestration phase state does not. |
-| Triage | Bounded model conversation with read-only tools, token/tool/time budgets, prebuilt context, fallbacks and report schema. | Dynamic request/response investigation, structured hypotheses/uncertainty, phase outputs and loopable plans. | **Partial**: bounded tool-use foundation; context and conversation are still one triage-oriented workflow. |
+| Incident lifecycle | Durable incident state machine, signal history/timeline, confirmation, ack/mute/resolve/reopen, incident manager single writer. Incident, signal and timeline writes are separate statements, not one transaction. | Incident becomes durable work item with resumable phase/cycle state. | **Partial**: durable incident/timeline exists; orchestration phase state does not. |
+| Triage | Bounded model conversation with read-only tools, token/tool/time budgets, prebuilt context, fallbacks and report schema. The triage queue and its deferred retries live in memory and are **not restart-safe**. | Dynamic request/response investigation, structured hypotheses/uncertainty, phase outputs and loopable plans. | **Partial**: bounded tool-use foundation; context and conversation are still one triage-oriented workflow. |
 | Context collection | Current context assembles incident snapshot, signals, recent changes, similar incidents, host profile note, notes and skill catalogue. | Layered, domain-specific context builder with explicit missing/unknown/unavailable/failed/stale statuses and on-demand evidence requests. | **Partial**: context assembly exists; generalized evidence model and dynamic requests are missing. |
-| Action lifecycle | Proposed → human approved → dispatched → success/fail → verify; plan hash; manifest revalidation; audit; loop guard; action writer single task. No automatic retry. | Per-step authorization, policy permits, idempotency, resumable plans, re-plan after failure, postcondition and monitor windows. | **Partial**: robust approval/execution base; autonomy and multi-cycle plans are absent. |
+| Action lifecycle | Proposed → human approved → dispatched → success/fail → verify; plan hash; manifest revalidation; audit; loop guard; action writer single task. No automatic retry. The plan hash covers the skill manifest but **not the entry script's bytes**, and the approve API **carries no hash** (the plan hash is checked on the hub and the agent, but the approving human does not submit the one they saw). The audit record is appended after the state change as a separate statement whose failure is only logged. Post-action **verification timers are in memory** and are lost on restart. | Per-step authorization, policy permits, idempotency, resumable plans, re-plan after failure, postcondition and monitor windows. | **Partial**: robust approval/execution base; autonomy and multi-cycle plans are absent. |
 | Autonomy | Human-only approvals; destructive typed confirmation; local risk allowlist is not an autonomous owner policy. | Granular per-host/category/capability policy; L2 and L3; offline emergency authorization. | **Missing**. Must add a separate owner-policy authorization path; the current human-only mechanism is a migration starting point, not the target. |
-| Authorization invariants | `HumanApproval` construction restricted to auth code; `ReadTool` has no mutation/approval tool; agent revalidates every skill request. | Separate human approval and owner-granted autonomous permit types; deterministic policy evaluator. | **Preserve then extend via a deliberate authorization redesign**. Do not treat a `System` principal or allow-risk list as sufficient autonomy. |
+| Authorization invariants | `HumanApproval` construction is restricted to auth code by a **line-based text scan in `xtask arch-check`**, not by compile-time sealing (the type and its constructors are public in `domovoi-core`, so a renamed import or macro would evade the scan); `ReadTool` has no mutation/approval tool; agent revalidates every skill request. | Separate human approval and owner-granted autonomous permit types; deterministic policy evaluator. | **Preserve then extend via a deliberate authorization redesign**. Do not treat a `System` principal or allow-risk list as sufficient autonomy. |
 | Knowledge — notes | Global/host Markdown notes; CRUD; tags; SQLite FTS5 search; triage can retrieve relevant notes. | Keep notes, link them to typed entities and structured knowledge. | **Present** for documents; add entity linkage and a structured store. |
 | Knowledge — profiles | Hub collects host facts, overview, containers, listening ports, kernel messages and selected read-skill results; stores a generated host profile as a tagged note. | Editable, provenance-aware, structured facts with freshness/conflict lifecycle. | **Partial**: useful discovery/profile foundation, but stored as generated Markdown rather than a fact graph. |
 | Knowledge — facts/graph | Host facts, baselines (containers/units/ports), digest facts, ack rules and maintenance windows exist as separate concepts/tables. No general entity/relationship/fact model found. | Typed entity graph and claim/fact records with source, confidence, validity and supersession. | **Missing as a general model**; reuse IDs and host/incident relationships where possible. |
@@ -860,35 +938,56 @@ The current UI is now a credible v0.1 operator interface, but it is still center
 - Introduce autonomy only after its policy and authorization model, migration, UI, agent-side enforcement tests and failure drills are designed and validated together.
 - Preserve a tested compatibility path during migration where useful. New autonomous permissions should default off until explicitly configured and validated.
 
-
 ---
 
 # 09 — Open questions and recommended defaults
 
-The high-level architecture is coherent enough to proceed. These questions are deliberately kept open so later design work does not silently invent answers.
+The high-level architecture is coherent enough to proceed. On 2026-11-13 the owner answered the questions that blocked the rework (`D-01`..`D-15` in [`docs/rework/99-open-decisions.md`](../rework/99-open-decisions.md)); they are listed first and are not open. The remaining questions are deliberately kept open so later design work does not silently invent answers. Technical detail for every answered item is in the linked `RW` decision in [`docs/rework/03-architecture-decisions.md`](../rework/03-architecture-decisions.md).
+
+## Answered by owner
+
+| Pack question or topic | Owner decision | Answer | Technical detail |
+|---|---|---|---|
+| Release strategy | **D-01** | No separate v0.1 release. Foundation work (atomic writes, protocol tolerance, approval freshness, reliability fixes) comes first inside the rework. | RW-02 |
+| **Q0.1** What is an autonomous authorization? | **D-02, D-03** | A typed policy permit, distinct from a human approval, valid only inside a host-local ceiling on the agent that the hub cannot widen. A hub permit is not a cryptographic proof of owner approval; owner-signed bundles come after v1. (The exact permit fields are a proposal.) | RW-11, RW-12 |
+| **Q0.2** Policy precedence | **D-05, D-06** | The strictly more specific rule wins, **even over a broader Deny**; equal specificity: Deny wins. Hard limits (host ceiling, Destructive never Allow in v1, containment exclusions, unknown safety facts) are not rules and cannot be overridden. Host ids in v1, tags after. This replaces the earlier "explicit deny anywhere wins" by owner decision. | RW-10 |
+| Destructive operations | **D-06** | Never policy-allowed in v1; a human can still approve with typed confirmation. | RW-10 |
+| **Q0.3** L2 versus L3 | **D-04** | L3 ships in v1 as milestone M9 under a general Contain class, not only firewall. (The exact first set remains open, below.) | RW-13 |
+| **Q0.4** What can run offline? | **D-03, D-04** | In v1, only what the host-local ceiling permits under a live hub permit. Offline emergency permits come after v1. | RW-12, RW-13 |
+| Unattended targets | **D-07** | The operation's pinned subjects plus targets named by the matching owner-authored rule. | RW-23 |
+| **Q1.1** First capability schema (ownership) | **D-02** | Hub-owned typed contracts; providers and agents advertise availability only; skills keep owner-manifest risk with a hub floor. | RW-07 |
+| **Q1.2** How incidents resume | **D-02** | Operation aggregate distinct from Incident; coarse status plus typed immutable steps; one transactional unit of work; unknown outcomes reconciled through the agent's journal. | RW-03, RW-04, RW-05, RW-09, RW-30 |
+| **Q1.4** Knowledge ontology (shape) | **D-02** | Typed facts and relations that reference inventory through typed refs; a small entities table for user-defined subjects only; a closed predicate enum; no numeric confidence. | RW-14 |
+| Experience and search | **D-02** | The journal is the experience record (no separate experience event store). A resolution summary per operation, full-text search, a host-scoped `search_experience` read capability, similar past operations in the UI, provenance whenever experience is supplied to reasoning. Past approvals are evidence, not authorization. | RW-15, RW-25 |
+| **Q1.6** Retention (configurability) | **D-09** | All retention is configurable; raw data and durable summaries are separate classes. Default values remain open, below. | RW-28 |
+| Orchestration visualization | **D-08** | Step timeline and interactive graph both ship in v1, timeline first, on one frozen trace schema. | RW-21 |
+| Presentation profiles | **D-10** | Detailed, Standard and Essential ship in v1. | RW-21 |
+| Capability install from the UI | **D-11** | In v1: signed packages, agent verifies against locally trusted keys, agent opt-in `allow_install`, hub only relays, install never enables or authorizes. Third-party packages remain open, below. | RW-26 |
+| Motion | **D-12** | Longer durations allowed for visualization and transitions; reduced motion mandatory. | RW-21 |
+| Users and roles | **D-13** | Single owner through v1; actor identity is designed so roles can follow. | RW-29 |
+| Tamper evidence | **D-14** | Audit hash chain in v1, with an honest threat model; head hash in the daily digest as a cheap anchor. | RW-27 |
+| `ARCHITECTURE.md` updates | **D-15** | Once per milestone. | none (process rule) |
 
 ## Priority 0 — resolve before implementing autonomous actions
 
 | Question | Recommended default | Why it remains open |
 |---|---|---|
-| **Q0.1 What exactly is an autonomous authorization?** | A typed owner-policy decision distinct from human approval, bound to host, capability/version, target scope, conditions, limits, expiry and policy version. | The current implementation only authorizes mutations through human approval; the target must add a separate authority path without impersonating a person. |
-| **Q0.2 What is the policy precedence?** | Explicit deny anywhere wins; otherwise most-specific rule wins (capability → category → host → global); no grant means approval-required or denied according to operation class. | Exact conflict behavior and default response still need to be specified and tested. |
-| **Q0.3 Which operations qualify for L2 versus L3?** | L2 for reversible, low-blast-radius operations; L3 only for narrowly scoped protective containment with expiry and recovery safeguards. | Risk depends on target, host role, current state and recovery access, not only operation name. Need a reviewed initial catalogue with safe defaults. |
-| **Q0.4 What can run offline?** | Only a small signed emergency permit cache, owner-authorized while connected, narrow, expiring and locally audited. | Need clock/expiry semantics, revocation, cache limits, restart behavior, duplicate suppression and reconciliation rules. |
-| **Q0.5 How is management access protected during containment?** | Maintain owner-confirmed trusted networks/VPN/endpoints; require evidence of enforcement point; temporary scoped blocks; verify management reachability. | This is a safety-critical user/environment contract. The product must define what happens when trusted paths are unknown or stale. |
-| **Q0.6 What is the trust model for external providers?** | Providers declare identity, ownership, target scope, auth source, contract version and effects; third-party integrations start read-only. | A capability registry becomes a security boundary. Registration, signing, secrets and upgrades need a clear model. |
+| **Q0.2a Tie-break for incomparable conflicting rules** | When the most specific matching rules conflict and none dominates the others: Deny > RequireApproval > Allow. | The owner decided specificity and the equal-specificity case; this last case is a recommended default awaiting confirmation (RW-10). |
+| **Q0.3a Exact first containment set** | `firewall.block_source` (nftables set element with a kernel timeout), `container.pause` with a time limit, `unit.stop_temporary` with a time limit and management-unit exclusions. | Scope is decided (D-04); the specific capabilities need the per-capability threat, privilege and lockout analysis before they are confirmed (RW-13). Container network isolation, SSH session termination and account lock are deferred. |
+| **Q0.5 How is management access protected during containment?** | Maintain owner-confirmed trusted networks/VPN/endpoints as facts; mandatory exclusions enforced on the agent; require evidence of the enforcement point; temporary scoped blocks; verify management reachability; unknown means refuse. | This is a safety-critical user/environment contract. The product must define what happens when trusted paths are unknown or stale, and how the owner confirms them. |
+| **Q0.6 What is the trust model for external providers and third-party packages?** | v1: first-party signed packages plus packages signed with the owner's own key added locally; no third-party registries. Hub-side integrations hold credentials under a separate security design and start read-only. | D-11 settled the install mechanism, not whom to trust. A registry becomes a security boundary: signing, key rotation, secrets and upgrades need a clear model (RW-26). |
 
 ## Priority 1 — resolve during detailed architecture design
 
 | Question | Recommended default | Why it remains open |
 |---|---|---|
-| **Q1.1 What is the first capability schema?** | Stable ID/version, typed input/output, provider, scope, effect/risk, prerequisites, constraints, timeout, verification, rollback/TTL, permissions. | Need to choose exact type system, compatibility rules, error model and discovery refresh behavior. |
-| **Q1.2 How are incidents resumed?** | Persist phase, cycle, outstanding evidence requests, plan IDs, operation states and deadlines; resume only after reconciling uncertain operations. | Need state machine details, idempotency keys, cancellation semantics and recovery after hub/agent restart. |
+| **Q1.1 What are the exact schema fields and compatibility rules?** | Ownership is decided (hub-owned). Remaining: stable ID/version, typed input/output, prerequisites, constraints, timeout, verification, rollback/TTL. | Need the exact type system, compatibility rules, error model and discovery refresh behavior (RW-07, RW-17). |
+| **Q1.1a What is the agent support window?** | Until 1.0, the hub supports agents from the current and previous two minor releases; after 1.0, same major, all minors. | Needs owner confirmation; it determines when old agents are rejected (RW-17). |
 | **Q1.3 What is the incident/plan step budget?** | Configurable global and per-host defaults plus per-incident caps; conservative defaults; share budgets across cycles. | Exact numbers need measurement and adversarial drills. |
-| **Q1.4 What is the knowledge ontology?** | Start with a small set of entities/relationships for hosts, services, containers, storage, network, integrations and dependencies; extend through versioned definitions. | Too much ontology is premature; too little becomes arbitrary JSON. Need first implementation scope. |
-| **Q1.5 How are inferred facts confirmed or disputed?** | Preserve each source claim; user-confirmed facts have explicit provenance; conflicts are surfaced, not overwritten. | Need merge policy, trust ordering, expiry and UI workflow. |
-| **Q1.6 What experience data is retained?** | Store event metadata, summaries, references and hashes; keep raw output only within existing bounded retention/redaction policy. | Need retention by event class, data deletion semantics and privacy controls. |
-| **Q1.7 How are hub and agent knowledge synchronized?** | Hub canonical; agents cache only scoped policies and required local facts; version/expiry/reconcile on reconnect. | Need which facts are needed locally and how offline conflict/updates are handled. |
+| **Q1.4 Which predicates and relation types ship first?** | A small closed set for hosts, services, containers, storage, network, integrations and dependencies; extend through versioned definitions. | Shape is decided (typed refs, closed enum); the first list is still a proposal. |
+| **Q1.5 How are inferred facts confirmed or disputed?** | Preserve each source claim; user-confirmed facts have explicit provenance; conflicts are surfaced as disputed, not overwritten; no numeric confidence. | Need merge policy, trust ordering, expiry and UI workflow. |
+| **Q1.6 What are the default retention values?** | Keep today's defaults where they exist; keep resolution summaries long-term and raw step output short (for example 90 days), all configurable. | Configurability is decided (D-09); the default numbers per event class, deletion semantics and privacy controls are not. |
+| **Q1.7 How are hub and agent knowledge synchronized?** | Hub canonical; in v1 the agent holds only its own ceiling and journal, not knowledge or policy; version/expiry/reconcile on reconnect. | Narrowed by D-03 and D-04. Still needed: which facts the agent needs locally after v1, and how offline updates are handled. |
 | **Q1.8 What does onboarding ask?** | Discover first, then ask only high-value unknowns about role, criticality, recovery, dependencies, backups, exposure and constraints. | Need minimal initial questionnaire versus progressive questions and the point at which autonomy can be configured. |
 | **Q1.9 Which integrations come first?** | Start with native host/container/service/network operations, then add router/firewall integration for containment. | Capability model should be general, but implementation needs a small, testable provider set. |
 | **Q1.10 How should a plan represent compensation/rollback?** | Every mutating step declares idempotency, postconditions, rollback or expiry, and uncertainty handling. | Some operations are not reversible; need a consistent model for compensating actions and partial failure. |
@@ -899,8 +998,8 @@ The high-level architecture is coherent enough to proceed. These questions are d
 |---|---|---|
 | **Q2.1 Do we need vector search?** | No initially; evaluate FTS5 + structured filters + graph traversal first. | Embeddings add models, indexes, refresh and tuning complexity. |
 | **Q2.2 Do we need a dedicated graph database?** | No initially; SQLite typed edges and recursive CTEs. | No measured graph scale/algorithm requirement yet. |
-| **Q2.3 How sophisticated should the graph UI be?** | Start with entity detail and bounded relationship explorer; add visual graph layout later. | Correct editing/provenance is more important than a large graph visualization. |
-| **Q2.4 Should generated skills be sandboxed and tested automatically?** | Yes eventually, but require human promotion and install; do not permit self-installation. | Need execution isolation and package provenance design. |
+| **Q2.3 How sophisticated should the *knowledge* graph UI be?** | Start with entity detail and bounded relationship explorer; add visual graph layout later. | Correct editing/provenance is more important than a large graph visualization. (This is separate from the orchestration graph, which ships in v1: D-08.) |
+| **Q2.4 Should generated skills be sandboxed and tested automatically?** | Yes eventually, but require human promotion and install; do not permit self-installation. The signed-package install path (D-11) is the only install route. | Need execution isolation and package provenance design. |
 | **Q2.5 How far should cross-platform support go?** | Keep capability contracts platform-neutral where practical; implement Linux first. | Avoid abstracting for unvalidated platforms. |
 | **Q2.6 Do we need a separate workflow/playbook engine?** | Not now; represent playbooks as optional guidance/data. | The phase orchestrator should be the canonical lifecycle owner. |
 
@@ -914,8 +1013,12 @@ The high-level architecture is coherent enough to proceed. These questions are d
 
 ## UI decisions already agreed
 
-These are no longer open questions:
+These are no longer open questions (those marked with an owner decision were settled on 2026-11-13):
 
+- The step timeline and the interactive orchestration graph both ship in v1, timeline first, sharing one frozen trace schema (owner decision D-08).
+- Detailed, Standard and Essential presentation profiles ship in v1 (owner decision D-10); P0 safety, approval and audit content is present in every profile.
+- Longer motion is allowed for visualization and layout transitions; reduced motion is mandatory (owner decision D-12).
+- Capability install and deploy happen from the UI in v1 (owner decision D-11).
 - The Operator exists as both a global side panel and a dedicated full workspace over shared conversation/operation state.
 - Operations are first-class work records and are not synonymous with incidents.
 - The detailed information experience is the design baseline; users may select Standard, Essential or Custom presentation.
@@ -932,34 +1035,48 @@ These are no longer open questions:
 | Which host-detail views are tabs versus separate pages? | Tabs for peer host facets; separate pages for large service/workload or capability workspaces. | Need realistic data and navigation testing before final split. |
 | Does Experience need a global explorer? | Start with operation history, incident history and audit links; add a cross-object experience explorer if usage shows a gap. | Avoid redundant history destinations. |
 | What is the initial level of dashboard customization? | Reorder/hide/resize core widgets with one default layout and saved user layout. | Persisted layouts add implementation/state complexity; validate initial demand. |
-| How should UI profiles customize detail? | Global profile plus per-page overrides. Detailed remains reference and default for implementation. | Exact persistence scope and defaults need UX tests. |
+| How should UI profiles customize detail? | Global profile plus per-page overrides. Detailed remains reference and default for implementation. | Profiles ship in v1 (D-10); the exact persistence scope and defaults need UX tests. |
 | Which global shortcuts are final? | Keep Ctrl/Cmd+K for search; use a conflict-checked shortcut for Operator, proposed Ctrl/Cmd+J. | Shortcut conflicts vary by browser/OS and must be user configurable. |
 | What is the final navigation taxonomy? | Separate Operations, Incidents, Infrastructure, Capabilities, Knowledge and Policies. | Exact grouping should be validated with complete page inventory. |
 
 ## Decision rule
 
-Do not block general architecture work on Priority 2 questions. Do not implement L2/L3 execution while Priority 0 questions remain unresolved. For Priority 1, specify only the parts required by the next vertical slice; keep the rest extensible.
-
+Do not block general architecture work on Priority 2 questions. Do not implement L2 execution before the policy evaluator, host ceiling and target binding exist, and do not enable L3 containment on any host before Q0.3a and Q0.5 are confirmed and the drills pass. For Priority 1, specify only the parts required by the next vertical slice; keep the rest extensible.
 
 ---
 
 # 10 — Capability and release roadmap
 
-This roadmap is deliberately ambitious about the **capability universe** and conservative about what becomes autonomous. It is a product direction, not a date promise. Release labels describe quality and scope, not calendar deadlines.
+This roadmap is deliberately ambitious about the **capability universe** and conservative about what becomes autonomous. It is a product direction, not a date promise. Release labels describe quality and scope, not calendar deadlines. Milestone names (F1–F4, M1–M9, U1–U4, P1) follow the implementation direction in [`docs/rework/06-implementation-roadmap.md`](../rework/06-implementation-roadmap.md) and [`07-implementation-prompt-index.md`](../rework/07-implementation-prompt-index.md); this document states the product outcome of each, and `docs/rework` holds the technical scope.
 
 ## 1. Release strategy at a glance
 
-| Milestone | Product outcome | Autonomy | Scope posture |
+**Owner decision D-01 (RW-02): there is no separate v0.1 release.** The earlier plan to stabilize the current product as a v0.1.0 release before the rework is withdrawn. Its quality requirements are kept, as foundation slices that come first inside the rework. The product on the branch stays usable after every slice, but nothing is tagged before the first rework release.
+
+| Stage | Product outcome | Autonomy | Scope posture |
 |---|---|---|---|
-| **v0.1.0** | Reliable first public release of the current monitoring, triage, notification and human-approved skills product. | Observe + human-approved changes only. | Stabilize and document the existing product; do not delay it for the full target redesign. |
-| **v0.2–v0.9** | Build the extensible foundations: capabilities, durable orchestration, knowledge, experience, policy, onboarding and provider integrations. | Human approval remains default; policy can run in shadow/dry-run. | Incremental vertical slices; no broad autonomous authority until gates pass. |
-| **v1.0.0** | A genuinely adaptive self-hosted operations agent that dynamically investigates, plans, executes explicitly authorized low-risk repairs and verifies outcomes. | L2 for a reviewed operation set; first narrow L3 containment capability may ship only if safety prerequisites are met. | Complete end-to-end product for Linux + common homelab services, not every possible integration. |
-| **v1.x** | Expand domain coverage, integrations, operational learning, security response and automation quality. | Grow L2/L3 by explicit capability and evidence, never by a global switch. | Add useful providers based on demand and tested contracts. |
+| **Foundation slices F1–F4** | The current product becomes trustworthy and restart-safe: atomic state and audit, recovery order, protocol tolerance, reliability and operational readiness. | Observe + human-approved changes only. | The former v0.1.0 quality bar, delivered as slices; no release tag. |
+| **Milestones M1–M7 and the UI/package track** | Build the extensible foundations: execution boundary, capability contracts, operations, dynamic investigation, knowledge and experience, the Operator, policy in shadow, the Operations UI, graph, profiles and capability install. | Human approval remains default; policy runs in shadow/dry-run. | Incremental vertical slices; no autonomous authority until M8 gates pass. |
+| **M8 and M9 (inside v1.0.0)** | Bounded L2 autonomy, then L3 containment. | L2 for a reviewed operation set; L3 under a general Contain class. | Gated by drills and the host-local ceiling. |
+| **v1.0.0** | A genuinely adaptive self-hosted operations agent that dynamically investigates, plans, executes explicitly authorized low-risk repairs and contains narrowly scoped threats, and verifies outcomes. | L2 and L3 as above; nothing Destructive is ever policy-allowed. | Complete end-to-end product for Linux + common homelab services, not every possible integration. |
+| **Post-v1 (planned)** | Offline emergency permits, owner-signed policy bundles, host tags in policy, multi-user and roles, stronger audit anchoring. | Grow L2/L3 by explicit capability and evidence, never by a global switch. | Each needs its own design; none is promised for v1. |
+| **v1.x** | Expand domain coverage, integrations, operational learning, security response and automation quality. | As above. | Add useful providers based on demand and tested contracts. |
 | **v2+ / later** | Multi-site, large-scale, advanced automation and broad ecosystem. | Optional advanced autonomy with organization-grade controls. | Defer heavy infrastructure until real scale or users justify it. |
 
-**Important release rule:** v0.1.0 should be a trustworthy release of what works today. Do not hold it hostage to building the v1 architecture. Conversely, v1.0.0 should not be declared merely because more screens and scripts exist; the adaptive investigation → policy → operation → verification loop must work end to end.
+**Important release rule:** v1.0.0 should not be declared merely because more screens and scripts exist; the adaptive investigation → policy → operation → verification loop must work end to end. Foundation work is never skipped to reach a visible feature sooner.
 
-## 2. v0.1.0 — stabilize the current product
+## 2. Foundation slices — the quality bar of the former v0.1.0
+
+These requirements used to define a separate v0.1.0 release. Under owner decision D-01 they are delivered as the first slices of the rework, in four groups. Each is also a prerequisite for something later, which is why they come first.
+
+| Slice | Product outcome | Technical scope |
+|---|---|---|
+| **F1** | A state change, its journal entries and its audit record commit together or not at all; the audit chain exists; crash tests exist. | One transactional unit of work, hash-chained audit, atomic action and incident writes, crash harness (RW-03, RW-27). |
+| **F2** | After a restart nothing stale runs and nothing waits forever: approvals are re-checked for freshness, hosts that have not reconnected are waited for, verification and triage resume, notifications are not lost. | Recovery order, durable timers, delivery durability (RW-09, RW-30). |
+| **F3** | A newer agent or hub minor version does not strand the other side, and unknown protocol values degrade gracefully. | Protocol tolerance and features (RW-17). Must land before any protocol minor bump. |
+| **F4** | The model path is bounded and attributable, approvals show exactly what will run, and the hub can say whether it is ready. | LLM reliability, structured approval surfaces, operational readiness (RW-06, RW-22, RW-16). |
+
+The detail below is the product quality requirement each slice must satisfy, kept from the former v0.1.0 definition.
 
 ### Required product capabilities
 
@@ -974,7 +1091,7 @@ This roadmap is deliberately ambitious about the **capability universe** and con
 - Manual approval for write/destructive skills; destructive confirmation remains explicit in the UI.
 - Daily digest, advisories, health/metrics and useful error reporting.
 
-### Required release engineering and operational quality
+### Required operational quality (carried by the foundation slices)
 
 - Reproducible CI, tests for critical transitions and documented supported deployment modes.
 - A clean first-run path, clear configuration and secret setup, safe enrollment and recovery instructions.
@@ -986,44 +1103,58 @@ This roadmap is deliberately ambitious about the **capability universe** and con
 - No known critical security defect; dependency and container release pipeline checks pass.
 - Document action risk and the fact that current mutating actions require human approval.
 
-### UI scope for v0.1.0
+### UI scope for the foundation slices
 
-The current main-branch UI overhaul is the intended v0.1 visual and usability baseline. For v0.1.0, prioritize correctness and completeness over introducing the entire v1 control plane:
+The current main-branch UI overhaul is the visual and usability baseline for the foundation slices. They prioritize correctness and completeness over introducing the entire v1 control plane:
 
 - Finish and validate the current Overview, Incidents, Approvals, Hosts, Chat, Skills, Notes, Logs, Settings and onboarding flows.
 - Keep the warm light/dark visual identity, semantic color-coded messages, accessibility, responsive layouts and documented component/design rules.
 - Keep the current Ctrl/Cmd+K command palette and page/entity navigation foundation.
 - Ensure every current mutating action has clear target/effect/approval/verification feedback and every page has truthful loading/empty/error/offline states.
 - Add/retain browser-level tests for the real workflows, both themes and busy-data conditions.
-- Do not block v0.1.0 on the new orchestration canvas, full Operations model, capability marketplace, policy simulator or full Operator.
+- Do not block the foundation slices on the new orchestration canvas, full Operations model, capability install, policy simulator or full Operator; those arrive in later milestones, before v1.0.0.
 
-### Small foundations that are worth including if they do not destabilize the release
+### Small foundations that are worth including if they do not destabilize the slice
 
 - A capability inventory view derived from current read tools and skills (even if internally still backed by the existing types).
 - Stable capability IDs/categories as metadata for later migration.
 - Clear distinction between **unknown**, **unavailable**, **failed** and **not applicable** in host profiles where current UI can support it.
 - Collect capability/provider version and host suitability metadata during agent registration.
 
-### Explicitly not required for v0.1.0
+### Explicitly not part of the foundation slices
 
-- Autonomous mutation or security containment.
+- Autonomous mutation or security containment (L2 is M8, L3 is M9).
 - A universal workflow/playbook engine.
 - A full knowledge graph or dedicated graph database.
 - Vector search, embeddings or a separate vector database.
 - Dynamic LLM-created capabilities, self-installing skills or generated code execution.
 - Kubernetes, Windows/macOS, cloud orchestration or full router management.
-- Multi-user role-based access control beyond the current intended deployment model.
+- Multi-user role-based access control beyond the current intended deployment model (single owner through v1: owner decision D-13).
 
-**Why:** v0.1.0 should prove that monitoring, triage, approval and a constrained execution primitive are dependable before increasing the intelligence or authority of the system.
+**Why:** the foundation slices prove that monitoring, triage, approval and a constrained execution primitive are dependable before increasing the intelligence or authority of the system.
 
-## 3. v0.2–v0.9 — build the foundations for v1
+## 3. Milestones — build the foundations for v1
 
-These are not all separate releases; order by dependency and deliver in usable slices.
+These are not separate releases; order by dependency and deliver in usable slices. Each milestone is one or more reviewed pull requests, and `ARCHITECTURE.md` is updated once per milestone (owner decision D-15).
+
+| Milestone | Product outcome | Sections below |
+|---|---|---|
+| **F1–F4** | Foundation slices (section 2). | 2 |
+| **M1 Execution foundation** | No execution is duplicated or silently lost: idempotency, `OutcomeUnknown`, agent action journal, plan hash v2, one execution boundary. | 3.6 |
+| **M2 Capability contracts** | One hub-owned registry the model, UI and executor share; available is not authorized. | 3.1 |
+| **M3 Operation aggregate, journal and SSE v2** | Durable, resumable operations; triage becomes an Investigate operation with identical behaviour; live updates that replay after a gap. | 3.2 |
+| **M4 Dynamic investigation** | Typed meta-tools, validated plans, layered context, no text-protocol proposals. | 3.2 |
+| **M5 Knowledge and experience** | Typed facts and relations over inventory; resolution summaries, full-text search and similar past operations. | 3.3 |
+| **M6 Operator** | Durable conversations as side panel and workspace over the same state. | 3.7 |
+| **M7 Policy in shadow** | Versioned policy, pure evaluator, shadow decisions, historical simulator. | 3.5 |
+| **UI track U1–U4, P1** | Operations list/detail with step timeline first (U1), interactive graph (U2), presentation profiles (U3), policy, knowledge and capability pages (U4), capability packages and install from the UI (P1). All in v1. | 3.7 |
+| **M8 Bounded autonomy (L2)** | Policy permits inside the host-local ceiling, target binding, circuit breaker, pause switch, first reviewed L2 operations. | 3.6 |
+| **M9 Containment (L3)** | A general Contain class with a reviewed first set, expiry, management-path protection and drills. | 3.9 |
 
 ### 3.1 Capability platform
 
 - Define capability descriptors: stable ID, version, provider, description, input/output schemas, target scope, effects/risk, prerequisites, supported platforms, timeout, rate limit, idempotency, verification, rollback/expiry and policy hooks.
-- Wrap existing native read tools and skills as the first capability providers.
+- Define the contracts in the hub (typed, versioned, hub-owned effect class and risk); wrap existing native read tools and skills as the first implementations, with agents advertising availability only (RW-07).
 - Add provider discovery and capability catalogue snapshots; version compatibility and deprecation rules.
 - Let the reasoner request capabilities dynamically from a bounded catalogue, not a hardcoded workflow list.
 - Keep execution behind provider adapters and the deterministic policy/dispatch path.
@@ -1044,10 +1175,10 @@ These are not all separate releases; order by dependency and deliver in usable s
 ### 3.3 Knowledge and experience
 
 - Keep existing Markdown notes as editable runbooks and add entity links.
-- Add typed entities, relationships and claims/facts with provenance, confidence, scope, freshness, validity and supersession.
+- Add typed facts and relations over existing inventory, using typed subject refs and a small entities table only for user-defined subjects (RW-14), with provenance, status, scope, freshness, validity and supersession. There is no numeric confidence.
 - Start entities with hosts, services, containers, storage, networks, routers, volumes, integrations, capabilities and users/owners.
 - Add relationship types such as runs_on, depends_on, exposes, stores_data_on, reachable_through, protected_by, backed_up_to and managed_by.
-- Add a structured experience stream for phase transitions, evidence requests, hypotheses, plans, policy outcomes, action attempts, verification, rollbacks and user decisions.
+- Make the journal the experience record: typed events for phase transitions, evidence requests, hypotheses, plans, policy outcomes, action attempts, verification, rollbacks and user decisions, with a resolution summary per finished operation, full-text search, a host-scoped `search_experience` read capability and similar past operations in the UI (RW-15, RW-25).
 - Build entity detail pages, knowledge search/edit, provenance/conflict views and incident experience views.
 - Keep knowledge, policy and experience as separate data models and APIs.
 - Add deletion/correction/supersession semantics that also clean FTS, caches and future vector indexes.
@@ -1063,19 +1194,22 @@ These are not all separate releases; order by dependency and deliver in usable s
 ### 3.5 Policy and autonomy foundations
 
 - Introduce a deterministic policy evaluator and a human-readable explanation for every allow/deny/approval-required outcome.
-- Rules at global, host, capability category and capability/operation scope; explicit deny wins.
+- Rules scoped by host, capability and target. **The strictly more specific matching rule wins, even over a broader Deny; at equal specificity Deny wins** (owner decision D-05, RW-10). This replaces the earlier "explicit deny wins" principle. Incomparable conflicts default to Deny > RequireApproval > Allow (open for confirmation). Host ids only in v1; host tags after v1.
+- Hard limits are not rules and cannot be overridden: the host-local ceiling, Destructive never policy-allowed in v1 (owner decision D-06), containment exclusions, and unknown safety facts never yielding Allow.
 - Model target constraints, source conditions, time windows, operation limits, TTL, rate limits, blast radius and required recovery path.
 - Separate human approval from autonomous policy authorization.
 - Provide shadow mode to show what would have happened without executing.
 - Add policy test fixtures, simulation and an autonomy UI showing inherited versus explicit decisions.
-- Make policy versioned, revocable and locally verifiable.
+- Make policy versioned and revocable. Local verification in v1 is the host-local unattended ceiling that the agent enforces and the hub cannot widen (owner decision D-03); owner-signed policy bundles come after v1.
 
-### 3.6 First safe automation
+### 3.6 Execution foundation (M1) and first safe automation (M8)
 
-- Choose reversible low-impact operations with reliable postconditions (for example, restart one known service/container, reload a specific config, renew a certificate through a supported provider, unload an unused inference model).
-- Add execution permits, idempotency keys, target revalidation, concurrency locks, operation budgets and postcondition checks.
+- M1: idempotency keys, an agent action journal, `OutcomeUnknown` for lost results, plan hash v2 (binding the entry-script bytes and resolved target), one execution boundary with an enforced rule that nothing else dispatches.
+- M8: choose reversible low-impact operations with reliable postconditions (for example, restart one known service/container, reload a specific config, renew a certificate through a supported provider, unload an unused inference model).
+- M8: policy permits, target revalidation and binding to the operation's pinned subjects, concurrency locks, operation budgets, postcondition checks, a circuit breaker and a human-only pause switch.
 - Add rollback or automatic expiry wherever possible.
-- Use per-host opt-in; default to human approval; explicit deny for destructive operations.
+- Use per-host opt-in through the host-local ceiling; default to human approval; Destructive operations are never policy-allowed.
+- Container write operations need an ADR on Docker socket access before M8 enables them, because that access is root on the host.
 - Run drills before granting autonomy to real hosts.
 
 ### 3.7 UI and interaction foundations
@@ -1083,11 +1217,12 @@ These are not all separate releases; order by dependency and deliver in usable s
 - Introduce the target UI vocabulary and canonical object routes for Incident, Operation, Host, Capability, Knowledge, Policy and Integration.
 - Build the shared operation activity/event presentation model so graphs, timelines and chat can render the same durable state.
 - Add the global Operator side panel and full workspace over the same conversation and operation state; do not create a chat-specific executor.
-- Build a first Operations list/detail view with phase-level progress before the complete graph editor/visualizer.
-- Add the capability catalog/installed inventory and a safe agent installation flow through the UI.
+- Build the Operations list/detail view with a step timeline first (U1), on a trace schema frozen with golden fixtures. The interactive orchestration graph follows on the same schema (U2); **both ship in v1** (owner decision D-08). The accessible outline stays as the non-canvas representation.
+- Add the capability catalog/installed inventory and the install flow through the UI (P1): signed packages, verified by the agent against locally trusted keys, with the agent opted in; the hub only relays; install never enables or authorizes (owner decision D-11).
 - Add structured Knowledge browser/detail and initial provenance editing.
 - Add granular policy editor and read-only policy simulator, including historical scenario reconstruction.
-- Add the first detailed/standard/essential presentation preferences and customizable Control Room widgets.
+- Add the detailed/standard/essential presentation profiles (U3; owner decision D-10) and customizable Control Room widgets. Safety, approval and audit content appears in every profile.
+- Allow longer motion for graph and layout transitions while keeping the short micro-interaction tokens; reduced motion is mandatory (owner decision D-12).
 - Add a page design-spec and interaction/motion quality gate to implementation planning.
 
 ### 3.8 First provider expansion
@@ -1097,6 +1232,13 @@ These are not all separate releases; order by dependency and deliver in usable s
 - Network diagnostics: DNS, gateway, TCP/HTTP, TLS expiry, routes and listeners.
 - Backup systems and storage visibility (read/verify first; no broad delete operations).
 - Optional read-first providers for reverse proxies, VPNs, monitoring systems and router/firewall APIs.
+
+### 3.9 Containment — L3 (M9, inside v1.0.0)
+
+- **Owner decision D-04:** L3 ships in v1 as milestone M9, under a general **Contain** class that is not limited to firewall blocking. Prerequisite: M8 complete (permits, ceiling, target pinning, journal, verification, circuit breaker), management-path facts and the drill suite.
+- **Proposed first set (open for owner confirmation):** `firewall.block_source` (nftables set element with a kernel-enforced timeout), `container.pause` with a time limit, `unit.stop_temporary` with a time limit and management-unit exclusions. Container network isolation, SSH session termination and account lock are later candidates.
+- **Triggering:** a deterministic detector's typed signal whose structured fields name the target, and that target is the operation's pinned subject. Free-form model output never triggers or targets automatic containment; model recommendations go through human approval.
+- Every containment has an expiry, mandatory management-path exclusions, a cap on simultaneous containments, verification that management access still works, and outcome-unknown handling. Offline emergency permits are **not** in v1.
 
 **Why this stage:** it establishes the common contracts, durable memory and policy machinery that make new capabilities additive instead of one-off LLM prompts and scripts.
 
@@ -1111,9 +1253,9 @@ v1.0.0 should ship when the end-to-end target loop is complete and production-sa
 3. **Durable orchestration:** phase/cycle state, requested evidence, plan steps, deadlines and outcomes survive restart and disconnection.
 4. **Adaptive plans:** the model composes plans from available capabilities and can choose monitor, ask, escalate, human approval or autonomous execution.
 5. **Deterministic authorization:** every mutation gets a policy decision independent of LLM reasoning; human and autonomous authority are distinct.
-6. **Granular autonomy:** per host/category/capability/operation, with deny-wins, constraints, rate limits, expiry and transparent explanation.
+6. **Granular autonomy:** per host/category/capability/operation, with most-specific-rule-wins precedence (a narrower rule overrides a broader one, including a broader Deny; equal specificity: Deny wins), hard limits no rule can override, constraints, rate limits, expiry and transparent explanation.
 7. **L2 operation set:** at least a practical set of low-risk, reversible operations can execute automatically on explicitly opted-in hosts.
-8. **L3 security response:** a first narrowly scoped containment operation may be included only if trusted management paths, TTL, allowlists, enforcement-point verification and recovery drills all pass. Otherwise ship the policy/capability framework and keep L3 disabled until a later point release.
+8. **L3 security response (M9):** the Contain class and its reviewed first set ship in v1 (owner decision D-04). A containment capability is enabled on a host only when trusted management paths, TTL, exclusions, enforcement-point verification and recovery drills all pass; until then the framework ships with that capability disabled on that host.
 9. **Knowledge base:** persistent editable environment knowledge with provenance, relationships, freshness, conflict handling and onboarding.
 10. **Experience model:** queryable record of investigations, plans, decisions, outcomes and verification; failed attempts inform re-planning.
 11. **User control:** UI for capability availability, knowledge editing, policy configuration, autonomy status, incident timeline and action explanation.
@@ -1139,9 +1281,10 @@ Prioritize a reliable built-in set rather than a large shallow integration catal
 - Operation detail has an interactive orchestration visualization showing real phases, branches/cycles, capability calls, policy evaluations, execution, verification, waits and failures. A list/timeline alternative remains available.
 - Users can inspect node inputs/outputs, evidence, source, timestamps, duration, errors, policy matches, model/provider usage and results, with secrets redacted.
 - The Capability Center supports discovering, installing, enabling, configuring, updating and uninstalling supported capabilities on agents through a guided UI flow. Installation, enabled state and authorization remain separate.
-- Policy management supports granular host/capability/operation permissions and historical/current/proposed simulation using the live evaluator without side effects.
+- Policy management supports granular host/capability/operation permissions and historical/current/proposed simulation using the live evaluator without side effects. The host-local unattended ceiling is shown read-only.
 - Knowledge UI supports entities, facts, relationships, provenance, freshness, notes and suggestions; permission/authority remains separate.
-- Detailed is the design baseline; Standard, Essential and Custom presentation modes do not remove audit/authority data or change behavior.
+- Detailed is the design baseline; Standard and Essential (and Custom) presentation profiles ship in v1 and do not remove audit/authority data or change behavior.
+- Operation detail offers the step timeline and the interactive graph on one shared trace schema (timeline first); both are v1.
 - Major pages have approved page specifications covering P0–P3 priority, space class, content containment, interactions, live states, motion, responsive behavior and acceptance criteria.
 - Cross-page workflows are browser-tested: incident → operation → capability → policy result; Operator → operation; capability install → enable → authorize; historical scenario → policy simulation → apply draft.
 
@@ -1150,12 +1293,16 @@ Prioritize a reliable built-in set rather than a large shallow integration catal
 - A novel incident can be investigated without a prewritten playbook, using only discoverable capabilities.
 - Missing evidence is represented honestly; failed/unavailable sources are not interpreted as healthy.
 - A plan cannot execute an operation that is absent, stale, out of scope or not authorized.
-- A policy deny cannot be overridden by the LLM, a playbook, a learned preference or a historical success.
+- A policy decision cannot be overridden by the LLM, a playbook, a learned preference or a historical success; only a strictly more specific owner-authored rule changes the outcome, and hard limits cannot be changed at all.
 - A failed verification starts a new reasoning cycle with the failed attempt in context; it does not repeat the same action blindly.
 - A hub restart or agent reconnect cannot duplicate a non-idempotent action.
-- Offline operation is limited to explicitly pre-authorized and unexpired operations.
+- In v1, nothing runs unattended without a live hub permit inside the host-local ceiling; offline emergency permits are not part of v1.
+- A Destructive operation is never policy-allowed; the evaluator refuses it however specific the rule.
+- An unattended step cannot target anything outside the operation's pinned subjects and the targets its rule names.
+- A past approval, past success or retrieved experience never satisfies a policy condition.
 - Every operation has a traceable proposal/authorization/dispatch/result/verification sequence.
 - Security containment cannot block configured management paths; if the trusted path is unknown, automatic containment is refused or narrowed to a safe alternative.
+- The audit chain verifies at startup, and the head hash appears in the daily digest.
 - Policy changes, knowledge changes and experience records are visibly distinct.
 - Backup/restore and data migration tests pass for all persistent stores.
 - A defined suite of realistic positive and negative incident drills passes.
@@ -1163,6 +1310,14 @@ Prioritize a reliable built-in set rather than a large shallow integration catal
 ## 5. Post-v1 capability expansion
 
 The following are high-value directions, not v1.0 blockers. Prioritize using real incidents and user demand.
+
+### Planned after v1 (owner decisions D-03, D-04, D-05, D-13, D-14)
+
+- Offline emergency permits (signed, narrow, expiring, locally audited; see `05`).
+- Owner-signed policy bundles anchored on the host, replacing trust in the hub's permit with a verifiable signature.
+- Host tags in policy scope (host ids only in v1).
+- Multi-user and roles; actor identity is already designed for it in v1.
+- Stronger audit anchoring (a transparency log or remote append-only storage) beyond the head hash in the daily digest.
 
 ### v1.x — deepen core operations
 
@@ -1226,9 +1381,9 @@ A capability should be prioritized by user value, safety, frequency and provider
 
 - **Read:** observe, inspect, compare, test, query. Eligible for automatic use within read budgets and privacy scope.
 - **Low-risk write:** restart/reload one known target, unload a model, renew a certificate through a validated provider. Eligible for L2 only with explicit per-operation policy and verification.
-- **Protective/security:** temporary block, isolate, restrict exposure. L3 only with dedicated conditions, trusted-path protection, TTL, rate limits and recovery.
+- **Protective/security (Contain):** temporary block, pause, isolate, restrict exposure. L3 (M9) only with dedicated conditions, trusted-path protection, TTL, rate limits and recovery.
 - **High-impact write:** upgrade, deploy, reconfigure network, rotate credentials, change storage topology. Human approval by default; may require staged plans and rollback.
-- **Destructive:** delete data, format, prune, wipe, destroy volume, remove backup. Deny by default; never included in generic autonomy.
+- **Destructive:** delete data, format, prune, wipe, destroy volume, remove backup. Never policy-allowed in v1 (a hard limit in the evaluator; owner decision D-06). A human may still approve one with typed confirmation.
 
 Risk is contextual. Restarting a disposable container is not the same as restarting a database during a migration. Capability metadata and policy must consider target, dependencies, environment state and recovery—not only a static label.
 
@@ -1242,21 +1397,48 @@ Risk is contextual. Restarting a disposable container is not the same as restart
 - Prefer an integration with a stable API over shelling out to fragile CLI parsing; keep CLI providers typed and bounded when no API exists.
 - Do not add a database, broker, workflow engine or embedding service without a measured requirement.
 
-
 ---
 
 # Roadmap moved
 
 The previous staged evolution roadmap is superseded by [`10-capability-roadmap.md`](10-capability-roadmap.md). Use that file as the only release/capability roadmap. The superseded version is not retained to avoid conflicting milestone guidance.
 
-
 ---
 
 # 11 — Capability catalogue and opportunity map
 
-This is an intentionally broad inventory of things Domovoi could eventually observe, diagnose, explain or operate. It is not a v1.0 commitment. A listed item becomes a real capability only when there is a provider, typed contract, clear scope, policy, verification and tests.
+This is an intentionally broad inventory of things Domovoi could eventually observe, diagnose, explain or operate. It is not a v1.0 commitment. A listed item becomes a real capability only when there is a hub-owned typed contract, an implementation, clear scope, policy, verification and tests.
 
-**Priority shorthand:** `v0.1` = current release surface; `v1` = initial adaptive operator; `v1.x` = useful expansion; `later` = scale/niche/research. `R` = read, `W` = bounded write, `S` = security/protective, `D` = destructive/high-impact. A risk label is indicative; actual policy must consider context.
+**Priority shorthand:** `v0.1` = exists in the current product (there is no separate v0.1 release; owner decision D-01); `v1` = initial adaptive operator; `v1.x` = useful expansion; `later` = scale/niche/research. `R` = read, `W` = bounded write, `S` = security/protective (the **Contain** effect class), `D` = destructive/high-impact. A risk label is indicative; actual policy must consider context, and the hub, not a provider, owns the effect class (RW-07).
+
+## How to read this catalogue after the rework
+
+### The v1 first set
+
+Most `v1` rows are read capabilities and are part of the initial supported set in `10`. The **mutating and containing** capabilities that ship in v1 are deliberately few. Marked below with **first set**; everything else that mutates or contains is `v1.x` or later.
+
+| Capability | Class | Milestone | Status |
+|---|---|---|---|
+| Restart one named container (not recreate) | W | M8, L2 | First set. Needs the Docker write ADR below. |
+| Restart one named systemd unit | W | M8, L2 | First set. |
+| Temporary inbound block of one external address or small prefix (`firewall.block_source`, kernel-enforced timeout) | S | M9, L3 | **First set, proposed, open for owner confirmation.** |
+| Pause one named container with a time limit (`container.pause`) | S | M9, L3 | **First set, proposed, open.** Needs the Docker write ADR. |
+| Stop one named systemd unit with a time limit, excluding management units (`unit.stop_temporary`) | S | M9, L3 | **First set, proposed, open.** |
+
+Later containment candidates (container network isolation, SSH session termination, account lock) are deferred because their lockout or recovery stories are weaker. Automatic containment is triggered only by a deterministic detector's typed signal naming a target that is the operation's pinned subject, never by free-form model output (owner decision D-04, RW-13). Destructive entries are never policy-allowed in v1 (owner decision D-06); a human can still approve one with typed confirmation.
+
+### Entries flagged unsafe until a prerequisite lands
+
+The repository investigation ([`docs/rework/investigations/D-protocol.md`](../rework/investigations/D-protocol.md)) judged the following entries unsafe or contradictory with current invariants. Each is marked `[FLAG]` in its row. They stay in the catalogue as ideas; none may be built before its prerequisite.
+
+| Flag | Entries | Why | Prerequisite |
+|---|---|---|---|
+| **Self-upgrade** | Agent and hub upgrade/restart; self-upgrade plan. | Pushes executable code to a host, contradicting the invariant that the hub cannot push scripts (INV-3) and that the hub never executes commands; restarting the agent mid-action destroys the channel its result travels on. Signed capability packages (owner decision D-11) are for capabilities, not for upgrading the agent or hub. | Keep upgrades out-of-band (package manager or installer), or design signed artifacts pinned on the host in an ADR. |
+| **Lost result** | Host reboot/shutdown, update-then-reboot, power cycle, IPMI/PDU control, UPS-driven shutdown, cloud instance reboot, reboot coordination. | The connection drops mid-action by design. | `OutcomeUnknown` handling and boot-id based reconciliation (RW-09), plus a dependency model that knows what powers the hub. |
+| **Docker socket write** | Pull/redeploy/rollback, container stop, pause, network disconnect, container isolation, restart/recreate. | Write access to the Docker socket is root on the host, so the existing read-only rationale and the automatic default no longer hold. | An ADR and a separate off-by-default switch not covered by the automatic setting. |
+| **Secret handling** | Rotate an API key, certificate or credential; disable an account; revoke a token; rotate VPN keys. | No secret store or redaction design exists for values that must be generated, delivered and replaced; secret handling contradicts the redaction invariant until one does. | A secret-store design (not planned for v1). |
+
+The investigation also flagged file and volume destruction (never a typed-path capability without a path-scope model), third-party deployment and smart-home entries (outside the overseer's trust envelope until third-party trust is decided), message retry and failover (need real idempotency keys), and hub-side router/hypervisor/cloud providers (a different security design that holds third-party credentials). Treat those as non-goals for v1.
 
 ## 1. Generic Linux host operations
 
@@ -1272,19 +1454,21 @@ This is an intentionally broad inventory of things Domovoi could eventually obse
 | Network interfaces, addresses, routes, neighbors, DNS config and resolver status | R | v1 | Do not expose secrets from network config. |
 | Listening sockets, connection counts, firewall state and packet counters | R | v0.1/v1 | Firewall changes are separate privileged capabilities. |
 | Package inventory, repository status, pending updates, held packages | R | v1 | Cross-distribution providers. |
-| Controlled package update, rollback and reboot orchestration | W | v1.x | Approval by default; maintenance windows and snapshot/backup prerequisites. |
+| Controlled package update, rollback and reboot orchestration | W | v1.x | Approval by default; maintenance windows and snapshot/backup prerequisites. **[FLAG: lost result]** the reboot step needs `OutcomeUnknown` handling. |
 | Time sync, NTP offset, clock drift, timezone | R/W | v1 | Time drift affects TLS and offline authorization. |
 | Users, groups, sudoers summary, login sessions, SSH config summary | R | v1 | Never return password hashes or private keys. |
-| Host reboot/shutdown | W | v1.x | Human approval; recovery path and dependency impact mandatory. |
+| Host reboot/shutdown | W | v1.x | Human approval; recovery path and dependency impact mandatory. **[FLAG: lost result]** the link drops mid-action; needs `OutcomeUnknown` and boot-id reconciliation first. |
 | Agent self-diagnostics, version, config validation, queue/spool state | R | v0.1/v1 | Domovoi must be able to diagnose itself. |
-| Agent upgrade/restart and hub upgrade/restart | W | v1.x | Staged, health-checked and recoverable. |
+| Agent upgrade/restart and hub upgrade/restart | W | later | **[FLAG: self-upgrade]** contradicts INV-3 (the hub cannot push scripts) and destroys the result channel. Keep out-of-band or design signed host-pinned artifacts in an ADR first. Not part of the capability-package install path. |
 
 ## 2. Service and workload management
 
 | Capability ideas | Typical class | Priority | Notes |
 |---|---:|---|---|
 | Discover services and relationships (systemd, container, supervisor) | R | v0.1/v1 | Feed the entity graph. |
-| Start, stop, restart or reload one named systemd unit | W | v1 | L2 only for opted-in, low-impact units; dependency-aware. |
+| Restart one named systemd unit | W | v1 | **First set (M8, L2)** only for opted-in, low-impact units; dependency-aware. |
+| Stop one named systemd unit temporarily (time limit, management units excluded) | S | v1 | **First set, proposed (M9, L3):** `unit.stop_temporary`. Open for owner confirmation. |
+| Start, stop or reload other systemd units | W | v1.x | Human approval initially; no time-limit-free unattended stop. |
 | Inspect service dependencies and reverse dependants | R | v1 | Essential before planned restarts. |
 | Compare service config fingerprints/mtime and known-good baseline | R | v1.x | Avoid storing secret config contents. |
 | Validate service config before reload | R | v1.x | Use native validation commands with fixed argv. |
@@ -1298,13 +1482,14 @@ This is an intentionally broad inventory of things Domovoi could eventually obse
 |---|---:|---|---|
 | Docker container list, inspect, logs, events, stats, health and restart history | R | v0.1 | Current foundation. |
 | Docker Compose project/stack inventory and service dependencies | R | v1 | Link containers to projects and volumes. |
-| Restart/recreate one selected container | W | v1 | Verify health and dependent services. |
+| Restart one selected container | W | v1 | **First set (M8, L2).** Verify health and dependent services. **[FLAG: Docker socket write]** needs the Docker write ADR first. Recreate is later. |
 | Start/stop a Compose service or restart a selected stack | W | v1.x | Approval initially; concurrency and downtime constraints. |
 | Compose config validation and rendered diff | R | v1.x | Avoid exposing secrets in rendered config. |
 | Image inventory, digest drift, outdated image and vulnerability metadata | R | v1.x | Scanning can be an external provider. |
-| Pull image, redeploy service, rollback to previous digest | W | v1.x | Human approval by default, known-good image required for rollback. |
+| Pull image, redeploy service, rollback to previous digest | W | v1.x | Human approval by default, known-good image required for rollback. **[FLAG: Docker socket write]** |
 | Docker network/volume inventory and dangling-resource reporting | R | v1 | Never infer that unused means safe to delete. |
-| Container isolation, pause, stop or network disconnect | S/W | v1.x | Security action with scope, TTL/recovery and owner policy. |
+| Pause one named container with a time limit | S | v1 | **First set, proposed (M9, L3):** `container.pause`. Open for owner confirmation. **[FLAG: Docker socket write]** |
+| Container isolation, stop or network disconnect | S/W | v1.x | Security action with scope, TTL/recovery and owner policy. Deferred: weaker lockout/recovery story. **[FLAG: Docker socket write]** |
 | Podman and containerd providers | R/W | v1.x | Reuse the container capability family. |
 | Kubernetes cluster/node/pod/deployment/service/ingress inventory | R | later | Need cluster and namespace scope. |
 | Kubernetes rollout status, restart deployment, scale replicas | W | later | Requires workload ownership and availability budgets. |
@@ -1329,7 +1514,7 @@ This is an intentionally broad inventory of things Domovoi could eventually obse
 | Restore an entire host/service from backup | W | later | Guided human-approved disaster recovery. |
 | Backup policy coverage and RPO/RTO compliance reporting | R | v1.x | Requires owner-provided importance and target objectives. |
 | Safe cleanup candidates (cache/temp/log retention) | R | v1 | Report candidates first; never broad recursive deletion. |
-| File deletion, volume destruction, formatting, backup pruning | D | later/deny-default | Never generic autonomy. Require explicit target and typed human confirmation. |
+| File deletion, volume destruction, formatting, backup pruning | D | later/deny-default | Never policy-allowed in v1 (owner decision D-06). Human approval with typed confirmation only. A generic typed-path deletion capability would need a path-scope model; prefer documented manual runbooks. |
 
 ## 5. Network and connectivity
 
@@ -1344,9 +1529,9 @@ This is an intentionally broad inventory of things Domovoi could eventually obse
 | Reverse proxy route/health/config status (Nginx, Traefik, Caddy, NPM) | R | v1.x | Start read-only; config validation before reload. |
 | Reload/restart reverse proxy after validated config | W | v1.x | Verify routes and management access. |
 | VPN tunnel and peer health (WireGuard, Tailscale, OpenVPN) | R | v1.x | Know whether the tunnel is a management path. |
-| Add/remove or rotate VPN peers/keys | W | later | Approval and identity/recovery model required. |
+| Add/remove or rotate VPN peers/keys | W | later | Approval and identity/recovery model required. **[FLAG: secret handling]** |
 | Router inventory, WAN status, routes, DHCP, DNS and port forwards | R | v1.x | API provider for selected router vendor. |
-| Temporary block of a confirmed external source IP | S | v1 limited | L3 candidate only with allowlists, TTL, rate limits and management-path protection. |
+| Temporary block of a confirmed external source IP | S | v1 limited | **First set, proposed (M9, L3):** `firewall.block_source`, with a kernel-enforced timeout. Only with agent-enforced management-path exclusions, rate limits, dead-man revert and `OutcomeUnknown` handling, because the agent dials out and a rule can sever its own control link. Triggered only by a deterministic detector's typed signal. |
 | Remove/restrict a port forward or WAN exposure | S/W | v1.x | Higher blast radius; stage and verify alternate access. |
 | Firewall rule changes, network segmentation and VLAN changes | W/S | later | Human approval until robust simulation and rollback exist. |
 | ISP/WAN outage diagnosis and failover status | R/W | later | Depends on router dual-WAN support. |
@@ -1365,11 +1550,11 @@ This is an intentionally broad inventory of things Domovoi could eventually obse
 | Suspicious process, persistence, cron/service and startup change | R | v1.x | Heuristic findings require evidence and uncertainty labels. |
 | Secret leak detection in logs/config/repository | R | v1.x | Never echo the secret value; show location and type. |
 | Container privilege/capability/mount exposure audit | R | v1.x | Policy recommendations, not automatic hardening at first. |
-| Temporary block offending external IP at host firewall | S | v1 limited | Must exclude trusted ranges, gateway, VPN and current management session. |
+| Temporary block offending external IP at host firewall | S | v1 limited | **First set, proposed (M9, L3)**, same capability as above. Must exclude trusted ranges, gateway, VPN and current management session. |
 | Add temporary Fail2ban jail/ban with expiry | S | v1.x | Prefer native expiry and verify the rule. |
-| Isolate one compromised container/network namespace | S | v1.x | Preserve forensic evidence and dependencies. |
+| Isolate one compromised container/network namespace | S | v1.x | Preserve forensic evidence and dependencies. Deferred containment candidate. **[FLAG: Docker socket write]** |
 | Disable compromised account or revoke session/token | S/W | later | Requires identity provider integration, owner controls and recovery. |
-| Rotate exposed API key/certificate/credential | W/S | later | Secret handling and dependent service reload make this high impact. |
+| Rotate exposed API key/certificate/credential | W/S | later | Secret handling and dependent service reload make this high impact. **[FLAG: secret handling]** no secret store design exists. |
 | Restrict WAN SSH to VPN/trusted IPs | S/W | later | Safe only with tested alternate management route. |
 | Incident evidence collection and forensic snapshot | R/W | v1.x | Preserve bounded, integrity-protected artifacts. |
 | Host isolation / quarantine | S | later | Emergency response with explicit break-glass recovery. |
@@ -1386,7 +1571,7 @@ This is an intentionally broad inventory of things Domovoi could eventually obse
 | Create backup/snapshot before a supported update | W | v1.x | Verify backup is usable, not just scheduled. |
 | Stage an update and show a diff/plan | W | v1.x | Human approval for applying. |
 | Apply updates, restart affected services and verify | W | later/v1.x | Explicit host policy, rollback and outage budget. |
-| Reboot coordination across dependent hosts | W | later | Respect quorum and criticality. |
+| Reboot coordination across dependent hosts | W | later | Respect quorum and criticality. **[FLAG: lost result]** |
 | Certificate renew and service reload | W | v1.x | Good L2 candidate when provider is deterministic. |
 | Log rotation and bounded cache cleanup | W | v1.x | Exact age/path/size constraints, never broad delete. |
 | Retire/decommission host or service | W/D | later | Must preserve dependencies, secrets and backups. |
@@ -1444,9 +1629,9 @@ These should be application profiles layered over generic capabilities. Do not c
 | Start/stop/restart VM; snapshots and controlled migration | W | later | Respect service dependencies and storage. |
 | Proxmox/Libvirt API integration | R/W | v1.x/later | Start read-only. |
 | IPMI/Redfish power, temperature, fan, PSU and sensor health | R | later |
-| Remote power cycle or reset | W | later | Break-glass only, explicit owner authorization. |
+| Remote power cycle or reset | W | later | Break-glass only, explicit owner authorization. **[FLAG: lost result]** needs a model of what powers the hub. |
 | UPS/NUT status, battery runtime, load and test | R | v1.x |
-| Graceful shutdown on low runtime / power loss | W | v1.x | Policy plus dependency-aware shutdown order. |
+| Graceful shutdown on low runtime / power loss | W | v1.x | Policy plus dependency-aware shutdown order. **[FLAG: lost result]** |
 | Smart PDU outlet status/control | R/W | later | Risk of cutting off networking or hub. |
 
 ## 12. External systems and integration providers
@@ -1477,7 +1662,7 @@ These should be application profiles layered over generic capabilities. Do not c
 - Database backup age, integrity-check status, migration version and restore test.
 - Action queue, outstanding approvals, policy denials and expired permits.
 - Notification delivery failure and webhook signature failure.
-- Self-upgrade plan, config validation, rollback and post-upgrade self-test.
+- Config validation, rollback and post-upgrade self-test. Self-upgrade itself is **[FLAG: self-upgrade]**: out-of-band only until an ADR designs signed host-pinned artifacts.
 - Detect a misbehaving agent/provider and automatically disable its capability from discovery (not silently alter its owner policy).
 
 ## 14. Knowledge and experience capabilities
@@ -1514,7 +1699,7 @@ These should be application profiles layered over generic capabilities. Do not c
 | VM, instance, disk, load balancer and network health | R | later | Link cloud resources to services and owners. |
 | Cloud metrics, logs, events, audit events and service health | R | later | Add provider-specific evidence adapters. |
 | Cloud budget, quota, usage and spend anomaly detection | R | later | Do not autonomously scale cost-bearing resources by default. |
-| Start/stop/reboot a selected instance | W | later | Approval, dependency and cost controls. |
+| Start/stop/reboot a selected instance | W | later | Approval, dependency and cost controls. **[FLAG: lost result]** for reboot; needs hub-side provider design with third-party credentials. |
 | Resize instance or managed database | W | later | High-impact operation with cost and downtime preview. |
 | Manage security group / firewall ingress | S/W | later | Same trusted-path and temporary-rule safety model. |
 | Object storage inventory, capacity and lifecycle policy status | R | later | Avoid collecting object contents. |
@@ -1549,7 +1734,7 @@ These should be application profiles layered over generic capabilities. Do not c
 | Secret manager health, secret version age and rotation status | R | later | Do not fetch secret values into model context. |
 | Detect overbroad or expiring API tokens and SSH keys | R | later | Report fingerprint/owner/scope, not private material. |
 | Revoke selected token or SSH key | S/W | later | High impact; require identity confirmation and recovery. |
-| Rotate a service credential and update dependent services | W | later | Multi-step operation with staged rollback and secret-safe execution. |
+| Rotate a service credential and update dependent services | W | later | Multi-step operation with staged rollback and secret-safe execution. **[FLAG: secret handling]** no secret store design exists. |
 | SSO/OIDC/SAML integration for Domovoi users | R/W | v2+ | Organization-scale access control. |
 | Break-glass user and recovery access validation | R/W | later | Ensure emergency access remains available and audited. |
 
@@ -1629,7 +1814,6 @@ Before adding a capability, specify:
 
 A capability is not ready for autonomous use until this checklist is complete and its relevant incident drills pass.
 
-
 ---
 
 # 12 — UI product principles and experience goals
@@ -1686,16 +1870,21 @@ Do not expose hidden model chain-of-thought. Expose useful and auditable informa
 
 ### Presentation profiles
 
-Recommended starting profiles:
+Three profiles ship in v1, plus Custom. They are one set of components with a category-to-visibility table (section 5), not three layouts. The profiles, the table and the shared visibility mechanism are defined before any page is implemented.
 
 | Profile | Behavior | Intended use |
 |---|---|---|
-| **Detailed** | Full operational trace and technical metadata expanded where the page can support it. | Reference design; operators who want to know exactly what is happening. |
-| **Standard** | Phase/step progress and key findings visible; low-level tool outputs and metadata are grouped but one click away. | Balanced everyday use. |
-| **Essential** | Primary state, consequence and next action emphasized; technical detail remains accessible. | People who prefer a quieter surface. |
-| **Custom** | Independent visibility/expanded-state preferences by page and information category. | Users who want a compact dashboard and detailed operations, or another combination. |
+| **Detailed** | Everything shown. The default for a new owner. | Reference design; operators who want to know exactly what is happening. |
+| **Standard** | P0 and P1 shown; P2 and P3 collapsed (one click away, with a count). | Balanced everyday use. |
+| **Essential** | P0 and P1 shown; P2 collapsed; P3 hidden, with a visible "+N details" indicator that reveals them. | People who prefer a quieter surface. |
+| **Custom** | Per-page overrides of one of the profiles above. | Users who want a compact dashboard and detailed operations, or another combination. |
 
-These profiles are display preferences only. They must never change authorization, tool availability, audit retention, execution behavior or security controls. A setting that affects authority belongs in the policy system, not the display profile.
+Rules:
+
+- **P0 is never hidden or collapsed in any profile**, including Custom. A test renders each page in every profile with the same fixture and asserts that every P0 element is present and expanded.
+- Hidden or collapsed content stays reachable and is not rendered until revealed; profiles never delete or omit durable history.
+- These profiles are display preferences only. They must never change authorization, tool availability, audit retention, execution behavior or security controls. A setting that affects authority belongs in the policy system, not the display profile.
+- The UI reads the profile through one provider. Whether it is stored on the hub or only in the browser is a backend decision (see doc 17, section 11); the behavior above does not depend on it.
 
 ## 4. Understandable terminology without dumbing down
 
@@ -1737,10 +1926,21 @@ Every meaningful page element receives two independent classifications.
 
 | Priority | Definition |
 |---|---|
-| **P0 — Essential** | Core to the page's purpose or urgent to a user's decision. Immediately visible in the detailed baseline. |
-| **P1 — High** | Frequently used or important contextual information. Visible without navigating away; may share space with P0. |
-| **P2 — Supporting** | Useful diagnostics, history or secondary actions. May be in a tab, secondary section or expandable group. |
-| **P3 — On demand** | Rarely needed, verbose or low-frequency technical metadata. Available through an inspector, details drawer or advanced section. |
+| **P0 — Safety and state** | Safety, approval, audit and current-state content: what is happening now, what needs a decision, what authority applies, what was recorded. Never hidden or collapsed in any profile. |
+| **P1 — Primary** | The page's main content and frequent actions. Visible without navigating away; may share space with P0. |
+| **P2 — Technical detail** | Useful diagnostics, raw inputs and outputs, history and secondary actions. Collapsed in Standard and Essential. |
+| **P3 — Metadata** | Rarely needed, verbose or low-frequency metadata (ids, timings, model parameters). Collapsed in Standard; hidden behind "+N details" in Essential. |
+
+Every page element carries exactly one category, written in its page specification and in the code through the shared visibility primitive. Visibility per profile follows from the category alone:
+
+| Category | Detailed | Standard | Essential |
+|---|---|---|---|
+| P0 | shown | shown | shown |
+| P1 | shown | shown | shown |
+| P2 | shown | collapsed | collapsed |
+| P3 | shown | collapsed | hidden, "+N details" indicator |
+
+A page that needs a different result for one element changes the element's category, not the table.
 
 ### Space requirement
 
@@ -1773,13 +1973,13 @@ Tabs must not be used as a hiding place for P0 information. If the user needs tw
 
 Recommended customization:
 
-- Detailed/Standard/Essential/Custom presentation profiles.
+- Detailed/Standard/Essential presentation profiles, with Custom as per-page overrides of one of them.
 - Overview dashboard widgets can be added, removed, rearranged, resized and saved per user.
 - Per-page preferences for density and default expanded sections.
 - Persist filters, table columns, sort order and selected views where it helps repeat workflows.
 - A user may reset to a strong default layout at any time.
 
-Do not require the user to customize the UI before it becomes useful. Defaults must be carefully designed and coherent.
+Do not require the user to customize the UI before it becomes useful. Defaults must be carefully designed and coherent. The default profile for a new owner is Detailed; Standard and Essential are one setting away and remembered. Because the default shows everything, the Detailed layouts of every page are designed first and tested on a phone and a laptop, not only on a wide desktop.
 
 ## 8. Control-plane principle
 
@@ -1791,26 +1991,29 @@ A control may remain outside ordinary UI management only for a deliberate securi
 
 A beautiful screen that has stale state, lost context, confusing actions or flaky interactions is not a good UI.
 
-Every important control must have predictable behavior and feedback. Every data view must distinguish loading, empty, failed, unavailable, stale, offline and partially available states. Live updates must not reorder or replace content in a way that loses user focus or an inspector selection.
+Every important control must have predictable behavior and feedback. Every data view must distinguish the states in the canonical taxonomy (doc 15, section 10): loading, empty, first-load error, refresh error, stale, offline, unavailable, partial and unknown value. Live updates must not reorder or replace content in a way that loses user focus or an inspector selection.
 
 The UI should feel dynamic because the product is genuinely active, not because it constantly animates. Motion must communicate state changes, direction, hierarchy or spatial relationships.
 
-## 10. Design review questions
+## 10. One owner in v1
+
+Through v1 Domovoi has a single owner and no roles. The UI therefore has no permission-denied states and does not filter search or lists by permission. Where a future role would change what is shown, the specification names the place as a hook "for future roles" (for example the single function every action check goes through) and builds nothing more. Actor identity is still shown wherever an action is attributed (owner, system component, agent, policy rule).
+
+## 11. Design review questions
 
 Before approving a page specification, answer:
 
 1. What user question does this page answer?
-2. What is P0, P1, P2 and P3 here?
+2. What is P0, P1, P2 and P3 here (category, not size)?
 3. What is dominant/large/medium/compact/contextual?
-4. Is there enough screen area for every dominant item?
+4. Is there enough screen area for every dominant item at the minimum sizes in doc 16, section 5?
 5. Should content be a page, subpage, tab, section, expansion or inspector—and why?
 6. What can the user do here, and what happens after each action?
 7. What changes live while the page is open?
-8. What are all meaningful page states?
+8. Which states from the canonical taxonomy apply, and what does each look like?
 9. What must survive navigation, reload, collapse/expand and reconnect?
-10. How does the same page work at different densities and viewport sizes?
+10. How does the same page work in each presentation profile and at different viewport sizes?
 11. What is the acceptance test for a correct, polished implementation?
-
 
 ---
 
@@ -1849,7 +2052,8 @@ Do not force the final sidebar to contain every possible subpage. Important deta
 | Live connection/system state | P1 | Compact | Truthful connection state with explanation and retry/status detail. |
 | Global search / command palette | P1 | Contextual | Search destinations and objects; command actions are clearly separated from search results. |
 | Operator launcher | P0 | Compact | Available from anywhere; opens the persistent side panel without losing current page state. |
-| Notifications/attention center | P1 | Compact | Unread/urgent items, approvals, questions and completed operations; never rely only on toasts. |
+| Attention center | P0 | Compact | The one durable list of approvals, questions, manual interventions, failures and completed operations, with unread state; never rely only on toasts. Control Room "Waiting for you" and the Approvals page are views over this same list. |
+| Autonomy state | P0 | Compact | Shows when autonomy is paused or any rule is suspended by its circuit breaker; links to Policies & Autonomy. The pause switch is human-only. |
 | Account/user menu | P2 | Compact | Profile, preferences, theme and sign out. |
 
 The shell may evolve from the current sidebar/topbar layout. Do not assume all actions must live in the top bar or that the current sidebar groups must remain.
@@ -1860,14 +2064,15 @@ Recommended defaults:
 
 - `Ctrl/Cmd+K`: global search and command palette (the current overhaul already uses this shortcut).
 - `Ctrl/Cmd+J`: open/focus the Operator side panel.
-- `Escape`: close the topmost overlay/panel; never cancel a running operation without a separate confirmation.
+- `Escape` closes one thing per press, in this order: tooltip, popover or menu; dialog or palette; then the panel or inspector that has focus (if none has focus, the one opened most recently); then the graph selection. Escape never stops or cancels an operation; those need their own control and confirmation.
+- `Ctrl/Cmd+K` and `Ctrl/Cmd+J` open separate launchers (search and Operator); neither replaces the other.
 - `/` may focus the current page's search field only when focus is not already inside an editable control.
 - Shortcuts must be discoverable and user-configurable where conflict is possible.
 
 ### Global context behavior
 
 - A host/environment selector should be consistent across pages that support scoping.
-- Opening a host-specific detail view may set the current context to that host; navigating away should follow a documented, predictable rule.
+- **Host scope rule.** Pages follow the host selector, or say why they do not ("all hosts" note). Opening a page about one host shows that host and sets the selector to it; leaving restores the choice the person had before. Changing the selector while on a host page navigates to the chosen host's page.
 - Search results and deep links must preserve scope where needed.
 - The Operator must state its current context (all hosts, selected host, selected incident/operation) and allow changing it explicitly.
 - A contextual link should open the correct target and preserve a useful route back to the originating workflow.
@@ -1875,6 +2080,15 @@ Recommended defaults:
 ## 3. Operator surfaces
 
 The Operator is one product feature with two presentations over the same durable conversations and operation state.
+
+### Right-hand slot precedence
+
+The shell has one right-hand slot, shared by the Operator panel and the contextual inspector. It never overlaps page content and never shifts it while animating (panels move by transform; content is padded, not reflowed mid-transition).
+
+- **Wide screens** (the page keeps at least 640 px of content width after the sidebar and slot): the Operator panel and the inspector can sit side by side.
+- **Narrower screens:** the surface opened most recently wins the slot; the other collapses to a tab in the slot's header and keeps its state. Opening the collapsed one swaps them.
+- **Phones:** the slot is a full-screen sheet, one surface at a time.
+- Closing the surface in front reveals the collapsed one; neither is destroyed by the other opening.
 
 ### Global side panel
 
@@ -1884,6 +2098,7 @@ The Operator is one product feature with two presentations over the same durable
 - Shows recent conversations and active operations without becoming a separate operations engine.
 - Expands into the full Operator workspace while preserving conversation, message history, selected context and operation IDs.
 - Collapsing the panel does not stop or detach work.
+- Conversations are durable and stored on the hub. Host or global scope is explicit per conversation and shown in the header. A response that arrives for a superseded request is discarded, not shown. The composer draft is kept locally until the send is committed, so a failed send or a reload loses nothing.
 
 Recommended behavior: a non-modal, resizable panel on wide screens; a full-screen sheet/page-like panel on small screens. Initial width is a design choice to test; reserve enough space for real transcripts and operation cards.
 
@@ -1909,7 +2124,11 @@ Relationships:
 - An operation may discover a new incident as a result, but these are still distinct records.
 - A conversation can initiate or discuss an operation; the conversation is not the operation itself.
 
-The Operations page is a unified view of work. The Incidents page remains a view of detected problems.
+The Operations page is a unified view of work. The Incidents page remains a view of detected problems. Pre-existing actions appear in the Operations list as read-only **Legacy** entries; no steps or approvals are invented for them.
+
+### One home for approvals
+
+An approval is a step of an operation, so **operation detail is its canonical home**. It is rendered by one structured approval card component (doc 14, section 5) that shows contract, target, arguments, effect class, reversibility, expiry, plan-hash prefix and the policy decision; model text is secondary and labelled. Incident detail, the Control Room, the Operator and the attention center embed that card or link to the operation; none builds its own version. Incident controls (acknowledge, mute, dismiss) stay separate from operation controls (stop, cancel, retry) and from approval controls.
 
 ## 5. Page map
 
@@ -1925,6 +2144,8 @@ Domovoi
 │       ├── Findings and plan
 │       ├── Evidence and capability calls
 │       ├── Execution, verification and monitoring
+│       ├── Step timeline / tree (built first) and orchestration graph
+│       ├── Similar past operations
 │       └── Timeline / technical trace
 ├── Incidents
 │   ├── Incident list / filters
@@ -1932,6 +2153,7 @@ Domovoi
 │       ├── Summary and evidence
 │       ├── Related operations
 │       ├── Current status and recommended response
+│       ├── Similar past operations
 │       └── History
 ├── Infrastructure
 │   ├── Hosts
@@ -1963,6 +2185,8 @@ Domovoi
 │   ├── Host policy
 │   ├── What-if simulator
 │   └── Decision history
+├── Attention
+│   └── Approvals, questions, failures, completions
 ├── Integrations
 │   ├── Connected integrations
 │   ├── Catalog / add integration
@@ -1970,7 +2194,8 @@ Domovoi
 └── System
     ├── Settings and models
     ├── Notifications
-    ├── Audit log
+    ├── Audit log (with chain verification)
+    ├── Data retention
     ├── Backups / restore
     ├── Updates
     └── Diagnostics
@@ -1982,7 +2207,8 @@ Not every item must be a permanent sidebar entry. Some are nested routes or tabs
 
 - Distinct work areas deserve distinct destinations; do not overload one generic “Dashboard” page.
 - Detail views should be deep-linkable and restore the selected tab, filter and meaningful view state when safe.
-- Avoid very deep navigation chains. A user should normally reach any object in a few steps through navigation, contextual links or search.
+- **Depth rule:** at most three levels: area, object, tab. Anything deeper is a section on the object page, an inspector or a linked page, not a fourth level. A user should normally reach any object in a few steps through navigation, contextual links or search.
+- Tabs on an object page never hold P0 content that a different question needs at the same time (for example an approval request or current state); that stays above the tabs.
 - The same entity should have one canonical detail page. Other pages can preview it but should not create competing copies of its configuration.
 - Use tabs for peer views of one entity, not as a substitute for information architecture.
 - Large graph workspaces, long-running operation workspaces and complex installers should receive the space of a dedicated page.
@@ -1993,7 +2219,7 @@ Not every item must be a permanent sidebar entry. Some are nested routes or tabs
 
 The current `Ctrl/Cmd+K` palette is an early foundation, not the completed search product.
 
-Target search should find, where the user is authorized:
+Target search should find:
 
 - Pages and commands.
 - Hosts, agents, services, containers and other infrastructure entities.
@@ -2005,7 +2231,7 @@ Target search should find, where the user is authorized:
 
 Search results should be grouped by type, show distinguishing metadata and status, support keyboard navigation, and open the canonical detail page. Commands (for example “open Operator”, “add host” or “install capability”) must be clearly distinguished from objects returned by search.
 
-Do not imply a full search index exists until the data sources, permission filtering, freshness, ranking and indexing behavior are implemented. Keep search provider-independent so semantic search may be added later without changing the UI contract.
+Do not imply a full search index exists until the data sources, freshness, ranking and indexing behavior are implemented; each result group says what it covers. With one owner there is no permission filtering in v1; the search layer keeps a single filter point as a hook for future roles. The palette needs an asynchronous result source (loading, no results, failure) in addition to its current static groups. Keep search provider-independent so semantic search may be added later without changing the UI contract.
 
 ## 8. Cross-page entity links
 
@@ -2023,10 +2249,9 @@ This interconnectedness is a core usability feature, not merely a graph visualiz
 
 - Whether the Control Room supports multiple saved workspaces per user or one customizable layout initially.
 - Whether infrastructure topology is a subpage of Infrastructure or a global visualization entry point.
-- Whether Experience gets a dedicated global explorer or remains accessible through Operations, Incidents and Knowledge.
+- Whether Experience gets a dedicated global explorer. v1 surfaces it as "similar past operations" on incident and operation pages, with resolution summaries, marked historical and never an authorization; a global explorer is not in v1.
 - The final sidebar grouping and whether “Incidents” is grouped under “Respond” or has its own top-level section.
 - Whether Integrations and Capabilities are separate top-level sections (recommended) or combined in a catalog with clear subtypes.
-
 
 ---
 
@@ -2036,7 +2261,7 @@ This document defines what each target page must contain and do, before visual l
 
 ## 1. Priority and space legend
 
-**Priority:** P0 essential · P1 high · P2 supporting · P3 on demand.
+**Priority (category):** P0 safety, approval, audit and current state · P1 primary · P2 technical detail · P3 metadata. The category decides what each presentation profile shows (doc 12, section 5); P0 is shown in every profile.
 
 **Space:** Dominant · Large · Medium · Compact · Contextual.
 
@@ -2048,7 +2273,7 @@ The space classification is the amount of useful screen area required, not a fix
 |---|---|---|---|
 | Control Room / Overview | What is happening across the environment? | Active work visualization or attention workspace (Large) | Critical attention, active operations, environment health |
 | Operations list | What work is Domovoi doing or has done? | Filterable operation list (Large) | Running, waiting, blocked and failed work |
-| Operation detail | Exactly how did / is this work progressing? | Orchestration graph (Dominant) | Graph, current activity, outcome/next step, operation controls |
+| Operation detail | Exactly how did / is this work progressing? | Orchestration graph (Dominant) | Graph, current state, approval card when a decision is due, operation controls |
 | Incidents list | What problems were detected? | Incident table/list (Dominant) | Severity, state, target, host, age, needed attention |
 | Incident detail | What happened and what response is being taken? | Evidence/story with related operations (Large) | Problem statement, evidence, state, linked operations/actions |
 | Operator side panel | Ask or request something from anywhere | Conversation and current operation summary (Large within panel) | Context, transcript, composer, active work |
@@ -2062,6 +2287,8 @@ The space classification is the amount of useful screen area required, not a fix
 | Policies & Autonomy | What is Domovoi allowed to do? | Policy matrix/editor (Large) | Inheritance, allow/approval/deny, constraints and effective result |
 | Policy simulator | What would this policy allow in a real situation? | Scenario/result comparison (Large) | Selected scenario, policy versions, exact deterministic result |
 | Integrations | Which external systems are connected? | Integration inventory (Large) | Connection health, scope, actions, reauthentication |
+| Attention center | What needs a decision or a look? | Attention list (Large) | Approvals, questions, failures, manual interventions |
+| Audit log | Who did what, and is the record intact? | Audit table (Large) | Actor, action, target, outcome, chain verification status |
 | System settings | Configure hub-wide behavior | Settings sections/forms (Medium–Large) | Editable settings, source, validation, save/restart impact |
 
 ## 3. Control Room / Overview
@@ -2075,9 +2302,9 @@ Answer at a glance: “Is anything wrong?”, “What is Domovoi doing right now
 | Content | Priority | Space | Behavior |
 |---|---:|---:|---|
 | Critical attention queue | P0 | Large | Most urgent incidents, blocked operations, failed agents and security warnings; direct links to the right workspace. |
-| Active operations overview | P0 | Large | Show active operation count and meaningful in-progress summaries; select one to open its live graph. Do not squeeze a full complex graph into a tiny card. |
+| Active operations overview | P0 | Large | Active operation count and, per operation, only what the engine reports: current phase name, waiting reason and elapsed time. Select one to open it. Do not squeeze a full complex graph into a tiny card. |
 | Environment health | P0 | Medium | Hosts online/offline, services with issues, storage pressure and other high-value health indicators. |
-| Waiting for user | P0 | Medium | Approvals, questions, permission changes and manual intervention requests, with age and expiry. |
+| Waiting for you | P0 | Medium | The first items of the attention center: each approval is the shared approval card (compact), others link to their canonical page; age and expiry shown. |
 | Recent activity | P1 | Medium | Chronological events across incidents and operations; filter by host/type. |
 | Fleet/service summary | P1 | Medium–Large | Host groups, service status, key resource trends. |
 | LLM/provider status and usage | P2 | Compact–Medium | Provider availability, usage, latency, tokens/cost and budget pressure. |
@@ -2087,10 +2314,12 @@ Answer at a glance: “Is anything wrong?”, “What is Domovoi doing right now
 ### Interaction requirements
 
 - Clicking any status/count opens a correctly filtered destination.
-- Active operation entries show true progress and update live; do not claim a stage is active if only a periodic summary is known.
+- Active operation entries update live from reported state; do not claim a stage is active, and show no percentage, unless the engine reported it.
 - Users can pin a favorite host, service or operation.
 - Widget configuration is separate from operational permissions.
 - The overview must not become a wall of charts. Each widget needs a user question it answers.
+- A count appears once within a widget and once in the default layout. User-rearranged layouts may repeat a widget; that is the user's choice and not an acceptance failure.
+- The autonomy state (paused, rule suspended) is part of environment health and links to Policies & Autonomy.
 
 ### Space decision
 
@@ -2125,7 +2354,19 @@ Priority P0: name/goal, status, origin, target/host, started/updated time, curre
 
 ### Purpose
 
-The primary workspace for understanding exactly what Domovoi is doing or did. The orchestration graph is a defining UI element and receives dominant screen space.
+The primary workspace for understanding exactly what Domovoi is doing or did. Two representations of one trace are in v1: a **step timeline/tree** (built first) and the **interactive orchestration graph**, which is the primary visualization and receives dominant screen space. Both read the same trace schema, frozen with golden fixtures before either is built; neither invents data the other lacks. A non-canvas **outline** of the graph is always available and is the screen-reader path.
+
+### Space allocation (1280 x 720 reference)
+
+| Region | Content | Size |
+|---|---|---|
+| Header strip | Goal, status, origin, targets, phase/cycle, duration, budget use, what it waits for, operation controls | Compact-Medium, always above everything else |
+| Approval card | When a decision is due: the structured approval card, directly under the header strip | Medium, only while a decision is pending |
+| Graph canvas | Orchestration graph (timeline/tree selectable as the alternative view) | Dominant; at least 640 x 400 CSS px; below that, outline plus node sheet |
+| Right slot | Node inspector or Operator panel (precedence rule, doc 13) | Contextual, 320-480 px |
+| Below the graph | Tabs: Findings, Plan, Conversation, Capability calls, Evidence, Logs/output, Model usage, Policy decisions, Audit/events | P1 and P2 content; one tab visible at a time |
+
+P0 content (header strip, approval card) is never in a tab. Findings and plan are P1 and sit in the first two tabs; on screens too small for graph and tabs together, the graph yields to outline plus sheet before P0 yields to anything.
 
 ### P0 / dominant
 
@@ -2134,26 +2375,36 @@ The primary workspace for understanding exactly what Domovoi is doing or did. Th
 - Show actual phases, branch structure, parallel activity, loops/cycles, waits, retries/replans, execution and verification.
 - Show active node(s), completed and failed nodes, skipped nodes and nodes waiting for external input/approval.
 - Preserve individual event/node identity as new events arrive.
-- Support zoom, pan, fit-to-view, minimap/overview for large graphs, cycle filter, branch filter and live-follow toggle.
+- Support zoom, pan, fit-to-view, minimap/overview for large graphs, cycle filter, branch filter and a live-follow toggle.
 - Collapsed node groups must communicate count/status and be expandable into exact activity.
 - Selecting a node opens an inspector without navigating away.
 - Do not flatten a branched/parallel graph into a fake linear progress bar.
+- Keyboard navigation and the outline are specified in doc 15, section 4.
 
-**Current state and next action** (Compact–Medium):
+**Current state and next action** (Compact-Medium):
 
-- Operation goal, status, origin, target(s), start time/duration, current phase/cycle, budget use and what it is waiting for.
+- Operation goal, status, origin, target(s) and the pinned subjects they came from, start time/duration, current phase/cycle, budget use and what it is waiting for.
+- A step outside the operation's scope is flagged "outside operation scope" and can only be approved, never run automatically.
 - If user input/approval is required, present the exact request and controls at the point of need.
+
+**Structured approval card** (one component, used everywhere an approval appears; canonical home is this page):
+
+- Renders from deterministic data: contract, target, arguments, effect class, reversibility, expiry, plan-hash prefix, and the policy decision with its winning rule.
+- Model-written text is secondary and labelled as model text.
+- One primary action per context; destructive approvals name the target and consequence and ask for confirmation.
+- Embedded or linked from incident detail, the Control Room, the Operator and the attention center; they never reimplement it.
 
 ### P1 / large or medium
 
 - Findings/hypotheses: facts, inferred hypotheses, uncertainties, evidence links and discarded hypotheses with reasons.
 - Current/approved plan: actions, intended effects, preconditions, dependencies, risk, policy outcome, verification and rollback/expiry.
 - Related incidents, hosts, services, capabilities and knowledge.
+- **Similar past operations:** earlier operations with their resolution summaries (outcome, what was done, verified or not, source of each narrative field). Each is marked "historical, not authorization"; past approvals and successes never count toward the current decision.
 - Operation conversation and user messages.
 
 ### P2 / tabs or expandable sections
 
-Recommended technical views: Timeline, Capability calls, Evidence, Logs/output, Model usage, Policy decisions, Audit/events. The detailed baseline should make these readily accessible; large raw data can live in tabs/inspectors rather than being dumped all around the graph.
+Technical views: Timeline, Capability calls, Evidence, Logs/output, Model usage, Policy decisions, Audit/events. Large raw data lives in tabs and the inspector rather than around the graph.
 
 ### Node inspector
 
@@ -2161,7 +2412,7 @@ Contextual panel; P1 when a node is selected, otherwise closed. It shows:
 
 - Node type/name/status and why it exists.
 - Owner component (orchestrator, reasoner, context builder, policy engine, executor, provider, verifier, user).
-- Start/end/duration and correlation IDs.
+- Start/end/duration and correlation IDs (P3).
 - Inputs and outputs with evidence/provenance references.
 - Capability ID/version, target and typed arguments where applicable.
 - Result, error, retry/replan relation and next node(s).
@@ -2176,7 +2427,7 @@ The user may inspect any completed or running node; opening an inspector must ne
 
 Retain the current ability to filter/group by status/severity and quickly find an incident, but plan the future around links to operations.
 
-P0 fields: severity, title/problem, host/target, current incident status, last firing/opened time, whether action is needed, related active operation. P1: check/source, recurrence count, assigned/acknowledged state, last update. P2: detailed signal/evidence count.
+P0 fields: severity, title/problem, host/target, current incident status, last firing/opened time, whether action is needed, related active operation. P1: check/source, recurrence count, acknowledged state, last update. P2: detailed signal/evidence count.
 
 A dense table/list should support saved filters, grouping, sort, pagination/virtualization and responsive rendering. Avoid repeated counts/status labels in multiple places.
 
@@ -2186,7 +2437,7 @@ The incident describes the problem, not the work engine.
 
 P0: problem statement, severity/state, target/host, current measured facts, key evidence, whether problem persists, related active operation and user attention request.
 
-P1: related operations (one or several), incident timeline, recurrence, historical similar cases, relevant knowledge and recommended next step.
+P1: related operations (one or several), incident timeline, recurrence, similar past operations with resolution summaries (marked historical, not authorization), relevant knowledge and recommended next step. A pending approval for any related operation is shown as the shared approval card, embedded or linked to its operation.
 
 P2: raw signal payloads, complete logs, check metadata and detailed source information.
 
@@ -2200,7 +2451,7 @@ Keep incident-specific actions such as acknowledge/mute/dismiss clearly separate
 
 Fast conversational access from any page, without replacing the dedicated Operator workspace.
 
-P0: current conversation, composer, selected context, request/stop control, active operation status and approvals/questions relevant to this conversation.
+P0: current conversation, composer, selected context, request/stop control, active operation status and approvals/questions relevant to this conversation (approvals render the shared approval card).
 
 P1: recent conversations, recent operations, starter prompts, scope selector and “open full workspace”.
 
@@ -2213,7 +2464,9 @@ P2: model/provider metadata and technical tool details, accessible by expanding 
 - User can start a task, then continue browsing; the operation continues independently.
 - Expand into full workspace with same conversation/task IDs and scroll position where sensible.
 - Side panel can be resized on desktop; mobile uses full-screen sheet/workspace behavior.
-- It must communicate the active scope. “All hosts” is not the same as one host or selected incident.
+- It must communicate the active scope. “All hosts” is not the same as one host or selected incident. Scope is explicit per conversation.
+- Conversations are durable. A stale response for a superseded request is discarded, and the composer draft is kept until the send is committed.
+- It shares the right-hand slot with the inspector under the precedence rule in doc 13.
 
 ## 8. Operator full workspace
 
@@ -2250,6 +2503,8 @@ One canonical page per host. Recommended high-level tabs (exact grouping to vali
 7. **Activity** — operations, incidents, capability runs, configuration changes and agent events.
 
 Logs may remain a standalone global view with host filter and also be reachable from Workloads/Activity. Do not create a separate tab solely to expose a large raw log dump unless user workflows justify it.
+
+The host page shows the **host-local unattended ceiling** read-only (the most the host itself allows to run without a person), with the explanation that it is edited in the agent's configuration on the host, not here. Policy can only narrow it.
 
 Host actions (rename, enroll/revoke, maintenance, update agent) should be discoverable in page-level actions, with destructive actions contextual and confirmed.
 
@@ -2292,7 +2547,11 @@ A guided wizard or dedicated deployment workspace:
 9. Run a safe test/health check.
 10. Show result and allow rollback/uninstall where supported.
 
-**Critical distinctions:** installed ≠ enabled; enabled ≠ authorized; authorized ≠ skipped local validation.
+**Critical distinctions:** installed ≠ enabled; enabled ≠ authorized; authorized ≠ skipped local validation. No control installs and enables in one step; each is its own action, and enabling and starting an installation each ask for password re-entry.
+
+**Trust model shown in the UI:** packages are signed archives. The hub only relays the bytes; the **agent** verifies the signature against keys in its own local trusted-key list and installs only if the host has opted in (off by default) and the package is compatible. The UI shows, per host: opted in or not (with where to change it), which key signed the package, and the verification result reported by the agent. A host that has not opted in is shown as "does not accept installs", not as a failure. v1 scope (proposed): first-party signed packages plus packages signed with a key the owner added locally; no third-party registry.
+
+**Progress and recovery:** the deployment view shows one row per host (queued, delivered, verifying, installed, failed with the agent's reason, pending because offline), the overall result as "N of M hosts", retry for failed hosts only, and uninstall/rollback where the package declares it.
 
 AI-generated capability drafts may be reviewed and tested, but the model cannot self-install, grant itself new privileges or alter its own trust roots.
 
@@ -2328,13 +2587,24 @@ Present proposed learnings with evidence and suggested scope. User can accept, e
 
 ### Policy overview/editor
 
-P0: effective policy by host and capability/operation, clear Allow automatically / Ask for approval / Deny semantics, inherited versus explicit values, rule precedence and “why” explanation.
+P0: effective policy by host and capability/operation, clear Allow automatically / Ask for approval / Deny semantics, inherited versus explicit values, rule precedence and a "why" explanation (below); the autonomy pause switch and any rule suspended by its circuit breaker; rules in shadow mode (new rules start there) clearly marked as not yet acting.
 
-P1: conditions, target restrictions, time windows, TTL, rate limits, blast-radius caps, trusted paths, recovery requirements and policy versioning.
+P1: conditions, target restrictions, time windows, TTL, rate limits, blast-radius caps, trusted paths, recovery requirements and policy versioning. Publishing a policy version asks for password re-entry.
 
 P2: raw rule representation, import/export and policy-as-code support later.
 
 A matrix view is recommended for host-by-capability review, but complex condition editing needs a dedicated policy detail/editor rather than an unreadable mega-table.
+
+### Effective-policy explanation
+
+For any host, capability and context the page answers "why this result?" using the production evaluator, never a re-implementation. It shows:
+
+- **All matching rules**, each with its effect (Allow, Ask, Deny) and specificity.
+- **The winning rule** and **why it won**, as one of: strictly more specific than the others; equal specificity where Deny wins; incomparable specificity resolved by the fallback.
+- **Which broader rules it overrides.**
+- **Hard limits shown separately from rules**: the host-local ceiling (read-only, edited on the host), the global pause, rate limits and target binding. A hard limit is never presented as a rule that could be edited here.
+- **Dangerous exceptions made obvious**: a specific Allow that overrides a broad Deny is marked with a warning tone, an icon and the text "Allow overrides a broader Deny", in the matrix, the explanation and the editor's diff before publishing.
+- Missing or unavailable context is named; the result may be "cannot determine".
 
 ### What-if policy simulator
 
@@ -2343,12 +2613,11 @@ Dedicated page/panel with:
 - Scenario selector: historical incident/operation, saved scenario or manually defined context.
 - Policy selector: original policy at the time, current policy, draft/proposed policy.
 - Reconstructed context: target, evidence, available capabilities, policy version, relevant host/operation metadata and missing data.
-- Deterministic evaluation output for each proposed operation: allow automatically, require approval, deny, unavailable or cannot determine.
-- Exact matched rules, inheritance, failed constraints and reason for every result.
+- Deterministic evaluation output for each proposed operation: allow automatically, require approval, deny, unavailable or cannot determine, with the full effective-policy explanation above.
 - Side-by-side differences and consequence summary.
 - Save/apply draft policy after review, not from the simulator result alone.
 
-The simulator must call the same deterministic policy evaluator as real dispatch. It is read-only and must never execute a capability. Missing historical facts must be labelled; do not silently simulate with today's environment and claim it was historically exact.
+The simulator calls the production evaluator through a side-effect-free path. It is read-only and must never execute a capability. A historical scenario needs the stored context snapshot and policy version recorded when the decision was made (a backend requirement, doc 17 section 11); missing historical facts are labelled, and the page never silently simulates with today's environment and claims it was historically exact.
 
 ## 13. Integrations
 
@@ -2368,7 +2637,7 @@ Settings should be grouped by the user's goal, not by implementation crate:
 - Models and AI providers (primary/fallback, context limits, budgets, cost controls).
 - Notifications and channels.
 - Agent enrollment/trust and update policy.
-- Data, retention, backups and restore.
+- Data, retention, backups and restore. Every retention value is editable (raw data and durable summaries are separate classes); the page states what each change deletes and when, and changing retention asks for password re-entry.
 - Account/security/session management.
 - UI preferences (theme, density, presentation profile, dashboard layouts, shortcuts).
 - Updates, diagnostics and system health.
@@ -2385,13 +2654,13 @@ P0: source/host, severity, time range, search, live/pause, clear stale indicator
 
 ### Audit log
 
-P0: who/what/when/target/outcome and exact policy/action transition. P1: filters by actor, host, operation, capability, policy and date; links back to the original object. P2: export, retention and integrity verification.
+P0: who/what/when/target/outcome, exact policy/action transition, and the **hash-chain verification status** (last verified time, result, head hash, and any checkpoint left by pruning). A failed verification is a page-level danger banner naming the first bad entry. P1: filters by actor, host, operation, capability, policy and date; links back to the original object. P2: export, retention and a "verify now" control. The page states what the chain detects (accidental corruption, edits that do not recompute it, deletion mid-chain) and what it does not (an attacker who rewrites the whole database).
 
 The audit view is not the same as the user-facing operation timeline. Operation timeline explains work; audit captures security-sensitive changes and authority decisions. They should link to each other.
 
 ## 16. Notifications and attention center
 
-A dedicated attention center should unify pending approvals, questions, manual interventions, warnings and important completion/failure notices. Each notification links to the relevant canonical object. Users can configure channels, priority, grouping, quiet hours and preferences. A toast is transient feedback, not the only durable record of something requiring action.
+A dedicated attention center is the single list of pending approvals, questions, manual interventions, warnings and important completion/failure notices. The Control Room "Waiting for you" widget and the Approvals page are views over this same list, not separate queries with separate rules. An approval item renders the shared approval card or links to its operation; every other item links to its canonical object. Users can configure channels, priority, grouping, quiet hours and preferences. A toast is transient feedback, not the only durable record of something requiring action.
 
 ## 17. Page design deliverable template
 
@@ -2403,14 +2672,13 @@ Every implementation-ready page specification must include:
 4. Recommended containment: page, subpage, tabs, section, expansion, inspector, dialog or popover—with rationale.
 5. Interaction matrix: action, trigger, result, confirmation, state change and navigation.
 6. Live update contract and what may update without user action.
-7. Loading, empty, error, unavailable, stale, offline, partial and permission-denied states.
-8. Responsive behavior and density profile behavior.
+7. The states from the canonical taxonomy (doc 15, section 10) that apply. Permission-denied states are not part of v1 (single owner); name the hook for future roles instead.
+8. Responsive behavior and presentation-profile behavior: the P0-P3 category of every element, and what Standard and Essential collapse or hide.
 9. Keyboard, focus, screen-reader and reduced-motion behavior.
 10. Animation/motion references from the global motion specification.
 11. Data needed, freshness and source of truth.
 12. Performance constraints and acceptance criteria.
 13. Open questions and explicit decisions.
-
 
 ---
 
@@ -2422,24 +2690,42 @@ Every implementation-ready page specification must include:
 
 Domovoi should feel modern, fast and alive. Motion must explain a state change, spatial relationship, progress or result. Avoid animation used only to decorate an otherwise static page.
 
-Existing `web/DESIGN.md` defines short 120–180 ms motion tokens and reduced-motion support. Preserve that calm baseline for ordinary controls. Complex graph interactions may need longer transitions, but they must remain interruptible and non-blocking.
+Two classes of motion exist and they cover different cases. `web/DESIGN.md` defines both:
 
-## 2. Recommended motion tokens
+- **Micro-interactions** keep the existing 120 ms and 180 ms tokens (hover, focus, disclosure, menus, dialogs).
+- **Visualization and transition motion** is a separate class for the graph, layout changes, side panels and playback, with its own longer durations. It was not covered by the original DESIGN.md rule, so the two do not conflict.
 
-| Token / behavior | Starting duration | Recommended easing | Use |
+Both must be interruptible and non-blocking, and both are off or instant under reduced motion.
+
+## 2. Motion tokens
+
+### Micro-interaction class (existing tokens)
+
+| Token / behavior | Duration | Easing | Use |
 |---|---:|---|---|
-| Hover/focus/pressed | 100–140 ms | Ease out | Buttons, rows, chips, selection affordances. |
-| Small disclosure | 140–180 ms | Ease out | Expand/collapse a short section or inline detail. |
-| Popover/menu | 120–180 ms | Ease out | Search palette, menus, small pickers. |
-| Side panel | 180–240 ms | Ease out | Operator panel and contextual inspector. |
-| Dialog | 160–220 ms | Ease out | Focused dialog; scrim fades in slightly faster. |
-| Page content transition | 140–200 ms | Ease out | Route content change while shell remains stable. Avoid transition that delays navigation. |
-| Graph node activation | 160–220 ms | Ease out | Node state/selection/entry. |
-| Graph edge progression | 250–500 ms | Linear or slight ease | Directional active-path reveal; use sparingly. |
-| Status settle | 180–260 ms | Ease out | Running → succeeded/failed/waiting. |
-| Graph playback | User-controlled | Consistent playback clock | Historical timeline replay, not a live operation. |
+| Hover/focus/pressed | 120 ms (`--motion-fast`) | Ease out | Buttons, rows, chips, selection affordances. |
+| Small disclosure | 180 ms (`--motion-base`) | Ease out | Expand/collapse a short section or inline detail. |
+| Popover/menu | 120-180 ms | Ease out | Search palette, menus, small pickers. |
+| Dialog | 180 ms | Ease out | Focused dialog; scrim fades in slightly faster. |
 
-All values are starting points. Use CSS motion tokens or a centralized motion layer; do not scatter hard-coded durations through components.
+### Visualization and transition class (planned tokens, added with the operation UI)
+
+| Token / behavior | Duration | Easing | Use |
+|---|---:|---|---|
+| Side panel and inspector open/close | 240 ms | Ease out | Operator panel and contextual inspector; `transform` only, content is padded not reflowed. |
+| Graph node entry and state change | 240 ms | Ease out | Node enters, is selected, or changes state. |
+| Status settle | 240 ms | Ease out | Running to succeeded/failed/waiting. |
+| Graph edge progression | up to 400 ms | Linear or slight ease | Directional active-path reveal; use sparingly. |
+| Layout transition | 240-400 ms | Ease in-out | Collapse/expand of a node group, re-layout after a cycle is added, fit-to-view. |
+| Graph playback | User-controlled | Consistent playback clock | Replay of a completed operation; speed is chosen by the user. |
+
+Rules for the class:
+
+- Recommended 240-400 ms; **a single transition never exceeds 600 ms**.
+- Event bursts are batched: animation never delays showing state. At most five nodes animate at once; further arrivals in the same batch appear in their final state without a transition.
+- Page content transitions on route change are not used; lazy pages show their skeleton in place.
+- Use the centralized motion tokens (a CSS custom property plus a JS reader that returns 0 under reduced motion); never hard-code durations in components.
+- Reduced motion: every transition in both classes becomes instant, and every state change remains visible (label, icon, outline, text). No information is conveyed only by motion.
 
 ## 3. Accessibility and reduced motion
 
@@ -2447,8 +2733,8 @@ All values are starting points. Use CSS motion tokens or a centralized motion la
 - In reduced-motion mode, remove non-essential transforms, pulsing, animated edges and parallax. Replace them with static state, directional arrows or concise text.
 - Never communicate status with movement or color alone; retain labels/icons/text.
 - Avoid flashing, rapid brightness changes or continuous pulses on warning/error states.
-- Do not animate large content in a way that causes layout shift or moves keyboard focus.
-- Every animation must be compatible with keyboard navigation and screen readers; use appropriate live-region announcements for meaningful state changes without reading every telemetry event.
+- Do not animate large content in a way that causes layout shift or moves keyboard focus. A test helper asserts that `document.activeElement` is unchanged across a simulated burst of live events.
+- Every animation must be compatible with keyboard navigation and screen readers; use appropriate live-region announcements for meaningful state changes (approval needed, failure, completion) without reading every telemetry event.
 
 ## 4. Orchestration graph: the signature visualization
 
@@ -2490,9 +2776,25 @@ Each state has text and an icon/tone; color is supplemental.
 - Cycles must be visually grouped and numbered; do not hide earlier failed cycles.
 - Parallel branches should be legible and selection should not jump the viewport whenever one finishes.
 - Long graphs need minimap or overview, fit-to-view, zoom controls, pan, cycle filters and a way to jump to the active node.
-- Provide a compact list/timeline representation as an alternate view for accessibility, mobile and graph density.
+- Provide the step timeline/tree and the non-canvas outline as alternate views for accessibility, mobile and graph density. The timeline is built first; the graph and the timeline read the same frozen trace schema.
+- Minimum graph canvas is 640 x 400 CSS px; below that (and on phones) show the outline with a node sheet instead of a shrunken graph.
 - If graph complexity exceeds usable space, collapse logical groups while showing counts and status breakdown; do not silently drop nodes.
-- Default framing should keep the current active path visible, but users can disable auto-follow and explore history without being pulled back.
+- Default framing should keep the current active path visible, but users can disable live-follow and explore history without being pulled back.
+- **Following** means the live-follow toggle is on. Any manual pan, zoom or selection of a node outside the active path switches it off, and a visible "Jump to active node" control (also a key) turns it back on. The graph pans only while following.
+
+### Keyboard navigation
+
+The graph canvas is one tab stop with roving focus over nodes. Traversal follows the graph, not screen position:
+
+- **Arrow keys** move to a connected node: Right/Down to a child (the next in branch order when there are several), Left/Up to a parent; when a node has several children or parents, repeated presses cycle through them in the order the outline lists them.
+- **Enter** opens the inspector for the focused node (and moves focus into it); **Escape** returns focus to the node.
+- **Home / End** move to the first and the last node in trace order.
+- **A key (default `J`)** jumps to the active node, turning live-follow on; if nothing is active it goes to the last node.
+- **`+`, `-`, `0`** zoom in, out and fit; **`Space`** expands or collapses a focused group.
+- The focused node scrolls into view without changing zoom; focus is never moved by live events.
+- Focus and selection are separate: arrows move focus, Enter selects.
+
+The **outline** is the screen-reader path: a nested list (cycle, branch, node) in trace order, each item stating name, status, owner and its connections, with the same Enter-to-inspect and jump-to-active behavior. It is real DOM, not an overlay on the canvas, and stays in sync with the graph selection. Manual review uses NVDA with Firefox and VoiceOver with Safari before release.
 
 ### Node selection and inspector
 
@@ -2500,20 +2802,20 @@ Each state has text and an icon/tone; color is supplemental.
 - Selection is independent of execution; it never changes an operation.
 - Selecting a node highlights its upstream evidence and downstream dependents.
 - Double click or explicit expand affordance opens nested child events where available.
-- Inspector can be pinned, resized and closed.
+- Inspector can be pinned, resized and closed. It shares the right-hand slot with the Operator panel under the precedence rule in doc 13.
 - New live events must not clear the selected node or close the inspector.
 - If the selected node becomes unavailable due to filtering, indicate that it is filtered out and offer “show selected node”; do not silently switch selection.
 
 ### Graph updates and animation
 
-- A new node appears with a subtle 160–220 ms opacity/position transition.
-- The active edge may reveal direction over 250–500 ms; avoid a permanent high-frequency flow animation.
+- A new node appears with a subtle 240 ms opacity/position transition (visualization class, section 2); during a burst only the first five animate.
+- The active edge may reveal direction over up to 400 ms; avoid a permanent high-frequency flow animation.
 - Running node state uses a restrained activity indicator, not a large spinning animation.
 - Completion transitions to final state once, then becomes still.
-- Failure gets a brief emphasis once, then remains visible as a stable error state.
+- Failure gets a brief emphasis once, then remains visible as a stable error state. "Once" is tracked in a seen-set keyed by node id and state version, so a reload, reconnect or historical view does not replay it.
 - Waiting nodes show the waiting reason (approval, question, rate limit, provider unavailable, scheduled delay, etc.).
 - When an operation loops, visually connect the new cycle to the prior failed/verified state and mark what changed in the re-plan.
-- Live-follow may scroll/pan only when explicitly enabled or when the user is already following the active path.
+- Live-follow may scroll/pan only while following (see layout behavior above).
 
 ### Graph actions
 
@@ -2523,7 +2825,7 @@ Each state has text and an icon/tone; color is supplemental.
 - Retry/re-run only through the operation's permitted action path; do not provide a generic retry button on every failed node.
 - Stop/cancel/pause only when supported by the underlying operation and policy; clearly state whether stopping prevents further work or only cancels future steps.
 - Compare cycles/plans.
-- Enter historical playback mode for completed operations.
+- Enter historical playback mode for completed operations: replay of the stored trace through the same renderer, with play/pause, scrub and a user-chosen speed. Playback is built after the live graph and never changes the operation.
 
 ## 5. Operation and incident state transitions
 
@@ -2539,9 +2841,10 @@ Each state has text and an icon/tone; color is supplemental.
 
 ### Side panel
 
-- Opens over or beside the current page depending on viewport.
+- Opens beside the current page when there is room and as a sheet when there is not; it never overlaps content. It shares the right-hand slot with the inspector (precedence rule in doc 13: side by side when wide; otherwise the most recently opened wins and the other collapses to a tab).
 - Does not reset the current page scroll, selection, filters or open inspector.
-- Composer remains accessible; sending creates a durable message and, when needed, an operation.
+- Composer remains accessible; sending creates a durable message and, when needed, an operation. The draft survives a failed send and a reload until the send is committed.
+- Each conversation has an explicit host or global scope. A response for a request that has since been superseded is discarded, not appended.
 - Panel header shows context and a clear expand-to-workspace control.
 - If active operation continues after panel close, show a small global activity indicator and preserve it in Operations/notification center.
 - Panel can be resized, pinned/open by shortcut, collapsed and expanded.
@@ -2557,7 +2860,7 @@ Each state has text and an icon/tone; color is supplemental.
 
 ### Action cards inside conversation
 
-A response that creates a proposed action/operation renders a structured action card, not a free-text promise. It shows target, intended effect, permission outcome, constraints, approval state and verification plan. Chat must not simulate success before execution has returned.
+A response that creates a proposed action/operation renders the shared structured approval card (doc 14, section 5), not a free-text promise. It shows contract, target, arguments, effect class, reversibility, expiry, plan-hash prefix, the policy decision and approval state; any model prose is secondary and labelled. Chat must not simulate success before execution has returned.
 
 ## 7. Policy simulator interactions
 
@@ -2566,12 +2869,15 @@ A response that creates a proposed action/operation renders a structured action 
 - Proposed-policy comparison operates on a draft; it does not save automatically.
 - Results show exact matched rules and constraints, including the winning deny/allow rule and any unknown/missing context.
 - Every scenario run is read-only. Applying a draft policy is a separate explicit action with review and audit.
-- The “simulate” result must call the same policy evaluator as real execution, using a simulation context that prohibits side effects.
+- The “simulate” result must call the production policy evaluator through a side-effect-free path.
+- Every result renders the full effective-policy explanation (doc 14, section 12): all matching rules, the winning rule and why it won, broader rules overridden, hard limits shown separately, dangerous exceptions marked.
+- Loading a historical scenario requires the context snapshot and policy version stored at decision time; if absent, say so and offer only the current-policy comparison.
 
 ## 8. Capability installation interactions
 
 - Installation uses preflight → review → target selection → deploy → verify → configure → enable → authorize.
-- Progress is shown per target agent, not only as a global spinner.
+- Progress is shown per target agent, not only as a global spinner. The agent verifies the package signature against its local trusted keys; the UI reports what the agent said and never claims verification itself.
+- A host that has not opted in to installs is shown as such, with where to change it, not as a failure.
 - Partial success must be clearly represented; allow retry only for failed targets, not duplicate the entire fleet deployment.
 - Signature/source verification and privilege changes must be conspicuous.
 - Rollback/uninstall availability is declared and displayed before installation.
@@ -2588,24 +2894,29 @@ A response that creates a proposed action/operation renders a structured action 
 - Tooltips explain short/ambiguous labels but do not contain critical information exclusively.
 - Bulk actions must show their exact scope and a dry-run/count preview when potentially impactful.
 
-## 10. Empty, loading, error and offline interactions
+## 10. State taxonomy: loading, empty, error, offline and the rest
 
-Every data-driven surface needs a meaningful state model:
+This is the one list of data states. Other documents refer to it instead of keeping their own.
 
-- Initial loading: skeleton shaped like the eventual content; avoid blank page and layout shift.
-- Refreshing with stale data: keep last known data and show freshness/refresh indicator.
-- Empty: state why there is nothing and how to create/populate it.
-- Error: distinguish first-load error from refresh error; preserve usable stale data and offer retry.
-- Offline/unavailable: distinguish host/agent unavailable from “no data” and from provider not configured.
-- Partial: show which sections succeeded and which failed; a failed source must not be silently omitted.
-- Permission denied: explain which permission or role is missing and how an authorized person can fix it.
-- Unknown schema/status: render safely as an unknown value; never crash on a newer provider/agent response.
+| State | Trigger | What the person sees | Keeps stale data? |
+|---|---|---|---|
+| Loading | First fetch, nothing cached | Skeleton shaped like the content; no blank page or layout shift | no |
+| Refreshing | Refetch with data present | Last data stays; a freshness label shows a refresh in progress | yes |
+| Empty | Loaded, nothing to show | Why it is empty and the next step; never used for a failed load | n/a |
+| First-load error | Fetch failed, no data | What failed, why, and Retry | no |
+| Refresh error | Refetch failed, data present | Last data stays with "last updated" time and a visible failure notice with Retry | yes |
+| Stale | Data older than its freshness window, or live updates paused | Freshness label with age; never presented as current | yes |
+| Offline / unavailable | A host or agent cannot be reached, or a provider is not configured | Says which source is unavailable; distinct from "no data" and from "not configured" | last known, marked |
+| Partial | Some sources of a page loaded and others did not | Each section shows its own state; a failed source is named, never silently omitted | per section |
+| Unknown value | A status or schema value this UI does not know (newer hub, agent or provider) | Neutral pill with the raw value; never crashes | n/a |
+
+Permission-denied is not a v1 state (single owner). The one function every action check goes through is the hook for future roles.
 
 ## 11. Global navigation and search interactions
 
 - Global search and Operator are separate launchers with separate jobs.
 - Search should debounce appropriately, show loading/no-results/failure, group result types, and keep keyboard selection stable as results update.
-- Search respects authorization and scope; never return object names or snippets the user is not allowed to inspect.
+- Search results are scoped to the sources the search actually covers, and each group says so. With one owner there is no permission filtering in v1; keep a single filter point in the search layer as a hook for future roles.
 - Command actions require explicit confirmation if they change state; a search selection must not accidentally run a high-impact operation.
 - Breadcrumbs and contextual links preserve a clear path back.
 
@@ -2622,7 +2933,6 @@ For every animation in a page spec, document:
 - Why movement communicates meaning.
 
 If there is no good answer to the last question, the animation probably should not exist.
-
 
 ---
 
@@ -2658,6 +2968,13 @@ Current implementation includes:
 
 Use these as a code/quality starting point after checking that they fit the new product. New graph/inspector/operation components may need a distinct design system extension rather than forcing existing generic components to do work they were not designed for.
 
+The guardrails in `web/DESIGN.md` stay in force. Where the graph genuinely needs something they forbid, the amendment is written in `web/DESIGN.md` (its "planned, added with the operation UI" section) before the code, not worked around:
+
+- **Computed geometry** (node positions, viewBox, transforms) uses SVG attributes and CSS custom properties set through one kit helper; there is no blanket exemption from the inline-style rule.
+- **File size:** the 250-line cap is not relaxed. The graph is split by responsibility (layout, rendering, interaction, keyboard, outline).
+- **Motion** gets the second class and tokens described in doc 15, section 2.
+- **Layout worker:** if layout runs in a worker, it is a same-origin hashed asset (the content policy does not allow `blob:` workers).
+
 ## 3. Modern feel without visual noise
 
 Recommended visual characteristics:
@@ -2679,33 +2996,23 @@ Avoid:
 - Color-only states or status without a textual explanation.
 - Dense pages that achieve density by shrinking text or clickable targets below usable sizes.
 
-## 4. Information density modes
+## 4. Presentation profiles
 
-Detailed is the reference design. Build layouts with the complete information model, then allow alternate presentation preferences.
+Detailed is the reference design and the default for a new owner. Build layouts with the complete information model, then derive the other profiles by hiding or collapsing, never with a different layout. The mechanism (a profile provider, one visibility primitive keyed by category, and the table below) is built before any page, after the shared visibility infrastructure.
 
-### Detailed
+| Category | Detailed | Standard | Essential |
+|---|---|---|---|
+| P0 safety, approval, audit, current state | shown | shown | shown |
+| P1 primary | shown | shown | shown |
+| P2 technical detail | shown | collapsed | collapsed |
+| P3 metadata | shown | collapsed | hidden, "+N details" indicator |
 
-- Full status metadata, exact timestamps where useful, phase/step detail, evidence, inputs/outputs, policy rationale, tool results and history.
-- P0 and P1 items expanded by default where space permits.
-- Raw/verbose payloads remain available in inspectors/tabs, with secrets redacted.
+- **Detailed:** full status metadata, exact timestamps where useful, phase/step detail, evidence, inputs/outputs, policy rationale, tool results and history. Raw/verbose payloads remain in inspectors/tabs, with secrets redacted.
+- **Standard:** primary content and the primary action and waiting state are obvious; capability calls, long outputs and secondary metadata are grouped and one click away.
+- **Essential:** outcome, current status and next action; technical detail stays reachable through collapsed sections and the "+N details" indicator. Nothing is deleted or inaccessible.
+- **Custom:** per-page overrides of one of the profiles (and table columns, dashboard layout, saved filters, graph defaults). A person can choose a compact overview and a Detailed operation workspace.
 
-### Standard
-
-- Phase-level execution and important results visible.
-- Individual capability calls, long outputs and secondary metadata grouped/expandable.
-- Primary action and waiting state remain obvious.
-
-### Essential
-
-- High-level outcome, current status and next action emphasized.
-- Detailed information is never deleted or inaccessible; it is collapsed/available through a clear details path.
-
-### Custom
-
-- Per-area visibility/expanded defaults, table columns, dashboard layout, saved filters and operation graph defaults.
-- The user can choose a compact overview but a detailed operation workspace.
-
-These are not separate application versions. They are view preferences over the same information and controls.
+P0 is never hidden or collapsed in any profile, Custom included; a test asserts it for every page. Collapsed and hidden content is not rendered until revealed, so profiles also keep cost down. These are view preferences over the same information and controls, never separate application versions and never a change to authority.
 
 ## 5. Responsive design and real-estate rules
 
@@ -2719,10 +3026,10 @@ Design references to validate:
 Requirements:
 
 - Do not simply scale desktop columns down. Reconsider which areas become tabs, stacked sections, sheets or full-screen inspectors.
-- Dominant graphs need a minimum practical viewport. On phones, use a focused graph canvas plus a node list/inspector sheet; do not render a tiny unreadable desktop graph.
+- Dominant graphs need at least 640 x 400 CSS px of canvas. Below that, and on phones, show the outline plus a node sheet; do not render a tiny unreadable desktop graph. P0 safety actions (approve, deny, stop) work on a phone.
 - Keep high-priority state/actions visible; use sticky action summaries only when they do not obstruct content.
 - Avoid horizontal page scrolling. A graph may have its own pan/zoom canvas; a data table may have a deliberate responsive stacked form.
-- Side-by-side Operator/operation workspaces should become a tab/split toggle on narrow screens while retaining the same underlying context.
+- Side-by-side Operator/operation workspaces should become a tab/split toggle on narrow screens while retaining the same underlying context. The right-hand slot follows the precedence rule in doc 13.
 - Tables must support responsive column selection or card/list transformation without losing key fields.
 - Dialogs must fit touch screens and allow the content/action area to scroll.
 
@@ -2763,38 +3070,47 @@ Don't make every entity a card. Don't put a graph in a generic Card just because
 - Color is never the only signal.
 - Support zoom and text scaling without clipping controls or losing graph access.
 - Respect reduced motion.
-- Provide a non-canvas/list representation of graph structure and a keyboard-accessible node navigation model.
-- Test with automated accessibility checks and manual keyboard/screen-reader review for complex interactions.
+- Provide the non-canvas outline of graph structure (the screen-reader path) and the keyboard navigation model defined in doc 15, section 4.
+- Test with automated accessibility checks and manual keyboard review; complex interactions get a manual screen-reader pass with NVDA and Firefox and with VoiceOver and Safari.
 
 ## 9. Performance and stability requirements
 
+Budgets win over presentation: when Detailed would exceed a budget on a given device, it degrades by rendering less at once (outline instead of canvas, collapsed groups, virtualised lists), never by dropping information.
+
 - Avoid layout shift during initial load and live updates.
 - Keep global shell responsive even when a graph or table is large.
-- Use route-level lazy loading and component-level lazy loading for heavy visualizations/editors where useful.
-- Virtualize long lists, logs, event streams and graph detail lists when measurements justify it.
+- Use route-level lazy loading and component-level lazy loading for heavy visualizations/editors. The graph is its own lazy chunk under the existing 120 kB gzip chunk limit; initial JavaScript stays inside the budget in `web/DESIGN.md`.
+- Virtualize long lists, logs, event streams and graph detail lists.
 - Memoize stable list/table rows and avoid re-rendering the full graph for a single node status update.
-- Batch live event processing and throttle high-frequency rendering without losing durable events.
-- Keep graph layout and physics work off the main UI thread where necessary; use deterministic/cached layout for stable historical traces.
-- Ensure search/index data is permission-filtered and never stale without an indicator.
+- Batch live event processing and throttle high-frequency rendering without losing durable events; coalesce animation as in doc 15, section 2.
+- Keep graph layout and physics work off the main UI thread where necessary; use deterministic layout for stable historical traces. A layout version is recorded so a historical trace renders the same after a release.
+- Search results carry a freshness indicator; nothing is presented as current when it is stale.
 - Keep the hub as the only required origin for bundled web assets unless an external service is explicitly required; do not introduce remote fonts or untrusted scripts by default.
-- Maintain an explicit bundle/performance budget and test at realistic fleet sizes.
+- Test at fixed fleet sizes: 50 hosts, 5,000 operations, 2,000 nodes in one operation and 100,000 log lines. Interaction stays responsive and a single node update re-renders only that node.
 
 ## 10. Quality requirements for every page
 
 Every page must explicitly design and test:
 
-- Loading, empty, first-load error, refresh error, offline, partial, stale and permission-denied states.
+- Every state in the canonical taxonomy that applies (doc 15, section 10): loading, empty, first-load error, refresh error, stale, offline/unavailable, partial and unknown value. Permission-denied is not a v1 state (single owner).
 - Dense and sparse data.
 - Long names, long logs, missing values and unknown enum values from newer agents/providers.
 - Keyboard and screen-reader behavior.
-- 375, 768, 1280 and 1920 px layouts (or justified equivalents).
 - Both light and dark themes.
-- Detailed, Standard and Essential presentation profiles.
+- Detailed, Standard and Essential presentation profiles, with the P0-never-hidden assertion.
 - Live updates while the user is interacting with or inspecting content.
 - Long-running work, reconnects, uncertain outcomes and duplicate event delivery.
 
-A UI is not accepted only because the happy path looks good in a screenshot.
+### Sampling rule for the review matrix
 
+The full product of profiles, themes, widths and states is not run for every page. Required:
+
+- **Every page:** all three profiles x both themes at two widths (375 and 1280 px).
+- **Default profile (Detailed) only:** the four widths 375, 768, 1280 and 1920 px, both themes.
+- **States:** each applicable state from the taxonomy is covered once per page, in the default profile, in one theme and one width; the visual snapshot uses the layout that is most at risk.
+- **Graph pages:** the graph states in doc 15 are covered by component tests on fixtures, not repeated per page and profile.
+
+A UI is not accepted only because the happy path looks good in a screenshot.
 
 ---
 
@@ -2815,7 +3131,7 @@ This document cross-checks pages as workflows. The UI should be designed as one 
 **Acceptance:**
 - Critical attention is distinguishable from informational activity.
 - The overview shows active operations, not only incidents and approvals.
-- No counter is duplicated across tile, heading and filter.
+- In the default layout no counter is duplicated across tile, heading and filter (user-rearranged layouts are exempt).
 - Clicking a metric opens the relevant filtered list.
 - Returning preserves the useful context; live changes are reflected without a full-page reset.
 
@@ -2848,13 +3164,13 @@ This document cross-checks pages as workflows. The UI should be designed as one 
 1. User asks: “Restart Plex for me.”
 2. Domovoi resolves the correct host/service and confirms ambiguity if more than one Plex instance exists.
 3. It checks capability availability and current policy.
-4. If authorized automatically, it presents the intended effect and executes; if approval is required, it requests approval inline and on the relevant approval page; if denied, it explains the matched rule.
+4. If authorized automatically, it presents the intended effect and executes; if approval is required, it shows the shared approval card inline and the same item appears in the attention center; if denied, it explains the winning rule and why it won.
 5. Operation graph records capability invocation and result.
 6. Verification checks the service/health condition, not only command exit code.
 7. The user receives a truthful result and the operation is stored in history.
 
 **Acceptance:**
-- Target, effect and permission outcome are explicit before a mutation.
+- Target, effect and permission outcome are explicit before a mutation, rendered by the shared approval card (contract, target, arguments, effect class, reversibility, expiry, plan-hash prefix, policy decision).
 - Policy is evaluated in the shared engine; chat cannot bypass it.
 - Execution and verification are separate states.
 - Duplicate requests/dispatches are guarded against where operations are not idempotent.
@@ -2869,14 +3185,14 @@ This document cross-checks pages as workflows. The UI should be designed as one 
 4. Open “What would Domovoi have been allowed to do?”
 5. Compare policy at the time, current policy and a draft policy.
 6. Inspect rule matches, inheritance, constraints, missing context and differences.
-7. Edit the draft if needed, simulate again, then explicitly apply it.
+7. Edit the draft if needed, simulate again, then explicitly apply it (with password re-entry).
 8. Audit records the policy change; no scenario simulation ever executes a capability.
 
 **Acceptance:**
 - Original/current/proposed policy views are clearly distinguished.
 - Historical context and current facts are never silently mixed.
 - Simulation calls the same deterministic evaluator as real operation authorization.
-- Exact matched rules and constraint failures are visible.
+- All matching rules, the winning rule, why it won, the broader rules it overrides and any constraint failures are visible; hard limits (host ceiling, pause) are shown apart from rules; a specific Allow over a broad Deny is visibly flagged.
 - Applying a draft is a distinct audited action.
 
 ## 5. Journey: install a capability from the UI
@@ -2887,14 +3203,15 @@ This document cross-checks pages as workflows. The UI should be designed as one 
 2. Open capability detail; inspect source/trust, effect, permissions, schemas, prerequisites and rollback.
 3. Select target agents and rollout strategy.
 4. Run preflight and review exactly what will change.
-5. Install and verify package on each agent; show partial failures per target.
+5. Install on each agent that has opted in; the agent verifies the signature against its local trusted keys; show progress and partial failures per host.
 6. Configure parameters.
 7. Enable the capability if wanted.
 8. Set policy permissions separately.
 9. Run a safe test and inspect its operation record.
 
 **Acceptance:**
-- Installed, enabled and authorized are separate properties.
+- Installed, enabled and authorized are separate properties; no single control does more than one of them.
+- Hosts that have not opted in to installs are shown as such, not as failed.
 - An offline agent is shown as pending delivery, not installed.
 - Package provenance and integrity checks are visible.
 - Failed agents can be retried without reinstalling successfully updated agents.
@@ -2906,11 +3223,12 @@ This document cross-checks pages as workflows. The UI should be designed as one 
 
 1. Open Operations and filter Completed/Failed.
 2. Open an operation.
-3. View historical graph and switch to timeline/playback.
+3. View the historical graph, switch to the timeline/tree or the outline, or play it back.
 4. Select an earlier failed node and inspect its input/output/error.
 5. Compare cycle 1 and cycle 2 to see which evidence changed the plan.
 6. Open the policy evaluation and matched rule.
 7. Follow links to capability, host, incident, related knowledge and audit entry.
+8. Open a similar past operation and read its resolution summary.
 
 **Acceptance:**
 - Historical operation state is stable and reproducible.
@@ -2935,7 +3253,37 @@ This document cross-checks pages as workflows. The UI should be designed as one 
 - Provenance and conflicting claims remain inspectable.
 - Knowledge edits are audited and do not imply permission changes.
 
-## 8. Cross-page interaction acceptance
+## 8. Journey: decide an approval from the attention center
+
+**Goal:** make a safe decision quickly without hunting for context.
+
+1. A step needs approval; the attention center shows it and the shell indicator counts it.
+2. Open the item; the shared approval card shows contract, target, arguments, effect class, reversibility, expiry, plan-hash prefix and the policy decision.
+3. If the target is outside the operation's scope, the card says so and offers approval only.
+4. Open the operation from the card to see the graph and the evidence behind the step.
+5. Approve (or deny); the card and the operation show the decision, who made it and when.
+
+**Acceptance:**
+- The same component renders the approval on operation detail, incident detail, the Control Room, the Operator and the attention center.
+- Model-written text is labelled and secondary.
+- Only an authenticated person can approve; nothing in the UI, the Operator or chat approves on a person's behalf.
+- An expired approval is shown as expired with the reason, not as pending.
+
+## 9. Journey: resolve an incident with past experience
+
+**Goal:** reuse what worked before without treating it as permission.
+
+1. Open an incident or operation and find "Similar past operations".
+2. Read each resolution summary: outcome, what was done, whether it was verified, and which fields came from the model.
+3. Confirm or edit a model-drafted summary on a finished operation.
+4. Use it to guide the new work; any step still goes through current policy and approval.
+
+**Acceptance:**
+- Every item is marked historical, with its operation, date, verified flag and source.
+- A past approval or success never satisfies policy or pre-approves anything.
+- Model-drafted narrative fields are labelled until the owner confirms or edits them.
+
+## 10. Cross-page interaction acceptance
 
 - An object has one canonical detail route; previews link to it.
 - Operator side panel can open from any page and expand without losing context.
@@ -2944,25 +3292,44 @@ This document cross-checks pages as workflows. The UI should be designed as one 
 - Policy decisions link to the operation and rule that produced them.
 - Capability runs link to the installed capability and the operation that invoked it.
 - Knowledge links connect relevant hosts, services, incidents, operations and notes.
-- Global search can reach these canonical objects when implemented; search results are scoped and permission-filtered.
+- Global search can reach these canonical objects when implemented; search results are scoped to the sources it covers and say so. No permission filtering in v1 (single owner); the search layer keeps one filter point as a hook for future roles.
+- An approval has one canonical home (operation detail); other surfaces embed or link the same card.
 
-## 9. Implementation acceptance checklist
+## 11. Backend contracts the UI depends on, and build order
+
+The UI is built against contracts, not against the live engine. These must exist (as schemas with fixtures) before the pages that need them:
+
+- **Trace schema:** operations, nodes, branches, cycles, phases, planned-versus-happened, uncertain outcome, versioning. Frozen with golden fixtures that both the Rust side and the UI test, before the timeline or the graph is built.
+- **Operations record and list/detail endpoints**, with durable ordered events per operation.
+- **Live events with ids and resume** per topic (operations, hosts, attention), replacing invalidate-by-prefix; keep invalidation as the fallback.
+- **Conversations:** durable messages, explicit scope, request ids for discarding stale responses.
+- **Policy decisions** stored with the context snapshot and policy version used, so the simulator can reproduce a historical decision.
+- **Attention feed**, **audit API with chain verification**, **retention settings**, **resolution summaries and similar-operation search**, **capability deployment state per host**.
+- **Presentation profile and dashboard preferences:** where they are stored (hub or browser) is a backend decision; the UI reads them through one provider.
+
+Build order for UI work:
+
+1. Shared foundations: live layer, freshness and stale states, motion tokens, virtualised list, right-hand slot and inspector shell, and the shared visibility infrastructure.
+2. **Presentation profiles and the category table**, before any page is implemented.
+3. Trace schema and fixtures; then the step timeline/tree; then the graph, outline and keyboard navigation; playback last.
+4. Pages on top of these, with the structured approval card built once with operation detail and reused.
+
+## 12. Implementation acceptance checklist
 
 A page/component is not “done” until:
 
-- Content model, P0–P3 priority and screen-space class are approved.
+- Content model, P0–P3 category and screen-space class are approved.
 - Page/subpage/tab/section/inspector decisions have rationale.
 - Detailed view contains all meaningful information and controls.
-- Standard/Essential presentation profiles are derived from the detailed model without removing authority or audit data.
+- Standard/Essential profiles are derived from the detailed model by the category table; a test proves every P0 element is present and expanded in each profile.
 - All interactive controls have action/result and failure behavior specified.
 - Live updates, stale data, reconnect and uncertain execution are handled.
-- Animations have triggers, timing/easing, interruption and reduced-motion behavior documented.
-- Keyboard/focus/screen-reader behavior is tested.
-- Both themes and representative viewport sizes are reviewed.
-- Large and busy datasets are tested; no clipping or excessive re-rendering.
-- Browser-level tests cover at least one complete workflow through the page.
+- Animations have triggers, timing/easing, interruption and reduced-motion behavior documented, and use the motion tokens of their class.
+- Keyboard/focus/screen-reader behavior is tested (graph: the keyboard model and outline in doc 15, section 4).
+- The sampling rule in doc 16, section 10 is met for themes, widths and profiles.
+- Large and busy datasets at the fixed fleet sizes are tested; no clipping or excessive re-rendering.
+- Browser-level tests cover at least one complete workflow through the page, against a deterministic hub fixture (the harness is built before the first page).
 - Visual review confirms hierarchy, density and real-estate allocation are actually usable.
-
 
 ---
 
@@ -2970,19 +3337,42 @@ A page/component is not “done” until:
 
 **Repository reviewed:** `RoastSlav/domovoi`  
 **Review date:** 2026-11-12  
-**Scope:** all 110 closed pull requests returned by GitHub for this repository at review time (PRs #1–#111, excluding numbers that were not closed PRs). Titles and descriptions were reviewed across the full set. Conversation comments were checked where present; the substantive maintainer follow-up comments on #107 and #110 were included. Code changes were inspected selectively where the description exposed concurrency, security, persistence, protocol, UI-system or operational-recovery risks. Routine dependency-only and release-only changes were classified but not treated as product-design evidence.
+**Scope:** all 113 closed pull requests in this repository (PRs #1–#113; every number is a closed PR). The first pass (2026-11-12) covered #1–#111 and counted 110; #112 and #113 were merged afterwards and #108 was missed (it is the merged `chore: release v0.0.10`). Titles and descriptions were reviewed across the full set. Conversation comments were checked where present; the substantive maintainer follow-up comments on #107 and #110 were included. Code changes were inspected selectively where the description exposed concurrency, security, persistence, protocol, UI-system or operational-recovery risks. Routine dependency-only and release-only changes were classified but not treated as product-design evidence.
 
-This document is a lessons-learned record, not a requirement to preserve the current implementation. The rework may replace mechanisms, but should not repeat known failure modes or discard proven product requirements without a reason.
+**Verification pass.** The lessons below were re-checked against the code at baseline `64117f0` (investigation G, with E and F). Each lesson carries a status:
+
+- **VERIFIED**: the PR text and the current code or the PR itself agree (code or PR evidence cited).
+- **STATIC**: established by reading code only. Nothing was executed and no failing test reproduces it.
+- **UNVERIFIED**: taken from PR text; not checked against the code.
+
+Several claims in the first version overstated what the repository enforces. They are corrected in place and listed in "Corrections from verification" below. Target rules ("Target rule:") describe what the rework should do; they are not claims about current behaviour.
+
+This document is a lessons-learned record, not a requirement to preserve the current implementation. The rework may replace mechanisms, but should not repeat known failure modes or discard proven product requirements without a reason. Decisions that carry each lesson into the target design are in `docs/rework/03-architecture-decisions.md` (`RW-NN`); the "Rework invariants" section at the end maps invariants to them.
+
+## Corrections from verification
+
+| Earlier claim | Corrected statement | Status |
+|---|---|---|
+| "110 closed PRs", "#108 no closed PR" | 113 closed PRs. #108 is the merged v0.0.10 release. #112 and #113 are added below. | VERIFIED (`gh pr view`) |
+| The mutation-feedback lint enforces feedback on every mutation | The ESLint rule is file-level: a file passes if it imports `useActionFeedback`, `InlineMessage` or `InlineError` anywhere, so one reported mutation excuses an unreported one in the same file (`web/eslint/domovoi-rules.js:10,128`). Four files carry a `// feedback-ok:` exemption. | STATIC |
+| Unsaved-change warnings exist for settings and forms | The leave guard (`useLeaveGuard`) is used by the notes editor only (`web/src/features/notes/useLeaveGuard.tsx:16`). No other form blocks navigation while dirty. | STATIC |
+| #97 "checksum-verified" upgrade | `domovoi upgrade` compares the archive with a `.sha256` file fetched from the same release origin (`crates/domovoi/src/cmd/upgrade/package.rs:13-30`). That detects corruption, not a hostile or compromised release. The SLSA attestation produced by the release workflow is not checked by the upgrade command (no attestation or signature code under `cmd/upgrade/`). | STATIC |
+| `HumanApproval` is sealed by the type system | It is not. `HumanApproval::new` and `restore` are `pub` in `domovoi-core` (`core/src/action/approval.rs:54`). The restriction is a line-based text scan in `xtask arch-check` for the strings `HumanApproval::new(` and `HumanApproval::restore(` outside allowed path prefixes (`xtask/src/arch/scan.rs`, allow-lists at `xtask/src/arch/rules.rs:169-175`). A renamed import or a macro evades it. The type has no `Default` and no `Deserialize`, and gate tests exist. RW-11 in `docs/rework/03-architecture-decisions.md` records this correction. | VERIFIED (code) |
+| Approval binds to "the exact plan" | The plan hash covers the serialised manifest, not the entry script's bytes (`core/src/skill/manifest.rs:145-151`; `runner/src/catalog/checks.rs:100-111` re-checks mode and path, not contents). The approve API (`hub/src/api/actions.rs:104-123`) takes only `confirm_text`; it carries no plan hash, so the server cannot tell what the operator saw. | STATIC |
+| Single writer "guarantees" serialised decisions | True for action approve, deny, expiry, dispatch and completion. Not true for proposal token rotation (called from the triage task, `triage/proposals.rs:115`, `followup.rs:252`). The incident store has an unguarded `IncidentRepo::update`; its single-writer rule is a convention (ADR 0011). | STATIC |
+| Restart recovery "resumes approved actions" | The mechanism exists and is tested with a fake link, but a real hub probably rejects them (D36 in `docs/rework/01-repository-reality.md`). See lesson 2. | STATIC (not reproduced at runtime) |
+| Fallback "records model identity" | Only failure text carries provider and model. A successful `TriageReport` carries neither, and usage rows store only the provider id. | STATIC |
+| #36 findings "to evaluate against current main" | They are still present on main (lesson 6). | STATIC |
 
 ## Executive summary
 
 The repository's history contains several important lessons for the target design:
 
 1. **Concurrency and durable state need explicit ownership.** Action decisions and action transitions were vulnerable to races until a single-writer model and guarded updates were introduced (#107, #109). Cached proposals also needed to be revalidated and converted back into live actions (#110).
-2. **Restart recovery is part of correctness, not an operational afterthought.** Do not blindly replay actions whose execution outcome is unknown. Reconstruct rate limits and pending state from durable history; distinguish approved-but-not-started from dispatched-but-uncertain work (#109).
+2. **Restart recovery is part of correctness, not an operational afterthought.** Do not blindly replay actions whose execution outcome is unknown. Reconstruct rate limits and pending state from durable history; distinguish approved-but-not-started from dispatched-but-uncertain work (#109). The action loop guard is rebuilt from audit; the triage hourly cap (#112) is not, and catch-up of approved actions probably runs before agents reconnect (STATIC, lesson 2).
 3. **An AI answer, cached report, notification or UI card is not the source of truth.** Revalidate against current capabilities, policy and target state at the point of action. UI affordances must reflect the current action token/state (#93, #107, #110).
 4. **The UI needs explicit state design and quality gates.** Loading, empty, no-match, offline, partial failure, retry, unsaved changes, pending mutation and mutation failure are distinct states, not variations of an empty page (#100–#105, #111).
-5. **A design system must be enforceable.** Semantic tokens, centralized status vocabulary, accessible components, contrast tests, axe checks, mutation feedback and bundle budgets prevent visual and interaction drift (#98, #100, #105).
+5. **A design system must be enforceable.** Semantic tokens, centralized status vocabulary, accessible components, contrast tests, axe checks, mutation feedback and bundle budgets prevent visual and interaction drift (#98, #100, #105). Enforcement today is partial: the mutation-feedback lint is file-level, not per call site, and only the notes editor blocks navigation with unsaved changes.
 6. **Long-running and unreliable dependencies are normal.** Local models can be slow; providers can fail or return unusable answers; agents can disconnect; notification delivery can fail. Timeouts, streaming, fallback chains, durable queues and honest user-visible status must be designed in (#36, #50, #52, #54, #71, #87–#90).
 7. **The agent must remain an enforcement boundary.** Hub requests are untrusted proposals; the agent revalidates local catalogue/policy and the runner constrains process execution (#6, #10, #13).
 8. **Tests should prove invariants and contracts, not just happy paths.** Pure state machines, repository contract suites, protocol snapshots, adversarial gate tests, fake clocks and explicit regression tests make later redesign safer (#5–#13, #15–#16, #105, #107, #109–#110).
@@ -2999,6 +3389,8 @@ The repository's history contains several important lessons for the target desig
 
 **Target rule:** every important state machine has one authoritative transition owner. Callers submit commands; the owner loads current state, validates the transition, performs a guarded write, records the corresponding audit event and publishes the resulting state. Database updates must be conditional on the expected prior state/version. A stale decision returns a conflict, not a silent overwrite.
 
+**Status: VERIFIED for actions; STATIC for the caveats.** `actions/writer.rs:95,132`, guarded SQL `store/repos/actions.rs:173-178` (`WHERE id = ? AND json_extract(status,'$.type') = ?`), `update_from` is the only action write in the port. Caveats: the guard compares the status name, not a version, so ordering between two writes from the same status depends on the single writer; proposal token rotation calls `update_from` from the triage task (`triage/proposals.rs:115`) and bypasses the writer; the incident store has an unguarded `IncidentRepo::update` (`manager/actor.rs:259`), so incident single-writer is a convention (ADR 0011). Rework decisions: RW-03, RW-04.
+
 **Apply to the rework:** incidents, operations, approvals, autonomy decisions, capability installation, agent enrollment, and long-running orchestration should each have explicit transition ownership. Do not automatically put all domains in one global writer; use the smallest ownership boundary that guarantees serializable decisions.
 
 ### 2. Crash recovery must distinguish safe resume from unknown execution
@@ -3009,15 +3401,27 @@ The repository's history contains several important lessons for the target desig
 
 **Target rule:** persist operation checkpoints and action lifecycle transitions. On restart, classify work as safe-to-resume, safe-to-retry, needs-reconciliation, or outcome-unknown. Never replay outcome-unknown external actions automatically unless the operation is explicitly idempotent and its idempotency contract is proven. Reconstruct safety counters from durable events. Surface reconciliation needs in the UI.
 
+**Status: VERIFIED for the mechanism (`actions/recover.rs:27,139,204`; `executor.rs:88`; tests `tests/services/recovery.rs`). STATIC for the gaps, none reproduced at runtime:**
+
+- Catch-up runs before any agent reconnects (`runtime/mod.rs:230`). `AgentLink::skills` is empty for a host not yet connected (`agent_server/registry.rs:263-269`), so `revalidate` rejects valid approvals with "the skill is no longer on the host". The recovery tests use a fake link that hides this. Code reading only; a failing test is needed to confirm.
+- "Outcome unknown" is a string inside `Failed { reason }`, not a status. A link error or deadline during `run_skill` is recorded as plain `Failed` although the command may have run.
+- An `Approved` action has no age limit and no check that the incident is still open.
+- The loop-guard slot is claimed before `wait_for_agent`, so an offline agent consumes a slot (`executor.rs:244`).
+- The rate limiter rebuilt from audit covers the action loop guard only. The triage hourly window (#112) is in memory.
+
+Rework decisions: RW-09, RW-30, RW-08.
+
 **Design consequence:** operation execution requires durable step identity, idempotency classification, start/result records, deadlines, cancellation semantics and recovery behavior. A command's exit code alone is not proof of the external system's final state.
 
 ### 3. Revalidate at every trust boundary
 
-**Evidence:** #6 validates skill manifests and typed arguments; #10 rechecks executable paths and permissions immediately before running; #13 makes the agent revalidate incoming requests locally; #22 revalidates before dispatch; #93 constrains model-proposed skills and arguments; #110 revalidates cached proposals against current skills.
+**Evidence:** #6 validates skill manifests and typed arguments (its plan hash covers the manifest, not the script); #10 rechecks executable paths and permissions immediately before running; #13 makes the agent revalidate incoming requests locally; #22 revalidates before dispatch; #93 constrains model-proposed skills and arguments; #110 revalidates cached proposals against current skills.
 
 **Failure mode:** a capability may have been removed or changed since a model generated a proposal. A cached report may be stale. A script path may have been replaced after catalogue loading. A plan may change between approval and execution.
 
 **Target rule:** treat LLM output, cache entries, chat buttons, hub requests and UI state as untrusted or potentially stale. Revalidate capability identity/version, target, typed arguments, current policy, plan hash and local host constraints immediately before execution. Approval must bind to the exact plan that was reviewed. Any material change invalidates approval and requires a new decision.
+
+**Status: VERIFIED for revalidation at the agent and for cached proposals; the "exact plan" binding is overstated.** The agent re-does catalogue lookup, risk, args and plan hash locally (`agent/src/requests/skills.rs:61-125`); #110 re-checks cached proposals against current enabled skills (`triage/run.rs:88-93`, `proposals.rs:48-60`). But the plan hash covers the serialised manifest, not the entry script's bytes, so editing `run` after approval executes under the approved hash (STATIC). The approve API carries no plan hash (STATIC). Weaker points in #110 (STATIC): the duplicate lookup is `Page::first(50)` and a listing error becomes an empty list, so a store error can store duplicates (`proposals.rs:67-91`). Human-only approval (#22) is enforced by a text scan plus a type with no `Deserialize`, not by compile-time sealing (see "Corrections from verification"). Rework decisions: RW-08, RW-11, RW-07.
 
 **Design consequence:** a plan is a versioned immutable object or snapshot; the execution request references that exact plan. The UI should clearly show when a plan changed and why previous approval no longer applies.
 
@@ -3027,6 +3431,8 @@ The repository's history contains several important lessons for the target desig
 
 **Lesson:** preferences, profiles, notes, learned patterns, historical approvals and model conclusions are useful context, but none should silently grant authority. A prior successful action is not permission to repeat it. A known condition is not the same as an autonomy policy.
 
+**Status: UNVERIFIED** as a description of current behaviour (#63, #66, #81, #82, #91 not re-read against code). The negative claim holds in the code reviewed: nothing the model returns reaches `HumanApproval`, and a report becomes `Proposed` actions only through `proposals::store` (E section 3). Rework decisions: RW-14, RW-10.
+
 **Target rule:** maintain distinct stores and APIs for environment knowledge, authorization policy and operational experience. Policy evaluation is deterministic and separately auditable. Knowledge can explain why an action is useful, but cannot make it allowed.
 
 ### 5. Model failure is a normal control-flow path
@@ -3034,6 +3440,8 @@ The repository's history contains several important lessons for the target desig
 **Evidence:** #54 increased API timeouts for slow local models; #71 added streaming and configurable timeout; #89 introduced provider fallback; #90 added ordered model fallback chains; #94 handles providers without tool calling by gathering read output before asking the model.
 
 **Target rule:** model calls need explicit deadlines, cancellation, streaming, provider/model attribution, usage accounting, retry classification and fallback policy. Distinguish transport failure, timeout, rate limit, authentication failure, missing model, invalid structured output and tool-call incompatibility. Do not retry every error identically.
+
+**Status: failure attribution VERIFIED; the rest of the target rule is not met today (STATIC).** `triage/run.rs` joins failure reasons with provider and model, and #113 redacts and clips them. Success attribution is absent: `TriageReport` has no provider or model field and usage rows store only `provider.id()`. A failed call records no usage. Every error falls through to the next provider identically (no classification). The only whole-call limit is `max_seconds`, checked between turns; the client has only an idle read timeout, so there is no hard per-call deadline. Rework decision: RW-06.
 
 **Design consequence:** an operation can remain in a visible “waiting for model” or “provider unavailable” state. The UI must not imply that reasoning is progressing when the provider is stalled. Fallback model identity must be recorded in experience history.
 
@@ -3043,6 +3451,8 @@ The repository's history contains several important lessons for the target desig
 
 **Target rule:** distinguish “created”, “queued”, “sent”, “acknowledged”, “failed” and “expired” for messages and events. Persist work before acknowledging it. Use bounded retries with backoff and dead-letter/error visibility. Do not discard state merely because delivery failed. Offline agent data must be bounded and have explicit retention.
 
+**Status: ack-after-persist VERIFIED; #36 findings STATIC and still present on main.** The hub acks signals only after the store accepts them (`agent_server/session.rs:90-105`) and the spool is bounded (`agent/src/spool.rs:14-22`). Still open: the agent scheduler saves check state even when the spool push fails (`agent/src/scheduler.rs:333-344`); the hub saves notification state before delivery succeeds and treats a state read error as default state (`runtime/delivery.rs:55-67,111-125,242-248`); a corrupt `spool.json` becomes default meta (`spool.rs:66-95`). The earlier text "not implemented" for #36 is corrected to "confirmed present". Rework decisions: RW-03, RW-15, RW-30.
+
 **Design consequence:** the hub/agent link, operation event stream, notifications and emergency local autonomy need durable delivery semantics and reconciliation after reconnect.
 
 ### 7. Protocol and deployment compatibility are product behavior
@@ -3051,23 +3461,29 @@ The repository's history contains several important lessons for the target desig
 
 **Target rule:** protocol evolution must be additive where possible, bounded, explicitly versioned and testable against compatibility matrices. Unsupported operations should return a typed explanation. Do not let incompatibility turn into an endless reconnect loop. Detect runtime capabilities rather than assuming the installation mode.
 
+**Status: VERIFIED.** `proto/src/version.rs:17-26`, `hub/src/agent_server/handshake.rs:140-148,194-215`, frame cap `proto/src/envelope.rs:11`. Notes: `at_least` lets an unparseable agent version pass the floor (`version.rs:104-108`); a new `ReadTool` variant or a new `Risk` variant in `hello` still breaks old peers (D13 in `docs/rework/01-repository-reality.md`). Rework decision: RW-17.
+
 **Design consequence:** UI should show hub/agent versions, compatibility state, runtime type, missing host permissions and unsupported capabilities with actionable remediation.
 
 ## Lessons that directly affect the UI plan
 
 ### 8. Page and component states must be designed, not improvised
 
-**Evidence:** #100 established a component kit; #103 explicitly added loading, empty, error and offline states; #104 distinguishes no notes from no search matches, adds retry, unsaved-change warnings and mutation outcomes; #105 adds disabled reasons and mutation feedback; #111 refines overview, incident, host and settings hierarchy.
+**Evidence:** #100 established a component kit; #103 explicitly added loading, empty, error and offline states; #104 distinguishes no notes from no search matches, adds retry, unsaved-change warnings and mutation outcomes; #105 adds disabled reasons and mutation feedback (the unsaved-change guard is in the notes editor only); #111 refines overview, incident, host and settings hierarchy.
 
 **Target rule:** every page, tab, table, graph, form and async action must specify at least: initial/loading, loaded, empty, no-results, partial-data, stale-data, offline, permission-denied, error/retry, submitting, success and failure states where relevant. “Empty” must never be used to conceal a failed request.
+
+**Status: VERIFIED in part.** `QueryBoundary` and the state kit exist (#100, #103, #104). A failed refetch is dropped when data exists and there is no stale or refreshing indicator (STATIC, `QueryBoundary.tsx:143-189`). Only 24 of 94 data-using files use `QueryBoundary` (D34), so "every load" is a convention, not a check. Rework decision: RW-21.
 
 **UI specification addition:** page specs must include state matrices and transitions, not only static content and happy-path interactions.
 
 ### 9. Mutations need clear feedback, reversibility and protection against accidental loss
 
-**Evidence:** #104 adds a single save bar, unsaved counts, discard, field-level errors, connection-test feedback, typed host-name revocation, delete confirmation and Undo with exact expiry restoration. #103 reports mutation results and requires typed confirmation for agent revocation. #105 bans mutations without feedback except documented exceptions.
+**Evidence:** #104 adds a single save bar, unsaved counts, discard, field-level errors, connection-test feedback, typed host-name revocation, delete confirmation and Undo with exact expiry restoration. #103 reports mutation results and requires typed confirmation for agent revocation. #105 adds a lint that flags mutations without feedback unless the file carries a documented exemption (file-level, see lesson 14).
 
 **Target rule:** every mutation must tell the user what changed, whether it succeeded, and what remains pending. Destructive or hard-to-reverse actions require clear consequence previews and confirmation appropriate to risk. Prefer Undo for reversible changes. Preserve user input on failure. Warn before navigating away from unsaved work.
+
+**Status: PARTIALLY VERIFIED.** Undo with exact expiry restoration exists (`features/rules/DeleteRuleDialog.tsx`, test `rules.test.tsx:369`). Corrected claims: the guard that warns before navigating away from unsaved work is used by the notes editor only (`useLeaveGuard`, imported by `NoteEditor.tsx` only), not by settings or other forms (STATIC); and the lint that bans mutations without feedback is file-level, not per call site (lesson 14). `ChatPage.tsx:56` uses `mutateAsync` and reports through the thread instead (test `chat.test.tsx:108`). Typed host-name revocation (#103/#104) was not re-checked (UNVERIFIED).
 
 **UI specification addition:** each action definition includes preconditions, confirmation level, pending state, success state, failure state, retry behavior and undo/rollback availability.
 
@@ -3077,6 +3493,8 @@ The repository's history contains several important lessons for the target desig
 
 **Target rule:** selected host/environment context should persist across related pages and be visible. Global/all-hosts scope must be explicit and must not silently inherit a previous host's tools or permissions. Deep links should preserve meaningful tabs/filters and be shareable/bookmarkable where safe.
 
+**Status: VERIFIED.** `hub/src/api/chat.rs:118-133` (`tool_host` is `None` for no host or an offline host), `engine/src/triage/chat.rs:149-162` (no skills without a host; only read-risk skills offered), tests in `tests/hub/api_chat.rs`. Web: the chat conversation is keyed by host (`ChatPage.tsx`); the selector is a view filter and mutations take explicit ids. Strengthening from the verification: the selected host persists in `localStorage` across sessions (`HostContext.tsx:6-27`), so a new session starts host-scoped; a deleted host name stays stored and gives a 404 from chat; the general chat has no server conversation (history is client `sessionStorage` per host). See INV-H1 and INV-H2. Rework decision: RW-20.
+
 **Design consequence:** global Operator context, task scope, incident scope and capability target must be separately visible. Never infer a destructive target only from a hidden global selector.
 
 ### 11. Show what the AI actually used and preserve the conversation
@@ -3084,6 +3502,8 @@ The repository's history contains several important lessons for the target desig
 **Evidence:** #69 exposes skills/tools used on incident details; #79 adds a manual-steps checklist; #81/#82 provide host profile context; #91 stores follow-up conversation with generation/race protection and chronological ordering; #92 shows the conversation, pending state and clear confirmation; #93 allows structured action proposals; #94/#95 create general host chat.
 
 **Target rule:** the user should be able to inspect evidence, tools/capabilities invoked, manual steps, model answers and action proposals as separate structured elements. Preserve conversation context across turns, but make clearing/reset behavior explicit. A request still in flight must not be silently erased or resurrected by a late response.
+
+**Status: VERIFIED for incident follow-up chat; the general chat has no server conversation.** Generation check `manager/annotate.rs:132-150`, `triage/history.rs` (`count_clear`, `asked_at` ordering), clear disabled while sending (`web/src/components/ChatThread.tsx:234`), the answer shown from the response when the turn is not yet remembered, history-load failure distinct from empty (`IncidentChat.tsx:35-45,127-129`), tests `incidentChat.test.tsx:291,306`. Weak points (STATIC): when the generation check drops an answer, `answer()` still returns `Ok(answer)`, so a client can show a reply to a conversation another tab cleared; a failed timeline read captures generation 0, which wrongly drops the answer if any earlier clear exists (`followup.rs:182-188`); the client matches a landed turn by question text, so a repeated question can match an older turn (`IncidentChat.tsx:38`); tool use from a failed follow-up is not recorded (`followup.rs:235`). Rework decision: RW-20 (request-id keyed pending turn, stale responses discarded, composer draft kept until the send commits). See INV-Q1 to INV-Q3.
 
 **Design consequence:** Operator workspace should be built around a durable task/conversation identity, with linked orchestration, evidence and action history. Chat is not just a transient message list.
 
@@ -3093,11 +3513,15 @@ The repository's history contains several important lessons for the target desig
 
 **Target rule:** real-time views need explicit live/pause state, bounded windows, pagination/virtualization, search, copy/export and clear freshness indicators. Poll only while a user-visible condition requires it; prefer event streams where appropriate. Keep the interface responsive under large histories and frequent updates.
 
+**Status: VERIFIED for logs (#87/#88); UNVERIFIED for the #103 live-view controls.** Ring capacity 2000, redacted at capture and again in the API (`domovoi/src/log_ring.rs:15-75`, `hub/src/api/logs.rs:54`), agent cap 2000 lines (`agent/src/requests/mod.rs:43`). SSE has no event ids and a slow client silently loses events (D14). Rework decision: RW-15.
+
 **Design consequence:** orchestration graph and event timeline need incremental updates, bounded rendering and stable selection/scroll behavior. New events must not unexpectedly move the user's current inspection target.
 
 ### 13. Technical language should be explained, not erased
 
 **Evidence:** #65 adds explanations for pages and jargon; #111 keeps detailed evidence and operational labels while improving hierarchy.
+
+**Status: UNVERIFIED** (#65, #111 wording not checked against the UI).
 
 **Target rule:** retain precise terminology (orchestration, capability, policy, verification) and pair it with concise explanations. Do not dumb down the detailed view. Use configurable information density and progressive disclosure, with the detailed experience as the reference design.
 
@@ -3107,6 +3531,8 @@ The repository's history contains several important lessons for the target desig
 
 **Target rule:** define semantic tokens and shared component contracts, then enforce them in CI. Avoid raw colors and one-off status interpretations. Components should expose accessible names, focus behavior, disabled reasons and consistent feedback. Accessibility and performance are acceptance criteria, not final polish.
 
+**Status: PARTIALLY VERIFIED; "enforced in CI" is overstated.** Token, status-vocabulary, icon, inline-style, raw-button and file-length rules are lint or test checks (`web/eslint/domovoi-rules.js`, `src/guardrails.test.ts`, `styles/contrast.test.ts`). Weaker than described (STATIC): the mutation-feedback rule passes a file if it imports `useActionFeedback`, `InlineMessage` or `InlineError` anywhere (`domovoi-rules.js:10,128`), so one reported mutation excuses an unreported one in the same file; four files use a `// feedback-ok:` header exemption that does not prove the wrapping; the disabled-reason check is likewise structural; axe runs in jsdom with colour contrast excluded (contrast is covered by the token-pair test instead); `api/health.ts` uses raw `fetch`. Rework decision: RW-21.
+
 **Important nuance:** shared components should support consistent behavior without forcing every page into the same layout. Reuse the design language and interaction contracts; don't let the component kit dictate the information architecture.
 
 ## Capability, onboarding and operations lessons
@@ -3115,11 +3541,15 @@ The repository's history contains several important lessons for the target desig
 
 **Evidence:** #83 exposes skill README, limits and recent runs; #84 allows enable/disable per host; #103 shows risk, timeout, applies-to and last-used; #44 installs starter skills by default and suggests restart after upgrade.
 
+**Status: #84 VERIFIED; the rest UNVERIFIED.** `PolicyLink` (`hub/src/agent_server/skill_policy.rs:157-221`) filters skills and refuses `run_tool` read skills and `run_skill` for disabled ones, with a mutex serialising read-modify-write (`:32-45,93-107`); every consumer is handed `policy_link` (`runtime/mod.rs:216,220,235,269`, `profile/collect.rs:51,193`). Weak points (STATIC): enforcement is a wrapper the consumer must be handed; `server.link()` stays public and `AgentAdmin::skills` is deliberately unfiltered, with no arch-check rule against bypass; `run_check` is not policy-filtered (`skill_policy.rs:186-195`); the policy is hub-side only and keyed by host name. Rework decisions: RW-07, RW-26.
+
 **Target rule:** future capability management should distinguish discover, inspect, compatibility, install, enable, configure, authorize, update, disable, uninstall and audit. These are different operations. Installing a capability must not grant it permission. Per-agent/host compatibility and enablement must be explicit.
 
 ### 16. Host profiles and environment discovery are valuable, but provenance matters
 
 **Evidence:** #81 collects and stores host profile; #82 injects profile into triage/chat/notes; #67 adds expected SSH logins and a login time window; #72 detects runtime type.
+
+**Status: #81/#82 snapshot-diff behaviour VERIFIED; the rest UNVERIFIED.** `hub/src/profile/diff.rs:26-31,75` compares snapshots only when both sides answered (tests `tests/hub/profile.rs:541,566`). Not re-checked: #67 default login window, #72 runtime detection, #81 fence escaping. Rework decision: RW-14.
 
 **Target rule:** use discovered host facts to tailor questions and diagnostics, but show source, freshness and uncertainty. Auto-discovered information must not silently become user-confirmed constraints or permissions. Profiles should be editable and linked to the evidence that produced them.
 
@@ -3127,11 +3557,15 @@ The repository's history contains several important lessons for the target desig
 
 **Evidence:** #63 provides UI management with plain-language condition rules; #66 supports dismissing an incident as a known condition; #104 shows expiry, creator, readable phrases, operator-specific inputs and Undo.
 
+**Status: #66 VERIFIED (rule stored before dismiss, `hub/src/api/incidents.rs:343-398`; the rule audit runs after dismiss, so its failure returns an error for an already-done dismiss); #63 and #104 UNVERIFIED.**
+
 **Target rule:** known conditions are explicit, scoped, time-bounded when appropriate and reviewable. The UI should explain exactly what will be suppressed and until when. A known condition suppresses expected noise; it must not conceal a security event or authorize a remediation action.
 
 ### 18. Installation and upgrade flows need operational safety
 
-**Evidence:** #33 deployment methods; #32 guided first run and UI-managed settings; #43 LAN/integration setup; #44 starter capabilities and restart guidance; #96 safe release discovery; #97 checksum-verified in-place upgrade that does not silently restart services.
+**Evidence:** #33 deployment methods; #32 guided first run and UI-managed settings; #43 LAN/integration setup; #44 starter capabilities and restart guidance; #96 safe release discovery; #97 in-place upgrade that compares the archive with a `.sha256` file from the same release origin (integrity, not authenticity) and does not silently restart services.
+
+**Status: #96 VERIFIED; #97 overstated.** The release-tag allowlist `is_release_tag` (`proto/src/version.rs:97-103`) is used in `cmd/upgrade/fetch.rs:48`. The #97 upgrade is integrity-checked, not authenticated: the archive is compared with a `.sha256` file from the same release origin (`cmd/upgrade/package.rs:13-30`), which detects corruption but not a compromised release, and the attestation the release workflow produces is not verified by the command (STATIC). `install.sh` also verifies SHA-256 (F). Rework decisions: RW-26, RW-31.
 
 **Target rule:** setup and upgrade flows must explain prerequisites, what will change, how to recover and whether a restart is required. Pin versions, verify downloaded artifacts and never execute untrusted release metadata as shell input. Separate downloading/replacing a binary from restarting services.
 
@@ -3139,7 +3573,7 @@ The repository's history contains several important lessons for the target desig
 
 Seven closed PRs were not merged: #1–#4 and #14 are dependency updates; #36 is a substantive hardening/audit PR; #38 is an attempted `v0.1.0` release PR. Do not assume their changes are in `main`.
 
-- **#36 — signal and notification delivery hardening (not merged):** proposed durable-spool ordering, corrupted-spool repair/rejection, notification retention until delivery succeeds, repair of missing discussion threads, digest paging, scheduler error visibility, generated API artifact checks and documentation/link audits. These are valuable review findings to evaluate independently against current `main`; do not treat them as implemented.
+- **#36 — signal and notification delivery hardening (not merged):** proposed durable-spool ordering, corrupted-spool repair/rejection, notification retention until delivery succeeds, repair of missing discussion threads, digest paging, scheduler error visibility, generated API artifact checks and documentation/link audits. These are valuable review findings. Verification against `main` (STATIC) found the spool-before-state, notification-state-before-delivery and state-read-error-as-default findings still present (lesson 6); do not treat them as implemented.
 - **#38 — release `v0.1.0` (not merged):** release-plz generated a release PR that was closed. It is historical release automation, not evidence that a `v0.1.0` release shipped.
 - **#1–#4 and #14:** dependency bumps closed without merge. No product behavior should be inferred from them.
 
@@ -3149,10 +3583,12 @@ The following index records the complete closed-PR set and the primary topic inf
 
 | PRs | Primary topic / lesson |
 |---|---|
+| #113 | Redact a provider failure reason and clip it to 500 characters before it leaves the engine (provider error text is a leak channel). |
+| #112 | One admission gate caps triage, questions and chat: shared hourly and monthly limits, runs reserved for incident triage, free refusal, 429 with `Retry-After`. |
 | #111 | Current UI overhaul: operator-oriented hierarchy, dense evidence, host views, responsive shell. |
 | #110 | Revalidate cached proposals; deduplicate actions; rotate stale chat approval tokens. |
 | #109 | Single writer for all action transitions; crash recovery; rebuild rate limits from audit. |
-| #108 | No closed PR in the reviewed result set. |
+| #108 | Release PR `chore: release v0.0.10`, merged. Release-only; no product lesson. |
 | #107 | Serialize approve/deny/expiry; guarded writes; drain queued decisions on shutdown. |
 | #106 | Playwright patch dependency update. |
 | #105 | UI guardrails: contrast, axe, voice, mutation feedback, bundle budgets and rendering performance. |
@@ -3163,7 +3599,7 @@ The following index records the complete closed-PR set and the primary topic inf
 | #100 | Shared UI kit for feedback, hints, states and forms. |
 | #99, #85, #70, #55, #51, #48, #45, #42, #40 | Release PRs; generated version/changelog history. |
 | #98 | Design tokens, light/dark/system themes, semantic tone/status system and icons. |
-| #97 | Checksum-verified in-place binary upgrade; no implicit restart. |
+| #97 | In-place binary upgrade checked against a same-origin `.sha256` file (integrity, not authenticity); no implicit restart. |
 | #96 | Release update discovery and safe, pinned update instructions. |
 | #95 | General Chat UI, host scope and per-host conversation persistence. |
 | #94 | General host chat with scoped read tools and bounded/redacted context. |
@@ -3257,6 +3693,10 @@ The following index records the complete closed-PR set and the primary topic inf
 - [ ] Live views are bounded, incremental, searchable and do not jump the user's selection/scroll unexpectedly.
 - [ ] Semantic tokens, accessible controls, contrast/axe tests, performance budgets and mutation-feedback checks run in CI.
 - [ ] Documentation, generated API artifacts, examples and acceptance tests ship with the feature, not as cleanup later.
+- [ ] Every model call passes one admission gate whose limits survive restart and declare fail-open or fail-closed; a cache hit costs no model slot.
+- [ ] Every error string that reaches a user, a chat reply or an external log passes the redactor and a length cap.
+- [ ] Approval binds to implementation bytes (not only a manifest), carries the plan hash the user saw, and expires.
+- [ ] Event kinds that drive control flow are typed, not parsed from strings.
 
 ## What this review does not decide
 
@@ -3268,23 +3708,40 @@ The following index records the complete closed-PR set and the primary topic inf
 
 The PR descriptions often summarize the intended change; the maintainer's follow-up comments record edge cases discovered during review. These are particularly useful because they show where an apparently complete feature was still unsafe or misleading.
 
-- **Never treat malformed or quoted model text as structured intent.** #93 found that extracting the first `[` through the last `]` could turn quoted prose into an action proposal. Parse a complete, explicitly delimited structured payload; reject surrounding prose and unknown fields. Prefer provider-native structured output when available. Also enforce proposal count/size limits, deduplicate within a batch, and address cross-request uniqueness at the store/serialization boundary.
-- **Bound every model input, not only the visible prompt.** #94/#95 found that historical turns and skill catalogues could exceed budgets and that historical user/assistant messages could carry secrets. Redact every historical turn before sending it to a provider; cap each turn, total history, question, catalogue and host overview; drop oldest history deliberately and preserve complete question/answer pairs where possible. A global chat without a selected host should not receive host tools; offline hosts should receive no tools.
-- **A chat must never lose a successful answer or user input.** #92 found a race where the response could arrive before history refreshed, leaving “Thinking…” stuck or making the answer disappear. Pending state should follow the request mutation; render the answer from the response if persistence lags; clear the composer only on success; retain input on failure; distinguish history-load failure from an empty conversation; block clear while a request is active and prevent a stale answer from reappearing after clear. Enforce the server's character limit in the client too.
-- **Conversation clear needs generation semantics.** #91 prevents a slow in-flight answer from restoring a conversation after the user clears it. Requests capture a conversation generation and asking time; persistence rejects stale generations and history replays in asking order even if responses finish out of order. Apply the same pattern to any resettable long-running UI or task context.
-- **Provider fallback must preserve diagnostic information.** #89 found that fallback could hide the primary provider's failure and that invalid model output could omit provider identity. Aggregate provider-specific failure reasons and include provider/model attribution in diagnostics and operation history.
-- **Never trust release metadata just because it parses as a version.** #96 found tag-injection risk: a parser that stops at a prerelease/build separator can accept a version prefix while ignoring unsafe suffix characters. Validate the entire release tag against a strict allowlist before using it in URLs, UI or copyable shell commands. Pin the exact image version in generated Docker upgrade commands. Bound HTTP response bodies at the shared HTTP layer, not just one call site.
-- **Protocol additions must be understood by old peers.** #86 found that sending a newly introduced rejection reason to an old agent could leave it in a reconnect loop. Only send a reason the peer version can understand; otherwise use a compatible terminal rejection. Authenticate the peer before recording a version refusal, so unauthenticated traffic cannot create misleading host events.
-- **A disabled capability must be disabled on every path.** #84 found host-profile collection bypassing the skill policy wrapper even though triage and action execution used it. All consumers (profile collection, chat, incident investigation, scheduled jobs, etc.) must use the same policy-enforcing capability access layer. Concurrent per-host enable/disable updates need serialized read-modify-write behavior so one update cannot silently erase another.
-- **Missing data must not be interpreted as deletion or recovery.** #82 found that a failed container or listening-port query could make the next profile claim all previous entities had disappeared. Compare snapshots only when both sides contain valid data; represent collection failure/unknown separately from an empty successful result. Do not infer removals from missing observations.
-- **Generated host profiles need explicit limits and honest semantics.** #81 found read skills with required parameters being called with empty arguments, generated profile notes overwriting prior content, tool output breaking Markdown fences, profile refresh being synchronous/expensive, and editable generated notes being ambiguous. Skip skills that cannot be called safely without parameters; escape/fence arbitrary tool output; label generated data as a latest snapshot rather than a history if it is overwritten; decide whether generated records are editable; bound refresh work and add backoff for failed sections.
-- **Tool-use history must distinguish not-run from failed.** #69 found invented model-supplied tool names, budget-refused calls counted as failures, missing prefetched calls for providers without tool support, and identical names across tool/skill categories being merged. Validate names against registries, record category and run identity, and use distinct outcomes such as succeeded, failed, refused/not-run, skipped and cancelled. Record partial/in-flight runs if the UI is expected to show them.
-- **Network-security defaults must preserve access.** #67 found that a login-allowance window could accidentally suppress all SSH logins and that one bare IP address was rejected. Default an “expected login” window to LAN-only, require explicit opt-in for internet-origin logins, confirm before creating broad rules, support /32 and /128 single-address semantics, and derive active-window UI state from persisted rules so reloads do not lie.
-- **Create suppression rules before closing the incident they suppress.** #66 found a race where a new signal could arrive between dismissing an incident and storing its known-condition rule. Validate and persist the rule first, then close/dismiss; if the later step fails, leave the rule visible and explain it. The UI must state that a rule can cover all severities for that check/target and must not offer dismissal while triage is still pending.
-- **Retry budgets need typed reasons.** #60 found that cap-deferred retries and failure retries were being conflated, so an old failure chain could block a later retry that was only deferred by a concurrency cap. Track why a run was deferred and apply each limit only to the retry class it governs. Test mixed timelines and slot release behavior.
-- **Do not let optional integration setup block a connection test for the wrong reason.** #53 found that a Discord test could fail validation because no approver list had yet been saved, even though the test itself should be able to reach Discord. Use narrowly scoped test-only placeholders where appropriate, explain their scope and ensure they are not persisted as real authorization.
-- **Hardware diagnostics must not create side effects or leak identifiers.** #73 found that SMART health checks should not wake sleeping disks, serial numbers should be filtered before model/timeline exposure, and UPS command failures must not be rendered as “no UPS detected.” Use non-waking commands, bounded execution time and precise “unavailable/failed/not detected” distinctions.
-- **Review findings should be classified, not silently ignored.** Several comments explicitly left non-blocking items as separate design decisions (for example, profile refresh concurrency, generated-note editability, per-section size caps, API body bounds and cross-request proposal uniqueness). Preserve these as open design questions when the affected feature is selected; do not assume “reviewed” means “resolved.”
+- **Never treat malformed or quoted model text as structured intent.** **Status: VERIFIED.** The follow-up parser takes one complete JSON array after the last `PROPOSALS:` line, `ActionProposal` has `deny_unknown_fields`, and count and per-line caps apply (`triage/followup.rs:16-24,116-142,242-249`; `core/src/triage/report.rs:37`). Weak point (STATIC): malformed output goes through `unwrap_or_default()`, so a broken payload silently yields no proposals, and the marker is out-of-band text rather than provider-native structure. RW-06 replaces it with schema-validated meta-tool calls. Cached proposals (#110) are revalidated through the same `check` (lesson 3). #93 found that extracting the first `[` through the last `]` could turn quoted prose into an action proposal. Parse a complete, explicitly delimited structured payload; reject surrounding prose and unknown fields. Prefer provider-native structured output when available. Also enforce proposal count/size limits, deduplicate within a batch, and address cross-request uniqueness at the store/serialization boundary.
+- **Bound every model input, not only the visible prompt.** **Status: VERIFIED with a difference.** General chat bounds and redacts every replayed turn (`triage/chat.rs:20-35,60-67`). The incident follow-up replays stored turns without re-redacting, relying on redaction at write time (`followup.rs:84-107`, STATIC), and there is no total prompt cap across context, tool results and history (D11 in `docs/rework/01-repository-reality.md`). #94/#95 found that historical turns and skill catalogues could exceed budgets and that historical user/assistant messages could carry secrets. Redact every historical turn before sending it to a provider; cap each turn, total history, question, catalogue and host overview; drop oldest history deliberately and preserve complete question/answer pairs where possible. A global chat without a selected host should not receive host tools; offline hosts should receive no tools.
+- **A chat must never lose a successful answer or user input.** **Status: VERIFIED for the incident chat** (lesson 11 lists the remaining weak points; the general chat keeps history client-side only). #92 found a race where the response could arrive before history refreshed, leaving “Thinking…” stuck or making the answer disappear. Pending state should follow the request mutation; render the answer from the response if persistence lags; clear the composer only on success; retain input on failure; distinguish history-load failure from an empty conversation; block clear while a request is active and prevent a stale answer from reappearing after clear. Enforce the server's character limit in the client too.
+- **Conversation clear needs generation semantics.** **Status: VERIFIED for incident follow-ups; STATIC weak points in lesson 11.** The general chat has no server conversation, so no generation exists to protect. #91 prevents a slow in-flight answer from restoring a conversation after the user clears it. Requests capture a conversation generation and asking time; persistence rejects stale generations and history replays in asking order even if responses finish out of order. Apply the same pattern to any resettable long-running UI or task context.
+- **Provider fallback must preserve diagnostic information.** **Status: VERIFIED for failures, STATIC for successes.** Failure reasons carry provider and model and are now redacted and clipped (#113); a successful output records neither (lesson 5). #89 found that fallback could hide the primary provider's failure and that invalid model output could omit provider identity. Aggregate provider-specific failure reasons and include provider/model attribution in diagnostics and operation history.
+- **Never trust release metadata just because it parses as a version.** **Status: VERIFIED** (`is_release_tag`, `proto/src/version.rs:97-103`, used in `cmd/upgrade/fetch.rs:48`). #96 found tag-injection risk: a parser that stops at a prerelease/build separator can accept a version prefix while ignoring unsafe suffix characters. Validate the entire release tag against a strict allowlist before using it in URLs, UI or copyable shell commands. Pin the exact image version in generated Docker upgrade commands. Bound HTTP response bodies at the shared HTTP layer, not just one call site.
+- **Protocol additions must be understood by old peers.** **Status: VERIFIED** (`handshake.rs:140-148,194-215`). #86 found that sending a newly introduced rejection reason to an old agent could leave it in a reconnect loop. Only send a reason the peer version can understand; otherwise use a compatible terminal rejection. Authenticate the peer before recording a version refusal, so unauthenticated traffic cannot create misleading host events.
+- **A disabled capability must be disabled on every path.** **Status: VERIFIED for current consumers; STATIC for the structure.** Every consumer is handed the policy wrapper, but the raw link stays reachable and `run_check` is unfiltered (lesson 15). #84 found host-profile collection bypassing the skill policy wrapper even though triage and action execution used it. All consumers (profile collection, chat, incident investigation, scheduled jobs, etc.) must use the same policy-enforcing capability access layer. Concurrent per-host enable/disable updates need serialized read-modify-write behavior so one update cannot silently erase another.
+- **Missing data must not be interpreted as deletion or recovery.** **Status: VERIFIED for host profiles** (`profile/diff.rs:26-31,75`). **STATIC: the same lesson is broken elsewhere.** An offline or not-yet-connected agent looks like "no skills" (lesson 2); a notification-state read error becomes default state (lesson 6); a failed duplicate lookup becomes an empty list (lesson 3); a budget read error becomes "not spent" (lesson 5 and #112). #82 found that a failed container or listening-port query could make the next profile claim all previous entities had disappeared. Compare snapshots only when both sides contain valid data; represent collection failure/unknown separately from an empty successful result. Do not infer removals from missing observations.
+- **Generated host profiles need explicit limits and honest semantics.** **Status: UNVERIFIED** (PR text only; fence escaping, refresh concurrency and note editability were not re-checked). #81 found read skills with required parameters being called with empty arguments, generated profile notes overwriting prior content, tool output breaking Markdown fences, profile refresh being synchronous/expensive, and editable generated notes being ambiguous. Skip skills that cannot be called safely without parameters; escape/fence arbitrary tool output; label generated data as a latest snapshot rather than a history if it is overwritten; decide whether generated records are editable; bound refresh work and add backoff for failed sections.
+- **Tool-use history must distinguish not-run from failed.** **Status: VERIFIED in part.** Names are validated against `ReadTool::ALL` and records carry `failed` and `refused` flags (`triage/agent.rs:20-33`); there is no skipped or cancelled outcome, and tool use from a failed follow-up is not recorded (STATIC, `followup.rs:235`). #69 found invented model-supplied tool names, budget-refused calls counted as failures, missing prefetched calls for providers without tool support, and identical names across tool/skill categories being merged. Validate names against registries, record category and run identity, and use distinct outcomes such as succeeded, failed, refused/not-run, skipped and cancelled. Record partial/in-flight runs if the UI is expected to show them.
+- **Network-security defaults must preserve access.** **Status: UNVERIFIED** (#67 defaults not re-checked). #67 found that a login-allowance window could accidentally suppress all SSH logins and that one bare IP address was rejected. Default an “expected login” window to LAN-only, require explicit opt-in for internet-origin logins, confirm before creating broad rules, support /32 and /128 single-address semantics, and derive active-window UI state from persisted rules so reloads do not lie.
+- **Create suppression rules before closing the incident they suppress.** **Status: VERIFIED** (`hub/src/api/incidents.rs:343-398`; see lesson 17 for the audit-after-dismiss caveat). #66 found a race where a new signal could arrive between dismissing an incident and storing its known-condition rule. Validate and persist the rule first, then close/dismiss; if the later step fails, leave the rule visible and explain it. The UI must state that a rule can cover all severities for that check/target and must not offer dismissal while triage is still pending.
+- **Retry budgets need typed reasons.** **Status: VERIFIED** (reason enum `triage/mod.rs:180`, per-reason limit `triage/queue.rs:206-222`). STATIC: retry state is rebuilt on startup from timeline kinds that are plain strings, so the typing stops at the memory boundary. #60 found that cap-deferred retries and failure retries were being conflated, so an old failure chain could block a later retry that was only deferred by a concurrency cap. Track why a run was deferred and apply each limit only to the retry class it governs. Test mixed timelines and slot release behavior.
+- **Do not let optional integration setup block a connection test for the wrong reason.** **Status: UNVERIFIED** (#53 not re-checked). #53 found that a Discord test could fail validation because no approver list had yet been saved, even though the test itself should be able to reach Discord. Use narrowly scoped test-only placeholders where appropriate, explain their scope and ensure they are not persisted as real authorization.
+- **Hardware diagnostics must not create side effects or leak identifiers.** **Status: VERIFIED in part.** `smartctl -n standby` (`examples/skills/hardware_health/run:53`) and the "could not list" versus "no UPS detected" distinction (`power_status/run`) were confirmed; serial-number filtering before model exposure was not re-checked (UNVERIFIED). #73 found that SMART health checks should not wake sleeping disks, serial numbers should be filtered before model/timeline exposure, and UPS command failures must not be rendered as “no UPS detected.” Use non-waking commands, bounded execution time and precise “unavailable/failed/not detected” distinctions.
+- **Web fixtures must not depend on the real clock (UNVERIFIED as a current defect; recorded in the #107 comments).** A web test failed because fixtures were relative to the real date. Tests of time-dependent behaviour, web as well as Rust, use a fixed or fake clock.
+- **Review findings should be classified, not silently ignored.** **Status: process lesson, not tested against code.** It applies to this document too: every item above carries a status so "reviewed" is not read as "resolved". Several comments explicitly left non-blocking items as separate design decisions (for example, profile refresh concurrency, generated-note editability, per-section size caps, API body bounds and cross-request proposal uniqueness). Preserve these as open design questions when the affected feature is selected; do not assume “reviewed” means “resolved.”
+
+## Lessons added by #112, #113 and the verification pass
+
+- **#112, one admission gate caps triage, questions and chat (VERIFIED, PR text and `triage/admission.rs`).** Every model call (triage, follow-up question on web and Discord, general chat) goes through one `admit(shared, Purpose)` gate with one hourly count and one monthly budget. Questions may not use the last `reserved_for_incidents` runs, so a few questions cannot starve triage of a new incident. A busy refusal takes no run of the hour; a refused question answers 429 with `Retry-After`. Lessons: put one gate in front of every model path, reserve capacity for the safety-critical path, and make a refusal free. Gaps (STATIC): the hourly window is in memory and resets on every restart and every settings save; a budget read error fails open (`admission.rs:52-59`); a start is counted before the call and never refunded; the gate runs before the cache lookup, so a cache hit spends a model slot (lesson below).
+- **#113, redact a provider failure reason before it leaves the engine (VERIFIED, PR text and tests such as `a_failed_follow_up_never_shows_a_secret_from_the_provider_error`).** `LlmError::Transport` and `InvalidResponse` carry provider free text (response excerpts, URLs). Both question paths now build the reason through one `provider_failure` helper that redacts once and clips to 500 characters. Lesson: provider error text is a leak channel, separate from answer and history redaction. Every error string that reaches a user, a chat reply or a log shipped elsewhere passes the redactor and a length cap. The fix covers the two question paths; other places that surface provider text were not audited.
+- **Cache hits spend a model slot (STATIC).** The cache is consulted after admission (`triage/run.rs:59` before `:88`), so a cache hit consumes an hourly slot even though no model call happens. A cache must cost no model capacity.
+- **Timeline kinds are stringly typed and carry control flow (STATIC).** Retry limits, failure-chain length and conversation boundaries are derived by parsing `incident_events.kind` prefixes (`triage.skipped`, `triage.failed`, `triage.followup`, `followup.cleared`; `triage/queue.rs:189-222`, `triage/history.rs`). Give event kinds a closed type; do not drive control flow from display strings.
+- **Admission limits must be durable and say how they fail (STATIC).** The hourly cap is memory-only and resets on restart; the monthly budget is durable but fails open on a read error. State per limit whether it fails open or closed, and rebuild counters from durable history.
+- **Model attribution and accounting are incomplete (STATIC).** A stored report, follow-up or chat answer does not record the model that produced it (`core/src/triage/report.rs:52-76`; usage stores `provider.id()` only, `triage/agent.rs:110-120`). A call that fails records no usage (`provider.complete(req).await?` returns first).
+- **No hard per-call deadline (STATIC).** The LLM client has only an idle read timeout that restarts on each byte (`domovoi-llm/src/http.rs:20-30`); `max_seconds` is checked between turns (`triage/agent.rs:146-148`). One streaming call can run unbounded while bytes keep arriving.
+- **Spool before state (STATIC; the #36 finding still present).** The agent scheduler applies `set_firing` in memory, logs a spool push failure, then saves check state anyway (`domovoi-agent/src/scheduler.rs:333-344`). A transition can be committed to state and lost from the spool, and the check will not re-emit it.
+- **Notification state must follow delivery, and a read error is not default state (STATIC; #36).** The hub saves notification state (`first_alert_at`, `held`, `last_reminder_at`) before delivery succeeds (`hub/src/runtime/delivery.rs:55-67`; a failed delivery leaves state saying it was sent, `:111-125`). A state read error becomes default state (`:242-248`), which can produce a duplicate card. A quiet-hours release is persisted before sending (`dispatcher.rs:207-212`).
+- **Restart catch-up runs before agents reconnect (STATIC; not reproduced at runtime).** `ActionService::spawn` runs at `hub/src/runtime/mod.rs:230`, before listeners serve. `AgentLink::skills` returns empty for an agent that has not connected (`agent_server/registry.rs:263-269`), so `revalidate` (`actions/executor.rs:325-332`) finds no skill and rejects the approval as "the skill is no longer on the host". The recovery tests use `FakeAgentLink`, which keeps skills while connected, so they cannot see it. This is code reading; a failing test is needed to confirm it (D36 in `docs/rework/01-repository-reality.md`).
+- **Approvals have no age (STATIC).** An `Approved` action carries no age limit at dispatch; catch-up can run an approval made days earlier without checking that the incident is open (`executor.rs:219-262`).
+- **Audit and state diverge in one direction (STATIC).** `record_from` writes state, then appends audit; an audit failure is only logged (`actions/mod.rs:127-143`). The loop-guard reload reads `dispatched` audit rows (`recover.rs:139`), so a lost row undercounts after a restart.
+- **Capability policy by wrapper is a convention (STATIC).** `PolicyLink` filters skills for every consumer that is handed it, but `server.link()` stays public and no arch-check rule prevents a new consumer from using the raw link.
 
 ## Review process for future implementation
 
@@ -3298,3 +3755,61 @@ For every substantial PR in the rework, use a repeatable review checklist:
 6. Verify that every UI async path has loading, success, failure, retry and stale-response behavior.
 7. Require regression tests for each discovered edge case; do not weaken existing security gates to make a test pass.
 8. Record unresolved review findings in the relevant design document/open-question list, with an owner or decision milestone.
+
+## Rework invariants
+
+Testable invariants taken from investigation G, with the test each one needs. Each is phrased as a test name. "Carried by" names the decision in `docs/rework/03-architecture-decisions.md` (`RW-NN`) that carries it; where 03 has no decision for it, the target-architecture document that does is named (`04` section numbers), and where nothing carries it the row says so. "Evidence" is the status of the underlying finding at baseline `64117f0`: VERIFIED (the safeguard exists and was confirmed in code or PR text), STATIC (the gap was found by code reading; no failing test reproduces it) or UNVERIFIED.
+
+| ID | Test name | Carried by | Evidence |
+|---|---|---|---|
+| INV-W1 | `stale_write_conflicts_and_changes_nothing` (two concurrent commands on one aggregate) | RW-03 | VERIFIED for actions (status-name guard); STATIC for incidents (unguarded update) |
+| INV-W2 | `each_aggregate_has_exactly_one_writer_module` (arch-check rule) | RW-03 (best-effort scan), RW-04 | STATIC |
+| INV-W3 | `token_rotation_on_a_proposed_action_goes_through_the_owner` | RW-04 | STATIC |
+| INV-A1 | `audit_failure_leaves_the_action_row_unchanged` (audit store fails on append) | RW-03, RW-27 | STATIC |
+| INV-R1 | `no_dispatched_action_is_dispatched_again_after_restart` (fake agent `runs == 0`) | RW-09, RW-30 | VERIFIED (mechanism and tests exist) |
+| INV-R2 | `approved_action_runs_once_after_the_agent_reconnects` (link reports skills as unknown, not empty, while disconnected) | RW-09, RW-30 | STATIC (D36; not reproduced) |
+| INV-R3 | `outcome_unknown_is_a_distinct_status_shown_to_the_operator` | RW-09 | STATIC |
+| INV-R4 | `approval_older_than_its_ttl_or_for_a_resolved_incident_is_rejected_at_dispatch` | RW-08 | STATIC |
+| INV-C1 | `admission_survives_restart` (hourly and monthly limits) | `04` section 16 (persisted `llm_admission`); no RW in 03 | STATIC |
+| INV-C2 | `a_limit_declares_fail_open_or_fail_closed_when_its_history_is_unreadable` | `04` section 16; no RW in 03 | STATIC |
+| INV-P1 | `cached_and_chat_proposals_pass_the_same_check_with_the_hosts_current_enabled_skills` | RW-06, RW-07, RW-08 | VERIFIED (#110) |
+| INV-P2 | `a_failed_duplicate_lookup_stores_nothing` | no named decision; RW-03 supplies the mechanism | STATIC |
+| INV-P3 | `approve_request_carries_the_displayed_plan_hash_and_a_mismatch_conflicts` | RW-08 | STATIC |
+| INV-S1 | `editing_the_entry_script_after_approval_yields_plan_mismatch` (plan hash v2 includes entry bytes) | RW-08 | STATIC |
+| INV-X1 | `a_disabled_capability_is_refused_by_every_consumer` (one test per consumer) | RW-07, RW-08 | VERIFIED for current consumers |
+| INV-X2 | `the_raw_agent_link_is_unreachable_outside_the_policy_wrapper` | RW-08 covers callers of the execution function only; reads are not covered | STATIC |
+| INV-X3 | `installing_a_capability_never_enables_it_for_a_host` | RW-26 | UNVERIFIED |
+| INV-E1 | `agent_refuses_any_request_outside_its_local_catalogue_or_hash` (hostile hub fake) | RW-09, RW-12 | VERIFIED |
+| INV-H1 | `a_request_without_a_host_gets_no_host_tools_and_an_offline_host_gets_none` | RW-20 | VERIFIED |
+| INV-H2 | `no_mutation_derives_its_target_from_the_host_selector` | RW-20, RW-23 | VERIFIED |
+| INV-D1 | `check_state_commits_only_after_the_spool_write` (failing spool, next run re-emits) | `04` section 15 durability fixes; no RW in 03 | STATIC |
+| INV-D2 | `notification_state_records_sent_only_after_the_platform_accepted` | `04` section 15; RW-15 (`effects` outbox) | STATIC |
+| INV-D3 | `unreadable_notification_state_is_an_error_not_default_state` | `04` section 15 | STATIC |
+| INV-Q1 | `an_answer_for_a_cleared_conversation_is_rejected_with_a_typed_result` | RW-20 | STATIC |
+| INV-Q2 | `a_failed_history_read_fails_the_request` | RW-20 | STATIC |
+| INV-Q3 | `a_pending_question_is_keyed_by_request_id_not_by_text` | RW-20 | STATIC |
+| INV-M1 | `every_stored_model_output_records_provider_and_model` | RW-06 | STATIC |
+| INV-M2 | `call_deadline_enforced` (wall clock, independent of byte arrival) | RW-06 | STATIC |
+| INV-M3 | `failed_call_records_usage` | RW-06 | STATIC |
+| INV-M4 | `auth_and_missing_model_errors_are_classified_and_surfaced` | RW-06 | STATIC |
+| INV-V1 | `a_reject_reason_is_sent_only_in_a_form_the_peers_version_can_decode` (matrix over versions) | RW-17 | VERIFIED |
+| INV-V2 | `version_refusals_are_recorded_only_for_authenticated_peers` | RW-17 | VERIFIED |
+| INV-U1 | `a_failed_read_returns_unknown_or_error_never_an_empty_value` (one injected failure per reader) | RW-09 covers agent availability only; otherwise no named decision | STATIC |
+| INV-U2 | `removal_or_recovery_is_inferred_only_from_two_successful_observations` | no named decision; RW-14 holds facts and provenance | VERIFIED for host profiles |
+| INV-K1 | `a_dismiss_that_stores_a_rule_never_leaves_the_incident_closed_without_it` (failing close) | no named decision | VERIFIED (rule first); STATIC for the audit-after-dismiss error |
+| INV-K2 | `a_retry_limit_applies_only_to_its_own_reason` | RW-15 (typed events) | VERIFIED |
+| INV-I1 | `everything_sent_to_a_provider_is_redacted_and_capped_at_send_time` (history included) | RW-06; `04` section 16 (prompt budget) | STATIC (follow-up replay is not re-redacted) |
+| INV-I2 | `structured_output_is_parsed_whole_unknown_fields_rejected_and_count_capped` | RW-06, RW-07 | VERIFIED |
+| INV-I3 | `one_admission_gate_admits_every_model_call_and_a_refusal_consumes_no_slot` | `04` section 16; no RW in 03 | VERIFIED (#112, test `a_question_refused_as_busy_takes_no_run_of_the_hour`) |
+| INV-F1 | `every_mutation_call_site_is_wrapped_by_the_feedback_helper` (per call, not per file) | not carried by 03; `web/DESIGN.md` lint | STATIC |
+| INV-F2 | `every_editable_form_blocks_navigation_while_dirty` | not carried by 03 | STATIC |
+| INV-F3 | `a_failed_load_renders_a_load_error_never_an_empty_state` (page tests inject a failing request) | RW-21 covers presentation only; not a named rule | STATIC |
+
+Added by the #112, #113 and verification pass:
+
+| ID | Test name | Carried by | Evidence |
+|---|---|---|---|
+| INV-N1 | `provider_error_redacted` (every error string that reaches a user, chat reply or external log is redacted and clipped) | RW-06 | VERIFIED for the two question paths (#113); STATIC for other paths |
+| INV-N2 | `cache_hit_uses_no_slot` | `04` section 16; no RW in 03 | STATIC |
+| INV-N3 | `timeline_event_kinds_are_a_closed_type_not_parsed_strings` | RW-15 | STATIC |
+| INV-N4 | `date_sensitive_tests_use_a_fixed_clock` (web and Rust) | AGENTS.md rule 11 for Rust; web not carried | UNVERIFIED |

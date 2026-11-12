@@ -33,7 +33,8 @@ Do not force the final sidebar to contain every possible subpage. Important deta
 | Live connection/system state | P1 | Compact | Truthful connection state with explanation and retry/status detail. |
 | Global search / command palette | P1 | Contextual | Search destinations and objects; command actions are clearly separated from search results. |
 | Operator launcher | P0 | Compact | Available from anywhere; opens the persistent side panel without losing current page state. |
-| Notifications/attention center | P1 | Compact | Unread/urgent items, approvals, questions and completed operations; never rely only on toasts. |
+| Attention center | P0 | Compact | The one durable list of approvals, questions, manual interventions, failures and completed operations, with unread state; never rely only on toasts. Control Room "Waiting for you" and the Approvals page are views over this same list. |
+| Autonomy state | P0 | Compact | Shows when autonomy is paused or any rule is suspended by its circuit breaker; links to Policies & Autonomy. The pause switch is human-only. |
 | Account/user menu | P2 | Compact | Profile, preferences, theme and sign out. |
 
 The shell may evolve from the current sidebar/topbar layout. Do not assume all actions must live in the top bar or that the current sidebar groups must remain.
@@ -44,14 +45,15 @@ Recommended defaults:
 
 - `Ctrl/Cmd+K`: global search and command palette (the current overhaul already uses this shortcut).
 - `Ctrl/Cmd+J`: open/focus the Operator side panel.
-- `Escape`: close the topmost overlay/panel; never cancel a running operation without a separate confirmation.
+- `Escape` closes one thing per press, in this order: tooltip, popover or menu; dialog or palette; then the panel or inspector that has focus (if none has focus, the one opened most recently); then the graph selection. Escape never stops or cancels an operation; those need their own control and confirmation.
+- `Ctrl/Cmd+K` and `Ctrl/Cmd+J` open separate launchers (search and Operator); neither replaces the other.
 - `/` may focus the current page's search field only when focus is not already inside an editable control.
 - Shortcuts must be discoverable and user-configurable where conflict is possible.
 
 ### Global context behavior
 
 - A host/environment selector should be consistent across pages that support scoping.
-- Opening a host-specific detail view may set the current context to that host; navigating away should follow a documented, predictable rule.
+- **Host scope rule.** Pages follow the host selector, or say why they do not ("all hosts" note). Opening a page about one host shows that host and sets the selector to it; leaving restores the choice the person had before. Changing the selector while on a host page navigates to the chosen host's page.
 - Search results and deep links must preserve scope where needed.
 - The Operator must state its current context (all hosts, selected host, selected incident/operation) and allow changing it explicitly.
 - A contextual link should open the correct target and preserve a useful route back to the originating workflow.
@@ -59,6 +61,15 @@ Recommended defaults:
 ## 3. Operator surfaces
 
 The Operator is one product feature with two presentations over the same durable conversations and operation state.
+
+### Right-hand slot precedence
+
+The shell has one right-hand slot, shared by the Operator panel and the contextual inspector. It never overlaps page content and never shifts it while animating (panels move by transform; content is padded, not reflowed mid-transition).
+
+- **Wide screens** (the page keeps at least 640 px of content width after the sidebar and slot): the Operator panel and the inspector can sit side by side.
+- **Narrower screens:** the surface opened most recently wins the slot; the other collapses to a tab in the slot's header and keeps its state. Opening the collapsed one swaps them.
+- **Phones:** the slot is a full-screen sheet, one surface at a time.
+- Closing the surface in front reveals the collapsed one; neither is destroyed by the other opening.
 
 ### Global side panel
 
@@ -68,6 +79,7 @@ The Operator is one product feature with two presentations over the same durable
 - Shows recent conversations and active operations without becoming a separate operations engine.
 - Expands into the full Operator workspace while preserving conversation, message history, selected context and operation IDs.
 - Collapsing the panel does not stop or detach work.
+- Conversations are durable and stored on the hub. Host or global scope is explicit per conversation and shown in the header. A response that arrives for a superseded request is discarded, not shown. The composer draft is kept locally until the send is committed, so a failed send or a reload loses nothing.
 
 Recommended behavior: a non-modal, resizable panel on wide screens; a full-screen sheet/page-like panel on small screens. Initial width is a design choice to test; reserve enough space for real transcripts and operation cards.
 
@@ -93,7 +105,11 @@ Relationships:
 - An operation may discover a new incident as a result, but these are still distinct records.
 - A conversation can initiate or discuss an operation; the conversation is not the operation itself.
 
-The Operations page is a unified view of work. The Incidents page remains a view of detected problems.
+The Operations page is a unified view of work. The Incidents page remains a view of detected problems. Pre-existing actions appear in the Operations list as read-only **Legacy** entries; no steps or approvals are invented for them.
+
+### One home for approvals
+
+An approval is a step of an operation, so **operation detail is its canonical home**. It is rendered by one structured approval card component (doc 14, section 5) that shows contract, target, arguments, effect class, reversibility, expiry, plan-hash prefix and the policy decision; model text is secondary and labelled. Incident detail, the Control Room, the Operator and the attention center embed that card or link to the operation; none builds its own version. Incident controls (acknowledge, mute, dismiss) stay separate from operation controls (stop, cancel, retry) and from approval controls.
 
 ## 5. Page map
 
@@ -109,6 +125,8 @@ Domovoi
 │       ├── Findings and plan
 │       ├── Evidence and capability calls
 │       ├── Execution, verification and monitoring
+│       ├── Step timeline / tree (built first) and orchestration graph
+│       ├── Similar past operations
 │       └── Timeline / technical trace
 ├── Incidents
 │   ├── Incident list / filters
@@ -116,6 +134,7 @@ Domovoi
 │       ├── Summary and evidence
 │       ├── Related operations
 │       ├── Current status and recommended response
+│       ├── Similar past operations
 │       └── History
 ├── Infrastructure
 │   ├── Hosts
@@ -147,6 +166,8 @@ Domovoi
 │   ├── Host policy
 │   ├── What-if simulator
 │   └── Decision history
+├── Attention
+│   └── Approvals, questions, failures, completions
 ├── Integrations
 │   ├── Connected integrations
 │   ├── Catalog / add integration
@@ -154,7 +175,8 @@ Domovoi
 └── System
     ├── Settings and models
     ├── Notifications
-    ├── Audit log
+    ├── Audit log (with chain verification)
+    ├── Data retention
     ├── Backups / restore
     ├── Updates
     └── Diagnostics
@@ -166,7 +188,8 @@ Not every item must be a permanent sidebar entry. Some are nested routes or tabs
 
 - Distinct work areas deserve distinct destinations; do not overload one generic “Dashboard” page.
 - Detail views should be deep-linkable and restore the selected tab, filter and meaningful view state when safe.
-- Avoid very deep navigation chains. A user should normally reach any object in a few steps through navigation, contextual links or search.
+- **Depth rule:** at most three levels: area, object, tab. Anything deeper is a section on the object page, an inspector or a linked page, not a fourth level. A user should normally reach any object in a few steps through navigation, contextual links or search.
+- Tabs on an object page never hold P0 content that a different question needs at the same time (for example an approval request or current state); that stays above the tabs.
 - The same entity should have one canonical detail page. Other pages can preview it but should not create competing copies of its configuration.
 - Use tabs for peer views of one entity, not as a substitute for information architecture.
 - Large graph workspaces, long-running operation workspaces and complex installers should receive the space of a dedicated page.
@@ -177,7 +200,7 @@ Not every item must be a permanent sidebar entry. Some are nested routes or tabs
 
 The current `Ctrl/Cmd+K` palette is an early foundation, not the completed search product.
 
-Target search should find, where the user is authorized:
+Target search should find:
 
 - Pages and commands.
 - Hosts, agents, services, containers and other infrastructure entities.
@@ -189,7 +212,7 @@ Target search should find, where the user is authorized:
 
 Search results should be grouped by type, show distinguishing metadata and status, support keyboard navigation, and open the canonical detail page. Commands (for example “open Operator”, “add host” or “install capability”) must be clearly distinguished from objects returned by search.
 
-Do not imply a full search index exists until the data sources, permission filtering, freshness, ranking and indexing behavior are implemented. Keep search provider-independent so semantic search may be added later without changing the UI contract.
+Do not imply a full search index exists until the data sources, freshness, ranking and indexing behavior are implemented; each result group says what it covers. With one owner there is no permission filtering in v1; the search layer keeps a single filter point as a hook for future roles. The palette needs an asynchronous result source (loading, no results, failure) in addition to its current static groups. Keep search provider-independent so semantic search may be added later without changing the UI contract.
 
 ## 8. Cross-page entity links
 
@@ -207,6 +230,6 @@ This interconnectedness is a core usability feature, not merely a graph visualiz
 
 - Whether the Control Room supports multiple saved workspaces per user or one customizable layout initially.
 - Whether infrastructure topology is a subpage of Infrastructure or a global visualization entry point.
-- Whether Experience gets a dedicated global explorer or remains accessible through Operations, Incidents and Knowledge.
+- Whether Experience gets a dedicated global explorer. v1 surfaces it as "similar past operations" on incident and operation pages, with resolution summaries, marked historical and never an authorization; a global explorer is not in v1.
 - The final sidebar grouping and whether “Incidents” is grouped under “Respond” or has its own top-level section.
 - Whether Integrations and Capabilities are separate top-level sections (recommended) or combined in a catalog with clear subtypes.

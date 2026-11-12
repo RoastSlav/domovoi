@@ -15,7 +15,7 @@ This document cross-checks pages as workflows. The UI should be designed as one 
 **Acceptance:**
 - Critical attention is distinguishable from informational activity.
 - The overview shows active operations, not only incidents and approvals.
-- No counter is duplicated across tile, heading and filter.
+- In the default layout no counter is duplicated across tile, heading and filter (user-rearranged layouts are exempt).
 - Clicking a metric opens the relevant filtered list.
 - Returning preserves the useful context; live changes are reflected without a full-page reset.
 
@@ -48,13 +48,13 @@ This document cross-checks pages as workflows. The UI should be designed as one 
 1. User asks: “Restart Plex for me.”
 2. Domovoi resolves the correct host/service and confirms ambiguity if more than one Plex instance exists.
 3. It checks capability availability and current policy.
-4. If authorized automatically, it presents the intended effect and executes; if approval is required, it requests approval inline and on the relevant approval page; if denied, it explains the matched rule.
+4. If authorized automatically, it presents the intended effect and executes; if approval is required, it shows the shared approval card inline and the same item appears in the attention center; if denied, it explains the winning rule and why it won.
 5. Operation graph records capability invocation and result.
 6. Verification checks the service/health condition, not only command exit code.
 7. The user receives a truthful result and the operation is stored in history.
 
 **Acceptance:**
-- Target, effect and permission outcome are explicit before a mutation.
+- Target, effect and permission outcome are explicit before a mutation, rendered by the shared approval card (contract, target, arguments, effect class, reversibility, expiry, plan-hash prefix, policy decision).
 - Policy is evaluated in the shared engine; chat cannot bypass it.
 - Execution and verification are separate states.
 - Duplicate requests/dispatches are guarded against where operations are not idempotent.
@@ -69,14 +69,14 @@ This document cross-checks pages as workflows. The UI should be designed as one 
 4. Open “What would Domovoi have been allowed to do?”
 5. Compare policy at the time, current policy and a draft policy.
 6. Inspect rule matches, inheritance, constraints, missing context and differences.
-7. Edit the draft if needed, simulate again, then explicitly apply it.
+7. Edit the draft if needed, simulate again, then explicitly apply it (with password re-entry).
 8. Audit records the policy change; no scenario simulation ever executes a capability.
 
 **Acceptance:**
 - Original/current/proposed policy views are clearly distinguished.
 - Historical context and current facts are never silently mixed.
 - Simulation calls the same deterministic evaluator as real operation authorization.
-- Exact matched rules and constraint failures are visible.
+- All matching rules, the winning rule, why it won, the broader rules it overrides and any constraint failures are visible; hard limits (host ceiling, pause) are shown apart from rules; a specific Allow over a broad Deny is visibly flagged.
 - Applying a draft is a distinct audited action.
 
 ## 5. Journey: install a capability from the UI
@@ -87,14 +87,15 @@ This document cross-checks pages as workflows. The UI should be designed as one 
 2. Open capability detail; inspect source/trust, effect, permissions, schemas, prerequisites and rollback.
 3. Select target agents and rollout strategy.
 4. Run preflight and review exactly what will change.
-5. Install and verify package on each agent; show partial failures per target.
+5. Install on each agent that has opted in; the agent verifies the signature against its local trusted keys; show progress and partial failures per host.
 6. Configure parameters.
 7. Enable the capability if wanted.
 8. Set policy permissions separately.
 9. Run a safe test and inspect its operation record.
 
 **Acceptance:**
-- Installed, enabled and authorized are separate properties.
+- Installed, enabled and authorized are separate properties; no single control does more than one of them.
+- Hosts that have not opted in to installs are shown as such, not as failed.
 - An offline agent is shown as pending delivery, not installed.
 - Package provenance and integrity checks are visible.
 - Failed agents can be retried without reinstalling successfully updated agents.
@@ -106,11 +107,12 @@ This document cross-checks pages as workflows. The UI should be designed as one 
 
 1. Open Operations and filter Completed/Failed.
 2. Open an operation.
-3. View historical graph and switch to timeline/playback.
+3. View the historical graph, switch to the timeline/tree or the outline, or play it back.
 4. Select an earlier failed node and inspect its input/output/error.
 5. Compare cycle 1 and cycle 2 to see which evidence changed the plan.
 6. Open the policy evaluation and matched rule.
 7. Follow links to capability, host, incident, related knowledge and audit entry.
+8. Open a similar past operation and read its resolution summary.
 
 **Acceptance:**
 - Historical operation state is stable and reproducible.
@@ -135,7 +137,37 @@ This document cross-checks pages as workflows. The UI should be designed as one 
 - Provenance and conflicting claims remain inspectable.
 - Knowledge edits are audited and do not imply permission changes.
 
-## 8. Cross-page interaction acceptance
+## 8. Journey: decide an approval from the attention center
+
+**Goal:** make a safe decision quickly without hunting for context.
+
+1. A step needs approval; the attention center shows it and the shell indicator counts it.
+2. Open the item; the shared approval card shows contract, target, arguments, effect class, reversibility, expiry, plan-hash prefix and the policy decision.
+3. If the target is outside the operation's scope, the card says so and offers approval only.
+4. Open the operation from the card to see the graph and the evidence behind the step.
+5. Approve (or deny); the card and the operation show the decision, who made it and when.
+
+**Acceptance:**
+- The same component renders the approval on operation detail, incident detail, the Control Room, the Operator and the attention center.
+- Model-written text is labelled and secondary.
+- Only an authenticated person can approve; nothing in the UI, the Operator or chat approves on a person's behalf.
+- An expired approval is shown as expired with the reason, not as pending.
+
+## 9. Journey: resolve an incident with past experience
+
+**Goal:** reuse what worked before without treating it as permission.
+
+1. Open an incident or operation and find "Similar past operations".
+2. Read each resolution summary: outcome, what was done, whether it was verified, and which fields came from the model.
+3. Confirm or edit a model-drafted summary on a finished operation.
+4. Use it to guide the new work; any step still goes through current policy and approval.
+
+**Acceptance:**
+- Every item is marked historical, with its operation, date, verified flag and source.
+- A past approval or success never satisfies policy or pre-approves anything.
+- Model-drafted narrative fields are labelled until the owner confirms or edits them.
+
+## 10. Cross-page interaction acceptance
 
 - An object has one canonical detail route; previews link to it.
 - Operator side panel can open from any page and expand without losing context.
@@ -144,21 +176,41 @@ This document cross-checks pages as workflows. The UI should be designed as one 
 - Policy decisions link to the operation and rule that produced them.
 - Capability runs link to the installed capability and the operation that invoked it.
 - Knowledge links connect relevant hosts, services, incidents, operations and notes.
-- Global search can reach these canonical objects when implemented; search results are scoped and permission-filtered.
+- Global search can reach these canonical objects when implemented; search results are scoped to the sources it covers and say so. No permission filtering in v1 (single owner); the search layer keeps one filter point as a hook for future roles.
+- An approval has one canonical home (operation detail); other surfaces embed or link the same card.
 
-## 9. Implementation acceptance checklist
+## 11. Backend contracts the UI depends on, and build order
+
+The UI is built against contracts, not against the live engine. These must exist (as schemas with fixtures) before the pages that need them:
+
+- **Trace schema:** operations, nodes, branches, cycles, phases, planned-versus-happened, uncertain outcome, versioning. Frozen with golden fixtures that both the Rust side and the UI test, before the timeline or the graph is built.
+- **Operations record and list/detail endpoints**, with durable ordered events per operation.
+- **Live events with ids and resume** per topic (operations, hosts, attention), replacing invalidate-by-prefix; keep invalidation as the fallback.
+- **Conversations:** durable messages, explicit scope, request ids for discarding stale responses.
+- **Policy decisions** stored with the context snapshot and policy version used, so the simulator can reproduce a historical decision.
+- **Attention feed**, **audit API with chain verification**, **retention settings**, **resolution summaries and similar-operation search**, **capability deployment state per host**.
+- **Presentation profile and dashboard preferences:** where they are stored (hub or browser) is a backend decision; the UI reads them through one provider.
+
+Build order for UI work:
+
+1. Shared foundations: live layer, freshness and stale states, motion tokens, virtualised list, right-hand slot and inspector shell, and the shared visibility infrastructure.
+2. **Presentation profiles and the category table**, before any page is implemented.
+3. Trace schema and fixtures; then the step timeline/tree; then the graph, outline and keyboard navigation; playback last.
+4. Pages on top of these, with the structured approval card built once with operation detail and reused.
+
+## 12. Implementation acceptance checklist
 
 A page/component is not “done” until:
 
-- Content model, P0–P3 priority and screen-space class are approved.
+- Content model, P0–P3 category and screen-space class are approved.
 - Page/subpage/tab/section/inspector decisions have rationale.
 - Detailed view contains all meaningful information and controls.
-- Standard/Essential presentation profiles are derived from the detailed model without removing authority or audit data.
+- Standard/Essential profiles are derived from the detailed model by the category table; a test proves every P0 element is present and expanded in each profile.
 - All interactive controls have action/result and failure behavior specified.
 - Live updates, stale data, reconnect and uncertain execution are handled.
-- Animations have triggers, timing/easing, interruption and reduced-motion behavior documented.
-- Keyboard/focus/screen-reader behavior is tested.
-- Both themes and representative viewport sizes are reviewed.
-- Large and busy datasets are tested; no clipping or excessive re-rendering.
-- Browser-level tests cover at least one complete workflow through the page.
+- Animations have triggers, timing/easing, interruption and reduced-motion behavior documented, and use the motion tokens of their class.
+- Keyboard/focus/screen-reader behavior is tested (graph: the keyboard model and outline in doc 15, section 4).
+- The sampling rule in doc 16, section 10 is met for themes, widths and profiles.
+- Large and busy datasets at the fixed fleet sizes are tested; no clipping or excessive re-rendering.
+- Browser-level tests cover at least one complete workflow through the page, against a deterministic hub fixture (the harness is built before the first page).
 - Visual review confirms hierarchy, density and real-estate allocation are actually usable.

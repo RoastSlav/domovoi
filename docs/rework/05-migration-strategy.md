@@ -1,95 +1,104 @@
 # 05 — Migration strategy
 
-Principle: **the product stays releasable after every milestone.** New mechanisms run beside old
-ones (shadow or adapter) until gate tests prove parity; then the old path is removed in its own PR.
-Never replace two critical subsystems in one milestone.
+Principle: the product on the branch stays usable after every slice (single owner, D-01, D-13).
+New mechanisms run beside old ones (feature switch, shadow or adapter) until a parity suite passes;
+the old path is removed in its own PR. No two critical subsystems are replaced in one milestone.
+There is no separate v0.1 release (D-01).
 
 ## 1. Subsystem decisions
 
-| Subsystem | Decision | Why |
+| Subsystem | Decision | Evidence / reason |
 |---|---|---|
-| Crate graph, ports, Clock, runner, argv-only | **Retain** | sound, enforced (A §1, F §1) |
-| Hub/agent transport, enrolment, ed25519 identity | **Retain** | sound (D §1) |
-| Protocol versioning rule | **Refactor** (RW-17) | newer minor stranded today |
-| Protocol messages | **Extend additively** (features, `run_capability`, `action_status`) | old agents keep working |
-| Incident manager (ADR 0011) | **Retain, refactor writes to unit of work** | pattern is right; writes are not atomic |
-| Action service (ADR 0019) | **Refactor incrementally** into the execution writer (RW-08) | strongest existing safety code |
-| `HumanApproval` seal | **Retain, strengthen** to compile-time seal (RW-11) | text scan evadable |
-| Triage queue + deferred retries (in memory) | **Replace behind interface** with Investigate operations (RW-04) | not restart-safe |
-| `recheck.rs` in-memory verification | **Replace** with persisted Verification steps + timers | lost on restart |
-| Triage timeline-string control flow | **Replace** with typed steps | stringly typed |
-| `PROPOSALS:` text protocol, cached proposals | **Remove** after RW-06 lands | lesson #110 |
-| `ReadTool` enum | **Wrap** as built-in read contracts; enum stays as the closed implementation list | keeps INV gates |
-| Skill manifests / agent revalidation | **Retain**, wrap as `skill.<name>` contracts | owner trust boundary |
-| `PolicyLink` per-host skill narrowing | **Replace behind interface** by registry enable state + single execution boundary | consumer-handed wrapper today |
-| `Hello.capabilities`, `RevertSpec` (dead data) | **Remove/repurpose** in the protocol milestone | dead |
-| Notes + `notes_fts` | **Retain**, add subject links | works |
-| Host profile as generated Markdown note | **Replace incrementally** with discovered facts; keep note for one release | provenance |
-| `digest_facts` | **Rename** to `metric_samples` | name clash |
-| `audit_log` | **Retain**, move into tx, add chain + denied events | security record |
-| `incident_events` | **Retain** for incident lifecycle; triage kinds move to operation steps | experience |
-| Chat page (sessionStorage) | **Replace** with Operator conversations | not durable |
-| SSE stream | **Replace** with SSE v2 (ids, replay, topics) | drops events |
-| Web kit, tokens, tone, guardrails, `useActionFeedback` | **Retain** | strong (B §9) |
-| Web pages | **Redesign** per IA, page by page, old routes redirect | pack direction |
-| Approval cards (incident-bound) | **Replace** with one structured approval component | RW-22 |
-| `/healthz` | **Refactor** + add `/readyz` | constant today |
+| Crate graph, ports, `Clock`, runner, argv-only | Retain | FACT: enforced by arch-check (A §1, F §1) |
+| Transport, enrolment, ed25519 identity | Retain | FACT (D §1) |
+| Protocol version rule and decoding | Refactor (RW-17) | FACT: newer minor rejected permanently; `serde(other)` drops values |
+| Protocol messages | Extend additively with features | old agents keep working |
+| Incident manager (ADR 0011) | Retain; writes move to unit of work; timeline → journal | FACT: writes not atomic |
+| Action service (ADR 0019) | Refactor into the operation writer's execution module (RW-04) | strongest existing safety code; one owner |
+| `HumanApproval` restriction | Strengthen (clippy disallowed-methods + arch rule + scan, RW-11) | FACT: text scan only |
+| Triage queue + deferred retries | Replace with Investigate operations (RW-04) | FACT: not reloaded at start |
+| `recheck.rs` in-memory verification | Replace with Verification steps + `Wake` effects | FACT: lost on restart |
+| `PROPOSALS:` text protocol | Remove after RW-06 | lesson #110 |
+| `ReadTool` enum | Wrap as built-in read contracts | keeps INV gates |
+| Skill manifests and agent revalidation | Retain; wrap as `skill.<name>` | owner trust boundary |
+| `PolicyLink` | Replace with registry checks inside the single execution boundary | FACT: consumer-handed wrapper |
+| `Hello.capabilities`, `RevertSpec` | Remove / repurpose in protocol slice | FACT: dead data |
+| Notes + FTS | Retain; add subject links | works |
+| Host profile Markdown note | Replace incrementally with `discovered` facts | provenance |
+| `digest_facts` | Rename to `metric_samples` | name clash |
+| `incident_events` | Copy 1:1 into `journal`, then retire | one journal (RW-15) |
+| `audit_log` | Retain; same transaction; hash chain from first row written after the migration | RW-27 |
+| Chat page | Replace with Operator conversations | FACT: sessionStorage |
+| SSE stream | Replace with journal-backed SSE | FACT: no ids/replay |
+| Web kit, tokens, tone, guardrails | Retain; extend for graph, profiles, install wizard | FACT (B §9) |
+| Approval cards | Replace with one structured component | RW-22 |
+| `/healthz` | Refactor; add `/readyz` | FACT: constant |
 
-## 2. Data migration
+## 2. Data migration rules
 
-- All new tables are **additive** migrations; no existing table is rebuilt (C: `audit_log` triggers
-  block rebuilds; FTS rebuilds change rowids; advisory CHECK widening already caused two rebuilds).
-  New enums are validated in Rust, not with SQL CHECK.
-- First data migration: add `schema_version` to `incidents.body` JSON and `version` columns for
-  optimistic concurrency.
-- Existing actions: stay in `actions`; the execution writer reads both shapes. Historic actions
-  appear in Operations as **legacy operations** created lazily by a read-model view (no rewrite of
-  rows). New work writes operations.
-- Triage reports: remain readable; new investigations produce operations. The incident page shows
-  both during the transition.
-- Host profile notes → facts: a one-time backfill job writes `discovered` facts with
-  `source_ref = note id`; the note is kept and marked "generated, superseded by facts".
-- `digest_facts` rename: create new table, copy, keep a view under the old name for one release.
-- Every migration milestone ships an **N-1 upgrade test**: open a database produced by the previous
-  release fixture, migrate, assert row counts and key invariants.
+- Additive migrations only, except retiring tables after a copy has shipped for at least one
+  release. No rebuild of tables protected by triggers (`audit_log`) or carrying FTS rowids.
+- New enums validated in Rust, not with SQL CHECK (FACT: CHECK widening forced two advisory table
+  rebuilds, migrations 0003/0004).
+- First migration of the rework: `version` columns on `incidents`, `notes`; `schema_version` key in
+  `incidents.body`; `schema_compat` table (RW-31).
+- `incident_events` → `journal`: rows copied in `(at, id)` order with original timestamps and kinds
+  mapped to typed kinds; unmappable kinds copied as `Legacy{raw_kind}`. No events invented.
+- Audit chain: existing rows are not rehashed in place (triggers forbid updates). The first chained
+  row records `prev_hash = SHA-256(install_id ‖ count_of_prior_rows ‖ hash_of_their_canonical_dump)`,
+  so pre-chain rows are covered by one anchor without being modified.
+- Legacy actions (RW-32): rows stay in `actions`; Operations list and incident page show them via a
+  read-only projection labelled **Legacy**. Nothing is synthesized. The release that removes the
+  legacy executor expires remaining `Proposed/Approved` legacy rows with an audited reason.
+- Triage reports: stay readable on the incident page; new investigations are operations.
+- Host profile notes → facts: backfill writes `discovered` facts with `evidence_ref = note:<id>`;
+  the note is kept and labelled "generated; superseded by facts".
+- `digest_facts` → `metric_samples`: new table, copy, view under the old name for one release.
+- Every migration slice ships an N-1 upgrade test from a committed fixture database.
 
-## 3. Protocol compatibility
+## 3. Rollback and recovery (RW-31)
 
-| Hub \ Agent | old agent (no features) | new agent |
+| Situation | Procedure | Data effect |
 |---|---|---|
-| old hub | today | new agent sees no features, behaves as today |
-| new hub | adapter: legacy skills/read tools as capabilities; human approval only; dispatched-at-restart → `OutcomeUnknown` | full features |
+| Bad release, schema additive | run previous binary; it checks `schema_compat` and ignores unknown tables/columns | none |
+| Bad release, schema not readable by previous binary | forward fix (new release) | none |
+| Corruption or unrecoverable migration | `domovoi restore <backup>` (explicit, confirmation required) | everything after the backup is lost; restore is audited in the new chain; agents' journals may report executions newer than the backup — shown as "executed after restored backup" |
+| Old binary on newer schema below `schema_compat.min_reader` | binary refuses to start with a message | none |
 
-Policy-authorized execution is refused for agents without `journal` + `run_capability` features;
-the UI shows "agent too old for unattended actions".
+Restoring a pre-migration backup is never presented as a routine rollback.
 
-## 4. Configuration
+## 4. Protocol compatibility
 
-- New sections (`[orchestration]` budgets, `[policy]` defaults, agent `[policy] unattended`)
-  are optional with conservative defaults; absent = today's behaviour.
-- Settings that move to the UI keep their config-file source label (existing settings
-  framework, ADR 0017).
-- `cargo xtask docs-config` regenerated per milestone.
+See `04` §12. New hub + old agent: adapter gives human-approved read tools and skills only;
+unattended, reconciliation, install and containment refused with "agent too old". Support window
+OPEN (recommended: current + previous two minors until 1.0, then same major). An agent below the
+window is rejected with a final, explicit reason (FACT: reject reason mechanism exists since #86).
 
-## 5. Operational continuity and rollback
+## 5. Configuration
 
-- Every milestone is a minor release. Rollback = previous binary + the automatic `pre-migrate-*`
-  backup (exists today). Add a `domovoi restore` command in M0 and document that a downgrade
-  across a migration requires restore.
-- Feature switches: operations path (`orchestration.enabled`), policy shadow, autonomy each have a
-  config switch so a release can ship with the new path dark.
-- Autonomy ships **off**; per-rule shadow first; global pause available from day one.
+- New optional sections with conservative defaults: hub `[orchestration]`, `[policy]`,
+  `[retention]`, `[packages] registries`; agent `[unattended]`, `[packages]`.
+- Absent sections = today's behaviour (no unattended, no installs).
+- Settings managed in the UI keep their config-file source label (FACT: ADR 0017).
+- `cargo xtask docs-config` regenerated in each slice that adds config.
 
-## 6. Feature parity checkpoints
+## 6. Feature switches
 
-Before removing an old path, a parity test suite must pass on the new one:
-- triage → Investigate operation: same report fields, same budgets, same fallback behaviour, same
-  host scoping, drills from F §1 pass unchanged;
-- actions → execution writer: all existing action gate tests and ADR 0014/0019 tests pass;
+`orchestration.enabled` (Investigate operations instead of triage queue), `policy.shadow` (record
+decisions), `autonomy.enabled` (permits can be issued; still needs per-rule promotion out of shadow
+and host ceilings), `packages.enabled`, `containment.enabled`. All off until their milestone's
+acceptance passes; global pause available from M8.
+
+## 7. Parity checkpoints before removal
+
+- triage → Investigate: same report fields, budgets, fallback, host scoping; existing scripted
+  triage drills (FACT: 6 drills, F §1) pass unchanged.
+- actions → execution module: all ADR 0014/0019 tests and action gates pass on the new path.
 - chat → Operator: host-scoped read-only Q&A unchanged, now durable.
+- SSE v1 → journal SSE: every event type the web uses has a journal equivalent.
 
-## 7. What must never be lost
+## 8. Never lost
 
-Audit rows; approvals and who gave them; incident history inside retention; notes; enrolment
-keys/tokens; settings with provenance. Each has a contract test in the store suite before any
+Audit rows, approvals and approvers, incident history within retention, notes, enrolment keys and
+tokens, settings with provenance, legacy actions. Each has a store contract test before any
 migration touching it.
