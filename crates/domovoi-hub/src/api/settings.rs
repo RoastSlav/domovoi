@@ -58,6 +58,9 @@ pub struct TriageSettings {
     pub concurrency: u8,
     /// Runs per hour at most.
     pub per_hour_runs: u32,
+    /// Of those runs, how many the hour keeps free for incidents: questions and
+    /// chat may not use these last runs of the hour.
+    pub reserved_for_incidents: u32,
     /// Monthly spending cap in US dollars, if set.
     pub monthly_budget_usd: Option<f64>,
 }
@@ -272,6 +275,7 @@ pub(super) async fn show(
             enabled: triage.enabled,
             concurrency: triage.concurrency,
             per_hour_runs: triage.per_hour_runs,
+            reserved_for_incidents: triage.reserved_for_incidents,
             monthly_budget_usd: triage.monthly_budget_usd,
         },
         discord,

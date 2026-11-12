@@ -10,7 +10,7 @@ use domovoi_engine::CommandError;
 use domovoi_engine::triage::TriageError;
 
 use super::dto::{FollowUpsDto, TurnDto};
-use super::error::{ApiError, ErrorBody};
+use super::error::{ApiError, ErrorBody, busy};
 use super::{ApiState, Authed};
 
 fn parse_id(id: &str) -> Result<IncidentId, ApiError> {
@@ -64,6 +64,7 @@ pub(super) async fn history(
                 TriageError::UnknownIncident(_) => ApiError::NotFound,
                 TriageError::Provider(err) => ApiError::Unavailable(err),
                 TriageError::BudgetSpent => ApiError::BudgetSpent,
+                TriageError::Busy { retry_at } => busy(state.deps.clock.now(), retry_at),
                 TriageError::Store(err) => ApiError::internal("follow-up history failed", err),
             });
         }

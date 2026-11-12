@@ -1828,6 +1828,12 @@ export interface components {
              * @description Runs per hour at most.
              */
             per_hour_runs: number;
+            /**
+             * Format: int32
+             * @description Of those runs, how many the hour keeps free for incidents: questions and
+             *     chat may not use these last runs of the hour.
+             */
+            reserved_for_incidents: number;
         };
         /** @description How triage went for an incident. */
         TriageStateDto: {
@@ -2431,6 +2437,15 @@ export interface operations {
             };
             /** @description No such host */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The hourly model limit is reached; Retry-After says when to come back */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3346,6 +3361,15 @@ export interface operations {
             };
             /** @description No such incident */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The hourly model limit is reached; Retry-After says when to come back */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
