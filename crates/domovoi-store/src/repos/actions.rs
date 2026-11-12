@@ -187,6 +187,37 @@ impl ActionRepo for Store {
         Ok(())
     }
 
+    async fn update_from(&self, action: &ActionRequest, expected: &str) -> Result<(), StoreError> {
+        const SQL: &str = "UPDATE actions SET incident_id = ?, host_id = ?, skill = ?, \
+            risk = ?, args = ?, plan_hash = ?, status = ?, proposed_by_kind = ?, \
+            proposed_by = ?, approved_by = ?, approved_channel = ?, approved_at = ?, \
+            expires_at = ?, created_at = ?, updated_at = ?, chat_token_hash = ? \
+            WHERE id = ? AND json_extract(status, '$.type') = ?";
+        const WHERE: &str = concat!(action_columns!(), " WHERE id = ?");
+        let b = bound(action)?;
+        let done = bind_columns!(sqlx::query(SQL), b)
+            .bind(action.id().to_string())
+            .bind(expected)
+            .execute(&self.write)
+            .await
+            .map_err(db)?;
+        if done.rows_affected() == 0 {
+            let found: Option<ActionRow> = sqlx::query_as(WHERE)
+                .bind(action.id().to_string())
+                .fetch_optional(&self.read)
+                .await
+                .map_err(db)?;
+            return if found.is_some() {
+                Err(StoreError::Conflict(
+                    "the action changed meanwhile".to_owned(),
+                ))
+            } else {
+                Err(StoreError::NotFound)
+            };
+        }
+        Ok(())
+    }
+
     async fn get(&self, id: ActionId) -> Result<Option<ActionRequest>, StoreError> {
         const SQL: &str = concat!(action_columns!(), " WHERE id = ?");
         let row: Option<ActionRow> = sqlx::query_as(SQL)
@@ -210,6 +241,7 @@ impl ActionRepo for Store {
             AND (?6 IS NULL OR json_extract(status, '$.type') = ?6) \
             AND (?7 IS NULL OR (json_extract(status, '$.type') <> 'proposed') = ?7) \
             AND (?8 IS NULL OR updated_at >= ?8) \
+            AND (?9 IS NULL OR expires_at < ?9) \
             ORDER BY created_at DESC, id DESC LIMIT ?5"
         );
         let (after_key, after_id) = Cursor::bind(page.cursor.as_deref())?;
@@ -223,6 +255,7 @@ impl ActionRepo for Store {
             .bind(filter.status.as_deref())
             .bind(filter.decided)
             .bind(filter.updated_since.map(ms))
+            .bind(filter.expires_before.map(ms))
             .fetch_all(&self.read)
             .await
             .map_err(db)?;
