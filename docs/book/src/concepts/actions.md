@@ -25,6 +25,8 @@ stateDiagram-v2
 - **Succeeded or Failed:** what the skill's run reported. Failures are posted in the incident's thread.
 - **Verified or VerifyFailed:** whether the check that raised the incident passes again afterwards. A verified action marks the incident as fixed. A failed verification is posted in the thread.
 
+Restarting the hub loses nothing that a person already decided, and invents nothing: when Domovoi starts it reads the store and runs what is still marked **Approved**, so an approval made a moment before the restart still runs. An action that was **Dispatched** when the hub stopped is marked **Failed** with the reason that the hub restarted while it ran and the host must be checked before running it again. Its answer went to the session that is gone, so nothing knows whether the skill ran, and starting it again could be the dangerous thing.
+
 ## In the web UI
 
 An action looks the same on the incident's page and on the **Approvals** page: the skill, its risk (the info button beside it says what that risk level allows), its state, the host, the arguments it would run with, who suggested it, and, while it waits, the time left to decide. The countdown turns to a warning in the last ten minutes. On the incident's page the card also shows why triage proposed it.
