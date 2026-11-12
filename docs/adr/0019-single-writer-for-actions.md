@@ -10,6 +10,7 @@ An action can be decided by more than one party at once: the person clicks Appro
 ## Decision
 
 - The action service gets one writer task (`domovoi_engine::actions::writer`), like the incident manager of ADR 0011: approve, deny and the expiry sweep arrive as commands on a bounded `mpsc` channel and are applied one at a time. Commands carry their data; the writer answers each caller over a `oneshot` reply.
+- The writer loop and the executor loop run joined in one task, so whoever waits for the action service (the hub's shutdown drain) also waits for the decisions still queued: they reach the store before the store pool closes, and a panic in either loop is visible to that caller rather than left unfixed.
 - The writer applies decisions through a new store port, `ActionRepo::update_from(action, expected)`: the write carries the status the decision was read from, and the store refuses with `conflict` when the stored status no longer matches. The guard is in the query itself (`json_extract(status, '$.type')` stays unchanged), so it holds for every writer, not only disciplined ones. The store does not choose a winner: whoever wrote first wins, and later writers of the same decision are refused with `this action changed meanwhile; reload`, a 409 on the API.
 - Expiry asks the store for exactly what is due: `ActionFilter` gains `expires_before`, and the sweep lists with `status = proposed` and `expires_at` past the deadline instead of reading the whole table and filtering in memory.
 - The executor keeps its existing `ActionRepo::update`: those transitions are written only by the executor's run loop and do not race another maintainer. Removing plain `update` from the port waits until the executor's recovery moves under the writer too.
@@ -19,7 +20,7 @@ An action can be decided by more than one party at once: the person clicks Appro
 - Two approvals, or an approval and the sweep, settle once; the loser gets a refusal rather than a silent overwrite, and the audit log matches what the store holds.
 - The expiry sweep is one store query with a page cap instead of a full read of the action table.
 - One task serializes action decisions, as for incidents: ample at homelab volumes, and the store guard makes it safe to fan out again later.
-- The refusal must be handled by every maintainer, not just the web UI: the chat gateway maps it to "already decided".
+- The refusal must be handled by every maintainer, not just the web UI: the chat gateway maps it to "Someone already decided this action", because a chat thread has nothing to reload.
 - Gate tests: `approve_and_deny_at_once_leave_exactly_one_outcome`, `expiry_never_overwrites_an_approval`, `expire_due_reads_only_due_proposals` and `update_from_refuses_a_stale_status` pin this; the approval gates of ADR 0007 keep passing unchanged.
 
 ## Alternatives considered
