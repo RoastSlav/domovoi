@@ -116,6 +116,10 @@ pub struct TriageSection {
     /// Runs started per hour at most. Default 6.
     #[serde(default = "default_per_hour_runs")]
     pub per_hour_runs: u32,
+    /// Runs the hour always keeps free for triage: questions and chat may not use these
+    /// last runs of the hour. Must be less than `per_hour_runs`. Default 2.
+    #[serde(default = "default_reserved_for_incidents")]
+    pub reserved_for_incidents: u32,
     /// Spending cap per calendar month, in US dollars. Optional.
     #[serde(default)]
     pub monthly_budget_usd: Option<f64>,
@@ -131,6 +135,7 @@ impl Default for TriageSection {
             concurrency: default_concurrency(),
             per_run: TriageLimits::default(),
             per_hour_runs: default_per_hour_runs(),
+            reserved_for_incidents: default_reserved_for_incidents(),
             monthly_budget_usd: None,
             cache_days: default_cache_days(),
         }
@@ -167,6 +172,9 @@ fn default_concurrency() -> u8 {
 }
 fn default_per_hour_runs() -> u32 {
     6
+}
+fn default_reserved_for_incidents() -> u32 {
+    2
 }
 fn default_cache_days() -> u32 {
     7

@@ -42,6 +42,12 @@ impl Validate for HubConfig {
                 "must be at least 1",
             ));
         }
+        if self.triage.reserved_for_incidents >= self.triage.per_hour_runs {
+            issues.push(ConfigIssue::error(
+                "triage.reserved_for_incidents",
+                "must be less than `per_hour_runs`; the hour must still admit triage runs",
+            ));
+        }
         if self
             .triage
             .monthly_budget_usd

@@ -119,6 +119,23 @@ fn zero_concurrency_is_rejected() {
 }
 
 #[test]
+fn reserved_runs_must_leave_room_in_the_hour() {
+    let errors = hub_errors("[triage]\nper_hour_runs = 2\nreserved_for_incidents = 2\n");
+    assert_issue(
+        &errors,
+        "triage.reserved_for_incidents",
+        "less than `per_hour_runs`",
+    );
+    let errors = hub_errors("[triage]\nper_hour_runs = 1\nreserved_for_incidents = 0\n");
+    assert!(
+        errors
+            .iter()
+            .all(|e| e.path != "triage.reserved_for_incidents"),
+        "one run left after reserving none is a valid hour"
+    );
+}
+
+#[test]
 fn webhook_names_are_validated() {
     let errors = hub_errors(
         "[webhooks.\"My Hook\"]\nkind = \"generic\"\nauth = \"hmac\"\nsecret = { env = \"S\" }\n",
