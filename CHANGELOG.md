@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.0.10](https://github.com/RoastSlav/domovoi/compare/v0.0.9...v0.0.10) - 2026-11-12
+
+### Added
+
+- *(engine)* one writer for every action transition and a recovery at start ([#109](https://github.com/RoastSlav/domovoi/pull/109))
+- *(engine)* one writer task applies every action decision so only one can win ([#107](https://github.com/RoastSlav/domovoi/pull/107))
+- *(engine)* one admission gate caps triage, questions and chat ([#112](https://github.com/RoastSlav/domovoi/pull/112))
+- *(web)* redesign the UI around what the operator needs to see and decide ([#111](https://github.com/RoastSlav/domovoi/pull/111))
+
+### Fixed
+
+- *(engine)* redact a provider failure reason before it leaves the engine ([#113](https://github.com/RoastSlav/domovoi/pull/113))
+- *(engine)* re-validate cached triage proposals into actions ([#110](https://github.com/RoastSlav/domovoi/pull/110))
+
 ## [0.0.9](https://github.com/RoastSlav/domovoi/compare/v0.0.8...v0.0.9) - 2026-11-11
 
 ### Added
