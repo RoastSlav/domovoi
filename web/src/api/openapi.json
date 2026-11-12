@@ -7,7 +7,7 @@
       "name": "MIT OR Apache-2.0",
       "identifier": "MIT OR Apache-2.0"
     },
-    "version": "0.0.8"
+    "version": "0.0.9"
   },
   "paths": {
     "/api/v1/ack-rules": {
@@ -325,6 +325,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "The action service is shutting down",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
           }
         }
       }
@@ -380,6 +390,16 @@
           },
           "409": {
             "description": "Not proposed any more",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The action service is shutting down",
             "content": {
               "application/json": {
                 "schema": {

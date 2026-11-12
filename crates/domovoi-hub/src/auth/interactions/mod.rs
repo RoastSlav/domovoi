@@ -22,6 +22,9 @@ use serde_json::Value;
 
 use crate::api::ApiState;
 
+/// The chat-facing reason for a refused approval or denial, from the card buttons.
+pub use buttons::approval_reason;
+
 /// What a user who is not on the allowlist is told.
 pub const NOT_ALLOWED: &str = "Not allowed";
 

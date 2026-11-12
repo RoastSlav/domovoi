@@ -1,7 +1,9 @@
 //! Card buttons: Ack, Mute 1h, Details, and Approve or Deny with the action's single-use
 //! token. Destructive actions are refused here, before the approval service is asked.
 
-use domovoi_core::{ActionId, CardButton, IncidentId, Risk, TriageOutcome, TriageReport};
+use domovoi_core::{
+    ActionError, ActionId, CardButton, IncidentId, Risk, TriageOutcome, TriageReport,
+};
 use domovoi_engine::ApprovalError;
 use jiff::SignedDuration;
 use serde_json::json;
@@ -36,12 +38,22 @@ pub fn details_text(report: &TriageReport) -> String {
     text
 }
 
-fn approval_reason(err: &ApprovalError) -> String {
+/// Why a chat Approve or Deny was refused, in one line for the thread. Chat has
+/// nothing to reload, so a row another writer already moved says someone decided
+/// it, and a service that is restarting says to try again.
+#[must_use]
+pub fn approval_reason(err: &ApprovalError) -> String {
     match err {
         ApprovalError::NotFound(_) => "That action no longer exists".to_owned(),
         ApprovalError::BadToken => "This button no longer works".to_owned(),
+        ApprovalError::Refused(ActionError::ChangedMeanwhile) => {
+            "Someone already decided this action".to_owned()
+        }
         ApprovalError::Refused(refused) => format!("Not possible: {refused}"),
         ApprovalError::Store(_) => "Something went wrong; try again".to_owned(),
+        ApprovalError::Unavailable => {
+            "The service that decides actions is restarting; try again".to_owned()
+        }
     }
 }
 

@@ -2856,6 +2856,16 @@ expression: spec
               }
             },
             "description": "Not proposed any more, or expired"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The action service is shutting down"
           }
         },
         "summary": "Approves a proposed action. Destructive skills need `confirm_text` equal to the skill's\nname; chat buttons can never approve them.",
@@ -2918,6 +2928,16 @@ expression: spec
               }
             },
             "description": "Not proposed any more"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The action service is shutting down"
           }
         },
         "summary": "Denies a proposed action.",
