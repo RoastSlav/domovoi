@@ -19,3 +19,25 @@ Ordered by how much they block. Each has my recommendation; nothing here is deci
 | O-13 | Multi-user/roles: stay single-owner through v1? (affects "permission-filtered search", who may edit policy) | single owner / basic roles | single owner, step-up for sensitive edits | M7, search |
 | O-14 | Audit hash chain in v1 (tamper evidence) | v1 / later | v1, it is small once audit is in the tx | M0/M1 |
 | O-15 | The repo's `ARCHITECTURE.md` is the contract for coding agents; the target changes INV-1 wording and adds aggregates. Update it per milestone (each prompt names the section) or once up front? | per milestone / up front | per milestone | all prompts |
+
+## Answers received (2026-11-13)
+
+| # | Answer |
+|---|---|
+| O-1 | No separate v0.1 release. Fold the M0 fixes into the rework; keep the ones the rework depends on (atomic writes, protocol tolerance, approval freshness) first. |
+| O-6 | `Destructive` never policy-allowed in v1. |
+| O-8 | Both the step timeline and the graph canvas in v1 (timeline first). |
+| O-9 | As recommended, all retention values configurable. |
+| O-10 | Presentation profiles in v1. |
+| O-11 | Capability install/deploy from the UI in v1 (needs its ADR). |
+| O-12 | Longer motion durations allowed; amend DESIGN.md, keep reduced-motion support. |
+| O-13 | Single owner through v1; multi-user after v1. |
+| O-14 | Audit hash chain in v1. |
+| O-15 | Update ARCHITECTURE.md once per milestone. |
+| O-2, O-3, O-4, O-5, O-7 | Pending explanation. |
+| O-2 | Accepted all four. Past incidents and how they were solved must be easy to query: typed journal entries linked to subjects, a resolution summary per operation in FTS, a host-scoped `search_experience` read tool for the model, and "similar past operations" in the UI (M4/M5). |
+| O-3 | Host-local `unattended` list in v1; owner-signed policy bundles planned after v1. |
+| O-4 | L3 in v1 as a general containment class (not only firewall), milestone M9. Offline permits after v1. |
+| O-5 | Most specific rule wins, even over a broader deny; tie at equal specificity → deny. Destructive and the host ceiling stay hard limits. Host ids in v1, tags after v1. |
+| O-7 | Pinned subject plus targets a rule names explicitly. |
+| O-12 | Longer motion allowed; reduced-motion support kept. |

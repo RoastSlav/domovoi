@@ -188,9 +188,11 @@ Evidence references point to `investigations/*.md` (letter = report) and `01-rep
   - Rule: `scope` (all hosts | host ids | host tags), `capability` (id | effect class |
     category), `constraints` (target patterns, max rate, time window, requires_reversible, TTL),
     `outcome` (`Deny | RequireApproval | Allow`).
-  - Precedence: any matching `Deny` → Deny. Else the most specific matching rule decides
-    (capability id > category > effect class; host id > host tag > all). Several equally specific
-    `Allow` rules combine by **intersection** of constraints. No match → default table:
+  - Precedence (decided): the most specific matching rule decides, **including over a broader
+    Deny** (capability id > category > effect class; host id > all hosts; host tags after v1).
+    At equal specificity a `Deny` beats an `Allow`; several equally specific `Allow` rules combine
+    by **intersection** of constraints. Hard limits no rule can override: `Destructive` is never
+    Allow in v1, and the host-local ceiling (RW-12) always applies. No match → default table:
     `Read → Allow (budgeted)`, `Mutate → RequireApproval`, `Contain → RequireApproval`,
     `Destructive → RequireApproval + typed confirmation` and **cannot** be `Allow` in v1 (enforced
     in the evaluator, not just the UI).
@@ -237,8 +239,10 @@ Evidence references point to `investigations/*.md` (letter = report) and `01-rep
   cut the agent's own control link (D §9). The pack itself makes L3 conditional for v1.
 - **Recommendation.** v1.0 ships L0–L2 only. The policy model keeps the `Contain` class so L3 can
   be added without reshaping, but no `Contain` capability ships and offline permits are not built.
-- **Your call:** accept the deferral, or keep "one narrow L3 capability in v1" (cost: roughly two
-  more milestones and a drill suite).
+- **Decided:** L3 is in v1 as a general `Contain` class (not only firewall/IP blocks), shipped as
+  milestone M9 with trusted management paths, TTL/expiry, enforcement-point verification and drills.
+  Offline permits are not in v1; they are planned after v1, as are owner-signed policy bundles
+  (RW-12) and host tags (RW-10).
 
 ## RW-14 Knowledge starts as typed facts and relations over existing ids — Proposed
 

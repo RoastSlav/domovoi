@@ -105,6 +105,7 @@ General rules for debugging, delegation and staging live in the global `~/.confi
 - Explicit types at crate boundaries; no `impl Trait` in public port signatures.
 - Prefer `jiff` for time, UUIDv7 for IDs, `BTreeMap` where order matters for snapshots.
 - User-facing text (cards, digests, errors) is short, plain and specific.
+- Answers to the maintainer are short, to the point and concise. Lead with the answer, skip preamble, and do not repeat the question.
 
 ## graphify (code map)
 

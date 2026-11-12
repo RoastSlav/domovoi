@@ -158,3 +158,15 @@ once the trace schema (M3) is frozen with golden fixtures.
 
 Pack doc 10 acceptance gates, minus L3/offline (RW-13), plus: crash sweep green, N-1 upgrade green,
 protocol golden frames for previous release, drill suite green, `OutcomeUnknown` never auto-retried.
+
+## M9 — Security autonomy L3 (A) — in v1
+
+- **Prereqs:** M8.
+- General `Contain` contracts (first: temporary source block via one firewall provider; then
+  workload isolation, exposure restriction), each with TTL/auto-expiry, enforcement-point check,
+  trusted management paths (owner-confirmed facts; unknown → refuse), caps on simultaneous
+  containments, verification that management access still works, drills.
+
+## After v1 (planned)
+
+Offline emergency permits; owner-signed policy bundles; host tags in policy; multi-user and roles.
