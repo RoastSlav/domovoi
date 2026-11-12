@@ -1,0 +1,12 @@
+/* The profile tab: a long tool output scrolls inside its card instead of stretching it. */
+.scroll {
+  max-height: 18rem;
+  overflow: auto;
+}
+
+.list {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding-left: var(--space-4);
+}

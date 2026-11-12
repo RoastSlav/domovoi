@@ -1,6 +1,6 @@
-import { Stack } from "../../components";
 import type { Issue } from "../../api/types";
 import { Field, ModelField, SecretField } from "../settings/fields";
+import { SettingsCard } from "../settings/SettingRow";
 import { isSecretSet, lockedBy, sourceOf, type FieldSpec } from "../settings/form";
 import type { Editable } from "../../api/types";
 import type { Wizard } from "./useWizard";
@@ -27,7 +27,7 @@ export function StepFields({
       spec.visibleWhen.values.includes(String(wizard.inputs[spec.visibleWhen.path] ?? "")),
   );
   return (
-    <Stack gap={4}>
+    <SettingsCard>
       {visible.map((spec) => {
         const locked = lockedBy(sourceOf(editable.fields, spec.path));
         const errors = issues.filter((i) => i.path === spec.path).map((i) => i.message);
@@ -71,6 +71,6 @@ export function StepFields({
           />
         );
       })}
-    </Stack>
+    </SettingsCard>
   );
 }

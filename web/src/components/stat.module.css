@@ -1,0 +1,88 @@
+/*
+ * The tile is a size container (its content is queried against it), so its padding lives on
+ * the inner box: a container cannot restyle itself.
+ */
+.tile {
+  display: block;
+  min-width: 0;
+  container-type: inline-size;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: var(--shadow-raised);
+}
+
+/* A tile that leads somewhere: the whole tile is the link, and says so on hover. */
+.tile[data-interactive] {
+  text-decoration: none;
+  transition:
+    border-color var(--motion-fast) var(--ease-out),
+    background-color var(--motion-fast) var(--ease-out);
+}
+
+.tile[data-interactive]:hover {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-raised);
+  text-decoration: none;
+}
+
+.inner {
+  display: grid;
+  align-content: start;
+  gap: var(--space-1);
+  padding: var(--space-4);
+}
+
+.label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-xs);
+}
+
+.dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--tone-solid, var(--color-text-subtle));
+}
+
+.value {
+  margin: 0;
+  font-size: var(--text-2xl);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-tighter);
+  line-height: var(--leading-2xl);
+}
+
+.hint {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  line-height: var(--leading-xs);
+}
+
+/* Narrow tile (a phone, a tight column): less padding, a 20 px value, a one-line hint. */
+@container (max-width: 14rem) {
+  .inner {
+    padding: var(--space-3);
+  }
+
+  .value {
+    font-size: var(--text-xl);
+    line-height: var(--leading-xl);
+  }
+
+  .hint {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}

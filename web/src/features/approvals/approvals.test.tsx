@@ -2,7 +2,7 @@ import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { Action } from "../../api/types";
 import { calls, failure, resetApi, route } from "../../test/apiMock";
-import { action, nas } from "../../test/fixtures";
+import { action, detail, nas } from "../../test/fixtures";
 import { renderAt } from "../../test/render";
 import { ActionCard, suggestedBy } from "./ActionCard";
 import { ApprovalsPage } from "./ApprovalsPage";
@@ -44,6 +44,7 @@ beforeEach(() => {
   resetApi();
   route("GET /api/v1/hosts", () => [nas]);
   route("POST /api/v1/actions/{id}/approve", () => undefined);
+  route("GET /api/v1/incidents/{id}", () => detail());
 });
 
 test("destructive_approval_asks_first_and_requires_the_exact_skill_name", async () => {
@@ -132,7 +133,9 @@ test("approvals_page_explains_that_nothing_runs_until_approved", async () => {
   open();
 
   // Shows even when there is nothing to approve.
-  expect(await screen.findByText(/^Actions the model suggested\./)).toBeVisible();
+  expect(
+    await screen.findByText(/^Actions the model suggested; nothing runs until you approve them\./),
+  ).toBeVisible();
   expect(
     screen.getByRole("link", { name: "Learn more about approvals (opens in a new tab)" }),
   ).toHaveAttribute("href", "https://RoastSlav.github.io/domovoi/concepts/actions.html");
@@ -171,10 +174,9 @@ test("waiting_actions_are_ordered_by_expiry_and_counted", async () => {
     "the soonest to expire is on top",
   ).toEqual(["Action sooner_one", "Action middle_one", "Action later_one"]);
   expect(screen.getByText("3 waiting")).toBeVisible();
-  expect(waiting.getAllByRole("link", { name: "View incident" })[0]).toHaveAttribute(
-    "href",
-    "/incidents/inc-1",
-  );
+  expect(
+    (await waiting.findAllByRole("link", { name: "Disk /srv is 93% full" }))[0],
+  ).toHaveAttribute("href", "/incidents/inc-1");
 });
 
 test("approvals_follow_the_host_selector", async () => {
@@ -199,22 +201,48 @@ test("approvals_under_all_hosts_send_no_host_filter", async () => {
   expect(listQueries().some((query) => query && "host" in query)).toBe(false);
 });
 
-test("recently_decided_is_closed_until_opened_and_asks_for_the_last_day", async () => {
+test("recently_decided_is_a_compact_list_closed_until_opened_and_asks_for_the_last_day", async () => {
   const user = userEvent.setup();
-  routeActions([], [action({ id: "old", skill: "denied_one", status: "denied" })]);
+  routeActions(
+    [],
+    [
+      action({ id: "old", skill: "denied_one", status: "denied", approved_by: "user:7" }),
+      action({ id: "gone", skill: "expired_one", status: "expired" }),
+    ],
+  );
   open();
 
   const toggle = await screen.findByRole("button", { name: "Recently decided" });
   expect(toggle).toHaveAttribute("aria-expanded", "false");
-  expect(screen.queryByRole("group", { name: "Action denied_one" })).toBeNull();
+  expect(screen.queryByText("denied_one")).toBeNull();
 
   await user.click(toggle);
-  const decided = await card("denied_one");
-  expect(within(decided).getByText("Denied")).toBeVisible();
+  const table = await screen.findByRole("table", { name: "Recently decided" });
+  const rows = within(table).getAllByRole("row");
+  const cells = (row: number) =>
+    within(rows[row] as HTMLElement)
+      .getAllByRole("cell")
+      .slice(0, 4)
+      .map((cell) => cell.textContent);
+  expect(cells(1), "what, decision, where, who").toEqual([
+    "denied_one",
+    "Denied",
+    "nas",
+    "A person",
+  ]);
+  expect(cells(2)).toEqual(["expired_one", "Expired", "nas", "Nobody, it expired"]);
   expect(
-    within(decided).queryByRole("button", { name: "Approve" }),
+    within(table).queryByRole("button", { name: "Approve" }),
     "a decided action cannot be decided again",
   ).toBeNull();
+  expect(within(table).getByRole("link", { name: "denied_one" })).toHaveAttribute(
+    "href",
+    "/incidents/inc-1",
+  );
+  await user.click(within(rows[1] as HTMLElement).getByText("nas"));
+  expect(screen.getByTestId("location"), "the whole row opens the incident").toHaveTextContent(
+    "/incidents/inc-1",
+  );
 
   const asked = listQueries().find((query) => query?.decided) as { since: string };
   const hoursBack = (Date.now() - Date.parse(asked.since)) / 3_600_000;
@@ -253,11 +281,12 @@ test("action_card_shows_what_would_run_and_why", () => {
 
   const item = within(screen.getByRole("group", { name: "Action restart_container" }));
   expect(item.getByText("Write")).toBeVisible();
-  expect(item.getByText("Waiting for approval")).toBeVisible();
+  expect(item.queryByText("Waiting for approval"), "the section already says it").toBeNull();
   expect(item.getByRole("button", { name: "About Write risk" })).toBeVisible();
-  expect(item.getByText("name").tagName, "arguments are a list of names and values").toBe("DT");
-  expect(item.getByText("/srv/a/very/long/path/that/needs/to/wrap").tagName).toBe("DD");
+  expect(item.getByText("name = web").tagName, "arguments are key = value lines").toBe("LI");
+  expect(item.getByText("path = /srv/a/very/long/path/that/needs/to/wrap")).toBeVisible();
   expect(item.getByText("The container stopped answering.")).toBeVisible();
+  expect(item.getByText("Why:")).toBeVisible();
   expect(item.getByText(/^Suggested by triage/)).toBeVisible();
 });
 
@@ -309,4 +338,179 @@ test("who_suggested_an_action_reads_as_words", () => {
   expect(suggestedBy("system:chat")).toBe("Suggested in chat");
   expect(suggestedBy("user:0192")).toBe("Suggested by a person");
   expect(suggestedBy("system:something_new")).toBe("Suggested by Domovoi");
+});
+
+test("a_waiting_card_shows_why_and_names_the_incident_it_is_for", async () => {
+  routeActions([action()]);
+  route("GET /api/v1/incidents/{id}", () => ({
+    ...detail(),
+    report: {
+      headline: "",
+      summary: "",
+      cause: "",
+      evidence: [],
+      verdict: "ACTION_NEEDED",
+      next_step: "",
+      manual_steps: [],
+      proposals: [{ skill: "restart_container", args: { name: "web" }, reason: "It is stuck." }],
+      details: "",
+    },
+  }));
+  open();
+
+  const item = within(await card("restart_container"));
+  expect(await item.findByText("It is stuck.")).toBeVisible();
+  expect(item.getByRole("link", { name: "Disk /srv is 93% full" })).toHaveAttribute(
+    "href",
+    "/incidents/inc-1",
+  );
+  expect(item.getByText("name = web"), "the arguments are shown before approving").toBeVisible();
+});
+
+test("a_waiting_card_still_works_when_the_incident_cannot_be_read", async () => {
+  routeActions([action()]);
+  route("GET /api/v1/incidents/{id}", () => failure(500, "internal", "the hub is sick"));
+  open();
+
+  const item = within(await card("restart_container"));
+  expect(item.getByRole("link", { name: "View incident" })).toBeVisible();
+  expect(item.getByRole("button", { name: "Approve" })).toBeVisible();
+});
+
+describe("approve emphasis", () => {
+  const approve = () => screen.getByRole("button", { name: "Approve" });
+
+  test("approve_is_the_cards_primary_on_the_approvals_page", () => {
+    renderAt("/x", "/x", <ActionCard action={action()} host="nas" />);
+    expect(approve().className).toMatch(/primary/);
+  });
+
+  test("approve_steps_back_to_secondary_where_the_page_has_its_own_primary", () => {
+    renderAt("/x", "/x", <ActionCard action={action()} host="nas" approve="secondary" />);
+    expect(approve().className, "the accent icon marks the quiet Approve").toMatch(/approveIcon/);
+    expect(approve().className).not.toMatch(/primary/);
+  });
+
+  test("a_destructive_approve_is_a_danger_button_whatever_the_page_says", () => {
+    renderAt(
+      "/x",
+      "/x",
+      <ActionCard
+        action={action({ risk: "destructive", skill: "delete_volume" })}
+        host="nas"
+        approve="secondary"
+      />,
+    );
+    expect(approve().className).toMatch(/danger/);
+  });
+});
+
+/** Five waiting actions, the last one destructive, expiring at different times. */
+function five(): Action[] {
+  return [
+    action({ id: "a1", skill: "skill_e", expires_at: inMinutes(50) }),
+    action({ id: "a2", skill: "skill_a", expires_at: inMinutes(10) }),
+    action({ id: "a3", skill: "skill_c", expires_at: inMinutes(30) }),
+    action({ id: "a4", skill: "skill_b", expires_at: inMinutes(20) }),
+    action({
+      id: "a5",
+      skill: "delete_volume",
+      risk: "destructive",
+      expires_at: inMinutes(40),
+      args: { name: "old", path: "/srv/very/long" },
+    }),
+  ];
+}
+
+test("more_than_three_waiting_actions_are_compact_rows_soonest_first", async () => {
+  routeActions(five());
+  open();
+
+  const list = await screen.findByRole("list", { name: "Waiting actions" });
+  const rows = within(list).getAllByRole("listitem");
+  expect(rows).toHaveLength(5);
+  expect(rows[0], "the soonest to expire is on top").toHaveTextContent("skill_a");
+  expect(rows[1]).toHaveTextContent("skill_b");
+  expect(rows[0]).toHaveTextContent("Write");
+  expect(rows[0]).toHaveTextContent("nas");
+  expect(rows[0]).toHaveTextContent("name=web");
+  expect(rows[0]).toHaveTextContent(/Expires in/);
+  expect(within(rows[0] as HTMLElement).getByRole("button", { name: "Approve" })).toBeVisible();
+  expect(within(rows[0] as HTMLElement).getByRole("button", { name: "Deny" })).toBeVisible();
+  expect(
+    screen.queryByRole("group", { name: /^Action / }),
+    "no full cards until a row is opened",
+  ).toBeNull();
+});
+
+test("three_or_fewer_waiting_actions_stay_full_cards", async () => {
+  routeActions(five().slice(0, 3));
+  open();
+
+  await card("skill_e");
+  expect(screen.queryByRole("list", { name: "Waiting actions" })).toBeNull();
+});
+
+test("a_compact_row_opens_in_place_to_the_full_card_and_folds_back", async () => {
+  const user = userEvent.setup();
+  routeActions(five());
+  open();
+
+  await user.click(await screen.findByRole("button", { name: "Show details of skill_a" }));
+  const item = within(await card("skill_a"));
+  expect(item.getByText("name = web")).toBeVisible();
+  expect(item.getByRole("link", { name: "Disk /srv is 93% full" })).toBeVisible();
+  expect(
+    screen.getAllByRole("button", { name: /^Show details of/ }),
+    "the other four stay rows",
+  ).toHaveLength(4);
+
+  await user.click(screen.getByRole("button", { name: "Show less" }));
+  expect(screen.queryByRole("group", { name: "Action skill_a" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Show details of skill_a" })).toBeVisible();
+});
+
+test("a_destructive_action_still_asks_in_its_dialog_from_a_compact_row", async () => {
+  const user = userEvent.setup();
+  routeActions(five());
+  open();
+
+  const row = (await screen.findByText("delete_volume")).closest("li") as HTMLElement;
+  const approve = within(row).getByRole("button", { name: "Approve" });
+  expect(approve.className).toMatch(/danger/);
+  await user.click(approve);
+  expect(approvals(), "nothing is sent before the confirmation").toHaveLength(0);
+  expect(
+    screen.getByRole("dialog", { name: "Run destructive action delete_volume?" }),
+  ).toBeVisible();
+});
+
+test("an_expired_but_unswept_action_says_expired_and_cannot_be_approved", async () => {
+  const user = userEvent.setup();
+  renderAt("/x", "/x", <ActionCard action={action({ expires_at: inMinutes(-5) })} host="nas" />);
+
+  const item = within(screen.getByRole("group", { name: "Action restart_container" }));
+  expect(item.getByText("Expired")).toBeVisible();
+  expect(item.queryByText("Expiring now")).toBeNull();
+  const approve = item.getByRole("button", { name: "Approve" });
+  expect(approve).toHaveAttribute("aria-disabled", "true");
+  expect(approve).toHaveAccessibleDescription("This request expired; triage can propose it again.");
+  await user.click(approve);
+  expect(screen.queryByRole("dialog"), "no confirmation for a shut window").toBeNull();
+  expect(item.getByRole("button", { name: "Deny" }), "denying it is still possible").toBeVisible();
+});
+
+test("an_expired_waiting_row_cannot_be_approved_either", async () => {
+  routeActions([
+    ...five().slice(0, 3),
+    action({ id: "old", skill: "gone_one", expires_at: inMinutes(-2) }),
+  ]);
+  open();
+
+  const row = (await screen.findByText("gone_one")).closest("li") as HTMLElement;
+  expect(within(row).getByText("Expired")).toBeVisible();
+  expect(within(row).getByRole("button", { name: "Approve" })).toHaveAttribute(
+    "aria-disabled",
+    "true",
+  );
 });

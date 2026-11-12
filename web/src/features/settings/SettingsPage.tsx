@@ -4,8 +4,7 @@ import { AllHostsNote } from "../../app/AllHostsNote";
 import { ReadOnlySettings } from "./ReadOnlySettings";
 import { SettingsEditor } from "./SettingsEditor";
 
-const INTRO_EDITABLE =
-  "How this hub runs. Fields set in hub.toml or the environment are read-only here.";
+const INTRO_EDITABLE = "Fields set in hub.toml or the environment are read-only here.";
 
 /**
  * The settings: sections you can edit when the hub manages them in the UI (each field shows

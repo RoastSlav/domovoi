@@ -25,6 +25,18 @@ function profileBody() {
       "",
       `Agent version ${agent}.`,
       "",
+      "## Summary",
+      "",
+      "Debian 12 on x86_64, kernel 6.8.0",
+      "4 logical CPUs, 16 GiB memory",
+      "3 containers (2 running): web (nginx), db (postgres), job (alpine)",
+      "read skills: disk-usage, service-status",
+      "checks: disk, memory",
+      "",
+      "## Recent changes",
+      "",
+      "- Docker was upgraded",
+      "",
       "## Details",
       "",
       "### Host overview",
@@ -34,12 +46,32 @@ function profileBody() {
       "### not a heading",
       "```",
       "",
+      "### Overview",
+      "",
+      "```",
+      "uptime: 41 days",
+      "load: 0.08 0.11 0.09",
+      "memory: 31 GiB total, 6.2 GiB used",
+      "disks:",
+      "  /srv 2.0T 91%",
+      "  /boot 1.0G 40%",
+      "```",
+      "",
+      "### Containers",
+      "",
+      "```",
+      "Docker: 24.0",
+      "Storage: overlay2",
+      "```",
+      "",
       "### Listening ports",
       "",
       "The tool did not answer: ss is not installed",
     ].join("\n"),
     sections: [
       { title: "Host overview", ok: true },
+      { title: "Overview", ok: true },
+      { title: "Containers", ok: true },
       { title: "Listening ports", ok: false },
     ],
   };
@@ -72,7 +104,7 @@ test("profile_tab_shows_its_age_and_links_its_generated_note", async () => {
     "href",
     "/notes/note-nas",
   );
-  expect(await screen.findByText("Agent version 0.6.0.")).toBeVisible();
+  expect(await screen.findByText("0.6.0")).toBeVisible();
 });
 
 test("the_info_tip_says_what_a_profile_is", async () => {
@@ -91,18 +123,41 @@ test("a_profile_tool_failure_shows_a_warning_message_with_the_reason", async () 
   expect(screen.queryByText(/^Not available:/)).toBeNull();
 });
 
-test("profile_sections_open_and_close_as_cards_and_failed_ones_start_open", async () => {
-  const user = userEvent.setup();
+test("profile_sections_are_always_open_cards_with_a_heading", async () => {
   show();
-  await screen.findByText("Agent version 0.6.0.");
-  const toggle = screen.getByRole("button", { name: "Host overview" });
-  expect(toggle).toHaveAttribute("aria-expanded", "false");
-  expect(screen.queryByText(/Linux nas 6.8/)).toBeNull();
+  await screen.findByText("0.6.0");
+  const overview = screen.getByRole("group", { name: "Host overview" });
+  expect(within(overview).getByText(/Linux nas 6.8/)).toBeVisible();
+  expect(screen.queryByRole("button", { name: "Host overview" })).toBeNull();
+  expect(screen.queryByRole("button", { name: /expand|collapse/i })).toBeNull();
+});
 
-  await user.click(toggle);
-  expect(toggle).toHaveAttribute("aria-expanded", "true");
-  expect(await screen.findByText(/Linux nas 6.8/)).toBeVisible();
-  expect(screen.getByRole("heading", { level: 2, name: "Listening ports" })).toBeVisible();
+test("the_summary_shows_the_machines_facts_as_tiles", async () => {
+  show();
+  expect(await screen.findByText("Debian 12")).toBeVisible();
+  expect(screen.getByText("6.8.0")).toBeVisible();
+  expect(screen.getByText("4")).toBeVisible();
+  expect(screen.getByText("2 running")).toBeVisible();
+});
+
+test("tool_output_that_reads_as_key_and_value_pairs_is_a_list_and_other_text_a_mono_block", async () => {
+  show();
+  await screen.findByText("0.6.0");
+  const containers = screen.getByRole("group", { name: "Containers" });
+  expect(within(containers).getByText("Storage")).toBeVisible();
+  expect(within(containers).getByText("overlay2")).toBeVisible();
+  expect(screen.getByRole("group", { name: "Host overview" }).querySelector("pre")).not.toBeNull();
+});
+
+test("recent_changes_skills_and_checks_get_their_own_cards", async () => {
+  show();
+  await screen.findByText("0.6.0");
+  expect(
+    within(screen.getByRole("group", { name: "Recent changes" })).getByText("Docker was upgraded"),
+  ).toBeVisible();
+  const lists = screen.getByRole("group", { name: "Skills and checks" });
+  expect(within(lists).getByText("disk-usage")).toBeVisible();
+  expect(within(lists).getByText("memory")).toBeVisible();
 });
 
 test("the_profile_text_splits_into_a_summary_and_one_part_per_tool", () => {
@@ -110,21 +165,27 @@ test("the_profile_text_splits_into_a_summary_and_one_part_per_tool", () => {
   const { summary, parts } = splitProfile(body.markdown, body.sections);
   expect(summary).toContain("Agent version 0.6.0.");
   expect(summary).not.toContain("Details");
-  expect(parts.map((part) => part.title)).toEqual(["Host overview", "Listening ports"]);
+  expect(parts.map((part) => part.title)).toEqual([
+    "Host overview",
+    "Overview",
+    "Containers",
+    "Listening ports",
+  ]);
   expect(parts[0]?.body).toContain("### not a heading");
-  expect(parts[1]).toMatchObject({ ok: false, failure: "ss is not installed" });
+  expect(parts[0]?.text).toBe("Linux nas 6.8\n### not a heading");
+  expect(parts[3]).toMatchObject({ ok: false, failure: "ss is not installed" });
 });
 
 test("profile_refresh_asks_the_agent_and_shows_the_new_profile", async () => {
   const user = userEvent.setup();
   show();
-  await screen.findByText("Agent version 0.6.0.");
+  await screen.findByText("0.6.0");
   await user.click(screen.getByRole("button", { name: "Refresh" }));
   expect(
     calls.filter((c) => c.route === POST),
     "the click sends the hub's refresh",
   ).toHaveLength(1);
-  expect(await screen.findByText("Agent version 0.7.0.")).toBeVisible();
+  expect(await screen.findByText("0.7.0")).toBeVisible();
   expect(await screen.findByText("Profile collected")).toBeVisible();
 });
 
@@ -132,7 +193,7 @@ test("profile_refresh_repeats_that_the_agent_is_not_connected", async () => {
   route(POST, () => failure(409, "conflict", "the agent is not connected"));
   const user = userEvent.setup();
   show();
-  await screen.findByText("Agent version 0.6.0.");
+  await screen.findByText("0.6.0");
   await user.click(screen.getByRole("button", { name: "Refresh" }));
   expect(await screen.findByText("The agent is not connected.")).toBeVisible();
 });
@@ -149,7 +210,7 @@ test("a_connected_host_without_a_profile_shows_the_baseline_being_built_and_poll
 
   ready = true;
   await act(() => vi.advanceTimersByTimeAsync(PROFILE_POLL_MS + 100));
-  expect(await screen.findByText("Agent version 0.6.0.")).toBeVisible();
+  expect(await screen.findByText("0.6.0")).toBeVisible();
 
   const asked = calls.filter((c) => c.route === GET).length;
   await act(() => vi.advanceTimersByTimeAsync(PROFILE_POLL_MS * 3));

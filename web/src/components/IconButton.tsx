@@ -44,7 +44,7 @@ export function IconButton({
         }}
         {...props}
       >
-        {loading ? <Spinner /> : <Icon name={icon} size={size === "sm" ? 14 : 16} />}
+        {loading ? <Spinner size={16} /> : <Icon name={icon} size={16} />}
       </button>
     </Tooltip>
   );

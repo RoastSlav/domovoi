@@ -1,15 +1,15 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { useCreateNote, useDeleteNote, useSaveNote } from "../../api/hooks/notes";
-import type { Note, NoteInput } from "../../api/types";
+import type { Note } from "../../api/types";
 import {
   Button,
   Card,
   ConfirmDialog,
   ErrorDetail,
   Field,
+  Grid,
   InlineMessage,
-  Kbd,
   Markdown,
   PageHeader,
   SegmentedControl,
@@ -19,75 +19,13 @@ import {
   Text,
   Textarea,
   TextInput,
-  Tooltip,
   useActionFeedback,
 } from "../../components";
 import { HostScope } from "./HostScope";
+import { draftOf, inputOf, sameDraft, type Draft } from "./noteDraft";
+import { SaveButton } from "./SaveButton";
 import styles from "./notes.module.css";
 import { useLeaveGuard } from "./useLeaveGuard";
-
-/** What the form edits. */
-interface Draft {
-  body: string;
-  host: string;
-  tags: string;
-  title: string;
-}
-
-function draftOf(note: Note | undefined, host: string): Draft {
-  return {
-    title: note?.title ?? "",
-    host,
-    tags: note?.tags.join(", ") ?? "",
-    body: note?.body_markdown ?? "",
-  };
-}
-
-function inputOf(draft: Draft): NoteInput {
-  const tags = draft.tags
-    .split(",")
-    .map((tag) => tag.trim())
-    .filter(Boolean);
-  return {
-    title: draft.title.trim(),
-    body_markdown: draft.body,
-    tags,
-    ...(draft.host ? { host: draft.host } : {}),
-  };
-}
-
-const sameDraft = (a: Draft, b: Draft) =>
-  a.title === b.title && a.host === b.host && a.tags === b.tags && a.body === b.body;
-
-/** The Save button with its shortcut in a tooltip, and the reason when it cannot be used. */
-function SaveButton({
-  busy,
-  reason,
-  onSave,
-}: {
-  busy: boolean;
-  onSave: () => void;
-  reason: string | undefined;
-}) {
-  const shortcut = reason ? undefined : (
-    <>
-      Save with <Kbd>Ctrl</Kbd> + <Kbd>S</Kbd>
-    </>
-  );
-  return (
-    <Tooltip content={shortcut}>
-      <Button
-        variant="primary"
-        icon="check"
-        loading={busy}
-        disabledReason={reason}
-        onClick={onSave}
-      >
-        Save
-      </Button>
-    </Tooltip>
-  );
-}
 
 /**
  * The note form: title, host, tags, and the body beside its preview (a Write and Preview
@@ -182,13 +120,17 @@ export function NoteEditor({ note, host: initialHost }: { host: string; note: No
         }}
       >
         <Stack gap={4}>
-          <Field label="Title" required>
-            <TextInput value={draft.title} onChange={(e) => set({ title: e.target.value })} />
-          </Field>
-          <HostScope label="About" value={draft.host} onChange={(host) => set({ host })} />
-          <Field label="Tags" hint="Separate tags with commas.">
-            <TextInput value={draft.tags} onChange={(e) => set({ tags: e.target.value })} />
-          </Field>
+          <Card label="Details">
+            <Grid min="sm" gap={4}>
+              <Field label="Title" required>
+                <TextInput value={draft.title} onChange={(e) => set({ title: e.target.value })} />
+              </Field>
+              <HostScope label="About" value={draft.host} onChange={(host) => set({ host })} />
+              <Field label="Tags" hint="Separate tags with commas.">
+                <TextInput value={draft.tags} onChange={(e) => set({ tags: e.target.value })} />
+              </Field>
+            </Grid>
+          </Card>
           {error && (
             <InlineMessage tone="danger" title={error.title}>
               <ErrorDetail error={error} />

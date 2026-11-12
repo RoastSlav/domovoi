@@ -7,12 +7,15 @@ import { IncidentDetailPage } from "./IncidentDetailPage";
 
 vi.mock("../../api/client", () => import("../../test/apiMock"));
 
+/** A model is set up, so the chat and Run triage are on offer. */
+const MODEL = { kind: "anthropic", api_key: "[set]", model: "claude" };
+
 beforeEach(() => {
   resetApi();
   sessionStorage.clear();
   route("GET /api/v1/hosts", () => [nas, { ...nas, id: "host-pi", name: "pi" }]);
   route("GET /api/v1/incidents/{id}/followups", () => ({ turns: [] }));
-  route("GET /api/v1/settings", () => ({ triage: { enabled: true } }));
+  route("GET /api/v1/settings", () => ({ triage: { enabled: true }, llm_primary: MODEL }));
 });
 
 afterEach(() => {
@@ -39,39 +42,152 @@ const REPORT = {
   details: "",
 };
 
-test("incident_detail_shows_the_header_summary_and_actions", async () => {
-  route("GET /api/v1/incidents/{id}", () => detail());
+/** A report with evidence, as triage writes it. */
+const FULL_REPORT = {
+  ...REPORT,
+  headline: "Backups filled /srv",
+  summary: "The nightly job kept every snapshot, so the disk is nearly full.",
+  cause: "Retention was never configured for the backup job.",
+  evidence: [
+    { label: "Used", value: "93%", source: "disk.usage" },
+    { label: "Threshold", value: "90%", source: "disk.usage" },
+    { label: "Free", value: "70 GB", source: "disk.usage" },
+  ],
+  next_step: "Prune old snapshots",
+  manual_steps: [],
+};
+
+test("incident_detail_says_what_is_going_on_before_anything_else", async () => {
+  route("GET /api/v1/incidents/{id}", () => ({ ...detail(), report: FULL_REPORT }));
   open();
 
   expect(
     await screen.findByRole("heading", { level: 1, name: "Disk /srv is 93% full" }),
   ).toBeVisible();
   expect(calls[0]?.init.params?.path).toEqual({ id: "inc-1" });
-  const header = within(screen.getByRole("banner"));
+  const going = within(screen.getByRole("group", { name: "What's going on" }));
+  expect(going.getByText("Action needed"), "the verdict, once, in the report card").toBeVisible();
+  expect(going.getByText("Backups filled /srv"), "the report's headline").toBeVisible();
+  expect(going.getByText(/^The nightly job kept every snapshot/), "its summary").toBeVisible();
+  expect(going.getByText(/Retention was never configured/), "and the likely cause").toBeVisible();
+  expect(going.getByText("Cause:")).toBeVisible();
+  expect(going.getByText(/Prune old snapshots/), "the next step is set apart").toBeVisible();
+  expect(going.getByRole("button", { name: "Run triage again" })).toBeVisible();
+  expect(screen.queryByRole("region", { name: "Triage" }), "no separate Triage section").toBeNull();
+});
+
+test("the_header_has_the_pills_once_and_one_meta_line_with_the_facts", async () => {
+  route("GET /api/v1/incidents/{id}", () => ({
+    ...detail(),
+    incident: incident({ occurrences: 14, verdict: "ACTION_NEEDED" }),
+    report: FULL_REPORT,
+  }));
+  open();
+
+  const header = within(await screen.findByRole("banner"));
   expect(header.getByText("Open"), "status").toBeVisible();
-  expect(header.getByText("Action needed"), "verdict").toBeVisible();
   expect(header.getByText("Warning"), "severity").toBeVisible();
+  expect(header.queryByText("Action needed"), "the verdict is in the report card").toBeNull();
   expect(header.getByRole("link", { name: "nas" })).toHaveAttribute("href", "/hosts/nas");
   expect(header.getByText("disk.usage /srv")).toBeVisible();
-  expect(header.getByText(/^Opened/)).toBeVisible();
-  expect(header.getByText(/^Last fired/)).toBeVisible();
+  expect(header.getByText(/opened/)).toBeVisible();
+  expect(header.getByText(/fired 14×/)).toBeVisible();
+});
 
-  const card = within(screen.getByRole("group", { name: "Summary" }));
-  expect(card.getByText("Action needed")).toBeVisible();
-  expect(card.getByText("Backups filled /srv")).toBeVisible();
-  expect(card.getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+test("the_evidence_is_a_dense_grid_and_the_facts_are_not_repeated_in_it", async () => {
+  route("GET /api/v1/incidents/{id}", () => ({ ...detail(), report: FULL_REPORT }));
+  open();
+
+  const evidence = within(await screen.findByRole("region", { name: "Evidence" }));
+  const cell = (label: string) => evidence.getByText(label).closest("div") as HTMLElement;
+  expect(cell("Used")).toHaveTextContent("93%");
+  expect(cell("Threshold")).toHaveTextContent("90%");
+  expect(cell("Free")).toHaveTextContent("70 GB");
+  for (const fact of ["Host", "Check", "Since", "Last fired", "Times fired"]) {
+    expect(evidence.queryByText(fact), `${fact} is in the header line`).toBeNull();
+  }
+});
+
+test("without_a_report_the_card_s_lines_and_headline_still_show", async () => {
+  route("GET /api/v1/incidents/{id}", () => detail());
+  open();
+
+  const going = within(await screen.findByRole("group", { name: "What's going on" }));
+  expect(going.getByText("Backups filled /srv")).toBeVisible();
+  expect(going.getByText(/Prune old snapshots/)).toBeVisible();
+  const evidence = within(screen.getByRole("region", { name: "Evidence" }));
+  expect(evidence.getAllByRole("listitem").map((li) => li.textContent)).toEqual([
     "93% used, 70 GB free",
     "Grew 40 GB since 02:00",
   ]);
-  expect(card.getByText(/Prune old snapshots/)).toBeVisible();
-  expect(await screen.findByText("every"), "details render as Markdown").toHaveProperty(
-    "tagName",
-    "STRONG",
-  );
+});
 
-  const actions = within(screen.getByRole("region", { name: "Proposed actions" }));
+test("a_report_that_repeats_the_title_does_not_show_it_twice", async () => {
+  route("GET /api/v1/incidents/{id}", () => ({
+    ...detail(),
+    card: { ...detail().card, headline: "Disk /srv is 93% full" },
+  }));
+  open();
+
+  const going = within(await screen.findByRole("group", { name: "What's going on" }));
+  expect(going.queryByText("Disk /srv is 93% full")).toBeNull();
+});
+test("acknowledge_is_the_only_primary_and_approve_steps_back", async () => {
+  route("GET /api/v1/incidents/{id}", () => detail());
+  open();
+
+  const ack = await screen.findByRole("button", { name: "Acknowledge" });
+  expect(ack.className).toMatch(/primary/);
+  const actions = within(screen.getByRole("region", { name: /^Waiting for you/ }));
   expect(actions.getByText("restart_container")).toBeVisible();
-  expect(actions.getByRole("button", { name: "Approve" })).toBeVisible();
+  expect(
+    actions.getByText("name = web"),
+    "the arguments are visible before approving",
+  ).toBeVisible();
+  expect(actions.getByRole("button", { name: "Approve" }).className).not.toMatch(/primary/);
+  expect(screen.getByRole("button", { name: "Dismiss" }).className).not.toMatch(/primary/);
+  expect(
+    screen
+      .getAllByRole("button")
+      .filter((button) => /primary/.test(button.className))
+      .map((button) => button.textContent),
+    "Acknowledge is the only primary: the chat's Send is secondary here",
+  ).toEqual(["Acknowledge"]);
+});
+
+test("once_acknowledged_the_card_approve_is_the_primary", async () => {
+  const d = detail();
+  route("GET /api/v1/incidents/{id}", () => ({
+    ...d,
+    incident: { ...d.incident, status: "acked" },
+  }));
+  open();
+
+  const actions = within(await screen.findByRole("region", { name: /^Waiting for you/ }));
+  expect(actions.getByRole("button", { name: "Approve" }).className).toMatch(/primary/);
+});
+
+test("a_destructive_action_on_the_incident_asks_in_a_danger_dialog_naming_everything", async () => {
+  const user = userEvent.setup();
+  const d = detail();
+  route("GET /api/v1/incidents/{id}", () => ({
+    ...d,
+    actions: [action({ skill: "delete_volume", risk: "destructive", args: { name: "old" } })],
+  }));
+  open();
+
+  const approve = await screen.findByRole("button", { name: "Approve" });
+  expect(approve.className).toMatch(/danger/);
+  await user.click(approve);
+  const dialog = within(
+    screen.getByRole("dialog", { name: "Run destructive action delete_volume?" }),
+  );
+  expect(
+    dialog.getByText(
+      "delete_volume with name=old runs on nas as soon as you approve. It can lose data, and it cannot be undone.",
+    ),
+  ).toBeVisible();
+  expect(dialog.getByRole("button", { name: "Approve" }).className).toMatch(/danger/);
 });
 
 test("a_host_name_in_the_link_is_encoded", async () => {
@@ -90,62 +206,70 @@ test("incident_detail_has_two_columns_on_a_wide_screen", async () => {
 
   const side = await screen.findByRole("complementary", { name: "Actions and history" });
   expect(side.parentElement).toHaveAttribute("data-columns", "2");
-  expect(within(side).getByRole("region", { name: "Proposed actions" })).toBeVisible();
+  expect(within(side).getByRole("region", { name: /^Waiting for you/ })).toBeVisible();
   expect(within(side).getByRole("region", { name: "Timeline" })).toBeVisible();
   expect(
     within(side).queryByRole("region", { name: "Chat" }),
     "the story is on the left",
   ).toBeNull();
+  expect(screen.getByRole("region", { name: "Chat" })).toBeVisible();
 });
-
 test("incident_detail_is_one_column_on_a_narrow_screen", async () => {
   stubMedia(false);
   route("GET /api/v1/incidents/{id}", () => detail());
   open();
 
   const side = await screen.findByRole("complementary", { name: "Actions and history" });
-  expect(side.parentElement).toHaveAttribute("data-columns", "1");
-  const order = [...(side.parentElement as HTMLElement).querySelectorAll("section")].map(
-    (section) => section.querySelector("h2")?.textContent,
+  const page = side.parentElement as HTMLElement;
+  expect(page).toHaveAttribute("data-columns", "1");
+  const slots = [...page.querySelectorAll("[data-slot]")].map((slot) =>
+    slot.getAttribute("data-slot"),
   );
-  expect(order.indexOf("Proposed actions"), "the next step comes before the story").toBeLessThan(
-    order.indexOf("Triage"),
+  expect(slots, "every part is a slot the stylesheet orders on a phone").toEqual(
+    expect.arrayContaining(["going", "waiting", "evidence", "chat", "tools", "timeline"]),
   );
 });
-
-test("resolved_card_shows_resolved_badge_and_keeps_the_verdict", async () => {
+test("resolved_incident_shows_resolved_and_keeps_what_triage_said", async () => {
   const d = detail();
   route("GET /api/v1/incidents/{id}", () => ({
     ...d,
-    incident: { ...d.incident, status: "resolved" },
+    incident: {
+      ...d.incident,
+      status: "resolved",
+      resolved_at: "2026-10-31T13:00:00Z",
+    },
+    report: FULL_REPORT,
     card: { ...d.card, resolved: true },
   }));
   open();
 
-  const card = await screen.findByRole("group", { name: "Summary" });
-  expect(within(card).getByText("Resolved")).toBeVisible();
-  expect(card).toHaveTextContent("Triage said Action needed");
+  const header = within(await screen.findByRole("banner"));
+  expect(header.getByText("Resolved")).toBeVisible();
+  expect(header.getByText(/resolved/)).toBeVisible();
+  expect(
+    within(screen.getByRole("group", { name: "What's going on" })).getByText("Action needed"),
+    "the verdict stays on the report",
+  ).toBeVisible();
   expect(
     screen.queryByRole("button", { name: "Acknowledge" }),
     "a resolved incident has nothing left to do",
   ).toBeNull();
 });
-
-test("resolved_card_without_triage_claims_no_verdict", async () => {
+test("resolved_incident_without_triage_claims_no_verdict", async () => {
   const d = detail();
   route("GET /api/v1/incidents/{id}", () => ({
     ...d,
     incident: incident({ status: "resolved", verdict: null }),
     report: null,
+    triage: null,
     card: { ...d.card, badge: "warning", resolved: true },
   }));
   open();
 
-  const card = await screen.findByRole("group", { name: "Summary" });
-  expect(within(card).getByText("Resolved")).toBeVisible();
-  expect(within(card).queryByText(/Triage said/)).toBeNull();
+  const header = within(await screen.findByRole("banner"));
+  expect(header.getByText("Resolved")).toBeVisible();
+  expect(header.queryByText(/Action needed|Monitor|Expected/)).toBeNull();
 });
-
 test("a_missing_incident_says_so_and_a_failed_load_offers_retry", async () => {
   route("GET /api/v1/incidents/{id}", () => failure(404, "not_found", "no such incident"));
   const first = open();
@@ -198,7 +322,7 @@ test("check_by_hand_is_absent_when_the_report_has_no_steps", async () => {
   route("GET /api/v1/incidents/{id}", () => detail());
   open();
 
-  await screen.findByRole("group", { name: "Summary" });
+  await screen.findByRole("group", { name: "What's going on" });
   expect(screen.queryByRole("region", { name: "Check by hand" })).toBeNull();
 });
 
@@ -206,11 +330,12 @@ test("an_action_shows_why_the_model_proposed_it", async () => {
   route("GET /api/v1/incidents/{id}", () => ({ ...detail(), report: REPORT }));
   open();
 
-  const actions = within(await screen.findByRole("region", { name: "Proposed actions" }));
+  const actions = within(await screen.findByRole("region", { name: /^Waiting for you/ }));
   expect(actions.getByText("It is stuck.")).toBeVisible();
 });
 
-test("incident_detail_lists_skills_and_tools_used_with_counts", async () => {
+test("tools_used_is_one_summary_line_that_opens_a_dense_list", async () => {
+  const user = userEvent.setup();
   route("GET /api/v1/incidents/{id}", () => ({
     ...detail(),
     tools_used: [
@@ -234,43 +359,52 @@ test("incident_detail_lists_skills_and_tools_used_with_counts", async () => {
   }));
   open();
 
-  const used = await screen.findByRole("region", { name: "Skills and tools used" });
+  const used = within(await screen.findByRole("region", { name: "Skills and tools used" }));
+  const summary = used.getByRole("button", { name: "2 tools · 5 calls · 1 failed · 3 not run" });
+  expect(summary).toHaveAttribute("aria-expanded", "false");
+  expect(used.queryByText("journal"), "the list waits to be opened").toBeNull();
   expect(
-    within(used).getByText("Read tools and read skills only look; they never change the host."),
-  ).toBeVisible();
-  expect(within(used).getByText("Skills proposed: restart_container.")).toBeVisible();
+    used.queryByRole("table"),
+    "never a table, which would stack into cards on a narrow column",
+  ).toBeNull();
+  expect(
+    used.queryByText(/Skills proposed/),
+    "the proposed actions are not listed a second time",
+  ).toBeNull();
 
-  const rows = within(used).getAllByRole("row");
-  expect(within(rows[0] as HTMLElement).getByText("Not run")).toBeVisible();
-  const cells = (row: number) =>
-    within(rows[row] as HTMLElement)
-      .getAllByRole("cell")
-      .slice(0, 5)
-      .map((cell) => cell.textContent);
-  expect(cells(1), "name, kind, calls, failures, not run").toEqual([
-    "journal",
-    "tool",
-    "3",
-    "1",
-    "2",
-  ]);
-  expect(cells(2)).toEqual(["disk_usage", "skill", "2", "0", "1"]);
+  await user.click(summary);
+  const rows = used.getAllByRole("listitem");
+  expect(rows[0]).toHaveTextContent("journal");
+  expect(rows[0]).toHaveTextContent("3 calls");
+  expect(rows[0]).toHaveTextContent("1 failed");
+  expect(rows[0]).toHaveTextContent("2 not run");
+  expect(rows[1]).toHaveTextContent("disk_usage");
+  expect(rows[1]).toHaveTextContent("2 calls");
+  expect(rows[1], "failures only when there are some").not.toHaveTextContent("0 failed");
 });
 
+test("the_sentence_about_read_tools_is_behind_the_headings_info_button", async () => {
+  const user = userEvent.setup();
+  route("GET /api/v1/incidents/{id}", () => detail());
+  open();
+
+  const sentence = "Read tools and read skills only look; they never change the host.";
+  await screen.findByRole("region", { name: "Skills and tools used" });
+  expect(screen.queryByText(sentence)).toBeNull();
+  await user.click(screen.getByRole("button", { name: "About skills and tools used" }));
+  expect(screen.getByText(sentence)).toBeVisible();
+});
 test("incident_detail_says_nothing_was_used_yet", async () => {
   route("GET /api/v1/incidents/{id}", () => ({ ...detail(), actions: [] }));
   open();
 
   const used = await screen.findByRole("region", { name: "Skills and tools used" });
   expect(within(used).getByText("Nothing used yet.")).toBeVisible();
-  expect(within(used).queryByRole("table")).toBeNull();
+  expect(within(used).queryByRole("button", { name: /calls/ })).toBeNull();
   expect(
-    within(screen.getByRole("region", { name: "Proposed actions" })).getByText(
-      /^No actions proposed\./,
-    ),
+    within(screen.getByRole("region", { name: "Actions" })).getByText(/^No actions proposed\./),
   ).toBeVisible();
 });
-
 test("the_main_actions_say_what_they_do_and_what_they_do_not", async () => {
   route("GET /api/v1/incidents/{id}", () => detail());
   open();
@@ -362,10 +496,9 @@ test("triage_that_failed_shows_the_reason_and_retry", async () => {
   }));
   open();
 
-  const panel = within(await screen.findByRole("region", { name: "Triage" }));
-  expect(panel.getByText("Triage failed")).toBeVisible();
-  expect(panel.getByText("The model is not available.")).toBeVisible();
-  const retry = panel.getByRole("button", { name: "Retry triage" });
+  expect(await screen.findByText("Triage failed")).toBeVisible();
+  expect(screen.getByText("The model is not available.")).toBeVisible();
+  const retry = screen.getByRole("button", { name: "Retry triage" });
   expect(retry).toHaveAccessibleDescription(/Counts against the hourly triage limit\./);
 
   await user.click(retry);
@@ -375,7 +508,6 @@ test("triage_that_failed_shows_the_reason_and_retry", async () => {
   });
   expect(screen.queryByText("Triage finished"), "a failure is not a success toast").toBeNull();
 });
-
 test("triage_that_was_skipped_says_why", async () => {
   const d = detail();
   route("GET /api/v1/incidents/{id}", () => ({
@@ -385,11 +517,9 @@ test("triage_that_was_skipped_says_why", async () => {
   }));
   open();
 
-  const panel = within(await screen.findByRole("region", { name: "Triage" }));
-  expect(panel.getByText("Triage was skipped")).toBeVisible();
-  expect(panel.getByText("Too many incidents waiting for triage.")).toBeVisible();
+  expect(await screen.findByText("Triage was skipped")).toBeVisible();
+  expect(screen.getByText("Too many incidents waiting for triage.")).toBeVisible();
 });
-
 test("running_triage_again_asks_for_a_fresh_run_and_shows_progress", async () => {
   const user = userEvent.setup();
   route("GET /api/v1/incidents/{id}", () => detail());
@@ -425,14 +555,14 @@ test("a_reused_report_is_a_quiet_note", async () => {
   route("GET /api/v1/incidents/{id}", () => ({ ...detail(), triage: { kind: "cached" } }));
   open();
 
-  const panel = within(await screen.findByRole("region", { name: "Triage" }));
+  const going = within(await screen.findByRole("group", { name: "What's going on" }));
   expect(
-    panel.getByText("Triage reused the report of an earlier incident with the same evidence."),
+    going.getByText("Triage reused the report of an earlier incident with the same evidence."),
   ).toBeVisible();
-  expect(panel.queryByRole("alert")).toBeNull();
+  expect(going.queryByRole("alert")).toBeNull();
 });
 
-test("timeline_reads_in_words_and_keeps_an_unknown_kind", async () => {
+test("timeline_reads_in_words_newest_first_and_keeps_an_unknown_kind", async () => {
   route("GET /api/v1/incidents/{id}", () => ({
     ...detail(),
     timeline: [
@@ -448,18 +578,17 @@ test("timeline_reads_in_words_and_keeps_an_unknown_kind", async () => {
   open();
 
   const timeline = within(await screen.findByRole("region", { name: "Timeline" }));
-  expect(
-    timeline.getByText("Everything that happened to this incident, oldest first."),
-  ).toBeVisible();
-  const lines = timeline.getAllByRole("listitem").map((li) => li.querySelector("p")?.firstChild);
-  expect(lines.map((node) => node?.textContent)).toEqual([
-    "Opened",
-    "Confirmed",
-    "Triage reported",
-    "Triage said Action needed",
-    "You asked a follow-up",
-    "Action: Approved",
+  const phrases = timeline
+    .getAllByRole("listitem")
+    .map((li) => li.querySelector("span:nth-child(2) > span")?.textContent);
+  expect(phrases, "the newest is on top").toEqual([
     "from.a_newer_hub",
+    "Action: Approved",
+    "You asked a follow-up",
+    "Triage said Action needed",
+    "Triage reported",
+    "Confirmed",
+    "Opened",
   ]);
   expect(timeline.getByText("Disk /srv crossed 90%"), "the hub's line is the detail").toBeVisible();
   expect(timeline.getByText("Something new")).toBeVisible();
@@ -469,12 +598,11 @@ test("timeline_reads_in_words_and_keeps_an_unknown_kind", async () => {
     "the chat shows the question, the timeline only that one was asked",
   ).toBeNull();
 });
-
-test("a_long_timeline_shows_its_newest_entries_until_asked_for_all", async () => {
+test("a_long_timeline_shows_eight_entries_until_asked_for_all", async () => {
   const user = userEvent.setup();
   route("GET /api/v1/incidents/{id}", () => ({
     ...detail(),
-    timeline: Array.from({ length: 12 }, (_, n) => ({
+    timeline: Array.from({ length: 30 }, (_, n) => ({
       at: `2026-10-31T12:${String(n).padStart(2, "0")}:00Z`,
       kind: "incident.grouped",
       summary: `grouped check.${n}`,
@@ -484,14 +612,13 @@ test("a_long_timeline_shows_its_newest_entries_until_asked_for_all", async () =>
 
   const timeline = within(await screen.findByRole("region", { name: "Timeline" }));
   expect(timeline.getAllByRole("listitem")).toHaveLength(8);
-  expect(timeline.getByText("grouped check.11"), "the newest stay").toBeVisible();
+  expect(timeline.getByText("grouped check.29"), "the newest are the ones shown").toBeVisible();
   expect(timeline.queryByText("grouped check.0")).toBeNull();
 
-  await user.click(timeline.getByRole("button", { name: "Show all 12" }));
-  expect(timeline.getAllByRole("listitem")).toHaveLength(12);
+  await user.click(timeline.getByRole("button", { name: "Show all 30" }));
+  expect(timeline.getAllByRole("listitem")).toHaveLength(30);
   expect(timeline.getByText("grouped check.0")).toBeVisible();
 });
-
 async function openDismiss(user: ReturnType<typeof userEvent.setup>) {
   await user.click(await screen.findByRole("button", { name: "Dismiss" }));
   return screen.getByRole("dialog", { name: "Dismiss as a known condition" });

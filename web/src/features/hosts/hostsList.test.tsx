@@ -5,6 +5,7 @@ import { calls, failure, resetApi, route } from "../../test/apiMock";
 import { nas } from "../../test/fixtures";
 import { renderAt } from "../../test/render";
 import { HostsPage } from "./HostsPage";
+import { HOSTS_VIEW_KEY } from "./useHostsView";
 
 vi.mock("../../api/client", () => import("../../test/apiMock"));
 
@@ -12,7 +13,11 @@ const NOW = new Date("2026-11-01T12:00:00Z");
 const HOSTS = "GET /api/v1/hosts";
 const REVOKE = "POST /api/v1/hosts/{name}/revoke";
 
-beforeEach(resetApi);
+// The table is the view most of these read; the card view has its own tests in hostCards.test.tsx.
+beforeEach(() => {
+  resetApi();
+  localStorage.setItem(HOSTS_VIEW_KEY, "table");
+});
 
 afterEach(() => {
   vi.useRealTimers();
@@ -60,9 +65,8 @@ test("hosts_page_explains_which_hosts_it_knows", async () => {
   route(HOSTS, () => [nas]);
   renderAt("/hosts", "/hosts", <HostsPage />);
 
-  expect(await screen.findByText(/^Machines Domovoi knows about:/)).toBeVisible();
   expect(
-    screen.getByText(/hosts running an agent, and hosts that webhooks report on\./),
+    await screen.findByText(/^Machines Domovoi watches, with an agent or through webhooks\./),
   ).toBeVisible();
   expect(
     screen.getByRole("link", { name: "Learn more about hosts (opens in a new tab)" }),
@@ -133,8 +137,8 @@ test("each_host_shows_its_connection_kind_version_and_last_seen", async () => {
   expect(within(row("live")).getByText("Container agent")).toBeVisible();
   expect(within(row("live")).getByText("0.0.8")).toBeVisible();
   expect(within(row("gone")).getByText("Offline")).toBeVisible();
-  expect(within(row("gone")).getAllByText("3 hours ago")).not.toHaveLength(0);
-  expect(within(row("gone")).getByText(/^last seen/)).toBeVisible();
+  expect(within(row("gone")).getByText("3 hours ago")).toBeVisible();
+  expect(within(row("live")).getByText("now")).toBeVisible();
   expect(within(row("fresh")).getByText("Never connected")).toBeVisible();
 });
 
@@ -147,7 +151,7 @@ test("outdated_agent_is_marked_update_available_and_links_to_its_incidents", asy
   await screen.findByRole("table", { name: "Hosts" });
 
   expect(within(row("nas")).getByText("Update available")).toBeVisible();
-  expect(within(row("nas")).getByRole("link", { name: "1 open incidents on nas" })).toHaveAttribute(
+  expect(within(row("nas")).getByRole("link", { name: "1 open incident on nas" })).toHaveAttribute(
     "href",
     "/incidents?host=nas",
   );

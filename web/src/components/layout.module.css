@@ -4,6 +4,18 @@
   min-width: 0;
 }
 
+/*
+ * A column stretches its children, which is right for fields, cards and messages and wrong
+ * for a button or a link: those keep the width of their words. The button sits one span
+ * deep when it has a tooltip (the span takes no part in layout).
+ */
+.stack > button,
+.stack > a,
+.stack > span > button,
+.stack > span > a {
+  align-self: flex-start;
+}
+
 .cluster {
   display: flex;
   align-items: center;
@@ -33,6 +45,14 @@
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--grid-min)), 1fr));
+}
+
+.grid[data-fill] {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--grid-min)), 1fr));
+}
+
+.grid[data-min="xs"] {
+  --grid-min: 8rem;
 }
 
 .grid[data-min="sm"] {
@@ -71,6 +91,7 @@
   gap: var(--space-6);
 }
 
+/* PageHeader: title, meta pills, one-sentence intro; actions centred on the title. */
 .pageHeader {
   display: flex;
   flex-wrap: wrap;
@@ -104,43 +125,96 @@
   max-width: 70ch;
   margin: var(--space-2) 0 0;
   color: var(--color-text-muted);
+  font-size: var(--text-base);
+  line-height: var(--leading-base);
+
+  /* No lonely last word: "Learn more" stays with the words before it. */
+  text-wrap: pretty;
+}
+
+.docsLink {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+}
+
+.docsLink:hover {
+  text-decoration: underline;
 }
 
 .headerActions {
   display: flex;
+  flex: none;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
+
+  /* As tall as the title's first line, so the buttons centre on it. */
+  min-height: var(--leading-2xl);
 }
 
+@media (max-width: 640px) {
+  .pageTitle {
+    font-size: var(--text-xl);
+    line-height: var(--leading-xl);
+  }
+
+  .headerActions {
+    min-height: var(--leading-xl);
+  }
+}
+
+/* Section: a 14 px heading, no rule; groups are 32 px apart. */
 .section {
   min-width: 0;
-  margin-top: var(--space-5);
+  margin-top: var(--space-6);
+}
+
+.section:first-child,
+.pageHeader + .section {
+  margin-top: 0;
 }
 
 .sectionHead {
+  min-width: 0;
+  margin-bottom: var(--space-3);
+}
+
+/* The title and the actions share one row, and the actions sit on the title's centre line. */
+.sectionRow {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
-  margin-bottom: var(--space-3);
-  padding-bottom: var(--space-1);
-  border-bottom: 1px solid var(--color-border);
+  min-width: 0;
+}
+
+.sectionActions {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
 }
 
 .sectionTitle {
+  flex: 1 1 12rem;
+  min-width: 0;
   margin: 0;
-  color: var(--color-frame);
-  font-size: var(--text-lg);
-  line-height: var(--leading-lg);
+  color: var(--color-text);
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-base);
 }
 
 .sectionToggle {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  min-height: 1.5rem;
+  min-height: var(--leading-base);
   padding: 0;
   border: 0;
   background: none;
@@ -151,11 +225,13 @@
 
 .sectionDescription {
   max-width: 70ch;
-  margin: calc(-1 * var(--space-1)) 0 var(--space-3);
+  margin: var(--space-1) 0 0;
   color: var(--color-text-muted);
   font-size: var(--text-sm);
+  line-height: var(--leading-sm);
 }
 
+/* Card: surface, hairline, 8 px radius, 16 px padding; no lift on hover. */
 .card {
   display: block;
   min-width: 0;
@@ -167,21 +243,41 @@
   box-shadow: var(--shadow-raised);
 }
 
+.card[data-stripe] {
+  box-shadow:
+    inset 2px 0 0 var(--tone-solid, var(--color-border-strong)),
+    var(--shadow-raised);
+}
+
 .card[data-interactive] {
   text-decoration: none;
-  transition: border-color var(--motion-fast) var(--ease-out);
+  transition:
+    border-color var(--motion-fast) var(--ease-out),
+    background-color var(--motion-fast) var(--ease-out);
 }
 
 .card[data-interactive]:hover {
   border-color: var(--color-border-strong);
+  background: var(--color-surface-raised);
+  text-decoration: none;
 }
 
+/* KeyValueList: pairs in two columns when there is room, label muted over a wide gutter. */
 .kv {
   display: grid;
-  grid-template-columns: minmax(8rem, max-content) minmax(0, 1fr);
-  gap: var(--space-1) var(--space-4);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+  gap: 0 var(--space-6);
   margin: 0;
   font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+}
+
+.kvRow {
+  display: grid;
+  grid-template-columns: minmax(6rem, 9rem) minmax(0, 1fr);
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  min-width: 0;
 }
 
 .kv dt {
@@ -189,6 +285,7 @@
 }
 
 .kv dd {
+  min-width: 0;
   margin: 0;
   overflow-wrap: anywhere;
 }
@@ -198,12 +295,9 @@
 }
 
 @media (max-width: 480px) {
-  .kv {
+  .kvRow {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .kv dd {
-    margin-bottom: var(--space-2);
+    gap: var(--space-1);
   }
 }
 
@@ -222,7 +316,7 @@
 }
 
 .text[data-strong] {
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
 }
 
 .text[data-size="xs"] {

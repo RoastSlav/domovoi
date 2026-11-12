@@ -3,13 +3,13 @@ import { ApiFailure } from "../api/types";
 import { describeError } from "../design/messages";
 import { Button } from "./Button";
 import { ChatComposer } from "./ChatComposer";
-import { InlineError } from "./InlineMessage";
+import { InlineError, InlineMessage } from "./InlineMessage";
 import { LoadError } from "./LoadError";
 import { Markdown } from "./Markdown";
 import { RelativeTime } from "./RelativeTime";
 import { Skeleton } from "./Skeleton";
 import { Spinner } from "./Spinner";
-import { Tag } from "./Tag";
+import { ToolTags } from "./ChatToolTags";
 import styles from "./ChatThread.module.css";
 
 export { MAX_QUESTION_CHARS } from "./ChatComposer";
@@ -17,12 +17,8 @@ export { MAX_QUESTION_CHARS } from "./ChatComposer";
 /** The most earlier messages the hub accepts in one request. */
 export const MAX_HISTORY_TURNS = 20;
 
-/** A read-only tool the model called while answering. */
-export interface ChatTool {
-  /** The host it looked at, when it was one host. */
-  host?: string;
-  name: string;
-}
+export type { ChatTool } from "./ChatToolTags";
+import type { ChatTool } from "./ChatToolTags";
 
 /** One message in a chat: the operator's question or the model's answer. */
 export interface ChatTurn {
@@ -42,6 +38,14 @@ export interface ChatThreadProps {
   clearing?: boolean | undefined;
   /** Why nothing can be asked now ("Triage is off…"); shown under the composer. */
   disabledReason?: string | undefined;
+  /**
+   * When the thread scrolls its newest message into view: `always` (a page that is the chat,
+   * opening on the latest message) or `after-send` (a chat inside a longer page, which must
+   * not jump down on load and only follows the person's own question, as little as needed).
+   */
+  scroll?: "always" | "after-send";
+  /** Shown beside the reason when the hub says there is no model to ask: the way to fix it. */
+  offAction?: ReactNode;
   /** The line under the composer saying what the chat can and cannot do. */
   hint: ReactNode;
   /** The composer's label. */
@@ -61,6 +65,8 @@ export interface ChatThreadProps {
   /** The question waiting for its answer, shown with "Thinking…". */
   pending?: string | undefined;
   sending?: boolean | undefined;
+  /** `secondary` for a page that has its own primary button (an incident's Acknowledge). */
+  sendVariant?: "primary" | "secondary";
   /** Questions offered as buttons while the conversation is empty. */
   starters?: readonly string[] | undefined;
   /** The conversation so far, oldest first. */
@@ -84,23 +90,6 @@ function isAbort(error: unknown): boolean {
   );
 }
 
-function ToolTags({ tools }: { tools: ChatTool[] }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className={styles.tools}>
-      <Button size="sm" variant="ghost" aria-expanded={open} onClick={() => setOpen(!open)}>
-        {tools.length === 1 ? "1 tool used" : `${tools.length} tools used`}
-      </Button>
-      {open &&
-        tools.map((tool, index) => (
-          <Tag key={`${tool.name}-${index}`}>
-            {tool.host ? `${tool.name} · ${tool.host}` : tool.name}
-          </Tag>
-        ))}
-    </div>
-  );
-}
-
 /**
  * A conversation with the model, read as a transcript: the operator's questions on the
  * right on a raised surface, answers on the left as Markdown. The question being answered
@@ -116,14 +105,21 @@ export function ChatThread(props: ChatThreadProps) {
   const [failed, setFailed] = useState<{ error: unknown; question: string } | null>(null);
   const [draft, setDraft] = useState("");
   const list = useRef<HTMLOListElement | null>(null);
+  const sent = useRef(false);
 
   const newest = `${turns.length}:${turns.at(-1)?.text ?? ""}:${pending ?? ""}:${failed?.question ?? ""}`;
   useEffect(() => {
+    const afterSend = props.scroll === "after-send";
+    if (afterSend && !sent.current) {
+      return;
+    }
     // jsdom has no layout, so the call may be missing.
-    list.current?.lastElementChild?.scrollIntoView?.({ block: "end" });
+    list.current?.lastElementChild?.scrollIntoView?.({ block: afterSend ? "nearest" : "end" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only a new message scrolls
   }, [newest]);
 
   const send = (question: string): void => {
+    sent.current = true;
     setFailed(null);
     onSend(question).catch((error: unknown) => {
       if (isAbort(error)) {
@@ -213,15 +209,21 @@ export function ChatThread(props: ChatThreadProps) {
           ))}
         </div>
       )}
-      <ChatComposer
-        label={props.label}
-        hint={props.hint}
-        disabledReason={props.disabledReason ?? blocking}
-        sending={sending}
-        value={draft}
-        onChange={setDraft}
-        onSend={send}
-      />
+      {/* No model to ask: a box that can only refuse is replaced by the reason and the fix. */}
+      {off ? (
+        <InlineMessage tone="info" title={off} action={props.offAction} />
+      ) : (
+        <ChatComposer
+          label={props.label}
+          hint={props.hint}
+          disabledReason={props.disabledReason ?? blocking}
+          sending={sending}
+          sendVariant={props.sendVariant ?? "primary"}
+          value={draft}
+          onChange={setDraft}
+          onSend={send}
+        />
+      )}
       {(turns.length > 0 || failed) && (
         <div>
           <Button

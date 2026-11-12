@@ -33,7 +33,10 @@ export interface SettingsForm {
  * Holds the edits of every section in one place, so switching sections loses nothing and
  * one Save sends everything. The caller remounts it (a `key`) when the saved revision changes.
  */
-export function useSettingsForm(editable: Editable): SettingsForm {
+export function useSettingsForm(
+  editable: Editable,
+  schema?: Record<string, unknown>,
+): SettingsForm {
   const [edits, setEdits] = useState<Record<string, Input>>({});
   const [secrets, setSecrets] = useState<Record<string, SecretChange>>({});
   const [added, setAdded] = useState<string[]>([]);
@@ -52,7 +55,7 @@ export function useSettingsForm(editable: Editable): SettingsForm {
     [values],
   );
   const all = useMemo(() => [...bySection.values()].flat(), [bySection]);
-  const initial = useMemo(() => initialInputs(all, values), [all, values]);
+  const initial = useMemo(() => initialInputs(all, values, schema), [all, values, schema]);
   const inputs = { ...initial, ...edits };
 
   const visibleIn = (id: string) =>

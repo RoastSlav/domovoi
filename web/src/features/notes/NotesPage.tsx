@@ -4,7 +4,6 @@ import { useSelectedHost } from "../../app/HostContext";
 import {
   Button,
   EmptyState,
-  Field,
   LinkButton,
   PageHeader,
   QueryBoundary,
@@ -95,7 +94,7 @@ export function NotesPage() {
       <PageHeader
         title="Notes"
         docs="guide/migrating.html#4-bring-your-notes"
-        intro="Runbooks in Markdown: how your setup works and how you fixed things before. Triage searches them and gives the relevant ones to the model."
+        intro="Markdown runbooks that triage searches and hands to the model."
         actions={
           <>
             <Button icon="plus" onClick={() => setImporting(true)}>
@@ -112,15 +111,16 @@ export function NotesPage() {
         }
       />
       <div className={styles.toolbar} role="search">
-        <Field label="Search">
+        <div className={styles.search}>
           <TextInput
             type="search"
+            aria-label="Search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Words in a title or body"
+            placeholder="Search titles and bodies"
           />
-        </Field>
-        <HostScope label="Notes about" value={host ?? ""} onChange={setHost} />
+        </div>
+        <HostScope bare label="Notes about" value={host ?? ""} onChange={setHost} />
       </div>
       {settled ? (
         <SearchResults q={settled} host={host} onClear={() => setQuery("")} />

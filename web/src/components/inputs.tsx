@@ -5,6 +5,7 @@ import type {
   SelectHTMLAttributes,
   TextareaHTMLAttributes,
 } from "react";
+import { Icon } from "../design/icons";
 import { useFieldWiring } from "./Field";
 import styles from "./form.module.css";
 
@@ -69,7 +70,10 @@ export function Textarea({
   );
 }
 
-/** A native select: `<option>` elements as children. Put it inside a `Field`. */
+/**
+ * A native select with a chevron of our own: `<option>` elements as children. Put it inside
+ * a `Field`.
+ */
 export function Select({
   className,
   children,
@@ -78,18 +82,25 @@ export function Select({
   // A select has no read-only state, so a locked field disables it; the reason stays in text.
   const { readOnly, ...wiring } = useFieldWiring();
   return (
-    <select
-      className={classes(styles.input, className)}
-      {...wiring}
-      {...props}
-      disabled={props.disabled || readOnly}
-    >
-      {children}
-    </select>
+    <span className={styles.selectWrap}>
+      <select
+        className={classes(styles.input, styles.select, className)}
+        {...wiring}
+        {...props}
+        disabled={props.disabled || readOnly}
+      >
+        {children}
+      </select>
+      <span className={styles.selectChevron}>
+        <Icon name="chevron-down" />
+      </span>
+    </span>
   );
 }
 
 interface ToggleProps {
+  /** Small tags right after the label text (where a setting's value comes from). */
+  badges?: ReactNode;
   checked: boolean;
   /** The id of the input, for a link that must focus it. */
   id?: string | undefined;
@@ -106,6 +117,7 @@ function Toggle({
   checked,
   onChange,
   label,
+  badges,
   hint,
   disabledReason,
   switchRole,
@@ -126,7 +138,10 @@ function Toggle({
         }}
       />
       <span className={styles.checkText}>
-        <span>{label}</span>
+        <span className={styles.checkLine}>
+          <span>{label}</span>
+          {badges}
+        </span>
         {(disabledReason ?? hint) && <span className={styles.hint}>{disabledReason ?? hint}</span>}
       </span>
     </label>
@@ -135,7 +150,8 @@ function Toggle({
 
 /**
  * A checkbox with its label: one of several independent choices, saved with the form.
- * Use `Switch` for a setting that takes effect by itself.
+ * Use `Switch` for a setting that takes effect by itself. `badges` sit inline right after the
+ * label text, never inside the hint.
  */
 export function Checkbox(props: ToggleProps) {
   return <Toggle {...props} switchRole={false} />;
@@ -143,7 +159,8 @@ export function Checkbox(props: ToggleProps) {
 
 /**
  * An on/off switch with its label, for a setting that is simply on or off ("Enable the
- * check"). Green when on. Use `Checkbox` inside a list of choices.
+ * check"). Accent when on. Use `Checkbox` inside a list of choices. `badges` sit inline right
+ * after the label text, never inside the hint.
  */
 export function Switch(props: ToggleProps) {
   return <Toggle {...props} switchRole />;

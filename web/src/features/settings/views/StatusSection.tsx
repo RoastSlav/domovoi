@@ -1,8 +1,19 @@
+import type { ReactNode } from "react";
 import { useSettings } from "../../../api/hooks/system";
-import { QueryBoundary, Skeleton, Stack, Text } from "../../../components";
+import { QueryBoundary, Skeleton, Stack } from "../../../components";
+import styles from "../settings.module.css";
 import { Advisories } from "./Advisories";
 import { HeartbeatStatus } from "./HeartbeatStatus";
 import { Usage } from "./Usage";
+
+function Group({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <Stack gap={3}>
+      <h3 className={styles.subhead}>{title}</h3>
+      {children}
+    </Stack>
+  );
+}
 
 /** Model usage, the heartbeat and the open advisories: what the hub is doing, not what it is set to. */
 export function StatusSection() {
@@ -10,19 +21,16 @@ export function StatusSection() {
   return (
     <QueryBoundary query={settings} context="load settings" loading={<Skeleton shape="rows" />}>
       {(data) => (
-        <Stack gap={5}>
-          <Stack gap={2}>
-            <Text strong>Model usage</Text>
+        <Stack gap={6}>
+          <Group title="Model usage">
             <Usage settings={data} />
-          </Stack>
-          <Stack gap={2}>
-            <Text strong>Heartbeat</Text>
+          </Group>
+          <Group title="Heartbeat">
             <HeartbeatStatus heartbeat={data.heartbeat} />
-          </Stack>
-          <Stack gap={2}>
-            <Text strong>Advisories</Text>
+          </Group>
+          <Group title="Advisories">
             <Advisories />
-          </Stack>
+          </Group>
         </Stack>
       )}
     </QueryBoundary>

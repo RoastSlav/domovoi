@@ -251,20 +251,71 @@ async fn seed_actions(store: &Store, nas: HostId) -> Result<()> {
     Ok(())
 }
 
-async fn fire_on_enter(manager: ManagerHandle, pi: HostId) -> Result<()> {
+/// What each press of Enter fires, in turn: different hosts, checks and severities, and one
+/// long title, so a busy incident list can be looked at.
+const FIRES: [(bool, &str, &str, Severity, &str); 8] = [
+    (
+        false,
+        "service.down",
+        "worker",
+        Severity::Critical,
+        "stopped",
+    ),
+    (true, "disk.usage", "/var", Severity::Warning, "is 88% full"),
+    (
+        false,
+        "container.restarts",
+        "jellyfin",
+        Severity::Warning,
+        "restarted 5 times in 10 minutes",
+    ),
+    (
+        true,
+        "smart.health",
+        "sda",
+        Severity::Critical,
+        "reports reallocated sectors",
+    ),
+    (
+        false,
+        "cert.expiry",
+        "home.example.net",
+        Severity::Info,
+        "expires in 12 days",
+    ),
+    (
+        true,
+        "memory.available",
+        "host",
+        Severity::Warning,
+        "below 5% for 15 minutes",
+    ),
+    (
+        false,
+        "backup.age",
+        "nightly-offsite-backup-to-the-storage-box",
+        Severity::Critical,
+        "has not completed for 3 days and the last attempt failed with a timeout",
+    ),
+    (true, "temperature", "cpu", Severity::Info, "at 78 °C"),
+];
+
+async fn fire_on_enter(manager: ManagerHandle, pi: HostId, nas: HostId) -> Result<()> {
     let mut lines = tokio::io::BufReader::new(tokio::io::stdin()).lines();
-    let mut n = 0u32;
+    let mut n = 0usize;
     while lines.next_line().await?.is_some() {
+        let (on_nas, check, target, severity, what) = FIRES[n % FIRES.len()];
         n += 1;
+        let target = format!("{target}-{n}");
         let signal = firing(
-            pi,
-            "service.down",
-            &format!("worker-{n}"),
-            Severity::Critical,
-            &format!("worker-{n} stopped"),
+            if on_nas { nas } else { pi },
+            check,
+            &target,
+            severity,
+            &format!("{target} {what}"),
         )?;
         manager.ingest(vec![signal]).await?;
-        say(format_args!("fired incident worker-{n}"));
+        say(format_args!("fired incident {target}"));
     }
     Ok(())
 }
@@ -499,7 +550,7 @@ async fn main() -> Result<()> {
     say(format_args!(
         "Serving on http://{ADDR}. Press Enter to fire an incident on pi; Ctrl+C to stop."
     ));
-    tokio::spawn(fire_on_enter(manager, pi));
+    tokio::spawn(fire_on_enter(manager, pi, nas));
     axum::serve(listener, app)
         .with_graceful_shutdown(async move {
             let _ = tokio::signal::ctrl_c().await;

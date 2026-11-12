@@ -32,6 +32,7 @@ export const PAGES = {
   host: page(() => import("../features/hosts/HostDetailPage").then((m) => m.HostDetailPage)),
   hosts: page(() => import("../features/hosts/HostsPage").then((m) => m.HostsPage)),
   logs: page(() => import("../features/logs/LogsPage").then((m) => m.LogsPage)),
+  overview: page(() => import("../features/overview/OverviewPage").then((m) => m.OverviewPage)),
   note: page(() => import("../features/notes/NoteEditorPage").then((m) => m.NoteEditorPage)),
   notes: page(() => import("../features/notes/NotesPage").then((m) => m.NotesPage)),
   rules: page(() => import("../features/rules/RulesPage").then((m) => m.RulesPage)),

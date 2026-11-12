@@ -1,0 +1,96 @@
+/* The host overview: panels, disk bars, stale marks and the container table. */
+.panelHead {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.stale {
+  margin-left: var(--space-2);
+  color: var(--tone-warning-fg);
+  font-size: var(--text-xs);
+}
+
+.disks {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.disk {
+  display: grid;
+  grid-template-columns: minmax(4rem, 9rem) minmax(3rem, 1fr) minmax(7rem, auto);
+  gap: var(--space-3);
+  align-items: center;
+  font-size: var(--text-sm);
+}
+
+.mount {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.amount {
+  text-align: right;
+}
+
+.bar {
+  --bar-color: var(--color-primary);
+  width: 100%;
+  height: var(--space-2);
+  appearance: none;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--color-border);
+  color: var(--bar-color);
+  overflow: hidden;
+}
+
+.bar::-webkit-progress-bar {
+  background: var(--color-border);
+}
+
+.bar::-webkit-progress-value {
+  border-radius: var(--radius-pill);
+  background: var(--bar-color);
+}
+
+.bar::-moz-progress-bar {
+  border-radius: var(--radius-pill);
+  background: var(--bar-color);
+}
+
+.bar[data-tone="warning"] {
+  --bar-color: var(--tone-warning-solid);
+}
+
+.bar[data-tone="danger"] {
+  --bar-color: var(--tone-danger-solid);
+}
+
+.noBar {
+  min-height: var(--space-2);
+}
+
+.more {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+  gap: 0 var(--space-6);
+}
+
+@media (max-width: 480px) {
+  .disk {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .disk .bar,
+  .disk .noBar {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}

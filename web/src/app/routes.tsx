@@ -64,7 +64,7 @@ export function AppRoutes() {
         )}
         <Route element={<RequireSession />}>
           <Route element={<Layout />}>
-            <Route index element={<Navigate to="/incidents" replace />} />
+            <Route index element={<PAGES.overview.Page />} />
             <Route path="/incidents" element={<IncidentListPage />} />
             <Route path="/incidents/:id" element={<IncidentDetailPage />} />
             <Route path="/chat" element={<PAGES.chat.Page />} />
@@ -78,6 +78,7 @@ export function AppRoutes() {
             <Route path="/digest" element={<PAGES.digest.Page />} />
             <Route path="/logs" element={<PAGES.logs.Page />} />
             <Route path="/settings" element={<PAGES.settings.Page />} />
+            <Route path="/settings/about" element={<Navigate to="/settings/updates" replace />} />
             <Route path="/settings/:section" element={<PAGES.settings.Page />} />
             <Route path="/welcome" element={<PAGES.firstRun.Page />} />
             <Route path="*" element={<NotFoundPage />} />

@@ -12,8 +12,10 @@ import {
   Stack,
   Tag,
 } from "../../components";
-import { ActionCard } from "./ActionCard";
+import { DecidedList } from "./DecidedList";
 import { useActionOutcomes } from "./useActionOutcomes";
+import { WaitingCard } from "./WaitingCard";
+import { WaitingRows } from "./WaitingRows";
 
 /** How far back "Recently decided" looks. */
 const RECENT_MS = 24 * 60 * 60 * 1000;
@@ -23,11 +25,17 @@ function byExpiry(actions: readonly Action[]): Action[] {
   return [...actions].sort((a, b) => Date.parse(a.expires_at) - Date.parse(b.expires_at));
 }
 
-function Cards({ actions, hosts }: { actions: readonly Action[]; hosts: Map<string, string> }) {
+/** From more than this many waiting actions the list is compact rows, each opening to its card. */
+export const COMPACT_FROM = 3;
+
+function Waiting({ actions, hosts }: { actions: readonly Action[]; hosts: Map<string, string> }) {
+  if (actions.length > COMPACT_FROM) {
+    return <WaitingRows actions={actions} hosts={hosts} />;
+  }
   return (
     <Stack gap={3}>
       {actions.map((action) => (
-        <ActionCard key={action.id} action={action} host={hosts.get(action.host_id)} showIncident />
+        <WaitingCard key={action.id} action={action} host={hosts.get(action.host_id)} />
       ))}
     </Stack>
   );
@@ -56,7 +64,7 @@ export function ApprovalsPage() {
       <PageHeader
         title="Approvals"
         docs="concepts/actions.html"
-        intro="Actions the model suggested. Nothing runs until you approve it; requests expire after an hour."
+        intro="Actions the model suggested; nothing runs until you approve them."
         meta={
           count > 0 && <Tag tone="pending">{count === 1 ? "1 waiting" : `${count} waiting`}</Tag>
         }
@@ -77,14 +85,10 @@ export function ApprovalsPage() {
             </EmptyState>
           }
         >
-          {(page) => <Cards actions={byExpiry(page.items)} hosts={hosts} />}
+          {(page) => <Waiting actions={byExpiry(page.items)} hosts={hosts} />}
         </QueryBoundary>
       </Section>
-      <Section
-        title="Recently decided"
-        collapsed
-        description="Approved, denied and expired in the last 24 hours, newest first."
-      >
+      <Section title="Recently decided" collapsed description="The last 24 hours, newest first.">
         <QueryBoundary
           query={decided}
           context="load recent decisions"
@@ -96,7 +100,7 @@ export function ApprovalsPage() {
             </EmptyState>
           }
         >
-          {(page) => <Cards actions={page.items} hosts={hosts} />}
+          {(page) => <DecidedList actions={page.items} hosts={hosts} />}
         </QueryBoundary>
       </Section>
     </>

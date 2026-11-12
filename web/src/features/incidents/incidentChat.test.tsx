@@ -9,6 +9,9 @@ import { IncidentDetailPage } from "./IncidentDetailPage";
 
 vi.mock("../../api/client", () => import("../../test/apiMock"));
 
+/** A model is set up, so the chat and Run triage are on offer. */
+const MODEL = { kind: "anthropic", api_key: "[set]", model: "claude" };
+
 const ASK = "POST /api/v1/incidents/{id}/ask";
 
 beforeEach(() => {
@@ -16,7 +19,7 @@ beforeEach(() => {
   route("GET /api/v1/hosts", () => [nas]);
   route("GET /api/v1/incidents/{id}", () => detail());
   route("GET /api/v1/incidents/{id}/followups", () => ({ turns: [] }));
-  route("GET /api/v1/settings", () => ({ triage: { enabled: true } }));
+  route("GET /api/v1/settings", () => ({ triage: { enabled: true }, llm_primary: MODEL }));
 });
 
 function open() {
@@ -225,23 +228,34 @@ test("a_rate_limited_question_counts_down", async () => {
   expect(await screen.findByRole("alert")).toHaveTextContent(/Try again in 2[78] s\./);
 });
 
-test("with_triage_off_the_composer_is_disabled_and_says_why", async () => {
-  const user = userEvent.setup();
-  route("GET /api/v1/settings", () => ({ triage: { enabled: false } }));
+test("with_no_model_the_chat_box_is_replaced_by_one_line_and_a_link", async () => {
+  route("GET /api/v1/settings", () => ({ triage: { enabled: true } }));
   open();
 
-  const reason = "Triage is off, so there is no model to ask. Turn it on under Settings, Triage.";
+  expect(await screen.findByText(/^Set up a model to ask about incidents\./)).toBeVisible();
+  expect(screen.getByRole("link", { name: "Open model settings" })).toHaveAttribute(
+    "href",
+    "/settings/models",
+  );
   expect(
-    await screen.findByText(reason),
-    "the reason is visible, not only a tooltip",
-  ).toBeVisible();
-  const box = await composer();
-  expect(box).toHaveAttribute("aria-disabled", "true");
-  expect(box).toHaveAttribute("readonly");
-  expect(screen.getByRole("button", { name: "Send" })).toHaveAccessibleDescription(reason);
+    screen.queryByLabelText("Ask about this incident"),
+    "no input that cannot be used",
+  ).toBeNull();
+  expect(
+    calls.filter((call) => call.route.endsWith("/followups")),
+    "nothing is loaded for a chat that is not there",
+  ).toEqual([]);
+});
 
-  await user.type(box, "Why now?{Enter}");
-  expect(asked(), "nothing is sent").toHaveLength(0);
+test("with_triage_off_the_chat_box_is_replaced_by_a_line_and_run_triage_says_why", async () => {
+  route("GET /api/v1/settings", () => ({ triage: { enabled: false }, llm_primary: MODEL }));
+  open();
+
+  expect(await screen.findByText(/^Triage is off, so there is no model to ask\./)).toBeVisible();
+  expect(screen.queryByLabelText("Ask about this incident")).toBeNull();
+  const run = screen.getByRole("button", { name: "Run triage again" });
+  expect(run).toHaveAttribute("aria-disabled", "true");
+  expect(run).toHaveAccessibleDescription(/Triage is off\. Turn it on under Settings/);
 });
 
 test("a_refusal_for_no_model_disables_the_composer_until_retry_works", async () => {
@@ -259,14 +273,18 @@ test("a_refusal_for_no_model_disables_the_composer_until_retry_works", async () 
   expect(calls.at(-1)?.init.body).toEqual({ question: "Why now?" });
 });
 
-test("no_model_is_not_reported_as_a_conversation_that_failed_to_load", async () => {
+test("no_model_replaces_the_chat_box_with_the_reason_and_the_way_to_fix_it", async () => {
   route("GET /api/v1/incidents/{id}/followups", () =>
     failure(503, "triage_off", "triage is not configured"),
   );
   open();
 
   expect(await screen.findByText("Triage is off, so there is no model to ask.")).toBeVisible();
-  expect(await composer()).toHaveAttribute("aria-disabled", "true");
+  expect(screen.queryByRole("textbox", { name: "Ask about this incident" })).toBeNull();
+  expect(screen.getByRole("link", { name: "Open model settings" })).toHaveAttribute(
+    "href",
+    "/settings/models",
+  );
   expect(screen.queryByText("Could not load the conversation")).toBeNull();
 });
 

@@ -1,0 +1,28 @@
+/*
+ * The thread is the kit's centred 760 px column. Here it fills the height of the window, so
+ * the composer sits at the bottom of the page and stays in view while the thread scrolls.
+ */
+.thread {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100dvh - var(--topbar-h) - var(--content-pad) * 2 - 9rem);
+}
+
+.thread > div {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+
+.thread > div > ol {
+  flex: 1 1 auto;
+}
+
+.thread > div > :has(textarea) {
+  position: sticky;
+  bottom: 0;
+  z-index: var(--z-sticky);
+  margin-top: auto;
+  padding-bottom: var(--space-2);
+  background: var(--color-bg);
+}

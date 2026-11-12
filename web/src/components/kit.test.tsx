@@ -343,7 +343,7 @@ test("menu_moves_with_arrow_keys_and_runs_the_chosen_entry", async () => {
   expect(more).toHaveFocus();
 });
 
-test("menu_shows_a_header_and_marks_the_chosen_one_of_exclusive_entries", async () => {
+test("menu_shows_a_header_groups_entries_under_a_heading_and_marks_the_chosen_one", async () => {
   const user = userEvent.setup();
   const onDark = vi.fn();
   render(
@@ -352,8 +352,8 @@ test("menu_shows_a_header_and_marks_the_chosen_one_of_exclusive_entries", async 
       icon="user"
       header="Signed in as admin"
       items={[
-        { label: "Theme: light", checked: true, onSelect: () => undefined },
-        { label: "Theme: dark", checked: false, onSelect: onDark },
+        { label: "Light", group: "Theme", checked: true, onSelect: () => undefined },
+        { label: "Dark", group: "Theme", checked: false, onSelect: onDark },
         { label: "Log out", onSelect: () => undefined },
       ]}
     />,
@@ -361,11 +361,18 @@ test("menu_shows_a_header_and_marks_the_chosen_one_of_exclusive_entries", async 
   await user.click(screen.getByRole("button", { name: "Account" }));
 
   expect(screen.getByText("Signed in as admin")).toBeInTheDocument();
-  expect(screen.getByRole("menuitemradio", { name: "Theme: light" })).toBeChecked();
-  expect(screen.getByRole("menuitemradio", { name: "Theme: light" })).toHaveFocus();
+  const theme = within(screen.getByRole("group", { name: "Theme" }));
+  expect(theme.getByRole("menuitemradio", { name: "Light" })).toBeChecked();
+  expect(theme.getByRole("menuitemradio", { name: "Light" })).toHaveFocus();
+  expect(
+    within(screen.getByRole("group", { name: "Theme" })).queryByRole("menuitem", {
+      name: "Log out",
+    }),
+    "an entry without the group sits outside it",
+  ).toBeNull();
   await user.keyboard("{ArrowDown}{ArrowDown}");
   expect(screen.getByRole("menuitem", { name: "Log out" })).toHaveFocus();
-  await user.click(screen.getByRole("menuitemradio", { name: "Theme: dark" }));
+  await user.click(screen.getByRole("menuitemradio", { name: "Dark" }));
   expect(onDark).toHaveBeenCalledOnce();
 });
 

@@ -1,6 +1,7 @@
 import { useHosts } from "../../../api/hooks/hosts";
 import type { Host } from "../../../api/types";
 import {
+  Card,
   Cluster,
   KeyValueList,
   QueryBoundary,
@@ -28,32 +29,39 @@ export function AgentVersions() {
   const hosts = useHosts();
   return (
     <QueryBoundary query={hosts} context="load hosts" loading={<Skeleton shape="rows" count={2} />}>
-      {(list) => (
-        <Stack gap={3}>
-          <Text block>{summarize(list)}</Text>
-          <KeyValueList
-            mono
-            items={list
-              .filter((host) => host.version)
-              .map((host) => ({
-                label: host.name,
-                value: (
-                  <Cluster gap={2}>
-                    <Text mono>{host.version}</Text>
-                    {host.outdated && (
-                      <Tag
-                        tone="warning"
-                        hint="This agent is older than the hub. Update it to get the latest checks."
-                      >
-                        Update available
-                      </Tag>
-                    )}
-                  </Cluster>
-                ),
-              }))}
-          />
-        </Stack>
-      )}
+      {(list) => {
+        const reporting = list.filter((host) => host.version);
+        return (
+          <Stack gap={3}>
+            <Text muted block>
+              {summarize(list)}
+            </Text>
+            {reporting.length > 0 && (
+              <Card>
+                <KeyValueList
+                  mono
+                  items={reporting.map((host) => ({
+                    label: host.name,
+                    value: (
+                      <Cluster gap={2}>
+                        <Text mono>{host.version}</Text>
+                        {host.outdated && (
+                          <Tag
+                            tone="warning"
+                            hint="This agent is older than the hub. Update it to get the latest checks."
+                          >
+                            Update available
+                          </Tag>
+                        )}
+                      </Cluster>
+                    ),
+                  }))}
+                />
+              </Card>
+            )}
+          </Stack>
+        );
+      }}
     </QueryBoundary>
   );
 }

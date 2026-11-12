@@ -73,7 +73,7 @@ const COLUMNS: Column<AckRule>[] = [
   {
     key: "host",
     label: "Host",
-    cell: (rule) => (rule.host ? <span>{rule.host}</span> : <Tag>Any host</Tag>),
+    cell: (rule) => (rule.host ? <span>{rule.host}</span> : <Text muted>Any host</Text>),
   },
   {
     key: "created",

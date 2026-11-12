@@ -19,9 +19,11 @@
   --palette-char-950: #141210;
   --palette-char-900: #1a1816;
   --palette-char-800: #22201d;
+  --palette-char-750: #262320;
   --palette-char-700: #2c2925;
   --palette-char-600: #3a3631;
   --palette-char-400: #7a7166;
+  --palette-char-300: #8a8175;
   --palette-sand-100: #ece6dc;
   --palette-sand-400: #a89f93;
   --palette-sand-500: #9c9387;
@@ -96,7 +98,7 @@
   --palette-taupe-350: #a89f93;
 
   --palette-white: #ffffff;
-  --palette-scrim-light: rgb(42 38 34 / 45%);
+  --palette-scrim-light: rgb(42 38 34 / 40%);
   --palette-scrim-dark: rgb(0 0 0 / 60%);
   --palette-shade-1: rgb(42 38 34 / 6%);
   --palette-shade-2: rgb(42 38 34 / 10%);
@@ -104,8 +106,10 @@
   --palette-shade-dark-1: rgb(0 0 0 / 30%);
   --palette-shade-dark-2: rgb(0 0 0 / 40%);
   --palette-shade-dark-3: rgb(0 0 0 / 60%);
+  --palette-highlight-light: rgb(255 255 255 / 70%);
+  --palette-highlight-dark: rgb(255 255 255 / 4%);
 
-  /* Space: a 4 px grid. */
+  /* Space: a 4 px grid (the root font size stays 16 px, so 1 rem is 16 px). */
   --space-1: 0.25rem;
   --space-2: 0.5rem;
   --space-3: 0.75rem;
@@ -115,32 +119,50 @@
   --space-7: 3rem;
   --space-8: 4rem;
 
-  /* Shape. */
+  /* Shape: 4 px tags and keys, 6 px controls, 8 px cards and tables, 12 px dialogs and popovers. */
+  --radius-xs: 4px;
   --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
   --radius-pill: 999px;
 
-  /* Type: one sans stack, one mono stack, six steps. */
-  --font-sans: system-ui, -apple-system, "Segoe UI", roboto, "Helvetica Neue", sans-serif;
-  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", "Roboto Mono", menlo, consolas, monospace;
+  /* Type: Inter Variable (self-hosted) then the system sans, one mono stack, seven steps. */
+  --font-sans: "Inter Variable", inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono:
+    ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", menlo, consolas, monospace;
   --text-xs: 0.75rem;
-  --text-sm: 0.875rem;
-  --text-base: 1rem;
-  --text-lg: 1.125rem;
-  --text-xl: 1.375rem;
-  --text-2xl: 1.75rem;
+  --text-sm: 0.8125rem;
+  --text-base: 0.875rem;
+  --text-md: 0.9375rem;
+  --text-lg: 1rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
   --leading-xs: 1rem;
-  --leading-sm: 1.25rem;
-  --leading-base: 1.5rem;
-  --leading-lg: 1.625rem;
+  --leading-sm: 1.125rem;
+  --leading-base: 1.25rem;
+  --leading-md: 1.375rem;
+  --leading-lg: 1.5rem;
   --leading-xl: 1.75rem;
-  --leading-2xl: 2.125rem;
+  --leading-2xl: 2rem;
+  --tracking-tight: -0.011em;
+  --tracking-tighter: -0.02em;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  /* The size of text typed into a control: phones use 16 px so iOS does not zoom in. */
+  --text-control: var(--text-base);
+
+  /* Sizes: every row of controls shares one height; touch screens get larger targets. */
+  --control-h: 2rem;
+  --control-h-sm: 1.75rem;
+  --item-h: 1.875rem;
+  --row-h: 2.5rem;
+  --topbar-h: 3rem;
 
   /* Layout. */
   --sidebar-width: 15rem;
-  --sidebar-rail-width: 3.75rem;
-  --content-max: 1400px;
+  --sidebar-rail-width: 3.25rem;
+  --content-max: 1200px;
+  --content-pad: var(--space-6);
 
   /* Layers. */
   --z-sticky: 10;
@@ -153,6 +175,7 @@
   --motion-fast: 120ms;
   --motion-base: 180ms;
   --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --scrim-blur: 2px;
 
   /* Semantic colours, light theme. */
   color-scheme: light;
@@ -160,8 +183,10 @@
   --color-bg: var(--palette-paper-100);
   --color-surface: var(--palette-paper-50);
   --color-surface-raised: var(--palette-paper-200);
+  --color-surface-overlay: var(--palette-paper-50);
   --color-border: var(--palette-paper-300);
   --color-border-strong: var(--palette-paper-500);
+  --color-border-hover: var(--palette-ink-500);
   --color-text: var(--palette-ink-900);
   --color-text-muted: var(--palette-ink-600);
   --color-text-subtle: var(--palette-ink-500);
@@ -169,16 +194,26 @@
   --color-primary-hover: var(--palette-moss-700);
   --color-on-primary: var(--palette-white);
   --color-frame: var(--palette-walnut-600);
-  --color-sidebar-bg: var(--palette-walnut-800);
-  --color-sidebar-text: var(--palette-sand-100);
-  --color-sidebar-text-muted: var(--palette-sand-400);
-  --color-sidebar-border: var(--palette-walnut-600);
-  --color-sidebar-raised: var(--palette-walnut-700);
-  --color-sidebar-accent: var(--palette-moss-300);
-  --color-focus: var(--palette-moss-600);
   --color-overlay: var(--palette-scrim-light);
-  --shadow-raised: 0 1px 2px var(--palette-shade-1), 0 1px 3px var(--palette-shade-2);
-  --shadow-overlay: 0 12px 40px var(--palette-shade-3);
+  --shadow-raised: inset 0 1px 0 var(--palette-highlight-light), 0 1px 2px var(--palette-shade-1);
+  --shadow-overlay: 0 0 0 1px var(--color-border), 0 16px 48px var(--palette-shade-3);
+
+  /* The same in both themes, so they live only here: the brand mark, and tokens that follow others. */
+  --color-brand: var(--palette-walnut-600);
+  --color-on-brand: var(--palette-paper-50);
+  --color-accent: var(--color-primary);
+  --color-accent-hover: var(--color-primary-hover);
+  /* Selection, selected rows and hover tints: mixed from the theme's own accent and surface, so it needs no dark value. */
+  --color-accent-tint: color-mix(in srgb, var(--color-accent) 14%, var(--color-surface));
+  --color-focus: var(--color-accent);
+  --shadow-focus: 0 0 0 3px color-mix(in srgb, var(--color-accent) 25%, transparent);
+  /* The sidebar is the page surface with a hairline border, not a colour of its own. */
+  --color-sidebar-bg: var(--color-surface);
+  --color-sidebar-text: var(--color-text);
+  --color-sidebar-text-muted: var(--color-text-muted);
+  --color-sidebar-border: var(--color-border);
+  --color-sidebar-raised: var(--color-surface-raised);
+  --color-sidebar-accent: var(--color-accent);
 
   --tone-danger-bg: var(--palette-brick-100);
   --tone-danger-fg: var(--palette-brick-600);
@@ -219,69 +254,82 @@
   --tone-neutral-on-solid: var(--palette-white);
 }
 
+/* Phones: 16 px text in controls (iOS does not zoom), a narrower page margin. */
+@media (max-width: 640px) {
+  :root {
+    --text-control: var(--text-lg);
+    --content-pad: var(--space-4);
+  }
+}
+
+/* Touch screens: larger targets. */
+@media (pointer: coarse) {
+  :root {
+    --control-h: 2.5rem;
+    --control-h-sm: 2.25rem;
+    --item-h: 2.5rem;
+    --row-h: 3rem;
+  }
+}
+
 /* Dark theme. The same block appears twice: once for an explicit choice, once for "System". */
 :root[data-theme="dark"] {
   /* dark-theme:start */
   color-scheme: dark;
 
-  --color-bg: var(--palette-char-900);
-  --color-surface: var(--palette-char-800);
-  --color-surface-raised: var(--palette-char-700);
-  --color-border: var(--palette-char-600);
+  --color-bg: var(--palette-char-950);
+  --color-surface: var(--palette-char-900);
+  --color-surface-raised: var(--palette-char-800);
+  --color-surface-overlay: var(--palette-char-750);
+  --color-border: var(--palette-char-700);
   --color-border-strong: var(--palette-char-400);
+  --color-border-hover: var(--palette-char-300);
   --color-text: var(--palette-sand-100);
   --color-text-muted: var(--palette-sand-400);
   --color-text-subtle: var(--palette-sand-500);
   --color-primary: var(--palette-moss-300);
   --color-primary-hover: var(--palette-moss-200);
-  --color-on-primary: var(--palette-char-900);
+  --color-on-primary: var(--palette-char-950);
   --color-frame: var(--palette-walnut-300);
-  --color-sidebar-bg: var(--palette-char-950);
-  --color-sidebar-text: var(--palette-sand-100);
-  --color-sidebar-text-muted: var(--palette-sand-400);
-  --color-sidebar-border: var(--palette-char-600);
-  --color-sidebar-raised: var(--palette-char-700);
-  --color-sidebar-accent: var(--palette-moss-300);
-  --color-focus: var(--palette-moss-300);
   --color-overlay: var(--palette-scrim-dark);
-  --shadow-raised: 0 1px 2px var(--palette-shade-dark-1), 0 1px 3px var(--palette-shade-dark-2);
-  --shadow-overlay: 0 12px 40px var(--palette-shade-dark-3);
+  --shadow-raised: inset 0 1px 0 var(--palette-highlight-dark);
+  --shadow-overlay: 0 0 0 1px var(--color-border), 0 16px 48px var(--palette-shade-dark-3);
 
   --tone-danger-bg: var(--palette-brick-950);
   --tone-danger-fg: var(--palette-brick-250);
   --tone-danger-border: var(--palette-brick-800);
   --tone-danger-solid: var(--palette-brick-350);
-  --tone-danger-on-solid: var(--palette-char-900);
+  --tone-danger-on-solid: var(--palette-char-950);
   --tone-warning-bg: var(--palette-ochre-950);
   --tone-warning-fg: var(--palette-ochre-250);
   --tone-warning-border: var(--palette-ochre-800);
   --tone-warning-solid: var(--palette-ochre-350);
-  --tone-warning-on-solid: var(--palette-char-900);
+  --tone-warning-on-solid: var(--palette-char-950);
   --tone-success-bg: var(--palette-sage-950);
   --tone-success-fg: var(--palette-sage-250);
   --tone-success-border: var(--palette-sage-800);
   --tone-success-solid: var(--palette-sage-350);
-  --tone-success-on-solid: var(--palette-char-900);
+  --tone-success-on-solid: var(--palette-char-950);
   --tone-pending-bg: var(--palette-plum-950);
   --tone-pending-fg: var(--palette-plum-250);
   --tone-pending-border: var(--palette-plum-800);
   --tone-pending-solid: var(--palette-plum-350);
-  --tone-pending-on-solid: var(--palette-char-900);
+  --tone-pending-on-solid: var(--palette-char-950);
   --tone-progress-bg: var(--palette-teal-950);
   --tone-progress-fg: var(--palette-teal-250);
   --tone-progress-border: var(--palette-teal-800);
   --tone-progress-solid: var(--palette-teal-350);
-  --tone-progress-on-solid: var(--palette-char-900);
+  --tone-progress-on-solid: var(--palette-char-950);
   --tone-info-bg: var(--palette-slate-950);
   --tone-info-fg: var(--palette-slate-250);
   --tone-info-border: var(--palette-slate-800);
   --tone-info-solid: var(--palette-slate-350);
-  --tone-info-on-solid: var(--palette-char-900);
+  --tone-info-on-solid: var(--palette-char-950);
   --tone-neutral-bg: var(--palette-taupe-950);
   --tone-neutral-fg: var(--palette-taupe-250);
   --tone-neutral-border: var(--palette-taupe-800);
   --tone-neutral-solid: var(--palette-taupe-350);
-  --tone-neutral-on-solid: var(--palette-char-900);
+  --tone-neutral-on-solid: var(--palette-char-950);
   /* dark-theme:end */
 }
 
@@ -290,64 +338,59 @@
     /* dark-theme:start */
     color-scheme: dark;
 
-    --color-bg: var(--palette-char-900);
-    --color-surface: var(--palette-char-800);
-    --color-surface-raised: var(--palette-char-700);
-    --color-border: var(--palette-char-600);
+    --color-bg: var(--palette-char-950);
+    --color-surface: var(--palette-char-900);
+    --color-surface-raised: var(--palette-char-800);
+    --color-surface-overlay: var(--palette-char-750);
+    --color-border: var(--palette-char-700);
     --color-border-strong: var(--palette-char-400);
+    --color-border-hover: var(--palette-char-300);
     --color-text: var(--palette-sand-100);
     --color-text-muted: var(--palette-sand-400);
     --color-text-subtle: var(--palette-sand-500);
     --color-primary: var(--palette-moss-300);
     --color-primary-hover: var(--palette-moss-200);
-    --color-on-primary: var(--palette-char-900);
+    --color-on-primary: var(--palette-char-950);
     --color-frame: var(--palette-walnut-300);
-    --color-sidebar-bg: var(--palette-char-950);
-    --color-sidebar-text: var(--palette-sand-100);
-    --color-sidebar-text-muted: var(--palette-sand-400);
-    --color-sidebar-border: var(--palette-char-600);
-    --color-sidebar-raised: var(--palette-char-700);
-    --color-sidebar-accent: var(--palette-moss-300);
-    --color-focus: var(--palette-moss-300);
     --color-overlay: var(--palette-scrim-dark);
-    --shadow-raised: 0 1px 2px var(--palette-shade-dark-1), 0 1px 3px var(--palette-shade-dark-2);
-    --shadow-overlay: 0 12px 40px var(--palette-shade-dark-3);
+    --shadow-raised: inset 0 1px 0 var(--palette-highlight-dark);
+    --shadow-overlay: 0 0 0 1px var(--color-border), 0 16px 48px var(--palette-shade-dark-3);
 
     --tone-danger-bg: var(--palette-brick-950);
     --tone-danger-fg: var(--palette-brick-250);
     --tone-danger-border: var(--palette-brick-800);
     --tone-danger-solid: var(--palette-brick-350);
-    --tone-danger-on-solid: var(--palette-char-900);
+    --tone-danger-on-solid: var(--palette-char-950);
     --tone-warning-bg: var(--palette-ochre-950);
     --tone-warning-fg: var(--palette-ochre-250);
     --tone-warning-border: var(--palette-ochre-800);
     --tone-warning-solid: var(--palette-ochre-350);
-    --tone-warning-on-solid: var(--palette-char-900);
+    --tone-warning-on-solid: var(--palette-char-950);
     --tone-success-bg: var(--palette-sage-950);
     --tone-success-fg: var(--palette-sage-250);
     --tone-success-border: var(--palette-sage-800);
     --tone-success-solid: var(--palette-sage-350);
-    --tone-success-on-solid: var(--palette-char-900);
+    --tone-success-on-solid: var(--palette-char-950);
     --tone-pending-bg: var(--palette-plum-950);
     --tone-pending-fg: var(--palette-plum-250);
     --tone-pending-border: var(--palette-plum-800);
     --tone-pending-solid: var(--palette-plum-350);
-    --tone-pending-on-solid: var(--palette-char-900);
+    --tone-pending-on-solid: var(--palette-char-950);
     --tone-progress-bg: var(--palette-teal-950);
     --tone-progress-fg: var(--palette-teal-250);
     --tone-progress-border: var(--palette-teal-800);
     --tone-progress-solid: var(--palette-teal-350);
-    --tone-progress-on-solid: var(--palette-char-900);
+    --tone-progress-on-solid: var(--palette-char-950);
     --tone-info-bg: var(--palette-slate-950);
     --tone-info-fg: var(--palette-slate-250);
     --tone-info-border: var(--palette-slate-800);
     --tone-info-solid: var(--palette-slate-350);
-    --tone-info-on-solid: var(--palette-char-900);
+    --tone-info-on-solid: var(--palette-char-950);
     --tone-neutral-bg: var(--palette-taupe-950);
     --tone-neutral-fg: var(--palette-taupe-250);
     --tone-neutral-border: var(--palette-taupe-800);
     --tone-neutral-solid: var(--palette-taupe-350);
-    --tone-neutral-on-solid: var(--palette-char-900);
+    --tone-neutral-on-solid: var(--palette-char-950);
     /* dark-theme:end */
   }
 }
@@ -356,5 +399,6 @@
   :root {
     --motion-fast: 0ms;
     --motion-base: 0ms;
+    --scrim-blur: 0px;
   }
 }

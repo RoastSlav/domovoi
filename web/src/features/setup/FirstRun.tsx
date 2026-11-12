@@ -12,6 +12,7 @@ import {
   type StepperStep,
 } from "../../components";
 import { FinishStep } from "./FinishStep";
+import styles from "./setup.module.css";
 import { HOST_TITLE, STEPS } from "./steps";
 import { useWizard } from "./useWizard";
 import { WizardStep } from "./WizardStep";
@@ -34,23 +35,25 @@ function Wizard({ editable }: { editable: Editable }) {
             : ("done" as const),
   }));
   return (
-    <Stack gap={4}>
-      <Stepper label="Setup steps" steps={steps} />
-      {current ? (
-        <WizardStep step={current} editable={editable} wizard={wizard} />
-      ) : (
-        <FinishStep wizard={wizard} />
-      )}
-      {wizard.asking && (
-        <PasswordPrompt
-          reason="Saving a token or key needs your password again."
-          error={wizard.passwordError}
-          busy={wizard.apply.pending}
-          onConfirm={wizard.confirmPassword}
-          onCancel={wizard.cancelPassword}
-        />
-      )}
-    </Stack>
+    <div className={styles.wizard}>
+      <Stack gap={4}>
+        <Stepper label="Setup steps" steps={steps} />
+        {current ? (
+          <WizardStep step={current} editable={editable} wizard={wizard} />
+        ) : (
+          <FinishStep wizard={wizard} />
+        )}
+        {wizard.asking && (
+          <PasswordPrompt
+            reason="Saving a token or key needs your password again."
+            error={wizard.passwordError}
+            busy={wizard.apply.pending}
+            onConfirm={wizard.confirmPassword}
+            onCancel={wizard.cancelPassword}
+          />
+        )}
+      </Stack>
+    </div>
   );
 }
 
@@ -95,7 +98,7 @@ export function FirstRun() {
     <>
       <PageHeader
         title="Set up Domovoi"
-        intro="A few steps to get alerts, triage and your first host working. You can skip any step but the first and come back in Settings."
+        intro="Get alerts, triage and your first host working in a few steps; every step but the first can be skipped."
       />
       <Body />
     </>

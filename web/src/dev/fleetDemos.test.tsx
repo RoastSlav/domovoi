@@ -9,7 +9,7 @@ describe("the Fleet catalogue demos", () => {
     skipAxe();
     renderAt("/", "/", <FleetDemos />);
     expect(screen.getByRole("heading", { name: "nas-01" })).toBeInTheDocument();
-    expect(screen.getByText("Free on /")).toBeInTheDocument();
+    expect(screen.getByRole("list", { name: "Disk usage" })).toHaveTextContent("112 GB free");
     expect(screen.getByRole("button", { name: "Edit disk_free" })).toBeInTheDocument();
     expect(screen.getAllByRole("log")[0]).toHaveTextContent("Cannot reach the Docker socket");
   });

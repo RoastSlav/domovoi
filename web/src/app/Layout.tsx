@@ -4,6 +4,8 @@ import { useLiveEvents } from "../api/events";
 import { Banner, useToast } from "../components";
 import { SetupBanner } from "../features/setup/SetupBanner";
 import { UpdateBanner } from "../features/updates/UpdateBanner";
+import { AppPalette } from "./AppPalette";
+import { useCommandPalette } from "./commandPalette";
 import { HostProvider } from "./HostContext";
 import styles from "./Layout.module.css";
 import { PageSkeleton } from "./PageSkeleton";
@@ -40,11 +42,18 @@ export function Layout() {
   const menu = useRef<HTMLButtonElement>(null);
   const [slot, setSlot] = useState<HTMLElement | null>(null);
   const { rail, toggle } = useSidebarRail();
+  const palette = useCommandPalette();
   useBackOnlineToast(live.paused);
 
   const closeSheet = () => {
     setOpenFor(null);
     menu.current?.focus();
+  };
+
+  const openPalette = () => {
+    // From the phone's sheet, the palette replaces the sheet.
+    setOpenFor(null);
+    palette.setOpen(true);
   };
 
   return (
@@ -58,7 +67,14 @@ export function Layout() {
             live={live.status}
             open={open}
             onClose={closeSheet}
+            onOpenPalette={openPalette}
+            paletteOpen={palette.open}
             rail={rail}
+            onToggleRail={toggle}
+          />
+          <AppPalette
+            open={palette.open}
+            onClose={() => palette.setOpen(false)}
             onToggleRail={toggle}
           />
           <div className={styles.column}>

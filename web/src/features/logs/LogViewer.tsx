@@ -1,10 +1,9 @@
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { LogLine } from "../../api/types";
 import {
   Button,
   CopyButton,
   EmptyState,
-  Field,
   QueryBoundary,
   Skeleton,
   Switch,
@@ -165,7 +164,9 @@ function LogArea({
 }
 
 /**
- * Log lines oldest first, newest at the bottom, in monospace with only the level word toned.
+ * Log lines oldest first, newest at the bottom, in monospace with only the level tag toned.
+ * One toolbar of 32 px controls sits above them: the page's own controls (`leading`), a search,
+ * Live, Wrap and Refresh.
  * A search box filters and highlights, a wrap switch folds long lines, and only the newest
  * 500 lines are drawn until "Show older" asks for more, so a long log does not slow the page.
  * It says what it is doing while loading, why it is empty and why it could not load.
@@ -181,8 +182,11 @@ export function LogViewer({
   label,
   refreshMs,
   onLiveChange,
+  leading,
 }: {
   label: string;
+  /** Controls that start the toolbar: the page's source, level and line count. */
+  leading?: ReactNode;
   level: string;
   onLiveChange?: (live: boolean) => void;
   query: LogsQuery;
@@ -200,26 +204,24 @@ export function LogViewer({
 
   return (
     <div className={styles.viewer}>
-      <div className={styles.toolbar}>
+      <div className={styles.toolbar} role="toolbar" aria-label="Log controls">
+        {leading}
         <div className={styles.search}>
-          <Field label="Search lines">
-            <TextInput
-              type="search"
-              placeholder="Text, level or source"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-            />
-          </Field>
+          <TextInput
+            type="search"
+            aria-label="Search lines"
+            placeholder="Search text, level or source"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
         </div>
-        <div className={styles.switches}>
-          {onLiveChange && (
-            <Switch label="Live" checked={refreshMs !== null} onChange={onLiveChange} />
-          )}
-          <Switch label="Wrap lines" checked={wrap} onChange={setWrap} />
-          <Button icon="refresh" onClick={() => void query.refetch()}>
-            Refresh
-          </Button>
-        </div>
+        {onLiveChange && (
+          <Switch label="Live" checked={refreshMs !== null} onChange={onLiveChange} />
+        )}
+        <Switch label="Wrap lines" checked={wrap} onChange={setWrap} />
+        <Button icon="refresh" onClick={() => void query.refetch()}>
+          Refresh
+        </Button>
       </div>
       <QueryBoundary
         query={{ ...query, data: all === undefined ? undefined : matching }}

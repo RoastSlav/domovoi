@@ -6,12 +6,32 @@
   margin-bottom: var(--space-4);
 }
 
-/* Side by side on a phone too: the first incident must not start a screen down. */
+/* Search and severity on one compact row, on a phone too: the first incident must not start a screen down. */
 .filterRow {
   display: grid;
-  grid-template-columns: minmax(0, 24rem) minmax(7rem, 12rem);
-  gap: var(--space-3);
-  align-items: start;
+  grid-template-columns: minmax(0, 24rem) minmax(8rem, 12rem);
+  gap: var(--space-2);
+  align-items: center;
+}
+
+/* The card's title reads as text, like the table's: it underlines on hover and focus. */
+.titleLink {
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.titleLink:hover,
+.titleLink:focus-visible {
+  color: var(--color-text);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* On a phone the search has the whole width and severity sits under it. */
+@media (max-width: 599px) {
+  .filterRow {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .cards {
@@ -32,76 +52,344 @@
   padding-left: var(--space-5);
 }
 
-/* One column: the summary, the proposed actions, the story, then the history. */
+/*
+ * One column on a phone, in the order of the `data-slot`s below: what is going on, what
+ * waits for a decision, the evidence, what is running, steps by hand, earlier actions,
+ * details, chat, tools, timeline. `.main` and `.side` disappear (display: contents) so their
+ * slots sort together; 24 px between slots.
+ */
 .detail {
   display: flex;
   flex-direction: column;
+  gap: var(--space-5);
   min-width: 0;
 }
 
+.main,
 .side {
   display: contents;
 }
 
-.summary {
+.slot {
+  min-width: 0;
+}
+
+.slot:empty {
+  display: none;
+}
+
+.slot[data-slot="going"] {
   order: 1;
 }
 
-.actions {
+.slot[data-slot="waiting"] {
   order: 2;
 }
 
-.main {
+.slot[data-slot="evidence"] {
   order: 3;
 }
 
-.history {
+.slot[data-slot="progress"] {
   order: 4;
 }
 
-.summary,
-.actions,
-.main,
-.history {
-  min-width: 0;
+.slot[data-slot="byhand"] {
+  order: 5;
 }
 
-/* Two columns: the story on the left, what to do and what happened on the right. */
+.slot[data-slot="earlier"] {
+  order: 6;
+}
+
+.slot[data-slot="details"] {
+  order: 7;
+}
+
+.slot[data-slot="chat"] {
+  order: 8;
+}
+
+.slot[data-slot="tools"] {
+  order: 9;
+}
+
+.slot[data-slot="timeline"] {
+  order: 10;
+}
+
+/* Two columns: the report and the chat on the left, what to do and what happened on the right. The page scrolls as one. */
 .detail[data-columns="2"] {
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
-  grid-template-rows: auto 1fr;
-  column-gap: var(--space-5);
+  gap: var(--space-5);
   align-items: start;
 }
 
-.detail[data-columns="2"] .summary {
-  grid-column: 1;
-  grid-row: 1;
-}
-
-.detail[data-columns="2"] .main {
-  grid-column: 1;
-  grid-row: 2;
-}
-
+.detail[data-columns="2"] .main,
 .detail[data-columns="2"] .side {
-  display: block;
-  grid-column: 2;
-  grid-row: 1 / span 2;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
   min-width: 0;
 }
 
-/* The right column's first section lines up with the summary card. */
-.detail[data-columns="2"] .actions > :first-child {
-  margin-top: 0;
+.detail[data-columns="2"] .slot {
+  order: 0;
 }
 
-@media (min-height: 800px) {
-  .detail[data-columns="2"] .side {
-    position: sticky;
-    top: var(--space-4);
-    max-height: calc(100vh - var(--space-6));
-    overflow-y: auto;
+/* The next step, set apart from the paragraphs above it. */
+.nextStep {
+  padding: var(--space-2) var(--space-3);
+  border-left: 2px solid var(--color-accent);
+  background: var(--color-accent-tint);
+  font-size: var(--text-base);
+  line-height: var(--leading-base);
+}
+
+/* Evidence: a small label over its value, three cells to a row on a wide screen. */
+.evidence {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3) var(--space-4);
+  margin: 0;
+}
+
+@media (max-width: 899px) {
+  .evidence {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.evidenceCell {
+  display: grid;
+  align-content: center;
+  gap: 2px;
+  min-height: 2.75rem;
+  min-width: 0;
+}
+
+.evidenceCell dt {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  line-height: var(--leading-xs);
+}
+
+.evidenceCell dd {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-sm);
+  overflow-wrap: anywhere;
+}
+
+/* Long details fold to about six lines; the button under them opens the rest. */
+.details[data-folded] {
+  max-height: calc(var(--leading-base) * 7);
+  overflow: hidden;
+}
+
+/* Action cards: 12 px apart. */
+.actionCards {
+  display: grid;
+  gap: var(--space-3);
+}
+
+/* Compact rows: one bordered list, a row per action or tool. */
+.list {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  list-style: none;
+}
+
+.item {
+  padding: var(--space-2) var(--space-3);
+}
+
+.item + .item {
+  border-top: 1px solid var(--color-border);
+}
+
+.actionRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--space-6);
+  font-size: var(--text-sm);
+}
+
+.actionLine {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.skill {
+  font-family: var(--font-mono);
+  font-weight: var(--weight-medium);
+}
+
+/* The arguments in full on a second line, muted mono, wrapping. */
+.argsLine {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: var(--leading-xs);
+  overflow-wrap: anywhere;
+}
+
+.rowWhen {
+  display: inline-flex;
+  min-width: 3.5rem;
+  justify-content: flex-end;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.rowNote,
+.rowFailure {
+  margin: 0;
+  font-size: var(--text-xs);
+  line-height: var(--leading-xs);
+}
+
+.rowNote {
+  color: var(--color-text-muted);
+}
+
+.rowFailure {
+  color: var(--tone-danger-fg);
+  overflow-wrap: anywhere;
+}
+
+/* Tools: 28 px rows, name and calls; failures only when there are some. */
+.toolList {
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.toolRow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-height: 1.75rem;
+  font-size: var(--text-sm);
+}
+
+.toolName {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toolKind {
+  color: var(--color-text-subtle);
+  font-size: var(--text-xs);
+}
+
+.toolFigures {
+  display: inline-flex;
+  flex: none;
+  gap: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.toolFailed {
+  color: var(--tone-danger-fg);
+}
+
+.toolRefused {
+  color: var(--tone-warning-fg);
+}
+
+/* Timeline: newest first, one 28 px line per entry. */
+.timeline {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.timelineRow {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 1.75rem;
+  font-size: var(--text-sm);
+}
+
+.timelineIcon {
+  display: inline-flex;
+  color: var(--tone-fg, var(--color-text-muted));
+}
+
+.timelineText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.timelinePhrase {
+  font-weight: var(--weight-medium);
+}
+
+.timelineDetail,
+.timelineWhen {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+/* What's going on: the headline and the button on one row; on a phone the button goes last, full width. */
+.going {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  align-items: start;
+}
+
+.goingHead {
+  grid-column: 1;
+  grid-row: 1;
+  min-width: 0;
+}
+
+.goingBody {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  min-width: 0;
+}
+
+.goingAgain {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+@media (max-width: 639px) {
+  .going {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .goingAgain {
+    grid-column: 1;
+    grid-row: 3;
+  }
+
+  .goingAgain button {
+    width: 100%;
   }
 }

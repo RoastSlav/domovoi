@@ -41,7 +41,6 @@ export function StatusDemos() {
             <StatusPill
               key={tone}
               size="sm"
-              showIcon={false}
               meta={{ label: tone, tone, hint: `The ${tone} tone.`, icon: "dot" }}
             />
           ))}

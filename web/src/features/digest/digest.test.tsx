@@ -41,6 +41,7 @@ test("digest_page_shows_the_preview_as_it_will_be_sent", async () => {
 });
 
 test("digest_preview_shows_one_card_per_host_when_the_hub_gives_them", async () => {
+  const user = userEvent.setup();
   route("GET /api/v1/digest/preview", () => ({
     date: "2026-11-06",
     markdown: "The whole digest message",
@@ -56,8 +57,33 @@ test("digest_preview_shows_one_card_per_host_when_the_hub_gives_them", async () 
   expect(within(preview).getByText("2 incidents").tagName).toBe("STRONG");
   expect(within(preview).getByText("pi")).toBeVisible();
   expect(within(preview).getByText("Nothing changed")).toBeVisible();
-  // The whole message stays below the host cards, so nothing the digest says is lost.
+  // The whole message stays below the host cards, folded because they repeat it.
+  expect(within(preview).queryByText("The whole digest message")).toBeNull();
+  await user.click(within(preview).getByRole("button", { name: "Show the whole message as sent" }));
   expect(await within(preview).findByText("The whole digest message")).toBeInTheDocument();
+});
+
+test("a_host_with_many_lines_shows_six_and_expands_to_the_rest", async () => {
+  const user = userEvent.setup();
+  const lines = Array.from({ length: 20 }, (_, i) => `line number ${i + 1}`);
+  route("GET /api/v1/digest/preview", () => ({
+    date: "2026-11-06",
+    markdown: "message",
+    hosts: [
+      { host: "nas", quiet: false, lines },
+      { host: "pi", quiet: false, lines: ["only one"] },
+    ],
+  }));
+  renderAt("/digest", "/digest", <DigestPage />);
+
+  const preview = await screen.findByRole("article", { name: "Digest for 2026-11-06" });
+  expect(await within(preview).findByText("line number 6")).toBeVisible();
+  expect(within(preview).queryByText("line number 7")).toBeNull();
+  expect(within(preview).getAllByRole("button", { name: /^Show \d+ more$/ })).toHaveLength(1);
+
+  await user.click(within(preview).getByRole("button", { name: "Show 14 more" }));
+  expect(await within(preview).findByText("line number 20")).toBeVisible();
+  expect(within(preview).getByRole("button", { name: "Show fewer" })).toBeVisible();
 });
 
 test("digest_send_now_confirms_in_a_toast_that_it_went_to_discord", async () => {

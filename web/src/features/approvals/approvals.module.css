@@ -1,0 +1,106 @@
+/* Placement only: colours, borders and type come from tokens and the kit. */
+
+/* What would run: the arguments as `key = value` lines in a quiet recessed block. */
+.args {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.argsLabel {
+  margin: 0;
+  color: var(--color-text-subtle);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-xs);
+}
+
+.argList {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  list-style: none;
+}
+
+.argList li {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* The accent icon of a secondary Approve: green says "this one acts". */
+.approveIcon svg {
+  color: var(--color-accent);
+}
+
+/* Many waiting actions: one bordered list, a line each; an opened one shows its card. */
+.rows {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  list-style: none;
+}
+
+.row,
+.rowOpen {
+  padding: var(--space-2) var(--space-3);
+}
+
+.row + .row,
+.row + .rowOpen,
+.rowOpen + .row,
+.rowOpen + .rowOpen {
+  border-top: 1px solid var(--color-border);
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.rowOpen {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-2);
+}
+
+.rowSkill {
+  flex: 0 1 12rem;
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-weight: var(--weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowHost {
+  flex: 0 1 8rem;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowArgs {
+  flex: 1 1 8rem;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

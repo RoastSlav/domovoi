@@ -11,8 +11,8 @@ export interface KeyValue {
 }
 
 /**
- * Facts about one thing as a definition list: label on the left, value on the right,
- * stacked on a phone.
+ * Facts about one thing as a definition list: a muted label and its value, in two columns
+ * when the container is wide enough and stacked on a phone.
  *
  * Use it for the details of a single object (a host, a skill). Many objects with the same
  * fields are a `DataTable`.
@@ -28,7 +28,7 @@ export function KeyValueList({
   return (
     <dl className={styles.kv} data-mono={mono || undefined}>
       {items.map((item) => (
-        <div key={item.label} className="contents">
+        <div key={item.label} className={styles.kvRow}>
           <dt>
             {item.label}
             {item.hint && <InfoTip title={item.label}>{item.hint}</InfoTip>}
