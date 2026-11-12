@@ -248,8 +248,8 @@ async fn triage_failure_still_leaves_a_card() {
 mod redaction {
     use domovoi_core::ports::{IncidentRepo, SignalRepo};
     use domovoi_core::{
-        CheckKey, Evidence, EvidenceValue, HostName, Severity, Signal, SignalClass, SourceKind,
-        TriageOutcome,
+        ActionRequest, ActionStatus, CheckKey, Evidence, EvidenceValue, HostName, IncidentId,
+        Severity, Signal, SignalClass, SourceKind, TriageOutcome, TriageReport,
     };
     use domovoi_engine::EventKind;
     use domovoi_engine::cards::{CardLinks, build_card};
@@ -264,6 +264,69 @@ mod redaction {
     fn assert_clean(what: &str, text: &str) {
         for leak in [SECRET, "hunter2hunter2", GITHUB_TOKEN] {
             assert!(!text.contains(leak), "{what} contains {leak}: {text}");
+        }
+    }
+
+    /// The repeat cache must hand back the report the fresh run stored, redacted.
+    /// The only difference allowed is dropping proposals that are already waiting on
+    /// the incident, which the drop records in the reasoning.
+    fn assert_cached_report(
+        outcome: &TriageOutcome,
+        fresh: &TriageReport,
+        incident: IncidentId,
+        waiting: Vec<ActionRequest>,
+    ) {
+        let TriageOutcome::Cached {
+            report: got,
+            from: _source,
+        } = outcome
+        else {
+            panic!("a cached outcome, not {outcome:?}")
+        };
+        assert_clean("the cached report", &format!("{outcome:?}"));
+        assert_eq!(
+            got.headline, fresh.headline,
+            "headline changed: {outcome:?}"
+        );
+        assert_eq!(got.summary, fresh.summary, "summary changed: {outcome:?}");
+        assert_eq!(got.cause, fresh.cause, "cause changed: {outcome:?}");
+        assert_eq!(
+            got.evidence, fresh.evidence,
+            "evidence changed: {outcome:?}"
+        );
+        assert_eq!(got.verdict, fresh.verdict, "verdict changed: {outcome:?}");
+        assert_eq!(
+            got.next_step, fresh.next_step,
+            "next step changed: {outcome:?}"
+        );
+        assert_eq!(
+            got.manual_steps, fresh.manual_steps,
+            "manual steps changed: {outcome:?}"
+        );
+        assert!(
+            got.details.starts_with(&fresh.details),
+            "reasoning rewritten: {got:?}",
+        );
+        assert!(
+            got.proposals
+                .iter()
+                .all(|proposed| fresh.proposals.contains(proposed)),
+            "the repeat invented a proposal: {outcome:?}",
+        );
+        for dropped in fresh
+            .proposals
+            .iter()
+            .filter(|wanted| !got.proposals.contains(wanted))
+        {
+            assert!(
+                waiting
+                    .iter()
+                    .any(|action| matches!(action.status(), ActionStatus::Proposed)
+                        && action.incident() == incident
+                        && action.skill() == &dropped.skill
+                        && action.args() == &dropped.args),
+                "a proposal was dropped with nothing waiting: {outcome:?}",
+            );
         }
     }
 
@@ -331,10 +394,7 @@ mod redaction {
         IncidentRepo::insert(&*w.store, &earlier).await.unwrap();
         w.signal(disk(92.1)).await;
         let cached = w.run().await;
-        assert!(
-            matches!(&cached, TriageOutcome::Cached { report: r, .. } if r == report),
-            "{cached:?}"
-        );
+        assert_cached_report(&cached, report, w.incident.id(), w.actions().await);
         assert_clean("the cached report", &format!("{cached:?}"));
     }
 
