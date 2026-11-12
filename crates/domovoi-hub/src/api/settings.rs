@@ -275,7 +275,7 @@ pub(super) async fn show(
             enabled: triage.enabled,
             concurrency: triage.concurrency,
             per_hour_runs: triage.per_hour_runs,
-            reserved_for_incidents: triage.reserved_for_incidents,
+            reserved_for_incidents: triage.runs_reserved_for_incidents(),
             monthly_budget_usd: triage.monthly_budget_usd,
         },
         discord,

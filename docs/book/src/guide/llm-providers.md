@@ -119,7 +119,8 @@ Domovoi has no built-in price list. Without `price`, the cost of a turn is unkno
 ## Runs per hour
 
 Triage answers at most `per_hour_runs` times an hour (6 by default), and keeps
-`reserved_for_incidents` of them (2 by default) free for triage itself. Follow-up questions
+`reserved_for_incidents` of them free for triage itself (2 by default, or one fewer than
+the hour when that is smaller). Follow-up questions
 (web and Discord) and the general chat count against the same hourly limit, but they may
 only use it while more than `reserved_for_incidents` runs are left, so a few questions can
 never push a new incident's triage out of the hour. When the hour is used up, triage waits

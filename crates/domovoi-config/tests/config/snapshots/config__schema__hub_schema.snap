@@ -725,10 +725,13 @@ expression: "HubConfig::json_schema()"
           "$ref": "#/$defs/TriageLimits"
         },
         "reserved_for_incidents": {
-          "description": "Runs the hour always keeps free for triage: questions and chat may not use these\nlast runs of the hour. Must be less than `per_hour_runs`. Default 2.",
-          "type": "integer",
+          "description": "Runs the hour always keeps free for triage: questions and chat may not use these\nlast runs of the hour. When set it must be less than `per_hour_runs`. When omitted\nit is 2, or one fewer than `per_hour_runs` when that is smaller. Ignored when\n`per_hour_runs` is 0.",
+          "type": [
+            "integer",
+            "null"
+          ],
           "format": "uint32",
-          "default": 2,
+          "default": null,
           "minimum": 0
         }
       },
