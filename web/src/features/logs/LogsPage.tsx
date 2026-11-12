@@ -2,18 +2,11 @@ import { useSearchParams } from "react-router";
 import { useHosts, useHostLogs } from "../../api/hooks/hosts";
 import { LOGS_REFRESH_MS, useLogs } from "../../api/hooks/system";
 import { useSelectedHost } from "../../app/HostContext";
-import {
-  Field,
-  OptionPicker,
-  PageHeader,
-  Select,
-  StatusPill,
-  type PickerOption,
-} from "../../components";
+import { OptionPicker, PageHeader, Select, StatusPill, type PickerOption } from "../../components";
 import { hostConnectionMeta, hostConnectionOf } from "../../design/tone";
 import { LogViewer } from "./LogViewer";
-import { DEFAULT_LEVEL, DEFAULT_LINES } from "./logLines";
 import styles from "./logs.module.css";
+import { DEFAULT_LEVEL, DEFAULT_LINES } from "./logLines";
 
 /** The value of the source that is the hub's own log. */
 const HUB = "hub";
@@ -77,55 +70,47 @@ export function LogsPage() {
         title="Logs"
         docs="concepts/logs.html"
         intro={
-          captured ? (
-            <>
-              What the hub itself was doing. The newest lines are at the bottom, and secrets are
-              removed before a line is shown.
-            </>
-          ) : (
-            <>
-              What the agent on <strong>{source}</strong> was doing. The newest lines are at the
-              bottom, and secrets are removed before a line is shown, again here in case the agent
-              was not careful enough.
-            </>
-          )
+          captured
+            ? "What the hub is doing, newest at the bottom, secrets removed."
+            : `What the agent on ${source} is doing, newest at the bottom, secrets removed.`
         }
       />
-      <form
-        className={styles.choices}
-        aria-label="Choose the log lines to read"
-        onSubmit={(event) => event.preventDefault()}
-      >
-        <div className={styles.pickerField}>
-          <span className={styles.pickerLabel}>Source</span>
-          <OptionPicker
-            label="Source"
-            value={source}
-            options={sources}
-            onChange={(value) => choose("source", value)}
-          />
-        </div>
-        <Field label="Level and above">
-          <Select value={level} onChange={(event) => choose("level", event.target.value)}>
-            {LEVELS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.text}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        <Field label="Lines">
-          <Select value={count} onChange={(event) => choose("lines", event.target.value)}>
-            {COUNTS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.text}
-              </option>
-            ))}
-          </Select>
-        </Field>
-      </form>
       <LogViewer
         key={source}
+        leading={
+          <>
+            <span className={styles.source}>
+              <OptionPicker
+                label="Source"
+                value={source}
+                options={sources}
+                onChange={(value) => choose("source", value)}
+              />
+            </span>
+            <Select
+              aria-label="Level and above"
+              value={level}
+              onChange={(event) => choose("level", event.target.value)}
+            >
+              {LEVELS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.text}
+                </option>
+              ))}
+            </Select>
+            <Select
+              aria-label="Lines"
+              value={count}
+              onChange={(event) => choose("lines", event.target.value)}
+            >
+              {COUNTS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.text}
+                </option>
+              ))}
+            </Select>
+          </>
+        }
         query={captured ? hub : agent}
         level={level}
         label={captured ? "Hub log lines" : `Agent log lines on ${source}`}

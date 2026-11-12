@@ -1,15 +1,48 @@
-.hostList {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  margin: 0;
-  padding: 0;
-  list-style: none;
+/* Skills grouped by risk: each group is a heading row over one bordered table. */
+.groups {
+  display: grid;
+  gap: var(--space-6);
 }
 
-.hostList li {
+.group {
+  min-width: 0;
+}
+
+.groupHead {
   display: flex;
   flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
   align-items: center;
-  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.groupTitle {
+  margin: 0;
+}
+
+/* The skill name is a button that opens the skill; its text shares the column's left edge. */
+.name.name {
+  padding-inline: 0;
+}
+
+/* Host cards under "All hosts". */
+.hostCard {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.hostCardHead {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  justify-content: space-between;
+}
+
+.hostGo {
+  display: inline-flex;
+  gap: var(--space-1);
+  align-items: center;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
 }

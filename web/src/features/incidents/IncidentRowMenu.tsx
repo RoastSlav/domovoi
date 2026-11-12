@@ -1,5 +1,4 @@
 // feedback-ok: useIncidentActions wraps ack, mute and unmute in useActionFeedback
-import { useNavigate } from "react-router";
 import type { IncidentSummary } from "../../api/types";
 import { Menu, type MenuItem } from "../../components";
 import { MUTE_OPTIONS, useIncidentActions } from "./useIncidentActions";
@@ -9,7 +8,6 @@ import { MUTE_OPTIONS, useIncidentActions } from "./useIncidentActions";
  * for a while or unmute, and open. Each reports its result as a toast.
  */
 export function IncidentRowMenu({ incident }: { incident: IncidentSummary }) {
-  const navigate = useNavigate();
   const { ack, mute, unmute } = useIncidentActions(incident.id);
   const live = incident.status !== "resolved";
 
@@ -28,11 +26,9 @@ export function IncidentRowMenu({ incident }: { incident: IncidentSummary }) {
       });
     }
   }
-  items.push({
-    label: "Open",
-    icon: "chevron-right",
-    onSelect: () => void navigate(`/incidents/${incident.id}`),
-  });
-
+  // The whole row already opens the incident; with nothing else to offer there is no menu.
+  if (items.length === 0) {
+    return null;
+  }
   return <Menu label={`Actions for ${incident.title}`} items={items} />;
 }

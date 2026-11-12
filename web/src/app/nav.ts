@@ -38,6 +38,12 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     title: "Respond",
     items: [
       {
+        to: "/",
+        label: "Overview",
+        icon: "dashboard",
+        preload: PAGES.overview.preload,
+      },
+      {
         to: "/incidents",
         label: "Incidents",
         icon: "alert",

@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
-import { useSearchParams } from "react-router";
+import { useMatch, useNavigate, useSearchParams } from "react-router";
 
 /** The `localStorage` key that remembers the selected host between visits. */
 export const SELECTED_HOST_KEY = "selected-host";
@@ -31,20 +31,35 @@ type HostSelection = readonly [string | undefined, (name: string | undefined) =>
 
 const HostContext = createContext<HostSelection | null>(null);
 
+/** The host that the address is about: `/hosts/nas` is about `nas`. */
+const HOST_ROUTE = "/hosts/:name/*";
+
 /**
- * Holds the app-wide host selection. The URL's `?host=` wins, so shared links keep working;
- * without it the last choice is read back from `localStorage`.
+ * Holds the app-wide host selection, which follows the page: on `/hosts/:name` the selected
+ * host is that host, and a `?host=` in the address selects it too (so shared links keep
+ * working). Otherwise the last choice is read back from `localStorage`. A host page only shows
+ * its host in the selector: leaving it brings back the person's own choice, so looking at one
+ * host never quietly filters every other page.
+ *
+ * Choosing a host on a page about one host opens that host's page instead (`All hosts` goes
+ * to the host list), so the selector and the page never disagree.
  */
 export function HostProvider({ children }: { children: ReactNode }) {
   const [params, setParams] = useSearchParams();
-  const [stored, setStored] = useState(readStored);
+  const navigate = useNavigate();
+  const routeHost = useMatch(HOST_ROUTE)?.params.name || undefined;
   const fromUrl = params.get("host") || undefined;
-  const selected = fromUrl ?? stored;
+  const [stored, setStored] = useState(readStored);
+  const selected = routeHost ?? fromUrl ?? stored;
 
   const select = useCallback(
     (name: string | undefined) => {
       setStored(name);
       writeStored(name);
+      if (routeHost !== undefined) {
+        void navigate(name ? `/hosts/${encodeURIComponent(name)}` : "/hosts");
+        return;
+      }
       setParams((previous) => {
         const next = new URLSearchParams(previous);
         if (name) {
@@ -55,7 +70,7 @@ export function HostProvider({ children }: { children: ReactNode }) {
         return next;
       });
     },
-    [setParams],
+    [navigate, routeHost, setParams],
   );
 
   const value = useMemo<HostSelection>(() => [selected, select], [selected, select]);

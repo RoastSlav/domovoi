@@ -1,6 +1,6 @@
 import { useId } from "react";
 import { Icon, type IconName } from "../design/icons";
-import styles from "./form.module.css";
+import styles from "./choice.module.css";
 
 /** One choice in a segmented control. */
 export interface Segment<T extends string> {
@@ -44,7 +44,7 @@ export function SegmentedControl<T extends string>({
             checked={option.value === value}
             onChange={() => onChange(option.value)}
           />
-          {option.icon && <Icon name={option.icon} size={14} />}
+          {option.icon && <Icon name={option.icon} size={16} />}
           {option.label}
         </label>
       ))}

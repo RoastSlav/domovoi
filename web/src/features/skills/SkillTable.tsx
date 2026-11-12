@@ -1,11 +1,10 @@
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import type { Skill } from "../../api/types";
 import {
   Button,
   Cluster,
   DataTable,
   RelativeTime,
-  Stack,
   StatusPill,
   Switch,
   Tag,
@@ -13,11 +12,12 @@ import {
   type Column,
 } from "../../components";
 import { riskMeta } from "../../design/tone";
-import { RISK_EXPLANATION, sortByRisk } from "./skillText";
+import { sortByRisk } from "./skillText";
+import styles from "./skills.module.css";
 
 /** What the table needs from its owner: what to do with a skill, and what to add to its rows. */
 export interface SkillTableProps {
-  /** The host the skills belong to; it names the table and the switches' explanation. */
+  /** The host the skills belong to; it names the tables and the switches' explanation. */
   host: string;
   onOpen: (skill: Skill) => void;
   onToggle: (skill: Skill, enabled: boolean) => void;
@@ -32,17 +32,18 @@ export interface SkillTableProps {
 function columns({
   host,
   onOpen,
-  onToggle,
   rowActions,
+  onToggle,
   tags,
 }: Omit<SkillTableProps, "skills">): Column<Skill>[] {
   const base: Column<Skill>[] = [
     {
       key: "name",
       label: "Skill",
+      width: "16rem",
       cell: (skill) => (
         <Cluster gap={2}>
-          <Button variant="ghost" size="sm" onClick={() => onOpen(skill)}>
+          <Button variant="ghost" size="sm" className={styles.name} onClick={() => onOpen(skill)}>
             <Text mono strong>
               {skill.name}
             </Text>
@@ -52,16 +53,17 @@ function columns({
         </Cluster>
       ),
     },
-    { key: "description", label: "Description", cell: (skill) => skill.description },
     {
-      key: "risk",
-      label: "Risk",
-      hint: RISK_EXPLANATION,
-      cell: (skill) => <StatusPill size="sm" meta={riskMeta(skill.risk)} />,
+      key: "description",
+      label: "Description",
+      truncate: "clamp2",
+      tip: (skill) => skill.description,
+      cell: (skill) => skill.description,
     },
     {
       key: "timeout",
       label: "Timeout",
+      width: "6rem",
       numeric: true,
       hint: "How long one run may take before the agent stops it.",
       cell: (skill) => `${skill.timeout_secs} s`,
@@ -69,6 +71,7 @@ function columns({
     {
       key: "applies",
       label: "Applies to",
+      width: "14rem",
       hint: "The checks this skill is suggested for. A skill that names none can be suggested for any check.",
       cell: (skill) =>
         skill.applies_to.length > 0 ? (
@@ -84,6 +87,7 @@ function columns({
     {
       key: "last_used",
       label: "Last used",
+      width: "8rem",
       hint: `When Domovoi last sent this skill to the agent on ${host}.`,
       cell: (skill) =>
         skill.last_used ? <RelativeTime at={skill.last_used} /> : <Text muted>Never</Text>,
@@ -91,6 +95,7 @@ function columns({
     {
       key: "enabled",
       label: "Enabled",
+      width: "6rem",
       hint: `A disabled skill stays on ${host} but Domovoi never runs or suggests it.`,
       cell: (skill) => (
         <Switch
@@ -102,23 +107,65 @@ function columns({
     },
   ];
   if (rowActions) {
-    base.push({ key: "actions", label: "Actions", hideLabel: true, cell: rowActions });
+    base.push({
+      key: "actions",
+      label: "Actions",
+      hideLabel: true,
+      width: "5rem",
+      cell: rowActions,
+    });
   }
   return base;
 }
 
-/** The skills of one host as a table that stacks into cards on a narrow screen. */
-export function SkillTable({ skills, ...rest }: SkillTableProps) {
+/** One risk level's skills: its pill and what it allows, then the skills in a bordered table. */
+function RiskGroup({
+  risk,
+  skills,
+  ...rest
+}: { risk: string; skills: readonly Skill[] } & Omit<SkillTableProps, "skills">) {
+  const id = useId();
+  const meta = riskMeta(risk);
   return (
-    <Stack gap={3}>
+    <section aria-labelledby={id} className={styles.group}>
+      <div className={styles.groupHead}>
+        <h2 id={id} className={styles.groupTitle}>
+          <StatusPill meta={meta} />
+        </h2>
+        <Text muted size="sm">
+          {meta.hint}
+        </Text>
+      </div>
       <DataTable
-        caption={`Skills on ${rest.host}`}
+        caption={`${meta.label} skills on ${rest.host}`}
         columns={columns(rest)}
-        rows={sortByRisk(skills)}
+        layout="fixed"
+        rows={skills}
         rowKey={(skill) => skill.name}
-        rowTone={(skill) => (skill.risk === "destructive" ? riskMeta(skill.risk).tone : undefined)}
+        onRowClick={rest.onOpen}
+        rowTone={(skill) => (skill.risk === "destructive" ? meta.tone : undefined)}
         rowState={(skill) => (skill.enabled ? undefined : "quiet")}
       />
-    </Stack>
+    </section>
+  );
+}
+
+/**
+ * The skills of one host grouped by risk, the harmless first, each group a pill and a
+ * bordered table that stacks into cards on a narrow screen. A row opens the skill. Every
+ * group uses the same fixed column widths so the columns line up from one table to the next;
+ * a long description clamps to two lines.
+ */
+export function SkillTable({ skills, ...rest }: SkillTableProps) {
+  const groups = new Map<string, Skill[]>();
+  for (const skill of sortByRisk(skills)) {
+    groups.set(skill.risk, [...(groups.get(skill.risk) ?? []), skill]);
+  }
+  return (
+    <div className={styles.groups}>
+      {[...groups].map(([risk, list]) => (
+        <RiskGroup key={risk} risk={risk} skills={list} {...rest} />
+      ))}
+    </div>
   );
 }

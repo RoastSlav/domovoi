@@ -1,7 +1,7 @@
 import type { Editable } from "../../api/types";
-import { Stack } from "../../components";
 import { Field, ModelField, SecretField } from "./fields";
-import { describe, isSecretSet, lockedBy, sourceOf, type FieldSpec } from "./form";
+import { defaultOf, describe, isSecretSet, lockedBy, sourceOf, type FieldSpec } from "./form";
+import { SettingsCard } from "./SettingRow";
 import type { SettingsForm } from "./useSettingsForm";
 
 /** Everything a field needs from the page besides its own spec. */
@@ -13,8 +13,11 @@ export interface FieldsContext {
   schema: Record<string, unknown> | undefined;
 }
 
-function FieldFor({ spec, context }: { spec: FieldSpec; context: FieldsContext }) {
+function FieldFor({ spec: given, context }: { spec: FieldSpec; context: FieldsContext }) {
   const { editable, form, issues, schema } = context;
+  // An empty input shows what the hub uses when nobody sets it.
+  const placeholder = given.placeholder ?? defaultOf(schema, given.path);
+  const spec = placeholder === undefined ? given : { ...given, placeholder };
   const source = sourceOf(editable.fields, spec.path);
   const common = {
     spec,
@@ -53,7 +56,7 @@ function FieldFor({ spec, context }: { spec: FieldSpec; context: FieldsContext }
   );
 }
 
-/** The fields of one section, each as the renderer for its kind. */
+/** The fields of one section as the rows of one card, each drawn by the renderer for its kind. */
 export function SectionFields({
   fields,
   context,
@@ -62,10 +65,10 @@ export function SectionFields({
   context: FieldsContext;
 }) {
   return (
-    <Stack gap={5}>
+    <SettingsCard>
       {fields.map((spec) => (
         <FieldFor key={spec.path} spec={spec} context={context} />
       ))}
-    </Stack>
+    </SettingsCard>
   );
 }

@@ -1,80 +1,122 @@
+import { useState } from "react";
 import type { IncidentDetail, TimelineEntry } from "../../api/types";
-import {
-  DataTable,
-  RelativeTime,
-  Section,
-  Stack,
-  Text,
-  Timeline,
-  type Column,
-} from "../../components";
+import { Button, InfoTip, RelativeTime, Section, Text, TIMELINE_PREVIEW } from "../../components";
+import { Icon } from "../../design/icons";
 import { timelineMeta } from "../../design/timeline";
+import styles from "./incidents.module.css";
 
 type ToolUsage = IncidentDetail["tools_used"][number];
 
-const TOOL_COLUMNS: Column<ToolUsage>[] = [
-  { key: "name", label: "Name", cell: (tool) => <Text mono>{tool.name}</Text> },
-  { key: "kind", label: "Kind", cell: (tool) => tool.kind },
-  { key: "calls", label: "Calls", numeric: true, cell: (tool) => tool.calls },
-  { key: "failures", label: "Failures", numeric: true, cell: (tool) => tool.failures },
-  {
-    key: "refused",
-    label: "Not run",
-    numeric: true,
-    hint: "Calls the model asked for after its tool budget for the run was spent.",
-    cell: (tool) => tool.refused,
-  },
-  { key: "last", label: "Last used", cell: (tool) => <RelativeTime at={tool.last_used} /> },
-];
+/** "14 tools · 43 calls · 4 failed · 6 not run"; the last two only when there are some. */
+export function toolsSummary(tools: readonly ToolUsage[]): string {
+  const sum = (pick: (tool: ToolUsage) => number) => tools.reduce((n, tool) => n + pick(tool), 0);
+  const failed = sum((tool) => tool.failures);
+  const refused = sum((tool) => tool.refused);
+  return [
+    tools.length === 1 ? "1 tool" : `${tools.length} tools`,
+    `${sum((tool) => tool.calls)} calls`,
+    failed > 0 ? `${failed} failed` : "",
+    refused > 0 ? `${refused} not run` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
 
-/** What triage and the follow-up chat looked at, with how often, and the skills it proposed. */
-export function ToolsUsed({ tools, proposed }: { proposed: string[]; tools: ToolUsage[] }) {
+/**
+ * What triage and the follow-up chat looked at, as one summary line that opens a dense list:
+ * a name in mono and its calls, with failures and calls that were not run only when there are
+ * some. The sentence about read tools sits in the heading's info button.
+ */
+export function ToolsUsed({ tools }: { tools: ToolUsage[] }) {
+  const [open, setOpen] = useState(false);
   return (
     <Section
       title="Skills and tools used"
-      description="Read tools and read skills only look; they never change the host."
+      actions={
+        <InfoTip title="skills and tools used">
+          Read tools and read skills only look; they never change the host.
+        </InfoTip>
+      }
     >
-      {tools.length === 0 && proposed.length === 0 ? (
+      {tools.length === 0 ? (
         <Text block muted size="sm">
           Nothing used yet.
         </Text>
       ) : (
-        <Stack gap={2}>
-          {tools.length > 0 && (
-            <DataTable
-              caption="Skills and tools used"
-              columns={TOOL_COLUMNS}
-              rows={tools}
-              rowKey={(tool) => `${tool.kind}-${tool.name}`}
-            />
+        <>
+          <Button
+            size="sm"
+            variant="ghost"
+            icon={open ? "chevron-down" : "chevron-right"}
+            aria-expanded={open}
+            onClick={() => setOpen((now) => !now)}
+          >
+            {toolsSummary(tools)}
+          </Button>
+          {open && (
+            <ul className={styles.toolList}>
+              {tools.map((tool) => (
+                <li key={`${tool.kind}-${tool.name}`} className={styles.toolRow}>
+                  <span className={styles.toolName}>{tool.name}</span>
+                  <span className={styles.toolKind}>{tool.kind}</span>
+                  <span className={styles.toolFigures}>
+                    {tool.calls} {tool.calls === 1 ? "call" : "calls"}
+                    {tool.failures > 0 && (
+                      <span className={styles.toolFailed}>{tool.failures} failed</span>
+                    )}
+                    {tool.refused > 0 && (
+                      <span className={styles.toolRefused}>{tool.refused} not run</span>
+                    )}
+                  </span>
+                </li>
+              ))}
+            </ul>
           )}
-          {proposed.length > 0 && (
-            <Text block size="sm">
-              Skills proposed: {proposed.join(", ")}.
-            </Text>
-          )}
-        </Stack>
+        </>
       )}
     </Section>
   );
 }
 
-/** Everything that happened to the incident, in words, oldest first. */
+/** Everything that happened to the incident, in words, newest first, one line each. */
 export function IncidentTimeline({ entries }: { entries: TimelineEntry[] }) {
+  const [all, setAll] = useState(false);
+  // The hub lists oldest first; what just happened is what the person came for.
+  const newest = [...entries].reverse();
+  const shown = all ? newest : newest.slice(0, TIMELINE_PREVIEW);
   return (
-    <Section
-      title="Timeline"
-      description="Everything that happened to this incident, oldest first."
-    >
+    <Section title="Timeline">
       {entries.length === 0 ? (
         <Text block muted size="sm">
           Nothing yet.
         </Text>
       ) : (
-        <Timeline
-          label="Timeline"
-          items={entries.map((entry) => ({ at: entry.at, meta: timelineMeta(entry) }))}
-        />
+        <>
+          <ol className={styles.timeline} aria-label="Timeline">
+            {shown.map((entry, index) => {
+              const meta = timelineMeta(entry);
+              return (
+                <li key={`${entry.at}-${index}`} className={styles.timelineRow}>
+                  <span className={styles.timelineIcon} data-tone={meta.tone}>
+                    <Icon name={meta.icon} size={14} />
+                  </span>
+                  <span className={styles.timelineText}>
+                    <span className={styles.timelinePhrase}>{meta.phrase}</span>
+                    {meta.detail && <span className={styles.timelineDetail}> {meta.detail}</span>}
+                  </span>
+                  <span className={styles.timelineWhen}>
+                    <RelativeTime at={entry.at} />
+                  </span>
+                </li>
+              );
+            })}
+          </ol>
+          {entries.length > TIMELINE_PREVIEW && (
+            <Button size="sm" variant="ghost" onClick={() => setAll((now) => !now)}>
+              {all ? "Show fewer" : `Show all ${entries.length}`}
+            </Button>
+          )}
+        </>
       )}
     </Section>
   );

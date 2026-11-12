@@ -1,0 +1,307 @@
+/*
+ * The sidebar: the warm surface with a hairline on its right, no colour of its own. On a
+ * phone it is a full-height sheet, shown only while open. From 768 px it is a column that
+ * stays put, as wide as its labels or, as a rail, as its icons.
+ *
+ * One left edge: the logo tile, the nav icons, the live dot and the avatar all start at
+ * the sidebar's padding plus 8 px, and every row is as tall as --item-h or --control-h.
+ */
+.sidebar {
+  display: none;
+  position: fixed;
+  inset: 0;
+
+  /* Over the top bar, under the menus and tooltips it opens (those mount later, on the body). */
+  z-index: var(--z-dropdown);
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-2);
+  overflow: hidden auto;
+  color: var(--color-text);
+  background: var(--color-surface);
+  animation: sheet-in var(--motion-base) var(--ease-out);
+}
+
+.sidebar[data-open="true"] {
+  display: flex;
+}
+
+@keyframes sheet-in {
+  from {
+    opacity: 0;
+    transform: translateY(-0.5rem);
+  }
+}
+
+.head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  height: var(--control-h);
+  min-width: 0;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  height: 100%;
+  padding-inline: var(--space-2);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-tight);
+  text-decoration: none;
+}
+
+.brandName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.closeButton,
+.railToggle {
+  display: inline-flex;
+  flex: none;
+}
+
+.railToggle {
+  display: none;
+}
+
+/* The search button: secondary look, muted, the shortcut at the right. */
+.sidebar .search {
+  flex: none;
+  width: 100%;
+  justify-content: flex-start;
+  padding-inline: calc(var(--space-2) - 1px);
+  color: var(--color-text-muted);
+  font-weight: 400;
+}
+
+.sidebar .search:hover {
+  color: var(--color-text);
+}
+
+.sidebar .search > :first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.searchLabel {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nav {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+
+/* Sentence-case titles: quiet, 12 px above each group. */
+.groupTitle {
+  display: flex;
+  align-items: center;
+  height: var(--space-5);
+  margin: var(--space-3) 0 0;
+  padding-inline: var(--space-2);
+  color: var(--color-text-subtle);
+  font-size: 0.6875rem;
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-xs);
+}
+
+.group:first-child .groupTitle {
+  margin-top: 0;
+}
+
+.group ul {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.link {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--item-h);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  text-decoration: none;
+  transition:
+    background var(--motion-fast) var(--ease-out),
+    color var(--motion-fast) var(--ease-out);
+}
+
+.link:hover,
+.link.active {
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+}
+
+.label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.count {
+  display: inline-flex;
+  flex: none;
+}
+
+.footer {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--color-border);
+}
+
+.live {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--space-5);
+  padding-inline: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.liveDot {
+  display: inline-flex;
+  flex: none;
+  color: var(--tone-fg);
+}
+
+.user {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  padding-left: var(--space-2);
+}
+
+.avatar {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font-size: 0.6875rem;
+  font-weight: var(--weight-semibold);
+  line-height: 1;
+}
+
+.username {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (min-width: 768px) {
+  .sidebar,
+  .sidebar[data-open="true"] {
+    display: flex;
+    position: static;
+    z-index: auto;
+    height: 100dvh;
+    border-right: 1px solid var(--color-border);
+    animation: none;
+  }
+
+  .closeButton {
+    display: none;
+  }
+
+  .railToggle {
+    display: inline-flex;
+  }
+
+  /* The rail: icons centred. Names stay in the accessibility tree and show as tooltips. */
+  .sidebar[data-rail="true"] .brandName,
+  .sidebar[data-rail="true"] .groupTitle,
+  .sidebar[data-rail="true"] .label,
+  .sidebar[data-rail="true"] .liveLabel {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .sidebar[data-rail="true"] {
+    align-items: stretch;
+  }
+
+  .sidebar[data-rail="true"] .head {
+    flex-direction: column;
+    height: auto;
+  }
+
+  .sidebar[data-rail="true"] .brand {
+    justify-content: center;
+    padding-inline: 0;
+  }
+
+  .sidebar[data-rail="true"] .group + .group {
+    margin-top: var(--space-2);
+    padding-top: var(--space-2);
+    border-top: 1px solid var(--color-border);
+  }
+
+  .sidebar[data-rail="true"] .link {
+    justify-content: center;
+    padding: 0;
+  }
+
+  /* A count is a small badge on the icon's corner. */
+  .sidebar[data-rail="true"] .count {
+    position: absolute;
+    top: -2px;
+    right: 0;
+    transform: scale(0.8);
+    transform-origin: top right;
+  }
+
+  .sidebar[data-rail="true"] .live,
+  .sidebar[data-rail="true"] .user {
+    justify-content: center;
+    padding-inline: 0;
+  }
+
+  .sidebar[data-rail="true"] .avatar,
+  .sidebar[data-rail="true"] .username {
+    display: none;
+  }
+}

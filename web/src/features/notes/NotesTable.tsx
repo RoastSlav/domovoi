@@ -1,4 +1,5 @@
-import { Link } from "react-router";
+import { useCallback } from "react";
+import { Link, useNavigate } from "react-router";
 import { useHostNames } from "../../api/hooks/hosts";
 import type { Note } from "../../api/types";
 import {
@@ -30,18 +31,29 @@ function Scope({ note }: { note: Note }) {
   return <Tag>{note.host_id ? (name ?? "A host") : "Global"}</Tag>;
 }
 
+/** How many tags show before the rest fold into a "+N" tag. */
+const SHOWN_TAGS = 2;
+
+/** Tags in one row: the first two, then "+N" with the others in its tooltip. */
 function Tags({ note }: { note: Note }) {
-  const tags = visibleTags(note.tags);
-  const generated = note.tags.includes("generated");
-  if (tags.length === 0 && !generated) {
+  const all = [
+    ...visibleTags(note.tags).map((tag) => ({ label: tag, generated: false })),
+    ...(note.tags.includes("generated") ? [{ label: "Generated", generated: true }] : []),
+  ];
+  if (all.length === 0) {
     return <Text muted>–</Text>;
   }
+  const rest = all.slice(SHOWN_TAGS);
   return (
-    <Cluster gap={1}>
-      {tags.map((tag) => (
-        <Tag key={tag}>{tag}</Tag>
+    <Cluster gap={1} wrap={false}>
+      {all.slice(0, SHOWN_TAGS).map((tag) => (
+        <Tag key={tag.label} {...(tag.generated ? { tone: "info" as const } : {})}>
+          {tag.label}
+        </Tag>
       ))}
-      {generated && <Tag tone="info">Generated</Tag>}
+      {rest.length > 0 && (
+        <Tag hint={rest.map((tag) => tag.label).join(", ")}>{`+${rest.length}`}</Tag>
+      )}
     </Cluster>
   );
 }
@@ -77,7 +89,7 @@ function columns(query: string): Column<NoteRow>[] {
 }
 
 /**
- * Notes as a table: the title (a link) with a two-line excerpt, which host they are about,
+ * Notes as a table; a click anywhere on a row opens it, and the title (a link) with a two-line excerpt, which host they are about,
  * their tags and when they changed. `query` marks the matching words in a search result.
  */
 export function NotesTable({
@@ -89,12 +101,15 @@ export function NotesTable({
   query?: string;
   rows: readonly NoteRow[];
 }) {
+  const navigate = useNavigate();
+  const open = useCallback(({ note }: NoteRow) => void navigate(`/notes/${note.id}`), [navigate]);
   return (
     <DataTable
       caption={caption}
       columns={columns(query)}
       rows={rows}
       rowKey={({ note }) => note.id}
+      onRowClick={open}
     />
   );
 }

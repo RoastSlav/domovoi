@@ -1,12 +1,16 @@
+/* The thread is a centred column of at most 760 px. */
 .chat {
   display: grid;
-  gap: var(--space-3);
+  gap: var(--space-4);
+  width: 100%;
+  max-width: 47.5rem;
   min-width: 0;
+  margin-inline: auto;
 }
 
 .turns {
   display: grid;
-  gap: var(--space-3);
+  gap: var(--space-4);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -16,37 +20,36 @@
   display: none;
 }
 
-/* The operator's line: right, on a raised surface, squared like a console and not a messenger. */
+/* The operator's line: right, a raised block; no bubble tail, no colour. */
 .question {
-  justify-self: end;
   display: grid;
+  justify-self: end;
   gap: var(--space-1);
   max-width: min(85%, 60ch);
   padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-lg);
   background: var(--color-surface-raised);
+  font-size: var(--text-base);
+  line-height: var(--leading-base);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 
 .question[data-failed] {
-  border-color: var(--tone-danger-border);
+  box-shadow: inset 0 0 0 1px var(--tone-danger-border);
 }
 
-/* The model's line: left, on the page itself, with the frame's accent down its side. */
+/* The model's line: plain text on the page. */
 .answer {
   display: grid;
   gap: var(--space-2);
   min-width: 0;
-  max-width: 80ch;
-  padding-left: var(--space-3);
-  border-left: 2px solid var(--color-frame);
+  max-width: 70ch;
 }
 
 .question time,
 .answer time {
-  color: var(--color-text-muted);
+  color: var(--color-text-subtle);
   font-size: var(--text-xs);
 }
 
@@ -64,23 +67,68 @@
 }
 
 .tools,
-.starters,
-.composerRow {
+.starters {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
 }
 
+/* The composer: one bordered 12 px box with the text and the Send button inside it. */
 .composer {
   display: grid;
   gap: var(--space-2);
 }
 
-.composer .box {
-  min-height: 2.5rem;
+.composerBox {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  transition:
+    border-color var(--motion-fast) var(--ease-out),
+    box-shadow var(--motion-fast) var(--ease-out);
+}
+
+.composerBox:hover {
+  border-color: var(--color-border-hover);
+}
+
+.composerBox:focus-within {
+  border-color: var(--color-accent);
+  box-shadow: var(--shadow-focus);
+}
+
+/* The textarea shows no edge of its own inside the box. */
+.composerBox textarea.box {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: var(--leading-base);
   max-height: 40vh;
+  padding: calc((var(--control-h) - var(--leading-base)) / 2) 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
   resize: none;
+}
+
+.composerMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-3);
+}
+
+.hint {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  line-height: var(--leading-xs);
 }
 
 .count {

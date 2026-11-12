@@ -1,16 +1,7 @@
 import { useState } from "react";
 import type { SecretChange } from "../../../api/hooks/settings";
-import {
-  Button,
-  Cluster,
-  Field as KitField,
-  InlineMessage,
-  Stack,
-  Tag,
-  Text,
-  TextInput,
-  fieldIdForPath,
-} from "../../../components";
+import { Button, Cluster, Tag, TextInput, fieldIdForPath } from "../../../components";
+import { SettingRow } from "../SettingRow";
 import { errorText, type Common } from "./common";
 import { SourceTag } from "./SourceTag";
 
@@ -54,78 +45,72 @@ export function SecretField({
   );
   if (replacing && !locked) {
     return (
-      <KitField label={spec.label} path={spec.path} hint={hint} error={error} badges={tags}>
-        <Cluster>
-          <TextInput
-            type="password"
-            autoComplete="new-password"
-            value={"set" in change ? change.set : ""}
-            onChange={(event) =>
-              onChange(event.target.value ? { set: event.target.value } : { keep: true })
-            }
-          />
-          <Button
-            variant="primary"
-            disabledReason={hasDraft ? undefined : "Type the new value first."}
-            onClick={() => setReplacing(false)}
-          >
-            Set
-          </Button>
-          <Button
-            onClick={() => {
-              setReplacing(false);
-              onChange({ keep: true });
-            }}
-          >
-            Cancel
-          </Button>
-        </Cluster>
-      </KitField>
+      <SettingRow label={spec.label} path={spec.path} hint={hint} error={error} badges={tags} wide>
+        {(wiring) => (
+          <Cluster>
+            <TextInput
+              {...wiring}
+              type="password"
+              autoComplete="new-password"
+              value={"set" in change ? change.set : ""}
+              onChange={(event) =>
+                onChange(event.target.value ? { set: event.target.value } : { keep: true })
+              }
+            />
+            <Button
+              variant="primary"
+              disabledReason={hasDraft ? undefined : "Type the new value first."}
+              onClick={() => setReplacing(false)}
+            >
+              Set
+            </Button>
+            <Button
+              onClick={() => {
+                setReplacing(false);
+                onChange({ keep: true });
+              }}
+            >
+              Cancel
+            </Button>
+          </Cluster>
+        )}
+      </SettingRow>
     );
   }
   const cleared = "clear" in change;
   const verb = hasDraft ? "Edit" : isSet ? "Replace" : "Set";
   return (
-    <Stack gap={1}>
-      <Cluster>
-        <Text strong>{spec.label}</Text>
-        {tags}
-      </Cluster>
-      {hint && (
-        <Text muted size="xs" block>
-          {hint}
-        </Text>
-      )}
-      {locked && (
-        <Text muted size="xs" block>
-          {locked}
-        </Text>
-      )}
-      {error && (
-        <InlineMessage tone="danger">
-          <p>{error}</p>
-        </InlineMessage>
-      )}
-      {!locked && (
-        <Cluster>
-          {cleared ? (
-            <Button id={fieldIdForPath(spec.path)} onClick={() => onChange({ keep: true })}>
-              Undo
-            </Button>
-          ) : (
-            <>
-              <Button id={fieldIdForPath(spec.path)} onClick={() => setReplacing(true)}>
-                {`${verb} ${spec.label}`}
+    <SettingRow
+      label={spec.label}
+      path={spec.path}
+      hint={hint}
+      error={error}
+      locked={locked}
+      badges={tags}
+      plainLabel
+    >
+      {() =>
+        !locked && (
+          <Cluster justify="end">
+            {cleared ? (
+              <Button id={fieldIdForPath(spec.path)} onClick={() => onChange({ keep: true })}>
+                Undo
               </Button>
-              {isSet && (
-                <Button variant="ghost" onClick={() => onChange({ clear: true })}>
-                  {`Remove ${spec.label}`}
+            ) : (
+              <>
+                <Button id={fieldIdForPath(spec.path)} onClick={() => setReplacing(true)}>
+                  {`${verb} ${spec.label}`}
                 </Button>
-              )}
-            </>
-          )}
-        </Cluster>
-      )}
-    </Stack>
+                {isSet && (
+                  <Button variant="ghost" onClick={() => onChange({ clear: true })}>
+                    {`Remove ${spec.label}`}
+                  </Button>
+                )}
+              </>
+            )}
+          </Cluster>
+        )
+      }
+    </SettingRow>
   );
 }

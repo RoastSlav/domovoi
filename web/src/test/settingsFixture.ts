@@ -56,11 +56,18 @@ export function routeSettingsPage(): void {
   route("GET /api/v1/session", () => ({ csrf_token: "t", user: { id: "u", username: "admin" } }));
   route("GET /api/v1/system/update", () => ({ current: "0.1.0", latest: null, newer: false }));
   route("GET /api/v1/settings/schema", () => ({
-    properties: { incidents: { $ref: "#/$defs/Incidents" } },
+    properties: {
+      incidents: { $ref: "#/$defs/Incidents" },
+      updates: { $ref: "#/$defs/Updates" },
+    },
     $defs: {
+      Updates: { properties: { check: { description: "Look for releases.", default: true } } },
       Incidents: {
         properties: {
-          confirm_runs: { description: "Consecutive failing runs before an incident opens." },
+          confirm_runs: {
+            description: "Consecutive failing runs before an incident opens.",
+            default: 2,
+          },
         },
       },
     },

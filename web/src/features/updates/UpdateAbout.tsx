@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useCheckUpdate, useUpdate } from "../../api/hooks/updates";
 import {
   Button,
+  Card,
   Cluster,
   KeyValueList,
   QueryBoundary,
@@ -36,27 +37,29 @@ export function UpdateAbout() {
     >
       {(info) => (
         <Stack gap={3}>
-          <KeyValueList
-            items={[
-              {
-                label: "Version",
-                value: (
-                  <Cluster gap={2}>
-                    <Text strong>{info.current}</Text>
-                    {info.newer && info.latest ? (
-                      <Tag tone="info">{`Domovoi ${info.latest} is available`}</Tag>
-                    ) : (
-                      info.latest && <Tag tone="success">Up to date</Tag>
-                    )}
-                  </Cluster>
-                ),
-              },
-              {
-                label: "Last checked",
-                value: info.checked_at ? <RelativeTime at={info.checked_at} /> : "never",
-              },
-            ]}
-          />
+          <Card>
+            <KeyValueList
+              items={[
+                {
+                  label: "Version",
+                  value: (
+                    <Cluster gap={2}>
+                      <Text strong>{info.current}</Text>
+                      {info.newer && info.latest ? (
+                        <Tag tone="info">{`Domovoi ${info.latest} is available`}</Tag>
+                      ) : (
+                        info.latest && <Tag tone="success">Up to date</Tag>
+                      )}
+                    </Cluster>
+                  ),
+                },
+                {
+                  label: "Last checked",
+                  value: info.checked_at ? <RelativeTime at={info.checked_at} /> : "never",
+                },
+              ]}
+            />
+          </Card>
           <Cluster>
             <Button icon="refresh" onClick={() => check.mutate()} loading={check.isPending}>
               Check now

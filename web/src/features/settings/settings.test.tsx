@@ -60,6 +60,7 @@ test("an_unsaved_change_puts_the_unsaved_dot_on_its_section", async () => {
   renderSettings("/settings/incidents");
   const field = await screen.findByLabelText("Reopen window");
   expect(link("Incidents")).not.toHaveAccessibleName(/unsaved changes/);
+  expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
 
   await user.type(field, "2h");
   expect(link("Incidents")).toHaveAccessibleName(/unsaved changes/);
@@ -203,7 +204,9 @@ test("discard_asks_first_when_more_than_three_changes_are_unsaved", async () => 
   const dialog = await screen.findByRole("dialog", { name: "Discard 4 unsaved changes?" });
   await user.click(within(dialog).getByRole("button", { name: "Discard changes" }));
   expect(screen.getByLabelText("Reopen window")).toHaveValue("");
-  expect(screen.getByText("No unsaved changes")).toBeVisible();
+  // Nothing is left to save, so the floating bar is gone, not an empty bar.
+  expect(screen.queryByText(/unsaved change/)).toBeNull();
+  expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
 });
 
 test("stale_revision_offers_a_reload", async () => {

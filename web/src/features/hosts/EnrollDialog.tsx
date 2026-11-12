@@ -19,8 +19,15 @@ import styles from "./hostsList.module.css";
  * Adding a host as three steps: create an invite for a name, copy the command it gives to
  * run on that machine, then wait while this page watches for the agent to connect.
  */
-export function EnrollDialog({ onClose }: { onClose: () => void }) {
-  const [name, setName] = useState("");
+export function EnrollDialog({
+  initialName = "",
+  onClose,
+}: {
+  /** A name to start with, for a host that exists and needs an agent. */
+  initialName?: string;
+  onClose: () => void;
+}) {
+  const [name, setName] = useState(initialName);
   const [invite, setInvite] = useState<Invite>();
   // The hosts there were before the invite, so the one that connects can be told apart.
   const [known, setKnown] = useState<ReadonlySet<string>>();

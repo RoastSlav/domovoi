@@ -17,12 +17,15 @@ export function Popover({
   id,
   label,
   onClose,
+  flush = false,
   role = "dialog",
   side = "bottom",
 }: {
   /** The control the panel belongs to; focus returns to it. */
   anchor: RefObject<HTMLElement | null>;
   children: ReactNode;
+  /** 4 px inside instead of 12: for a list of entries that carry their own padding. */
+  flush?: boolean;
   id?: string;
   /** The panel's accessible name. */
   label: string;
@@ -66,6 +69,7 @@ export function Popover({
       aria-label={label}
       tabIndex={-1}
       className={styles.popover}
+      data-flush={flush || undefined}
       style={style}
       onKeyDown={(event) => {
         if (event.key === "Escape") {

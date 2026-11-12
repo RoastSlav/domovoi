@@ -7,55 +7,38 @@ import {
   Cluster,
   EmptyState,
   InfoTip,
-  InlineMessage,
   LoadError,
   Markdown,
   Progress,
   RelativeTime,
-  Section,
   Skeleton,
   Stack,
   Text,
   useActionFeedback,
 } from "../../components";
-import { splitProfile, type ProfilePart } from "./profileText";
+import { ProfileCards, FactTiles } from "./ProfileCards";
+import { foldOverview } from "./profileOverview";
+import { hasFacts, readFacts } from "./profileFacts";
+import { splitProfile } from "./profileText";
 
-/** Why a tool did not answer as one sentence, ending in a full stop. */
-function couldNotRead(part: ProfilePart): string {
-  const reason = part.failure?.replace(/[.\s]+$/, "");
-  return reason ? `Could not read ${part.title}: ${reason}.` : `Could not read ${part.title}.`;
-}
-
-/** One tool's output as a card: open and read, or a warning when the tool did not answer. */
-function PartSection({ part }: { part: ProfilePart }) {
-  return (
-    <Section title={part.title} collapsed={part.ok}>
-      {part.ok ? (
-        <Card>
-          <Markdown text={part.body} />
-        </Card>
-      ) : (
-        <InlineMessage tone="warning" title={couldNotRead(part)}>
-          The rest of the profile is unaffected. It tries again the next time it is collected.
-        </InlineMessage>
-      )}
-    </Section>
-  );
-}
-
-/** The profile's summary, then one collapsible card per tool. */
+/** The summary as tiles, then the cards; text the page cannot read shows as written. */
 function ProfileBody({ profile }: { profile: Profile }) {
-  const { summary, parts } = splitProfile(profile.markdown, profile.sections);
+  const split = splitProfile(profile.markdown, profile.sections);
+  const { summary } = split;
+  const { parts, tiles } = foldOverview(split.parts);
+  const facts = readFacts(summary);
   return (
     <Stack gap={4}>
-      <Section title="Summary" collapsed={false}>
-        <Card>
-          <Markdown text={summary} />
-        </Card>
-      </Section>
-      {parts.map((part) => (
-        <PartSection key={part.title} part={part} />
-      ))}
+      {hasFacts(facts) || tiles.length > 0 ? (
+        <FactTiles facts={facts} overview={tiles} />
+      ) : (
+        summary && (
+          <Card>
+            <Markdown text={summary} />
+          </Card>
+        )
+      )}
+      <ProfileCards facts={facts} parts={parts} />
     </Stack>
   );
 }

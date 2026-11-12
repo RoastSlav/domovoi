@@ -1,18 +1,9 @@
-import {
-  Cluster,
-  Field as KitField,
-  InlineMessage,
-  Select,
-  Stack,
-  Switch,
-  TextInput,
-  Textarea,
-  fieldIdForPath,
-} from "../../../components";
+import { Select, Switch, TextInput, Textarea, fieldIdForPath } from "../../../components";
+import { SettingRow, SwitchRow } from "../SettingRow";
 import { errorText, type Common } from "./common";
 import { SourceTag } from "./SourceTag";
 
-/** One plain setting: text, number, list, Discord ids, a choice, a switch or JSON. */
+/** One plain setting: text, number, list, Discord ids, a choice, a switch or JSON, as a row. */
 export function Field({
   spec,
   value,
@@ -26,67 +17,74 @@ export function Field({
   const badges = source ? <SourceTag source={source} /> : undefined;
   if (spec.kind === "bool") {
     return (
-      <Stack gap={1}>
+      <SwitchRow error={error}>
         <Switch
           id={fieldIdForPath(spec.path)}
           label={spec.label}
-          checked={value === true}
+          badges={badges}
           hint={hint}
+          checked={value === true}
           disabledReason={locked}
           onChange={onChange}
         />
-        {badges && <Cluster gap={2}>{badges}</Cluster>}
-        {error && (
-          <InlineMessage tone="danger">
-            <p>{error}</p>
-          </InlineMessage>
-        )}
-      </Stack>
-    );
-  }
-  let control;
-  if (spec.kind === "select") {
-    control = (
-      <Select value={String(value)} onChange={(event) => onChange(event.target.value)}>
-        {(spec.options ?? []).map((option) => (
-          <option key={option} value={option}>
-            {option || "not set"}
-          </option>
-        ))}
-      </Select>
-    );
-  } else if (spec.kind === "json") {
-    control = (
-      <Textarea
-        mono
-        rows={6}
-        value={String(value)}
-        spellCheck={false}
-        onChange={(event) => onChange(event.target.value)}
-      />
-    );
-  } else {
-    control = (
-      <TextInput
-        inputMode={["number", "id", "ids"].includes(spec.kind) ? "numeric" : undefined}
-        mono={["id", "ids"].includes(spec.kind)}
-        value={String(value)}
-        placeholder={spec.placeholder}
-        autoComplete="off"
-        onChange={(event) => onChange(event.target.value)}
-      />
+      </SwitchRow>
     );
   }
   return (
-    <KitField
+    <SettingRow
       label={spec.label}
       path={spec.path}
       hint={hint}
       error={error}
       locked={locked}
       badges={badges}
+      wide={spec.kind === "json"}
     >
-      {control}
-    </KitField>
+      {(wiring) => {
+        if (spec.kind === "select") {
+          return (
+            <Select
+              {...wiring}
+              // The row's locked line says why a select cannot be changed.
+              // eslint-disable-next-line domovoi/disabled-needs-reason
+              disabled={Boolean(locked)}
+              value={String(value)}
+              onChange={(event) => onChange(event.target.value)}
+            >
+              {(spec.options ?? []).map((option) => (
+                <option key={option} value={option}>
+                  {option || "not set"}
+                </option>
+              ))}
+            </Select>
+          );
+        }
+        if (spec.kind === "json") {
+          return (
+            <Textarea
+              {...wiring}
+              mono
+              rows={6}
+              readOnly={Boolean(locked)}
+              value={String(value)}
+              spellCheck={false}
+              onChange={(event) => onChange(event.target.value)}
+            />
+          );
+        }
+        return (
+          <TextInput
+            {...wiring}
+            inputMode={["number", "id", "ids"].includes(spec.kind) ? "numeric" : undefined}
+            mono={["id", "ids"].includes(spec.kind)}
+            readOnly={Boolean(locked)}
+            value={String(value)}
+            placeholder={spec.placeholder}
+            autoComplete="off"
+            onChange={(event) => onChange(event.target.value)}
+          />
+        );
+      }}
+    </SettingRow>
   );
 }

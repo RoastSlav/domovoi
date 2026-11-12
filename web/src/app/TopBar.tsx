@@ -1,11 +1,13 @@
 import { createContext, useContext, type ReactNode, type Ref } from "react";
 import { createPortal } from "react-dom";
-import { Link, NavLink } from "react-router";
-import { Button } from "../components";
+import { Link } from "react-router";
+import { IconButton } from "../components";
+import { Icon } from "../design/icons";
+import brand from "./brand.module.css";
 import { HostSelect } from "./HostSelect";
-import styles from "./Layout.module.css";
 import { useTrail } from "./PageTitle";
 import { SIDEBAR_ID } from "./Sidebar";
+import styles from "./topbar.module.css";
 
 /** The element in the top bar that holds the current page's actions. */
 export const TopBarSlot = createContext<HTMLElement | null>(null);
@@ -31,7 +33,12 @@ function Breadcrumb() {
             {detail && sectionItem ? <Link to={sectionItem.to}>{section}</Link> : section}
           </li>
         )}
-        {detail && <li aria-current="page">{detail}</li>}
+        {detail && (
+          <li aria-current="page">
+            <Icon name="chevron-right" size={14} />
+            {detail}
+          </li>
+        )}
       </ol>
     </nav>
   );
@@ -39,7 +46,8 @@ function Breadcrumb() {
 
 /**
  * The slim bar above every page: where you are, the page's actions, and the host selector.
- * On a phone it also carries the brand and the Menu button that opens the navigation.
+ * On a phone it carries the logo and the Menu button that opens the navigation instead of
+ * the breadcrumb.
  */
 export function TopBar({
   menu,
@@ -56,24 +64,25 @@ export function TopBar({
 }) {
   return (
     <header className={styles.topbar}>
-      <NavLink to="/incidents" className={styles.topBrand ?? ""}>
-        Domovoi
-      </NavLink>
+      <Link to="/" className={styles.logo} aria-label="Domovoi">
+        <span className={brand.mark} aria-hidden="true">
+          D
+        </span>
+      </Link>
       <Breadcrumb />
-      <div ref={slot} className={styles.topActions} />
+      <div ref={slot} className={styles.actions} />
       <div className={styles.hostSelect}>
         <HostSelect />
       </div>
       <span className={styles.menuButton}>
-        <Button
+        <IconButton
           ref={menu}
           icon="menu"
+          label="Menu"
           aria-expanded={sheetOpen}
           aria-controls={SIDEBAR_ID}
           onClick={onMenu}
-        >
-          Menu
-        </Button>
+        />
       </span>
     </header>
   );

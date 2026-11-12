@@ -55,3 +55,59 @@
 .stepBody p {
   margin: 0;
 }
+
+/* The cards fill the row, each at least 18 rem wide, so two hosts are not left in a sparse grid. */
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+  gap: var(--space-3);
+}
+
+/* A host card: the link is the card, the menu floats over its corner as a sibling. */
+.cardWrap {
+  position: relative;
+  min-width: 0;
+}
+
+.cardWrap > a {
+  height: 100%;
+}
+
+.cardBody {
+  display: grid;
+  gap: var(--space-2);
+}
+
+/* As tall as a control, but centred on the first text line, so the menu lines up with it. */
+.cardHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-h);
+  margin-block: calc((var(--leading-base) - var(--control-h)) / 2);
+  padding-right: calc(var(--control-h) + var(--space-1));
+}
+
+.cardMenu {
+  position: absolute;
+  top: calc(var(--space-4) + (var(--leading-base) - var(--control-h)) / 2);
+  right: var(--space-3);
+}
+
+/* Bottom-right of the card, level with its last line (a 28 px button beside a 20 px line). */
+.cardAction {
+  position: absolute;
+  right: var(--space-3);
+  bottom: var(--space-3);
+}
+
+/* A long host name stops after two lines; the whole name is the tooltip. */
+.name {
+  display: -webkit-box;
+  min-width: 0;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}

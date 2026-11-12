@@ -1,85 +1,60 @@
 import { Link, useParams } from "react-router";
 import { useIncident } from "../../api/hooks/incidents";
 import { useHostNames } from "../../api/hooks/hosts";
-import { ApiFailure, type Action, type IncidentDetail, type Report } from "../../api/types";
+import { ApiFailure, type Action } from "../../api/types";
 import { usePageName } from "../../app/PageTitle";
 import { useMediaQuery } from "../../app/useMediaQuery";
 import {
   EmptyState,
   LoadError,
-  Markdown,
   PageHeader,
-  RelativeTime,
   Section,
   Skeleton,
   Stack,
-  StatusPill,
   Text,
 } from "../../components";
-import { incidentStatusMeta, severityMeta, verdictMeta } from "../../design/tone";
-import { ActionCard } from "../approvals/ActionCard";
 import { useActionOutcomes } from "../approvals/useActionOutcomes";
-import { IncidentCard } from "./IncidentCard";
+import { ActionSections } from "./ActionSections";
 import { IncidentChat } from "./IncidentChat";
 import { IncidentControls } from "./IncidentControls";
+import { IncidentDetails } from "./IncidentDetails";
+import { IncidentEvidence } from "./IncidentEvidence";
 import { IncidentTimeline, ToolsUsed } from "./IncidentHistory";
+import { IncidentMeta } from "./IncidentMeta";
 import { ManualSteps } from "./ManualSteps";
-import { TriagePanel } from "./TriagePanel";
+import { MODEL_SETTINGS, useModelOff } from "./useModelOff";
 import { useStatusNews } from "./useStatusNews";
+import { WhatsGoingOn } from "./WhatsGoingOn";
 import styles from "./incidents.module.css";
 
-/** From this width the page has two columns: the story on the left, what to do on the right. */
+/** From this width the page has two columns: what is going on on the left, what to do on the right. */
 export const TWO_COLUMN_QUERY = "(min-width: 1100px)";
 
 const NO_ACTIONS: Action[] = [];
 
-/** Why the model proposed `action`: the reason of the report's proposal with the same skill and arguments. */
-function whyProposed(action: Action, report: Report | null | undefined): string | undefined {
-  const args = JSON.stringify(action.args);
-  return report?.proposals.find(
-    (proposal) => proposal.skill === action.skill && JSON.stringify(proposal.args) === args,
-  )?.reason;
-}
-
-/** The facts under the title: where it stands, how bad, where and since when. */
-function Facts({ detail }: { detail: IncidentDetail }) {
-  const { incident, host, report } = detail;
-  const verdict = report?.verdict ?? incident.verdict;
+/** Where the chat box would be, when there is no model to ask: one line and the way to fix it. */
+function NoModel({ line }: { line: string }) {
   return (
-    <>
-      <StatusPill meta={incidentStatusMeta(incident.status)} />
-      {verdict && <StatusPill meta={verdictMeta(verdict)} />}
-      <StatusPill meta={severityMeta(incident.severity)} />
-      <Link to={`/hosts/${encodeURIComponent(host)}`}>{host}</Link>
-      <Text mono size="sm">
-        {incident.target ? `${incident.check} ${incident.target}` : incident.check}
-      </Text>
-      <Text muted size="sm">
-        Opened <RelativeTime at={incident.opened_at} />
-      </Text>
-      <Text muted size="sm">
-        Last fired <RelativeTime at={incident.last_firing_at} />
-      </Text>
-      {incident.occurrences > 1 && (
-        <Text muted size="sm">
-          {incident.occurrences} times
-        </Text>
-      )}
-    </>
+    <Text block muted>
+      {line} <Link to={MODEL_SETTINGS}>Open model settings</Link>
+    </Text>
   );
 }
 
 /**
- * One incident. On a wide screen the story is on the left (summary, triage, steps by hand,
- * details, chat) and what to do is on the right (proposed actions, tools, timeline). On a
- * narrow one it is a single column with the proposed actions straight after the summary:
- * the next step comes first on a phone.
+ * One incident, readable in one screen: what is going on and why (triage's report), the
+ * evidence, and what to approve. On a wide screen the story is on the left (report, evidence,
+ * steps by hand, details, chat) and what to do and what happened on the right (actions to
+ * decide, running and earlier actions, tools, timeline); the page scrolls as one. On a
+ * narrow one the same parts follow each other in the order of `data-slot` in the CSS, with
+ * what needs a decision straight after the report.
  */
 export function IncidentDetailPage() {
   const { id = "" } = useParams();
   const incident = useIncident(id);
   const hosts = useHostNames();
   const wide = useMediaQuery(TWO_COLUMN_QUERY);
+  const modelOff = useModelOff();
   usePageName(incident.data?.incident.title);
   useStatusNews(id, incident.data?.incident.status);
   useActionOutcomes(incident.data?.actions ?? NO_ACTIONS, hosts);
@@ -112,63 +87,61 @@ export function IncidentDetailPage() {
     );
   }
 
-  const { card, report, actions, timeline, host, tools_used } = incident.data;
-  const summary = incident.data.incident;
-  const details = card.details ?? report?.details;
+  const data = incident.data;
+  const { card, report, actions, timeline, host, tools_used } = data;
+  const summary = data.incident;
+  // With a report its summary and cause are shown above; the card's details repeat them.
+  const details = report ? report.details : card.details;
+  // Acknowledge is the page's primary button while it is offered; Approve then steps back.
+  const ackIsPrimary = summary.status !== "acked" && summary.status !== "resolved";
   return (
     <>
       <PageHeader
         title={summary.title}
-        meta={<Facts detail={incident.data} />}
+        meta={<IncidentMeta detail={data} />}
         actions={<IncidentControls incident={summary} />}
       />
       <div className={styles.detail} data-columns={wide ? 2 : 1}>
-        <div className={styles.summary}>
-          <IncidentCard card={card} verdict={report?.verdict ?? summary.verdict ?? null} />
-        </div>
-
-        <aside className={styles.side} aria-label="Actions and history">
-          <div className={styles.actions}>
-            <Section title="Proposed actions">
-              {actions.length === 0 ? (
-                <Text block muted size="sm">
-                  No actions proposed. Nothing runs on a host unless you approve it here.
-                </Text>
+        <div className={styles.main}>
+          <div className={styles.slot} data-slot="going">
+            <WhatsGoingOn detail={data} off={modelOff} />
+          </div>
+          <div className={styles.slot} data-slot="evidence">
+            <IncidentEvidence detail={data} />
+          </div>
+          <div className={styles.slot} data-slot="byhand">
+            <ManualSteps incidentId={summary.id} steps={report?.manual_steps ?? []} />
+          </div>
+          {details && (
+            <div className={styles.slot} data-slot="details">
+              <IncidentDetails text={details} />
+            </div>
+          )}
+          <div className={styles.slot} data-slot="chat">
+            <Section title="Chat">
+              {modelOff ? (
+                <NoModel line={modelOff.line} />
               ) : (
-                <Stack gap={3}>
-                  {actions.map((action) => (
-                    <ActionCard
-                      key={action.id}
-                      action={action}
-                      host={host}
-                      why={whyProposed(action, report)}
-                    />
-                  ))}
-                </Stack>
+                <IncidentChat incidentId={summary.id} host={host} />
               )}
             </Section>
           </div>
-          <div className={styles.history}>
-            <ToolsUsed
-              tools={tools_used}
-              proposed={[...new Set(actions.map((action) => action.skill))]}
-            />
+        </div>
+
+        <aside className={styles.side} aria-label="Actions and history">
+          <ActionSections
+            actions={actions}
+            host={host}
+            report={report}
+            ackIsPrimary={ackIsPrimary}
+          />
+          <div className={styles.slot} data-slot="tools">
+            <ToolsUsed tools={tools_used} />
+          </div>
+          <div className={styles.slot} data-slot="timeline">
             <IncidentTimeline entries={timeline} />
           </div>
         </aside>
-
-        <div className={styles.main}>
-          <TriagePanel incidentId={summary.id} triage={incident.data.triage} />
-          <ManualSteps incidentId={summary.id} steps={report?.manual_steps ?? []} />
-          {details && (
-            <Section title="Details">
-              <Markdown text={details} />
-            </Section>
-          )}
-          <Section title="Chat">
-            <IncidentChat incidentId={summary.id} host={host} />
-          </Section>
-        </div>
       </div>
     </>
   );

@@ -1,7 +1,11 @@
 import { useState } from "react";
 import { useApprove, useDeny } from "../../api/hooks/actions";
 import type { Action } from "../../api/types";
-import { Button, Cluster, ConfirmDialog, useActionFeedback } from "../../components";
+import { Button, Cluster, ConfirmDialog, useActionFeedback, useRemaining } from "../../components";
+import styles from "./approvals.module.css";
+
+/** Why Approve is off once the approval window has passed. */
+const EXPIRED_REASON = "This request expired; triage can propose it again.";
 
 function argsText(action: Action): string {
   return Object.entries(action.args)
@@ -24,7 +28,19 @@ function consequence(action: Action, host: string | undefined): string {
  * and where; a destructive skill also needs its name typed exactly, which is sent to the hub
  * as `confirm_text` (INV-6). Denying is one click: nothing runs, and triage can ask again.
  */
-export function ApproveControl({ action, host }: { action: Action; host?: string | undefined }) {
+export function ApproveControl({
+  action,
+  host,
+  emphasis = "primary",
+  compact = false,
+}: {
+  action: Action;
+  /** Small buttons, for a row in a list. */
+  compact?: boolean;
+  /** `secondary` where the page already has a primary button; destructive is always danger. */
+  emphasis?: "primary" | "secondary";
+  host?: string | undefined;
+}) {
   const [open, setOpen] = useState(false);
   const [typed, setTyped] = useState("");
   const approve = useActionFeedback(useApprove(), {
@@ -37,6 +53,8 @@ export function ApproveControl({ action, host }: { action: Action; host?: string
     error: "deny the action",
   });
   const destructive = action.risk === "destructive";
+  // The hub sweeps expired requests later; until then the window is shut but the row is here.
+  const expired = useRemaining(action.expires_at) === 0;
 
   const close = () => {
     setOpen(false);
@@ -52,13 +70,20 @@ export function ApproveControl({ action, host }: { action: Action; host?: string
   return (
     <Cluster>
       <Button
-        variant="primary"
+        size={compact ? "sm" : "md"}
+        variant={destructive ? "danger" : emphasis}
+        {...(!destructive && emphasis === "secondary"
+          ? { icon: "check" as const, className: styles.approveIcon }
+          : {})}
         hint="Asks you to confirm, then runs the skill on the host."
+        disabledReason={expired ? EXPIRED_REASON : undefined}
         onClick={() => setOpen(true)}
       >
         Approve
       </Button>
       <Button
+        size={compact ? "sm" : "md"}
+        variant="ghost"
         hint="Declines it. Nothing runs, and triage can propose it again."
         onClick={() => deny.mutate(action.id)}
         loading={deny.isPending}

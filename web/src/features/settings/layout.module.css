@@ -1,19 +1,31 @@
+/*
+ * The settings page: a section list at the left, one section at the right. Both columns
+ * have a fixed width from 768 px, so switching section moves nothing. Tokens only.
+ */
+.form {
+  min-width: 0;
+}
+
 .layout {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-5);
   align-items: start;
+
+  /* The last field ends clear of the floating save bar that follows the form. */
+  padding-bottom: var(--space-6);
 }
 
 @media (min-width: 768px) {
   .layout {
-    grid-template-columns: 14rem minmax(0, 1fr);
+    grid-template-columns: 13rem minmax(0, 46rem);
+    gap: var(--space-6);
   }
 }
 
 .nav {
   display: grid;
-  gap: var(--space-1);
+  gap: 2px;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -26,26 +38,31 @@
   }
 }
 
+/* Items look like the sidebar's: 30 px, radius 6, raised when hovered or current. */
 .link {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
-  min-height: 2.25rem;
-  padding: var(--space-1) var(--space-3);
+  min-height: var(--item-h);
+  padding: 0 var(--space-2);
   border-radius: var(--radius-sm);
-  color: var(--color-text);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-sm);
   text-decoration: none;
 }
 
 .link:hover {
   background: var(--color-surface-raised);
+  color: var(--color-text);
+  text-decoration: none;
 }
 
 .link[aria-current="page"] {
   background: var(--color-surface-raised);
-  box-shadow: inset 3px 0 0 var(--color-primary);
-  font-weight: 600;
+  color: var(--color-text);
 }
 
 .dots {
@@ -61,16 +78,21 @@
 }
 
 .dot[data-tone="warning"] {
-  --tone-fg: var(--tone-warning-fg);
+  --tone-fg: var(--tone-warning-solid);
 }
 
 .dot[data-tone="danger"] {
-  --tone-fg: var(--tone-danger-fg);
+  --tone-fg: var(--tone-danger-solid);
 }
 
 .body {
   min-width: 0;
-  max-width: 44rem;
+  max-width: 46rem;
+}
+
+/* The section's title lines up with the top of the list beside it. */
+.body > div > section {
+  margin-top: 0;
 }
 
 .back {
@@ -90,4 +112,9 @@
   .back {
     display: none;
   }
+}
+
+/* The read-only page is as wide as the section column of the editable one. */
+.readOnly {
+  max-width: 46rem;
 }

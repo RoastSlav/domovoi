@@ -17,9 +17,10 @@ import {
   StatusPill,
   RelativeTime,
   Stack,
+  Text,
   Tooltip,
 } from "../components";
-import type { ButtonVariant } from "../components";
+import type { ButtonVariant, PickerOption } from "../components";
 import { hostConnectionMeta } from "../design/tone";
 import { Demo, Group } from "./Demo";
 
@@ -42,15 +43,48 @@ const PICKER_MANY = Array.from({ length: 12 }, (_, index) => ({
   label: `host-${index + 1}`,
 }));
 
-function PickerDemo({ options }: { options: { label: string; value: string }[] }) {
+function PickerDemo({
+  options,
+  decorated = false,
+}: {
+  decorated?: boolean;
+  options: PickerOption[];
+}) {
   const [value, setValue] = useState(options[0]?.value ?? "");
-  return <OptionPicker label="Host" value={value} options={options} onChange={setValue} />;
+  return (
+    <OptionPicker
+      label="Host"
+      value={value}
+      options={options}
+      onChange={setValue}
+      {...(decorated
+        ? {
+            icon: "server" as const,
+            caption: "Host",
+            valueMeta: (
+              <Text size="xs" muted>
+                {options.length - 1} hosts
+              </Text>
+            ),
+          }
+        : {})}
+    />
+  );
 }
 
 const FIVE_MINUTES_AGO = new Date(Date.now() - 300_000).toISOString();
 const VARIANTS: ButtonVariant[] = ["primary", "secondary", "danger", "ghost"];
 
 /** Buttons and hints: every variant and state, tooltips, info tips and copy. */
+/** The account menu's theme choice, as a grouped run of exclusive entries. */
+const THEME_ITEMS = (["monitor", "sun", "moon"] as const).map((icon, index) => ({
+  label: ["System", "Light", "Dark"][index] ?? "",
+  icon,
+  group: "Theme",
+  checked: index === 0,
+  onSelect: () => undefined,
+}));
+
 export function ControlDemos() {
   return (
     <Group title="Buttons and hints">
@@ -137,19 +171,15 @@ export function OverlayDemos() {
         <Cluster>
           <PickerDemo options={PICKER_HOSTS} />
           <PickerDemo options={PICKER_MANY} />
+          <PickerDemo options={PICKER_HOSTS} decorated />
         </Cluster>
       </Demo>
-      <Demo name="Menu: with another icon, a header and one checked choice">
+      <Demo name="Menu: with another icon, a header and a group with one checked choice">
         <Menu
           label="Account"
           icon="user"
           header="Signed in as admin"
-          items={[
-            { label: "Theme: system", checked: true, onSelect: () => undefined },
-            { label: "Theme: light", checked: false, onSelect: () => undefined },
-            { label: "Theme: dark", checked: false, onSelect: () => undefined },
-            { label: "Log out", icon: "logout", onSelect: () => undefined },
-          ]}
+          items={[...THEME_ITEMS, { label: "Log out", icon: "logout", onSelect: () => undefined }]}
         />
       </Demo>
       <Demo name="Dialog, ConfirmDialog, PasswordPrompt">

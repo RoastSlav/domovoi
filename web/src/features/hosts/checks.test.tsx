@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { HostCheck } from "../../api/types";
 import { calls, failure, resetApi, route } from "../../test/apiMock";
@@ -112,7 +112,8 @@ test("a_check_override_saves_and_shows_a_toast", async () => {
       "smart.health": { enabled: false, interval_seconds: null, thresholds: {} },
     },
   });
-  expect(await screen.findByText("No unsaved changes")).toBeVisible();
+  // The floating bar leaves once everything is saved.
+  await waitFor(() => expect(screen.queryByText(/unsaved change/)).toBeNull());
 });
 
 test("saving_while_the_agent_is_offline_says_it_applies_when_it_reconnects", async () => {
@@ -162,7 +163,7 @@ test("thresholds_that_are_not_json_mark_the_field_and_stage_nothing", async () =
   expect(screen.getByLabelText("Thresholds")).toBeInvalid();
   expect(screen.getByRole("alert")).toHaveTextContent(/not valid JSON/);
   expect(screen.getByRole("dialog")).toBeVisible();
-  expect(screen.getByText("No unsaved changes")).toBeVisible();
+  expect(screen.queryByText(/unsaved change/)).toBeNull();
 });
 
 test("discarding_drops_the_unsaved_changes", async () => {
@@ -175,7 +176,7 @@ test("discarding_drops_the_unsaved_changes", async () => {
   expect(await screen.findByText("1 unsaved change")).toBeVisible();
 
   await user.click(screen.getByRole("button", { name: "Discard" }));
-  expect(screen.getByText("No unsaved changes")).toBeVisible();
+  expect(screen.queryByText(/unsaved change/)).toBeNull();
   expect(within(await row("memory.available")).queryByText("Unsaved")).toBeNull();
 });
 

@@ -24,6 +24,7 @@ import { SectionBody } from "./SectionBody";
 import { SectionNav, type SectionState } from "./SectionNav";
 import { SECTIONS, findSection } from "./sections";
 import styles from "./layout.module.css";
+import shared from "./settings.module.css";
 import { useSettingsForm } from "./useSettingsForm";
 
 /** More unsaved changes than this ask before Discard throws them away. */
@@ -48,7 +49,7 @@ export function EditorForm({
   const navigate = useNavigate();
   const client = useQueryClient();
   const schema = useSettingsSchema();
-  const form = useSettingsForm(editable);
+  const form = useSettingsForm(editable, schema.data);
   const [problem, setProblem] = useState<SaveFailure>();
   const [attempted, setAttempted] = useState(false);
   const [asking, setAsking] = useState(false);
@@ -142,7 +143,7 @@ export function EditorForm({
   const context = { editable, form, issues: placed.byField, schema: schema.data };
   return (
     <>
-      <form onSubmit={onSubmit} noValidate>
+      <form className={styles.form} onSubmit={onSubmit} noValidate>
         <div className={styles.layout} data-view={param ? "section" : "list"}>
           <div className={styles.navColumn}>
             <SectionNav sections={SECTIONS} selected={selected?.id} states={states} />
@@ -198,9 +199,11 @@ export function EditorForm({
             form.count > CONFIRM_DISCARD_FROM ? setDiscarding(true) : form.discard()
           }
         >
-          <Tag hint="Saving applies your changes by restarting the hub. It is back in a few seconds.">
-            Restarts the hub
-          </Tag>
+          <span className={shared.barTag}>
+            <Tag hint="Saving applies your changes by restarting the hub. It is back in a few seconds.">
+              Restarts the hub
+            </Tag>
+          </span>
         </SubmitBar>
       </form>
       {discarding && (

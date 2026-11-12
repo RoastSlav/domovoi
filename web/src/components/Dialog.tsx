@@ -16,9 +16,10 @@ export interface DialogProps {
 }
 
 /**
- * A modal dialog, shown while mounted, on the native `<dialog>`: labelled by its title,
- * keeping focus inside until it closes, closing on Escape, holding the page still behind
- * it and returning focus to where it was.
+ * A modal dialog, shown while mounted, on the native `<dialog>`: the overlay surface with a
+ * 16 px header, the content, and a footer with the buttons at the right, over a blurred
+ * scrim. It is labelled by its title, keeps focus inside until it closes, closes on Escape,
+ * holds the page still behind it and returns focus to where it was.
  *
  * Use it for a question or a short form that must be answered before going on. Do not use
  * it for an explanation (`InfoTip`) or for the result of an action (toast).
@@ -80,10 +81,12 @@ export function Dialog({ title, children, actions, onClose, wide = false }: Dial
         onClose();
       }}
     >
-      <h2 id={titleId} className={styles.dialogTitle}>
-        {title}
-      </h2>
-      {children}
+      <div className={styles.dialogBody}>
+        <h2 id={titleId} className={styles.dialogTitle}>
+          {title}
+        </h2>
+        {children}
+      </div>
       <div className={styles.dialogActions}>{actions}</div>
     </dialog>
   );

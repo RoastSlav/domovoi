@@ -33,9 +33,8 @@ function searches() {
 test("notes_page_explains_that_triage_reads_the_notes", async () => {
   renderAt("/notes", "/notes", <NotesPage />);
 
-  expect(await screen.findByText(/^Runbooks in Markdown:/)).toBeVisible();
   expect(
-    screen.getByText(/Triage searches them and gives the relevant ones to the model\./),
+    await screen.findByText(/^Markdown runbooks that triage searches and hands to the model\./),
   ).toBeVisible();
   expect(
     screen.getByRole("link", { name: "Learn more about notes (opens in a new tab)" }),
@@ -60,6 +59,32 @@ test("notes_list_shows_scope_excerpt_and_tags_for_each_note", async () => {
   expect(within(table).getByText("Backups Run restic nightly to the nas share.")).toBeVisible();
   expect(await within(table).findByText(nas.name)).toBeVisible();
   expect(within(table).getByText("backup")).toBeVisible();
+});
+
+test("a_click_anywhere_on_a_note_row_opens_the_note", async () => {
+  const user = userEvent.setup();
+  route("GET /api/v1/notes", () => [note("n1", "Backups", "Run restic nightly.")]);
+  renderAt("/notes", "/notes", <NotesPage />);
+
+  const table = await screen.findByRole("table", { name: "Notes" });
+  await user.click(within(table).getByText("Global"));
+  expect(screen.getByTestId("location")).toHaveTextContent("/notes/n1");
+});
+
+test("many_tags_show_two_then_a_plus_tag_with_the_rest_in_its_tooltip", async () => {
+  const user = userEvent.setup();
+  route("GET /api/v1/notes", () => [
+    { ...note("n1", "Backups", "Run restic."), tags: ["backup", "zfs", "nightly", "offsite"] },
+  ]);
+  renderAt("/notes", "/notes", <NotesPage />);
+
+  const table = await screen.findByRole("table", { name: "Notes" });
+  expect(within(table).getByText("backup")).toBeVisible();
+  expect(within(table).getByText("zfs")).toBeVisible();
+  expect(within(table).queryByText("nightly")).toBeNull();
+  const more = within(table).getByText("+2");
+  await user.hover(more);
+  expect(await screen.findByText("nightly, offsite")).toBeVisible();
 });
 
 test("notes_search_debounces_and_marks_the_matching_words", async () => {

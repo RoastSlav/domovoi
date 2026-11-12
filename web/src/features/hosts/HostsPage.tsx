@@ -2,10 +2,28 @@ import { useState } from "react";
 import { useHosts } from "../../api/hooks/hosts";
 import type { Host } from "../../api/types";
 import { AllHostsNote } from "../../app/AllHostsNote";
-import { Button, EmptyState, PageHeader, QueryBoundary, Skeleton, Tag } from "../../components";
+import {
+  Button,
+  EmptyState,
+  PageHeader,
+  QueryBoundary,
+  SegmentedControl,
+  Skeleton,
+  Stack,
+  Tag,
+} from "../../components";
 import { hostConnectionOf } from "../../design/tone";
 import { EnrollDialog } from "./EnrollDialog";
+import { filterHosts, type HostFilter } from "./hostFilter";
+import { HostCards } from "./HostCards";
+import { HostsFilters } from "./HostsFilters";
 import { HostsTable } from "./HostsTable";
+import { useHostsView, type HostsView } from "./useHostsView";
+
+const VIEWS = [
+  { value: "cards", label: "Cards" },
+  { value: "table", label: "Table" },
+] as const;
 
 /** The page's one-line summary: how many hosts there are and how many need a look. */
 function Summary({ hosts }: { hosts: readonly Host[] }) {
@@ -25,6 +43,9 @@ function Summary({ hosts }: { hosts: readonly Host[] }) {
 export function HostsPage() {
   const hosts = useHosts();
   const [enrolling, setEnrolling] = useState(false);
+  const [view, setView] = useHostsView();
+  const [filter, setFilter] = useState<HostFilter>("all");
+  const [query, setQuery] = useState("");
   const add = () => setEnrolling(true);
 
   return (
@@ -32,12 +53,22 @@ export function HostsPage() {
       <PageHeader
         title="Hosts"
         docs="concepts/hub-and-agent.html"
-        intro="Machines Domovoi knows about: hosts running an agent, and hosts that webhooks report on."
+        intro="Machines Domovoi watches, with an agent or through webhooks."
         meta={hosts.data && hosts.data.length > 0 && <Summary hosts={hosts.data} />}
         actions={
-          <Button variant="primary" icon="plus" onClick={add}>
-            Add host
-          </Button>
+          <>
+            {hosts.data && hosts.data.length > 0 && (
+              <SegmentedControl<HostsView>
+                label="Hosts view"
+                options={VIEWS}
+                value={view}
+                onChange={setView}
+              />
+            )}
+            <Button variant="primary" icon="plus" onClick={add}>
+              Add host
+            </Button>
+          </>
         }
       />
       <AllHostsNote>This is the list the host selector chooses from.</AllHostsNote>
@@ -63,7 +94,29 @@ export function HostsPage() {
           </EmptyState>
         }
       >
-        {(data) => <HostsTable hosts={data} />}
+        {(data) => {
+          const shown = filterHosts(data, filter, query);
+          return (
+            <Stack gap={4}>
+              <HostsFilters
+                hosts={data}
+                filter={filter}
+                query={query}
+                onFilter={setFilter}
+                onQuery={setQuery}
+              />
+              {shown.length === 0 ? (
+                <EmptyState icon="filter" title="No hosts match">
+                  <p>Choose All and clear the search to see every host again.</p>
+                </EmptyState>
+              ) : view === "cards" ? (
+                <HostCards hosts={shown} />
+              ) : (
+                <HostsTable hosts={shown} />
+              )}
+            </Stack>
+          );
+        }}
       </QueryBoundary>
       {enrolling && <EnrollDialog onClose={() => setEnrolling(false)} />}
     </>

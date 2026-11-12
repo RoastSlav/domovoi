@@ -1,6 +1,5 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
 import { Button } from "./Button";
-import { Field } from "./Field";
 import { Kbd } from "./Kbd";
 import { Textarea } from "./inputs";
 import styles from "./ChatThread.module.css";
@@ -23,15 +22,17 @@ function fit(element: HTMLTextAreaElement | null): void {
 }
 
 /**
- * The box a question is written in: it grows with the text, Enter sends and Shift+Enter
- * starts a new line (the hint says so), and when it cannot be used it says why in place of
- * the hint. Part of `ChatThread`; not used on its own.
+ * The box a question is written in: one bordered 12 px box with the text and the Send button
+ * inside it. It grows with the text, Enter sends and Shift+Enter starts a new line (the line
+ * under it says so), and when it cannot be used it says why in place of that line. Part of
+ * `ChatThread`; not used on its own.
  */
 export function ChatComposer({
   label,
   hint,
   disabledReason,
   sending = false,
+  sendVariant = "primary",
   value: question,
   onChange: setQuestion,
   onSend,
@@ -45,10 +46,13 @@ export function ChatComposer({
   /** Called with the trimmed question; the composer empties at once. */
   onSend: (question: string) => void;
   sending?: boolean | undefined;
+  /** `secondary` where the page already has a primary button of its own. */
+  sendVariant?: "primary" | "secondary";
   /** The draft. */
   value: string;
 }) {
   const box = useRef<HTMLTextAreaElement | null>(null);
+  const hintId = useId();
   useEffect(() => fit(box.current), [question]);
 
   const blocked = Boolean(disabledReason);
@@ -68,19 +72,12 @@ export function ChatComposer({
   const why = disabledReason ?? (question.trim() ? undefined : "Write a question first.");
   return (
     <div className={styles.composer}>
-      <Field
-        label={label}
-        hint={
-          disabledReason ?? (
-            <>
-              {hint} <Kbd>Enter</Kbd> sends, <Kbd>Shift</Kbd>+<Kbd>Enter</Kbd> starts a new line.
-            </>
-          )
-        }
-      >
+      <div className={styles.composerBox}>
         <Textarea
           ref={box}
           className={styles.box}
+          aria-label={label}
+          aria-describedby={hintId}
           rows={1}
           maxLength={MAX_QUESTION_CHARS}
           value={question}
@@ -94,11 +91,24 @@ export function ChatComposer({
             }
           }}
         />
-      </Field>
-      <div className={styles.composerRow}>
-        <Button variant="primary" loading={sending} disabledReason={why} onClick={send}>
+        <Button
+          variant={sendVariant}
+          size="sm"
+          loading={sending}
+          disabledReason={why}
+          onClick={send}
+        >
           Send
         </Button>
+      </div>
+      <div className={styles.composerMeta}>
+        <p className={styles.hint} id={hintId}>
+          {disabledReason ?? (
+            <>
+              {hint} <Kbd>Enter</Kbd> sends, <Kbd>Shift</Kbd>+<Kbd>Enter</Kbd> starts a new line.
+            </>
+          )}
+        </p>
         {question.length >= COUNT_FROM && (
           <span className={`${styles.count} tabular-nums`} role="status">
             {question.length} / {MAX_QUESTION_CHARS}

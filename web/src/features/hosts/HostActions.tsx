@@ -1,22 +1,23 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import type { Host } from "../../api/types";
-import { Cluster, Menu, useToast, type MenuItem } from "../../components";
+import { Button, Cluster, Menu, useToast } from "../../components";
 import { describeError } from "../../design/messages";
 import { HowToUpdateDialog } from "../updates/HowToUpdateDialog";
+import { EnrollDialog } from "./EnrollDialog";
 import { RevokeHostDialog } from "./RevokeHostDialog";
 
 /**
- * The actions on one host's page, right of its title: a menu with the name copy, how to
- * update an old agent and revoking the agent. Wrapped in a row so a main action can sit
- * beside the menu later without moving it.
+ * The actions on one host's page, in its header: the safe ones are buttons (copy the name,
+ * how to update an old agent, enroll an agent where there is none); the destructive one,
+ * revoking the agent, is in a menu and asks first.
  *
- * Revoking asks first; once the agent is revoked the person goes back to the host list.
+ * Once the agent is revoked the person goes back to the host list.
  */
 export function HostActions({ host }: { host: Host }) {
   const navigate = useNavigate();
   const toast = useToast();
-  const [dialog, setDialog] = useState<"revoke" | "update">();
+  const [dialog, setDialog] = useState<"enroll" | "revoke" | "update">();
   const [askedToRevoke, setAskedToRevoke] = useState(false);
 
   // The revoke dialog closes after a success and after a cancel alike; the host losing its
@@ -36,26 +37,43 @@ export function HostActions({ host }: { host: Host }) {
     }
   };
 
-  const items: MenuItem[] = [{ label: "Copy name", icon: "copy", onSelect: () => void copyName() }];
-  if (host.outdated) {
-    items.push({ label: "How to update", icon: "refresh", onSelect: () => setDialog("update") });
-  }
-  items.push({
-    label: "Revoke agent",
-    icon: "ban",
-    tone: "danger",
-    disabledReason: host.agent_enrolled ? undefined : "No agent is enrolled on this host",
-    onSelect: () => {
-      setAskedToRevoke(host.agent_enrolled);
-      setDialog("revoke");
-    },
-  });
-
   return (
     <Cluster gap={2}>
-      <Menu label={`Actions for ${host.name}`} items={items} />
+      {host.outdated && (
+        <Button icon="refresh" onClick={() => setDialog("update")}>
+          How to update
+        </Button>
+      )}
+      {!host.agent_enrolled && !host.connected && host.kind !== "external" && (
+        <Button icon="plus" onClick={() => setDialog("enroll")}>
+          Enroll agent
+        </Button>
+      )}
+      <Button icon="copy" onClick={() => void copyName()}>
+        Copy name
+      </Button>
+      {host.agent_enrolled && (
+        <Menu
+          label={`Actions for ${host.name}`}
+          text="More"
+          items={[
+            {
+              label: "Revoke agent",
+              icon: "ban",
+              tone: "danger",
+              onSelect: () => {
+                setAskedToRevoke(true);
+                setDialog("revoke");
+              },
+            },
+          ]}
+        />
+      )}
       {dialog === "revoke" && <RevokeHostDialog host={host} onClose={() => setDialog(undefined)} />}
       {dialog === "update" && <HowToUpdateDialog onClose={() => setDialog(undefined)} />}
+      {dialog === "enroll" && (
+        <EnrollDialog initialName={host.name} onClose={() => setDialog(undefined)} />
+      )}
     </Cluster>
   );
 }

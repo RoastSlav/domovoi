@@ -1,6 +1,7 @@
 import type { HostCheck } from "../../api/types";
 import { Button, DataTable, StatusPill, Tag, Text, type Column } from "../../components";
 import { checkStateMeta } from "../../design/tone";
+import { thresholdWords } from "./thresholdText";
 import { effectiveOf, sameDraft, draftOf, type Draft, type Effective } from "./checkDraft";
 
 /** What the table needs to draw one check. */
@@ -24,17 +25,14 @@ function State({ row, connected }: { connected: boolean; row: Row }) {
   return <StatusPill size="sm" meta={checkStateMeta("ok")} />;
 }
 
-function thresholdWords(thresholds: Record<string, unknown>): string {
-  return Object.entries(thresholds)
-    .map(([name, value]) => `${name} ${JSON.stringify(value)}`)
-    .join(", ");
-}
-
 function columns(connected: boolean, onEdit: (key: string) => void): Column<Row>[] {
   return [
     {
       key: "check",
       label: "Check",
+      width: "20rem",
+      truncate: "ellipsis",
+      tip: (row) => row.check.key,
       cell: (row) => (
         <Text mono strong>
           {row.check.key}
@@ -44,12 +42,14 @@ function columns(connected: boolean, onEdit: (key: string) => void): Column<Row>
     {
       key: "state",
       label: "State",
+      width: "8rem",
       hint: "Failing means the check has an incident that is not resolved yet.",
       cell: (row) => <State row={row} connected={connected} />,
     },
     {
       key: "interval",
       label: "Runs every",
+      width: "8rem",
       numeric: true,
       cell: (row) =>
         row.effective.interval === undefined ? (
@@ -61,18 +61,19 @@ function columns(connected: boolean, onEdit: (key: string) => void): Column<Row>
     {
       key: "thresholds",
       label: "Thresholds",
+      truncate: "clamp2",
+      tip: (row) => thresholdWords(row.effective.thresholds),
       cell: (row) =>
         Object.keys(row.effective.thresholds).length === 0 ? (
           <Text muted>none</Text>
         ) : (
-          <Text mono size="sm">
-            {thresholdWords(row.effective.thresholds)}
-          </Text>
+          <Text size="sm">{thresholdWords(row.effective.thresholds)}</Text>
         ),
     },
     {
       key: "source",
       label: "Source",
+      width: "13rem",
       hint: "Agent default is what agent.toml sets. Hub override is a value set here that wins over it.",
       cell: (row) => (
         <>
@@ -87,6 +88,7 @@ function columns(connected: boolean, onEdit: (key: string) => void): Column<Row>
       key: "actions",
       label: "Actions",
       hideLabel: true,
+      width: "6rem",
       cell: (row) => (
         <Button
           size="sm"
@@ -132,6 +134,7 @@ export function CheckTable({
   return (
     <DataTable
       caption="Checks"
+      layout="fixed"
       columns={columns(connected, onEdit)}
       rows={rows}
       rowKey={(row) => row.check.key}

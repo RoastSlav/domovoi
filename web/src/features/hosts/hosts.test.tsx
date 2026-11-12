@@ -33,10 +33,6 @@ function show(url = "/hosts/nas") {
   return renderAt(url, "/hosts/:name", <HostDetailPage />);
 }
 
-function fact(key: string, label: string, value: string, unit?: string): Fact {
-  return { key, label, value, unit: unit ?? null, observed_at: T0 };
-}
-
 function skill(name: string, risk: string, enabled = true): Skill {
   return {
     name,
@@ -50,7 +46,7 @@ function skill(name: string, risk: string, enabled = true): Skill {
   };
 }
 
-test("the_header_names_the_host_and_says_how_it_is_doing_on_one_line", async () => {
+test("the_header_names_the_host_and_shows_its_facts_as_labelled_values", async () => {
   serve({
     ...nas,
     kind: "agent",
@@ -64,14 +60,41 @@ test("the_header_names_the_host_and_says_how_it_is_doing_on_one_line", async () 
   const title = await screen.findByRole("heading", { level: 1, name: "nas" });
   const header = title.closest("header") as HTMLElement;
   expect(within(header).getByText("Connected")).toBeVisible();
-  expect(within(header).getByText("Agent")).toBeVisible();
-  expect(within(header).getByText("Agent 0.0.1")).toBeVisible();
+  expect(within(header).getByText("0.0.1")).toBeVisible();
   expect(within(header).getByText("Update available")).toBeVisible();
   expect(within(header).getByRole("link", { name: "2 open incidents" })).toHaveAttribute(
     "href",
     "/incidents?host=nas",
   );
-  expect(within(header).getByText(/^Connected since/)).toBeVisible();
+  expect(within(header).getByText("Connected since")).toBeVisible();
+});
+
+test("every_fact_in_the_header_has_its_label_above_its_value", async () => {
+  serve({
+    ...nas,
+    kind: "agent",
+    version: "0.0.9",
+    open_incidents: 0,
+    connected_since: "2026-10-31T12:00:00Z",
+  });
+  show();
+  const header = (await screen.findByRole("heading", { level: 1, name: "nas" })).closest(
+    "header",
+  ) as HTMLElement;
+  const facts = [...header.querySelectorAll("dl > div")].map((fact) => ({
+    label: fact.querySelector("dt")?.textContent,
+    value: fact.querySelector("dd")?.textContent,
+  }));
+  expect(facts.map((fact) => fact.label)).toEqual([
+    "Status",
+    "Kind",
+    "Agent",
+    "Open incidents",
+    "Connected since",
+  ]);
+  expect(facts.every((fact) => Boolean(fact.value))).toBe(true);
+  expect(facts[2]?.value).toBe("0.0.9");
+  expect(facts[3]?.value).toBe("None");
 });
 
 test("an_offline_host_shows_when_it_was_last_seen_in_the_header", async () => {
@@ -86,7 +109,7 @@ test("an_offline_host_shows_when_it_was_last_seen_in_the_header", async () => {
     "header",
   ) as HTMLElement;
   expect(within(header).getByText("Offline")).toBeVisible();
-  expect(within(header).getByText(/^Last seen/)).toBeVisible();
+  expect(within(header).getByText("Last seen")).toBeVisible();
 });
 
 test("hub_host_without_agent_is_shown_as_hub_only", async () => {
@@ -208,28 +231,6 @@ test("recent_incidents_show_a_resolved_pill_beside_each_incident", async () => {
   expect(within(table).getByText("Resolved")).toBeVisible();
 });
 
-test("facts_are_grouped_into_cards_by_what_they_describe_with_the_rest_under_other", async () => {
-  serve(nas, [
-    fact("disk./srv.free_gib", "Free on /srv", "120", "GiB"),
-    fact("memory.available_gib", "Memory available", "6.5", "GiB"),
-    fact("system.uptime_days", "Uptime", "12", "days"),
-    fact("net.eth0.speed", "Link speed", "1000", "Mb/s"),
-    fact("zzz.custom", "Custom thing", "7"),
-  ]);
-  show();
-  for (const [group, label, value] of [
-    ["Disk", "Free on /srv", "120 GiB"],
-    ["Memory", "Memory available", "6.5 GiB"],
-    ["System", "Uptime", "12 days"],
-    ["Network", "Link speed", "1000 Mb/s"],
-    ["Other", "Custom thing", "7"],
-  ] as const) {
-    const card = await screen.findByRole("group", { name: group });
-    expect(within(card).getByText(label)).toBeVisible();
-    expect(within(card).getByText(new RegExp(`^${value}$`))).toBeVisible();
-  }
-});
-
 test("a_host_without_facts_says_why_and_what_to_check", async () => {
   serve();
   show();
@@ -258,7 +259,7 @@ test("skills_are_a_compact_list_with_a_risk_pill_each", async () => {
 test("a_host_name_with_a_slash_is_encoded_in_the_links_it_builds", async () => {
   serve({ ...nas, name: "lab/one", open_incidents: 1 });
   show("/hosts/lab%2Fone");
-  expect(await screen.findByRole("link", { name: "1 open incidents" })).toHaveAttribute(
+  expect(await screen.findByRole("link", { name: "1 open incident" })).toHaveAttribute(
     "href",
     "/incidents?host=lab%2Fone",
   );
@@ -313,4 +314,67 @@ test("host_logs_tab_shows_the_recent_lines_that_agent_kept", async () => {
     path: { name: "nas" },
     query: { level: "info", lines: 200 },
   });
+});
+
+test("the_header_shows_safe_actions_as_buttons_and_keeps_revoking_in_a_menu", async () => {
+  serve({ ...nas, version: "0.0.1", outdated: true });
+  const user = userEvent.setup();
+  show();
+  const header = (await screen.findByRole("heading", { level: 1, name: "nas" })).closest(
+    "header",
+  ) as HTMLElement;
+
+  expect(within(header).getByRole("button", { name: "Copy name" })).toBeVisible();
+  expect(within(header).getByRole("button", { name: "How to update" })).toBeVisible();
+  expect(within(header).queryByRole("button", { name: "Enroll agent" })).toBeNull();
+  expect(within(header).queryByRole("button", { name: "Revoke agent" })).toBeNull();
+
+  await user.click(within(header).getByRole("button", { name: "Actions for nas" }));
+  expect(screen.getByRole("menuitem", { name: "Revoke agent" })).toBeVisible();
+});
+
+test("a_host_without_an_agent_offers_to_enroll_one_under_its_name", async () => {
+  serve(HUB);
+  const user = userEvent.setup();
+  show("/hosts/hub");
+  await user.click(await screen.findByRole("button", { name: "Enroll agent" }));
+  const dialog = screen.getByRole("dialog", { name: "Add a host" });
+  expect(within(dialog).getByLabelText("Host name")).toHaveValue("hub");
+  expect(screen.queryByRole("button", { name: "Actions for hub" })).toBeNull();
+});
+
+test("a_connected_host_has_no_enroll_button_even_when_it_is_not_marked_enrolled", async () => {
+  serve({ ...nas, agent_enrolled: false, connected: true });
+  show();
+  const header = (await screen.findByRole("heading", { level: 1, name: "nas" })).closest(
+    "header",
+  ) as HTMLElement;
+  expect(within(header).getByRole("button", { name: "Copy name" })).toBeVisible();
+  expect(within(header).queryByRole("button", { name: "Enroll agent" })).toBeNull();
+});
+
+test("a_never_enrolled_host_that_is_not_connected_offers_to_enroll_an_agent", async () => {
+  serve({ ...nas, agent_enrolled: false, connected: false, last_seen: null, version: null });
+  show();
+  const header = (await screen.findByRole("heading", { level: 1, name: "nas" })).closest(
+    "header",
+  ) as HTMLElement;
+  expect(within(header).getByRole("button", { name: "Enroll agent" })).toBeVisible();
+});
+
+test("an_external_host_has_no_enroll_button_in_its_header", async () => {
+  serve({
+    ...nas,
+    kind: "external",
+    agent_enrolled: false,
+    connected: false,
+    last_seen: null,
+    version: null,
+  });
+  show();
+  const header = (await screen.findByRole("heading", { level: 1, name: "nas" })).closest(
+    "header",
+  ) as HTMLElement;
+  expect(within(header).getByRole("button", { name: "Copy name" })).toBeVisible();
+  expect(within(header).queryByRole("button", { name: "Enroll agent" })).toBeNull();
 });
