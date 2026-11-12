@@ -87,7 +87,13 @@ pub(crate) async fn admit(shared: &Shared, purpose: Purpose) -> Result<(), Refus
         return Err(Refusal::Hourly {
             retry_at: match room {
                 0 => None,
-                _ => window.starts.front().and_then(|t| slot_after(*t)),
+                // Triage may have used the runs kept free for it, so more than one start
+                // can have to leave the hour before this task fits: the start whose
+                // expiry frees the slot is the one at `len - room`.
+                _ => window
+                    .starts
+                    .get(window.starts.len() - room)
+                    .and_then(|t| slot_after(*t)),
             },
         });
     }

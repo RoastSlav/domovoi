@@ -134,15 +134,8 @@ pub(crate) async fn answer(
     question: &str,
     asked_by: UserId,
 ) -> Result<String, TriageError> {
-    // One gate for every model-backed task: a question may not start when the hourly
-    // model limit is reached or the monthly budget is spent.
-    if let Err(refusal) = admit(shared, Purpose::Question).await {
-        return Err(match refusal {
-            Refusal::BudgetSpent => TriageError::BudgetSpent,
-            Refusal::Hourly { retry_at } => TriageError::Busy { retry_at },
-        });
-    }
-    // One answer in flight per worker: a second question at once is refused as busy.
+    // One answer in flight per worker: a second question at once is refused as busy
+    // before it can take a run of the hour.
     let _answer_permit = match shared.questions.try_acquire() {
         Ok(permit) => permit,
         Err(_) => return Err(TriageError::Busy { retry_at: None }),
@@ -154,6 +147,15 @@ pub(crate) async fn answer(
         .await
         .map_err(|e| TriageError::Store(e.to_string()))?
         .ok_or(TriageError::UnknownIncident(id))?;
+    // One gate for every model-backed task: a question may not start when the hourly
+    // model limit is reached or the monthly budget is spent. It runs after the incident
+    // check, so a refused or unknown question never takes a run of the hour.
+    if let Err(refusal) = admit(shared, Purpose::Question).await {
+        return Err(match refusal {
+            Refusal::BudgetSpent => TriageError::BudgetSpent,
+            Refusal::Hourly { retry_at } => TriageError::Busy { retry_at },
+        });
+    }
     let skills = deps.link.skills(incident.host());
     let scope = tools::Scope::of(&incident);
     let bundle = context::build(shared, &incident, &skills).await;

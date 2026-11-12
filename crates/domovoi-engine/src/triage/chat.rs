@@ -139,19 +139,21 @@ pub(crate) async fn answer(
     history: &[ChatTurn],
     question: &str,
 ) -> Result<String, TriageError> {
+    // One answer in flight per worker, like follow-up questions: a second chat at once is
+    // refused before it can take a run of the hour.
+    let _answer_permit = match shared.questions.try_acquire() {
+        Ok(permit) => permit,
+        Err(_) => return Err(TriageError::Busy { retry_at: None }),
+    };
     // The same hourly and monthly gate follow-up questions and triage runs pass: chat
     // counts against the hourly model limit too, keeping the reserved triage runs free.
+    // Admission runs last, so a refused chat never takes a run of the hour.
     if let Err(refusal) = admit(shared, Purpose::Question).await {
         return Err(match refusal {
             Refusal::BudgetSpent => TriageError::BudgetSpent,
             Refusal::Hourly { retry_at } => TriageError::Busy { retry_at },
         });
     }
-    // One answer in flight per worker, like follow-up questions.
-    let _answer_permit = match shared.questions.try_acquire() {
-        Ok(permit) => permit,
-        Err(_) => return Err(TriageError::Busy { retry_at: None }),
-    };
     let deps = &shared.deps;
     let skills: Vec<SkillSummary> = match host {
         Some(host) => deps.link.skills(host),
