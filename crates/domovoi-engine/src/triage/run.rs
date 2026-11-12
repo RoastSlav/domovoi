@@ -83,8 +83,12 @@ async fn outcome(
         .ok()
         .and_then(|s| s.into_iter().next());
     let digest = evidence_digest(incident, latest.as_ref());
-    if !fresh && let Some((report, from)) = cached(shared, incident, &digest).await {
-        return (TriageOutcome::Cached { report, from }, BTreeMap::new());
+    if !fresh && let Some((mut report, from)) = cached(shared, incident, &digest).await {
+        // The repeat incident gets the same approve buttons a fresh triage would: the
+        // cached report's proposals are re-validated against the host's current skills.
+        let skills = deps.link.skills(incident.host());
+        let tokens = proposals::create(shared, incident, &skills, &mut report).await;
+        return (TriageOutcome::Cached { report, from }, tokens);
     }
     let skills = deps.link.skills(incident.host());
     let bundle = context::build(shared, incident, &skills).await;
