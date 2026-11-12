@@ -35,6 +35,11 @@ pub enum ActionError {
     /// Destructive actions need a typed confirmation in the web UI (INV-6).
     #[error("destructive actions need a typed confirmation in the web UI")]
     DestructiveNeedsTypedConfirmation,
+    /// Another maintainer decided the action between reading it and the write, so
+    /// the store refused to overwrite it (ADR 0019). Reload the action rather than
+    /// retrying the decision.
+    #[error("this action changed meanwhile; reload")]
+    ChangedMeanwhile,
 }
 
 impl ActionRequest {
