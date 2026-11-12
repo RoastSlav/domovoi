@@ -26,16 +26,6 @@ impl ActionRepo for InMemoryStore {
         Ok(())
     }
 
-    async fn update(&self, action: &ActionRequest) -> Result<(), StoreError> {
-        let mut state = self.begin()?;
-        let stored = state
-            .actions
-            .get_mut(&action.id())
-            .ok_or(StoreError::NotFound)?;
-        *stored = action.clone();
-        Ok(())
-    }
-
     async fn update_from(&self, action: &ActionRequest, expected: &str) -> Result<(), StoreError> {
         let mut state = self.begin()?;
         let stored = state

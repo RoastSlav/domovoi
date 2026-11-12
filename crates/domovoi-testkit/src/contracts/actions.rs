@@ -16,12 +16,11 @@ use super::{ContractError, ContractResult};
 use crate::approvals::human;
 use crate::build::{BuildError, T0, action, at, manifest};
 
-/// Exercises inserts, updates, chat tokens and listing on an empty `repo`.
+/// Exercises inserts, guarded updates, chat tokens and listing on an empty `repo`.
 pub async fn action_repo_contract(repo: &dyn ActionRepo) -> ContractResult {
     let (incident, host) = (IncidentId::new(), HostId::new());
     let mut first = action(incident, host, Risk::Write)?;
     assert_eq!(repo.get(first.id()).await?, None);
-    assert_eq!(repo.update(&first).await, Err(StoreError::NotFound));
     assert_eq!(
         repo.update_from(&first, "proposed").await,
         Err(StoreError::NotFound),
@@ -37,7 +36,7 @@ pub async fn action_repo_contract(repo: &dyn ActionRepo) -> ContractResult {
     first
         .approve(human(UserId::new()), at(60))
         .map_err(|e| ContractError::Setup(e.to_string()))?;
-    repo.update(&first).await?;
+    repo.update_from(&first, "proposed").await?;
     let stored = repo.get(first.id()).await?;
     assert_eq!(
         stored.as_ref().map(ActionRequest::status),
@@ -46,7 +45,7 @@ pub async fn action_repo_contract(repo: &dyn ActionRepo) -> ContractResult {
     assert_eq!(
         stored,
         Some(first.clone()),
-        "update replaces the whole request"
+        "update_from replaces the whole request"
     );
     assert_eq!(
         repo.update_from(&first, "proposed").await,
@@ -212,7 +211,7 @@ async fn sent(
         request.plan_hash()
     };
     request.dispatch(plan, at(dispatched_at)).map_err(setup)?;
-    repo.update(&request).await?;
+    repo.update_from(&request, "proposed").await?;
     Ok(request)
 }
 
@@ -229,7 +228,7 @@ async fn last_run_by_skill_contract(repo: &dyn ActionRepo) -> ContractResult {
     restart
         .complete(Ok(()), at(180))
         .map_err(|e| ContractError::Setup(e.to_string()))?;
-    repo.update(&restart).await?;
+    repo.update_from(&restart, "dispatched").await?;
     sent(repo, host, "restart_container", 150, false).await?;
     sent(repo, host, "prune_logs", 300, false).await?;
     sent(repo, host, "zpool_status", 400, true).await?;
