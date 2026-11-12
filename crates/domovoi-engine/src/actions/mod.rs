@@ -10,6 +10,8 @@
 mod approvals;
 pub mod audit;
 mod executor;
+mod recheck;
+mod recover;
 mod writer;
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -109,26 +111,15 @@ pub(crate) struct Shared {
     pub(crate) dispatches: Mutex<Dispatches>,
     /// Actions being run right now, so one is never run twice at once.
     pub(crate) running: Mutex<BTreeSet<ActionId>>,
+    /// The queue into the writer task. The executor hands every transition to that
+    /// one writer (ADR 0019) rather than writing action state itself.
+    pub(crate) writer: writer::WriterHandle,
 }
 
 impl Shared {
-    /// Stores `action`, appends `entry` to the audit log and publishes `ActionChanged`.
-    pub(crate) async fn record(
-        &self,
-        action: &ActionRequest,
-        entry: AuditEvent,
-    ) -> Result<(), String> {
-        self.deps
-            .actions
-            .update(action)
-            .await
-            .map_err(|e| e.to_string())?;
-        self.announce(action, entry).await;
-        Ok(())
-    }
-
-    /// [`Shared::record`] but through [`ActionRepo::update_from`], so the write
-    /// is refused when the stored status is no longer `expected`; the store's
+    /// Stores `action` through the guarded write, so a decision that read the
+    /// action before it changed is refused rather than overwriting an outcome,
+    /// appends `entry` to the audit log and publishes `ActionChanged`. The store's
     /// own error lets the caller tell a lost race from a real failure.
     pub(crate) async fn record_from(
         &self,
@@ -198,13 +189,14 @@ impl ActionService {
     #[must_use]
     pub fn spawn(deps: ActionDeps, settings: ActionSettings) -> (ActionHandle, JoinHandle<()>) {
         let events = deps.bus.subscribe();
+        let (writer, incoming) = writer::queue();
         let shared = Arc::new(Shared {
             deps,
             settings,
             dispatches: Mutex::new(BTreeMap::new()),
             running: Mutex::new(BTreeSet::new()),
+            writer: writer.clone(),
         });
-        let (writer, incoming) = writer::queue();
         let writer_shared = shared.clone();
         let executor_shared = shared.clone();
         let task = tokio::spawn(async {

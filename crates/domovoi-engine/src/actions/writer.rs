@@ -1,19 +1,23 @@
-//! One writer loop applies every action decision (ADR 0019): approve, deny and
-//! the expiry sweep arrive as commands on a bounded channel and are applied one
-//! at a time, so exactly one decision can win an action and a decision read over
-//! a stale state is refused instead of overwriting one already made. The action
-//! service runs this loop joined with the executor, so whoever waits for the
-//! service also waits for this queue to drain.
+//! One writer loop applies every action decision (ADR 0019): approve, deny, the expiry
+//! sweep, and every step of a run (dispatch, rejection, the answer for a run, the
+//! re-check) arrive as commands on a bounded channel and are applied one at a time, so
+//! exactly one decision can win an action and a decision read over a stale state is
+//! refused instead of overwriting one already made. The action service runs this loop
+//! joined with the executor, so whoever waits for the service also waits for the
+//! decisions still queued. It starts by failing what a previous hub session left
+//! running, so a hub that restarted does not leave actions waiting forever (ADR 0014).
 
 use std::sync::Arc;
 
 use domovoi_core::ports::{ActionFilter, Page, StoreError};
 use domovoi_core::{
-    ActionChange, ActionError, ActionId, ActionRequest, ApprovalChannel, HumanApproval,
+    ActionChange, ActionError, ActionId, ActionRequest, ActionStatus, ApprovalChannel,
+    HumanApproval, PlanHash,
 };
 
 use super::approvals::{chat_token_ok, load, store};
-use super::audit;
+use super::audit::{self, RunRecord};
+use super::recover;
 use super::{ApprovalError, Shared};
 use crate::events::EventKind;
 
@@ -23,21 +27,48 @@ use tokio::sync::{mpsc, oneshot};
 /// Commands waiting to be applied queue up at most this deep.
 const WRITE_QUEUE: usize = 64;
 
+/// What a command answers to the caller that asked for it: the action as the writer
+/// left it, or why the writer refused.
+pub(crate) type Decision = Result<ActionRequest, ApprovalError>;
+
 /// A decision for the writer task; `reply` answers it back to the caller.
 pub(crate) enum WriteCommand {
     Approve {
         id: ActionId,
         approval: HumanApproval,
         chat_token: Option<String>,
-        reply: oneshot::Sender<Result<ActionRequest, ApprovalError>>,
+        reply: oneshot::Sender<Decision>,
     },
     Deny {
         id: ActionId,
         approval: HumanApproval,
-        reply: oneshot::Sender<Result<ActionRequest, ApprovalError>>,
+        reply: oneshot::Sender<Decision>,
     },
     ExpireDue {
         reply: oneshot::Sender<Result<usize, ApprovalError>>,
+    },
+    Dispatch {
+        id: ActionId,
+        plan: PlanHash,
+        reply: oneshot::Sender<Decision>,
+    },
+    Reject {
+        id: ActionId,
+        reason: String,
+        blocked: bool,
+        reply: oneshot::Sender<Decision>,
+    },
+    Complete {
+        id: ActionId,
+        result: Result<(), String>,
+        record: Option<RunRecord>,
+        reply: oneshot::Sender<Decision>,
+    },
+    Verified {
+        id: ActionId,
+        passed: bool,
+        summary: String,
+        reply: oneshot::Sender<Decision>,
     },
 }
 
@@ -62,6 +93,16 @@ pub(crate) fn queue() -> (WriterHandle, mpsc::Receiver<WriteCommand>) {
 /// for the action service also waits for those writes to reach the store.
 #[must_use]
 pub(crate) async fn run(shared: Arc<Shared>, mut rx: mpsc::Receiver<WriteCommand>) {
+    // A hub that restarted lost whatever it was running: an answer the agent sent
+    // went to the session that is gone, so those actions are failed here (ADR 0014)
+    // before any new decision can read them.
+    let abandoned = recover::fail_abandoned(&shared).await;
+    if abandoned > 0 {
+        tracing::info!(
+            count = abandoned,
+            "actions left running by the hub session that just stopped were failed",
+        );
+    }
     let shutdown = shared.deps.shutdown.clone();
     loop {
         let command = tokio::select! {
@@ -108,6 +149,49 @@ async fn process(shared: &Shared, command: WriteCommand) {
             let result = expire_due(shared).await;
             if let Err(err) = &result {
                 refused(err, "the expiry sweep");
+            }
+            let _ = reply.send(result);
+        }
+        WriteCommand::Dispatch { id, plan, reply } => {
+            let result = dispatch(shared, id, plan).await;
+            if let Err(err) = &result {
+                refused(err, "a dispatch");
+            }
+            let _ = reply.send(result);
+        }
+        WriteCommand::Reject {
+            id,
+            reason,
+            blocked,
+            reply,
+        } => {
+            let result = reject(shared, id, reason, blocked).await;
+            if let Err(err) = &result {
+                refused(err, "a rejection");
+            }
+            let _ = reply.send(result);
+        }
+        WriteCommand::Complete {
+            id,
+            result: outcome,
+            record,
+            reply,
+        } => {
+            let result = complete(shared, id, outcome, record).await;
+            if let Err(err) = &result {
+                refused(err, "the answer for a run");
+            }
+            let _ = reply.send(result);
+        }
+        WriteCommand::Verified {
+            id,
+            passed,
+            summary,
+            reply,
+        } => {
+            let result = verify(shared, id, passed, summary).await;
+            if let Err(err) = &result {
+                refused(err, "a re-check");
             }
             let _ = reply.send(result);
         }
@@ -180,6 +264,97 @@ async fn deny(
     action.clear_chat_token_hash();
     shared
         .record_from(&action, from.name(), audit::denied(&action, &approval, now))
+        .await
+        .map_err(|err| stale(err, id))?;
+    Ok(action)
+}
+
+/// Sends `id` to the agent: `Approved → Dispatched` when the plan the agent has now
+/// still matches the approved one, `Approved → Rejected` when it does not (INV-4).
+/// The audit line says which of the two happened, and the caller only runs the skill
+/// when the action it gets back is `Dispatched`.
+async fn dispatch(shared: &Shared, id: ActionId, plan: PlanHash) -> Decision {
+    let mut action = load(shared, id).await?;
+    let now = shared.deps.clock.now();
+    let ActionChange { from, .. } = action.dispatch(plan, now).map_err(ApprovalError::Refused)?;
+    let entry = match action.status().clone() {
+        ActionStatus::Rejected { reason } => audit::rejected(&action, &reason, now),
+        _ => audit::dispatched(&action, now),
+    };
+    shared
+        .record_from(&action, from.name(), entry)
+        .await
+        .map_err(|err| stale(err, id))?;
+    Ok(action)
+}
+
+/// Stops `id` before it runs, for a reason the executor checked at dispatch: a loop
+/// guard, a skill that is gone or changed risk, arguments no longer valid. `blocked`
+/// is the loop guard, which also publishes `ActionBlocked` so the person sees why.
+async fn reject(shared: &Shared, id: ActionId, reason: String, blocked: bool) -> Decision {
+    let mut action = load(shared, id).await?;
+    let now = shared.deps.clock.now();
+    let ActionChange { from, .. } = action
+        .reject(reason.clone(), now)
+        .map_err(ApprovalError::Refused)?;
+    let entry = if blocked {
+        audit::blocked(&action, &reason, now)
+    } else {
+        audit::rejected(&action, &reason, now)
+    };
+    shared
+        .record_from(&action, from.name(), entry)
+        .await
+        .map_err(|err| stale(err, id))?;
+    if blocked {
+        shared
+            .publish(&action, EventKind::ActionBlocked { action: id, reason })
+            .await;
+    }
+    Ok(action)
+}
+
+/// The agent's answer for a run: `Dispatched → Succeeded` or `Dispatched → Failed`.
+/// `record` is what the run produced, `None` when the skill never ran.
+async fn complete(
+    shared: &Shared,
+    id: ActionId,
+    outcome: Result<(), String>,
+    record: Option<RunRecord>,
+) -> Decision {
+    let mut action = load(shared, id).await?;
+    let now = shared.deps.clock.now();
+    let ActionChange { from, .. } = action
+        .complete(outcome, now)
+        .map_err(ApprovalError::Refused)?;
+    let entry = match action.status().clone() {
+        ActionStatus::Failed { reason } => {
+            audit::finished(&action, record.as_ref(), Some(&reason), now)
+        }
+        _ => audit::finished(&action, record.as_ref(), None, now),
+    };
+    shared
+        .record_from(&action, from.name(), entry)
+        .await
+        .map_err(|err| stale(err, id))?;
+    Ok(action)
+}
+
+/// The re-check of the originating check after a successful run: `Succeeded → Verified`
+/// or `Succeeded → VerifyFailed`. `summary` is what the re-check said, kept in the audit
+/// line so the person can see why the incident is fixed.
+async fn verify(shared: &Shared, id: ActionId, passed: bool, summary: String) -> Decision {
+    let mut action = load(shared, id).await?;
+    let now = shared.deps.clock.now();
+    let ActionChange { from, .. } = action
+        .verified(passed, now)
+        .map_err(ApprovalError::Refused)?;
+    shared
+        .record_from(
+            &action,
+            from.name(),
+            audit::verification(&action, passed, &summary, now),
+        )
         .await
         .map_err(|err| stale(err, id))?;
     Ok(action)
