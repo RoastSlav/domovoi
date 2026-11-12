@@ -245,3 +245,11 @@ test("read_only_settings_point_at_the_file_to_change", async () => {
   ).toBeVisible();
   expect(screen.queryByRole("navigation", { name: "Settings sections" })).toBeNull();
 });
+
+test("the_read_only_page_keeps_the_runs_for_triage_next_to_the_hour", async () => {
+  route("GET /api/v1/settings", () => settings(null));
+  renderSettings();
+  const triage = await screen.findByRole("region", { name: "Triage" });
+  expect(within(triage).getByText("Runs per hour")).toBeVisible();
+  expect(triage.textContent).toMatch(/Runs per hour\s*6\s*Runs kept for triage\s*2/);
+});

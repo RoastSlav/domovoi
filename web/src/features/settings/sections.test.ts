@@ -12,6 +12,8 @@ test("the models section exposes the silence timeout, prices and per-run limits"
     "llm.primary.timeout",
     "llm.primary.price.input_per_mtok_usd",
     "llm.primary.price.output_per_mtok_usd",
+    "triage.per_hour_runs",
+    "triage.reserved_for_incidents",
     "triage.cache_days",
     "triage.per_run.tool_calls",
     "triage.per_run.seconds",
