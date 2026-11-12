@@ -1,11 +1,12 @@
 //! What the service that has only just started does with actions the store already
 //! holds: one approved but never dispatched is started, one left running is failed
-//! with the reason that says the host must be checked (ADR 0014).
+//! with the reason that says the host must be checked (ADR 0014), and the loop guard
+//! remembers what the previous session ran in the hour it is still in.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use domovoi_core::ports::{ActionRepo, IncidentRepo, Presence};
+use domovoi_core::ports::{ActionRepo, AuditLog, IncidentRepo, Presence};
 use domovoi_core::{
     ActionId, ActionRequest, ActionStatus, PlanHash, Principal, SignalStatus, UserId,
 };
@@ -29,6 +30,17 @@ use crate::harness::{SECRET, host_id};
 /// reader sees the exact sentence the person is shown.
 const RESTART: &str = "the hub restarted while this ran; check the host before running it again";
 
+/// What the session that just stopped left an action as in the store.
+enum LeftBehind {
+    /// Still waiting for the new session to start it.
+    Approved,
+    /// Running when the hub stopped; its answer went to the session that is gone.
+    Dispatched,
+    /// Run to the end by that session, inside the hour the new session is still in, so
+    /// the loop guard has to remember it from the audit log.
+    Ran,
+}
+
 /// What `restart_container` needs to restart `nginx`.
 fn restart_params() -> BTreeMap<String, String> {
     let pairs: [(&str, &str); 1] = [("container", "nginx")];
@@ -38,10 +50,12 @@ fn restart_params() -> BTreeMap<String, String> {
         .collect()
 }
 
-/// A world whose store already holds an action the session that just stopped left
-/// `Approved` (`dispatched` false) or `Dispatched`, and whose service starts only
-/// after that, the way the next hub session finds the store on disk.
-async fn restarted(dispatched: bool) -> (Actions, ActionId) {
+/// A world whose store already holds one action per state in `states`, left behind by the
+/// session that just stopped, in the given order; ids come back in that same order. A
+/// `Ran` action also carries the audit row that session wrote for it, inside the hour the
+/// new session is in. The service starts only after the seeding, the way the next hub
+/// session finds the store on disk.
+async fn restarted(states: Vec<LeftBehind>) -> (Actions, Vec<ActionId>) {
     let store = Arc::new(InMemoryStore::new());
     let clock = Arc::new(FakeClock::new(T0));
     let link = Arc::new(FakeAgentLink::new());
@@ -61,26 +75,45 @@ async fn restarted(dispatched: bool) -> (Actions, ActionId) {
     let skill = verified_restart();
     let params = restart_params();
     let validated = skill.validate_args(&params).unwrap();
-    let mut action = ActionRequest::propose(
-        incident.id(),
-        host_id(),
-        &skill,
-        &validated,
-        Principal::System("triage".into()),
-        SignedDuration::from_hours(1),
-        T0,
-    );
-    action.approve(human(UserId::new()), T0).unwrap();
-    if dispatched {
-        let plan = PlanHash::compute(&skill.name, skill.manifest_hash, action.host(), &validated);
-        action.dispatch(plan, T0).unwrap();
-        assert!(
-            action.status() == &ActionStatus::Dispatched,
-            "the plan the agent has now is the approved one, so the previous session ran it",
+    let mut ids = Vec::new();
+    for (index, state) in states.iter().enumerate() {
+        let mut action = ActionRequest::propose(
+            incident.id(),
+            host_id(),
+            &skill,
+            &validated,
+            Principal::System("triage".into()),
+            SignedDuration::from_hours(1),
+            T0,
         );
+        action.approve(human(UserId::new()), T0).unwrap();
+        if matches!(state, LeftBehind::Dispatched | LeftBehind::Ran) {
+            let plan =
+                PlanHash::compute(&skill.name, skill.manifest_hash, action.host(), &validated);
+            action.dispatch(plan, T0).unwrap();
+            assert!(
+                action.status() == &ActionStatus::Dispatched,
+                "the plan the agent has now is the approved one, so the previous session ran it",
+            );
+        }
+        if matches!(state, LeftBehind::Ran) {
+            action.complete(Ok(()), T0).unwrap();
+            assert!(
+                action.status() == &ActionStatus::Succeeded,
+                "the run the previous session made finished",
+            );
+            // That session audited the dispatch it made, and the instant it wrote is
+            // inside the hour the new session is still in, so the guard has to read it.
+            let ran_at = T0
+                .checked_sub(SignedDuration::from_mins(40 - 10 * index as i64))
+                .unwrap();
+            AuditLog::append(&*store, &audit::dispatched(&action, ran_at))
+                .await
+                .unwrap();
+        }
+        ActionRepo::insert(&*store, &action).await.unwrap();
+        ids.push(action.id());
     }
-    let id = action.id();
-    ActionRepo::insert(&*store, &action).await.unwrap();
 
     // The service starts last: nothing here published the approval or the dispatch.
     let (bus, events) = broadcast::channel(64);
@@ -122,13 +155,14 @@ async fn restarted(dispatched: bool) -> (Actions, ActionId) {
             incident,
             shutdown,
         },
-        id,
+        ids,
     )
 }
 
 #[tokio::test]
 async fn an_action_approved_before_a_restart_runs_after_it() {
-    let (a, id) = restarted(false).await;
+    let (a, ids) = restarted(vec![LeftBehind::Approved]).await;
+    let id = ids[0];
     // The approval was made by the session that stopped, so no `ActionApproved` event
     // is on the bus: only reading the store finds the action still waiting.
     let action = a
@@ -141,7 +175,7 @@ async fn an_action_approved_before_a_restart_runs_after_it() {
     assert_eq!(
         a.runs(),
         1,
-        "the run the store said was waiting reached the agent once",
+        "the run the store said was waiting reached the agent once"
     );
 
     let trail = a.trail(id).await;
@@ -157,7 +191,8 @@ async fn an_action_approved_before_a_restart_runs_after_it() {
 
 #[tokio::test]
 async fn a_dispatched_action_fails_after_a_restart() {
-    let (a, id) = restarted(true).await;
+    let (a, ids) = restarted(vec![LeftBehind::Dispatched]).await;
+    let id = ids[0];
     a.settle().await;
 
     let stored = a.get(id).await;
@@ -172,7 +207,7 @@ async fn a_dispatched_action_fails_after_a_restart() {
     assert_eq!(
         a.runs(),
         0,
-        "a run the new session did not start is never started again",
+        "a run the new session did not start is never started again"
     );
 
     let trail = a.trail(id).await;
@@ -180,5 +215,103 @@ async fn a_dispatched_action_fails_after_a_restart() {
         trail,
         [audit::FAILED.to_owned()],
         "the leftover run is audited once, and nothing else is audited for it",
+    );
+}
+
+#[tokio::test]
+async fn loop_guard_remembers_the_previous_sessions_runs_across_a_restart() {
+    // Three runs of the same skill on the same host, all inside the hour the new session
+    // is in, and one approval still waiting when the hub stopped.
+    let (a, ids) = restarted(vec![
+        LeftBehind::Ran,
+        LeftBehind::Ran,
+        LeftBehind::Ran,
+        LeftBehind::Approved,
+    ])
+    .await;
+    let pending = ids[3];
+    let guarded = a
+        .until(pending, |status| {
+            matches!(status, ActionStatus::Rejected { .. })
+        })
+        .await;
+    assert!(
+        matches!(
+            guarded.status(),
+            ActionStatus::Rejected { reason } if reason.starts_with("loop guard")
+        ),
+        "the three runs the previous session made still count, so the pending approval is stopped before it runs",
+    );
+    assert_eq!(
+        a.runs(),
+        0,
+        "nothing is run: the guard stopped the pending approval, and the runs the previous session made are not started again",
+    );
+    assert_eq!(
+        a.trail(pending).await,
+        [audit::BLOCKED.to_owned()],
+        "the pending approval is stopped by the guard, and nothing reached the agent for it",
+    );
+    let mut guarded_runs = 0;
+    for id in ids.iter().take(3) {
+        if a.trail(*id)
+            .await
+            .iter()
+            .any(|kind| *kind == audit::DISPATCHED)
+        {
+            guarded_runs += 1;
+        }
+    }
+    assert_eq!(
+        guarded_runs, 3,
+        "the audit log still holds the three dispatches the previous session made, which is what the guard reads back",
+    );
+}
+
+#[tokio::test]
+async fn approvals_caught_up_at_once_share_one_loop_guard() {
+    // Four approvals the previous session left, all the same skill on the same host, are
+    // started together by the new session: the hour only allows three runs.
+    let (a, ids) = restarted(vec![
+        LeftBehind::Approved,
+        LeftBehind::Approved,
+        LeftBehind::Approved,
+        LeftBehind::Approved,
+    ])
+    .await;
+    let mut done = Vec::new();
+    for id in ids {
+        let action = a
+            .until(id, |status| {
+                matches!(
+                    status,
+                    ActionStatus::Verified | ActionStatus::Rejected { .. }
+                )
+            })
+            .await;
+        done.push(action.status().clone());
+    }
+    let ran = done
+        .iter()
+        .filter(|status| *status == &ActionStatus::Verified)
+        .count();
+    assert_eq!(
+        ran, 3,
+        "the hour allows three runs of this skill on this host, no matter how many approvals are caught up at once",
+    );
+    assert_eq!(
+        a.runs(),
+        3,
+        "three skills reached the agent, and the guard stopped the fourth before it was dispatched",
+    );
+    let guarded = done
+        .iter()
+        .filter(
+            |status| matches!(status, ActionStatus::Rejected { reason } if reason.starts_with("loop guard")),
+        )
+        .count();
+    assert_eq!(
+        guarded, 1,
+        "one of the approvals caught up at once is stopped, and its reason is the guard",
     );
 }
