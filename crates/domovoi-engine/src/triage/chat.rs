@@ -5,7 +5,7 @@ use domovoi_core::ports::{LlmError, LlmMessage, LlmRequest, Part, Redactor, Role
 use domovoi_core::{HostId, ReadToolCall, Risk, SkillSummary};
 
 use super::admission::{Purpose, Refusal, admit};
-use super::followup::{MAX_ANSWER_CHARS, clip};
+use super::followup::{MAX_ANSWER_CHARS, clip, provider_failure};
 use super::run::provider_name;
 use super::tools::{Scope, cut, run};
 use super::{Shared, TriageError, agent, context};
@@ -237,7 +237,7 @@ pub(crate) async fn answer(
             Err(err) => reasons.push(format!("{} failed: {err}", provider_name(provider))),
         }
     }
-    let answer = text.ok_or(TriageError::Provider(reasons.join("; ")))?;
+    let answer = text.ok_or_else(|| provider_failure(deps.redactor.as_ref(), &reasons))?;
     Ok(clip(
         deps.redactor.redact(answer.as_str()).as_str(),
         MAX_ANSWER_CHARS,

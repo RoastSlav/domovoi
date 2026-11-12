@@ -1,7 +1,7 @@
 //! Follow-up questions in an incident's thread: the same read tools and budget, a plain
 //! text answer, and action proposals that stay data until a human approves them (INV-9).
 
-use domovoi_core::ports::{LlmMessage, Part, Role};
+use domovoi_core::ports::{LlmMessage, Part, Redactor, Role};
 use domovoi_core::triage::MAX_PROPOSALS;
 use domovoi_core::{ActionProposal, ActionStatus, IncidentId, UserId};
 
@@ -50,6 +50,9 @@ const MAX_TURNS: usize = 10;
 /// The largest remembered conversation, in characters.
 const TURN_BUDGET_CHARS: usize = 16 * 1024;
 
+/// The longest provider failure reason returned from the engine, in characters.
+pub(crate) const MAX_PROVIDER_REASON_CHARS: usize = 500;
+
 /// Cuts `text` to `max` characters, with an ellipsis when cut.
 pub(crate) fn clip(text: &str, max: usize) -> String {
     if text.chars().count() <= max {
@@ -58,6 +61,16 @@ pub(crate) fn clip(text: &str, max: usize) -> String {
     let mut out: String = text.chars().take(max.saturating_sub(1)).collect();
     out.push('…');
     out
+}
+
+/// Why a provider chain failed, as the engine reports it. The reasons are provider free
+/// text, so they pass the redactor once before leaving the engine, and are cut so a long
+/// upstream body cannot fill a Discord message.
+pub(crate) fn provider_failure(redactor: &dyn Redactor, reasons: &[String]) -> TriageError {
+    TriageError::Provider(clip(
+        redactor.redact(&reasons.join("; ")).as_str(),
+        MAX_PROVIDER_REASON_CHARS,
+    ))
 }
 
 /// The remembered turns as chat messages: each earlier question as a user message and its
@@ -219,7 +232,7 @@ pub(crate) async fn answer(
             )),
         }
     }
-    let answer = text.ok_or(TriageError::Provider(reasons.join("; ")))?;
+    let answer = text.ok_or_else(|| provider_failure(deps.redactor.as_ref(), &reasons))?;
     let (body, mut proposed) = split_proposals(answer);
     let body = clip(
         deps.redactor.redact(body.as_str()).as_str(),

@@ -1,6 +1,10 @@
-use domovoi_core::ports::Redactor;
+use domovoi_core::UserId;
+use domovoi_core::ports::{LlmError, Redactor};
 use domovoi_engine::PatternRedactor;
+use domovoi_engine::redact::REDACTED;
 use secrecy::SecretString;
+
+use crate::harness::{SECRET, Setup, world};
 
 #[test]
 fn pattern_redactor_removes_secrets_and_credential_shapes() {
@@ -37,5 +41,55 @@ fn pattern_redactor_removes_secrets_and_credential_shapes() {
     assert_eq!(
         redactor.redact("nothing to hide here"),
         "nothing to hide here"
+    );
+}
+
+/// A provider failure the engine reports about: a bearer token and a configured secret,
+/// both of which the provider is free to echo back.
+fn provider_failure() -> LlmError {
+    LlmError::Transport(format!(
+        "upstream answered with Bearer abc.def and header {SECRET}"
+    ))
+}
+
+#[tokio::test]
+async fn a_failed_follow_up_never_shows_a_secret_from_the_provider_error() {
+    let w = world(Setup::default()).await;
+    w.primary.push_err(provider_failure());
+
+    let failed = w
+        .triage
+        .follow_up(w.incident.id(), "Why does nginx restart?", UserId::new())
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(
+        failed.contains(REDACTED),
+        "the reason carries the marker in place of what was redacted: {failed}",
+    );
+    assert!(
+        !failed.contains(SECRET) && !failed.contains("abc.def"),
+        "neither the configured secret nor the provider's token is shown: {failed}",
+    );
+}
+
+#[tokio::test]
+async fn a_failed_chat_never_shows_a_secret_from_the_provider_error() {
+    let w = world(Setup::default()).await;
+    w.primary.push_err(provider_failure());
+
+    let failed = w
+        .triage
+        .chat(None, "Two hosts.", &Vec::new(), "Anything wrong?")
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(
+        failed.contains(REDACTED),
+        "the reason carries the marker in place of what was redacted: {failed}",
+    );
+    assert!(
+        !failed.contains(SECRET) && !failed.contains("abc.def"),
+        "neither the configured secret nor the provider's token is shown: {failed}",
     );
 }
