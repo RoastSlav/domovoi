@@ -22,6 +22,11 @@ pub async fn action_repo_contract(repo: &dyn ActionRepo) -> ContractResult {
     let mut first = action(incident, host, Risk::Write)?;
     assert_eq!(repo.get(first.id()).await?, None);
     assert_eq!(repo.update(&first).await, Err(StoreError::NotFound));
+    assert_eq!(
+        repo.update_from(&first, "proposed").await,
+        Err(StoreError::NotFound),
+        "update_from also refuses a missing id",
+    );
     repo.insert(&first).await?;
     assert_eq!(repo.get(first.id()).await?, Some(first.clone()));
     assert!(matches!(
@@ -42,6 +47,24 @@ pub async fn action_repo_contract(repo: &dyn ActionRepo) -> ContractResult {
         stored,
         Some(first.clone()),
         "update replaces the whole request"
+    );
+    assert_eq!(
+        repo.update_from(&first, "proposed").await,
+        Err(StoreError::Conflict(
+            "the action changed meanwhile".to_owned()
+        )),
+        "a decision read before the approval cannot overwrite it",
+    );
+    assert_eq!(
+        repo.get(first.id()).await?,
+        Some(first.clone()),
+        "and nothing was written"
+    );
+    assert_eq!(repo.update_from(&first, "approved").await, Ok(()));
+    assert_eq!(
+        repo.get(first.id()).await?,
+        Some(first.clone()),
+        "update_from replaces the whole request too"
     );
 
     let tokened = action(incident, host, Risk::Write)?.with_chat_token_hash([5; 32]);
@@ -111,6 +134,30 @@ pub async fn action_repo_contract(repo: &dyn ActionRepo) -> ContractResult {
             .await?
             .items
             .is_empty()
+    );
+
+    // All three were created at T0 with a one-hour window, so the boundary is
+    // exclusive: the window closing exactly at the deadline is not yet closed.
+    let expiring = |closes_before: i64| ActionFilter {
+        expires_before: Some(at(closes_before)),
+        status: Some("proposed".to_owned()),
+        ..ActionFilter::default()
+    };
+    assert_eq!(
+        repo.list(&expiring(3600), &Page::first(10))
+            .await?
+            .items
+            .len(),
+        0,
+        "no window has closed at its own instant"
+    );
+    assert_eq!(
+        repo.list(&expiring(3601), &Page::first(10))
+            .await?
+            .items
+            .len(),
+        2,
+        "only still-proposed actions whose window closed"
     );
 
     // `first` was approved at T0 + 60 s; the other two are still proposed, unchanged since T0.

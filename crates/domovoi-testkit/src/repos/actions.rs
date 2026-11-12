@@ -36,6 +36,22 @@ impl ActionRepo for InMemoryStore {
         Ok(())
     }
 
+    async fn update_from(&self, action: &ActionRequest, expected: &str) -> Result<(), StoreError> {
+        let mut state = self.begin()?;
+        let stored = state
+            .actions
+            .get(&action.id())
+            .ok_or(StoreError::NotFound)?;
+        if stored.status().name() != expected {
+            return Err(conflict("the action changed meanwhile"));
+        }
+        *state
+            .actions
+            .get_mut(&action.id())
+            .ok_or(StoreError::NotFound)? = action.clone();
+        Ok(())
+    }
+
     async fn get(&self, id: ActionId) -> Result<Option<ActionRequest>, StoreError> {
         Ok(self.begin()?.actions.get(&id).cloned())
     }
@@ -63,6 +79,7 @@ impl ActionRepo for InMemoryStore {
                     .is_none_or(|decided| (a.status().name() != "proposed") == decided)
             })
             .filter(|a| filter.updated_since.is_none_or(|t| a.updated_at() >= t))
+            .filter(|a| filter.expires_before.is_none_or(|due| a.expires_at() < due))
             .map(|a| {
                 (
                     (a.created_at().as_nanosecond(), a.id().to_string()),
