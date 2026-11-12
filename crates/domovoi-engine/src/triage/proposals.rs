@@ -54,9 +54,12 @@ fn check<'a>(
 
 /// Stores a `Proposed` action for each of `proposals` that names a skill on this host,
 /// fits that skill's manifest and is not already waiting for a human, including one this
-/// very batch stored. Returns the plain chat token of each stored action keyed by its id,
-/// the proposals that were stored in the order given, and why each of the others was
-/// dropped, one line each and already redacted.
+/// very batch stored. One whose identical action is already waiting gets that action's
+/// chat token rotated instead of a second action: the replacement is returned keyed to
+/// the waiting action, and the token the previous card carried stops working. Returns the
+/// plain chat token of each stored or rotated action keyed by its id, the proposals that
+/// were stored in the order given, and why each of the others was dropped, one line each
+/// and already redacted.
 pub(crate) async fn store(
     shared: &Shared,
     incident: &Incident,
@@ -96,12 +99,29 @@ pub(crate) async fn store(
                 continue;
             }
         };
-        // An identical action is already waiting for a human; do not offer it twice.
+        // An identical action is already waiting for a human; do not store a second one.
+        // The card this run publishes is built from this batch's tokens, so without one
+        // for the waiting action its approve buttons would fall back to "Open in Web":
+        // rotate the waiting action's chat token and hand over the replacement instead.
         let wanted = args.to_map();
-        let duplicate = existing
+        let waiting = existing
             .iter()
-            .any(|a| a.skill() == &skill.name && a.args() == &wanted);
-        if duplicate {
+            .position(|a| a.skill() == &skill.name && a.args() == &wanted);
+        if let Some(i) = waiting {
+            let token = mint_token();
+            let rotated = existing[i].clone().with_chat_token_hash(token_hash(&token));
+            // Refused if the action was decided or deleted meanwhile; then the old token
+            // still stands and nothing is offered for it, as before.
+            match shared.deps.actions.update_from(&rotated, "proposed").await {
+                Ok(()) => {
+                    tokens.insert(rotated.id(), token);
+                    existing[i] = rotated;
+                }
+                Err(err) => tracing::warn!(
+                    %err,
+                    "could not rotate the chat token of a waiting action"
+                ),
+            }
             continue;
         }
         let token = mint_token();
