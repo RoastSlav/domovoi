@@ -2179,6 +2179,15 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
+            /** @description The action service is shutting down */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
         };
     };
     deny_action: {
@@ -2222,6 +2231,15 @@ export interface operations {
             };
             /** @description Not proposed any more */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The action service is shutting down */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

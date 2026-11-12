@@ -9,11 +9,14 @@ use domovoi_core::ports::{
     Page, ThreadRef,
 };
 use domovoi_core::{
-    ActionRequest, ActionStatus, CardButton, IncidentStatus, Interaction, InteractionKind,
-    InteractionReply, Principal, Risk,
+    ActionError, ActionRequest, ActionStatus, CardButton, IncidentStatus, Interaction,
+    InteractionKind, InteractionReply, Principal, Risk,
 };
+use domovoi_engine::ApprovalError;
 use domovoi_engine::triage::{mint_token, token_hash};
-use domovoi_hub::auth::interactions::{ChatDeps, InteractionAuthorizer, NOT_ALLOWED, SETUP_FIRST};
+use domovoi_hub::auth::interactions::{
+    ChatDeps, InteractionAuthorizer, NOT_ALLOWED, SETUP_FIRST, approval_reason,
+};
 use domovoi_testkit::build::manifest;
 use domovoi_testkit::{GatewayCall, RecordingGateway};
 use jiff::SignedDuration;
@@ -315,6 +318,22 @@ async fn reused_token_is_rejected() {
     assert!(
         accepted(&again).is_none(),
         "the token works once: {again:?}"
+    );
+}
+
+/// A decision another writer already made, and a service mid-restart, are both
+/// answered in chat with something a person can act on.
+#[test]
+fn refused_chat_approval_explains_a_decision_already_made() {
+    assert_eq!(
+        approval_reason(&ApprovalError::Refused(ActionError::ChangedMeanwhile)),
+        "Someone already decided this action",
+        "a thread has nothing to reload, so it says the action has an outcome",
+    );
+    assert_eq!(
+        approval_reason(&ApprovalError::Unavailable),
+        "The service that decides actions is restarting; try again",
+        "a restart in progress reads as a restart, not a failure",
     );
 }
 

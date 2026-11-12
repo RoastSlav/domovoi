@@ -2,6 +2,8 @@
 //! them.
 
 #[cfg(test)]
+mod actions;
+#[cfg(test)]
 mod audit;
 #[cfg(test)]
 mod common;

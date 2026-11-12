@@ -226,7 +226,7 @@ test("facts_are_grouped_into_cards_by_what_they_describe_with_the_rest_under_oth
   ] as const) {
     const card = await screen.findByRole("group", { name: group });
     expect(within(card).getByText(label)).toBeVisible();
-    expect(within(card).getByText(new RegExp(`^${value}`))).toBeVisible();
+    expect(within(card).getByText(new RegExp(`^${value}$`))).toBeVisible();
   }
 });
 

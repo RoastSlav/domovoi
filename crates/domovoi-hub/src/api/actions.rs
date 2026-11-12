@@ -25,6 +25,9 @@ fn approval_error(err: ApprovalError) -> ApiError {
         }
         ApprovalError::Refused(refused) => ApiError::Conflict(refused.to_string()),
         ApprovalError::Store(e) => ApiError::internal("approval failed", e),
+        ApprovalError::Unavailable => {
+            ApiError::Unavailable("the action service is restarting; try again".to_owned())
+        }
     }
 }
 
@@ -95,6 +98,7 @@ pub(super) async fn list(
         (status = 403, description = "Destructive without the typed confirmation", body = ErrorBody),
         (status = 404, description = "No such action", body = ErrorBody),
         (status = 409, description = "Not proposed any more, or expired", body = ErrorBody),
+        (status = 503, description = "The action service is shutting down", body = ErrorBody),
     )
 )]
 pub(super) async fn approve(
@@ -128,6 +132,7 @@ pub(super) async fn approve(
         (status = 401, description = "Not logged in", body = ErrorBody),
         (status = 404, description = "No such action", body = ErrorBody),
         (status = 409, description = "Not proposed any more", body = ErrorBody),
+        (status = 503, description = "The action service is shutting down", body = ErrorBody),
     )
 )]
 pub(super) async fn deny(

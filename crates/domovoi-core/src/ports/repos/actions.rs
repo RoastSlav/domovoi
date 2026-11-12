@@ -25,6 +25,11 @@ pub struct ActionFilter {
     pub decided: Option<bool>,
     /// Only actions that last changed at or after this instant.
     pub updated_since: Option<Timestamp>,
+    /// Only actions whose approval window closes strictly before this instant: a
+    /// proposal is due once its deadline has passed. Other statuses keep their
+    /// deadline, so pair this with a status filter to ask for proposals that are
+    /// due, which is what the expiry sweep does.
+    pub expires_before: Option<Timestamp>,
 }
 
 /// Stored action requests. Listings order by `created_at`, newest first.
@@ -36,6 +41,14 @@ pub trait ActionRepo: Send + Sync {
 
     /// Replaces the stored request with the same id.
     async fn update(&self, action: &ActionRequest) -> Result<(), StoreError>;
+
+    /// Replaces the stored request with the same id, but only while its stored
+    /// status is still `expected` (a status name from
+    /// [`ActionStatus::NAMES`](crate::ActionStatus::NAMES)). Refuses with
+    /// [`StoreError::Conflict`] when the action exists in another status, so a
+    /// decision read before a race cannot overwrite one already made, and with
+    /// [`StoreError::NotFound`] when no action has that id.
+    async fn update_from(&self, action: &ActionRequest, expected: &str) -> Result<(), StoreError>;
 
     /// The request with `id`.
     async fn get(&self, id: ActionId) -> Result<Option<ActionRequest>, StoreError>;

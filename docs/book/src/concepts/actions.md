@@ -36,6 +36,7 @@ The **Approvals** page lists what is **Waiting for you**, the soonest to expire 
 ## Safety rules
 
 - **Only people approve.** An approval comes from a signed-in web session or an allowed chat user. The model, alert text, log lines and other automation can never approve an action. The model's read-only tools include nothing that can change an action.
+- **One decision per action.** Approving, denying and letting the window close are applied one at a time, in the order they arrive. If you press Approve and Deny together, only the first is applied and the other is refused with a message that the action already has an outcome; the card then shows the decision that was made. Expiry never overwrites a decision a person already made.
 - **Destructive actions need a typed confirmation on the web.** Skills marked `risk = "destructive"` can never be approved from a chat button.
 - **Chat buttons work once.** Each proposal gets its own random token, and only its hash is stored. The token stops working after it is used, and once the action is denied or expired.
 - **The plan is checked again before it runs.** The approval covers one plan: the skill, the exact manifest, the host and the arguments. Just before running, Domovoi fetches the skill from the agent again. If the skill is gone, its risk changed, its manifest changed or the arguments no longer fit its parameters, the action is rejected instead of run.
