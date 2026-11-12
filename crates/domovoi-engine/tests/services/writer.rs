@@ -41,10 +41,6 @@ impl ActionRepo for SpyStore {
         ActionRepo::insert(&*self.store, action).await
     }
 
-    async fn update(&self, action: &ActionRequest) -> Result<(), StoreError> {
-        ActionRepo::update(&*self.store, action).await
-    }
-
     async fn update_from(&self, action: &ActionRequest, expected: &str) -> Result<(), StoreError> {
         ActionRepo::update_from(&*self.store, action, expected).await
     }
@@ -298,14 +294,19 @@ async fn expire_due_reads_only_due_proposals() {
     };
     {
         let asked = lists.lock().unwrap_or_else(|err| err.into_inner());
+        let sweeps = asked.iter().filter(|got| *got == &expected).count();
+        assert_eq!(sweeps, 2, "the sweep pages over due proposals, then stops",);
         assert_eq!(
             asked.len(),
-            2,
-            "the sweep pages over due proposals, then stops"
+            sweeps + 2,
+            "the only other listings are the two the service start makes to catch up on what a previous session left, which read one status at a time",
         );
         assert!(
-            asked.iter().all(|got| got == &expected),
-            "every listing asked for open proposals whose window closed",
+            asked
+                .iter()
+                .all(|got| got == &expected
+                    || (got.status.is_some() && got.expires_before.is_none())),
+            "a listing either asks for open proposals whose window closed, or for one status; none reads every action",
         );
     }
 
