@@ -39,9 +39,6 @@ pub trait ActionRepo: Send + Sync {
     /// already stored.
     async fn insert(&self, action: &ActionRequest) -> Result<(), StoreError>;
 
-    /// Replaces the stored request with the same id.
-    async fn update(&self, action: &ActionRequest) -> Result<(), StoreError>;
-
     /// Replaces the stored request with the same id, but only while its stored
     /// status is still `expected` (a status name from
     /// [`ActionStatus::NAMES`](crate::ActionStatus::NAMES)). Refuses with

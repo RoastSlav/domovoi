@@ -170,23 +170,6 @@ impl ActionRepo for Store {
         Ok(())
     }
 
-    async fn update(&self, action: &ActionRequest) -> Result<(), StoreError> {
-        const SQL: &str = "UPDATE actions SET incident_id = ?, host_id = ?, skill = ?, \
-            risk = ?, args = ?, plan_hash = ?, status = ?, proposed_by_kind = ?, \
-            proposed_by = ?, approved_by = ?, approved_channel = ?, approved_at = ?, \
-            expires_at = ?, created_at = ?, updated_at = ?, chat_token_hash = ? WHERE id = ?";
-        let b = bound(action)?;
-        let done = bind_columns!(sqlx::query(SQL), b)
-            .bind(action.id().to_string())
-            .execute(&self.write)
-            .await
-            .map_err(db)?;
-        if done.rows_affected() == 0 {
-            return Err(StoreError::NotFound);
-        }
-        Ok(())
-    }
-
     async fn update_from(&self, action: &ActionRequest, expected: &str) -> Result<(), StoreError> {
         const SQL: &str = "UPDATE actions SET incident_id = ?, host_id = ?, skill = ?, \
             risk = ?, args = ?, plan_hash = ?, status = ?, proposed_by_kind = ?, \

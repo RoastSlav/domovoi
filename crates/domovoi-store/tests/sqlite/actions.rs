@@ -15,7 +15,9 @@ async fn update_from_refuses_a_stale_status() {
     // Someone decides the action before the writer gets back to the first copy.
     let mut decided = open.clone();
     decided.deny(T0).unwrap();
-    ActionRepo::update(&fresh.store, &decided).await.unwrap();
+    ActionRepo::update_from(&fresh.store, &decided, "proposed")
+        .await
+        .unwrap();
 
     let refused = ActionRepo::update_from(&fresh.store, &open, "proposed").await;
     assert_eq!(

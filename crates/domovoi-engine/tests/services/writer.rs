@@ -41,10 +41,6 @@ impl ActionRepo for SpyStore {
         ActionRepo::insert(&*self.store, action).await
     }
 
-    async fn update(&self, action: &ActionRequest) -> Result<(), StoreError> {
-        ActionRepo::update(&*self.store, action).await
-    }
-
     async fn update_from(&self, action: &ActionRequest, expected: &str) -> Result<(), StoreError> {
         ActionRepo::update_from(&*self.store, action, expected).await
     }
@@ -298,14 +294,36 @@ async fn expire_due_reads_only_due_proposals() {
     };
     {
         let asked = lists.lock().unwrap_or_else(|err| err.into_inner());
+        let sweeps = asked.iter().filter(|got| *got == &expected).count();
+        assert_eq!(sweeps, 2, "the sweep pages over due proposals, then stops",);
+        let approved_only = ActionFilter {
+            status: Some("approved".to_owned()),
+            ..ActionFilter::default()
+        };
+        let dispatched_only = ActionFilter {
+            status: Some("dispatched".to_owned()),
+            ..ActionFilter::default()
+        };
+        assert_eq!(
+            asked.iter().filter(|got| *got == &approved_only).count(),
+            1,
+            "the service start looks for what a previous session left approved, once",
+        );
+        assert_eq!(
+            asked.iter().filter(|got| *got == &dispatched_only).count(),
+            1,
+            "the service start looks for what a previous session left running, once",
+        );
         assert_eq!(
             asked.len(),
-            2,
-            "the sweep pages over due proposals, then stops"
+            sweeps + 2,
+            "the only listings are the sweep and the two the service start makes to catch up on what a previous session left",
         );
         assert!(
-            asked.iter().all(|got| got == &expected),
-            "every listing asked for open proposals whose window closed",
+            asked
+                .iter()
+                .all(|got| got == &expected || got == &approved_only || got == &dispatched_only),
+            "a listing asks for open proposals whose window closed, or for one of the two statuses a restart leaves behind; none reads every action",
         );
     }
 
