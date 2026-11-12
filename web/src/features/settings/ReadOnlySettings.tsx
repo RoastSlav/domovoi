@@ -1,18 +1,11 @@
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 import { SECRET_SET, type Settings } from "../../api/types";
-import {
-  Card,
-  InlineMessage,
-  KeyValueList,
-  Section,
-  Stack,
-  Tag,
-  Text,
-  type KeyValue,
-} from "../../components";
+import { InlineMessage, Section, Stack, Tag, Text, type KeyValue } from "../../components";
+import styles from "./layout.module.css";
+import { RowHeading, SettingsCard, ValueRow } from "./SettingRow";
 import { AboutSection } from "./views/AboutSection";
 import { Advisories } from "./views/Advisories";
-import { Usage } from "./views/Usage";
+import { BudgetMeter, budgetOf, usageRows } from "./views/Usage";
 
 type Llm = NonNullable<Settings["llm_primary"]>;
 
@@ -41,6 +34,19 @@ function llmRows(llm: Llm): KeyValue[] {
   ];
 }
 
+/** Values as rows of one card, in the look of the editable settings. */
+function ValueRows({ rows }: { rows: KeyValue[] }) {
+  return (
+    <SettingsCard>
+      {rows.map((row) => (
+        <ValueRow key={row.label} label={row.label}>
+          {row.value}
+        </ValueRow>
+      ))}
+    </SettingsCard>
+  );
+}
+
 function Block({
   title,
   rows,
@@ -53,7 +59,7 @@ function Block({
   return (
     <Section title={title}>
       <Stack gap={3}>
-        {rows && rows.length > 0 && <KeyValueList items={rows} />}
+        {rows && rows.length > 0 && <ValueRows rows={rows} />}
         {children}
       </Stack>
     </Section>
@@ -65,23 +71,19 @@ function Webhooks({ hooks }: { hooks: Settings["webhooks"] }) {
     return <Text muted>No webhooks are configured.</Text>;
   }
   return (
-    <Stack gap={3}>
+    <SettingsCard>
       {hooks.map((hook) => (
-        <Card key={hook.name}>
-          <Stack gap={2}>
-            <Text mono strong>{`/hooks/${hook.name}`}</Text>
-            <KeyValueList
-              items={[
-                { label: "Kind", value: hook.kind },
-                { label: "Authentication", value: hook.auth },
-                { label: "Secret", value: <SecretValue value={hook.secret} /> },
-                ...(hook.default_host ? [{ label: "Host", value: hook.default_host }] : []),
-              ]}
-            />
-          </Stack>
-        </Card>
+        <Fragment key={hook.name}>
+          <RowHeading>{`/hooks/${hook.name}`}</RowHeading>
+          <ValueRow label="Kind">{hook.kind}</ValueRow>
+          <ValueRow label="Authentication">{hook.auth}</ValueRow>
+          <ValueRow label="Secret">
+            <SecretValue value={hook.secret} />
+          </ValueRow>
+          {hook.default_host && <ValueRow label="Host">{hook.default_host}</ValueRow>}
+        </Fragment>
       ))}
-    </Stack>
+    </SettingsCard>
   );
 }
 
@@ -96,68 +98,75 @@ export function ReadOnlySettings({ settings: s }: { settings: Settings }) {
     <Tag tone="success">OK</Tag>
   );
   return (
-    <Stack gap={6}>
-      <InlineMessage tone="info" title="Settings are managed by file">
-        <p>Read-only. Change settings in hub.toml and restart the hub.</p>
-      </InlineMessage>
-      <Block
-        title="Hub"
-        rows={[
-          { label: "Name", value: s.hub.name },
-          { label: "Time zone", value: s.hub.timezone },
-          { label: "Web listener", value: s.hub.bind },
-          { label: "Public URL", value: s.hub.public_url ?? "not set" },
-          { label: "Trusted proxies", value: s.hub.trusted_proxies.join(", ") || "none" },
-        ]}
-      />
-      <Block
-        title="Triage"
-        rows={[
-          { label: "Enabled", value: yesNo(s.triage.enabled) },
-          { label: "Runs at once", value: String(s.triage.concurrency) },
-          { label: "Runs per hour", value: String(s.triage.per_hour_runs) },
-        ]}
-      >
-        <Usage settings={s} />
-      </Block>
-      <Block title="Primary model" rows={s.llm_primary ? llmRows(s.llm_primary) : []}>
-        {!s.llm_primary && <Text muted>Not configured.</Text>}
-      </Block>
-      {s.llm_secondary && <Block title="Fallback model" rows={llmRows(s.llm_secondary)} />}
-      <Block
-        title="Discord"
-        rows={
-          s.discord
-            ? [
-                { label: "Enabled", value: yesNo(s.discord.enabled) },
-                { label: "Channel", value: s.discord.channel_id },
-                { label: "Allowed users", value: s.discord.allowed_user_ids.join(", ") || "none" },
-                { label: "Bot token", value: <SecretValue value={s.discord.bot_token} /> },
-                { label: "Webhook URL", value: <SecretValue value={s.discord.webhook_url} /> },
-              ]
-            : []
-        }
-      >
-        {!s.discord && <Text muted>Not configured.</Text>}
-      </Block>
-      <Block title="Webhooks">
-        <Webhooks hooks={s.webhooks} />
-      </Block>
-      <Block
-        title="Heartbeat"
-        rows={[
-          { label: "Configured", value: yesNo(s.heartbeat.configured) },
-          { label: "URL", value: <SecretValue value={s.heartbeat.url} /> },
-          { label: "Interval", value: s.heartbeat.interval ?? "not set" },
-          { label: "Status", value: heartbeat },
-        ]}
-      />
-      <Block title="Advisories">
-        <Advisories />
-      </Block>
-      <Block title="About">
-        <AboutSection />
-      </Block>
-    </Stack>
+    <div className={styles.readOnly}>
+      <Stack gap={6}>
+        <InlineMessage tone="info" title="Settings are managed by file">
+          <p>Read-only. Change settings in hub.toml and restart the hub.</p>
+        </InlineMessage>
+        <Block
+          title="Hub"
+          rows={[
+            { label: "Name", value: s.hub.name },
+            { label: "Time zone", value: s.hub.timezone },
+            { label: "Web listener", value: s.hub.bind },
+            { label: "Public URL", value: s.hub.public_url ?? "not set" },
+            { label: "Trusted proxies", value: s.hub.trusted_proxies.join(", ") || "none" },
+          ]}
+        />
+        <Block
+          title="Triage"
+          rows={[
+            { label: "Enabled", value: yesNo(s.triage.enabled) },
+            { label: "Runs at once", value: String(s.triage.concurrency) },
+            { label: "Runs per hour", value: String(s.triage.per_hour_runs) },
+            ...usageRows(s),
+            ...(budgetOf(s) === undefined
+              ? []
+              : [{ label: "Budget used", value: <BudgetMeter settings={s} /> }]),
+          ]}
+        />
+        <Block title="Primary model" rows={s.llm_primary ? llmRows(s.llm_primary) : []}>
+          {!s.llm_primary && <Text muted>Not configured.</Text>}
+        </Block>
+        {s.llm_secondary && <Block title="Fallback model" rows={llmRows(s.llm_secondary)} />}
+        <Block
+          title="Discord"
+          rows={
+            s.discord
+              ? [
+                  { label: "Enabled", value: yesNo(s.discord.enabled) },
+                  { label: "Channel", value: s.discord.channel_id },
+                  {
+                    label: "Allowed users",
+                    value: s.discord.allowed_user_ids.join(", ") || "none",
+                  },
+                  { label: "Bot token", value: <SecretValue value={s.discord.bot_token} /> },
+                  { label: "Webhook URL", value: <SecretValue value={s.discord.webhook_url} /> },
+                ]
+              : []
+          }
+        >
+          {!s.discord && <Text muted>Not configured.</Text>}
+        </Block>
+        <Block title="Webhooks">
+          <Webhooks hooks={s.webhooks} />
+        </Block>
+        <Block
+          title="Heartbeat"
+          rows={[
+            { label: "Configured", value: yesNo(s.heartbeat.configured) },
+            { label: "URL", value: <SecretValue value={s.heartbeat.url} /> },
+            { label: "Interval", value: s.heartbeat.interval ?? "not set" },
+            { label: "Status", value: heartbeat },
+          ]}
+        />
+        <Block title="Advisories">
+          <Advisories />
+        </Block>
+        <Block title="About and updates">
+          <AboutSection />
+        </Block>
+      </Stack>
+    </div>
   );
 }

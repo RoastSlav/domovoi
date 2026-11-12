@@ -99,11 +99,22 @@ test("navigation_is_grouped_by_what_the_operator_is_doing", () => {
     within(within(nav()).getByRole("group", { name: group, hidden: true }))
       .getAllByRole("link", { hidden: true })
       .map((link) => link.textContent);
-  expect(linksOf("Respond")).toEqual(["Incidents", "Approvals", "Chat"]);
+  expect(linksOf("Respond")).toEqual(["Overview", "Incidents", "Approvals", "Chat"]);
   expect(linksOf("Fleet")).toEqual(["Hosts", "Skills", "Logs"]);
   expect(linksOf("Knowledge")).toEqual(["Known conditions", "Notes", "Digest"]);
   expect(linksOf("System")).toEqual(["Settings"]);
   expect(navLink("Incidents")).toHaveAttribute("href", "/incidents");
+  expect(navLink("Overview")).toHaveAttribute("href", "/");
+  expect(within(sheet()).getByRole("link", { name: "Domovoi", hidden: true })).toHaveAttribute(
+    "href",
+    "/",
+  );
+});
+
+test("overview_is_current_only_on_the_root_address", () => {
+  renderLayout("/incidents");
+  expect(navLink("Overview")).not.toHaveAttribute("aria-current");
+  expect(navLink("Incidents")).toHaveAttribute("aria-current", "page");
 });
 
 test("menu_button_opens_the_sheet_which_keeps_focus_inside_and_escape_returns_focus", async () => {
@@ -229,11 +240,77 @@ test("host_selector_shows_each_hosts_connection_and_tells_hub_only_from_offline"
   await user.click(hostSelect());
   await screen.findByRole("option", { name: /^nas\b/ });
   expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
-    "All hosts",
+    "All hosts3",
     "nasConnected",
     "home-serverHub only, no agent",
     "workshopOffline",
   ]);
+});
+
+test("opening_a_page_about_one_host_selects_that_host_in_the_selector", () => {
+  renderLayout("/hosts/nas");
+
+  expect(hostSelect()).toHaveTextContent("nas");
+  expect(hostSelect()).not.toHaveTextContent("All hosts");
+});
+
+test("leaving_a_host_page_brings_back_the_hosts_chosen_before", async () => {
+  const user = userEvent.setup();
+  renderLayout("/hosts/nas");
+  expect(hostSelect()).toHaveTextContent("nas");
+
+  await user.click(menuButton());
+  await user.click(within(sheet()).getByRole("link", { name: "Incidents" }));
+
+  expect(screen.getByTestId("location")).toHaveTextContent("/incidents");
+  expect(hostSelect()).toHaveTextContent("All hosts");
+  expect(localStorage.getItem(SELECTED_HOST_KEY)).toBeNull();
+});
+
+test("a_page_with_a_host_param_selects_that_host", () => {
+  renderLayout("/skills?host=nas");
+
+  expect(hostSelect()).toHaveTextContent("nas");
+});
+
+test("choosing_all_hosts_on_a_host_page_opens_the_host_list_not_a_stale_page", async () => {
+  const user = userEvent.setup();
+  route("GET /api/v1/hosts", () => [nas, hubHost]);
+  renderLayout("/hosts/nas");
+
+  await user.click(hostSelect());
+  await user.click(await screen.findByRole("option", { name: "All hosts" }));
+
+  expect(screen.getByTestId("location")).toHaveTextContent(/^\/hosts$/);
+  expect(hostSelect()).toHaveTextContent("All hosts");
+  expect(localStorage.getItem(SELECTED_HOST_KEY)).toBeNull();
+});
+
+test("choosing_another_host_on_a_host_page_opens_that_hosts_page", async () => {
+  const user = userEvent.setup();
+  route("GET /api/v1/hosts", () => [nas, hubHost]);
+  renderLayout("/hosts/nas");
+
+  await user.click(hostSelect());
+  await user.click(await screen.findByRole("option", { name: /^home-server/ }));
+
+  expect(screen.getByTestId("location")).toHaveTextContent("/hosts/home-server");
+  expect(hostSelect()).toHaveTextContent("home-server");
+});
+
+test("ctrl_k_and_the_search_button_open_the_command_palette_state", async () => {
+  const user = userEvent.setup();
+  renderLayout();
+  const search = () => screen.getByRole("button", { name: /^Search/, hidden: true });
+  expect(search()).toHaveAttribute("aria-expanded", "false");
+
+  await user.keyboard("{Control>}k{/Control}");
+  expect(search()).toHaveAttribute("aria-expanded", "true");
+  await user.keyboard("{Control>}k{/Control}");
+  expect(search()).toHaveAttribute("aria-expanded", "false");
+
+  fireEvent.click(search());
+  expect(search()).toHaveAttribute("aria-expanded", "true");
 });
 
 test("host_selector_says_when_hosts_cannot_load_and_retry_loads_them", async () => {
@@ -335,8 +412,9 @@ test("account_menu_names_the_user_switches_the_theme_and_logs_out", async () => 
   await user.click(within(sheet()).getByRole("button", { name: "Account menu" }));
 
   expect(await screen.findByText("Signed in as admin")).toBeVisible();
-  expect(screen.getByRole("menuitemradio", { name: "Theme: same as the device" })).toBeChecked();
-  await user.click(screen.getByRole("menuitemradio", { name: "Theme: dark" }));
+  const theme = within(screen.getByRole("group", { name: "Theme" }));
+  expect(theme.getByRole("menuitemradio", { name: "System" })).toBeChecked();
+  await user.click(theme.getByRole("menuitemradio", { name: "Dark" }));
   expect(document.documentElement.dataset.theme).toBe("dark");
 
   await user.click(within(sheet()).getByRole("button", { name: "Account menu" }));

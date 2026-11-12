@@ -44,7 +44,7 @@ export function action(overrides: Partial<Action> = {}): Action {
     args: { name: "web" },
     status: "proposed",
     proposed_by: "system:triage",
-    expires_at: "2026-10-31T13:00:00Z",
+    expires_at: "2099-01-01T00:00:00Z",
     created_at: T0,
     updated_at: T0,
     ...overrides,

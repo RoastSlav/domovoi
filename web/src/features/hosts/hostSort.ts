@@ -5,14 +5,25 @@ import { hostConnectionOf, hostKindMeta, type HostConnection } from "../../desig
 /** Offline hosts first: the list opens on what needs a person. */
 export const DEFAULT_HOST_SORT: TableSort = { key: "connection", direction: "ascending" };
 
-/** Where a connection state falls in the list: trouble first, then quiet, then fine. */
-const CONNECTION_RANK: Record<HostConnection, number> = {
-  offline: 0,
-  refused: 0,
-  never_connected: 1,
-  connected: 2,
-  hub_only: 3,
-};
+/**
+ * Where a host falls in the list: trouble first (offline or refused, then never connected,
+ * then connected but out of date), then the quiet ones. An external host has no agent to be
+ * in trouble, so it sorts with the quiet ones.
+ */
+function rankOf(host: Host): number {
+  const connection = hostConnectionOf(host);
+  if (host.kind === "external" || connection === "hub_only") {
+    return 4;
+  }
+  const RANKS: Record<HostConnection, number> = {
+    offline: 0,
+    refused: 0,
+    never_connected: 1,
+    connected: host.outdated ? 2 : 3,
+    hub_only: 4,
+  };
+  return RANKS[connection];
+}
 
 /** A time as a number; a host that is connected now is the most recent, one never seen the least. */
 function seenAt(host: Host): number {
@@ -25,7 +36,7 @@ function seenAt(host: Host): number {
 function compareBy(key: string, a: Host, b: Host): number {
   switch (key) {
     case "connection":
-      return CONNECTION_RANK[hostConnectionOf(a)] - CONNECTION_RANK[hostConnectionOf(b)];
+      return rankOf(a) - rankOf(b);
     case "kind":
       return hostKindMeta(a.kind).label.localeCompare(hostKindMeta(b.kind).label);
     case "version":

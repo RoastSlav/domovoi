@@ -8,12 +8,10 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { Icon } from "../design/icons";
 import type { DescribedError } from "../design/messages";
 import { Button } from "./Button";
 import { ErrorDetail } from "./ErrorDetail";
 import { IconButton } from "./IconButton";
-import { TONE_ICONS } from "./InlineMessage";
 import styles from "./message.module.css";
 
 /** How long a success or info toast stays. */
@@ -77,9 +75,7 @@ function Toast({ toast, onDismiss }: { onDismiss: () => void; toast: ToastItem }
         }
       }}
     >
-      <span className={styles.icon}>
-        <Icon name={TONE_ICONS[toast.tone]} />
-      </span>
+      <span className={styles.dot} aria-hidden="true" />
       <div className={styles.text}>
         <p className={styles.title}>{toast.title}</p>
         {toast.detail && <div className={styles.body}>{toast.detail}</div>}

@@ -14,7 +14,7 @@ import {
 import { incidentStateMeta } from "../../design/tone";
 
 /** How many incidents the overview lists; the rest are one link away. */
-const RECENT = 10;
+const RECENT = 5;
 
 const COLUMNS: Column<IncidentSummary>[] = [
   {
@@ -51,7 +51,7 @@ export function RecentIncidents({ host }: { host: string }) {
       isEmpty={(items) => items.length === 0}
       empty={
         <EmptyState icon="check-circle" title={`No incidents on ${host}`}>
-          <p>Nothing has gone wrong here yet. When a check fails, its incident shows up here.</p>
+          <p>When a check fails on this host, its incident shows up in this list.</p>
         </EmptyState>
       }
     >
@@ -72,7 +72,7 @@ export function RecentIncidents({ host }: { host: string }) {
 export function AllIncidentsLink({ host }: { host: string }) {
   return (
     <Link to={`/incidents?host=${encodeURIComponent(host)}`}>
-      All incidents on <span>{host}</span>
+      View all<span className="visually-hidden"> incidents on {host}</span>
     </Link>
   );
 }

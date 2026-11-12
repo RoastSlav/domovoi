@@ -1,152 +1,30 @@
-import { memo, useMemo } from "react";
-import { Link } from "react-router";
+import { useCallback, useMemo } from "react";
+import { useNavigate } from "react-router";
 import type { useIncidents } from "../../api/hooks/incidents";
 import type { IncidentSummary } from "../../api/types";
 import { useMediaQuery } from "../../app/useMediaQuery";
-import {
-  Button,
-  Card,
-  Cluster,
-  DataTable,
-  InlineError,
-  RelativeTime,
-  Stack,
-  StatusPill,
-  Text,
-  type Column,
-} from "../../components";
-import { incidentGroupOf, incidentStateMeta, severityMeta } from "../../design/tone";
-import { triageSaid } from "./badge";
-import { IncidentRowMenu } from "./IncidentRowMenu";
+import { Button, DataTable, InlineError, Stack } from "../../components";
+import { incidentGroupOf, severityMeta } from "../../design/tone";
+import { IncidentCardRow } from "./IncidentCardRow";
+import { hasTriage, incidentColumns } from "./incidentColumns";
 import styles from "./incidents.module.css";
 
-/** From this width the list is a table; below it, cards with the same facts in the same order. */
-export const TABLE_QUERY = "(min-width: 900px)";
+/**
+ * From this width the list is a table (its fixed columns need the room); below it, cards
+ * with the same facts in the same order.
+ */
+export const TABLE_QUERY = "(min-width: 1280px)";
 
 /** One group's incidents, as the infinite query reports them. */
 export type IncidentsQuery = ReturnType<typeof useIncidents>;
 
-function checkText(incident: IncidentSummary): string {
-  return incident.target ? `${incident.check} ${incident.target}` : incident.check;
+/** What a resolved row looks like: quiet. Nothing is tinted red: the stripe says how bad it is. */
+function rowState(incident: IncidentSummary): "quiet" | undefined {
+  return incidentGroupOf(incident) === "resolved" ? "quiet" : undefined;
 }
 
-function rowState(incident: IncidentSummary): "urgent" | "quiet" | undefined {
-  const group = incidentGroupOf(incident);
-  return group === "needs_action" ? "urgent" : group === "resolved" ? "quiet" : undefined;
-}
-
-function columns(hostNames: Map<string, string>): Column<IncidentSummary>[] {
-  return [
-    {
-      key: "state",
-      label: "Status",
-      cell: (incident) => <StatusPill meta={incidentStateMeta(incident)} />,
-    },
-    {
-      key: "title",
-      label: "Incident",
-      cell: (incident) => (
-        <Link to={`/incidents/${incident.id}`}>
-          <Text strong>{incident.title}</Text>
-        </Link>
-      ),
-    },
-    {
-      key: "host",
-      label: "Host",
-      cell: (incident) => hostNames.get(incident.host_id) ?? "Unknown host",
-    },
-    {
-      key: "check",
-      label: "Check",
-      cell: (incident) => (
-        <Text mono size="sm">
-          {checkText(incident)}
-        </Text>
-      ),
-    },
-    {
-      key: "severity",
-      label: "Severity",
-      cell: (incident) => <StatusPill size="sm" meta={severityMeta(incident.severity)} />,
-    },
-    {
-      key: "fired",
-      label: "Last fired",
-      cell: (incident) => <RelativeTime at={incident.last_firing_at} />,
-    },
-    {
-      key: "times",
-      label: "Times",
-      numeric: true,
-      hint: "How many times the check has fired for this incident.",
-      cell: (incident) => incident.occurrences,
-    },
-    { key: "triage", label: "Triage", cell: (incident) => triageSaid(incident) },
-    {
-      key: "actions",
-      label: "Actions",
-      hideLabel: true,
-      cell: (incident) => <IncidentRowMenu incident={incident} />,
-    },
-  ];
-}
-
-/** One incident as a card, for narrow screens: the table's facts in the table's order. */
-const IncidentCardRow = memo(function IncidentCardRow({
-  incident,
-  host,
-}: {
-  incident: IncidentSummary;
-  host: string | undefined;
-}) {
-  const state = incidentStateMeta(incident);
-  const note = triageSaid(incident);
-  return (
-    <li>
-      <Card tone={state.tone}>
-        <Stack gap={2}>
-          <Cluster justify="between" align="start" wrap={false}>
-            <Stack gap={1}>
-              <Cluster>
-                <StatusPill meta={state} />
-              </Cluster>
-              <Link to={`/incidents/${incident.id}`}>
-                <Text strong>{incident.title}</Text>
-              </Link>
-            </Stack>
-            <IncidentRowMenu incident={incident} />
-          </Cluster>
-          <Cluster>
-            <Text size="sm">{host ?? "Unknown host"}</Text>
-            <Text mono size="sm">
-              {checkText(incident)}
-            </Text>
-            <StatusPill size="sm" meta={severityMeta(incident.severity)} />
-          </Cluster>
-          <Cluster>
-            <Text muted size="sm">
-              Last fired <RelativeTime at={incident.last_firing_at} />
-            </Text>
-            {incident.occurrences > 1 && (
-              <Text muted size="sm">
-                {incident.occurrences} times
-              </Text>
-            )}
-            {note && (
-              <Text muted size="sm">
-                {note}
-              </Text>
-            )}
-          </Cluster>
-        </Stack>
-      </Card>
-    </li>
-  );
-});
-
-/** What the table tints a row by; a constant, so it never makes a row redraw. */
-const rowTone = (incident: IncidentSummary) => incidentStateMeta(incident).tone;
+/** The stripe follows severity, not status; a constant, so it never makes a row redraw. */
+const rowTone = (incident: IncidentSummary) => severityMeta(incident.severity).tone;
 
 /**
  * The loaded incidents of `query`: a table on a wide screen, cards on a narrow one, then
@@ -157,16 +35,36 @@ export function IncidentList({
   query,
   hostNames,
   caption,
+  hideStatus = false,
+  showTriage: forceTriage,
 }: {
   /** Names the list for assistive technology. */
   caption: string;
+  /** Leave out the Status column: the group already says it. */
+  hideStatus?: boolean;
   hostNames: Map<string, string>;
   query: IncidentsQuery;
+  /**
+   * Whether the Triage column is drawn; by default when some row here has a view. The
+   * groups of one page share one answer, so their columns line up.
+   */
+  showTriage?: boolean;
 }) {
   const wide = useMediaQuery(TABLE_QUERY);
   const pages = query.data?.pages;
   const items = useMemo(() => pages?.flatMap((page) => page.items) ?? [], [pages]);
-  const tableColumns = useMemo(() => columns(hostNames), [hostNames]);
+  const own = useMemo(() => hasTriage(items), [items]);
+  const showTriage = forceTriage ?? own;
+  const tableColumns = useMemo(
+    () => incidentColumns(hostNames, { hideStatus, showTriage }),
+    [hostNames, hideStatus, showTriage],
+  );
+  const navigate = useNavigate();
+  // The whole row opens the incident; the title stays the link for the keyboard.
+  const open = useCallback(
+    (incident: IncidentSummary) => void navigate(`/incidents/${incident.id}`),
+    [navigate],
+  );
   const more = () => void query.fetchNextPage();
   return (
     <Stack gap={3}>
@@ -178,6 +76,8 @@ export function IncidentList({
           rowKey={(incident) => incident.id}
           rowTone={rowTone}
           rowState={rowState}
+          layout="fixed"
+          onRowClick={open}
         />
       ) : (
         <ul className={styles.cards} aria-label={caption}>
@@ -186,6 +86,7 @@ export function IncidentList({
               key={incident.id}
               incident={incident}
               host={hostNames.get(incident.host_id)}
+              hideStatus={hideStatus}
             />
           ))}
         </ul>

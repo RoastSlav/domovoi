@@ -1,3 +1,4 @@
+import { AboutSection } from "../views/AboutSection";
 import { fixed, type SectionSpec } from "./types";
 
 /** The sections about the hub's own upkeep: leaked secrets, backups and release checks. */
@@ -28,9 +29,10 @@ export const UPKEEP_SECTIONS: SectionSpec[] = [
   },
   {
     id: "updates",
-    title: "Updates",
+    title: "About and updates",
     intro:
-      "Look for a newer Domovoi release on GitHub twice a day. Nothing is sent but the request itself.",
+      "Which version the hub and its agents run, and whether a newer release is out. The hub looks on GitHub twice a day; nothing is sent but the request itself.",
+    view: AboutSection,
     fields: fixed([{ path: "updates.check", label: "Check for new releases", kind: "bool" }]),
   },
 ];

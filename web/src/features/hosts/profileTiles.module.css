@@ -1,0 +1,68 @@
+/* The profile's tiles: columns come from the tile count (see columnsFor), so a row never
+   leaves one tile alone. Two to a row on a phone, three at medium width, up to six wide. */
+.wrap {
+  container-type: inline-size;
+}
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(var(--cols), minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.tiles[data-narrow="1"] {
+  --cols: 1;
+}
+.tiles[data-narrow="2"] {
+  --cols: 2;
+}
+
+/* A last tile that would sit alone on its row takes the whole row. */
+.tiles[data-lone-narrow] > :last-child {
+  grid-column: 1 / -1;
+}
+
+@container (min-width: 30rem) {
+  .tiles > :last-child {
+    grid-column: auto;
+  }
+  .tiles[data-lone-mid] > :last-child {
+    grid-column: 1 / -1;
+  }
+  .tiles[data-mid="1"] {
+    --cols: 1;
+  }
+  .tiles[data-mid="2"] {
+    --cols: 2;
+  }
+  .tiles[data-mid="3"] {
+    --cols: 3;
+  }
+}
+
+@container (min-width: 56rem) {
+  .tiles > :last-child {
+    grid-column: auto;
+  }
+  .tiles[data-lone-wide] > :last-child {
+    grid-column: 1 / -1;
+  }
+  .tiles[data-wide="1"] {
+    --cols: 1;
+  }
+  .tiles[data-wide="2"] {
+    --cols: 2;
+  }
+  .tiles[data-wide="3"] {
+    --cols: 3;
+  }
+  .tiles[data-wide="4"] {
+    --cols: 4;
+  }
+  .tiles[data-wide="5"] {
+    --cols: 5;
+  }
+  .tiles[data-wide="6"] {
+    --cols: 6;
+  }
+}

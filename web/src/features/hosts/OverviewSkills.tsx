@@ -13,6 +13,9 @@ import {
 import { riskMeta } from "../../design/tone";
 import styles from "./hosts.module.css";
 
+/** How many skills the overview lists; the rest are one link away. */
+const LISTED = 6;
+
 /** The skills the host's agent reported, one line each with its risk; managing them is one link away. */
 export function OverviewSkills({ host }: { host: string }) {
   const skills = useSkills(host);
@@ -24,17 +27,14 @@ export function OverviewSkills({ host }: { host: string }) {
       isEmpty={(list) => list.length === 0}
       empty={
         <EmptyState icon="tool" title="No skills">
-          <p>
-            Skills are the actions the hub may take on a host. An agent sends them when it connects,
-            so check that {host} is connected.
-          </p>
+          <p>An agent sends its skills when it connects, so check that {host} is connected.</p>
         </EmptyState>
       }
     >
       {(list) => (
         <Stack gap={3}>
           <ul className={styles.skills} aria-label={`Skills on ${host}`}>
-            {list.map((skill) => (
+            {list.slice(0, LISTED).map((skill) => (
               <li key={skill.name}>
                 <Cluster gap={2}>
                   <Text mono strong>
@@ -49,7 +49,10 @@ export function OverviewSkills({ host }: { host: string }) {
               </li>
             ))}
           </ul>
-          <Link to={`/skills?host=${encodeURIComponent(host)}`}>Manage skills on {host}</Link>
+          <Link to={`/skills?host=${encodeURIComponent(host)}`}>
+            Manage skills on {host}
+            {list.length > LISTED && ` (${list.length} in all)`}
+          </Link>
         </Stack>
       )}
     </QueryBoundary>

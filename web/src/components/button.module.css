@@ -1,80 +1,102 @@
+/* One height for every control in a row: --control-h (28 px for `sm`), larger on touch screens. */
 .button {
   position: relative;
   display: inline-flex;
+  flex: none;
   align-items: center;
   justify-content: center;
-  min-height: 2.25rem;
-  padding: var(--space-1) var(--space-3);
+  height: var(--control-h);
+  padding: 0 var(--space-3);
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-sm);
   background: var(--color-surface);
   color: var(--color-text);
   font-size: var(--text-sm);
-  font-weight: 600;
+  font-weight: var(--weight-medium);
   line-height: var(--leading-sm);
   white-space: nowrap;
   cursor: pointer;
   transition:
     background-color var(--motion-fast) var(--ease-out),
-    border-color var(--motion-fast) var(--ease-out);
+    border-color var(--motion-fast) var(--ease-out),
+    color var(--motion-fast) var(--ease-out);
 }
 
 .sm {
-  min-height: 1.75rem;
+  height: var(--control-h-sm);
   padding: 0 var(--space-2);
-  font-size: var(--text-xs);
 }
 
 .content {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: calc(var(--space-1) * 1.5);
 }
 
-.button:hover,
+.content svg {
+  flex: none;
+}
+
+/* Secondary: the surface with a strong edge. */
+.button:hover:not([aria-disabled="true"], :disabled),
 .button[data-hover] {
+  border-color: var(--color-border-hover);
   background: var(--color-surface-raised);
 }
 
+/* Primary: the one main action of a view. */
 .primary {
-  background: var(--color-primary);
   border-color: var(--color-primary);
+  background: var(--color-primary);
   color: var(--color-on-primary);
 }
 
-.primary:hover,
+.primary:hover:not([aria-disabled="true"], :disabled),
 .primary[data-hover] {
-  background: var(--color-primary-hover);
   border-color: var(--color-primary-hover);
+  background: var(--color-primary-hover);
 }
 
+/* Danger: destructive, solid red with light text. */
 .danger {
-  border-color: var(--tone-danger-fg);
-  color: var(--tone-danger-fg);
+  border-color: var(--tone-danger-solid);
+  background: var(--tone-danger-solid);
+  color: var(--tone-danger-on-solid);
 }
 
-.danger:hover,
+.danger:hover:not([aria-disabled="true"], :disabled),
 .danger[data-hover] {
-  background: var(--tone-danger-bg);
+  border-color: var(--tone-danger-solid);
+  background: color-mix(in srgb, var(--tone-danger-solid) 85%, var(--tone-danger-on-solid));
 }
 
+/* Ghost: nothing around it until the pointer arrives. */
 .ghost {
-  background: transparent;
   border-color: transparent;
+  background: transparent;
+  color: var(--color-text-muted);
+}
+
+.ghost:hover:not([aria-disabled="true"], :disabled),
+.ghost[data-hover] {
+  border-color: transparent;
+  background: var(--color-surface-raised);
+  color: var(--color-text);
 }
 
 .iconOnly {
-  min-width: 2.25rem;
+  width: var(--control-h);
   padding: 0;
 }
 
 .iconOnly.sm {
-  min-width: 1.75rem;
+  width: var(--control-h-sm);
 }
 
+/* A button that cannot be used now stays focusable and says why in its tooltip. */
 .button:disabled,
 .button[aria-disabled="true"] {
-  opacity: 0.55;
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
@@ -93,25 +115,6 @@
   inset: 0;
   display: grid;
   place-items: center;
-}
-
-/* Phones: primary controls are at least 44 px tall. */
-@media (pointer: coarse) {
-  .button {
-    min-height: 2.75rem;
-  }
-
-  .sm {
-    min-height: 2.25rem;
-  }
-
-  .iconOnly {
-    min-width: 2.75rem;
-  }
-
-  .iconOnly.sm {
-    min-width: 2.25rem;
-  }
 }
 
 .link {

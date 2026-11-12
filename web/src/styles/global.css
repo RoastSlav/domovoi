@@ -1,19 +1,15 @@
 @import "./tokens.css";
 
 :root {
-  /* 15 px on desktop when the browser default is 16 px; phones get 16 px (see below). */
-  font-size: 93.75%;
   font-family: var(--font-sans);
-  line-height: 1.5;
+  line-height: var(--leading-base);
   color: var(--color-text);
   background: var(--color-bg);
-}
-
-/* Phones: 16 px keeps iOS from zooming into focused inputs. */
-@media (max-width: 640px) {
-  :root {
-    font-size: 100%;
-  }
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  /* Thin, warm scrollbars (the thumb is a control edge, so it uses the strong border). */
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-strong) transparent;
 }
 
 *,
@@ -25,14 +21,40 @@
 body {
   margin: 0;
   background: var(--color-bg);
+  /* 14 px on desktop; phones get 16 px so iOS does not zoom into focused inputs. */
+  font-size: var(--text-base);
+  font-feature-settings: "cv11", "ss01", "ss03";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
-a {
-  color: var(--color-primary);
+@media (max-width: 640px) {
+  body {
+    font-size: var(--text-lg);
+    line-height: var(--leading-lg);
+  }
+}
+
+::selection {
+  background: var(--color-accent-tint);
+  color: var(--color-text);
+}
+
+/* :where keeps links at zero specificity, so a button-looking link restyles itself with one class. */
+:where(a) {
+  color: var(--color-accent);
+  text-decoration: none;
+  text-underline-offset: 3px;
+}
+
+:where(a:hover) {
+  color: var(--color-accent-hover);
+  text-decoration: underline;
 }
 
 :focus-visible {
-  outline: 3px solid var(--color-focus);
+  outline: 2px solid var(--color-focus);
   outline-offset: 2px;
 }
 
@@ -46,7 +68,13 @@ main[tabindex="-1"]:focus-visible {
 h1,
 h2,
 h3 {
+  font-weight: var(--weight-semibold);
   line-height: 1.25;
+  letter-spacing: var(--tracking-tight);
+}
+
+h1 {
+  letter-spacing: var(--tracking-tighter);
 }
 
 code,
@@ -67,16 +95,23 @@ button {
 input,
 select,
 textarea {
+  font-size: var(--text-control);
   background: var(--color-surface);
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-sm);
-  padding: 0.45rem 0.6rem;
+  padding: 0.375rem 0.625rem;
   max-width: 100%;
-  accent-color: var(--color-primary);
+  accent-color: var(--color-accent);
 }
 
 label {
-  font-weight: 600;
+  font-weight: var(--weight-medium);
+}
+
+/* A placeholder reads as a prompt, clearly lighter than a typed value (Firefox dims it by default). */
+::placeholder {
+  color: var(--color-text-subtle);
+  opacity: 1;
 }
 
 .visually-hidden {
@@ -158,9 +193,9 @@ label {
   --tone-on-solid: var(--tone-neutral-on-solid);
 }
 
-/* A 3 px left stripe in the element's tone, for rows and cards (see ToneStripe in the kit). */
+/* A 2 px left stripe in the element's tone, for rows and cards (see ToneStripe in the kit). */
 [data-stripe] {
-  box-shadow: inset 3px 0 0 var(--tone-solid, var(--color-border-strong));
+  box-shadow: inset 2px 0 0 var(--tone-solid, var(--color-border-strong));
 }
 
 /* An open modal dialog holds the page still behind it. */

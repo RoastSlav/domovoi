@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { Icon } from "../design/icons";
+import { Icon, type IconName } from "../design/icons";
 import { Popover } from "./Popover";
-import styles from "./overlay.module.css";
+import styles from "./menu.module.css";
 
 /** One choice in an `OptionPicker`. */
 export interface PickerOption {
@@ -19,6 +19,10 @@ export const PICKER_FILTER_FROM = 8;
  * a list. Arrow keys move through the list, Enter chooses, Escape closes. With more than
  * eight options, typing filters them.
  *
+ * The chosen option is marked with a check at the right of the list. The button can carry a leading
+ * `icon`, a muted `caption` naming what is chosen and a `valueMeta` (a status dot, a count)
+ * after the current choice; the caption is dropped on a phone.
+ *
  * Use it where the options need a pill or tag beside them (the host selector). Do not use it
  * for plain choices in a form: that is `Select` inside a `Field`.
  */
@@ -27,12 +31,21 @@ export function OptionPicker({
   value,
   options,
   onChange,
+  icon,
+  caption,
+  valueMeta,
 }: {
+  /** A muted word before the current choice, like "Host". Hidden on a phone. */
+  caption?: string;
+  /** A leading icon on the button. */
+  icon?: IconName;
   /** What is being chosen; the control's accessible name. */
   label: string;
   onChange: (value: string) => void;
   options: PickerOption[];
   value: string;
+  /** Shown on the button right of the current choice: a status dot, a count. */
+  valueMeta?: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState("");
@@ -120,11 +133,18 @@ export function OptionPicker({
         aria-controls={open ? id : undefined}
         onClick={() => (open ? close() : setOpen(true))}
       >
+        {icon && (
+          <span className={styles.pickerIcon}>
+            <Icon name={icon} />
+          </span>
+        )}
+        {caption && <span className={styles.pickerCaption}>{caption}</span>}
         <span className={styles.pickerValue}>{current?.label ?? value}</span>
-        <Icon name="chevron-down" size={14} />
+        {valueMeta && <span className={styles.pickerMeta}>{valueMeta}</span>}
+        <Icon name="chevron-down" size={14} className={styles.pickerChevron ?? ""} />
       </button>
       {open && (
-        <Popover anchor={trigger} label={label} onClose={close}>
+        <Popover anchor={trigger} label={label} onClose={close} flush>
           <div className={styles.picker} onKeyDown={onKeyDown}>
             {searchable && (
               <input
@@ -156,7 +176,10 @@ export function OptionPicker({
                     onClick={() => choose(option.value)}
                   >
                     <span className={styles.pickerValue}>{option.label}</span>
-                    {option.meta}
+                    <span className={styles.pickerOptionMeta}>{option.meta}</span>
+                    <span className={styles.pickerCheck}>
+                      {option.value === value && <Icon name="check" size={14} />}
+                    </span>
                   </button>
                 ))}
               </div>

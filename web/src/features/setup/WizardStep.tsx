@@ -45,32 +45,34 @@ export function WizardStep({
       <Stack gap={4}>
         {step.id === "discord" && <DiscordSetupHelp />}
         <StepFields fields={step.fields} editable={editable} wizard={wizard} issues={issues} />
-        <Cluster gap={2}>
-          {wizard.step > 0 && (
-            <Button icon="chevron-left" onClick={wizard.back}>
-              Back
-            </Button>
-          )}
-          {step.test && (
-            <Button
-              loading={wizard.tester.isPending}
-              hint="Tries these values without saving them."
-              onClick={wizard.testStep}
-            >
-              Test
-            </Button>
-          )}
-          {step.optional && (
-            <Button
-              variant="ghost"
-              icon="skip"
-              hint={step.skipHint}
-              disabledReason={wizard.apply.pending ? "Saving the settings." : undefined}
-              onClick={() => wizard.next(true)}
-            >
-              Skip
-            </Button>
-          )}
+        <Cluster gap={2} justify="between">
+          <Cluster gap={2}>
+            {wizard.step > 0 && (
+              <Button icon="chevron-left" onClick={wizard.back}>
+                Back
+              </Button>
+            )}
+            {step.test && (
+              <Button
+                loading={wizard.tester.isPending}
+                hint="Tries these values without saving them."
+                onClick={wizard.testStep}
+              >
+                Test
+              </Button>
+            )}
+            {step.optional && (
+              <Button
+                variant="ghost"
+                icon="skip"
+                hint={step.skipHint}
+                disabledReason={wizard.apply.pending ? "Saving the settings." : undefined}
+                onClick={() => wizard.next(true)}
+              >
+                Skip
+              </Button>
+            )}
+          </Cluster>
           <Button
             variant="primary"
             loading={wizard.apply.pending}

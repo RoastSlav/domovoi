@@ -1,0 +1,138 @@
+/* SegmentedControl: a few exclusive choices in one 32 px track. */
+.segmented {
+  display: inline-grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 2px;
+  width: fit-content;
+  max-width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 2px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+}
+
+.segmented[data-stretch] {
+  display: grid;
+  width: auto;
+}
+
+.segment {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: calc(var(--space-1) * 1.5);
+  min-height: calc(var(--control-h) - 6px);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-xs);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color var(--motion-fast) var(--ease-out),
+    color var(--motion-fast) var(--ease-out);
+}
+
+.segment:hover {
+  color: var(--color-text);
+}
+
+.segment[data-checked="true"] {
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  box-shadow: var(--shadow-raised);
+}
+
+.segment:has(:focus-visible),
+.chip:has(:focus-visible) {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+/* FilterChips: compact 28 px toggles with the count inside. */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+/* On a phone the chips are one row that scrolls sideways, so they never push the list down. */
+@media (max-width: 600px) {
+  .chips {
+    flex-wrap: nowrap;
+    margin: calc(-1 * var(--space-1));
+    padding: var(--space-1);
+
+    /* The visually hidden radio inputs are absolute: without this they sit outside the
+       scroller and widen the whole page. */
+    position: relative;
+    overflow-x: auto;
+
+    /* No scrollbar: the faded edge says there is more. */
+    scrollbar-width: none;
+  }
+
+  .chips::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Only the alpha of the mask matters, so any opaque token will do. */
+  .chips[data-fade-end] {
+    mask-image: linear-gradient(to right, var(--color-text) calc(100% - 2rem), transparent);
+  }
+
+  .chips[data-fade-start] {
+    mask-image: linear-gradient(to right, transparent, var(--color-text) 2rem);
+  }
+
+  .chips[data-fade-start][data-fade-end] {
+    mask-image: linear-gradient(
+      to right,
+      transparent,
+      var(--color-text) 2rem,
+      var(--color-text) calc(100% - 2rem),
+      transparent
+    );
+  }
+}
+
+.chip {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--control-h-sm);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color var(--motion-fast) var(--ease-out),
+    border-color var(--motion-fast) var(--ease-out),
+    color var(--motion-fast) var(--ease-out);
+}
+
+.chip:hover {
+  border-color: var(--color-border-hover);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+}
+
+.chip[data-checked="true"] {
+  border-color: var(--color-accent);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+}

@@ -28,7 +28,29 @@ const HOST: Host = {
 const FACTS: Fact[] = [
   { key: "system.uptime", label: "Uptime", value: "41", unit: "days", observed_at: ago(3) },
   { key: "temperature.cpu", label: "CPU temperature", value: "58", unit: "C", observed_at: ago(3) },
+  { key: "cpu.usage", label: "CPU usage", value: "34", unit: "%", observed_at: ago(3) },
+  { key: "disk.root.used_pct", label: "Disk / used", value: "58", unit: "%", observed_at: ago(12) },
   { key: "disk.root.free", label: "Free on /", value: "112", unit: "GB", observed_at: ago(12) },
+  {
+    key: "disk.srv.used_pct",
+    label: "Disk /srv used",
+    value: "91",
+    unit: "%",
+    observed_at: ago(12),
+  },
+  {
+    key: "container.web.state",
+    label: "web state",
+    value: "running (healthy)",
+    observed_at: ago(3),
+  },
+  { key: "container.web.image", label: "web image", value: "nginx:1.27", observed_at: ago(3) },
+  {
+    key: "container.db.state",
+    label: "db state",
+    value: "exited (1) 3 hours ago",
+    observed_at: ago(3),
+  },
   { key: "zfs.tank.health", label: "Pool tank", value: "ONLINE", observed_at: ago(12) },
   { key: "memory.available", label: "Available", value: "6.1", unit: "GB", observed_at: ago(3) },
   { key: "net.eth0.rx", label: "Received", value: "3.2", unit: "GB", observed_at: ago(3) },
@@ -123,7 +145,7 @@ export function FleetDemos() {
           />
         </Stack>
       </Demo>
-      <Demo name="Facts cards: OverviewFacts, with and without facts">
+      <Demo name="Facts dashboard: OverviewFacts, with and without facts">
         <Stack gap={4}>
           <OverviewFacts name={HOST.name} facts={FACTS} />
           <OverviewFacts name="pi-garage" facts={[]} />

@@ -8,16 +8,11 @@ import {
   Skeleton,
 } from "../../components";
 import { incidentGroupMeta, type IncidentGroup } from "../../design/tone";
+import { hasTriage } from "./incidentColumns";
 import { IncidentList, type IncidentsQuery } from "./IncidentList";
 
 /** The groups shown open, most urgent first. Resolved follows them, closed. */
 const ACTIVE: IncidentGroup[] = ["needs_action", "monitor", "pending", "expected", "handled"];
-
-/** "Action needed (3)", or "(50+)" while the hub has more than is loaded. */
-function heading(group: IncidentGroup, query: IncidentsQuery): string {
-  const loaded = query.data?.pages.reduce((sum, page) => sum + page.items.length, 0) ?? 0;
-  return `${incidentGroupMeta(group).label} (${loaded}${query.hasNextPage ? "+" : ""})`;
-}
 
 function hasRows(query: IncidentsQuery): boolean {
   return Boolean(query.data?.pages.some((page) => page.items.length > 0));
@@ -72,6 +67,10 @@ export function IncidentGroups({
   const active = ACTIVE.filter((group) => hasRows(queries[group]));
   const anyResolved = hasRows(queries.resolved);
   const filtered = Boolean(filters.q ?? filters.severity);
+  // One answer for every group, so the tables of the page share their columns.
+  const showTriage = all.some((query) =>
+    hasTriage(query.data?.pages.flatMap((p) => p.items) ?? []),
+  );
 
   return (
     <>
@@ -104,13 +103,15 @@ export function IncidentGroups({
       {active.map((group) => (
         <Section
           key={group}
-          title={heading(group, queries[group])}
+          title={incidentGroupMeta(group).label}
           description={incidentGroupMeta(group).hint}
         >
           <IncidentList
             query={queries[group]}
             hostNames={hostNames}
             caption={incidentGroupMeta(group).label}
+            hideStatus={group === "needs_action"}
+            showTriage={showTriage}
           />
         </Section>
       ))}
@@ -120,7 +121,12 @@ export function IncidentGroups({
           collapsed
           description="Problems that cleared, the most recently opened first."
         >
-          <IncidentList query={queries.resolved} hostNames={hostNames} caption="Resolved" />
+          <IncidentList
+            query={queries.resolved}
+            hostNames={hostNames}
+            caption="Resolved"
+            showTriage={showTriage}
+          />
         </Section>
       )}
     </>

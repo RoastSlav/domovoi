@@ -1,0 +1,60 @@
+/* The host header's fact strip: a small label over each value, hairlines between facts. */
+.facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3) 0;
+  margin: 0;
+}
+
+.fact {
+  display: grid;
+  gap: var(--space-1);
+  padding-inline: var(--space-5);
+  border-left: 1px solid var(--color-border);
+}
+
+.fact:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+
+.fact dt {
+  color: var(--color-text-subtle);
+  font-size: var(--text-xs);
+  line-height: var(--leading-xs);
+}
+
+/* Every value line has the same height, so values share a baseline across the strip. */
+.fact dd {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  min-height: var(--leading-md);
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--text-sm);
+}
+
+.warn {
+  color: var(--tone-warning-fg);
+}
+
+.incidents {
+  display: inline-flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+@media (max-width: 640px) {
+  .facts {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-3) var(--space-4);
+  }
+
+  .fact,
+  .fact:first-child {
+    padding-inline: 0;
+    border-left: 0;
+  }
+}

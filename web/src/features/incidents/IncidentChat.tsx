@@ -1,9 +1,19 @@
 import { useState } from "react";
 import { useAsk, useClearFollowUps, useFollowUps } from "../../api/hooks/incidents";
-import { ChatThread, type ChatTurn, ConfirmDialog, useActionFeedback } from "../../components";
+import {
+  Button,
+  ChatThread,
+  type ChatTurn,
+  ConfirmDialog,
+  LinkButton,
+  useActionFeedback,
+} from "../../components";
 import { useChatOff } from "../chat/useChatOff";
 
 export { MAX_QUESTION_CHARS } from "../../components";
+
+/** How many question and answer pairs show before "Show earlier questions". */
+const RECENT_EXCHANGES = 2;
 
 /**
  * The chat with triage about one incident: the turns the model still remembers, the next
@@ -21,6 +31,7 @@ export function IncidentChat({ incidentId, host }: { incidentId: string; host: s
   });
   const [sending, setSending] = useState("");
   const [clearOpen, setClearOpen] = useState(false);
+  const [everything, setEverything] = useState(false);
 
   const turns = remembered.data?.turns ?? [];
   const asked = sending.trim();
@@ -39,14 +50,30 @@ export function IncidentChat({ incidentId, host }: { incidentId: string; host: s
     thread.push({ role: "user", text: asked }, { role: "assistant", text: unremembered });
   }
 
+  // The page is not the chat: the last two exchanges show, earlier ones on request.
+  const hidden = everything ? 0 : Math.max(0, thread.length - 2 * RECENT_EXCHANGES);
+  const earlier = hidden / 2;
+
   return (
     <>
+      {earlier > 0 && (
+        <Button size="sm" variant="ghost" icon="chevron-up" onClick={() => setEverything(true)}>
+          {earlier === 1 ? "Show 1 earlier question" : `Show ${earlier} earlier questions`}
+        </Button>
+      )}
       <ChatThread
-        turns={thread}
+        scroll="after-send"
+        sendVariant="secondary"
+        turns={thread.slice(hidden)}
         pending={pending}
         hint={`Uses read-only tools on ${host}. It cannot change anything.`}
         label="Ask about this incident"
         disabledReason={off}
+        offAction={
+          <LinkButton to="/settings/models" size="sm">
+            Open model settings
+          </LinkButton>
+        }
         sending={ask.isPending}
         clearing={clearOpen || clear.isPending}
         loading={remembered.isPending}

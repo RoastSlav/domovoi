@@ -3,7 +3,6 @@ import { useDigestPreview, useSendDigest } from "../../api/hooks/system";
 import { AllHostsNote } from "../../app/AllHostsNote";
 import {
   Button,
-  Card,
   ConfirmDialog,
   PageHeader,
   QueryBoundary,
@@ -11,11 +10,11 @@ import {
   Section,
   Skeleton,
   Stack,
-  Markdown,
-  Tag,
-  Text,
   useActionFeedback,
 } from "../../components";
+import styles from "./digest.module.css";
+import { HostCard } from "./HostCard";
+import { WholeMessage } from "./WholeMessage";
 
 /**
  * Today's digest as it will be sent, and sending it now. Each host is its own card when the
@@ -62,36 +61,27 @@ export function DigestPage() {
               return (
                 <article aria-label={`Digest for ${data.date}`}>
                   <Stack gap={3}>
-                    <Text muted>{`For ${data.date}`}</Text>
-                    {data.next_send_at && (
-                      <Text muted size="xs" block>
-                        Next scheduled send: <RelativeTime at={data.next_send_at} />
-                      </Text>
-                    )}
-                    {hosts.length > 0
-                      ? hosts.map((host) => (
-                          <Card key={host.host}>
-                            <Stack gap={2}>
-                              <Text strong>{host.host}</Text>
-                              {host.quiet ? (
-                                <Tag tone="neutral">Nothing changed</Tag>
-                              ) : (
-                                <Markdown
-                                  text={host.lines.map((line) => `- ${line}`).join("\n")}
-                                  breaks
-                                />
-                              )}
-                            </Stack>
-                          </Card>
-                        ))
-                      : null}
+                    <p className={styles.meta}>
+                      <span>{`For ${data.date}`}</span>
+                      {data.next_send_at && (
+                        <>
+                          <span aria-hidden="true"> · </span>
+                          <span>
+                            Next scheduled send: <RelativeTime at={data.next_send_at} />
+                          </span>
+                        </>
+                      )}
+                    </p>
+                    {hosts.map((host) => (
+                      <HostCard
+                        key={host.host}
+                        host={host.host}
+                        lines={host.lines}
+                        quiet={Boolean(host.quiet)}
+                      />
+                    ))}
                     {/* The hosts above are a reading aid; this is the message itself, whole. */}
-                    <Card>
-                      <Stack gap={2}>
-                        {hosts.length > 0 && <Text muted>The whole message, as it is sent</Text>}
-                        <Markdown text={data.markdown} breaks />
-                      </Stack>
-                    </Card>
+                    <WholeMessage markdown={data.markdown} collapsible={hosts.length > 0} />
                   </Stack>
                 </article>
               );

@@ -42,6 +42,7 @@ export { PageHeader } from "./PageHeader";
 export { Section } from "./Section";
 export { Card } from "./Card";
 export { Text } from "./Text";
+export { StatTile } from "./StatTile";
 
 // Data
 export { DataTable, type Column, type TableSort } from "./DataTable";
@@ -75,6 +76,8 @@ export { PasswordPrompt } from "./PasswordPrompt";
 export { Menu, type MenuItem } from "./Menu";
 export { OptionPicker, PICKER_FILTER_FROM, type PickerOption } from "./OptionPicker";
 export { Popover } from "./Popover";
+export { CommandPalette, preloadCommandPalette, type CommandPaletteProps } from "./CommandPalette";
+export { type PaletteGroup, type PaletteItem } from "./palette";
 
 // Chat
 export {

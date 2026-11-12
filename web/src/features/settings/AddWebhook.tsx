@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Button, Cluster, Field, TextInput } from "../../components";
+import { Button, Cluster, TextInput } from "../../components";
+import { SettingRow, SettingsCard } from "./SettingRow";
 
 /** A new webhook needs a name first; its other fields then appear in its section. */
 export function AddWebhook({ onAdd }: { onAdd: (name: string) => void }) {
@@ -10,26 +11,33 @@ export function AddWebhook({ onAdd }: { onAdd: (name: string) => void }) {
     setName("");
   };
   return (
-    <Field
-      label="New webhook name"
-      hint="Lower-case letters, digits, dashes and underscores. It becomes the address /hooks/<name>."
-    >
-      <Cluster align="start">
-        <TextInput
-          value={name}
-          mono
-          autoComplete="off"
-          onChange={(event) => setName(event.target.value.trim())}
-        />
-        <Button
-          onClick={add}
-          disabledReason={
-            valid ? undefined : "Enter a name of lower-case letters, digits, dashes or underscores."
-          }
-        >
-          Add webhook
-        </Button>
-      </Cluster>
-    </Field>
+    <SettingsCard>
+      <SettingRow
+        label="New webhook name"
+        hint="Lower-case letters, digits, dashes and underscores. It becomes the address /hooks/<name>."
+      >
+        {(wiring) => (
+          <Cluster wrap={false}>
+            <TextInput
+              {...wiring}
+              value={name}
+              mono
+              autoComplete="off"
+              onChange={(event) => setName(event.target.value.trim())}
+            />
+            <Button
+              onClick={add}
+              disabledReason={
+                valid
+                  ? undefined
+                  : "Enter a name of lower-case letters, digits, dashes or underscores."
+              }
+            >
+              Add webhook
+            </Button>
+          </Cluster>
+        )}
+      </SettingRow>
+    </SettingsCard>
   );
 }

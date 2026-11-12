@@ -1,8 +1,18 @@
 import { useRef, useState } from "react";
 import { useChat, type ChatMessage } from "../../api/hooks/chat";
 import { useHosts } from "../../api/hooks/hosts";
+import { useSettings } from "../../api/hooks/system";
 import { useSelectedHost } from "../../app/HostContext";
-import { ChatThread, InlineMessage, PageHeader, Stack, Tag } from "../../components";
+import {
+  ChatThread,
+  EmptyState,
+  InlineMessage,
+  LinkButton,
+  PageHeader,
+  Stack,
+  Tag,
+} from "../../components";
+import styles from "./chat.module.css";
 import {
   forgetConversation,
   readConversation,
@@ -28,6 +38,11 @@ function Conversation({ host }: { host: string | undefined }) {
   const hosts = useHosts();
   const ask = useChat();
   const off = useChatOff();
+  const settings = useSettings();
+  // Without a model there is nothing to ask: say so once instead of showing a box that fails.
+  const noModel =
+    settings.data !== undefined &&
+    (!settings.data.triage.enabled || settings.data.llm_primary === null);
   const [turns, setTurns] = useState<ChatMessage[]>(() => readConversation(host));
   const [pending, setPending] = useState("");
   const request = useRef<AbortController | null>(null);
@@ -67,7 +82,7 @@ function Conversation({ host }: { host: string | undefined }) {
       <PageHeader
         title="Chat"
         docs="concepts/how-it-works.html"
-        intro="Ask about your servers in general. It can read what the agents report, and it never changes anything."
+        intro="Ask about your servers; it reads what the agents report and never changes anything."
         meta={<Tag tone="info">{host ? `About ${host}` : "About all hosts"}</Tag>}
       />
       <Stack gap={4}>
@@ -76,22 +91,41 @@ function Conversation({ host }: { host: string | undefined }) {
             The model cannot look at it now. It answers from what the hub last knew.
           </InlineMessage>
         )}
-        <ChatThread
-          turns={turns}
-          pending={pending}
-          hint={
-            host
-              ? `Read-only. It can look at the containers, logs, journal and read skills of ${host}.`
-              : "Read-only. It answers from a summary of every host; choose a host in the top bar to let it look closer."
-          }
-          label="Ask about your servers"
-          disabledReason={off}
-          sending={ask.isPending}
-          starters={starters(host)}
-          onSend={send}
-          onStop={() => request.current?.abort()}
-          onClear={clear}
-        />
+        {noModel ? (
+          <EmptyState
+            icon="chat"
+            title="Set up a model to ask about your servers"
+            action={
+              <LinkButton to="/settings/models" variant="primary">
+                Open Models in Settings
+              </LinkButton>
+            }
+          />
+        ) : (
+          <div className={styles.thread}>
+            <ChatThread
+              turns={turns}
+              pending={pending}
+              hint={
+                host
+                  ? `Read-only. It can look at the containers, logs, journal and read skills of ${host}.`
+                  : "Read-only. It answers from a summary of every host; choose a host in the top bar to let it look closer."
+              }
+              label="Ask about your servers"
+              disabledReason={off}
+              offAction={
+                <LinkButton to="/settings/models" size="sm">
+                  Open model settings
+                </LinkButton>
+              }
+              sending={ask.isPending}
+              starters={starters(host)}
+              onSend={send}
+              onStop={() => request.current?.abort()}
+              onClear={clear}
+            />
+          </div>
+        )}
       </Stack>
     </>
   );

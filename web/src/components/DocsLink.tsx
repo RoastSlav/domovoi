@@ -1,4 +1,6 @@
 import { docsUrl } from "../design/docs";
+import { Icon } from "../design/icons";
+import styles from "./layout.module.css";
 
 /**
  * A "Learn more" link to a page of the book, opening in a new tab. `docs` is a path like
@@ -14,9 +16,11 @@ export function DocsLink({ docs, topic }: { docs: string; topic: string }) {
       href={docsUrl(docs)}
       target="_blank"
       rel="noreferrer"
+      className={styles.docsLink}
       aria-label={`Learn more about ${topic} (opens in a new tab)`}
     >
       Learn more
+      <Icon name="external" size={14} />
     </a>
   );
 }

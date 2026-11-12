@@ -1,5 +1,5 @@
 import { lazy, Suspense } from "react";
-import styles from "./data.module.css";
+import styles from "./markdown.module.css";
 
 const MarkdownView = lazy(() => import("./MarkdownView"));
 

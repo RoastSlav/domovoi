@@ -1,14 +1,7 @@
 import { useId } from "react";
 import { useModelDiscovery, type Changes, type ProviderSlot } from "../../../api/hooks/settings";
-import {
-  Button,
-  Cluster,
-  Field as KitField,
-  InlineError,
-  Stack,
-  Text,
-  TextInput,
-} from "../../../components";
+import { Button, Cluster, InlineError, Text, TextInput } from "../../../components";
+import { SettingRow } from "../SettingRow";
 import { errorText, type Common } from "./common";
 import { SourceTag } from "./SourceTag";
 
@@ -43,7 +36,7 @@ export function ModelField({
   const discovery = useModelDiscovery(slot);
   const models = discovery.data ?? [];
   return (
-    <KitField
+    <SettingRow
       label={spec.label}
       path={spec.path}
       hint={hint}
@@ -51,33 +44,37 @@ export function ModelField({
       locked={locked}
       badges={source ? <SourceTag source={source} /> : undefined}
     >
-      <Stack gap={2}>
-        <TextInput
-          list={`${listId}-models`}
-          value={value}
-          placeholder={spec.placeholder}
-          autoComplete="off"
-          onChange={(event) => onChange(event.target.value)}
-        />
-        <datalist id={`${listId}-models`}>
-          {models.map((model) => (
-            <option key={model} value={model} />
-          ))}
-        </datalist>
-        {!locked && (
-          <Cluster>
-            <Button loading={discovery.isPending} onClick={() => discovery.mutate(candidate())}>
-              Fetch models
-            </Button>
-            {discovery.data && (
-              <Text muted size="sm">
-                {modelsLine(models.length)}
-              </Text>
-            )}
-          </Cluster>
-        )}
-        <InlineError error={discovery.error} context="fetch the models" />
-      </Stack>
-    </KitField>
+      {(wiring) => (
+        <>
+          <TextInput
+            {...wiring}
+            list={`${listId}-models`}
+            readOnly={Boolean(locked)}
+            value={value}
+            placeholder={spec.placeholder}
+            autoComplete="off"
+            onChange={(event) => onChange(event.target.value)}
+          />
+          <datalist id={`${listId}-models`}>
+            {models.map((model) => (
+              <option key={model} value={model} />
+            ))}
+          </datalist>
+          {!locked && (
+            <Cluster>
+              <Button loading={discovery.isPending} onClick={() => discovery.mutate(candidate())}>
+                Fetch models
+              </Button>
+              {discovery.data && (
+                <Text muted size="sm">
+                  {modelsLine(models.length)}
+                </Text>
+              )}
+            </Cluster>
+          )}
+          <InlineError error={discovery.error} context="fetch the models" />
+        </>
+      )}
+    </SettingRow>
   );
 }

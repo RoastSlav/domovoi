@@ -72,6 +72,12 @@ test("a_field_shows_the_hint_from_the_schema", async () => {
   );
 });
 
+test("an_empty_field_shows_the_schema_default_as_its_placeholder", async () => {
+  renderSection("incidents");
+  const field = await screen.findByLabelText("Failing runs before an incident opens");
+  await waitFor(() => expect(field).toHaveAttribute("placeholder", "2"));
+});
+
 test("model_provider_fields_are_mutually_exclusive", async () => {
   const user = userEvent.setup();
   renderSection("models");
@@ -168,13 +174,32 @@ test("adding_a_webhook_gives_it_fields_and_counts_nothing_until_one_is_set", asy
   await user.type(await screen.findByLabelText("New webhook name"), "alerts");
   await user.click(screen.getByRole("button", { name: "Add webhook" }));
   expect(await screen.findByLabelText("alerts: kind")).toBeVisible();
-  expect(screen.getByText("No unsaved changes")).toBeVisible();
+  // A webhook with nothing set is not a change: the save bar stays away.
+  expect(screen.queryByText(/unsaved change/)).toBeNull();
+  expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
 });
 
-test("the_about_section_shows_the_hub_version_and_a_summary_of_agent_versions", async () => {
-  renderSection("about");
-  const about = await screen.findByRole("region", { name: "About" });
+test("the_updates_section_shows_versions_the_check_and_the_release_check_setting_together", async () => {
+  renderSection("updates");
+  const about = await screen.findByRole("region", { name: "About and updates" });
+  expect(await within(about).findByRole("button", { name: "Check now" })).toBeVisible();
+  expect(within(about).getAllByRole("button", { name: "Check now" })).toHaveLength(1);
+  expect(within(about).getByRole("switch", { name: /Check for new releases/ })).toBeVisible();
   expect(await within(about).findByText("0.1.0")).toBeVisible();
   expect(await within(about).findByText("2 agents connected, 1 older than the hub.")).toBeVisible();
   expect(within(about).getByText("Update available")).toBeVisible();
+});
+
+test("an_unset_switch_shows_the_schema_default_and_toggling_it_off_is_a_change", async () => {
+  const user = userEvent.setup();
+  renderSection("updates");
+  const about = await screen.findByRole("region", { name: "About and updates" });
+  const check = within(about).getByRole("switch", { name: /Check for new releases/ });
+  await waitFor(() => expect(check).toBeChecked());
+  expect(within(about).getByText("default")).toBeVisible();
+
+  await user.click(check);
+  expect(screen.getByText(/1 unsaved change/)).toBeVisible();
+  await user.click(check);
+  expect(screen.queryByText(/unsaved change/), "back at the default is no change").toBeNull();
 });

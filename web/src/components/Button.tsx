@@ -63,12 +63,12 @@ export function Button({
   const content: ReactNode = (
     <>
       <span className={styles.content}>
-        {icon && <Icon name={icon} size={size === "sm" ? 14 : 16} />}
+        {icon && <Icon name={icon} size={16} />}
         {children}
       </span>
       {loading && (
         <span className={styles.busy}>
-          <Spinner />
+          <Spinner size={16} />
         </span>
       )}
     </>
@@ -113,7 +113,7 @@ export function LinkButton({
   return (
     <Link to={to} className={[styles.button, styles.link, styles[variant], styles[size]].join(" ")}>
       <span className={styles.content}>
-        {icon && <Icon name={icon} size={size === "sm" ? 14 : 16} />}
+        {icon && <Icon name={icon} size={16} />}
         {children}
       </span>
     </Link>

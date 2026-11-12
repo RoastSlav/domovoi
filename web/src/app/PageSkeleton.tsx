@@ -1,10 +1,12 @@
 import { Skeleton } from "../components";
 import styles from "./Layout.module.css";
+import sidebar from "./sidebar.module.css";
+import topbar from "./topbar.module.css";
 import { useSidebarRail } from "./useSidebarRail";
 
 /**
- * The shape of a page that is on its way: a heading, an intro line and some rows. Shown in
- * the page's place while its code downloads, so the frame stays still.
+ * The shape of a page that is on its way: the page header (a title and an intro line) and
+ * some rows. Shown in the page's place while its code downloads, so the frame stays still.
  */
 export function PageSkeleton() {
   return (
@@ -12,9 +14,13 @@ export function PageSkeleton() {
       <p className="visually-hidden" role="status">
         Loading the page…
       </p>
-      <div className={styles.titleSkeleton}>
-        <Skeleton shape="block" />
-        <Skeleton shape="line" count={1} />
+      <div className={styles.headerSkeleton}>
+        <span className={styles.titleSkeleton}>
+          <Skeleton shape="line" count={1} />
+        </span>
+        <span className={styles.introSkeleton}>
+          <Skeleton shape="line" count={1} />
+        </span>
       </div>
       <Skeleton shape="rows" count={6} />
     </div>
@@ -29,10 +35,10 @@ export function ShellSkeleton() {
   const { rail } = useSidebarRail();
   return (
     <div className={styles.shell} data-rail={rail}>
-      <div className={styles.sidebar} aria-hidden="true" />
+      <div className={sidebar.sidebar} aria-hidden="true" />
       <div className={styles.column}>
-        <div className={styles.topbar} aria-hidden="true">
-          <span className={styles.ghostBar}>
+        <div className={topbar.topbar} aria-hidden="true">
+          <span className={topbar.ghostBar}>
             <Skeleton shape="line" count={1} />
           </span>
         </div>

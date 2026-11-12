@@ -11,20 +11,21 @@
   justify-items: center;
   width: 100%;
   padding: var(--space-5) var(--space-4);
-  border: 2px dashed var(--color-border-strong);
+  border: 1px dashed var(--color-border-strong);
   border-radius: var(--radius-md);
   background: var(--color-surface);
   color: var(--color-text-muted);
+  font-size: var(--text-sm);
   text-align: center;
   cursor: pointer;
   transition:
     border-color var(--motion-fast) var(--ease-out),
-    background var(--motion-fast) var(--ease-out);
+    background-color var(--motion-fast) var(--ease-out);
 }
 
 .zone:hover,
 .zone[data-dragging] {
-  border-color: var(--color-primary);
+  border-color: var(--color-accent);
   background: var(--color-surface-raised);
 }
 
@@ -34,17 +35,17 @@
 }
 
 .zone[data-disabled] {
-  opacity: 0.6;
+  opacity: 0.55;
   cursor: not-allowed;
 }
 
 .label {
   color: var(--color-text);
-  font-weight: 600;
+  font-weight: var(--weight-medium);
 }
 
 .hint {
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
 }
 
 /* The real input stays in the page, focusable and reachable through the label. */

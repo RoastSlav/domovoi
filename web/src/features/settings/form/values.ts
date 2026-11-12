@@ -1,5 +1,6 @@
 import type { Changes, SecretChange } from "../../../api/hooks/settings";
 import { getIn, setIn } from "./paths";
+import { booleanDefaultOf } from "./schema";
 import type { FieldKind, FieldSpec } from "./types";
 
 /** A setting as the input shows it. */
@@ -69,15 +70,25 @@ export function fromInput(input: string | boolean, kind: FieldKind): unknown {
   }
 }
 
-/** The inputs of `fields` as `values` has them now. */
+/**
+ * The inputs of `fields` as `values` has them now. A switch nobody set shows the schema's
+ * default (when `schema` is known), so it reads the way the hub behaves.
+ */
 export function initialInputs(
   fields: readonly FieldSpec[],
   values: unknown,
+  schema?: Record<string, unknown>,
 ): Record<string, string | boolean> {
   return Object.fromEntries(
     fields
       .filter((f) => f.kind !== "secret")
-      .map((f) => [f.path, toInput(getIn(values, f.path), f.kind)]),
+      .map((f) => {
+        const value = getIn(values, f.path);
+        if (f.kind === "bool" && (value === undefined || value === null)) {
+          return [f.path, booleanDefaultOf(schema, f.path) ?? false];
+        }
+        return [f.path, toInput(value, f.kind)];
+      }),
   );
 }
 

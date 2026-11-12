@@ -1,7 +1,8 @@
 /* Small styles the settings views and the first run share; the page's own layout is in
-   layout.module.css. Tokens only. */
+   layout.module.css and the rows are in row.module.css. Tokens only. */
 
 .meter {
+  display: block;
   width: min(24rem, 100%);
   height: 1rem;
 }
@@ -14,4 +15,91 @@
 
 .help p {
   margin: 0;
+}
+
+/* A heading inside a section (Status): one step under the section title. */
+.subhead {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-sm);
+}
+
+/* The "Restarts the hub" tag in the save bar, centred with the buttons beside it. */
+.barTag {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* A good state, said in one line with its check. */
+.okLine {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--tone-success-fg);
+  font-size: var(--text-sm);
+}
+
+/* A compact bordered list: advisories. */
+.list {
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  list-style: none;
+}
+
+.listRow {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-4);
+}
+
+.listRow + .listRow {
+  border-top: 1px solid var(--color-border);
+}
+
+.listHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+}
+
+.listTitle {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-sm);
+}
+
+.listTime {
+  margin-left: auto;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.listAdvice {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+}
+
+/* The four usage tiles: one row of four, or two and two when the column is narrow. Never 3 + 1. */
+.tilesBox {
+  container-type: inline-size;
+}
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+@container (max-width: 40rem) {
+  .tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }

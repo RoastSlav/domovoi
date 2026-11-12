@@ -51,22 +51,27 @@ export function Cluster({
 }
 
 /**
- * Children in as many equal columns as fit, each at least `min` wide (`sm` 12 rem, `md`
- * 18 rem, `lg` 26 rem); one column on a phone.
+ * Children in as many equal columns as fit, each at least `min` wide (`xs` 8 rem, `sm` 12
+ * rem, `md` 18 rem, `lg` 26 rem); one column on a phone, except `xs`, which keeps two. With
+ * `fill` the columns share the whole row even when there are fewer children than columns;
+ * without it empty columns stay empty, so one card is never stretched across the page.
  *
  * Use it for cards of the same kind. For a table of values use `DataTable`.
  */
 export function Grid({
   min = "md",
   gap = 4,
+  fill = false,
   children,
 }: {
   children: ReactNode;
+  /** Stretch the children over the row (`auto-fit`): for a fixed few, like dashboard tiles. */
+  fill?: boolean;
   gap?: Gap;
-  min?: "sm" | "md" | "lg";
+  min?: "xs" | "sm" | "md" | "lg";
 }) {
   return (
-    <div className={styles.grid} data-min={min} data-gap={gap}>
+    <div className={styles.grid} data-min={min} data-gap={gap} data-fill={fill || undefined}>
       {children}
     </div>
   );

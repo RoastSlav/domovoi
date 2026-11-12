@@ -3,7 +3,8 @@ import { Icon, type IconName } from "../design/icons";
 import styles from "./state.module.css";
 
 /**
- * What a view shows when it has nothing in it: why it is empty, and the next step.
+ * What a view shows when it has nothing in it: a dashed box with an icon tile, why it is
+ * empty (a body up to 48 characters wide), and the next step.
  *
  * Use it only when the data loaded and there is none. A failed load is a `LoadError`, never
  * an empty state.
@@ -22,10 +23,14 @@ export function EmptyState({
 }) {
   return (
     <div className={styles.empty} role="status">
-      {icon && <Icon name={icon} size={20} />}
+      {icon && (
+        <span className={styles.emptyIcon}>
+          <Icon name={icon} size={20} />
+        </span>
+      )}
       <p className={styles.emptyTitle}>{title}</p>
       {children && <div className={styles.emptyBody}>{children}</div>}
-      {action}
+      {action && <div className={styles.emptyAction}>{action}</div>}
     </div>
   );
 }

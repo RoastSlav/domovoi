@@ -131,7 +131,12 @@ export interface Pair {
 }
 
 const TONES = ["danger", "warning", "success", "pending", "progress", "info", "neutral"] as const;
-const SURFACES = ["--color-bg", "--color-surface", "--color-surface-raised"] as const;
+const SURFACES = [
+  "--color-bg",
+  "--color-surface",
+  "--color-surface-raised",
+  "--color-surface-overlay",
+] as const;
 
 /** Every colour pair the design system promises is readable (WCAG 2.2 AA). */
 export function requiredPairs(): Pair[] {
@@ -141,12 +146,17 @@ export function requiredPairs(): Pair[] {
       pairs.push({ fg, bg, min: 4.5, why: "text" });
     }
     pairs.push({ fg: "--color-primary", bg, min: 4.5, why: "links and primary text" });
+    pairs.push({ fg: "--color-accent", bg, min: 4.5, why: "links, selected items, accent text" });
     pairs.push({ fg: "--color-frame", bg, min: 4.5, why: "frame accents used as text" });
   }
-  for (const bg of ["--color-bg", "--color-surface"]) {
+  for (const bg of SURFACES) {
     pairs.push({ fg: "--color-focus", bg, min: 3, why: "focus ring" });
     pairs.push({ fg: "--color-border-strong", bg, min: 3, why: "control border" });
   }
+  for (const fg of ["--color-text", "--color-text-muted", "--color-accent"]) {
+    pairs.push({ fg, bg: "--color-accent-tint", min: 4.5, why: "selected row or tinted area" });
+  }
+  pairs.push({ fg: "--color-on-brand", bg: "--color-brand", min: 4.5, why: "logo mark" });
   pairs.push({ fg: "--color-on-primary", bg: "--color-primary", min: 4.5, why: "primary button" });
   pairs.push({
     fg: "--color-on-primary",
@@ -183,6 +193,12 @@ export function requiredPairs(): Pair[] {
     pairs.push({ fg: `${t}-fg`, bg: `${t}-bg`, min: 4.5, why: "status pill text" });
     pairs.push({ fg: `${t}-fg`, bg: "--color-bg", min: 4.5, why: "status text on the page" });
     pairs.push({ fg: `${t}-fg`, bg: "--color-surface", min: 4.5, why: "status text on a card" });
+    pairs.push({
+      fg: `${t}-fg`,
+      bg: "--color-surface-overlay",
+      min: 4.5,
+      why: "status text in a menu, dialog or toast",
+    });
     pairs.push({ fg: `${t}-on-solid`, bg: `${t}-solid`, min: 4.5, why: "count or filled badge" });
     pairs.push({
       fg: `${t}-solid`,

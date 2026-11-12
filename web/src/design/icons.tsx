@@ -19,6 +19,7 @@ import {
   FileText,
   Funnel,
   Info,
+  LayoutDashboard,
   ListChecks,
   LoaderCircle,
   LogOut,
@@ -50,6 +51,7 @@ import {
 /** Every icon the UI may draw. Add a name here before using a new icon anywhere. */
 const ICONS = {
   // Navigation
+  dashboard: LayoutDashboard,
   alert: TriangleAlert,
   chat: MessageSquare,
   rules: ListChecks,

@@ -1,25 +1,31 @@
+/*
+ * InlineMessage, Banner, Toast: a low tint of the tone, a 1 px tone border, a 16 px icon.
+ * Never full saturation (the one `solid` banner excepted).
+ */
 .message,
-.banner,
-.toast {
+.banner {
   display: flex;
   align-items: flex-start;
-  gap: var(--space-2);
+  gap: var(--space-3);
   border: 1px solid var(--tone-border, var(--color-border));
-  background: var(--tone-bg, var(--color-surface-raised));
+  border-radius: var(--radius-md);
+  background: color-mix(
+    in srgb,
+    var(--tone-solid, var(--color-text-muted)) 10%,
+    var(--color-surface)
+  );
   color: var(--color-text);
   font-size: var(--text-sm);
   line-height: var(--leading-sm);
 }
 
 .message {
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-sm);
+  padding: var(--space-3);
 }
 
 .banner {
   align-items: center;
-  padding: var(--space-2) var(--space-4);
-  border-width: 0 0 1px;
+  padding: var(--space-2) var(--space-3);
 }
 
 /* The one filled message: a page-level critical banner. */
@@ -37,12 +43,15 @@
 .icon {
   flex: none;
   display: inline-flex;
-  margin-top: 0.125rem;
   color: var(--tone-fg, var(--color-text-muted));
 }
 
-.banner .icon {
-  margin-top: 0;
+.icon svg {
+  display: block;
+}
+
+.message .icon {
+  margin-top: 1px;
 }
 
 .text {
@@ -53,12 +62,17 @@
 
 .title {
   margin: 0;
-  color: var(--tone-fg, var(--color-text));
-  font-weight: 600;
+  color: var(--color-text);
+  font-weight: var(--weight-semibold);
 }
 
 .body {
   margin: 0;
+  color: var(--color-text-muted);
+}
+
+.title + .body {
+  margin-top: 2px;
 }
 
 .body > :first-child {
@@ -76,6 +90,7 @@
   gap: var(--space-1);
 }
 
+/* Toasts: bottom right, on the overlay surface, with a dot in the tone. */
 .viewport {
   position: fixed;
   right: var(--space-4);
@@ -89,13 +104,27 @@
 }
 
 .toast {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
   padding: var(--space-3);
   border-radius: var(--radius-md);
-  background: var(--color-surface);
-  border-left: 3px solid var(--tone-solid, var(--color-border-strong));
+  background: var(--color-surface-overlay);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
   box-shadow: var(--shadow-overlay);
   pointer-events: auto;
   animation: enter var(--motion-base) var(--ease-out);
+}
+
+.dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-top: calc((var(--leading-sm) - 8px) / 2);
+  border-radius: var(--radius-pill);
+  background: var(--tone-solid, var(--color-text-muted));
 }
 
 @keyframes enter {

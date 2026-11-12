@@ -1,0 +1,145 @@
+/*
+ * A settings card and its rows: the label, source tag and hint on the left, the control
+ * (at most 20 rem, switches at the far right) on the right. The card is the container, so
+ * rows stack when the card is narrow, whatever the window is. Placing only; tokens only.
+ */
+.card {
+  container-type: inline-size;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-raised);
+}
+
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) min(20rem, 45%);
+  align-items: start;
+  gap: var(--space-2) var(--space-5);
+  padding: var(--space-4);
+}
+
+.row + .row {
+  border-top: 1px solid var(--color-border);
+}
+
+/* A row that holds a group's name: the wizard and the read-only page use it. */
+.heading {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+.heading + .row,
+.row + .heading {
+  border-top: 1px solid var(--color-border);
+}
+
+.text {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  /* The label sits level with the middle of a 32 px control beside it. */
+  padding-top: calc((var(--control-h) - var(--leading-sm)) / 2);
+}
+
+.labelLine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+}
+
+.label {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-sm);
+}
+
+.hint,
+.error {
+  margin: 0;
+  font-size: var(--text-xs);
+  line-height: var(--leading-xs);
+}
+
+.hint {
+  color: var(--color-text-muted);
+}
+
+.error {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-1);
+  color: var(--tone-danger-fg);
+  font-weight: var(--weight-medium);
+}
+
+.error svg {
+  flex: none;
+}
+
+.control {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+/* A value in a read-only row. */
+.value {
+  min-width: 0;
+  padding-top: calc((var(--control-h) - var(--leading-sm)) / 2);
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  overflow-wrap: anywhere;
+}
+
+/* Wide rows (JSON, a secret being typed): the control goes under the label, full width. */
+.row[data-wide] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.row[data-wide] .text {
+  padding-top: 0;
+}
+
+/*
+ * A switch row: the kit's switch is the whole row. Its label, source tag and hint fill the
+ * row, and the track moves to the far right.
+ */
+.row[data-switch] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.row[data-switch] > label {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-5);
+  width: 100%;
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+}
+
+.row[data-switch] > label > input {
+  order: 2;
+}
+
+.row[data-switch] > label > span > span:first-child {
+  font-weight: var(--weight-medium);
+}
+
+@container (max-width: 30rem) {
+  .row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .text,
+  .value {
+    padding-top: 0;
+  }
+}

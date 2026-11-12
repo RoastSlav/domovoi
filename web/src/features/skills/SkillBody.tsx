@@ -1,5 +1,6 @@
 import type { Skill } from "../../api/types";
 import {
+  Card,
   DataTable,
   KeyValueList,
   Markdown,
@@ -77,7 +78,9 @@ export function SkillBody({ skill, host }: { host: string; skill: Skill }) {
       <Text muted block>
         {riskMeta(skill.risk).hint}
       </Text>
-      <Facts skill={skill} />
+      <Card label="Facts">
+        <Facts skill={skill} />
+      </Card>
       <Section title="Parameters">
         {skill.params.length > 0 ? (
           <DataTable
@@ -94,7 +97,9 @@ export function SkillBody({ skill, host }: { host: string; skill: Skill }) {
       </Section>
       <Section title="README">
         {skill.readme ? (
-          <Markdown text={skill.readme} />
+          <Card label="README">
+            <Markdown text={skill.readme} />
+          </Card>
         ) : (
           <Text muted block>
             This skill has no README.

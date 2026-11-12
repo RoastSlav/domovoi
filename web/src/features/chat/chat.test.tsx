@@ -153,14 +153,27 @@ test("chat_says_when_the_monthly_model_budget_is_spent", async () => {
   );
 });
 
-test("a_disabled_composer_shows_its_reason", async () => {
+test("without_a_model_the_chat_box_gives_way_to_a_link_to_the_model_settings", async () => {
   route("GET /api/v1/settings", () => ({ triage: { enabled: false } }));
   open();
 
-  const reason = "Triage is off, so there is no model to ask. Turn it on under Settings, Triage.";
-  expect(await screen.findByText(reason)).toBeVisible();
-  expect(composer()).toHaveAttribute("aria-disabled", "true");
-  expect(screen.getByRole("button", { name: "Send" })).toHaveAccessibleDescription(reason);
+  expect(await screen.findByText("Set up a model to ask about your servers")).toBeVisible();
+  expect(screen.getByRole("link", { name: "Open Models in Settings" })).toHaveAttribute(
+    "href",
+    "/settings/models",
+  );
+  expect(
+    screen.queryByLabelText("Ask about your servers"),
+    "no box that cannot be used",
+  ).toBeNull();
+});
+
+test("a_hub_without_a_primary_model_also_replaces_the_chat_box", async () => {
+  route("GET /api/v1/settings", () => ({ triage: { enabled: true }, llm_primary: null }));
+  open();
+
+  expect(await screen.findByText("Set up a model to ask about your servers")).toBeVisible();
+  expect(screen.queryByLabelText("Ask about your servers")).toBeNull();
 });
 
 test("stop_cancels_the_question_and_hands_it_back", async () => {

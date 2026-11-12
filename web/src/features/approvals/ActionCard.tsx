@@ -6,7 +6,6 @@ import {
   Countdown,
   InfoTip,
   InlineMessage,
-  KeyValueList,
   Progress,
   RelativeTime,
   Stack,
@@ -16,10 +15,11 @@ import {
   useRemaining,
 } from "../../components";
 import { actionStatusMeta, riskMeta } from "../../design/tone";
+import { ActionArgs } from "./ActionArgs";
 import { ApproveControl } from "./ApproveControl";
 
 /** Under this much time left, the countdown of a waiting action turns to a warning. */
-export const EXPIRY_WARNING_MS = 10 * 60 * 1000;
+export const EXPIRY_WARNING_MS = 15 * 60 * 1000;
 
 const IN_FLIGHT = new Set(["approved", "dispatched"]);
 
@@ -36,10 +36,10 @@ export function suggestedBy(proposedBy: string): string {
 }
 
 /** The time left to decide, as a tag that turns to a warning near the end. */
-function Expiry({ until }: { until: string }) {
+export function Expiry({ until }: { until: string }) {
   const remaining = useRemaining(until);
   if (remaining === 0) {
-    return <Tag>Expiring now</Tag>;
+    return <Tag>Expired</Tag>;
   }
   return (
     <Tag {...(remaining < EXPIRY_WARNING_MS ? { tone: "warning" as const } : {})}>
@@ -83,18 +83,29 @@ function StateNote({ action, host }: { action: Action; host: string | undefined 
 
 /**
  * One action, the same on the incident page, the Approvals page and in a chat: the skill,
- * its risk and state, where it runs, its arguments, why the model wants it, and, while it
- * waits, the time left with Approve and Deny.
+ * where it runs, its risk, its arguments, why the model wants it, who suggested it and the
+ * time left; while it waits, Approve and Deny. A waiting action's status is the section it
+ * sits in, so only a decided or running one draws a status pill.
  */
 export function ActionCard({
   action,
   host,
   why,
   showIncident = false,
+  incidentTitle,
+  approve = "primary",
 }: {
   action: Action;
+  /**
+   * How Approve is drawn: `primary` where it is the card's main action (the Approvals
+   * page), `secondary` where the page already has a primary button. A destructive action's
+   * Approve is always a danger button.
+   */
+  approve?: "primary" | "secondary";
   /** The host's name; the card says "on nas" when it is known. */
   host?: string | undefined;
+  /** The incident's title, as the text of the link to it; "View incident" without it. */
+  incidentTitle?: string | undefined;
   /** Links to the incident: for lists that are not the incident's own page. */
   showIncident?: boolean;
   /** Why the model wants it, where the page has the report that says so. */
@@ -102,7 +113,6 @@ export function ActionCard({
 }) {
   const status = actionStatusMeta(action.status);
   const risk = riskMeta(action.risk);
-  const args = Object.entries(action.args).map(([label, value]) => ({ label, value }));
   const waiting = action.status === "proposed";
 
   return (
@@ -124,23 +134,30 @@ export function ActionCard({
             <InfoTip title={`${risk.label} risk`} learnMore="concepts/actions.html">
               {risk.hint}
             </InfoTip>
-            <StatusPill meta={status} />
+            {!waiting && <StatusPill meta={status} />}
           </Cluster>
         </Cluster>
 
-        {args.length > 0 && <KeyValueList mono items={args} />}
-        {why && <Text block>{why}</Text>}
+        <ActionArgs args={action.args} />
+        {why && (
+          <Text block>
+            <Text muted>Why: </Text>
+            {why}
+          </Text>
+        )}
 
         <Cluster>
           <Text muted size="sm">
             {suggestedBy(action.proposed_by)} <RelativeTime at={action.created_at} />
           </Text>
           {waiting && <Expiry until={action.expires_at} />}
-          {showIncident && <Link to={`/incidents/${action.incident_id}`}>View incident</Link>}
+          {showIncident && (
+            <Link to={`/incidents/${action.incident_id}`}>{incidentTitle ?? "View incident"}</Link>
+          )}
         </Cluster>
 
         <StateNote action={action} host={host} />
-        {waiting && <ApproveControl action={action} host={host} />}
+        {waiting && <ApproveControl action={action} host={host} emphasis={approve} />}
       </Stack>
     </Card>
   );

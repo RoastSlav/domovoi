@@ -4,6 +4,7 @@ import { MemoryRouter } from "react-router";
 import { ToastProvider } from "../components";
 import { failure, resetApi, route } from "../test/apiMock";
 import { nas } from "../test/fixtures";
+import { routeSettingsPage, settings } from "../test/settingsFixture";
 import { AppRoutes } from "./routes";
 
 vi.mock("../api/client", () => import("../test/apiMock"));
@@ -89,6 +90,18 @@ test("a_page_outside_the_first_download_loads_names_the_tab_and_takes_focus", as
   expect(document.title).toBe("Hosts · Domovoi");
 });
 
+test("the_root_address_opens_the_overview_inside_the_shell", async () => {
+  renderApp("/");
+
+  expect(await heading("Overview")).toBeVisible();
+  expect(document.title).toBe("Overview · Domovoi");
+  const nav = screen.getByRole("navigation", { name: "Main", hidden: true });
+  expect(within(nav).getByRole("link", { name: "Overview", hidden: true })).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
+});
+
 test("an_unknown_address_shows_a_not_found_page_inside_the_shell", async () => {
   renderApp("/nowhere/at/all");
 
@@ -99,4 +112,13 @@ test("an_unknown_address_shows_a_not_found_page_inside_the_shell", async () => {
   );
   expect(screen.getByRole("navigation", { name: "Main", hidden: true })).toBeInTheDocument();
   await waitFor(() => expect(document.title).toBe("Page not found · Domovoi"));
+});
+
+test("an_old_settings_about_link_lands_on_the_merged_about_and_updates_section", async () => {
+  routeSettingsPage();
+  route("GET /api/v1/settings", () => settings());
+  renderApp("/settings/about");
+
+  expect(await screen.findByRole("region", { name: "About and updates" })).toBeVisible();
+  expect(screen.queryByText("No such section")).toBeNull();
 });

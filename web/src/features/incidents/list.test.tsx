@@ -49,29 +49,23 @@ test("incident_list_is_a_table_on_a_wide_screen", async () => {
     within(table)
       .getAllByRole("columnheader")
       .map((th) => th.textContent),
-  ).toEqual([
-    "Status",
-    "Incident",
-    "Host",
-    "Check",
-    "Severity",
-    "Last fired",
-    "Times",
-    "Triage",
-    "Actions",
-  ]);
+  ).toEqual(["Incident", "Host", "Check", "Severity", "Last fired", "Times", "Actions"]);
   const link = within(table).getByRole("link", { name: TITLE });
   expect(link, "the title is the link and keeps its name").toHaveAttribute(
     "href",
     "/incidents/inc-1",
   );
   const row = link.closest("tr") as HTMLElement;
-  expect(row, "an incident that needs action is faintly tinted").toHaveAttribute(
-    "data-state",
-    "urgent",
-  );
-  expect(row).toHaveAttribute("data-tone", "danger");
-  expect(within(row).getByText("Open")).toBeVisible();
+  expect(
+    within(table).queryByRole("columnheader", { name: "Triage" }),
+    "no row has a triage view, so the column is not drawn",
+  ).toBeNull();
+  expect(row, "no red wash on a row, however many need action").not.toHaveAttribute("data-state");
+  expect(row, "the stripe follows severity, not status").toHaveAttribute("data-tone", "warning");
+  expect(
+    within(table).queryByRole("columnheader", { name: "Status" }),
+    "every row in Action needed is open, and the heading says so",
+  ).toBeNull();
   expect(within(row).getByText("nas")).toBeVisible();
   expect(within(row).getByText("disk.usage /srv")).toBeVisible();
   expect(within(row).getByText("Warning")).toBeVisible();
@@ -91,7 +85,7 @@ test("incident_list_is_cards_on_a_narrow_screen", async () => {
     "/incidents/inc-1",
   );
   expect(card, "the same facts as the table").toHaveTextContent(
-    /Open.*Disk \/srv is 93% full.*nas.*disk\.usage \/srv.*Warning.*Last fired.*3 times/,
+    /Disk \/srv is 93% full.*nas.*disk\.usage \/srv.*Warning.*Last fired.*3 times/,
   );
 });
 
@@ -110,24 +104,24 @@ test("incident_list_groups_by_what_each_incident_asks", async () => {
   const user = userEvent.setup();
   renderAt("/incidents", "/incidents", <IncidentListPage />);
 
-  await screen.findByRole("heading", { name: "Action needed (1)" });
+  await screen.findByRole("heading", { name: "Action needed" });
   expect(
     screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent),
     "the most urgent group comes first, resolved last",
   ).toEqual([
-    "Action needed (1)",
-    "Monitor (1)",
-    "Pending (1)",
-    "Expected (1)",
-    "Acknowledged or muted (2)",
+    "Action needed",
+    "Monitor",
+    "Pending",
+    "Expected",
+    "Acknowledged or muted",
     "Resolved",
   ]);
-  expect(section("Action needed (1)").getByRole("link", { name: "Broken one" })).toBeVisible();
+  expect(section("Action needed").getByRole("link", { name: "Broken one" })).toBeVisible();
   expect(
-    section("Action needed (1)").getByText(/^Open, and nobody has taken it\./),
+    section("Action needed").getByText(/^Open, and nobody has taken it\./),
     "each group says what it means",
   ).toBeVisible();
-  expect(section("Acknowledged or muted (2)").getAllByRole("link")).toHaveLength(2);
+  expect(section("Acknowledged or muted").getAllByRole("link")).toHaveLength(2);
   expect(
     incidentQueries()
       .map((query) => query?.group)
@@ -203,7 +197,7 @@ test("search_asks_the_hub_once_typing_rests", async () => {
   ).toEqual([]);
 });
 
-test("counts_show_on_the_chips_and_in_the_summary", async () => {
+test("counts_show_once_on_the_chips_and_nowhere_else", async () => {
   route("GET /api/v1/overview", () =>
     overview({
       incident_groups: { needs_action: 2, monitor: 3, pending: 1, expected: 0, handled: 4 },
@@ -212,19 +206,52 @@ test("counts_show_on_the_chips_and_in_the_summary", async () => {
   routeByGroup({});
   renderAt("/incidents", "/incidents", <IncidentListPage />);
 
-  expect(await screen.findByText("2 need action")).toBeVisible();
-  expect(screen.getByText("3 to monitor")).toBeVisible();
-  expect(screen.getByText("1 pending")).toBeVisible();
   const chip = (name: string) => screen.getByRole("radio", { name }).closest("label");
+  expect(await screen.findByRole("radio", { name: "Action needed 2 incidents" })).toBeVisible();
   expect(chip("Action needed 2 incidents")).toHaveTextContent("Action needed2");
   expect(chip("Acknowledged or muted 4 incidents")).toBeVisible();
   expect(chip("Expected"), "a zero is not shown").toHaveTextContent(/^Expected$/);
+  expect(screen.queryByText("2 need action"), "no second count in the header").toBeNull();
+  expect(screen.queryByText("Nothing needs you")).toBeNull();
 });
 
-test("summary_says_when_nothing_needs_the_person", async () => {
-  routeByGroup({});
+test("a_group_heading_carries_no_count", async () => {
+  routeByGroup({ needs_action: [incident(), incident({ id: "b", title: "Other" })] });
   renderAt("/incidents", "/incidents", <IncidentListPage />);
-  expect(await screen.findByText("Nothing needs you")).toBeVisible();
+
+  expect(await screen.findByRole("heading", { name: "Action needed" })).toBeVisible();
+  expect(screen.queryByRole("heading", { name: /\(\d+\+?\)/ })).toBeNull();
+});
+
+test("a_whole_row_opens_the_incident_but_the_menu_does_not", async () => {
+  stubMedia(true);
+  const user = userEvent.setup();
+  routeByGroup({ needs_action: [incident()] });
+  renderAt("/incidents", "/incidents", <IncidentListPage />);
+
+  const row = (await screen.findByRole("link", { name: TITLE })).closest("tr") as HTMLElement;
+  expect(row).toHaveAttribute("data-clickable", "true");
+  await user.click(within(row).getByText("nas"));
+  expect(screen.getByTestId("location")).toHaveTextContent("/incidents/inc-1");
+});
+
+test("the_triage_column_shows_a_dash_with_a_reason_when_only_some_rows_have_a_view", async () => {
+  stubMedia(true);
+  const user = userEvent.setup();
+  routeByGroup({
+    handled: [
+      incident({ id: "a", title: "Taken", status: "acked", verdict: "ACTION_NEEDED" }),
+      incident({ id: "b", title: "Taken blind", status: "acked", verdict: null }),
+    ],
+  });
+  renderAt("/incidents?group=handled", "/incidents", <IncidentListPage />);
+
+  const table = await screen.findByRole("table", { name: "Acknowledged or muted" });
+  expect(within(table).getByRole("columnheader", { name: "Triage" })).toBeVisible();
+  const blind = screen.getByRole("link", { name: "Taken blind" }).closest("tr") as HTMLElement;
+  const dash = within(blind).getByText("–");
+  await user.hover(dash);
+  expect(await screen.findByRole("tooltip")).toHaveTextContent(/triage has not looked at it/);
 });
 
 test("incident_list_follows_the_host_in_the_url", async () => {
@@ -252,7 +279,7 @@ test("incident_list_explains_what_the_page_is", async () => {
   routeByGroup({});
   renderAt("/incidents", "/incidents", <IncidentListPage />);
 
-  expect(await screen.findByText(/^Problems Domovoi found on your hosts\./)).toBeVisible();
+  expect(await screen.findByText(/^Problems Domovoi found on your hosts\.$/)).toBeVisible();
   expect(
     screen.getByRole("link", { name: "Learn more about incidents (opens in a new tab)" }),
   ).toHaveAttribute("href", "https://RoastSlav.github.io/domovoi/concepts/incidents.html");
@@ -313,12 +340,12 @@ test("incident_list_keeps_its_groups_when_a_refresh_fails", async () => {
   });
   const { client } = renderAt("/incidents", "/incidents", <IncidentListPage />);
 
-  await screen.findByRole("heading", { name: "Action needed (1)" });
+  await screen.findByRole("heading", { name: "Action needed" });
   void client.invalidateQueries({ queryKey: ["incidents"] });
 
   expect(await screen.findByText("Could not refresh")).toBeVisible();
   expect(
-    section("Action needed (1)").getByRole("link", { name: "Broken one" }),
+    section("Action needed").getByRole("link", { name: "Broken one" }),
     "the rows stay over a failed refetch",
   ).toBeVisible();
 });
@@ -389,7 +416,6 @@ test("quick_ack_from_the_row_says_it_worked", async () => {
     "Mute for 4 hours",
     "Mute for 1 day",
     "Mute for 1 week",
-    "Open",
   ]);
   await user.click(within(menu).getByRole("menuitem", { name: "Acknowledge" }));
 
@@ -401,10 +427,10 @@ test("quick_ack_from_the_row_says_it_worked", async () => {
 
 test("a_failed_quick_ack_says_why_and_puts_the_row_back", async () => {
   const user = userEvent.setup();
-  routeByGroup({ needs_action: [incident()] });
+  routeByGroup({ monitor: [incident({ verdict: "MONITOR" })] });
   let release: (value: unknown) => void = () => undefined;
   route("POST /api/v1/incidents/{id}/ack", () => new Promise((resolve) => (release = resolve)));
-  renderAt("/incidents?group=needs_action", "/incidents", <IncidentListPage />);
+  renderAt("/incidents?group=monitor", "/incidents", <IncidentListPage />);
 
   const menu = await openMenu(user);
   await user.click(within(menu).getByRole("menuitem", { name: "Acknowledge" }));
@@ -413,7 +439,10 @@ test("a_failed_quick_ack_says_why_and_puts_the_row_back", async () => {
   release(failure(409, "conflict", "the incident already resolved"));
   expect(await screen.findByText("Could not acknowledge the incident")).toBeVisible();
   expect(screen.getByText("The incident already resolved.")).toBeVisible();
-  expect(await screen.findByText("Open"), "the row is back as it was").toBeVisible();
+  expect(
+    within(await screen.findByRole("list", { name: "Monitor" })).getByText("Monitor"),
+    "the row is back as it was",
+  ).toBeVisible();
   expect(screen.queryByText("Acknowledged")).toBeNull();
 });
 
@@ -445,5 +474,67 @@ test("a_muted_row_offers_unmute_and_a_resolved_one_only_open", async () => {
     within(menu)
       .getAllByRole("menuitem")
       .map((item) => item.textContent),
-  ).toEqual(["Acknowledge", "Unmute", "Open"]);
+  ).toEqual(["Acknowledge", "Unmute"]);
+});
+
+test("a_resolved_incident_has_no_row_menu_since_the_row_itself_opens_it", async () => {
+  const user = userEvent.setup();
+  routeByGroup({ resolved: [incident({ id: "r", title: "Resolved one", status: "resolved" })] });
+  renderAt("/incidents", "/incidents", <IncidentListPage />);
+
+  await user.click(await screen.findByRole("button", { name: "Resolved" }));
+  expect(await screen.findAllByText("Resolved one")).not.toHaveLength(0);
+  expect(screen.queryByRole("button", { name: /^Actions for/ })).toBeNull();
+});
+
+test("the_status_column_stays_where_status_varies", async () => {
+  stubMedia(true);
+  routeByGroup({ handled: [incident({ status: "acked" })] });
+  renderAt("/incidents?group=handled", "/incidents", <IncidentListPage />);
+
+  const table = await screen.findByRole("table", { name: "Acknowledged or muted" });
+  expect(within(table).getByRole("columnheader", { name: "Status" })).toBeVisible();
+});
+
+test("every_group_table_has_the_same_fixed_columns", async () => {
+  stubMedia(true);
+  routeByGroup({
+    needs_action: [incident({ id: "a" })],
+    handled: [incident({ id: "h", status: "acked", verdict: "ACTION_NEEDED" })],
+  });
+  renderAt("/incidents", "/incidents", <IncidentListPage />);
+
+  await screen.findByRole("table", { name: "Acknowledged or muted" });
+  const widths = (name: string) =>
+    [...screen.getByRole("table", { name }).querySelectorAll("col")]
+      .map((col) => col.style.width)
+      .filter(Boolean);
+  const act = widths("Action needed");
+  const handled = widths("Acknowledged or muted");
+  expect(act, "one decision about Triage for the whole page").toContain("7rem");
+  expect(handled.slice(-act.length), "the right-hand columns line up").toEqual(act);
+  expect(screen.getByRole("table", { name: "Action needed" })).toHaveAttribute(
+    "data-layout",
+    "fixed",
+  );
+});
+
+test("a_long_title_and_check_are_cut_but_keep_their_full_text", async () => {
+  stubMedia(true);
+  const title = "Backups have not run for a very long time on the storage box and need a look";
+  routeByGroup({
+    needs_action: [
+      incident({
+        title,
+        check: "backup.age",
+        target: "nightly-offsite-backup-to-the-storage-box-23",
+      }),
+    ],
+  });
+  renderAt("/incidents", "/incidents", <IncidentListPage />);
+
+  const link = await screen.findByRole("link", { name: title });
+  expect(link.closest("span")?.className, "two lines at most").toMatch(/clamp2/);
+  const check = screen.getByText("backup.age nightly-offsite-backup-to-the-storage-box-23");
+  expect(check.closest('[data-truncate="ellipsis"]'), "one line").not.toBeNull();
 });

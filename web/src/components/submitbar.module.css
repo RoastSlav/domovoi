@@ -1,0 +1,48 @@
+/*
+ * The unsaved-changes bar. It sits in the flow at the end of its form and sticks to the
+ * bottom of the viewport while the form is taller than the screen, centred in the column.
+ */
+.dock {
+  position: sticky;
+  bottom: var(--space-4);
+  z-index: var(--z-sticky);
+  display: flex;
+  justify-content: center;
+  margin-top: var(--space-4);
+  pointer-events: none;
+}
+
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  max-width: 100%;
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-overlay);
+  color: var(--color-text);
+  box-shadow: var(--shadow-overlay);
+  pointer-events: auto;
+  animation: rise var(--motion-base) var(--ease-out);
+}
+
+.changes {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(var(--space-3));
+  }
+}

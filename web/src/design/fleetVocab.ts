@@ -5,6 +5,7 @@ import type {
   IssueSeverity,
   HostKind,
   CheckState,
+  ContainerState,
   SshLogin,
   StepState,
 } from "./status";
@@ -115,6 +116,45 @@ export const CHECK_STATES: Table<CheckState> = {
     tone: "neutral",
     hint: "The check is switched off, so it reports nothing on this host.",
     icon: "ban",
+  },
+};
+
+export const CONTAINER_STATES: Table<ContainerState> = {
+  healthy: {
+    label: "Healthy",
+    tone: "success",
+    hint: "The container is running and its health check passes.",
+    icon: "check-circle",
+  },
+  running: {
+    label: "Running",
+    tone: "success",
+    hint: "The container is running. It has no health check.",
+    icon: "check-circle",
+  },
+  unhealthy: {
+    label: "Unhealthy",
+    tone: "danger",
+    hint: "The container is running but its health check fails.",
+    icon: "alert-circle",
+  },
+  restarting: {
+    label: "Restarting",
+    tone: "danger",
+    hint: "The container keeps stopping and the engine keeps starting it again.",
+    icon: "refresh",
+  },
+  exited: {
+    label: "Exited",
+    tone: "warning",
+    hint: "The container stopped and is not running.",
+    icon: "x-circle",
+  },
+  other: {
+    label: "Other",
+    tone: "neutral",
+    hint: "The container is in a state with no status of its own, such as created or paused.",
+    icon: "dot",
   },
 };
 

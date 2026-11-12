@@ -2,6 +2,7 @@ import type { Host, IncidentSummary } from "../api/types";
 import { ACTION_STATUSES, RISKS, TRIAGE } from "./actionVocab";
 import {
   CHECK_STATES,
+  CONTAINER_STATES,
   HOST_CONNECTIONS,
   HOST_KINDS,
   ISSUE_SEVERITIES,
@@ -23,6 +24,7 @@ export { TONES } from "./status";
 export type {
   ActionStatus,
   CheckState,
+  ContainerState,
   HostConnection,
   HostKind,
   IncidentGroup,
@@ -148,6 +150,11 @@ export function checkStateMeta(state: string): StatusMeta {
   return lookup(CHECK_STATES, state);
 }
 
+/** How a container's state is shown. */
+export function containerStateMeta(state: string): StatusMeta {
+  return lookup(CONTAINER_STATES, state);
+}
+
 /** How the result of an SSH login attempt is shown. */
 export function sshLoginMeta(result: string): StatusMeta {
   return lookup(SSH_LOGINS, result);
@@ -192,6 +199,7 @@ export const VOCABULARIES: {
   { name: "Settings issue", meta: issueSeverityMeta, values: Object.keys(ISSUE_SEVERITIES) },
   { name: "Host kind", meta: hostKindMeta, values: Object.keys(HOST_KINDS) },
   { name: "Check state", meta: checkStateMeta, values: Object.keys(CHECK_STATES) },
+  { name: "Container state", meta: containerStateMeta, values: Object.keys(CONTAINER_STATES) },
   { name: "SSH login", meta: sshLoginMeta, values: Object.keys(SSH_LOGINS) },
   { name: "Step state", meta: stepStateMeta, values: Object.keys(STEP_STATES) },
 ];

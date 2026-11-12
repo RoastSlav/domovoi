@@ -1,14 +1,15 @@
-import { Stack, Text } from "../../../components";
+import { Stack } from "../../../components";
 import { UpdateAbout } from "../../updates/UpdateAbout";
+import styles from "../settings.module.css";
 import { AgentVersions } from "./AgentVersions";
 
 /** The hub's version and release check, then the versions its agents run. */
 export function AboutSection() {
   return (
-    <Stack gap={5}>
+    <Stack gap={6}>
       <UpdateAbout />
-      <Stack gap={2}>
-        <Text strong>Agents</Text>
+      <Stack gap={3}>
+        <h3 className={styles.subhead}>Agents</h3>
         <AgentVersions />
       </Stack>
     </Stack>

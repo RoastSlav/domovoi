@@ -77,8 +77,8 @@ export function RulesPage() {
                   >
                     <p>
                       {selected && hidden > 0
-                        ? "Conditions for other hosts exist. Choose All hosts to see them, or add one for this host."
-                        : "Every matching incident notifies you. Add a condition for something you expect, and matching incidents stay in the history without notifying you."}
+                        ? "Other hosts have conditions. Choose All hosts to see them, or add one here."
+                        : "Every matching incident notifies you. Add a condition for something you expect."}
                     </p>
                   </EmptyState>
                 );

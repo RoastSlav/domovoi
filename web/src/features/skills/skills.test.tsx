@@ -33,20 +33,27 @@ const rowOf = (name: string) =>
   screen.getByRole("button", { name }).closest("tr") as HTMLTableRowElement;
 
 test("skills_page_explains_which_skills_need_approval", async () => {
+  const user = userEvent.setup();
   route("GET /api/v1/hosts", () => [nas]);
   route("GET /api/v1/hosts/{name}/skills", () => []);
   renderAt("/skills", "/skills", <SkillsPage />);
 
-  expect(await screen.findByText(/^Scripts an agent can run\./)).toBeVisible();
   expect(
-    screen.getByText(/Write and destructive skills change things and need your approval\./),
-  ).toBeVisible();
-  expect(
-    screen.getByText(/Disabled skills stay on the host but Domovoi never runs or suggests them\./),
+    await screen.findByText(
+      /^Scripts an agent can run; write and destructive ones need your approval\./,
+    ),
   ).toBeVisible();
   expect(
     screen.getByRole("link", { name: "Learn more about skills (opens in a new tab)" }),
   ).toHaveAttribute("href", "https://RoastSlav.github.io/domovoi/guide/skills.html");
+
+  await user.click(screen.getByRole("button", { name: "About risk levels" }));
+  expect(
+    screen.getByText(/Only a signed-in person can approve a write or destructive skill/),
+  ).toBeVisible();
+  expect(
+    screen.getByText(/A disabled skill stays on the host but Domovoi never runs or suggests it\./),
+  ).toBeVisible();
 });
 
 test("skills_follow_the_host_selected_in_the_sidebar", async () => {
@@ -67,14 +74,14 @@ test("skills_under_all_hosts_ask_for_a_host_and_never_show_the_first_one", async
   renderAt("/skills", "/skills", <SkillsPage />);
 
   expect(await screen.findByText("Choose a host to see its skills.")).toBeVisible();
-  const hosts = screen.getByRole("list", { name: "Hosts" });
-  expect(within(hosts).getByRole("link", { name: "nas" })).toHaveAttribute(
+  const hosts = screen.getByRole("navigation", { name: "Hosts" });
+  expect(within(hosts).getByRole("link", { name: /^nas / })).toHaveAttribute(
     "href",
     "/skills?host=nas",
   );
   expect(skillCalls(), "no host is guessed").toEqual([]);
 
-  await user.click(within(hosts).getByRole("link", { name: "pi" }));
+  await user.click(within(hosts).getByRole("link", { name: /^pi / }));
   await screen.findByText("docker_ps");
   expect(skillCalls().map((c) => c.init.params?.path)).toEqual([{ name: "pi" }]);
 });
@@ -114,8 +121,7 @@ test("skills_list_says_why_it_is_empty_and_what_to_check", async () => {
   expect(screen.getByText(/check that nas is connected on the Hosts page/)).toBeVisible();
 });
 
-test("skills_list_shows_risk_timeout_and_applies_to_in_columns_ordered_by_risk", async () => {
-  const user = userEvent.setup();
+test("skills_list_groups_skills_by_risk_with_a_pill_and_what_it_allows_per_group", async () => {
   route("GET /api/v1/hosts", () => [nas]);
   route("GET /api/v1/hosts/{name}/skills", () => [
     skill("prune_snapshots", "destructive", { timeout_secs: 300 }),
@@ -126,28 +132,67 @@ test("skills_list_shows_risk_timeout_and_applies_to_in_columns_ordered_by_risk",
   renderAt("/skills?host=nas", "/skills", <SkillsPage />);
 
   await screen.findByText("docker_ps");
-  const headers = screen.getAllByRole("columnheader").map((h) => h.textContent);
-  expect(headers.slice(0, 5)).toEqual(["Skill", "Description", "Risk", "Timeout", "Applies to"]);
-  const names = screen
-    .getAllByRole("row")
-    .slice(1)
-    .map((row) => within(row).getByRole("button", { name: /^[a-z_]+$/ }).textContent);
-  expect(names).toEqual(["disk_usage", "docker_ps", "restart_container", "prune_snapshots"]);
+  const groups = screen.getAllByRole("region").map((group) => ({
+    risk: within(group).getByRole("heading").textContent,
+    names: within(group)
+      .getAllByRole("button", { name: /^[a-z_]+$/ })
+      .map((button) => button.textContent),
+  }));
+  expect(groups).toEqual([
+    { risk: "Read", names: ["disk_usage", "docker_ps"] },
+    { risk: "Write", names: ["restart_container"] },
+    { risk: "Destructive", names: ["prune_snapshots"] },
+  ]);
+  const read = screen.getByRole("table", { name: "Read skills on nas" });
+  expect(
+    within(read)
+      .getAllByRole("columnheader")
+      .map((h) => h.textContent),
+  ).toEqual(["Skill", "Description", "Timeout", "Applies to", "Last used", "Enabled"]);
+  expect(screen.getByText(/^Only looks\. Triage may run it on its own\./)).toBeVisible();
 
   const disk = rowOf("disk_usage");
   expect(within(disk).getByText("Does disk_usage")).toBeVisible();
-  expect(within(disk).getByText("Read")).toBeVisible();
   expect(within(disk).getByText("disk.usage")).toBeVisible();
   expect(within(rowOf("docker_ps")).getByText("Any check")).toBeVisible();
-  expect(within(rowOf("restart_container")).getByText("Write")).toBeVisible();
-  const prune = rowOf("prune_snapshots");
-  expect(within(prune).getByText("Destructive")).toBeVisible();
-  expect(within(prune).getByText("300 s")).toBeVisible();
+  expect(within(rowOf("prune_snapshots")).getByText("300 s")).toBeVisible();
+});
 
-  await user.click(screen.getByRole("button", { name: "About Risk" }));
-  expect(
-    screen.getByText(/Only a signed-in person can approve a write or destructive skill/),
-  ).toBeVisible();
+test("a_skill_row_opens_the_skill_when_clicked_anywhere", async () => {
+  const user = userEvent.setup();
+  route("GET /api/v1/hosts", () => [nas]);
+  route("GET /api/v1/hosts/{name}/skills", () => [skill("docker_ps", "read")]);
+  route("GET /api/v1/actions", () => ({ items: [], next_cursor: null }));
+  renderAt("/skills?host=nas", "/skills", <SkillsPage />);
+
+  await user.click(await screen.findByText("Does docker_ps"));
+  expect(await screen.findByRole("dialog", { name: "docker_ps" })).toBeVisible();
+});
+
+test("a_hub_only_host_sorts_last_under_all_hosts_and_its_card_is_not_a_link", async () => {
+  route("GET /api/v1/hosts", () => [
+    {
+      ...nas,
+      id: "host-hub",
+      name: "alpha-hub",
+      kind: "local",
+      agent_enrolled: false,
+      connected: false,
+      last_seen: null,
+    },
+    { ...nas, id: "host-pi", name: "pi" },
+    nas,
+  ]);
+  renderAt("/skills", "/skills", <SkillsPage />);
+
+  const hosts = await screen.findByRole("navigation", { name: "Hosts" });
+  const links = within(hosts).getAllByRole("link");
+  expect(links).toHaveLength(2);
+  expect(hosts.textContent?.indexOf("alpha-hub")).toBeGreaterThan(
+    hosts.textContent?.indexOf("pi") ?? 0,
+  );
+  expect(within(hosts).queryByRole("link", { name: /alpha-hub/ })).toBeNull();
+  expect(within(hosts).getByText("No agent here, so no skills.")).toBeVisible();
 });
 
 test("skills_list_shows_when_each_skill_last_ran_and_never_for_those_that_did_not", async () => {
@@ -202,9 +247,10 @@ test("skill_detail_opens_from_the_list_with_parameters_readme_and_runs", async (
   expect(within(params).getByText("Required")).toBeVisible();
   expect(within(params).getByText("Container to restart")).toBeVisible();
 
-  expect(
-    await within(dialog).findByText(/Restarts one container managed by compose\./),
-  ).toBeVisible();
+  // The renderer is a separate download; until it arrives the raw text shows in a fallback
+  // paragraph, so wait for the rendered heading before reading the body.
+  expect(await within(dialog).findByRole("heading", { name: "Restart container" })).toBeVisible();
+  expect(within(dialog).getByText("Restarts one container managed by compose.")).toBeVisible();
   expect(within(dialog).getByText(/Re-runs the check after 600 s/)).toBeVisible();
   expect(within(dialog).getByText("0123456789ab")).toHaveAccessibleDescription(
     "0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab",
@@ -299,4 +345,25 @@ test("switching_a_skill_off_in_its_row_saves_the_change", async () => {
   await user.click(toggle);
   expect(switches().map((c) => c.init.body)).toEqual([{ enabled: false }]);
   expect(switches().map((c) => c.init.params?.path)).toEqual([{ name: "nas", skill: "docker_ps" }]);
+});
+
+test("every_risk_group_uses_the_same_fixed_column_widths_so_columns_line_up", async () => {
+  route("GET /api/v1/hosts", () => [nas]);
+  route("GET /api/v1/hosts/{name}/skills", () => [
+    skill("docker_ps", "read", { description: "A very long description ".repeat(20) }),
+    skill("restart_service", "write"),
+    skill("wipe_volume", "destructive"),
+  ]);
+  renderAt("/skills?host=nas", "/skills", <SkillsPage />);
+
+  await screen.findByText("docker_ps");
+  const tables = screen.getAllByRole("table");
+  expect(tables).toHaveLength(3);
+  const widths = tables.map((table) =>
+    [...table.querySelectorAll("col")].map((col) => col.style.width),
+  );
+  expect(widths[0]).toContain("16rem");
+  expect(widths[1]).toEqual(widths[0]);
+  expect(widths[2]).toEqual(widths[0]);
+  expect(tables.every((table) => table.getAttribute("data-layout") === "fixed")).toBe(true);
 });

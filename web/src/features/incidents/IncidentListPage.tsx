@@ -7,13 +7,11 @@ import type { Overview } from "../../api/types";
 import { useSelectedHost } from "../../app/HostContext";
 import {
   EmptyState,
-  Field,
   FilterChips,
   PageHeader,
   QueryBoundary,
   Select,
   Skeleton,
-  Tag,
   TextInput,
   useDebounced,
   type Chip,
@@ -45,24 +43,6 @@ const EMPTY: Record<IncidentGroup, string> = {
   handled: "Nothing is acknowledged or muted.",
   resolved: "Nothing has resolved yet.",
 };
-
-/** The page's one-line summary: what needs the person, as toned tags. */
-function Summary({ counts }: { counts: Counts | undefined }) {
-  if (!counts) {
-    return null;
-  }
-  const { needs_action: act, monitor, pending } = counts;
-  if (act + monitor + pending === 0) {
-    return <Tag tone="success">Nothing needs you</Tag>;
-  }
-  return (
-    <>
-      {act > 0 && <Tag tone="danger">{act === 1 ? "1 needs action" : `${act} need action`}</Tag>}
-      {monitor > 0 && <Tag tone="warning">{`${monitor} to monitor`}</Tag>}
-      {pending > 0 && <Tag tone="pending">{`${pending} pending`}</Tag>}
-    </>
-  );
-}
 
 function chips(counts: Counts | undefined): Chip<ChipValue>[] {
   const groups = INCIDENT_GROUP_ORDER.map((group): Chip<ChipValue> => {
@@ -102,7 +82,14 @@ function OneGroup({
         </EmptyState>
       }
     >
-      {() => <IncidentList query={incidents} hostNames={hostNames} caption={label} />}
+      {() => (
+        <IncidentList
+          query={incidents}
+          hostNames={hostNames}
+          caption={label}
+          hideStatus={group === "needs_action"}
+        />
+      )}
     </QueryBoundary>
   );
 }
@@ -151,8 +138,7 @@ export function IncidentListPage() {
       <PageHeader
         title="Incidents"
         docs="concepts/incidents.html"
-        intro="Problems Domovoi found on your hosts. Confirmed ones are posted to chat, and triaged when a model is set up."
-        meta={<Summary counts={overview.data?.incident_groups} />}
+        intro="Problems Domovoi found on your hosts."
       />
       <form
         className={styles.filters}
@@ -167,27 +153,25 @@ export function IncidentListPage() {
           onChange={(value) => setParam("group", value === "all" ? "" : value)}
         />
         <div className={styles.filterRow}>
-          <Field label="Search">
-            <TextInput
-              type="search"
-              placeholder="Title, check or target"
-              value={text}
-              onChange={(event) => setText(event.target.value)}
-            />
-          </Field>
-          <Field label="Severity">
-            <Select
-              value={filters.severity ?? ""}
-              onChange={(event) => setParam("severity", event.target.value)}
-            >
-              <option value="">Any</option>
-              {SEVERITIES.map((severity) => (
-                <option key={severity} value={severity}>
-                  {severityMeta(severity).label}
-                </option>
-              ))}
-            </Select>
-          </Field>
+          <TextInput
+            type="search"
+            aria-label="Search"
+            placeholder="Search title, check or target"
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+          />
+          <Select
+            aria-label="Severity"
+            value={filters.severity ?? ""}
+            onChange={(event) => setParam("severity", event.target.value)}
+          >
+            <option value="">Any severity</option>
+            {SEVERITIES.map((severity) => (
+              <option key={severity} value={severity}>
+                {severityMeta(severity).label}
+              </option>
+            ))}
+          </Select>
         </div>
       </form>
       {group ? (

@@ -1,30 +1,20 @@
-import { Icon } from "../design/icons";
 import { badgeMeta, type StatusMeta } from "../design/tone";
 import { Tooltip } from "./Tooltip";
 import styles from "./status.module.css";
 
 /**
- * A status as a pill: a soft tint in its tone, an icon (or a dot) and its label, so colour is
- * never the only signal, and what the status means as a tooltip. `meta` always comes from
- * `design/tone`.
+ * A status as a pill: a low tint in its tone, a 6 px dot in the tone's colour and its label, so
+ * colour is never the only signal, and what the status means as a tooltip. `meta` always
+ * comes from `design/tone`. `sm` is 18 px high, for dense lists.
  *
  * Use it for every status in the product. Do not use it for labels that are not a status
  * (that is `Tag`) or for numbers (that is `Count`).
  */
-export function StatusPill({
-  meta,
-  size = "md",
-  showIcon = true,
-}: {
-  meta: StatusMeta;
-  /** `false` shows a dot in place of the status's icon, for dense lists. */
-  showIcon?: boolean;
-  size?: "sm" | "md";
-}) {
+export function StatusPill({ meta, size = "md" }: { meta: StatusMeta; size?: "sm" | "md" }) {
   return (
     <Tooltip content={meta.hint}>
       <span className={styles.pill} data-tone={meta.tone} data-size={size}>
-        <Icon name={showIcon ? meta.icon : "dot"} size={14} />
+        <span className={styles.dot} aria-hidden="true" />
         {meta.label}
       </span>
     </Tooltip>
