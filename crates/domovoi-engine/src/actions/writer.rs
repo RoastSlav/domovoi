@@ -96,7 +96,16 @@ pub(crate) async fn run(shared: Arc<Shared>, mut rx: mpsc::Receiver<WriteCommand
     // A hub that restarted lost whatever it was running: an answer the agent sent
     // went to the session that is gone, so those actions are failed here (ADR 0014)
     // before any new decision can read them.
-    let abandoned = recover::fail_abandoned(&shared).await;
+    let abandoned = match recover::fail_abandoned(&shared).await {
+        Ok(count) => count,
+        Err(err) => {
+            tracing::error!(
+                %err,
+                "the store would not say what the previous session left running; those actions wait for the next hub start",
+            );
+            0
+        }
+    };
     if abandoned > 0 {
         tracing::info!(
             count = abandoned,

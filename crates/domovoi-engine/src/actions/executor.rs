@@ -10,7 +10,7 @@
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
 
-use domovoi_core::ports::{ActionFilter, Page, Presence, SkillDispatch, SkillOutput};
+use domovoi_core::ports::{Presence, SkillDispatch, SkillOutput};
 use domovoi_core::{ActionId, ActionRequest, ActionStatus, PlanHash, SkillSummary, ValidatedArgs};
 use jiff::{SignedDuration, Timestamp};
 use sha2::{Digest, Sha256};
@@ -20,6 +20,7 @@ use tokio::task::JoinSet;
 use super::Shared;
 use super::audit::RunRecord;
 use super::recheck::verify;
+use super::recover::approved;
 use super::writer::{Decision, WriteCommand};
 use crate::events::{DomainEvent, EventKind};
 use crate::triage::cut;
@@ -44,9 +45,7 @@ pub(crate) async fn serve(shared: Arc<Shared>, mut events: broadcast::Receiver<D
     let mut running = JoinSet::new();
     // Approvals made before this hub session started have no event left on the bus,
     // so the store is read once here for actions still waiting to run (ADR 0014).
-    for action in approved(&shared).await {
-        start(&mut running, &shared, action);
-    }
+    catch_up(&mut running, &shared).await;
     loop {
         // Forget finished runs, so the set holds only work still in flight.
         while running.try_join_next().is_some() {}
@@ -67,9 +66,7 @@ pub(crate) async fn serve(shared: Arc<Shared>, mut events: broadcast::Receiver<D
                     missed,
                     "the action executor missed events; reloading approvals"
                 );
-                for action in approved(&shared).await {
-                    start(&mut running, &shared, action);
-                }
+                catch_up(&mut running, &shared).await;
             }
             Err(broadcast::error::RecvError::Closed) => break,
         }
@@ -77,27 +74,33 @@ pub(crate) async fn serve(shared: Arc<Shared>, mut events: broadcast::Receiver<D
     running.shutdown().await;
 }
 
-/// Every action still waiting to run, for catching up after missed events.
-async fn approved(shared: &Arc<Shared>) -> Vec<ActionId> {
-    let filter = ActionFilter {
-        status: Some("approved".to_owned()),
-        ..ActionFilter::default()
-    };
-    let mut ids = Vec::new();
-    let mut page = Page::first(Page::MAX_LIMIT);
-    loop {
-        let got = match shared.deps.actions.list(&filter, &page).await {
-            Ok(got) => got,
-            Err(err) => {
-                tracing::warn!(%err, "could not reload approved actions");
-                return ids;
-            }
-        };
-        ids.extend(got.items.iter().map(ActionRequest::id));
-        match got.next_cursor {
-            Some(cursor) => page.cursor = Some(cursor),
-            None => return ids,
+/// How many actions the service starts from the store at once when it is catching up.
+/// A hub that restarted could have any number of approvals waiting; running them all at
+/// once would flood the agent, so the pool stays this big and each further action waits
+/// for one run to finish. Approvals that come in as events are not held to this: they are
+/// what the hub is doing now.
+const MAX_CATCH_UP_RUNS: usize = 8;
+
+/// Starts what the store still says is approved, after start-up or after the event bus
+/// fell behind. A listing the store could not finish starts nothing: the actions stay as
+/// they are and the next hub start reads them again, rather than running a part of a set
+/// that looks complete.
+async fn catch_up(running: &mut JoinSet<()>, shared: &Arc<Shared>) {
+    let ids = match approved(shared).await {
+        Ok(ids) => ids,
+        Err(err) => {
+            tracing::error!(
+                %err,
+                "the store would not say what is still approved; the executor starts none of it",
+            );
+            return;
         }
+    };
+    for action in ids {
+        while running.len() >= MAX_CATCH_UP_RUNS {
+            let _ = running.join_next().await;
+        }
+        start(running, shared, action);
     }
 }
 
@@ -227,10 +230,6 @@ pub(crate) async fn run(shared: &Shared, id: ActionId) {
             return;
         }
     };
-    if let Some(reason) = over_loop_guard(shared, &action) {
-        let _ = ask_reject(shared, id, reason, true).await;
-        return;
-    }
     let (skill, args) = match revalidate(shared, &action) {
         Ok(found) => found,
         Err(reason) => {
@@ -239,6 +238,13 @@ pub(crate) async fn run(shared: &Shared, id: ActionId) {
         }
     };
     let now = deps.clock.now();
+    // The slot is claimed here, before the plan is even recomputed, so two catch-up runs
+    // of the same skill cannot both read the same count and both pass (ADR 0019's writer
+    // answers the dispatch, but the guard is this task's own bookkeeping).
+    if let Some(reason) = reserve_dispatch(shared, &action, now) {
+        let _ = ask_reject(shared, id, reason, true).await;
+        return;
+    }
     let plan = PlanHash::compute(&skill.name, skill.manifest_hash, action.host(), &args);
     let Some(action) = ask_dispatch(shared, id, plan).await else {
         return;
@@ -247,7 +253,6 @@ pub(crate) async fn run(shared: &Shared, id: ActionId) {
         tracing::debug!(action = %id, %reason, "the plan the agent has now is not the approved one");
         return;
     }
-    remember_dispatch(shared, &action, now);
     if !wait_for_agent(shared, &action).await {
         let _ = ask_complete(shared, id, Err("agent offline".to_owned()), None).await;
         return;
@@ -284,9 +289,12 @@ pub(crate) async fn run(shared: &Shared, id: ActionId) {
     }
 }
 
-/// `Some(reason)` when this skill already ran too often on this host in the last hour.
-fn over_loop_guard(shared: &Shared, action: &ActionRequest) -> Option<String> {
-    let now = shared.deps.clock.now();
+/// Takes one loop-guard slot for this action, or says why it cannot run: the skill already
+/// used every slot on this host in the last hour. The count and the claim are one lock, so
+/// runs that the service started together from the store cannot all read the same count and
+/// all pass; the runs a previous hub session made are already in the bookkeeping, which the
+/// recovery scan put back from the audit log.
+fn reserve_dispatch(shared: &Shared, action: &ActionRequest, now: Timestamp) -> Option<String> {
     let hour_ago = now
         .checked_sub(SignedDuration::from_hours(1))
         .unwrap_or(now);
@@ -301,22 +309,14 @@ fn over_loop_guard(shared: &Shared, action: &ActionRequest) -> Option<String> {
         runs.pop_front();
     }
     let limit = shared.settings.loop_guard_per_hour;
-    (runs.len() >= limit as usize).then(|| {
-        format!(
+    if runs.len() >= limit as usize {
+        return Some(format!(
             "loop guard: {} already ran {limit} times on this host in the last hour",
-            action.skill()
-        )
-    })
-}
-
-fn remember_dispatch(shared: &Shared, action: &ActionRequest, now: Timestamp) {
-    shared
-        .dispatches
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .entry((action.host(), action.skill().to_string()))
-        .or_default()
-        .push_back(now);
+            action.skill(),
+        ));
+    }
+    runs.push_back(now);
+    None
 }
 
 /// The skill as the agent has it now and the stored arguments validated against it, or

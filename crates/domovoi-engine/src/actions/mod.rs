@@ -108,6 +108,9 @@ type Dispatches = BTreeMap<(HostId, String), VecDeque<Timestamp>>;
 pub(crate) struct Shared {
     pub(crate) deps: ActionDeps,
     pub(crate) settings: ActionSettings,
+    /// Run dispatch times per host and skill, for the loop guard. Reloaded at start
+    /// from the audit log (recover.rs), so a hub that restarted keeps the guard for
+    /// the hour it has now.
     pub(crate) dispatches: Mutex<Dispatches>,
     /// Actions being run right now, so one is never run twice at once.
     pub(crate) running: Mutex<BTreeSet<ActionId>>,
@@ -200,6 +203,26 @@ impl ActionService {
         let writer_shared = shared.clone();
         let executor_shared = shared.clone();
         let task = tokio::spawn(async {
+            // The loop guard counts runs in a rolling hour, and the runs of the session
+            // that just stopped were in its memory, so they are read back from the audit
+            // log before either half can start a run that would be checked against an
+            // empty guard.
+            let reloaded = match recover::dispatch_history(&executor_shared).await {
+                Ok(count) => count,
+                Err(err) => {
+                    tracing::error!(
+                        %err,
+                        "the loop guard could not reload its last hour; it starts with none",
+                    );
+                    0
+                }
+            };
+            if reloaded > 0 {
+                tracing::info!(
+                    count = reloaded,
+                    "the loop guard reloaded dispatches the previous hub session made",
+                );
+            }
             let _ = tokio::join!(
                 writer::run(writer_shared, incoming),
                 executor::serve(executor_shared, events),
