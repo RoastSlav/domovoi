@@ -94,6 +94,10 @@ pub enum ApprovalError {
     /// The store failed.
     #[error("store error: {0}")]
     Store(String),
+    /// The service that applies decisions is closing, so no decision can be made
+    /// now. This is not a fault in the request: trying again after a moment works.
+    #[error("the action service is shutting down; try again")]
+    Unavailable,
 }
 
 /// Run dispatch times per host and skill, for the loop guard.
@@ -186,8 +190,11 @@ impl std::fmt::Debug for ActionHandle {
 pub struct ActionService;
 
 impl ActionService {
-    /// Starts the writer task, which applies every decision one at a time, and
-    /// the executor, which runs approved actions until `deps.shutdown`.
+    /// Starts one task running both halves of the action service: the writer
+    /// loop, which applies every decision one at a time (ADR 0019), and the
+    /// executor, which runs approved actions until `deps.shutdown`. They are
+    /// joined in one handle so whoever waits for the service also waits for the
+    /// decisions still queued when shutdown starts.
     #[must_use]
     pub fn spawn(deps: ActionDeps, settings: ActionSettings) -> (ActionHandle, JoinHandle<()>) {
         let events = deps.bus.subscribe();
@@ -197,8 +204,15 @@ impl ActionService {
             dispatches: Mutex::new(BTreeMap::new()),
             running: Mutex::new(BTreeSet::new()),
         });
-        let (writer, _) = writer::spawn(shared.clone());
-        let task = tokio::spawn(executor::serve(shared.clone(), events));
+        let (writer, incoming) = writer::queue();
+        let writer_shared = shared.clone();
+        let executor_shared = shared.clone();
+        let task = tokio::spawn(async {
+            let _ = tokio::join!(
+                writer::run(writer_shared, incoming),
+                executor::serve(executor_shared, events),
+            );
+        });
         (ActionHandle { shared, writer }, task)
     }
 }
@@ -221,11 +235,11 @@ impl ActionHandle {
             reply,
         };
         if self.writer.tx.send(command).await.is_err() {
-            return Err(ApprovalError::Store(writer::SHUTTING_DOWN.to_string()));
+            return Err(ApprovalError::Unavailable);
         }
         match answer.await {
             Ok(result) => result,
-            Err(_) => Err(ApprovalError::Store(writer::SHUTTING_DOWN.to_string())),
+            Err(_) => Err(ApprovalError::Unavailable),
         }
     }
 
@@ -243,11 +257,11 @@ impl ActionHandle {
             reply,
         };
         if self.writer.tx.send(command).await.is_err() {
-            return Err(ApprovalError::Store(writer::SHUTTING_DOWN.to_string()));
+            return Err(ApprovalError::Unavailable);
         }
         match answer.await {
             Ok(result) => result,
-            Err(_) => Err(ApprovalError::Store(writer::SHUTTING_DOWN.to_string())),
+            Err(_) => Err(ApprovalError::Unavailable),
         }
     }
 
@@ -262,11 +276,11 @@ impl ActionHandle {
             .await
             .is_err()
         {
-            return Err(ApprovalError::Store(writer::SHUTTING_DOWN.to_string()));
+            return Err(ApprovalError::Unavailable);
         }
         match answer.await {
             Ok(result) => result,
-            Err(_) => Err(ApprovalError::Store(writer::SHUTTING_DOWN.to_string())),
+            Err(_) => Err(ApprovalError::Unavailable),
         }
     }
 }

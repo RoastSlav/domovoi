@@ -1,7 +1,9 @@
-//! One task applies every action decision (ADR 0019): approve, deny and the
-//! expiry sweep arrive as commands on a bounded channel and are applied one at
-//! a time, so exactly one decision can win an action and a decision read over
-//! a stale state is refused instead of overwriting one already made.
+//! One writer loop applies every action decision (ADR 0019): approve, deny and
+//! the expiry sweep arrive as commands on a bounded channel and are applied one
+//! at a time, so exactly one decision can win an action and a decision read over
+//! a stale state is refused instead of overwriting one already made. The action
+//! service runs this loop joined with the executor, so whoever waits for the
+//! service also waits for this queue to drain.
 
 use std::sync::Arc;
 
@@ -17,13 +19,9 @@ use crate::events::EventKind;
 
 use jiff::SignedDuration;
 use tokio::sync::{mpsc, oneshot};
-use tokio::task::JoinHandle;
 
 /// Commands waiting to be applied queue up at most this deep.
 const WRITE_QUEUE: usize = 64;
-
-/// What callers get when the task that applies decisions has gone away.
-pub(crate) const SHUTTING_DOWN: &str = "the action service is shutting down";
 
 /// A decision for the writer task; `reply` answers it back to the caller.
 pub(crate) enum WriteCommand {
@@ -43,23 +41,27 @@ pub(crate) enum WriteCommand {
     },
 }
 
-/// The channel into the writer task, held by every [`ActionHandle`].
+/// The queue into the writer loop, held by every [`ActionHandle`].
 #[derive(Clone)]
 pub(crate) struct WriterHandle {
     pub(crate) tx: mpsc::Sender<WriteCommand>,
 }
 
-/// Starts the one task that applies decisions. It ends on shutdown, or once
-/// every handle is dropped and the channel closes.
+/// Opens a queue deep enough for the decisions one service holds and returns its
+/// reading end, which the action service runs joined with the executor loop, so
+/// waiting for the service also waits for the decisions still queued. The
+/// writing ends stay with the action handles.
 #[must_use]
-pub(crate) fn spawn(shared: Arc<Shared>) -> (WriterHandle, JoinHandle<()>) {
+pub(crate) fn queue() -> (WriterHandle, mpsc::Receiver<WriteCommand>) {
     let (tx, rx) = mpsc::channel(WRITE_QUEUE);
-    let handle = WriterHandle { tx: tx.clone() };
-    let task = tokio::spawn(run(shared.clone(), rx));
-    (handle, task)
+    (WriterHandle { tx: tx.clone() }, rx)
 }
 
-async fn run(shared: Arc<Shared>, mut rx: mpsc::Receiver<WriteCommand>) {
+/// Applies decisions one at a time until shutdown closes the queue or every
+/// handle is dropped, then applies what is still queued, so a hub that waits
+/// for the action service also waits for those writes to reach the store.
+#[must_use]
+pub(crate) async fn run(shared: Arc<Shared>, mut rx: mpsc::Receiver<WriteCommand>) {
     let shutdown = shared.deps.shutdown.clone();
     loop {
         let command = tokio::select! {
@@ -87,7 +89,7 @@ async fn process(shared: &Shared, command: WriteCommand) {
         } => {
             let result = approve(shared, id, approval, chat_token.as_deref()).await;
             if let Err(err) = &result {
-                tracing::warn!(%err, "an approval was refused");
+                refused(err, "an approval");
             }
             let _ = reply.send(result);
         }
@@ -98,17 +100,36 @@ async fn process(shared: &Shared, command: WriteCommand) {
         } => {
             let result = deny(shared, id, approval).await;
             if let Err(err) = &result {
-                tracing::warn!(%err, "a denial was refused");
+                refused(err, "a denial");
             }
             let _ = reply.send(result);
         }
         WriteCommand::ExpireDue { reply } => {
             let result = expire_due(shared).await;
             if let Err(err) = &result {
-                tracing::warn!(%err, "the expiry sweep failed");
+                refused(err, "the expiry sweep");
             }
             let _ = reply.send(result);
         }
+    }
+}
+
+/// Logs one refusal at the level it deserves. The caller gets every one of these
+/// back, so a missing action, a used chat token, an action that already has an
+/// outcome and a shutdown are debug: the person sees why nothing happened. A
+/// store failure warns because the answer the caller gets says only that the
+/// store failed, and the reason is worth a line in the log.
+fn refused(err: &ApprovalError, what: &str) {
+    match err {
+        ApprovalError::Store(why) => tracing::warn!(%why, "the store refused {what}"),
+        ApprovalError::NotFound(id) => {
+            tracing::debug!(%id, "{what} asked for an action that is not there")
+        }
+        ApprovalError::BadToken => tracing::debug!("{what} had no working chat token"),
+        ApprovalError::Refused(reason) => {
+            tracing::debug!(%reason, "the action could not take {what}")
+        }
+        ApprovalError::Unavailable => tracing::debug!("{what} did not reach the writer"),
     }
 }
 
