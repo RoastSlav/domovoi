@@ -10,16 +10,17 @@
 mod approvals;
 pub mod audit;
 mod executor;
+mod writer;
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::{Arc, Mutex};
 
 use domovoi_core::ports::{
-    ActionRepo, AgentLink, AuditEvent, AuditLog, Clock, IncidentRepo, Redactor,
+    ActionRepo, AgentLink, AuditEvent, AuditLog, Clock, IncidentRepo, Redactor, StoreError,
 };
 use domovoi_core::{ActionError, ActionId, ActionRequest, HostId, HumanApproval};
 use jiff::{SignedDuration, Timestamp};
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, oneshot};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
@@ -118,6 +119,27 @@ impl Shared {
             .update(action)
             .await
             .map_err(|e| e.to_string())?;
+        self.announce(action, entry).await;
+        Ok(())
+    }
+
+    /// [`Shared::record`] but through [`ActionRepo::update_from`], so the write
+    /// is refused when the stored status is no longer `expected`; the store's
+    /// own error lets the caller tell a lost race from a real failure.
+    pub(crate) async fn record_from(
+        &self,
+        action: &ActionRequest,
+        expected: &str,
+        entry: AuditEvent,
+    ) -> Result<(), StoreError> {
+        self.deps.actions.update_from(action, expected).await?;
+        self.announce(action, entry).await;
+        Ok(())
+    }
+
+    /// Appends `entry` to the audit log, counts the status and publishes
+    /// `ActionChanged`. Only called once the store accepted the write.
+    pub(crate) async fn announce(&self, action: &ActionRequest, entry: AuditEvent) {
         if let Err(err) = self.deps.audit.append(&entry).await {
             tracing::error!(%err, kind = %entry.kind, "could not write the audit log");
         }
@@ -130,7 +152,6 @@ impl Shared {
             },
         )
         .await;
-        Ok(())
     }
 
     /// Publishes `kind` for the incident `action` belongs to.
@@ -149,6 +170,7 @@ impl Shared {
 #[derive(Clone)]
 pub struct ActionHandle {
     shared: Arc<Shared>,
+    writer: writer::WriterHandle,
 }
 
 impl std::fmt::Debug for ActionHandle {
@@ -164,7 +186,8 @@ impl std::fmt::Debug for ActionHandle {
 pub struct ActionService;
 
 impl ActionService {
-    /// Starts the executor, which runs every approved action until `deps.shutdown`.
+    /// Starts the writer task, which applies every decision one at a time, and
+    /// the executor, which runs approved actions until `deps.shutdown`.
     #[must_use]
     pub fn spawn(deps: ActionDeps, settings: ActionSettings) -> (ActionHandle, JoinHandle<()>) {
         let events = deps.bus.subscribe();
@@ -174,35 +197,76 @@ impl ActionService {
             dispatches: Mutex::new(BTreeMap::new()),
             running: Mutex::new(BTreeSet::new()),
         });
+        let (writer, _) = writer::spawn(shared.clone());
         let task = tokio::spawn(executor::serve(shared.clone(), events));
-        (ActionHandle { shared }, task)
+        (ActionHandle { shared, writer }, task)
     }
 }
 
 impl ActionHandle {
     /// Approves action `id` on behalf of the human in `approval`. A chat approval needs
-    /// `chat_token`, which works once. This is the only way to reach `Approved`.
+    /// `chat_token`, which works once. This is the only way to reach `Approved`; the
+    /// decision is queued for the writer task, so it cannot race another one.
     pub async fn approve(
         &self,
         id: ActionId,
         approval: HumanApproval,
         chat_token: Option<&str>,
     ) -> Result<ActionRequest, ApprovalError> {
-        approvals::approve(&self.shared, id, approval, chat_token).await
+        let (reply, answer) = oneshot::channel();
+        let command = writer::WriteCommand::Approve {
+            id,
+            approval,
+            chat_token: chat_token.map(str::to_owned),
+            reply,
+        };
+        if self.writer.tx.send(command).await.is_err() {
+            return Err(ApprovalError::Store(writer::SHUTTING_DOWN.to_string()));
+        }
+        match answer.await {
+            Ok(result) => result,
+            Err(_) => Err(ApprovalError::Store(writer::SHUTTING_DOWN.to_string())),
+        }
     }
 
-    /// Denies action `id` on behalf of the human in `approval`.
+    /// Denies action `id` on behalf of the human in `approval`; queued for the
+    /// writer task like [`ActionHandle::approve`].
     pub async fn deny(
         &self,
         id: ActionId,
         approval: HumanApproval,
     ) -> Result<ActionRequest, ApprovalError> {
-        approvals::deny(&self.shared, id, approval).await
+        let (reply, answer) = oneshot::channel();
+        let command = writer::WriteCommand::Deny {
+            id,
+            approval,
+            reply,
+        };
+        if self.writer.tx.send(command).await.is_err() {
+            return Err(ApprovalError::Store(writer::SHUTTING_DOWN.to_string()));
+        }
+        match answer.await {
+            Ok(result) => result,
+            Err(_) => Err(ApprovalError::Store(writer::SHUTTING_DOWN.to_string())),
+        }
     }
 
-    /// Expires every proposed action whose window has closed and returns how many. The
-    /// scheduler calls this periodically.
+    /// Expires every proposed action whose window has closed and returns how
+    /// many. The scheduler calls this periodically.
     pub async fn expire_due(&self) -> Result<usize, ApprovalError> {
-        approvals::expire_due(&self.shared).await
+        let (reply, answer) = oneshot::channel();
+        if self
+            .writer
+            .tx
+            .send(writer::WriteCommand::ExpireDue { reply })
+            .await
+            .is_err()
+        {
+            return Err(ApprovalError::Store(writer::SHUTTING_DOWN.to_string()));
+        }
+        match answer.await {
+            Ok(result) => result,
+            Err(_) => Err(ApprovalError::Store(writer::SHUTTING_DOWN.to_string())),
+        }
     }
 }
