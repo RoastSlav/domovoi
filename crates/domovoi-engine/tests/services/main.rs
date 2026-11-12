@@ -30,3 +30,5 @@ mod redact;
 mod report;
 #[cfg(test)]
 mod turns;
+#[cfg(test)]
+mod writer;
