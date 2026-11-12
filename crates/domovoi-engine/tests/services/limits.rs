@@ -338,6 +338,12 @@ async fn a_cached_report_does_not_duplicate_a_waiting_action() {
         "the fresh run offered the proposal"
     );
     assert_eq!(w.actions().await.len(), 1, "the proposal waits for a human");
+    let first_tokens = w.tokens();
+    assert_eq!(
+        first_tokens.len(),
+        1,
+        "the fresh run handed a chat token to its card"
+    );
 
     let earlier = resolved_incident(host_id(), "docker.container", Some("nginx"), w.now()).unwrap();
     IncidentRepo::insert(&*w.store, &earlier).await.unwrap();
@@ -357,12 +363,26 @@ async fn a_cached_report_does_not_duplicate_a_waiting_action() {
         report.proposals.is_empty(),
         "the waiting duplicate is not offered again"
     );
+    let waiting = w.actions().await;
+    assert_eq!(waiting.len(), 1, "the waiting action is not stored twice");
+    let tokens = w.tokens();
     assert_eq!(
-        w.actions().await.len(),
+        tokens.len(),
         1,
-        "the waiting action is not stored twice"
+        "the cached run hands its card one replacement chat token"
     );
-    assert!(w.tokens().is_empty(), "the cached run minted no chat token");
+    let replacement = tokens.get(&waiting[0].id()).unwrap();
+    assert_eq!(
+        waiting[0].chat_token_hash(),
+        Some(&token_hash(replacement)),
+        "the waiting action now stores the replacement token"
+    );
+    let rotated = first_tokens.get(&waiting[0].id()).unwrap();
+    assert_ne!(
+        waiting[0].chat_token_hash(),
+        Some(&token_hash(rotated)),
+        "the token the first card carried stops working once rotated"
+    );
 }
 
 #[tokio::test]
