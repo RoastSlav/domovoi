@@ -9,16 +9,17 @@
 
 use std::sync::Arc;
 
-use domovoi_core::ports::{ActionFilter, Page, StoreError};
+use domovoi_core::ports::{ActionFilter, ActionGuard, AuditDraft, CommitError, Observed, Page};
 use domovoi_core::{
     ActionChange, ActionError, ActionId, ActionRequest, ActionStatus, ApprovalChannel,
     HumanApproval, PlanHash,
 };
+use jiff::Timestamp;
 
 use super::approvals::{chat_token_ok, load, store};
 use super::audit::{self, RunRecord};
 use super::recover;
-use super::{ApprovalError, Shared};
+use super::{ApprovalError, Publish, Shared};
 use crate::events::EventKind;
 
 use jiff::SignedDuration;
@@ -42,6 +43,15 @@ pub(crate) enum WriteCommand {
     Deny {
         id: ActionId,
         approval: HumanApproval,
+        reply: oneshot::Sender<Decision>,
+    },
+    Propose {
+        action: Box<ActionRequest>,
+        reply: oneshot::Sender<Decision>,
+    },
+    RotateChatToken {
+        id: ActionId,
+        token_hash: [u8; 32],
         reply: oneshot::Sender<Decision>,
     },
     ExpireDue {
@@ -154,6 +164,24 @@ async fn process(shared: &Shared, command: WriteCommand) {
             }
             let _ = reply.send(result);
         }
+        WriteCommand::Propose { action, reply } => {
+            let result = super::writer_propose::propose(shared, *action).await;
+            if let Err(err) = &result {
+                refused(err, "a proposal");
+            }
+            let _ = reply.send(result);
+        }
+        WriteCommand::RotateChatToken {
+            id,
+            token_hash,
+            reply,
+        } => {
+            let result = super::writer_propose::rotate_chat_token(shared, id, token_hash).await;
+            if let Err(err) = &result {
+                refused(err, "a chat token rotation");
+            }
+            let _ = reply.send(result);
+        }
         WriteCommand::ExpireDue { reply } => {
             let result = expire_due(shared).await;
             if let Err(err) = &result {
@@ -247,14 +275,15 @@ async fn approve(
         .approve(approval, now)
         .map_err(ApprovalError::Refused)?;
     action.clear_chat_token_hash();
-    shared
-        .record_from(
-            &action,
-            from.name(),
-            audit::approved(&action, &entry_approval, now),
-        )
-        .await
-        .map_err(|err| stale(err, id))?;
+    transition(
+        shared,
+        &action,
+        &from,
+        audit::approved(&action, &entry_approval, now),
+        now,
+    )
+    .await
+    .map_err(|err| stale(err, id))?;
     shared
         .publish(&action, EventKind::ActionApproved { action: id })
         .await;
@@ -271,10 +300,15 @@ async fn deny(
     let now = shared.deps.clock.now();
     let ActionChange { from, .. } = action.deny(now).map_err(ApprovalError::Refused)?;
     action.clear_chat_token_hash();
-    shared
-        .record_from(&action, from.name(), audit::denied(&action, &approval, now))
-        .await
-        .map_err(|err| stale(err, id))?;
+    transition(
+        shared,
+        &action,
+        &from,
+        audit::denied(&action, &approval, now),
+        now,
+    )
+    .await
+    .map_err(|err| stale(err, id))?;
     Ok(action)
 }
 
@@ -290,8 +324,7 @@ async fn dispatch(shared: &Shared, id: ActionId, plan: PlanHash) -> Decision {
         ActionStatus::Rejected { reason } => audit::rejected(&action, &reason, now),
         _ => audit::dispatched(&action, now),
     };
-    shared
-        .record_from(&action, from.name(), entry)
+    transition(shared, &action, &from, entry, now)
         .await
         .map_err(|err| stale(err, id))?;
     Ok(action)
@@ -311,8 +344,7 @@ async fn reject(shared: &Shared, id: ActionId, reason: String, blocked: bool) ->
     } else {
         audit::rejected(&action, &reason, now)
     };
-    shared
-        .record_from(&action, from.name(), entry)
+    transition(shared, &action, &from, entry, now)
         .await
         .map_err(|err| stale(err, id))?;
     if blocked {
@@ -342,8 +374,7 @@ async fn complete(
         }
         _ => audit::finished(&action, record.as_ref(), None, now),
     };
-    shared
-        .record_from(&action, from.name(), entry)
+    transition(shared, &action, &from, entry, now)
         .await
         .map_err(|err| stale(err, id))?;
     Ok(action)
@@ -358,14 +389,15 @@ async fn verify(shared: &Shared, id: ActionId, passed: bool, summary: String) ->
     let ActionChange { from, .. } = action
         .verified(passed, now)
         .map_err(ApprovalError::Refused)?;
-    shared
-        .record_from(
-            &action,
-            from.name(),
-            audit::verification(&action, passed, &summary, now),
-        )
-        .await
-        .map_err(|err| stale(err, id))?;
+    transition(
+        shared,
+        &action,
+        &from,
+        audit::verification(&action, passed, &summary, now),
+        now,
+    )
+    .await
+    .map_err(|err| stale(err, id))?;
     Ok(action)
 }
 
@@ -405,31 +437,53 @@ async fn expire_due(shared: &Shared) -> Result<usize, ApprovalError> {
             Err(_) => continue,
         };
         action.clear_chat_token_hash();
-        match shared
-            .record_from(&action, from.name(), audit::expired(&action, now))
-            .await
-        {
+        match transition(shared, &action, &from, audit::expired(&action, now), now).await {
             Ok(()) => expired += 1,
-            Err(StoreError::Backend(what)) => return Err(ApprovalError::Store(what)),
-            Err(err) => {
+            Err(CommitError::Conflict { .. }) => {
                 tracing::warn!(
-                    %err,
                     action = %action.id(),
                     "someone else decided this action meanwhile; the sweep skips it"
                 );
                 continue;
             }
+            Err(err) => return Err(stale(err, action.id())),
         }
     }
     Ok(expired)
 }
 
+/// The guarded write of one transition out of `from`, with its audit and journal entries.
+async fn transition(
+    shared: &Shared,
+    action: &ActionRequest,
+    from: &ActionStatus,
+    audit: AuditDraft,
+    now: Timestamp,
+) -> Result<(), CommitError> {
+    shared
+        .commit_action(
+            action,
+            ActionGuard::Status(from.name().to_owned()),
+            audit,
+            now,
+            None,
+            Publish::ActionChanged,
+        )
+        .await
+}
+
 /// Why a decision's guarded write was refused: someone else decided the action
 /// first (a 409 at the API), it vanished, or the store failed.
-fn stale(err: StoreError, id: ActionId) -> ApprovalError {
+pub(crate) fn stale(err: CommitError, id: ActionId) -> ApprovalError {
     match err {
-        StoreError::Conflict(_) => ApprovalError::Refused(ActionError::ChangedMeanwhile),
-        StoreError::NotFound => ApprovalError::NotFound(id),
-        StoreError::Backend(what) => ApprovalError::Store(what),
+        CommitError::Conflict {
+            found: Observed::Missing,
+            ..
+        } => ApprovalError::NotFound(id),
+        CommitError::Conflict { .. } => ApprovalError::Refused(ActionError::ChangedMeanwhile),
+        CommitError::Constraint(message) | CommitError::Backend(message) => {
+            ApprovalError::Store(message)
+        }
+        CommitError::StaleEffect { .. } => ApprovalError::Store("unexpected stale effect".into()),
     }
 }

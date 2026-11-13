@@ -109,11 +109,16 @@ pub(crate) async fn store(
             .position(|a| a.skill() == &skill.name && a.args() == &wanted);
         if let Some(i) = waiting {
             let token = mint_token();
-            let rotated = existing[i].clone().with_chat_token_hash(token_hash(&token));
+            let id = existing[i].id();
             // Refused if the action was decided or deleted meanwhile; then the old token
             // still stands and nothing is offered for it, as before.
-            match shared.deps.actions.update_from(&rotated, "proposed").await {
-                Ok(()) => {
+            match shared
+                .deps
+                .actions_service
+                .rotate_chat_token(id, token_hash(&token))
+                .await
+            {
+                Ok(rotated) => {
                     tokens.insert(rotated.id(), token);
                     existing[i] = rotated;
                 }
@@ -135,18 +140,13 @@ pub(crate) async fn store(
             now,
         )
         .with_chat_token_hash(token_hash(&token));
-        match shared.deps.actions.insert(&action).await {
-            Ok(()) => {
-                crate::telemetry::record_action(action.status());
-                let entry = crate::actions::audit::proposed(&action, now);
-                if let Err(err) = shared.deps.audit.append(&entry).await {
-                    tracing::error!(%err, "could not write the audit log");
-                }
-                tokens.insert(action.id(), token);
+        match shared.deps.actions_service.propose(action).await {
+            Ok(stored) => {
+                tokens.insert(stored.id(), token);
                 kept.push(proposal);
                 // It is on record now: the same skill and arguments again in this batch
                 // are the identical action and must not become a second one.
-                existing.push(action);
+                existing.push(stored);
             }
             Err(err) => {
                 tracing::warn!(%err, "could not store a proposed action");

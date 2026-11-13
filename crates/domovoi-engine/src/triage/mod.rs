@@ -24,14 +24,15 @@ mod tools;
 use std::sync::Arc;
 
 use domovoi_core::ports::{
-    ActionRepo, AdvisoryRepo, AgentLink, AuditLog, Clock, IncidentRepo, LlmProvider, NoteRepo,
-    Redactor, SignalRepo, TriageCacheRepo, UsageRepo,
+    ActionRepo, AdvisoryRepo, AgentLink, Clock, IncidentRepo, LlmProvider, NoteRepo, Redactor,
+    SignalRepo, TriageCacheRepo, UsageRepo,
 };
 use domovoi_core::{HostId, Incident, IncidentId, TriageBudget, TriageOutcome, UserId};
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
+use crate::actions::ActionHandle;
 use crate::events::DomainEvent;
 use crate::manager::ManagerHandle;
 
@@ -128,10 +129,10 @@ pub struct TriageDeps {
     pub signals: Arc<dyn SignalRepo>,
     /// Host notes.
     pub notes: Arc<dyn NoteRepo>,
-    /// Where proposed actions are stored.
+    /// Where proposed actions are read for the duplicate check.
     pub actions: Arc<dyn ActionRepo>,
-    /// Where `action.proposed` is recorded.
-    pub audit: Arc<dyn AuditLog>,
+    /// The action writer, where proposals and chat token rotations are stored.
+    pub actions_service: ActionHandle,
     /// Reports reused for repeat incidents.
     pub cache: Arc<dyn TriageCacheRepo>,
     /// Token use and cost per call.
