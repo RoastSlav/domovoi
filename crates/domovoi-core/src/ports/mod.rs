@@ -13,6 +13,7 @@ pub mod logs;
 pub mod process;
 pub mod redact;
 pub mod repos;
+pub mod uow;
 
 pub use agent_link::{
     AgentLink, CheckRecheck, IngestError, LinkError, Presence, SignalSink, SkillDispatch,
@@ -31,3 +32,4 @@ pub use logs::{LogLine, LogSource};
 pub use process::{ProcessError, ProcessExecutor, ProcessOutput, ProcessSpec};
 pub use redact::Redactor;
 pub use repos::*;
+pub use uow::*;

@@ -1,13 +1,17 @@
 use async_trait::async_trait;
 use domovoi_core::ports::{
-    IncidentFilter, IncidentRepo, IncidentTimelineEntry, Page, Paged, SignalRepo, StoreError,
+    AggregateRef, IncidentFilter, IncidentRepo, IncidentTimelineEntry, Page, Paged, SignalRepo,
+    StoreError,
 };
 use domovoi_core::{Fingerprint, Incident, IncidentId, IncidentStatus, Signal};
 use jiff::Timestamp;
 
-use super::{InMemoryStore, State, conflict, limit, paginate, word_score, words};
+use super::{
+    InMemoryStore, State, bump_version, conflict, limit, paginate, set_version, word_score, words,
+};
 
-fn is_active(incident: &Incident) -> bool {
+/// Whether the incident is not resolved, so still counted as active.
+pub(super) fn is_active(incident: &Incident) -> bool {
     !matches!(incident.status(), IncidentStatus::Resolved)
 }
 
@@ -21,7 +25,7 @@ fn mentions(incident: &Incident, text: &str) -> bool {
 }
 
 /// Whether storing `incident` would leave two active incidents with one fingerprint.
-fn second_active(state: &State, incident: &Incident) -> bool {
+pub(super) fn second_active(state: &State, incident: &Incident) -> bool {
     is_active(incident)
         && state.incidents.values().any(|other| {
             other.id() != incident.id()
@@ -89,6 +93,7 @@ impl IncidentRepo for InMemoryStore {
             return Err(conflict("active incident with this fingerprint exists"));
         }
         state.incidents.insert(incident.id(), incident.clone());
+        set_version(&mut state, AggregateRef::incident(incident.id()), 1);
         Ok(())
     }
 
@@ -101,6 +106,7 @@ impl IncidentRepo for InMemoryStore {
             return Err(conflict("active incident with this fingerprint exists"));
         }
         state.incidents.insert(incident.id(), incident.clone());
+        bump_version(&mut state, AggregateRef::incident(incident.id()));
         Ok(())
     }
 
@@ -176,6 +182,7 @@ impl IncidentRepo for InMemoryStore {
             Some(_) => {}
         }
         state.incidents.remove(&id);
+        state.versions.remove(&AggregateRef::incident(id));
         state.timeline.remove(&id);
         for (_, link) in state.signals.values_mut() {
             if *link == Some(id) {

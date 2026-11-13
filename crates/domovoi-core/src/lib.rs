@@ -44,8 +44,8 @@ pub use fingerprint::Fingerprint;
 pub use history::EntityHistory;
 pub use host::{AgentIdentity, Host, HostKind, HostName};
 pub use id::{
-    AckRuleId, ActionId, AdvisoryId, AgentId, HostId, IncidentId, NoteId, RequestId, SignalId,
-    UserId,
+    AckRuleId, ActionId, AdvisoryId, AgentId, EffectId, HostId, IncidentId, NoteId, RequestId,
+    SignalId, UserId,
 };
 pub use incident::{
     Incident, IncidentChange, IncidentEvent, IncidentGroup, IncidentPolicy, IncidentStatus, apply,

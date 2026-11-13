@@ -3,10 +3,32 @@
 
 use async_trait::async_trait;
 use domovoi_core::ports::{AuditEvent, AuditFilter, AuditLog, Page, Paged, StoreError};
+use sqlx::{Executor, Sqlite};
 
 use crate::codec::{Cursor, fetch_limit, from_json, from_ms, json, ms, paginate, uint};
 use crate::db::Store;
 use crate::error::db;
+
+/// Appends an audit row and returns its sequence number.
+///
+/// This is the only place that inserts into `audit_log`.
+pub(crate) async fn insert_audit(
+    executor: impl Executor<'_, Database = Sqlite>,
+    event: &AuditEvent,
+) -> Result<u64, StoreError> {
+    const SQL: &str = "INSERT INTO audit_log (at, actor, kind, subject, detail) \
+        VALUES (?, ?, ?, ?, ?) RETURNING seq";
+    let (seq,): (i64,) = sqlx::query_as(SQL)
+        .bind(ms(event.at))
+        .bind(&event.actor)
+        .bind(&event.kind)
+        .bind(&event.subject)
+        .bind(json(&event.detail)?)
+        .fetch_one(executor)
+        .await
+        .map_err(db)?;
+    Ok(uint(seq))
+}
 
 #[derive(sqlx::FromRow)]
 struct AuditRow {
@@ -21,18 +43,7 @@ struct AuditRow {
 #[async_trait]
 impl AuditLog for Store {
     async fn append(&self, event: &AuditEvent) -> Result<u64, StoreError> {
-        const SQL: &str = "INSERT INTO audit_log (at, actor, kind, subject, detail) \
-            VALUES (?, ?, ?, ?, ?) RETURNING seq";
-        let (seq,): (i64,) = sqlx::query_as(SQL)
-            .bind(ms(event.at))
-            .bind(&event.actor)
-            .bind(&event.kind)
-            .bind(&event.subject)
-            .bind(json(&event.detail)?)
-            .fetch_one(&self.write)
-            .await
-            .map_err(db)?;
-        Ok(uint(seq))
+        insert_audit(&self.write, event).await
     }
 
     async fn list(
