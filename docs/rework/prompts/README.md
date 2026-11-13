@@ -3,6 +3,11 @@
 One file per prompt: `NN-branch-name.md`. `NN` is the stable ID used in `../07-implementation-prompt-index.md`.
 Each file is a self-contained, copy-paste-ready brief for one branch and one pull request.
 
+**Not every prompt in the index has been written.** `../07-implementation-prompt-index.md` §6 is the
+authoritative list of the files that exist; an index row without a file here is a plan, not a brief, and
+must not be launched. Prompts are launched one at a time, and prompts that add a migration are launched
+sequentially so their numbers cannot collide (index §7).
+
 - **Execution order and dependencies:** `../07-implementation-prompt-index.md`.
 - **Authoritative design:** `../03-architecture-decisions.md` (RW-NN), `../04-target-architecture.md`,
   `../04b-attestation-encoding.md`, `../99-open-decisions.md` (D-NN, O-NN, R-NN).

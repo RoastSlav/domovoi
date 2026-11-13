@@ -46,7 +46,10 @@ These come from `AGENTS.md`, which CI enforces.
   - `thiserror` in libraries; `anyhow` only in `domovoi` and `xtask`.
   - Every public item has a doc comment saying what it is for.
   - Non-test source files stay at or under 500 lines; web source files at or under 250 lines.
-- **Data and time.** Never edit a merged migration; add a new one. Time comes from the `Clock` port;
+- **Data and time.** Never edit a merged migration; add a new one. Choose a migration's number by listing
+  `crates/domovoi-store/migrations/` on your branch and taking the next unused number; never assume it
+  from a plan or a predecessor. Renumber only your own unmerged file if the branch gained a migration
+  first, and describe the migration by its contents, not its number. Time comes from the `Clock` port;
   tests advance the fake clock from `domovoi-testkit` and never sleep. Secrets are
   `secrecy::SecretString` and are never logged, put into prompts or returned from the API.
 - **Web.** Read `web/DESIGN.md` before touching `web/`. Build only from the kit in

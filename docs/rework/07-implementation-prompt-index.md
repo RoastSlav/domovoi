@@ -4,16 +4,25 @@ Each prompt is one branch and one pull request. The prompt files live in `prompt
 They are self-contained: copy one into a local coding model working in this repository.
 Shared-contract ownership and the standard blocks are in `prompts/README.md` and `prompts/_blocks.md`.
 
-**Status:** the prompt pack is written. Gated prompts must not be launched until their gate is met.
-Readiness per milestone is in `06` (Readiness).
+**Status: partly written.** 14 of the 51 prompts in §2 have a prompt document: `08`–`19`, `24` and `57`.
+The other 37 are planned only; §6 lists them and they must not be launched. A row in §2 is a plan, not
+a brief: only an ID with a file under `prompts/` can be implemented. Gated prompts must not be launched
+until their gate is met. Readiness per milestone is in `06` (Readiness).
+
+**Prompt 08 is in this branch line, not in `main`.** `overhaul-investigation` contains the unit-of-work
+change (via `v2-overhaul`), so `crates/domovoi-store/migrations/` here ends at `0007`; `main` still ends
+at `0005`. Launch state in §6 and the numbers in §7 are therefore stated for a branch that contains
+prompt 08. Read the directory on the branch you actually launch from.
 
 ## 1. How to use this guide
 
-1. Launch prompts in the order of §3, one at a time.
-2. A prompt is launchable only when every prompt in its **Depends on** column is merged and its
-   **Gate** is met.
-3. Prompts in the same **wave** that the table marks parallel touch disjoint areas. They may run in
-   any order, or at the same time on separate branches.
+1. Launch prompts in the order of §3, **one at a time**. The owner runs them manually and sequentially;
+   never run two at once, and never let two branches add a migration at the same time (§7).
+2. A prompt is launchable only when it has a file in `prompts/` (§6), every prompt in its
+   **Depends on** column is merged and its **Gate** is met.
+3. Prompts in the same **wave** that the table marks parallel touch disjoint areas and may run in any
+   order. Prompts that add a migration are the exception: they run sequentially, in wave order, each
+   taking the next free migration number (§7).
 4. After each merge, run the checks listed in the prompt's completion report on `main`, and update
    `ARCHITECTURE.md` as that prompt instructs (D-15).
 5. If a prompt reports a blocker or discrepancy, resolve it before launching anything that depends on
@@ -27,20 +36,23 @@ Readiness per milestone is in `06` (Readiness).
 
 ## 2. Prompt table
 
+The table is the plan for all 51 prompts. Only the IDs marked in §6 have a file; the others are
+not ready to launch. `Depends on` names prompts, not files.
+
 | ID | Branch | Milestone | Scope | Depends on | Parallel with | Produces | Gate | Model |
 |---|---|---|---|---|---|---|---|---|
-| 08 | `store-unit-of-work` | F1 | UnitOfWork port, SQLite + InMemory impl, contract suite, `journal`/`effects`/`schema_compat`, `version` columns, `synchronous=FULL`, `quick_check` | — | 13 | UnitOfWork, tables | — | L |
-| 09 | `audit-hash-chain` | F1 | `Actor`, audit anchor + chain, `audit verify`, startup verify | 08 | 13 | Actor, audit chain | — | M |
-| 10 | `atomic-action-writes` | F1 | action writer via UnitOfWork; audit failure fails transition; token rotation via writer | 09 | 11, 13 | — | — | M |
-| 11 | `atomic-incident-writes` | F1 | incident manager via UnitOfWork; timeline into journal | 09 | 10, 13 | — | — | M |
-| 12 | `crash-harness` | F1 | CrashingStore, restart helper, crash sweep, N-1 upgrade fixture | 10, 11 | 13 | testkit harness | — | M |
-| 13 | `exact-protocol-rule` | F3 | exact major.minor, check after auth, durable Incompatible, agent idle state, floors removed; no wire change | — | 08–12 | Incompatible state | — | M |
+| 08 | `store-unit-of-work` | F1 | UnitOfWork port, SQLite + InMemory impl, contract suite, `journal`/`effects`/`schema_compat`, `version` columns, `synchronous=FULL`, `quick_check` | — | — (already present) | UnitOfWork, tables | — | L |
+| 09 | `audit-hash-chain` | F1 | `Actor`, audit anchor + chain, `audit verify`, startup verify | 08 | — (adds a migration) | Actor, audit chain | — | M |
+| 10 | `atomic-action-writes` | F1 | action writer via UnitOfWork; audit failure fails transition; token rotation via writer | 09 | 11 | — | — | M |
+| 11 | `atomic-incident-writes` | F1 | incident manager via UnitOfWork; timeline into journal | 09 | 10 | — | — | M |
+| 12 | `crash-harness` | F1 | CrashingStore, restart helper, crash sweep, N-1 upgrade fixture | 10, 11 | — | testkit harness | — | M |
+| 13 | `exact-protocol-rule` | F3 | exact major.minor, check after auth, durable Incompatible, agent idle state, floors removed; no wire change | 08 | 16, 57 | Incompatible state | — | M |
 | 14 | `recovery-order` | F2 | HostAvailability, startup order, dispatch freshness checks | 10 | 16 | HostAvailability | — | M |
 | 15 | `durable-timers` | F2 | `Wake` effects, verification resume, effect lifecycle with lease fencing, triage reload | 08, 10, 14 | 16 | effect lifecycle | — | L |
 | 16 | `delivery-durability` | F2 | spool-before-state, notify-after-delivery, read errors | 08 | 14, 15 | — | — | M |
-| 17 | `llm-reliability` | F4 | admission persistence, deadlines, prompt cap, attribution, redaction, host-scoped similar | 08 | 18, 19, 57 | — | — | M |
+| 17 | `llm-reliability` | F4 | admission persistence, deadlines, prompt cap, attribution, redaction, host-scoped similar | 08 | 18, 57 | — | — | M |
 | 18 | `structured-approvals` | F4 | structured cards (web, Discord); approve binds the **v1** hash | 10 | 17, 19, 57 | — | — | M |
-| 19 | `ops-readiness` | F4 | step-up list, `/readyz`, metrics auth, backup verify, restore, pre-migrate pruning | 08 | 17, 18, 57 | — | — | M |
+| 19 | `ops-readiness` | F4 | step-up list, `/readyz`, metrics auth, backup verify, restore, pre-migrate pruning | 08 | 18, 57 | — | — | M |
 | 57 | `configurable-retention` | F4 | D-21 retention config and pruning for existing data | 08 | 17, 18, 19 | retention config | — | S |
 | 20 | `agent-action-journal` | M1 | **protocol 1.1 → 1.2** (complete v1 wire), agent journal, `action_status`, mutation limiter | 13, 14, 15, 16, 17, 18, 19 | 21 | wire 1.2 | — | L |
 | 21 | `outcome-unknown-reconcile` | M1 | OutcomeUnknown, reconcile on hello | 14, 20 | — | — | — | M |
@@ -85,11 +97,14 @@ Readiness per milestone is in `06` (Readiness).
 
 Waves run top to bottom. Within a wave, items joined with ∥ can run in parallel.
 
-1. **Wave A, foundation:** 08 ∥ 13. Research spikes 53 ∥ 54 ∥ 55 ∥ 56 may start here and run
-   throughout; they change no product code.
-2. **Wave B:** 09.
+1. **Wave A, foundation:** 08 (already present in this branch line), then 13. Both add migrations, so
+   they run one after the other (§7); 13 takes the next free number after 08's. Research spikes 53 ∥ 54
+   ∥ 55 ∥ 56 may start here and run throughout; they change no product code and add no migration.
+2. **Wave B:** 09, after 13 has merged, so its audit migration takes the next number.
 3. **Wave C:** 10 ∥ 11.
-4. **Wave D:** 12 ∥ 14 ∥ 16 ∥ 17 ∥ 18 ∥ 19 ∥ 57. Then 15, after 14: both edit `engine/src/actions/{executor,writer,mod}.rs`.
+4. **Wave D:** 12 ∥ 14 ∥ 16 ∥ 18 ∥ 57, then 17, then 19: 17 and 19 each add a migration and run one at
+   a time (§7). Then 15, after 14: both edit `engine/src/actions/{executor,writer,mod}.rs`, and 15 adds
+   the last migration of this wave.
 5. **Wave E, protocol bump:** 20. This is a coordinated hub and agent upgrade.
 6. **Wave F:** 21, then 22, then 23.
 7. **Wave G:** 24, then 25 ∥ 39.
@@ -106,7 +121,7 @@ Waves run top to bottom. Within a wave, items joined with ∥ can run in paralle
 
 | Contract | Owner | First consumers |
 |---|---|---|
-| `Transaction`, `CommitError`, `CommitReceipt`; `advisories.kind` CHECK removed (new advisory kinds are Rust-only) | 08 | 09, 10, 11, 15, 16, 19, 26 |
+| `Transaction`, `CommitError`, `CommitReceipt`; `advisories.kind` CHECK removed (new advisory kinds are Rust-only) | 08 (present in this branch line) | 09, 10, 11, 15, 16, 19, 26 |
 | effect lifecycle and lease fencing | 15 | 16, 26 |
 | wire 1.2 (complete RW-42 list, frozen golden frames) | 20 | 21, 22, 25, 41, 47 |
 | `ExecutionId`, `Authorization`, plan hash v2 | 22 | 23, 26, 45 |
@@ -123,7 +138,8 @@ silent edit by a later prompt.
 
 ## 5. Milestone coverage
 
-Every milestone has a prompt, and the research gates have spikes:
+Every milestone is planned to have a prompt, and the research gates have spikes. Only the prompts listed
+in §6 have been written so far; this table is coverage of the plan, not of the files.
 
 | Milestone | Prompts |
 |---|---|
@@ -156,3 +172,63 @@ The remaining research items need no prompt of their own:
 - R-7 became a test in 25.
 
 Deferred items (`06`, "Deferred and after-v1") get no prompts.
+
+## 6. Prompt file status
+
+**Written.** These 14 prompts have a file in `prompts/`. Only these can be launched.
+
+Launch state below assumes the branch contains prompt 08 (this one does). From `main`, which does not,
+every prompt that depends on 08 is blocked until that change lands.
+
+| ID | File | Launch state |
+|---|---|---|
+| 08 | `08-store-unit-of-work.md` | in this branch line; not in `main` |
+| 13 | `13-exact-protocol-rule.md` | launchable here: 08 is present |
+| 16 | `16-delivery-durability.md` | launchable here: 08 is present |
+| 17 | `17-llm-reliability.md` | launchable here: 08 is present; adds a migration, so run it after 13 and 09 (§7) |
+| 19 | `19-ops-readiness.md` | launchable here: 08 is present; adds a migration, so run it after 17 (§7) |
+| 57 | `57-configurable-retention.md` | launchable here: 08 is present |
+| 09 | `09-audit-hash-chain.md` | written, blocked until 13 has merged (both add a migration; §7) |
+| 10 | `10-atomic-action-writes.md` | written, blocked: needs 09 |
+| 11 | `11-atomic-incident-writes.md` | written, blocked: needs 09 |
+| 12 | `12-crash-harness.md` | written, blocked: needs 10 and 11 |
+| 14 | `14-recovery-order.md` | written, blocked: needs 10 |
+| 15 | `15-durable-timers.md` | written, blocked: needs 08, 10 and 14 |
+| 18 | `18-structured-approvals.md` | written, blocked: needs 10 |
+| 24 | `24-capability-contracts.md` | written, blocked: needs 23, which has no file yet |
+
+**Not written.** 37 IDs have no prompt file. Their §2 row is a plan, not a brief: do not launch them, and
+do not treat the row's scope column as instructions.
+
+- To be written before their wave: 20, 21, 22, 23, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37,
+  38, 39, 40, 41, 42, 43, 48, 49, 50, 51, 52, 58.
+- Waiting on research evidence or an owner decision before they can even be written: 44, 45, 46, 47, 53,
+  54, 55, 56. Their §2 gate column names what is missing (R-2, R-3, R-8, R-9, R-10, O-30).
+
+## 7. Migration numbering
+
+Migrations live in `crates/domovoi-store/migrations/`. Prompt 08 added **two** files,
+`0006_unit_of_work.sql` and `0007_advisories_kind_unchecked.sql`, so any plan that assumed `0006` for
+prompt 13 and `0007` for prompt 09 was wrong. The same mistake is easy to repeat, and the starting
+number is not even the same on every branch:
+
+- a branch that contains prompt 08 (this one, via `v2-overhaul`) ends at `0007`;
+- `main` still ends at `0005_ack_rule_creator.sql`, because the unit-of-work change has not reached it.
+
+So `0008` here and `0006` from `main` would both be "the next free number" — which is exactly why the
+number is read from the directory and never assumed.
+
+Rules for every prompt that adds a migration:
+
+1. **Inspect, then number.** List `crates/domovoi-store/migrations/` on the branch the prompt will land on
+   and take the next unused number. Never take a number from a prompt or from this guide.
+2. **Never edit or renumber a merged migration.** Add a new one.
+3. **Two unmerged branches, one number:** the branch that merges later renumbers its own file before
+   integration. Nothing else is renumbered.
+4. **Contents, not numbers.** A prompt specifies its migration's contents and its name suffix
+   (`_agent_protocol_report`, `_audit_chain`, ...). Its number is not part of the contract, and tests are
+   named after the behaviour, not after a file number.
+5. **One at a time.** Migration-adding prompts run sequentially, never in parallel with each other. In
+   the recommended order of §3 they are 13, then 09, then 17 and 19 in wave D, then 15. On a branch
+   that contains prompt 08 that comes out as `0008` to `0012`. That sequence is an illustration of the
+   rule, not a promise: verify the directory before every one of them.

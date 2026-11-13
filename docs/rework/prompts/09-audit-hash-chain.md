@@ -5,7 +5,7 @@
 | Branch | `audit-hash-chain` |
 | Milestone | F1 |
 | Depends on (must be merged) | 08 |
-| Can run in parallel with | 13 (13 adds its own migration: see section 8) |
+| Can run in parallel with | any prompt that adds no migration; **not** with a prompt that adds one (08 added `0006` and `0007`; see section 8 and index §7) |
 | Produces (shared contracts) | `domovoi_core::Actor`; `domovoi_core::audit_chain::{AuditAnchor, ChainRow, ChainVerifier, canonical_json, entry_hash, LegacyDigest, VerifyReport, ...}`; table `audit_anchor`; columns `audit_log.prev_hash`, `audit_log.hash`; `Store::verify_audit`, `Store::audit_head`; CLI `domovoi audit verify` and `domovoi audit head`; `AuditDraft` and `JournalDraft` now carry an `Actor` |
 | Consumes | prompt 08: `UnitOfWork`, `Transaction`, `AuditDraft`, `JournalDraft`, `insert_audit` (the single place that inserts into `audit_log`), `Store::open` sequence |
 | Launch gate | none |
@@ -401,11 +401,16 @@ and does not fail. Without `--last`, scope is `Full`; with it, `Last(n)`. `domov
 
 ## 8. Database and persistence
 
-Migration `crates/domovoi-store/migrations/NNNN_audit_chain.sql`, where `NNNN` is the next free
-number after the highest file on your branch (expected `0007` after 08's `0006`; prompt 13 may also
-have added one: take the next free number, and renumber your own unmerged file if `main` gains one before
-your PR merges). Additive only; **do not rebuild `audit_log`** (triggers). Adding nullable columns
-with `ALTER TABLE` does not fire the triggers.
+Migration `crates/domovoi-store/migrations/NNNN_audit_chain.sql`. Choose `NNNN` by listing the directory
+on your branch and taking the next unused number; do not take a number from this document or from a
+plan. Prompt 08 added `0006_unit_of_work.sql` and `0007_advisories_kind_unchecked.sql`, so a branch that
+contains it (such as `overhaul-investigation`, via `v2-overhaul`) ends at `0007` and the next free number
+there is `0008`, or `0009` if prompt 13 merged first. `main` still ends at `0005`, where the next free
+number is `0006`. Verify the directory and rely on none of these numbers. If the branch you land on
+gained a migration first, renumber your own unmerged file; never edit or renumber a merged migration.
+Tests and the completion report refer to the file by its contents (`_audit_chain`), not its number.
+Additive only; **do not rebuild `audit_log`** (triggers). Adding nullable columns with `ALTER TABLE`
+does not fire the triggers.
 
 ```sql
 -- Hash chain fields. NULL on rows written before the chain existed (the "legacy" rows).
@@ -648,7 +653,10 @@ These come from `AGENTS.md`, which CI enforces.
   - `thiserror` in libraries; `anyhow` only in `domovoi` and `xtask`.
   - Every public item has a doc comment saying what it is for.
   - Non-test source files stay at or under 500 lines; web source files at or under 250 lines.
-- **Data and time.** Never edit a merged migration; add a new one. Time comes from the `Clock` port;
+- **Data and time.** Never edit a merged migration; add a new one. Choose a migration's number by listing
+  `crates/domovoi-store/migrations/` on your branch and taking the next unused number; never assume it
+  from a plan or a predecessor. Renumber only your own unmerged file if the branch gained a migration
+  first, and describe the migration by its contents, not its number. Time comes from the `Clock` port;
   tests advance the fake clock from `domovoi-testkit` and never sleep. Secrets are
   `secrecy::SecretString` and are never logged, put into prompts or returned from the API.
 - **Web.** Read `web/DESIGN.md` before touching `web/`. Build only from the kit in

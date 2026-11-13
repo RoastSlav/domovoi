@@ -4,8 +4,8 @@
 |---|---|
 | Branch | `exact-protocol-rule` |
 | Milestone | F3 |
-| Depends on (must be merged) | none |
-| Can run in parallel with | 08, 09, 10, 11, 12 |
+| Depends on (must be merged) | 08 |
+| Can run in parallel with | any prompt that adds no migration; **not** with a prompt that adds one (see §6.9 and index §7) |
 | Produces (shared contracts) | `agents.reported_protocol`, `reported_release`, `last_authenticated_at`, `incompatible_since`; `HostRepo::{agent_report, record_agent_report}`; `domovoi_hub::agent_server::{ProtocolState, protocol_state}`; `LinkError::Incompatible` (core); agent link-status file |
 | Consumes | existing `RejectReason::Incompatible { hub }`; existing `AuditLog` port |
 | Launch gate | none |
@@ -21,10 +21,22 @@ row (only when the values change, with an audit entry), and derive the host's `I
 idle state after an `Incompatible` reject instead of exiting (and being restarted by systemd every
 5 s). **No wire change: the protocol stays 1.1.**
 
-This prompt runs in parallel with the unit-of-work prompts (08 to 12). **Assume they are not merged.**
-Write the report with the existing store APIs; a later prompt moves it into a `UnitOfWork`
-transaction. If they are merged when you run, still use the APIs described here, and say so in the
-report.
+Two levels of version are involved, and the rule treats them differently:
+
+- **The envelope's `v` field is a decode gate, not a policy input.** A frame whose `v` is not this
+  build's major is not decoded at all (`UnsupportedMajor`), so its `hello` never reaches
+  authentication. Nothing is stored, and no `reject` frame is sent because the peer's decoder would
+  refuse this build's `v`. This is existing behaviour and stays.
+- **The `hello` payload's `protocol` field is an unauthenticated claim.** Any numeric major and minor
+  decode, including a major other than the hub's. The claim is decided only after the challenge
+  signature verifies, and both a differing major and a differing minor then take the same path:
+  record, audit, `reject(Incompatible { hub })`.
+
+This prompt depends on prompt 08, which is present in this branch line (it came from `v2-overhaul`;
+`main` does not have it yet): the unit of work, `journal`, `effects` and `schema_compat` exist, and its
+migrations consumed `0006` and `0007`. This prompt adds one migration of its own and takes the next
+free number (see §6.9). It does **not** use the unit of work: it writes the report through the
+`HostRepo` methods and audits through `AuditLog::append` as specified below.
 
 ## 2. Architectural context
 
@@ -40,6 +52,15 @@ report.
 - **No new reject variant.** `RejectReason::Incompatible { hub }` already exists and is *final* on every
   released agent. A reject after the challenge is already handled by agents (the `AgentTooOld` path
   uses one).
+- **One policy, two places it can bite.** The exact rule is about the versions the peers *claim*. An
+  envelope `v` that differs from this build's major is not a claim about the protocol but an
+  undecodable frame: `decode` stops at `envelope.v != PROTOCOL_VERSION.major`
+  (`crates/domovoi-proto/src/envelope.rs:82`) before the payload is read, so the hub has no `hello`,
+  no agent id and nothing to authenticate. The only reachable case for the hub is a `hello` that
+  arrives in a decodable frame and claims a different `major` or `minor` in its payload; that claim is
+  authenticated first and then judged by the same exact rule. Never soften the rule per level, and
+  never make the decoder accept another major to turn the first case into the second:
+  `UnsupportedMajor` is the correct, existing answer and it is not recorded.
 - **Release floors are not a compatibility dimension.** `MIN_AGENT_VERSION` and `MIN_HUB_VERSION` and the
   hub's in-memory `record_refusal` go away. The wire variant `RejectReason::AgentTooOld` stays in the
   enum (removing it is a wire change; old frames and snapshots must still decode) but the hub never
@@ -82,9 +103,18 @@ All paths are relative to the repository root `C:\Programming\domovoi`. Verify e
 - `crates/domovoi-proto/src/lib.rs:23-26` re-exports all of the above.
 - `crates/domovoi-proto/src/messages/handshake.rs:226-248` `RejectReason { UnknownAgent, Revoked,
   Incompatible { hub }, AgentTooOld { minimum }, BadSignature, BadToken, #[serde(other)] Unknown }`.
-- `crates/domovoi-proto/src/envelope.rs:82` frames whose envelope `v` differs from this build's major
-  fail to decode (`UnsupportedMajor`). So an agent on another **major** cannot even deliver a `hello`;
-  it is not authenticated and not recorded. That is existing behaviour; do not change it.
+- `crates/domovoi-proto/src/envelope.rs:82` rejects a frame whose envelope `v` is not this build's
+  major with `UnsupportedMajor`, before the payload is read. That gate is not the same thing as the
+  payload's `hello.protocol.major`: `encode` always writes `v = PROTOCOL_VERSION.major`
+  (`envelope.rs:57`), so the hub tests send a payload that *claims* major 2 inside a decodable frame
+  (`crates/domovoi-hub/tests/hub/enrollment.rs:183` `incompatible_major_version_is_rejected` builds
+  exactly that with `hello(ident.agent, newer)`). A frame from a peer whose major is 2 fails the
+  decode gate: the hub receives nothing, authenticates nothing and records nothing, and the
+  connection ends with `ConnError::Protocol` (`crates/domovoi-hub/src/agent_server/conn.rs:76-78`)
+  after an `info` log (`conn.rs:126`), with no `reject` frame — the peer's own decoder would refuse
+  the hub's `v = 1`.
+  Both behaviours are existing and both stay: a claim inside a decodable frame is judged after
+  authentication; an undecodable frame is not authenticated at all.
 - Tests: `crates/domovoi-proto/tests/protocol/version.rs` (`compatibility_matrix`,
   `current_version_is_one_one`), snapshots under `crates/domovoi-proto/tests/protocol/snapshots/`
   (`protocol__snapshots__hello.snap`, `..._reject.snap`, `..._reject_agent_too_old.snap`, ...) driven by
@@ -125,7 +155,9 @@ All paths are relative to the repository root `C:\Programming\domovoi`. Verify e
 - `web/src/api/openapi.json` and `web/src/api/schema.d.ts` are generated; never hand-edit.
 
 **Store and core**
-- `crates/domovoi-store/migrations/` holds `0001_init.sql` to `0005_ack_rule_creator.sql`.
+- `crates/domovoi-store/migrations/` holds `0001_init.sql` to `0007_advisories_kind_unchecked.sql` on a
+  branch that contains prompt 08 (this one does; `main` still ends at `0005_ack_rule_creator.sql`).
+  `0006_unit_of_work.sql` and `0007_advisories_kind_unchecked.sql` come from prompt 08.
   `agents` is defined in `0001_init.sql:15-24` (STRICT; `agent_id`, `host_id`, `public_key`, `version`,
   `enrolled_at`, `revoked_at`).
 - `crates/domovoi-store/src/repos/hosts.rs`: `AgentRow` `:36-55`, `put_agent` `:120-153`, `get_agent` `:155`,
@@ -190,7 +222,8 @@ Files expected to change (new ones marked **(new)**):
 - `crates/domovoi-core/src/host.rs` (add `AgentReport`, `ReportedProtocol`, `AuthenticatedReport`,
   `ReportOutcome`), `src/lib.rs` re-exports, `src/ports/repos/hosts.rs`, `src/ports/agent_link.rs`
   (`LinkError::Incompatible`).
-- `crates/domovoi-store/migrations/0006_agent_protocol_report.sql` **(new)**; `src/repos/hosts.rs`.
+- `crates/domovoi-store/migrations/NNNN_agent_protocol_report.sql` **(new)** (the number is the next free
+  one on your branch; see §6.9); `src/repos/hosts.rs`.
 - `crates/domovoi-testkit/src/repos/hosts.rs`, `src/contracts/hosts.rs`.
 - `crates/domovoi-hub/src/agent_server/{handshake,registry,mod,link}.rs`, `compat.rs` **(new)**.
 - `crates/domovoi-hub/src/api/{mod,hosts,dto_admin}.rs`; `src/runtime/mod.rs`, `src/admin/mod.rs`,
@@ -203,7 +236,9 @@ Files expected to change (new ones marked **(new)**):
 ## 5. Explicit non-goals
 
 - **No wire change.** Do not touch `PROTOCOL_VERSION`, message payloads, envelope, or any snapshot other than
-  the new ones this prompt adds. Do not add or remove a `RejectReason` variant.
+  the new ones this prompt adds. Do not add or remove a `RejectReason` variant. Do **not** loosen
+  `envelope::decode` so that a frame from another major decodes: `UnsupportedMajor` stays exactly as
+  it is, and a frame it refuses is never recorded.
 - No `HostAvailability` type, no startup-order work, no dispatch freshness checks (prompt 14). If
   `HostAvailability` already exists in the code when you run (prompt 14 merged first), also make
   `WsAgentLink::availability` return `Incompatible { reported }` for `ProtocolState::Incompatible`, using
@@ -354,6 +389,11 @@ authenticate(hello):
 ```
 Nothing about the protocol is read or stored before step 4. There is no release-floor check.
 
+`hello` in this sequence means a payload that already passed `decode`, so its frame's envelope `v` is
+1. `hello.protocol` may still name another major or minor; the comparison in step 5 rejects it exactly
+like a minor difference. A frame whose envelope `v` is not 1 never produces a `hello`, so steps 1-9
+never run for it.
+
 ### 6.5 Audit entry — **fixed**
 
 `AuditEvent { at: now, actor: "system:agent_server", kind: "agent.protocol_reported", subject:
@@ -449,14 +489,29 @@ yet`. The file may be stale if the agent is not running; the line says when it w
 
 ### 6.9 Migration — **fixed**
 
-`crates/domovoi-store/migrations/0006_agent_protocol_report.sql` (see §8).
+One new migration in `crates/domovoi-store/migrations/`, named `NNNN_agent_protocol_report.sql`
+(see §8 and the numbering rule below). Its number is not part of its contract: the contents in §8 are.
+
+**Migration numbering (applies to every prompt that adds a migration).**
+
+1. Never assume a number from a plan, from a predecessor prompt, or from this document. Before writing
+   the file, list `crates/domovoi-store/migrations/` on your branch and take the next unused number.
+2. At the time this brief was written, a branch containing prompt 08 ends at
+   `0007_advisories_kind_unchecked.sql` (08 added `0006` and `0007`), so the next free number there is
+   `0008` if nothing else has landed since; from `main`, which lacks 08, it is `0006`. Read the
+   directory; do not trust either number.
+3. Never edit or renumber a migration that is already merged. Renumber only your own unmerged file if
+   the branch it lands on gained a migration first.
+4. Refer to the file by its contents (`_agent_protocol_report`), not by a number, in tests, reports and
+   acceptance criteria.
 
 ## 7. Ordered implementation steps
 
 1. **Inspect and verify the repository context; report discrepancies.** Open every file in §3. Confirm
-   `PROTOCOL_VERSION` is 1.1, `authenticate` has the pre-challenge check, `0006_*` is the next free
-   migration number (if prompts 08 or 09 are merged, take the next free number and keep the content),
-   and that `AgentIdentity` literals exist in tests. Run `cargo build --workspace` once to see the baseline.
+   `PROTOCOL_VERSION` is 1.1, `authenticate` has the pre-challenge check, the highest migration number
+   in `crates/domovoi-store/migrations/` (prompt 08 is merged and ends at `0007`; take the next free
+   number, never a number this document assumed), and that `AgentIdentity` literals exist in tests. Run
+   `cargo build --workspace` once to see the baseline.
    Write down any difference before editing.
 2. **Proto.** Replace `compatible`, delete floors and `at_least`, fix re-exports and unit tests,
    update doc comments. Update `tests/protocol/version.rs`. `cargo test -p domovoi-proto`.
@@ -504,7 +559,7 @@ Every file stays at or under 250 lines (split if needed).
 
 ## 8. Database and persistence
 
-Migration `0006_agent_protocol_report.sql`:
+Migration `NNNN_agent_protocol_report.sql` (next free number: see §6.9):
 ```sql
 -- What an agent reported after it proved its key (protocol compatibility, RW-17).
 ALTER TABLE agents ADD COLUMN reported_protocol      TEXT;     -- 'major.minor', e.g. '1.1'
@@ -521,8 +576,10 @@ separate `AuditLog::append` after it (documented non-atomicity; a later prompt m
 `UnitOfWork`).
 
 N-1 upgrade test (store crate, next to the existing migration tests; find them with
-`grep -rn "migrat" crates/domovoi-store/tests`): create a database at schema 0005 with an `agents` row,
-open with the new store, assert the row reads back through `get_agent` and `agent_report` returns `None`.
+`grep -rn "migrat" crates/domovoi-store/tests`): create a database at the schema level of the newest
+migration that precedes yours (with prompt 08 merged that is `0007`; read the directory, do not assume),
+with an `agents` row, open with the new store, assert the row reads back through `get_agent` and
+`agent_report` returns `None`.
 
 ## 9. Protocol and compatibility
 
@@ -533,8 +590,18 @@ open with the new store, assert the row reads back through `get_agent` and `agen
   write storm. Log lines on a repeat refusal are at `debug`.
 - An unauthenticated client now receives a challenge even when its `hello` carries a wrong protocol.
   It learns nothing more than before.
-- A hello from another **major** is rejected at decode (`UnsupportedMajor`) and is neither authenticated nor
-  recorded. Do not try to change this.
+- **Two cases, one policy.** Distinguish them by which version disagreed; do not give the major a
+  different rule:
+  - *Envelope `v` differs from this build's major.* `decode` refuses the frame with
+    `UnsupportedMajor` before the payload exists. There is no `hello`, no agent id, no challenge, no
+    signature check, no row and no audit entry; the connection ends with `ConnError::Protocol` and
+    the hub sends no `reject` frame (the peer's `v = 2` decoder would refuse a `v = 1` frame anyway).
+    That peer learns nothing about this hub and cannot make it write anything. Keep it that way: do
+    not widen the decoder, and do not add a durable record for an undecodable frame.
+  - *Envelope `v` is 1 and `hello.protocol` claims another major or minor* (for example
+    `{major: 2, minor: 0}`, or `1.0`, or `1.2`). The frame decodes, the agent is looked up, the
+    challenge is signed, and only then does the exact rule fail: record, audit, `reject(Incompatible
+    { hub })`. The major is not special-cased, so `compatible()` stays a plain equality check.
 - `RejectReason::AgentTooOld` remains decodable; the golden frame `reject_agent_too_old` stays.
 - An idle agent does not notice if the *hub* is later changed to match it (for example a hub rollback).
   The book says to restart the agent.
@@ -544,9 +611,11 @@ open with the new store, assert the row reads back through `get_agent` and `agen
 | Situation | Exact behaviour |
 |---|---|
 | Unknown or revoked agent id | `reject` (`unknown_agent` / `revoked`) before the challenge; nothing stored |
+| Frame whose envelope `v` is not 1 | `decode` fails with `UnsupportedMajor`; the handshake never starts; no row, no audit, no `reject` frame; `info` log; connection closed |
 | Hello with any protocol, signature invalid | `reject(bad_signature)`; nothing stored; no protocol check happened |
 | Signature valid, protocol equal | record (only if changed), `welcome` |
-| Signature valid, protocol differs | record, audit when changed, `reject(Incompatible { hub })`, close |
+| Signature valid, protocol differs in minor | record, audit when changed, `reject(Incompatible { hub })`, close |
+| Signature valid, `hello.protocol.major` differs (frame was `v = 1`) | same as a minor difference: record, audit when changed, `reject(Incompatible { hub })`, close |
 | `record_agent_report` fails | connection fails with the store error; no `welcome`; log at `error` |
 | `audit.append` fails after a successful record | log at `error`, continue (reject or welcome as decided) |
 | Same mismatching agent reconnects every 5 s | no row write inside `REPORT_REFRESH`; no audit; `debug` log |
@@ -561,8 +630,15 @@ open with the new store, assert the row reads back through `get_agent` and `agen
 ## 11. Security requirements
 
 - **INV-10.** Nothing about an agent's protocol, release or incompatibility is stored or published before the
-  challenge signature over this connection's channel binding verified. Test:
-  `unauthenticated_hello_does_not_persist_incompatibility`.
+  challenge signature over this connection's channel binding verified — whatever version the hello
+  claims, and whichever way the comparison would go. An invalid or missing signature writes no
+  `agents` column, no `incompatible_since`, and no audit entry. Tests:
+  `unauthenticated_hello_does_not_persist_incompatibility` (a 1.0 claim) and
+  `unauthenticated_major_claim_does_not_persist_incompatibility` (a 2.0 claim in a decodable frame).
+- A frame refused by `decode` for its envelope major reaches no code that can write: the refusal is
+  `ProtoError::UnsupportedMajor` inside `recv`, before the handshake exists. Test: extend
+  `other_major_is_rejected` (`crates/domovoi-proto/tests/protocol/roundtrip.rs:74`) with a `hello`
+  payload, so the frame is well formed and only its `v` is wrong.
 - Fail closed: any store error in step 6 ends the connection without a `welcome`.
 - Audit: each change of the recorded report writes `agent.protocol_reported`; it contains no secret.
 - `agents.reported_*` are informational. They never grant anything; the session is still established only by
@@ -574,9 +650,14 @@ open with the new store, assert the row reads back through `get_agent` and `agen
 
 Use `FakeClock`, `InMemoryStore`, `FakeAgent`, `TestHub` as existing. No sleeps. New items marked **(new)**.
 
-**Proto** (`crates/domovoi-proto/tests/protocol/version.rs`)
+**Proto** (`crates/domovoi-proto/tests/protocol/version.rs` unless stated)
 - `exact_rule_matrix`: replaces `compatibility_matrix`. Cases `(agent, hub, accepted)`: `(1.1,1.1,true)`,
   `(1.0,1.1,false)`, `(1.2,1.1,false)`, `(2.1,1.1,false)`, `(1.1,2.1,false)`, `(1.65535,1.65535,true)`.
+  This is the pure function only; it says nothing about whether a frame carrying those numbers decodes.
+- `other_major_is_rejected` (`tests/protocol/roundtrip.rs:74`): keep it and add a second case in the same
+  test — a well-formed `hello` frame whose envelope `v` is 2 must return
+  `Err(ProtoError::UnsupportedMajor { v: 2 })`, proving the refusal happens before the payload is
+  parsed. That is the decode gate, and it is the only path for a peer on another major.
 - **Golden frames 1.1.** The existing snapshots (`hello`, `challenge`, `challenge_response`, `welcome`,
   `reject`, `reject_agent_too_old`, ...) are the golden frames for 1.1. Add one test
   `golden_frames_stay_at_1_1` in `tests/protocol/snapshots.rs` asserting `PROTOCOL_VERSION` is 1.1 and that
@@ -595,6 +676,10 @@ Use `FakeClock`, `InMemoryStore`, `FakeAgent`, `TestHub` as existing. No sleeps.
   `answer_without_the_key` (existing helper); expects `BadSignature`; `agent_report` is `None`; no audit
   event of kind `agent.protocol_reported`; `server.protocol_state(host)` is `Unknown`. Replaces
   `an_agent_that_cannot_sign_its_challenge_records_no_refusal`.
+- `unauthenticated_major_claim_does_not_persist_incompatibility`: the same flow with a `hello` payload
+  claiming `{major: 2, minor: 0}` in a decodable frame and a bad signature. Expects `BadSignature`, no
+  report, no audit entry, `protocol_state` `Unknown`. This is the case that must not become "rejected
+  early because the major is different".
 - `unknown_agent_with_old_protocol_gets_unknown_agent_reject`: unchanged reject, nothing stored.
 - `incompatible_state_survives_hub_restart` **(new harness helper)**: add `Hub::restart(&self) -> Hub` in
   `tests/hub/harness.rs` that builds a second `AgentServer` over the **same** `InMemoryStore`. Flow: reject a
@@ -611,8 +696,13 @@ Use `FakeClock`, `InMemoryStore`, `FakeAgent`, `TestHub` as existing. No sleeps.
 - `release_floor_no_longer_rejects`: replaces `agent_older_than_the_hub_minimum_is_refused` and
   `a_client_predating_the_reason_floor_is_refused_with_incompatible`: `hello_running(.., PROTOCOL_VERSION, "0.0.1")`
   gets `welcome`.
-- Keep `incompatible_major_version_is_rejected` (payload major 2 in an otherwise valid frame): now it needs the
-  signature first; update it to answer the challenge and expect `Incompatible`.
+- `incompatible_major_claim_is_rejected_after_authentication`: replaces
+  `incompatible_major_version_is_rejected` (`enrollment.rs:183`). The helper sends a `hello` payload
+  whose `protocol` is `{major: 2, minor: 0}` inside a frame this build encodes, so the envelope `v` is
+  still 1 and the frame decodes. Answer the challenge with the enrolled key, then expect
+  `Reject(Incompatible { hub: PROTOCOL_VERSION })` and `store.agent_report(agent)` showing protocol
+  `2.0` with `incompatible_since == Some(now)`. Do **not** write a test that expects a `v = 2`
+  envelope to produce a `reject`: that frame never decodes and the hub sends nothing.
 - `link_to_incompatible_host_is_unavailable` (`tests/hub/`): after the rejection, `server.link().run_tool(..)`
   (use any `AgentLink` method) returns `Err(LinkError::Incompatible)`; for a never-seen host it returns
   `NotConnected`; for a host whose row says protocol 1.0 with `incompatible_since: None` (expected
@@ -628,7 +718,7 @@ Use `FakeClock`, `InMemoryStore`, `FakeAgent`, `TestHub` as existing. No sleeps.
   false`, `last_authenticated_at` updated; a different release → `changed: true`; a mismatching record sets
   `incompatible_since` to `now` and a second mismatching record keeps the first value; a compatible record
   clears it; unknown agent id → `NotFound`.
-- `migration_0006_keeps_existing_agents` (N-1).
+- `migration_keeps_existing_agents` (N-1): name it after the behaviour, not the file number.
 
 **Agent** (`crates/domovoi-agent/tests/agent/link.rs`)
 - `incompatible_agent_idles_without_reconnecting`: `TestHub` accepts once and rejects with `Incompatible`; assert
@@ -663,30 +753,39 @@ Use `FakeClock`, `InMemoryStore`, `FakeAgent`, `TestHub` as existing. No sleeps.
    `AGENT_TOO_OLD_REASON_SINCE`, `at_least`, `refusal_reason`, `Refusal` and `record_refusal` no longer
    exist; `rg "MIN_AGENT_VERSION|MIN_HUB_VERSION|record_refusal|HubTooOld" crates web/src docs/book` returns
    nothing.
-2. `authenticate` performs no protocol comparison before the signature verifies (read the code and the test
-   `unauthenticated_hello_does_not_persist_incompatibility`).
+2. `authenticate` performs no protocol comparison before the signature verifies (read the code and the tests
+   `unauthenticated_hello_does_not_persist_incompatibility` and
+   `unauthenticated_major_claim_does_not_persist_incompatibility`).
 3. A mismatched but authenticated agent gets `Reject(Incompatible { hub })` and its `agents` row shows
-   `reported_protocol`, `reported_release`, `last_authenticated_at` and `incompatible_since`.
-4. The same mismatching agent reconnecting repeatedly writes the row and the audit log once per change (and
+   `reported_protocol`, `reported_release`, `last_authenticated_at` and `incompatible_since`. This holds
+   for a differing minor and for a differing major claimed in a decodable frame
+   (`incompatible_major_claim_is_rejected_after_authentication`).
+4. A frame whose envelope `v` is not this build's major still fails to decode with `UnsupportedMajor`
+   before any payload is read (`other_major_is_rejected`); it produces no row, no audit entry and no
+   `reject` frame, and `envelope::decode` was not loosened to change that.
+5. The same mismatching agent reconnecting repeatedly writes the row and the audit log once per change (and
    at most one refresh per hour without audit).
-5. After a hub restart (`incompatible_state_survives_hub_restart`) the host is `Incompatible`; after a hub
+6. After a hub restart (`incompatible_state_survives_hub_restart`) the host is `Incompatible`; after a hub
    upgrade that changed the protocol, a not-yet-reconnected host is `ExpectedIncompatible`.
-6. `GET /api/v1/hosts` has no `refused` field and has the five new fields; OpenAPI and `schema.d.ts` are
+7. `GET /api/v1/hosts` has no `refused` field and has the five new fields; OpenAPI and `schema.d.ts` are
    regenerated, not hand-edited.
-7. The Hosts page shows "Incompatible" and "Expected incompatible" with the sentences in §6.10; both rank as
+8. The Hosts page shows "Incompatible" and "Expected incompatible" with the sentences in §6.10; both rank as
    needing attention.
-8. An agent rejected as `Incompatible` does not return from `Link::run`, does not call `connect()` again,
+9. An agent rejected as `Incompatible` does not return from `Link::run`, does not call `connect()` again,
    logs at `error` on entry and hourly, writes `link-status.json`, and `domovoi agent status` prints it.
-9. An agent rejected as `Revoked` still stops.
-10. Link calls to a host the hub rejected as `Incompatible` fail with `LinkError::Incompatible`
+10. An agent rejected as `Revoked` still stops.
+11. Link calls to a host the hub rejected as `Incompatible` fail with `LinkError::Incompatible`
     (`agent_incompatible`); an `ExpectedIncompatible` host fails with `NotConnected`.
-11. No `.snap` under `crates/domovoi-proto/tests/protocol/snapshots/` changed, `PROTOCOL_VERSION` is 1.1.
-12. The book states the exact rule and the upgrade procedure (§15); `cargo xtask docs-links` passes.
-13. `cargo xtask arch-check` passes; no new `#[allow]`; no file over 500 lines (web files over 250).
+12. No `.snap` under `crates/domovoi-proto/tests/protocol/snapshots/` changed, `PROTOCOL_VERSION` is 1.1.
+13. The new migration is the next unused number in `crates/domovoi-store/migrations/` on the branch it
+    lands on, no merged migration was edited or renumbered, and its contents match §8 regardless of its
+    number.
+14. The book states the exact rule and the upgrade procedure (§15); `cargo xtask docs-links` passes.
+15. `cargo xtask arch-check` passes; no new `#[allow]`; no file over 500 lines (web files over 250).
 
 ## 14. Migration and compatibility
 
-- **Existing hub database.** Migration 0006 adds four nullable columns. Existing agents show `Unknown`
+- **Existing hub database.** The new migration adds four nullable columns. Existing agents show `Unknown`
   protocol state until they next authenticate (seconds, for connected agents).
 - **Existing agents.**
   - Same protocol 1.1: unaffected; they see no difference.
@@ -702,7 +801,9 @@ Use `FakeClock`, `InMemoryStore`, `FakeAgent`, `TestHub` as existing. No sleeps.
 
 - `docs/book/src/reference/protocol.md`: rewrite "Versioning" (`:23-29`): current version **1.1**; exact
   major.minor rule; patch releases irrelevant; no release floors; the hub checks only after the signature
-  verifies and answers `incompatible`; fix the handshake steps at `:53-55`; keep a sentence that `agent_too_old`
+  verifies and answers `incompatible`; state that the envelope's `v` is the sender's major and that a
+  frame from another major is refused at decode, so that peer is never authenticated, never recorded and
+  gets no `reject` frame; fix the handshake steps at `:53-55`; keep a sentence that `agent_too_old`
   is still decodable but no longer sent.
 - `docs/book/src/install/upgrading.md` (`:36-38`): replace the window and floor paragraphs with the
   **upgrade procedure**: 1. upgrade the hub; 2. upgrade each agent through the supported install path;
@@ -763,7 +864,10 @@ These come from `AGENTS.md`, which CI enforces.
   - `thiserror` in libraries; `anyhow` only in `domovoi` and `xtask`.
   - Every public item has a doc comment saying what it is for.
   - Non-test source files stay at or under 500 lines; web source files at or under 250 lines.
-- **Data and time.** Never edit a merged migration; add a new one. Time comes from the `Clock` port;
+- **Data and time.** Never edit a merged migration; add a new one. Choose a migration's number by listing
+  `crates/domovoi-store/migrations/` on your branch and taking the next unused number; never assume it
+  from a plan or a predecessor. Renumber only your own unmerged file if the branch gained a migration
+  first, and describe the migration by its contents, not its number. Time comes from the `Clock` port;
   tests advance the fake clock from `domovoi-testkit` and never sleep. Secrets are
   `secrecy::SecretString` and are never logged, put into prompts or returned from the API.
 - **Web.** Read `web/DESIGN.md` before touching `web/`. Build only from the kit in
