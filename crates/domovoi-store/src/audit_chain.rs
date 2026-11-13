@@ -69,9 +69,10 @@ pub(crate) async fn insert_audit(
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
     let prev = match newest_chained(conn).await? {
         Some((_, hash)) => hash,
-        None => anchor_hash(conn)
+        None => checked_anchor(conn)
             .await?
-            .ok_or_else(|| StoreError::Backend("audit anchor is missing".to_owned()))?,
+            .ok_or_else(|| StoreError::Backend("audit anchor is missing".to_owned()))?
+            .hash(),
     };
     let seq = next_seq(conn).await?;
 
@@ -162,33 +163,62 @@ pub(crate) async fn ensure_anchor(pool: &SqlitePool, now: Timestamp) -> Result<(
     Ok(())
 }
 
+/// The anchor row with the hash the database persists for it.
+pub(crate) struct StoredAnchor {
+    /// The anchor's fields.
+    pub(crate) anchor: AuditAnchor,
+    /// The hash stored beside them; it must equal [`AuditAnchor::hash`].
+    pub(crate) anchor_hash: Hash,
+}
+
 /// The anchor row, `None` only if the store was not opened through `Store::open`.
 pub(crate) async fn load_anchor(
     conn: &mut SqliteConnection,
-) -> Result<Option<AuditAnchor>, StoreError> {
+) -> Result<Option<StoredAnchor>, StoreError> {
     #[derive(sqlx::FromRow)]
     struct AnchorRow {
         install_id: String,
         legacy_last_id: i64,
         legacy_count: i64,
         legacy_digest: Vec<u8>,
+        anchor_hash: Vec<u8>,
     }
     let row: Option<AnchorRow> = sqlx::query_as(
-        "SELECT install_id, legacy_last_id, legacy_count, legacy_digest \
+        "SELECT install_id, legacy_last_id, legacy_count, legacy_digest, anchor_hash \
          FROM audit_anchor WHERE id = 1",
     )
     .fetch_optional(&mut *conn)
     .await
     .map_err(db)?;
     row.map(|row| {
-        Ok(AuditAnchor {
-            install_id: row.install_id,
-            legacy_last_id: uint(row.legacy_last_id),
-            legacy_count: uint(row.legacy_count),
-            legacy_digest: hash32(&row.legacy_digest, "audit anchor digest")?,
+        Ok(StoredAnchor {
+            anchor: AuditAnchor {
+                install_id: row.install_id,
+                legacy_last_id: uint(row.legacy_last_id),
+                legacy_count: uint(row.legacy_count),
+                legacy_digest: hash32(&row.legacy_digest, "audit anchor digest")?,
+            },
+            anchor_hash: hash32(&row.anchor_hash, "audit anchor hash")?,
         })
     })
     .transpose()
+}
+
+/// The anchor after checking the persisted hash against its contents.
+///
+/// A mismatch means the anchor was edited; verification and appends must not accept it.
+pub(crate) async fn checked_anchor(
+    conn: &mut SqliteConnection,
+) -> Result<Option<AuditAnchor>, StoreError> {
+    let Some(stored) = load_anchor(conn).await? else {
+        return Ok(None);
+    };
+    if stored.anchor_hash != stored.anchor.hash() {
+        return Err(StoreError::Backend(
+            "audit anchor hash does not match its contents".to_owned(),
+        ));
+    }
+    Ok(Some(stored.anchor))
 }
 
 /// The newest row that has a hash, with its sequence number.
@@ -279,29 +309,19 @@ pub(crate) async fn count_legacy(
     Ok(uint(count))
 }
 
-/// Every checkpoint row's detail, newest first.
-pub(crate) async fn checkpoints(conn: &mut SqliteConnection) -> Result<Vec<Value>, StoreError> {
-    let rows: Vec<(String,)> =
-        sqlx::query_as("SELECT detail FROM audit_log WHERE kind = ? ORDER BY seq DESC")
+/// Every checkpoint row's sequence number and detail, newest first.
+pub(crate) async fn checkpoints(
+    conn: &mut SqliteConnection,
+) -> Result<Vec<(u64, Value)>, StoreError> {
+    let rows: Vec<(i64, String)> =
+        sqlx::query_as("SELECT seq, detail FROM audit_log WHERE kind = ? ORDER BY seq DESC")
             .bind(CHECKPOINT_KIND)
             .fetch_all(&mut *conn)
             .await
             .map_err(db)?;
     rows.into_iter()
-        .map(|(detail,)| from_json(&detail, "audit checkpoint detail"))
+        .map(|(seq, detail)| Ok((uint(seq), from_json(&detail, "audit checkpoint detail")?)))
         .collect()
-}
-
-async fn anchor_hash(conn: &mut SqliteConnection) -> Result<Option<Hash>, StoreError> {
-    let bytes: Option<Vec<u8>> =
-        sqlx::query_scalar("SELECT anchor_hash FROM audit_anchor WHERE id = 1")
-            .fetch_optional(&mut *conn)
-            .await
-            .map_err(db)?;
-    bytes
-        .as_deref()
-        .map(|bytes| hash32(bytes, "audit anchor hash"))
-        .transpose()
 }
 
 async fn next_seq(conn: &mut SqliteConnection) -> Result<u64, StoreError> {

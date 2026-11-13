@@ -10,7 +10,7 @@ use serde_json::Value;
 use sqlx::SqliteConnection;
 
 use crate::audit_chain::{
-    BATCH, checkpoints, count_legacy, first_chained, load_anchor, newest_chained, newest_rows,
+    BATCH, checked_anchor, checkpoints, count_legacy, first_chained, newest_chained, newest_rows,
     rows_after,
 };
 use crate::db::Store;
@@ -21,7 +21,7 @@ impl Store {
     /// `Last(n)` checks the legacy row count only and the newest n chained rows.
     pub async fn verify_audit(&self, scope: VerifyScope) -> Result<VerifyReport, StoreError> {
         let mut conn = self.read.acquire().await.map_err(db)?;
-        let anchor = load_anchor(&mut conn)
+        let anchor = checked_anchor(&mut conn)
             .await?
             .ok_or_else(|| StoreError::Backend("audit anchor is missing".to_owned()))?;
         match scope {
@@ -39,7 +39,7 @@ impl Store {
     /// The anchor, `None` only if the store was not opened through `Store::open`.
     pub async fn audit_anchor(&self) -> Result<Option<AuditAnchor>, StoreError> {
         let mut conn = self.read.acquire().await.map_err(db)?;
-        load_anchor(&mut conn).await
+        checked_anchor(&mut conn).await
     }
 }
 
@@ -190,7 +190,7 @@ async fn verify_last(
     })
 }
 
-/// A `Trusted` start when the newest checkpoint names this row and links to it.
+/// A `Trusted` start when the newest checkpoint for this retained row links to it.
 async fn checkpoint_start(
     conn: &mut SqliteConnection,
     first_seq: u64,
@@ -200,18 +200,22 @@ async fn checkpoint_start(
         return Ok(None);
     };
     let expected = hex::encode(prev);
-    let found = checkpoints(conn).await?.into_iter().any(|detail| {
+    // `checkpoints` is newest first, so the first match is the checkpoint that wins.
+    let newest = checkpoints(conn).await?.into_iter().find(|(_, detail)| {
         detail.get("first_retained_seq").and_then(Value::as_u64) == Some(first_seq)
-            && detail
-                .get("first_retained_prev_hash")
-                .and_then(Value::as_str)
-                == Some(expected.as_str())
     });
-    Ok(found.then_some(ChainStart::Trusted))
+    let Some((_, detail)) = newest else {
+        return Ok(None);
+    };
+    let matches = detail
+        .get("first_retained_prev_hash")
+        .and_then(Value::as_str)
+        == Some(expected.as_str());
+    Ok(matches.then_some(ChainStart::Trusted))
 }
 
 async fn legacy_pruned(conn: &mut SqliteConnection) -> Result<bool, StoreError> {
-    Ok(checkpoints(conn).await?.into_iter().any(|detail| {
+    Ok(checkpoints(conn).await?.into_iter().any(|(_, detail)| {
         detail
             .get("legacy_pruned")
             .and_then(Value::as_bool)

@@ -22,6 +22,8 @@ const NO_UPDATE: &str = "CREATE TRIGGER audit_log_no_update BEFORE UPDATE ON aud
     SELECT RAISE(ABORT, 'audit_log is append-only'); END";
 const NO_DELETE: &str = "CREATE TRIGGER audit_log_no_delete BEFORE DELETE ON audit_log BEGIN \
     SELECT RAISE(ABORT, 'audit_log is append-only'); END";
+const NO_ANCHOR_UPDATE: &str = "CREATE TRIGGER audit_anchor_no_update BEFORE UPDATE ON audit_anchor BEGIN \
+    SELECT RAISE(ABORT, 'audit_anchor is append-only'); END";
 
 fn event(kind: &str, at_secs: i64) -> AuditEvent {
     AuditEvent {
@@ -417,6 +419,43 @@ async fn checkpoint_with_a_wrong_link_is_broken() {
 }
 
 #[tokio::test]
+async fn newest_checkpoint_for_a_retained_row_wins() {
+    let fresh = Fresh::new().await;
+    for index in 1..=10 {
+        append(&fresh.store, &format!("test.{index}"), index).await;
+    }
+    let pool = fresh.store.pool_for_tests();
+    let (prev,): (Vec<u8>,) = sqlx::query_as("SELECT prev_hash FROM audit_log WHERE seq = 5")
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    let prev: Hash = prev.try_into().unwrap();
+    append_checkpoint(&fresh.store, 5, &prev, false).await;
+    append_checkpoint(&fresh.store, 5, &[0u8; 32], false).await;
+
+    drop_trigger(pool, "audit_log_no_delete").await;
+    sqlx::query("DELETE FROM audit_log WHERE seq < 5")
+        .execute(pool)
+        .await
+        .unwrap();
+    recreate_trigger(pool, NO_DELETE).await;
+
+    assert!(matches!(
+        fresh
+            .store
+            .verify_audit(VerifyScope::Full)
+            .await
+            .unwrap()
+            .chained,
+        ChainStatus::Broken {
+            first_broken_seq: 5,
+            reason: BreakReason::CheckpointMismatch,
+            ..
+        }
+    ));
+}
+
+#[tokio::test]
 async fn pruning_without_a_checkpoint_is_broken() {
     let fresh = Fresh::new().await;
     for index in 1..=10 {
@@ -443,6 +482,35 @@ async fn pruning_without_a_checkpoint_is_broken() {
             ..
         }
     ));
+}
+
+#[tokio::test]
+async fn edited_anchor_hash_is_rejected_by_verify_and_append() {
+    let fresh = Fresh::new().await;
+    let pool = fresh.store.pool_for_tests();
+    drop_trigger(pool, "audit_anchor_no_update").await;
+    sqlx::query("UPDATE audit_anchor SET anchor_hash = ?")
+        .bind(vec![0u8; 32])
+        .execute(pool)
+        .await
+        .unwrap();
+    recreate_trigger(pool, NO_ANCHOR_UPDATE).await;
+
+    assert!(
+        fresh.store.verify_audit(VerifyScope::Full).await.is_err(),
+        "verification must not accept an edited anchor"
+    );
+    assert!(
+        AuditLog::append(&fresh.store, &event("test.after", 1))
+            .await
+            .is_err(),
+        "append must not extend a chain from an edited anchor"
+    );
+    let count: (i64,) = sqlx::query_as("SELECT count(*) FROM audit_log")
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert_eq!(count.0, 0);
 }
 
 #[tokio::test]
