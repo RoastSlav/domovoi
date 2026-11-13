@@ -23,7 +23,7 @@ These hold however the model behaves. Each one is enforced by code and by named 
 4. **You approve exactly what runs.** At dispatch, the plan, the manifest's hash and the arguments must still match what was approved. Editing a skill cancels its pending approvals. *(INV-4)*
 5. **Secrets stay secret.** They are redacted from logs, model requests, chat and API responses. *(INV-5)*
 6. **Destructive actions need the web UI.** They are never approved automatically and never from a chat button. *(INV-6)*
-7. **The audit log is append-only.** Every proposal, approval, execution and verification is recorded, and the database refuses to change history. *(INV-7)*
+7. **The audit log is append-only and hash-chained.** Every proposal, approval, execution and verification is recorded, and the database refuses to change history. Each new row also carries a SHA-256 hash over the row before it, so edits, mid-chain deletions and rows inserted by tools that do not compute the chain are detected by `domovoi audit verify`. The chain cannot detect a full rewrite of the database that recomputes every hash, nor deletion of the newest rows: for the last case, run `domovoi audit head` and keep the output off the host, so a later comparison shows the change. *(INV-7)*
 8. **The web UI resists forgery.** Every change needs a session and a CSRF token, and other origins are refused. *(INV-8)*
 9. **Model output is never parsed into commands.** An action is only a skill name and arguments, validated against that skill's manifest. *(INV-9)*
 10. **Agent links are mutually authenticated.** Agents pin the hub's certificate; the hub knows each agent by its key; revoked agents are refused. *(INV-10)*

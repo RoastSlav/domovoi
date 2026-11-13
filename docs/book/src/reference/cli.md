@@ -96,7 +96,7 @@ printf '%s\n' "$NEW_PASSWORD" | domovoi hub set-password --password-stdin
 
 ### Commands that need the hub stopped
 
-`hub token create`, `hub agent list`, `hub agent revoke`, `hub set-password` and `digest now` open the hub's database directly. A running hub holds an exclusive lock on `<data_dir>/hub.lock`, so while it runs these commands refuse with:
+`hub token create`, `hub agent list`, `hub agent revoke`, `hub set-password`, `digest now`, `audit verify` and `audit head` open the hub's database directly. A running hub holds an exclusive lock on `<data_dir>/hub.lock`, so while it runs these commands refuse with:
 
 ```text
 error: a hub is already running on /var/lib/domovoi; stop it or use the web UI instead
@@ -158,6 +158,35 @@ Builds today's digest and sends it to every notifier: the `[discord] webhook_url
 ```sh
 domovoi digest now --config /etc/domovoi/hub.toml
 ```
+
+### `domovoi audit verify`
+
+Verifies the audit log's hash chain and the anchor that commits to the rows written before the chain existed. Without `--last` it checks the whole history: the legacy digest and every retained chained row. `--last <n>` checks the legacy row count only and the newest n chained rows.
+
+It prints the database it read, then one line for each part:
+
+```text
+Audit log of /var/lib/domovoi/hub.db
+Legacy history:  verified, 1204 rows (digest matches the anchor)
+Chained history: intact, 311 rows checked, head seq 1515 hash 9f0e00...
+```
+
+It exits 0 when both parts hold, and 1 when a chained row was edited, deleted or inserted, or when the legacy history no longer matches the anchor. Legacy rows that were pruned are reported as `not verifiable` and do not fail the command.
+
+```sh
+domovoi audit verify --config /etc/domovoi/hub.toml
+domovoi audit verify --last 1000
+```
+
+### `domovoi audit head`
+
+Prints the newest chained audit row's sequence number and hash, or `no chained rows yet` when the chain has not started.
+
+```sh
+domovoi audit head --config /etc/domovoi/hub.toml
+```
+
+Run it after a backup, or on a schedule, and keep the output off the host. Comparing it with a later run shows whether the newest audit rows were deleted, which the chain alone cannot detect.
 
 ## Other
 
