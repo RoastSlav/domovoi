@@ -159,21 +159,57 @@ test("outdated_agent_is_marked_update_available_and_links_to_its_incidents", asy
   expect(within(row("pi")).queryByRole("link", { name: /open incidents/ })).toBeNull();
 });
 
-test("refused_agent_names_why_it_was_refused", async () => {
+test("incompatible_agent_shows_both_protocols", async () => {
   route(HOSTS, () => [
     offline("nas", {
       last_seen: null,
-      refused: "agent 0.0.1 is older than the minimum 0.0.5; update it",
+      protocol_state: "incompatible",
+      reported_protocol: "1.1",
+      hub_protocol: "1.2",
+      incompatible_since: "2026-10-31T12:00:00Z",
     }),
   ]);
   renderAt("/hosts", "/hosts", <HostsPage />);
   await screen.findByRole("table", { name: "Hosts" });
 
+  expect(within(row("nas")).getByText("Incompatible")).toBeVisible();
   expect(
-    within(row("nas")).getByText("agent 0.0.1 is older than the minimum 0.0.5; update it"),
+    within(row("nas")).getByText("agent speaks 1.1, hub requires 1.2; upgrade the agent"),
   ).toBeVisible();
-  expect(within(row("nas")).getByText("Refused")).toBeVisible();
   expect(within(row("nas")).queryByText("Update available")).toBeNull();
+});
+
+test("expected_incompatible_agent_shows_last_reported", async () => {
+  route(HOSTS, () => [
+    offline("nas", {
+      last_seen: null,
+      protocol_state: "expected_incompatible",
+      reported_protocol: "1.1",
+      hub_protocol: "1.2",
+      incompatible_since: null,
+    }),
+  ]);
+  renderAt("/hosts", "/hosts", <HostsPage />);
+  await screen.findByRole("table", { name: "Hosts" });
+
+  expect(within(row("nas")).getByText("Expected incompatible")).toBeVisible();
+  expect(within(row("nas")).getByText("last reported 1.1, hub requires 1.2")).toBeVisible();
+});
+
+test("connected_host_is_never_shown_incompatible", async () => {
+  route(HOSTS, () => [
+    host("nas", {
+      protocol_state: "incompatible",
+      reported_protocol: "1.1",
+      hub_protocol: "1.2",
+    }),
+  ]);
+  renderAt("/hosts", "/hosts", <HostsPage />);
+  await screen.findByRole("table", { name: "Hosts" });
+
+  expect(within(row("nas")).getByText("Connected")).toBeVisible();
+  expect(within(row("nas")).queryByText("Incompatible")).toBeNull();
+  expect(within(row("nas")).queryByText(/agent speaks/)).toBeNull();
 });
 
 test("outdated_agent_opens_the_update_commands", async () => {

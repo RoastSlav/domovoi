@@ -12,6 +12,11 @@ export const nas: Host = {
   agent_enrolled: true,
   version: "0.0.1",
   outdated: false,
+  protocol_state: "compatible",
+  reported_protocol: "1.1",
+  hub_protocol: "1.1",
+  reported_release: "0.0.1",
+  incompatible_since: null,
   open_incidents: 1,
 };
 

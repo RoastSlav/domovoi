@@ -4,21 +4,19 @@
 //! until the agent has signed a fresh challenge with its enrolled key over this
 //! connection's channel binding (INV-10).
 
-use domovoi_core::ports::StoreError;
-use domovoi_core::{AgentId, AgentIdentity, RequestId};
+use domovoi_core::ports::{AuditEvent, StoreError};
+use domovoi_core::{AgentId, AgentIdentity, AuthenticatedReport, ReportedProtocol, RequestId};
 use domovoi_proto::messages::{
     Challenge, Enroll, Enrolled, Hello, Reject, RejectReason, SessionId, Welcome,
 };
 use domovoi_proto::{
-    AGENT_TOO_OLD_REASON_SINCE, CertFingerprint, MIN_AGENT_VERSION, Message, Nonce,
-    PROTOCOL_VERSION, Release, Transport, at_least, challenge_message, compatible,
+    CertFingerprint, Message, Nonce, PROTOCOL_VERSION, Transport, challenge_message, compatible,
 };
 use ed25519_dalek::{Signature, VerifyingKey};
 use jiff::SignedDuration;
 
 use super::Inner;
 use super::conn::{ConnError, expect, send, within};
-use super::registry::Refusal;
 use super::tokens::token_hash;
 
 /// How long a new connection may take to send `enroll` or `hello`.
@@ -132,21 +130,6 @@ async fn enroll_agent(
     send(transport, &enrolled, Some(id)).await
 }
 
-/// Why the hub refuses an agent whose release is below its floor `minimum`: a client older
-/// than [`AGENT_TOO_OLD_REASON_SINCE`] never saw the `agent_too_old` wire variant, and a
-/// reason it cannot name is not final for it, so it gets `incompatible` instead, which every
-/// client already treats as final. A client that knows the reason gets it by name.
-#[must_use]
-pub fn refusal_reason(agent_version: &str, minimum: Release) -> RejectReason {
-    if at_least(agent_version, AGENT_TOO_OLD_REASON_SINCE) {
-        RejectReason::AgentTooOld { minimum }
-    } else {
-        RejectReason::Incompatible {
-            hub: PROTOCOL_VERSION,
-        }
-    }
-}
-
 async fn authenticate(
     inner: &Inner,
     transport: &mut dyn Transport,
@@ -161,12 +144,6 @@ async fn authenticate(
     };
     if agent.revoked_at.is_some() {
         return Err(reject(transport, RejectReason::Revoked, id).await);
-    }
-    if !compatible(hello.protocol, PROTOCOL_VERSION) {
-        let reason = RejectReason::Incompatible {
-            hub: PROTOCOL_VERSION,
-        };
-        return Err(reject(transport, reason, id).await);
     }
     let nonce = Nonce(rand::random());
     send(
@@ -189,29 +166,65 @@ async fn authenticate(
     if !valid {
         return Err(reject(transport, RejectReason::BadSignature, answer.id).await);
     }
-    // The age rule is only stated once the agent proved its key: an unauthenticated client
-    // that knows an agent id must not be able to put a refusal on the Hosts page.
-    if !at_least(&hello.agent_version, MIN_AGENT_VERSION) {
-        tracing::warn!(
-            host = %agent.host,
-            agent = %hello.agent_version,
-            minimum = %MIN_AGENT_VERSION,
-            "agent release is older than the hub's minimum; update that agent"
-        );
-        inner.registry.record_refusal(
-            agent.host,
-            Refusal {
-                version: hello.agent_version.to_owned(),
-                minimum: MIN_AGENT_VERSION.to_string(),
-                at: clock.now(),
-            },
-        );
-        return Err(reject(
-            transport,
-            refusal_reason(&hello.agent_version, MIN_AGENT_VERSION),
-            answer.id,
-        )
-        .await);
+    // The exact protocol rule is decided only once the agent proved its key: an
+    // unauthenticated client that knows an agent id must not be able to record anything.
+    let compatible = compatible(hello.protocol, PROTOCOL_VERSION);
+    let now = clock.now();
+    let seen = AuthenticatedReport {
+        protocol: ReportedProtocol {
+            major: hello.protocol.major,
+            minor: hello.protocol.minor,
+        },
+        release: hello.agent_version.clone(),
+        compatible,
+    };
+    let outcome = hosts.record_agent_report(agent.agent, &seen, now).await?;
+    if outcome.changed {
+        let previous = outcome.previous.as_ref();
+        let event = AuditEvent {
+            at: now,
+            actor: "system:agent_server".to_owned(),
+            kind: "agent.protocol_reported".to_owned(),
+            subject: format!("agent:{}", agent.agent),
+            detail: serde_json::json!({
+                "host": agent.host.to_string(),
+                "reported_protocol": seen.protocol.to_string(),
+                "reported_release": seen.release,
+                "hub_protocol": PROTOCOL_VERSION.to_string(),
+                "compatible": compatible,
+                "previous_protocol": previous.map(|report| report.protocol.to_string()),
+                "previous_release": previous.map(|report| report.release.clone()),
+            }),
+        };
+        if let Err(err) = inner.deps.audit.append(&event).await {
+            tracing::error!(
+                %err,
+                host = %agent.host,
+                "could not record the agent's protocol report"
+            );
+        }
+    }
+    if !compatible {
+        if outcome.changed {
+            tracing::warn!(
+                host = %agent.host,
+                agent = %hello.agent_version,
+                reported = %hello.protocol,
+                hub = %PROTOCOL_VERSION,
+                "agent protocol differs from the hub's; update that agent"
+            );
+        } else {
+            tracing::debug!(
+                host = %agent.host,
+                reported = %hello.protocol,
+                hub = %PROTOCOL_VERSION,
+                "agent protocol still differs from the hub's"
+            );
+        }
+        let reason = RejectReason::Incompatible {
+            hub: PROTOCOL_VERSION,
+        };
+        return Err(reject(transport, reason, answer.id).await);
     }
     if agent.version != hello.agent_version {
         agent.version.clone_from(&hello.agent_version);

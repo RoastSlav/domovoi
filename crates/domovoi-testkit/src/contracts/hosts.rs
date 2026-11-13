@@ -1,7 +1,9 @@
 //! Contract for [`HostRepo`].
 
 use domovoi_core::ports::{EnrollmentToken, HostRepo, StoreError};
-use domovoi_core::{AgentId, AgentIdentity, HostId};
+use domovoi_core::{
+    AgentId, AgentIdentity, AuthenticatedReport, HostId, ReportOutcome, ReportedProtocol,
+};
 
 use super::ContractResult;
 use crate::build::{T0, at, host};
@@ -21,6 +23,7 @@ fn agent(host: HostId) -> AgentIdentity {
 pub async fn host_repo_contract(repo: &dyn HostRepo) -> ContractResult {
     hosts(repo).await?;
     agents(repo).await?;
+    agent_report_is_recorded_only_on_change(repo).await?;
     enrollment_token_is_single_use(repo).await?;
     expired_token_is_rejected(repo).await
 }
@@ -103,6 +106,123 @@ async fn agents(repo: &dyn HostRepo) -> ContractResult {
     assert_eq!(repo.live_agent(box1.id).await?, Some(second.clone()));
     assert_eq!(
         repo.revoke_agent(AgentId::new(), T0).await,
+        Err(StoreError::NotFound)
+    );
+    Ok(())
+}
+
+fn seen(major: u16, minor: u16, release: &str) -> AuthenticatedReport {
+    AuthenticatedReport {
+        protocol: ReportedProtocol { major, minor },
+        release: release.to_owned(),
+        compatible: major == 1 && minor == 1,
+    }
+}
+
+/// A report is written when it changes, refreshed at most hourly, and a mismatch pins the
+/// first time the hub rejected it until a compatible handshake clears it.
+async fn agent_report_is_recorded_only_on_change(repo: &dyn HostRepo) -> ContractResult {
+    let box2 = host("report-box")?;
+    repo.upsert_host(&box2).await?;
+    let enrolled = agent(box2.id);
+    repo.put_agent(&enrolled).await?;
+    assert_eq!(repo.agent_report(enrolled.agent).await?, None);
+
+    let base = at(3600);
+    let first = repo
+        .record_agent_report(enrolled.agent, &seen(1, 1, "0.1.0"), base)
+        .await?;
+    assert_eq!(
+        first,
+        ReportOutcome {
+            changed: true,
+            previous: None,
+        }
+    );
+    assert_eq!(
+        repo.agent_report(enrolled.agent).await?,
+        Some(domovoi_core::AgentReport {
+            protocol: ReportedProtocol { major: 1, minor: 1 },
+            release: "0.1.0".to_owned(),
+            last_authenticated_at: base,
+            incompatible_since: None,
+        })
+    );
+
+    // Within the hour an identical report writes nothing.
+    let inside = at(3600 + 60);
+    let same = repo
+        .record_agent_report(enrolled.agent, &seen(1, 1, "0.1.0"), inside)
+        .await?;
+    assert!(!same.changed);
+    assert_eq!(
+        repo.agent_report(enrolled.agent)
+            .await?
+            .map(|report| report.last_authenticated_at),
+        Some(base),
+        "the refresh waits an hour"
+    );
+
+    // After an hour it refreshes the timestamp without counting as a change.
+    let later = at(3600 + 61 * 60);
+    let refreshed = repo
+        .record_agent_report(enrolled.agent, &seen(1, 1, "0.1.0"), later)
+        .await?;
+    assert!(!refreshed.changed);
+    assert_eq!(
+        repo.agent_report(enrolled.agent)
+            .await?
+            .map(|report| report.last_authenticated_at),
+        Some(later)
+    );
+
+    // A different release is a change.
+    let release_at = at(3600 + 62 * 60);
+    let release = repo
+        .record_agent_report(enrolled.agent, &seen(1, 1, "0.2.0"), release_at)
+        .await?;
+    assert!(release.changed);
+
+    // A mismatch pins the time it was first rejected.
+    let mismatch_at = at(3600 + 63 * 60);
+    let mismatch = repo
+        .record_agent_report(enrolled.agent, &seen(1, 0, "0.2.0"), mismatch_at)
+        .await?;
+    assert!(mismatch.changed);
+    assert_eq!(
+        repo.agent_report(enrolled.agent)
+            .await?
+            .and_then(|report| report.incompatible_since),
+        Some(mismatch_at)
+    );
+
+    // Repeating it keeps the first time.
+    let repeated = repo
+        .record_agent_report(enrolled.agent, &seen(1, 0, "0.2.0"), at(3600 + 70 * 60))
+        .await?;
+    assert!(!repeated.changed);
+    assert_eq!(
+        repo.agent_report(enrolled.agent)
+            .await?
+            .and_then(|report| report.incompatible_since),
+        Some(mismatch_at)
+    );
+
+    // A compatible handshake clears it.
+    let cleared = repo
+        .record_agent_report(enrolled.agent, &seen(1, 1, "0.2.0"), at(3600 + 71 * 60))
+        .await?;
+    assert!(cleared.changed);
+    assert_eq!(
+        repo.agent_report(enrolled.agent)
+            .await?
+            .and_then(|report| report.incompatible_since),
+        None
+    );
+
+    assert_eq!(
+        repo.record_agent_report(AgentId::new(), &seen(1, 1, "0.1.0"), base)
+            .await,
         Err(StoreError::NotFound)
     );
     Ok(())

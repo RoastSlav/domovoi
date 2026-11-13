@@ -128,6 +128,7 @@ impl Hub {
             hosts: store.clone(),
             facts: store.clone(),
             sink: sink.clone(),
+            audit: store.clone(),
             probes: probes.clone(),
             hub_host,
         };
@@ -146,6 +147,21 @@ impl Hub {
             hub_host,
             dir,
         }
+    }
+
+    /// A second agent server over the same store, clock and fakes, as a hub restart sees
+    /// them.
+    pub fn restart(&self) -> AgentServer {
+        let deps = AgentServerDeps {
+            clock: self.clock.clone(),
+            hosts: self.store.clone(),
+            facts: self.store.clone(),
+            sink: self.sink.clone(),
+            audit: self.store.clone(),
+            probes: self.probes.clone(),
+            hub_host: self.hub_host,
+        };
+        AgentServer::new(settings(&self.dir), deps).unwrap()
     }
 
     /// Every signal submitted so far, in order.

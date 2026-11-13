@@ -76,7 +76,7 @@ Lists return `{"items": […], "next_cursor": "…"}`, newest first. Pass `curso
 
 ## Hosts
 
-`GET /api/v1/hosts` lists every host with its agent's presence, whether the agent is older than the hub (`outdated`), and how many of its incidents are not yet resolved (`open_incidents`). `GET /api/v1/hosts/{name}` adds the latest value of each digest fact the host reported in the last 24 hours.
+`GET /api/v1/hosts` lists every host with its agent's presence, whether the agent is older than the hub (`outdated`), the protocol state (`compatible`, `incompatible`, `expected_incompatible` or `unknown`) with the reported and hub protocol versions, and how many of its incidents are not yet resolved (`open_incidents`). `GET /api/v1/hosts/{name}` adds the latest value of each digest fact the host reported in the last 24 hours.
 
 ## Asking about an incident
 

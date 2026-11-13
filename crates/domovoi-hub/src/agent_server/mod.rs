@@ -5,6 +5,7 @@
 //! host, [`WsAgentLink`] for the engine, and presence checks that tell host down, agent
 //! down and the hub's own network trouble apart.
 
+mod compat;
 mod conn;
 mod error;
 mod handshake;
@@ -25,21 +26,22 @@ mod ws;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, OnceLock};
 
-use domovoi_core::ports::{Clock, FactRepo, HostRepo, SignalSink};
+use domovoi_core::ports::{AuditLog, Clock, FactRepo, HostRepo, SignalSink, StoreError};
 use domovoi_core::{HostId, HostKind, HostName};
-use domovoi_proto::Transport;
 use domovoi_proto::messages::{CheckInfo, HostFacts};
+use domovoi_proto::{PROTOCOL_VERSION, Transport};
 use jiff::SignedDuration;
 use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
 use tokio_util::sync::CancellationToken;
 
+pub use compat::{ProtocolState, protocol_state};
 pub use error::AgentServerError;
 pub use handshake::{BAD_TOKEN_DELAY, FIRST_FRAME_TIMEOUT, STEP_TIMEOUT};
 pub use link::WsAgentLink;
 pub use memory::MemoryTransport;
 pub use probes::{NetProbes, RealNetProbes};
-pub use registry::{AGENTS_CONNECTED, MAX_PENDING, Refusal};
+pub use registry::{AGENTS_CONNECTED, MAX_PENDING};
 pub use settings::ServerSettings;
 pub use skill_policy::{DISABLED_REASON, PolicyLink, SkillPolicy, host_skills_key};
 pub use tls::{CHANNEL_BINDING_LABEL, HUB_SAN, TlsIdentity, colon_hex};
@@ -61,6 +63,8 @@ pub struct AgentServerDeps {
     pub facts: Arc<dyn FactRepo>,
     /// Where agent signals and liveness signals go.
     pub sink: Arc<dyn SignalSink>,
+    /// Where a change of an agent's reported protocol is recorded.
+    pub audit: Arc<dyn AuditLog>,
     /// Network checks for presence.
     pub probes: Arc<dyn NetProbes>,
     /// The hub's own host, which `hub.network_degraded` is about.
@@ -96,7 +100,11 @@ impl AgentServer {
             reason: e.to_string(),
         })?;
         let registry = Arc::new(Registry::default());
-        let link = Arc::new(WsAgentLink::new(registry.clone(), deps.clock.clone()));
+        let link = Arc::new(WsAgentLink::new(
+            registry.clone(),
+            deps.clock.clone(),
+            deps.hosts.clone(),
+        ));
         Ok(Self {
             inner: Arc::new(Inner {
                 settings,
@@ -143,11 +151,13 @@ impl AgentServer {
         self.inner.registry.checks(host).unwrap_or_default()
     }
 
-    /// Why the host's agent was refused at its last handshake: its release is older than
-    /// this hub accepts. `None` while it connects, or when it was never refused.
-    #[must_use]
-    pub fn host_refusal(&self, host: HostId) -> Option<Refusal> {
-        self.inner.registry.refusal(host)
+    /// How the host's agent stands against this hub's protocol, from its stored report.
+    pub async fn protocol_state(&self, host: HostId) -> Result<ProtocolState, StoreError> {
+        let Some(agent) = self.inner.deps.hosts.live_agent(host).await? else {
+            return Ok(ProtocolState::Unknown);
+        };
+        let report = self.inner.deps.hosts.agent_report(agent.agent).await?;
+        Ok(protocol_state(report.as_ref(), PROTOCOL_VERSION))
     }
 
     /// Binds the configured listen address.

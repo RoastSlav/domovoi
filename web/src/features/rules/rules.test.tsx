@@ -25,6 +25,11 @@ const NAS: Host = {
   agent_enrolled: true,
   open_incidents: 0,
   outdated: false,
+  protocol_state: "compatible",
+  reported_protocol: "1.1",
+  hub_protocol: "1.1",
+  reported_release: "0.0.1",
+  incompatible_since: null,
 };
 
 const BACKUP: AckRule = {

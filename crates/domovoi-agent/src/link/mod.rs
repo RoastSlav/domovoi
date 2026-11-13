@@ -2,18 +2,21 @@
 //!
 //! - [`tls`] pins the hub certificate; [`ws`] frames the protocol over a WebSocket.
 //! - [`handshake`](mod@handshake) proves the agent holds its key, bound to the TLS session.
-//! - [`Link::run`] reconnects with [`backoff`] until shutdown, revocation or an
-//!   incompatible hub. Each connection replays the spool, sends a `ping` every heartbeat
-//!   and gives up after three unanswered pings.
+//! - [`Link::run`] reconnects with [`backoff`] until shutdown or revocation. A hub that
+//!   refuses this agent's protocol leaves it idle instead: it stops reconnecting, logs
+//!   hourly and writes [`status`]. Each connection replays the spool, sends a `ping` every
+//!   heartbeat and gives up after three unanswered pings.
 //! - Requests (`run_tool`, `run_skill`, `run_check`) are forwarded to the request handler
 //!   and never handled on the link task.
 
 pub mod backoff;
 pub mod frame;
 pub mod handshake;
+pub mod status;
 pub mod tls;
 pub mod ws;
 
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use domovoi_core::ports::{Clock, HostFs};
@@ -28,6 +31,7 @@ use tokio_util::sync::CancellationToken;
 
 use self::backoff::{Backoff, STABLE_AFTER};
 use self::handshake::{Announce, STEP_TIMEOUT, handshake, heartbeat};
+use self::status::LinkStatus;
 use self::ws::{Connected, Connector};
 use crate::error::LinkError;
 use crate::facts::host_facts;
@@ -41,6 +45,8 @@ pub const MISSED_PONGS: u32 = 3;
 pub const REQUEST_QUEUE: usize = 32;
 /// Outgoing messages that may wait for the link.
 pub const OUTBOX: usize = 256;
+/// How often an idle agent says it is still waiting to be upgraded.
+pub const IDLE_NOTICE_INTERVAL: SignedDuration = SignedDuration::from_hours(1);
 
 /// A request from the hub, waiting for the request handler.
 #[derive(Debug, Clone, PartialEq)]
@@ -116,6 +122,8 @@ pub struct LinkParts {
     pub spool: Arc<SharedSpool>,
     /// Jitter factors for the reconnect delay.
     pub jitter: Box<dyn FnMut() -> f64 + Send + Sync>,
+    /// Where to write `link-status.json`; `None` keeps no status.
+    pub status_dir: Option<PathBuf>,
 }
 
 /// The hub link task.
@@ -142,8 +150,8 @@ impl Link {
         (link, handle, requests_rx)
     }
 
-    /// Connects and serves the hub until `shutdown`, or until the hub revokes this agent or
-    /// speaks an incompatible protocol.
+    /// Connects and serves the hub until `shutdown`, or until the hub revokes this agent.
+    /// An incompatible protocol leaves it idle until `shutdown`.
     pub async fn run(mut self, shutdown: CancellationToken) -> Result<(), LinkError> {
         let clock = self.parts.clock.clone();
         loop {
@@ -160,12 +168,34 @@ impl Link {
                     }
                     match result {
                         Ok(()) => return Ok(()),
+                        Err(err) if err.is_idle() => {
+                            self.idle(err, &shutdown).await;
+                            return Ok(());
+                        }
                         Err(err) if err.is_final() => {
                             tracing::error!(%err, "the hub link stopped");
                             return Err(err);
                         }
-                        Err(err) => tracing::warn!(%err, "the hub link dropped"),
+                        Err(err) => {
+                            write_status(
+                                self.parts.status_dir.as_deref(),
+                                &LinkStatus {
+                                    state: "reconnecting".to_owned(),
+                                    updated_at: clock.now(),
+                                    connected_since: None,
+                                    hub_protocol: None,
+                                    agent_protocol: None,
+                                    last_notice_at: None,
+                                    detail: Some(err.to_string()),
+                                },
+                            );
+                            tracing::warn!(%err, "the hub link dropped");
+                        }
                     }
+                }
+                Err(err) if err.is_idle() => {
+                    self.idle(err, &shutdown).await;
+                    return Ok(());
                 }
                 Err(err) if err.is_final() => return Err(err),
                 Err(err) => tracing::warn!(%err, "could not reach the hub"),
@@ -175,6 +205,48 @@ impl Link {
             tokio::select! {
                 () = shutdown.cancelled() => return Ok(()),
                 () = sleep(&*clock, delay) => {}
+            }
+        }
+    }
+
+    /// Stays up without reconnecting until shutdown, saying hourly that an upgrade is the
+    /// only way out.
+    async fn idle(&mut self, err: LinkError, shutdown: &CancellationToken) {
+        let clock = self.parts.clock.clone();
+        let status_dir = self.parts.status_dir.clone();
+        let (hub_protocol, agent_protocol) = match &err {
+            LinkError::Incompatible { hub, agent } => {
+                (Some(hub.to_string()), Some(agent.to_string()))
+            }
+            _ => (None, None),
+        };
+        let detail =
+            format!("{err}; upgrade the agent and restart it; staying up without reconnecting");
+        let now = clock.now();
+        let mut status = LinkStatus {
+            state: "incompatible".to_owned(),
+            updated_at: now,
+            connected_since: None,
+            hub_protocol,
+            agent_protocol,
+            last_notice_at: Some(now),
+            detail: Some(detail.clone()),
+        };
+        write_status(status_dir.as_deref(), &status);
+        tracing::error!("{detail}");
+        loop {
+            let now = clock.now();
+            let next = now.saturating_add(IDLE_NOTICE_INTERVAL).unwrap_or(now);
+            tokio::select! {
+                () = shutdown.cancelled() => return,
+                () = clock.sleep_until(next) => {
+                    let now = clock.now();
+                    status.updated_at = now;
+                    status.last_notice_at = Some(now);
+                    write_status(status_dir.as_deref(), &status);
+                    tracing::error!("{detail}");
+                }
+                Some(_) = self.outbox.recv() => {}
             }
         }
     }
@@ -206,6 +278,19 @@ impl Link {
             welcome = within(&*clock, STEP_TIMEOUT, shake) => welcome.ok_or(LinkError::Timeout)??,
         };
         tracing::info!(session = ?welcome.session_id, "connected to the hub");
+        let now = clock.now();
+        write_status(
+            self.parts.status_dir.as_deref(),
+            &LinkStatus {
+                state: "connected".to_owned(),
+                updated_at: now,
+                connected_since: Some(now),
+                hub_protocol: None,
+                agent_protocol: None,
+                last_notice_at: None,
+                detail: None,
+            },
+        );
         let mut beat = heartbeat(&welcome.config);
         if let Some(overrides) = &self.parts.overrides {
             overrides.apply_settings(&welcome.config);
@@ -320,5 +405,15 @@ impl Link {
             frame::send(transport, &reply, Some(id)).await?;
         }
         Ok(())
+    }
+}
+
+/// Writes `status`, warning rather than failing when the file cannot be written.
+fn write_status(dir: Option<&Path>, status: &LinkStatus) {
+    let Some(dir) = dir else {
+        return;
+    };
+    if let Err(err) = self::status::write(dir, status) {
+        tracing::warn!(%err, "could not write the link status file");
     }
 }

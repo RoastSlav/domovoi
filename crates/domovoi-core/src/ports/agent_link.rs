@@ -88,6 +88,10 @@ pub enum LinkError {
     /// The host has no connected agent.
     #[error("agent not connected")]
     NotConnected,
+    /// The host's agent speaks another protocol version than this hub. Work on the host is
+    /// unavailable until the agent is upgraded. Reason code: `agent_incompatible`.
+    #[error("agent_incompatible: the agent speaks another protocol version; upgrade it")]
+    Incompatible,
     /// No answer before the deadline.
     #[error("timed out")]
     Timeout,
@@ -100,7 +104,8 @@ pub enum LinkError {
 }
 
 /// Sends requests to connected agents. Every method fails fast with
-/// [`LinkError::NotConnected`] when the host has no connected agent and with
+/// [`LinkError::NotConnected`] when the host has no connected agent, with
+/// [`LinkError::Incompatible`] when this hub rejected the agent's protocol, and with
 /// [`LinkError::Timeout`] once `deadline` passes.
 #[async_trait]
 pub trait AgentLink: Send + Sync {

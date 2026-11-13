@@ -66,6 +66,7 @@ pub struct AgentRuntime {
     spool: Arc<SharedSpool>,
     relay: Option<crate::relay::Relay>,
     jitter: Box<dyn FnMut() -> f64 + Send + Sync>,
+    state_dir: std::path::PathBuf,
 }
 
 /// The container policy from `[containers]`.
@@ -173,6 +174,7 @@ impl AgentRuntime {
             spool,
             relay,
             jitter: random_jitter(),
+            state_dir: state_dir.clone(),
         })
     }
 
@@ -206,6 +208,7 @@ impl AgentRuntime {
             overrides: Some(self.effective),
             spool: self.spool.clone(),
             jitter: self.jitter,
+            status_dir: Some(self.state_dir),
         };
         let (link, handle, requests) = Link::new(parts);
         let scheduler = Scheduler::new(

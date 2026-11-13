@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use jiff::Timestamp;
 
 use super::StoreError;
-use crate::host::{AgentIdentity, Host, HostName};
+use crate::host::{AgentIdentity, AgentReport, AuthenticatedReport, Host, HostName, ReportOutcome};
 use crate::id::{AgentId, HostId};
 
 /// A one-time token that lets an agent enroll for a host. Only its hash is stored.
@@ -50,6 +50,18 @@ pub trait HostRepo: Send + Sync {
 
     /// Marks an agent revoked at `at`. Revoking twice keeps the first time.
     async fn revoke_agent(&self, id: AgentId, at: Timestamp) -> Result<(), StoreError>;
+
+    /// What `agent` last reported after authenticating; `None` when it never has.
+    async fn agent_report(&self, agent: AgentId) -> Result<Option<AgentReport>, StoreError>;
+
+    /// Records `seen` for `agent` at `now`. [`StoreError::NotFound`] when the agent does not
+    /// exist. Writes only when something changed, and says whether it did.
+    async fn record_agent_report(
+        &self,
+        agent: AgentId,
+        seen: &AuthenticatedReport,
+        now: Timestamp,
+    ) -> Result<ReportOutcome, StoreError>;
 
     /// Stores a new enrollment token. [`StoreError::NotFound`] when the host does not exist,
     /// [`StoreError::Conflict`] when the hash is already stored.

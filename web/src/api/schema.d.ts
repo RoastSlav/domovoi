@@ -1292,8 +1292,12 @@ export interface components {
             connected: boolean;
             /** @description Since when it is connected. */
             connected_since?: string | null;
+            /** @description The protocol this hub speaks. */
+            hub_protocol: string;
             /** @description Host id. */
             id: string;
+            /** @description When this hub first rejected the agent's protocol, as RFC 3339; absent otherwise. */
+            incompatible_since?: string | null;
             /** @description `agent`, `container_agent` or `external`. */
             kind: string;
             /** @description When it was last seen, while disconnected. */
@@ -1307,12 +1311,12 @@ export interface components {
             open_incidents: number;
             /** @description Whether the connected agent is older than the hub. */
             outdated: boolean;
-            /**
-             * @description Why the host's agent was refused at its last handshake, for example
-             *     `agent 0.0.1 is older than the minimum 0.0.5; update it`. `None` when the agent
-             *     connected, or was never refused.
-             */
-            refused?: string | null;
+            /** @description `compatible`, `incompatible`, `expected_incompatible` or `unknown`. */
+            protocol_state: string;
+            /** @description The protocol the agent last reported, such as `1.1`; absent when it never did. */
+            reported_protocol?: string | null;
+            /** @description The release the agent last reported; absent when it never did. */
+            reported_release?: string | null;
             /** @description The agent's version, while connected. */
             version?: string | null;
         };

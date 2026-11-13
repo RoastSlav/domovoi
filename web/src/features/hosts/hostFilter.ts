@@ -7,16 +7,21 @@ export type HostFilter = "all" | "problems" | "online" | "offline";
 /** The search box appears when there are more hosts than this. */
 export const SEARCH_FROM = 8;
 
-/** Whether the host's agent is not reporting: offline, refused or never connected. */
+/** Whether the host's agent is not reporting: offline, incompatible or never connected. */
 export function isOffline(host: Host): boolean {
   if (host.kind === "external") {
     return false;
   }
   const connection = hostConnectionOf(host);
-  return connection === "offline" || connection === "refused" || connection === "never_connected";
+  return (
+    connection === "offline" ||
+    connection === "incompatible" ||
+    connection === "expected_incompatible" ||
+    connection === "never_connected"
+  );
 }
 
-/** Whether the host needs a person: it is offline, refused, never connected or out of date. */
+/** Whether the host needs a person: it is offline, incompatible, never connected or out of date. */
 export function isProblem(host: Host): boolean {
   return isOffline(host) || (host.connected && host.outdated);
 }

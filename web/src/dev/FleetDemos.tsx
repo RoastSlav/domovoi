@@ -23,6 +23,11 @@ const HOST: Host = {
   open_incidents: 2,
   outdated: true,
   version: "0.0.6",
+  protocol_state: "compatible",
+  reported_protocol: "1.1",
+  hub_protocol: "1.1",
+  reported_release: "0.0.6",
+  incompatible_since: null,
 };
 
 const FACTS: Fact[] = [

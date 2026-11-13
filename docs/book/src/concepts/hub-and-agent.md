@@ -28,7 +28,7 @@ Chat's `/status` command takes an optional host name. `/status <host>` (case-ins
 
 ## Versions
 
-A hub accepts agents on its own protocol version or one minor version behind; the Hosts page marks agents older than the hub. Upgrade the hub first, then the agents. See [Upgrading](../install/upgrading.md).
+A hub and an agent talk only when their protocol `major.minor` are equal; the Hosts page marks an agent that speaks another version. Upgrade the hub first, then the agents. See [Upgrading](../install/upgrading.md).
 
 ## Where to run the hub
 

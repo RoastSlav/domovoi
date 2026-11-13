@@ -1,10 +1,9 @@
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode, header};
 use domovoi_core::ports::{FactRepo, HostRepo, NoteRepo, Presence};
-use domovoi_core::{AgentIdentity, DigestFact, FactValue};
-use domovoi_hub::agent_server::Refusal;
+use domovoi_core::{AgentIdentity, AuthenticatedReport, DigestFact, FactValue, ReportedProtocol};
 use domovoi_hub::api::notes_import::{MAX_FILE_BYTES, MAX_FILES};
-use domovoi_proto::MIN_AGENT_VERSION;
+use domovoi_proto::PROTOCOL_VERSION;
 use jiff::SignedDuration;
 use serde_json::Value;
 
@@ -245,31 +244,90 @@ async fn hosts_report_open_incidents_and_outdated_agents() {
     );
 }
 
-/// A host whose agent was refused because it runs an older release says so on the Hosts
-/// page, with both releases named, so people know which machine to update.
+/// The Hosts page derives an agent's protocol state from its stored report: unknown before
+/// it authenticates, incompatible once this hub rejected it, and expected incompatible when
+/// the hub was upgraded but the agent has not reconnected.
 #[tokio::test]
-async fn hosts_name_the_agent_refused_for_being_too_old() {
+async fn hosts_show_incompatible_and_expected_incompatible() {
     let a = api().await;
     let login = a.admin().await;
     let nas = |reply: &Reply| -> Value { reply.body[0].clone() };
 
-    assert_eq!(
-        nas(&a.get("/api/v1/hosts", &login).await)["refused"],
-        Value::Null,
-        "nothing refused yet"
-    );
-    a.refuse(
+    let before = nas(&a.get("/api/v1/hosts", &login).await);
+    assert_eq!(before["protocol_state"], "unknown");
+    assert_eq!(before["reported_protocol"], Value::Null);
+    assert_eq!(before["hub_protocol"], PROTOCOL_VERSION.to_string());
+
+    let agent = AgentIdentity {
+        agent: domovoi_core::AgentId::new(),
+        host: a.nas.id,
+        public_key: [0; 32],
+        version: "0.1.0".to_owned(),
+        enrolled_at: a.now(),
+        revoked_at: None,
+    };
+    a.store.put_agent(&agent).await.unwrap();
+    a.store
+        .record_agent_report(
+            agent.agent,
+            &AuthenticatedReport {
+                protocol: ReportedProtocol { major: 1, minor: 0 },
+                release: "0.1.0".to_owned(),
+                compatible: false,
+            },
+            a.now(),
+        )
+        .await
+        .unwrap();
+    let incompatible = nas(&a.get("/api/v1/hosts", &login).await);
+    assert_eq!(incompatible["protocol_state"], "incompatible");
+    assert_eq!(incompatible["reported_protocol"], "1.0");
+    assert_eq!(incompatible["hub_protocol"], PROTOCOL_VERSION.to_string());
+    assert_eq!(incompatible["reported_release"], "0.1.0");
+    assert_ne!(incompatible["incompatible_since"], Value::Null);
+
+    // The old hub accepted 1.0, so the row carries no rejection time: this hub predicts
+    // the agent will be incompatible once it reconnects.
+    a.store
+        .record_agent_report(
+            agent.agent,
+            &AuthenticatedReport {
+                protocol: ReportedProtocol { major: 1, minor: 0 },
+                release: "0.1.0".to_owned(),
+                compatible: true,
+            },
+            a.now(),
+        )
+        .await
+        .unwrap();
+    let expected = nas(&a.get("/api/v1/hosts", &login).await);
+    assert_eq!(expected["protocol_state"], "expected_incompatible");
+    assert_eq!(expected["reported_protocol"], "1.0");
+    assert_eq!(expected["incompatible_since"], Value::Null);
+
+    // A connected host is compatible whatever the row last said.
+    a.store
+        .record_agent_report(
+            agent.agent,
+            &AuthenticatedReport {
+                protocol: ReportedProtocol { major: 1, minor: 0 },
+                release: "0.1.0".to_owned(),
+                compatible: false,
+            },
+            a.now(),
+        )
+        .await
+        .unwrap();
+    a.link.set_presence(
         a.nas.id,
-        Refusal {
-            version: "0.0.1".to_owned(),
-            minimum: MIN_AGENT_VERSION.to_string(),
-            at: a.now(),
+        Presence::Connected {
+            since: a.now(),
+            version: "0.1.0".to_owned(),
         },
     );
     assert_eq!(
-        nas(&a.get("/api/v1/hosts", &login).await)["refused"],
-        "agent 0.0.1 is older than the minimum 0.0.5; update it",
-        "the Hosts page says which agent is behind and what to do"
+        nas(&a.get("/api/v1/hosts", &login).await)["protocol_state"],
+        "compatible"
     );
 }
 

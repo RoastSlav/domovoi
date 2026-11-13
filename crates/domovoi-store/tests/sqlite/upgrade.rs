@@ -7,7 +7,7 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use domovoi_core::ports::{AdvisoryRepo, IncidentRepo, NoteRepo};
+use domovoi_core::ports::{AdvisoryRepo, HostRepo, IncidentRepo, NoteRepo};
 use domovoi_core::{Incident, IncidentId};
 use domovoi_store::{MIGRATOR, MIN_READER, Store, StoreOptions};
 use domovoi_testkit::build::at;
@@ -182,6 +182,52 @@ async fn upgrade_from_previous_schema_keeps_every_row() {
         expected_versions
     );
     assert!(applied.iter().all(|(_, success)| *success));
+}
+
+/// An agent row written before the report columns existed still reads back, with no report
+/// until it next authenticates.
+#[tokio::test]
+async fn migration_keeps_existing_agents() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = copy_fixture(dir.path());
+    let mut conn = raw(&path).await;
+    let host_id = "0190a0a0-0000-7000-8000-0000000009a1";
+    let agent_id = "0190a0a0-0000-7000-8000-0000000009a2";
+    sqlx::query(
+        "INSERT INTO hosts (id, name, kind, labels, created_at) VALUES (?, 'legacy-box', 'Remote', '{}', ?)",
+    )
+    .bind(host_id)
+    .bind(at(0).as_millisecond())
+    .execute(&mut conn)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO agents (agent_id, host_id, public_key, version, enrolled_at) \
+         VALUES (?, ?, ?, '0.0.1', ?)",
+    )
+    .bind(agent_id)
+    .bind(host_id)
+    .bind([7u8; 32].to_vec())
+    .bind(at(0).as_millisecond())
+    .execute(&mut conn)
+    .await
+    .unwrap();
+    sqlx::Connection::close(conn).await.unwrap();
+
+    let store = Store::open(&path, StoreOptions::beside(&path, at(1000)))
+        .await
+        .unwrap();
+    let agent = HostRepo::get_agent(&store, agent_id.parse().unwrap())
+        .await
+        .unwrap()
+        .expect("the existing agent survived the migration");
+    assert_eq!(agent.version, "0.0.1");
+    assert_eq!(agent.host.to_string(), host_id);
+    assert_eq!(
+        HostRepo::agent_report(&store, agent.agent).await.unwrap(),
+        None,
+        "an old row reports nothing until the agent authenticates"
+    );
 }
 
 #[tokio::test]

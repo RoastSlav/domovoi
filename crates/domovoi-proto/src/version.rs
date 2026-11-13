@@ -1,4 +1,4 @@
-//! Protocol versions, release versions and which hub and agent versions can talk.
+//! Protocol versions, release versions, and the exact rule for whether peers may talk.
 
 use std::fmt;
 
@@ -16,13 +16,11 @@ pub struct ProtocolVersion {
 /// The version this build speaks.
 pub const PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion { major: 1, minor: 1 };
 
-/// Whether a hub at `hub` accepts an agent at `agent`: the same major, and the agent
-/// at most one minor behind and never ahead.
+/// Whether a hub at `hub` accepts an agent at `agent`: the same major and the same minor.
+/// Patch releases do not enter into it.
 #[must_use]
 pub fn compatible(agent: ProtocolVersion, hub: ProtocolVersion) -> bool {
-    agent.major == hub.major
-        && agent.minor <= hub.minor
-        && agent.minor.saturating_add(1) >= hub.minor
+    agent.major == hub.major && agent.minor == hub.minor
 }
 
 impl fmt::Display for ProtocolVersion {
@@ -31,8 +29,8 @@ impl fmt::Display for ProtocolVersion {
     }
 }
 
-/// A release version, as `major.minor.patch`. Peers refuse each other when one side is
-/// older than the minimum their build ships, so an update is stated, not guessed at.
+/// A release version, as `major.minor.patch`. A release number is not a compatibility
+/// dimension: only the protocol version decides whether peers may talk.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
 )]
@@ -44,30 +42,6 @@ pub struct Release {
     /// The build.
     pub patch: u64,
 }
-
-/// The oldest agent release a hub this build ships accepts.
-pub const MIN_AGENT_VERSION: Release = Release {
-    major: 0,
-    minor: 0,
-    patch: 5,
-};
-
-/// The oldest hub release an agent this build ships accepts.
-pub const MIN_HUB_VERSION: Release = Release {
-    major: 0,
-    minor: 0,
-    patch: 5,
-};
-
-/// The first release whose agents and hubs know the `agent_too_old` reject reason. A peer
-/// older than this never saw that wire variant, and a reason it cannot name is not final
-/// for it, so a hub must refuse such a peer with a reason it already treats as final.
-/// This release only ever moves forward with the protocol.
-pub const AGENT_TOO_OLD_REASON_SINCE: Release = Release {
-    major: 0,
-    minor: 0,
-    patch: 5,
-};
 
 /// `version` as a [`Release`], ignoring a leading `v` and a `-` or `+` suffix.
 /// `None` when it is not `major.minor.patch` of plain numbers, such as `dev` or `1.2`.
@@ -101,13 +75,6 @@ pub fn is_release_tag(tag: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '+')
 }
 
-/// Whether the release `version` is at least `minimum`. Versions that do not parse pass,
-/// so a dev build is never locked out.
-#[must_use]
-pub fn at_least(version: &str, minimum: Release) -> bool {
-    parse_release(version).is_none_or(|found| found >= minimum)
-}
-
 impl fmt::Display for Release {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}.{}.{}", self.major, self.minor, self.patch)
@@ -116,35 +83,7 @@ impl fmt::Display for Release {
 
 #[cfg(test)]
 mod tests {
-    use super::{at_least, is_release_tag, parse_release};
-
-    #[test]
-    fn at_least_accepts_equal_and_newer_releases() {
-        let minimum = parse_release("0.0.5").unwrap();
-        assert!(at_least("0.0.5", minimum), "equal is accepted");
-        assert!(at_least("0.0.6", minimum), "newer is accepted");
-        assert!(at_least("0.1.0", minimum), "a newer minor is accepted");
-        assert!(at_least("1.0.0", minimum), "a newer major is accepted");
-    }
-
-    #[test]
-    fn at_least_refuses_older_releases() {
-        let minimum = parse_release("0.0.5").unwrap();
-        assert!(!at_least("0.0.4", minimum), "an older patch is refused");
-        assert!(!at_least("0.0.0", minimum), "the first release is refused");
-        assert!(
-            !at_least("v0.0.4-rc.1", minimum),
-            "a suffixed older release is refused"
-        );
-    }
-
-    #[test]
-    fn at_least_passes_versions_that_do_not_parse() {
-        let minimum = parse_release("0.0.5").unwrap();
-        assert!(at_least("dev", minimum), "a dev build is never locked out");
-        assert!(at_least("1.2", minimum), "a short version is not a release");
-        assert!(at_least("0.0.x", minimum), "a part must be a number");
-    }
+    use super::{is_release_tag, parse_release};
 
     #[test]
     fn release_ignores_a_leading_v_and_a_suffix() {

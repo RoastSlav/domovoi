@@ -4,18 +4,19 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use domovoi_core::ports::{
-    AgentLink, CheckRecheck, Clock, LinkError, LogLine, Presence, SkillDispatch, SkillOutput,
-    ToolOutput,
+    AgentLink, CheckRecheck, Clock, HostRepo, LinkError, LogLine, Presence, SkillDispatch,
+    SkillOutput, ToolOutput,
 };
 use domovoi_core::{CheckKey, HostId, ReadToolCall, SkillSummary, TargetKey};
-use domovoi_proto::Message;
 use domovoi_proto::messages::{
     GetLogs, RunCheck, RunSkill, RunTool, SkillFailureCode, SkillOutcome, ToolFailureCode,
     ToolOutcome,
 };
+use domovoi_proto::{Message, PROTOCOL_VERSION};
 use jiff::SignedDuration;
 use jiff::Timestamp;
 
+use super::compat::{ProtocolState, protocol_state};
 use super::registry::Registry;
 
 /// Routes requests to the host's current session. Fails fast with
@@ -24,11 +25,45 @@ use super::registry::Registry;
 pub struct WsAgentLink {
     registry: Arc<Registry>,
     clock: Arc<dyn Clock>,
+    hosts: Arc<dyn HostRepo>,
 }
 
 impl WsAgentLink {
-    pub(crate) fn new(registry: Arc<Registry>, clock: Arc<dyn Clock>) -> Self {
-        Self { registry, clock }
+    pub(crate) fn new(
+        registry: Arc<Registry>,
+        clock: Arc<dyn Clock>,
+        hosts: Arc<dyn HostRepo>,
+    ) -> Self {
+        Self {
+            registry,
+            clock,
+            hosts,
+        }
+    }
+
+    /// Why a request found no live session: the hub rejected this agent's protocol, or it
+    /// is simply not connected. A prediction that it would be incompatible is not a
+    /// finding, so that case stays [`LinkError::NotConnected`].
+    async fn not_connected(&self, host: HostId) -> LinkError {
+        let report = match self.hosts.live_agent(host).await {
+            Ok(Some(agent)) => self.hosts.agent_report(agent.agent).await,
+            Ok(None) => return LinkError::NotConnected,
+            Err(err) => {
+                tracing::warn!(%err, %host, "could not read the host's agent report");
+                return LinkError::NotConnected;
+            }
+        };
+        let report = match report {
+            Ok(report) => report,
+            Err(err) => {
+                tracing::warn!(%err, %host, "could not read the host's agent report");
+                return LinkError::NotConnected;
+            }
+        };
+        match protocol_state(report.as_ref(), PROTOCOL_VERSION) {
+            ProtocolState::Incompatible { .. } => LinkError::Incompatible,
+            _ => LinkError::NotConnected,
+        }
     }
 
     async fn request(
@@ -40,7 +75,11 @@ impl WsAgentLink {
         if self.clock.now() >= deadline {
             return Err(LinkError::Timeout);
         }
-        let (id, answer) = self.registry.dispatch(host, message)?;
+        let (id, answer) = match self.registry.dispatch(host, message) {
+            Ok(pair) => pair,
+            Err(LinkError::NotConnected) => return Err(self.not_connected(host).await),
+            Err(err) => return Err(err),
+        };
         let reply = tokio::select! {
             reply = answer => reply.map_err(|_| {
                 LinkError::Transport("the agent disconnected before answering".to_owned())

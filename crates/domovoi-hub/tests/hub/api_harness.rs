@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use axum::Router;
@@ -21,7 +21,7 @@ use domovoi_engine::{
     ManagerDeps, ManagerHandle, PatternRedactor, TriageDeps, TriageService, TriageSettings,
 };
 use domovoi_hub::agent_server::{
-    AgentServer, AgentServerDeps, AgentServerError, EnrollmentInvite, RealNetProbes, Refusal,
+    AgentServer, AgentServerDeps, AgentServerError, EnrollmentInvite, RealNetProbes,
     ServerSettings, SkillPolicy,
 };
 use domovoi_hub::api::{AgentAdmin, ApiDeps, ApiState};
@@ -106,8 +106,6 @@ pub fn canned_logs() -> Vec<LogLine> {
 pub struct TestAgents {
     pub link: Arc<FakeAgentLink>,
     pub hosts: Arc<Store>,
-    /// Refusals a test scripts, as the hub's registry keeps them for refused hosts.
-    pub refused: Arc<Mutex<BTreeMap<HostId, Refusal>>>,
 }
 
 #[async_trait]
@@ -153,11 +151,6 @@ impl AgentAdmin for TestAgents {
         self.link.host_checks(host)
     }
 
-    fn refusal(&self, host: HostId) -> Option<Refusal> {
-        let refused = self.refused.lock().unwrap_or_else(PoisonError::into_inner);
-        refused.get(&host).cloned()
-    }
-
     async fn logs(
         &self,
         _host: HostId,
@@ -191,8 +184,6 @@ pub struct Api {
     pub audit: Arc<dyn AuditLog>,
     pub incident: Incident,
     pub nas: domovoi_core::Host,
-    /// Refusals the API fakes report; a test scripts one to see the Hosts page's line.
-    pub refusals: Arc<Mutex<BTreeMap<HostId, Refusal>>>,
     pub shutdown: CancellationToken,
     pub dir: TempDir,
 }
@@ -347,6 +338,7 @@ async fn build(
             hosts: store.clone(),
             facts: store.clone(),
             sink: Arc::new(RecordingSignalSink::new()),
+            audit: store.clone(),
             probes: Arc::new(RealNetProbes::new(clock.clone())),
             hub_host: nas.id,
         },
@@ -370,8 +362,6 @@ async fn build(
         apply: None,
         executor: None,
     });
-    let refused_map: BTreeMap<HostId, Refusal> = BTreeMap::new();
-    let refusals = Arc::new(Mutex::new(refused_map));
     let source: Arc<dyn LogSource> = Arc::new(CannedLogSource::new(canned_logs()));
     let update = UpdateChecker::load(store.clone(), clock.clone()).await;
     let deps = ApiDeps {
@@ -390,7 +380,6 @@ async fn build(
         agents: Arc::new(TestAgents {
             link: link.clone(),
             hosts: store.clone(),
-            refused: refusals.clone(),
         }),
         skill_policy: Arc::new(
             SkillPolicy::load(store.clone(), &HostRepo::list_hosts(&*store).await.unwrap())
@@ -404,7 +393,6 @@ async fn build(
             agents: Arc::new(TestAgents {
                 link: link.clone(),
                 hosts: store.clone(),
-                refused: refusals.clone(),
             }),
             hosts: store.clone(),
             notes: store.clone(),
@@ -435,7 +423,6 @@ async fn build(
         llm,
         incident,
         nas,
-        refusals,
         shutdown,
         dir,
     }
@@ -450,13 +437,6 @@ pub struct Reply {
 }
 
 impl Api {
-    /// Scripts why `host`'s agent was refused at a handshake, as its registry would record
-    /// one: the same shape the hub writes when it turns a too-old agent away.
-    pub fn refuse(&self, host: HostId, refusal: Refusal) {
-        let mut refusals = self.refusals.lock().unwrap_or_else(PoisonError::into_inner);
-        refusals.insert(host, refusal);
-    }
-
     pub fn now(&self) -> Timestamp {
         domovoi_core::ports::Clock::now(&*self.clock)
     }

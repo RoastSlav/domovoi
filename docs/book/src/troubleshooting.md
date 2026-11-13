@@ -32,7 +32,7 @@ The web UI's **Advisories** list problems the hub found with itself: a failing h
 
 **"revoked" or "unknown agent" in the agent's log.** The host was revoked or re-enrolled elsewhere. Enroll it again.
 
-**"incompatible" in the agent's log.** The agent is newer than the hub, or more than one minor version behind it. Upgrade the hub first, then the agent.
+**"incompatible" in the agent's log.** The agent and the hub speak different protocol `major.minor` versions. Upgrade the hub first, then the agent, and restart the agent. `domovoi agent status` shows both versions.
 
 **A check reports "journalctl is not installed" or "systemctl is not installed".** The agent runs in a container, where those tools are not available. Install the agent on the host for unit and journal checks.
 

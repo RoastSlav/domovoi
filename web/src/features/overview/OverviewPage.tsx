@@ -26,7 +26,7 @@ function visible(hosts: readonly Host[], selected: string | undefined): readonly
 /** How many host cards the overview shows; the Hosts page has the rest. */
 export const PROBLEM_HOSTS = 6;
 
-/** Whether a host needs a look: not connected (or refused), outdated, or with open incidents. */
+/** Whether a host needs a look: not connected (or incompatible), outdated, or with open incidents. */
 export function hasProblem(host: Host): boolean {
   const connection = hostConnectionOf(host);
   return (

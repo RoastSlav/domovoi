@@ -39,14 +39,6 @@ fn agent_error(err: crate::agent_server::AgentServerError) -> ApiError {
     }
 }
 
-/// The Hosts page's line for an agent refused because its release is older than the
-/// minimum this hub accepts.
-fn refused_text(refusal: crate::agent_server::Refusal) -> String {
-    let version = refusal.version;
-    let minimum = refusal.minimum;
-    format!("agent {version} is older than the minimum {minimum}; update it")
-}
-
 /// The DTO of `host`, with its agent's presence and its count of unresolved incidents.
 pub(crate) async fn host_dto(
     state: &ApiState,
@@ -62,22 +54,40 @@ pub(crate) async fn host_dto(
         limit: OPEN_COUNT_CAP,
     };
     let open = state.deps.incidents.list(&filter, &page).await?.items.len();
+    let presence = state.deps.agents.presence(host.id);
+    let connected = matches!(presence, Presence::Connected { .. });
+    let agent = state.deps.hosts.live_agent(host.id).await?;
+    let report = match &agent {
+        Some(agent) => state.deps.hosts.agent_report(agent.agent).await?,
+        None => None,
+    };
+    let state_name = if connected {
+        "compatible"
+    } else {
+        protocol_name(&report)
+    };
     let mut dto = HostDto {
         id: host.id.to_string(),
         name: host.name.to_string(),
         kind: kind(host.kind).to_owned(),
-        connected: false,
-        agent_enrolled: state.deps.hosts.live_agent(host.id).await?.is_some(),
+        connected,
+        agent_enrolled: agent.is_some(),
         version: None,
         connected_since: None,
         last_seen: None,
         outdated: false,
-        refused: state.deps.agents.refusal(host.id).map(refused_text),
+        protocol_state: state_name.to_owned(),
+        reported_protocol: report.as_ref().map(|report| report.protocol.to_string()),
+        hub_protocol: domovoi_proto::PROTOCOL_VERSION.to_string(),
+        reported_release: report.as_ref().map(|report| report.release.clone()),
+        incompatible_since: report
+            .as_ref()
+            .and_then(|report| report.incompatible_since)
+            .map(|at| at.to_string()),
         open_incidents: u32::try_from(open).unwrap_or(u32::MAX),
     };
-    match state.deps.agents.presence(host.id) {
+    match presence {
         Presence::Connected { since, version } => {
-            dto.connected = true;
             dto.outdated = is_older(&version, HUB_VERSION);
             dto.version = Some(version);
             dto.connected_since = Some(since.to_string());
@@ -87,6 +97,16 @@ pub(crate) async fn host_dto(
         }
     }
     Ok(dto)
+}
+
+/// The wire name of a host's protocol state.
+fn protocol_name(report: &Option<domovoi_core::AgentReport>) -> &'static str {
+    match crate::agent_server::protocol_state(report.as_ref(), domovoi_proto::PROTOCOL_VERSION) {
+        crate::agent_server::ProtocolState::Unknown => "unknown",
+        crate::agent_server::ProtocolState::Compatible => "compatible",
+        crate::agent_server::ProtocolState::Incompatible { .. } => "incompatible",
+        crate::agent_server::ProtocolState::ExpectedIncompatible { .. } => "expected_incompatible",
+    }
 }
 
 /// Every host with its agent's presence, sorted by name.
