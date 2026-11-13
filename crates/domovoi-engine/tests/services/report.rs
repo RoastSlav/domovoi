@@ -1,13 +1,21 @@
 //! Reading the model's final answer as a report, with and without the by-hand checklist.
 
+use std::sync::Arc;
+
 use domovoi_core::TriageOutcome;
 use domovoi_core::Verdict;
+use domovoi_core::ports::{ActionRepo, Transaction};
 use domovoi_core::triage::{MANUAL_STEP_MAX_CHARS, MAX_MANUAL_STEPS};
+use domovoi_core::{ActionRequest, Principal};
+use domovoi_testkit::InMemoryStore;
+use domovoi_testkit::build::T0;
+use jiff::SignedDuration;
 use serde_json::json;
 
 use domovoi_engine::triage::{SYSTEM_PROMPT, parse_report};
 
-use crate::harness::{SECRET, Setup, world};
+use crate::harness::{SECRET, Setup, host_id, report_json, restart_skill, world, world_over};
+use crate::uow_probe::RecordingUow;
 
 /// One model answer, as text, with the given by-hand steps.
 fn answer(steps: Vec<String>) -> String {
@@ -131,5 +139,100 @@ async fn triage_drops_blank_manual_steps_and_redacts_a_step_that_quotes_a_secret
             "The label on the PSU reads password [REDACTED].".to_owned(),
         ],
         "the blank step went away, the secret with it",
+    );
+}
+
+/// Triage stores a new proposal and rotates a waiting action's chat token through the
+/// action writer, so both land with their audit and journal rows in one commit.
+#[tokio::test]
+async fn triage_proposals_use_the_writer() {
+    let store = Arc::new(InMemoryStore::new());
+    let probe = Arc::new(RecordingUow::new(store.clone()));
+    let w = world_over(Setup::default(), store, probe.clone()).await;
+    let skill = restart_skill();
+    w.link.set_skills(host_id(), vec![skill.clone()]);
+
+    // A waiting action for the same skill and arguments as the first proposal.
+    let params: std::collections::BTreeMap<String, String> = [("container", "nginx")]
+        .into_iter()
+        .map(|(key, value)| (key.to_owned(), value.to_owned()))
+        .collect();
+    let args = skill.validate_args(&params).unwrap();
+    let waiting = ActionRequest::propose(
+        w.incident.id(),
+        host_id(),
+        &skill,
+        &args,
+        Principal::System("triage".into()),
+        SignedDuration::from_hours(1),
+        T0,
+    );
+    let waiting_id = waiting.id();
+    ActionRepo::insert(&*w.store, &waiting).await.unwrap();
+    let before = waiting.chat_token_hash().copied();
+
+    w.primary.push_text(report_json(
+        "ACTION_NEEDED",
+        json!([
+            {"skill": "restart_container", "args": {"container": "nginx"}, "reason": "still restarting"},
+            {"skill": "restart_container", "args": {"container": "redis"}, "reason": "also restarting"},
+        ]),
+    ));
+    let outcome = w.run().await;
+    let TriageOutcome::Report(report) = outcome else {
+        panic!("a report, not {outcome:?}");
+    };
+    assert_eq!(
+        report.proposals.len(),
+        1,
+        "the duplicate is a rotation, not a second action",
+    );
+
+    let commits = probe.commits();
+    assert_eq!(
+        commits.len(),
+        2,
+        "one proposal and one rotation, and nothing else",
+    );
+    for tx in &commits {
+        assert_action_commit(tx);
+    }
+    let creations = commits
+        .iter()
+        .filter(|tx| tx.journal[0].payload["from"] == json!(null))
+        .count();
+    assert_eq!(creations, 1, "the new proposal is a creation commit");
+    let rotations = commits
+        .iter()
+        .filter(|tx| tx.journal[0].payload["change"] == json!("chat_token_rotated"))
+        .count();
+    assert_eq!(
+        rotations, 1,
+        "the duplicate rotates the waiting action's token",
+    );
+
+    let stored = ActionRepo::get(&*w.store, waiting_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_ne!(
+        stored.chat_token_hash().copied(),
+        before,
+        "the waiting action's chat token was replaced",
+    );
+}
+
+/// One action commit: exactly one action write, one audit draft and one journal draft.
+fn assert_action_commit(tx: &Transaction) {
+    assert_eq!(tx.writes.len(), 1);
+    assert!(matches!(
+        tx.writes[0],
+        domovoi_core::ports::StateWrite::Action { .. }
+    ));
+    assert_eq!(tx.audit.len(), 1);
+    assert_eq!(tx.journal.len(), 1);
+    assert_eq!(
+        tx.journal[0].kind,
+        domovoi_core::ports::JournalKind::ActionTransition
     );
 }

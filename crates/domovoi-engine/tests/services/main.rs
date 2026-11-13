@@ -8,6 +8,8 @@ mod actions_harness;
 #[cfg(test)]
 mod approve;
 #[cfg(test)]
+mod atomic;
+#[cfg(test)]
 mod attach;
 #[cfg(test)]
 mod chat;
@@ -32,5 +34,7 @@ mod redact;
 mod report;
 #[cfg(test)]
 mod turns;
+#[cfg(test)]
+mod uow_probe;
 #[cfg(test)]
 mod writer;

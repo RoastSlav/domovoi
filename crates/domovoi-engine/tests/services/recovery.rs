@@ -107,7 +107,7 @@ async fn restarted(states: Vec<LeftBehind>) -> (Actions, Vec<ActionId>) {
             let ran_at = T0
                 .checked_sub(SignedDuration::from_mins(40 - 10 * index as i64))
                 .unwrap();
-            AuditLog::append(&*store, &audit::dispatched(&action, ran_at))
+            AuditLog::append(&*store, &audit::dispatched(&action, ran_at).into_event())
                 .await
                 .unwrap();
         }
@@ -133,6 +133,7 @@ async fn restarted(states: Vec<LeftBehind>) -> (Actions, Vec<ActionId>) {
             actions: store.clone(),
             incidents: store.clone(),
             audit: store.clone(),
+            uow: store.clone(),
             link: link.clone(),
             redactor: Arc::new(PatternRedactor::new([SecretString::from(
                 SECRET.to_owned(),
@@ -313,5 +314,64 @@ async fn approvals_caught_up_at_once_share_one_loop_guard() {
     assert_eq!(
         guarded, 1,
         "one of the approvals caught up at once is stopped, and its reason is the guard",
+    );
+}
+
+#[tokio::test]
+async fn loop_guard_reloads_dispatches_that_were_committed_with_their_audit_rows() {
+    // The first session dispatches three runs, each committed with its audit row; the
+    // second session starts over the same store and must count all three.
+    let world = crate::actions_harness::seeded().await;
+    let settings = ActionSettings::default();
+    let first = world.start(settings, world.store.clone());
+    for _ in 0..3 {
+        let (action, _) = first
+            .propose_via_service(
+                &verified_restart(),
+                &[("container", "nginx")],
+                SignedDuration::from_hours(1),
+            )
+            .await
+            .unwrap();
+        first
+            .service
+            .approve(action.id(), human(UserId::new()), None)
+            .await
+            .unwrap();
+        first
+            .until(action.id(), |status| status == &ActionStatus::Verified)
+            .await;
+    }
+    let runs = first.runs();
+    assert_eq!(runs, 3, "the first session ran the skill three times");
+    drop(first);
+
+    let second = world.start(settings, world.store.clone());
+    let (fourth, _) = second
+        .propose_via_service(
+            &verified_restart(),
+            &[("container", "nginx")],
+            SignedDuration::from_hours(1),
+        )
+        .await
+        .unwrap();
+    second
+        .service
+        .approve(fourth.id(), human(UserId::new()), None)
+        .await
+        .unwrap();
+    let done = second
+        .until(fourth.id(), |status| {
+            matches!(status, ActionStatus::Rejected { .. })
+        })
+        .await;
+    assert!(
+        matches!(done.status(), ActionStatus::Rejected { reason } if reason.starts_with("loop guard")),
+        "the dispatches committed with their audit rows still count after a restart",
+    );
+    assert_eq!(
+        second.runs(),
+        runs,
+        "the guard stopped the fourth run before it reached the agent",
     );
 }

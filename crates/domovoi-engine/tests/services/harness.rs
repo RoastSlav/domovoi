@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use domovoi_core::ports::{
     ActionFilter, ActionRepo, Clock, LlmProvider, LlmResponse, NoteRepo, Page, Part, Presence,
-    SignalRepo, StopReason, ToolOutput, Usage,
+    SignalRepo, StopReason, ToolOutput, UnitOfWork, Usage,
 };
 use domovoi_core::{
     ActionRequest, CheckKey, Evidence, EvidenceValue, HostId, Incident, Note, NoteId, ParamKind,
@@ -13,7 +13,10 @@ use domovoi_core::{
     TriageOutcome,
 };
 use domovoi_engine::triage::{TriageDeps, TriageHandle, TriageService, TriageSettings};
-use domovoi_engine::{DomainEvent, EnginePolicy, EventKind, IncidentManager, ManagerDeps};
+use domovoi_engine::{
+    ActionDeps, ActionService, ActionSettings, DomainEvent, EnginePolicy, EventKind,
+    IncidentManager, ManagerDeps,
+};
 use domovoi_engine::{ManagerHandle, PatternRedactor};
 use domovoi_testkit::build::{T0, manifest, open_incident};
 use domovoi_testkit::{FakeAgentLink, FakeClock, InMemoryStore, ScriptedLlm};
@@ -117,6 +120,16 @@ pub async fn add_signal(
 
 pub async fn world(setup: Setup) -> World {
     let store = Arc::new(InMemoryStore::new());
+    world_over(setup, store.clone(), store).await
+}
+
+/// A world whose stores `uow` commits the action service's writes, so a test can watch
+/// what the writer commits. `store` must be the same store `uow` forwards to.
+pub async fn world_over(
+    setup: Setup,
+    store: Arc<InMemoryStore>,
+    uow: Arc<dyn UnitOfWork>,
+) -> World {
     let clock = Arc::new(FakeClock::new(T0));
     let link = Arc::new(FakeAgentLink::new());
     link.set_presence(
@@ -164,6 +177,21 @@ pub async fn world(setup: Setup) -> World {
         (false, true) => vec![third_dyn],
         (true, true) => vec![secondary_dyn, third_dyn],
     };
+    let (actions_service, _actions_task) = ActionService::spawn(
+        ActionDeps {
+            actions: store.clone(),
+            incidents: store.clone(),
+            audit: store.clone(),
+            uow,
+            link: link.clone(),
+            redactor: redactor.clone(),
+            clock: clock.clone(),
+            manager: manager.clone(),
+            bus: bus.clone(),
+            shutdown: shutdown.clone(),
+        },
+        ActionSettings::default(),
+    );
     let deps = TriageDeps {
         primary: primary_dyn,
         fallbacks,
@@ -172,7 +200,7 @@ pub async fn world(setup: Setup) -> World {
         signals: store.clone(),
         notes: store.clone(),
         actions: store.clone(),
-        audit: store.clone(),
+        actions_service: actions_service.clone(),
         cache: store.clone(),
         usage: store.clone(),
         advisories: store.clone(),

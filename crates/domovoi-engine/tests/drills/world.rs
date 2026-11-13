@@ -17,7 +17,10 @@ use domovoi_core::{
 };
 use domovoi_engine::PatternRedactor;
 use domovoi_engine::triage::{TriageDeps, TriageService, TriageSettings};
-use domovoi_engine::{DomainEvent, EnginePolicy, EventKind, IncidentManager, ManagerDeps};
+use domovoi_engine::{
+    ActionDeps, ActionService, ActionSettings, DomainEvent, EnginePolicy, EventKind,
+    IncidentManager, ManagerDeps,
+};
 use domovoi_testkit::build::{T0, open_incident};
 use domovoi_testkit::link::LinkRequest;
 use domovoi_testkit::{FakeAgentLink, FakeClock, InMemoryStore, ScriptedLlm};
@@ -257,6 +260,21 @@ pub async fn run(drill: &Drill, model: Model) -> Outcome {
         requests: Mutex::new(Vec::new()),
     });
     let primary: Arc<dyn LlmProvider> = recording.clone();
+    let (actions_service, _actions_task) = ActionService::spawn(
+        ActionDeps {
+            actions: store.clone(),
+            incidents: store.clone(),
+            audit: store.clone(),
+            uow: store.clone(),
+            link: link.clone(),
+            redactor: redactor.clone(),
+            clock: clock.clone(),
+            manager: manager.clone(),
+            bus: bus.clone(),
+            shutdown: shutdown.clone(),
+        },
+        ActionSettings::default(),
+    );
     let deps = TriageDeps {
         primary,
         fallbacks: Vec::new(),
@@ -265,7 +283,7 @@ pub async fn run(drill: &Drill, model: Model) -> Outcome {
         signals: store.clone(),
         notes: store.clone(),
         actions: store.clone(),
-        audit: store.clone(),
+        actions_service,
         cache: store.clone(),
         usage: store.clone(),
         advisories: store.clone(),
