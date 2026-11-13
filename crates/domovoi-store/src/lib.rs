@@ -11,13 +11,17 @@
 
 mod backup;
 mod codec;
+mod compat;
 mod db;
 mod error;
 mod fts;
+mod integrity;
 mod purge;
 mod repos;
+mod uow;
 
 pub use backup::{BACKUP_PREFIX, pre_migrate_name};
+pub use compat::MIN_READER;
 pub use db::{BUSY_TIMEOUT, MIGRATOR, READ_CONNECTIONS, Store, StoreOptions, needs_backup};
 pub use error::StoreOpenError;
 pub use purge::{PurgeReport, RetentionPolicy};
