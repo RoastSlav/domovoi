@@ -135,10 +135,10 @@ pub(crate) struct Shared {
 
 impl Shared {
     /// Commits one action write together with its audit and journal entries, then records
-    /// the metric and publishes the event. Nothing is recorded or published when the
-    /// commit fails, so a store error can never leave an action in a new status without
-    /// its audit and journal rows. The journal's `from` is the status the guard names;
-    /// it is `null` for a creation.
+    /// the status-change metric (only when the status actually changed) and publishes the
+    /// event. Nothing is recorded or published when the commit fails, so a store error can
+    /// never leave an action in a new status without its audit and journal rows. The
+    /// journal's `from` is the status the guard names; it is `null` for a creation.
     pub(crate) async fn commit_action(
         &self,
         action: &ActionRequest,
@@ -148,9 +148,12 @@ impl Shared {
         extra: Option<(&str, &str)>,
         publish: Publish,
     ) -> Result<(), CommitError> {
-        let from = match &guard {
-            ActionGuard::New => None,
-            ActionGuard::Status(status) => Some(status.as_str()),
+        let (from, changed) = match &guard {
+            ActionGuard::New => (None, true),
+            ActionGuard::Status(status) => (
+                Some(status.as_str()),
+                status.as_str() != action.status().name(),
+            ),
         };
         let mut payload = json!({
             "action": action.id().to_string(),
@@ -180,7 +183,9 @@ impl Shared {
             .audit(audit)
             .journal(journal);
         self.deps.uow.commit(tx).await?;
-        crate::telemetry::record_action(action.status());
+        if changed {
+            crate::telemetry::record_action(action.status());
+        }
         if publish == Publish::ActionChanged {
             self.publish(
                 action,

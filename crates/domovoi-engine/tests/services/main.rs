@@ -2,6 +2,8 @@
 //! link.
 
 #[cfg(test)]
+mod action_metrics;
+#[cfg(test)]
 mod actions;
 #[cfg(test)]
 mod actions_harness;
