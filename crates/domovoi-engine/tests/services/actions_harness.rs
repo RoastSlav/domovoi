@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use domovoi_core::ports::{
     ActionRepo, AuditFilter, AuditLog, CheckRecheck, Clock, IncidentRepo, Page, Presence,
-    SkillOutput,
+    SkillOutput, UnitOfWork,
 };
 use domovoi_core::{
     ActionId, ActionRequest, ActionStatus, Evidence, Incident, Principal, Risk, SignalStatus,
@@ -15,8 +15,8 @@ use domovoi_core::{
 use domovoi_engine::actions::audit;
 use domovoi_engine::triage::{mint_token, token_hash};
 use domovoi_engine::{
-    ActionDeps, ActionHandle, ActionService, ActionSettings, DomainEvent, EnginePolicy,
-    IncidentManager, ManagerDeps, PatternRedactor,
+    ActionDeps, ActionHandle, ActionService, ActionSettings, ApprovalError, DomainEvent,
+    EnginePolicy, IncidentManager, ManagerDeps, ManagerHandle, PatternRedactor,
 };
 use domovoi_testkit::build::{T0, open_incident};
 use domovoi_testkit::{FakeAgentLink, FakeClock, InMemoryStore};
@@ -81,8 +81,24 @@ pub fn check(status: SignalStatus) -> CheckRecheck {
     }
 }
 
-pub async fn actions(settings: ActionSettings) -> Actions {
-    let store = Arc::new(InMemoryStore::new());
+/// Everything a world holds before the action service starts, so a test can seed what a
+/// previous hub session left behind and then start the service over it.
+pub struct Seeded {
+    pub store: Arc<InMemoryStore>,
+    pub clock: Arc<FakeClock>,
+    pub link: Arc<FakeAgentLink>,
+    pub bus: broadcast::Sender<DomainEvent>,
+    pub shutdown: CancellationToken,
+    pub incident: Incident,
+    pub manager: ManagerHandle,
+}
+
+/// A world over a fresh in-memory store, with the service not started yet.
+pub async fn seeded() -> Seeded {
+    seeded_over(Arc::new(InMemoryStore::new())).await
+}
+
+async fn seeded_over(store: Arc<InMemoryStore>) -> Seeded {
     let clock = Arc::new(FakeClock::new(T0));
     let link = Arc::new(FakeAgentLink::new());
     link.set_presence(
@@ -97,7 +113,7 @@ pub async fn actions(settings: ActionSettings) -> Actions {
     link.on_check(|_, _, _| Ok(check(SignalStatus::Resolved)));
     let incident = open_incident(host_id(), "docker.container", Some("nginx")).unwrap();
     IncidentRepo::insert(&*store, &incident).await.unwrap();
-    let (bus, events) = broadcast::channel(256);
+    let (bus, _events) = broadcast::channel(256);
     let shutdown = CancellationToken::new();
     let (manager, _task) = IncidentManager::spawn(ManagerDeps {
         incidents: store.clone(),
@@ -109,30 +125,66 @@ pub async fn actions(settings: ActionSettings) -> Actions {
         bus: bus.clone(),
         shutdown: shutdown.clone(),
     });
-    let deps = ActionDeps {
-        actions: store.clone(),
-        incidents: store.clone(),
-        audit: store.clone(),
-        link: link.clone(),
-        redactor: Arc::new(PatternRedactor::new([SecretString::from(
-            SECRET.to_owned(),
-        )])),
-        clock: clock.clone(),
-        manager,
-        bus: bus.clone(),
-        shutdown: shutdown.clone(),
-    };
-    let (service, _task) = ActionService::spawn(deps, settings);
-    Actions {
+    Seeded {
         store,
         clock,
         link,
-        service,
-        events,
         bus,
-        incident,
         shutdown,
+        incident,
+        manager,
     }
+}
+
+impl Seeded {
+    /// Starts an action service over this world, committing every action write through
+    /// `uow`. Each start gets its own shutdown token, so a test can stop one service and
+    /// start another over the same store.
+    pub fn start(&self, settings: ActionSettings, uow: Arc<dyn UnitOfWork>) -> Actions {
+        let shutdown = self.shutdown.child_token();
+        let events = self.bus.subscribe();
+        let deps = ActionDeps {
+            actions: self.store.clone(),
+            incidents: self.store.clone(),
+            audit: self.store.clone(),
+            uow,
+            link: self.link.clone(),
+            redactor: Arc::new(PatternRedactor::new([SecretString::from(
+                SECRET.to_owned(),
+            )])),
+            clock: self.clock.clone(),
+            manager: self.manager.clone(),
+            bus: self.bus.clone(),
+            shutdown: shutdown.clone(),
+        };
+        let (service, _task) = ActionService::spawn(deps, settings);
+        Actions {
+            store: self.store.clone(),
+            clock: self.clock.clone(),
+            link: self.link.clone(),
+            service,
+            events,
+            bus: self.bus.clone(),
+            incident: self.incident.clone(),
+            shutdown,
+        }
+    }
+}
+
+pub async fn actions(settings: ActionSettings) -> Actions {
+    let world = seeded().await;
+    world.start(settings, world.store.clone())
+}
+
+/// Starts the action service over `store`, committing through `uow` so a test can watch
+/// or refuse what it writes. Reads go to `store`, which `uow` must forward to.
+pub async fn actions_with_uow(
+    store: Arc<InMemoryStore>,
+    uow: Arc<dyn UnitOfWork>,
+    settings: ActionSettings,
+) -> Actions {
+    let world = seeded_over(store).await;
+    world.start(settings, uow)
 }
 
 impl Actions {
@@ -143,6 +195,36 @@ impl Actions {
     /// Proposes `skill` with `args` as triage would, open for `ttl`, and returns the action
     /// and its plain chat token.
     pub async fn propose_for(
+        &self,
+        skill: &SkillSummary,
+        args: &[(&str, &str)],
+        ttl: SignedDuration,
+    ) -> (ActionRequest, String) {
+        let (action, token) = self.proposal(skill, args, ttl).await;
+        ActionRepo::insert(&*self.store, &action).await.unwrap();
+        AuditLog::append(
+            &*self.store,
+            &audit::proposed(&action, self.now()).into_event(),
+        )
+        .await
+        .unwrap();
+        (action, token)
+    }
+
+    /// Proposes `skill` with `args` through the writer, as triage now does, and returns
+    /// the stored action and its plain chat token.
+    pub async fn propose_via_service(
+        &self,
+        skill: &SkillSummary,
+        args: &[(&str, &str)],
+        ttl: SignedDuration,
+    ) -> Result<(ActionRequest, String), ApprovalError> {
+        let (action, token) = self.proposal(skill, args, ttl).await;
+        let stored = self.service.propose(action).await?;
+        Ok((stored, token))
+    }
+
+    pub async fn proposal(
         &self,
         skill: &SkillSummary,
         args: &[(&str, &str)],
@@ -164,10 +246,6 @@ impl Actions {
             self.now(),
         )
         .with_chat_token_hash(token_hash(&token));
-        ActionRepo::insert(&*self.store, &action).await.unwrap();
-        AuditLog::append(&*self.store, &audit::proposed(&action, self.now()))
-            .await
-            .unwrap();
         (action, token)
     }
 

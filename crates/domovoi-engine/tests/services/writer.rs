@@ -113,6 +113,7 @@ async fn swept(settings: ActionSettings, lists: Arc<Mutex<Vec<ActionFilter>>>) -
             actions,
             incidents: store.clone(),
             audit: store.clone(),
+            uow: store.clone(),
             link: Arc::new(FakeAgentLink::new()),
             redactor: Arc::new(PatternRedactor::default()),
             clock: clock.clone(),

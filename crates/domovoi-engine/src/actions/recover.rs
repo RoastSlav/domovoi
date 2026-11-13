@@ -7,9 +7,12 @@
 //! was meant to do stays undone until the hub starts again, instead of looking complete.
 
 use domovoi_core::ActionChange;
-use domovoi_core::ports::{ActionFilter, AuditEvent, AuditFilter, Page, StoreError};
+use domovoi_core::ports::{
+    ActionFilter, ActionGuard, AuditEvent, AuditFilter, CommitError, Page, StoreError,
+};
 use domovoi_core::{ActionId, ActionRequest};
 
+use super::Publish;
 use super::Shared;
 use super::audit;
 
@@ -222,23 +225,25 @@ pub(crate) async fn fail_abandoned(shared: &Shared) -> Result<usize, StoreError>
             }
         };
         match shared
-            .record_from(
+            .commit_action(
                 &action,
-                from.name(),
+                ActionGuard::Status(from.name().to_owned()),
                 audit::finished(&action, None, Some(RESTART_REASON), now),
+                now,
+                None,
+                Publish::ActionChanged,
             )
             .await
         {
             Ok(()) => failed += 1,
-            Err(StoreError::Backend(what)) => tracing::warn!(
-                %what,
-                action = %action.id(),
-                "could not fail an action left running",
-            ),
-            Err(err) => tracing::debug!(
-                %err,
+            Err(CommitError::Conflict { .. }) => tracing::debug!(
                 action = %action.id(),
                 "someone decided this action meanwhile; the restart leaves it as they left it",
+            ),
+            Err(err) => tracing::warn!(
+                %err,
+                action = %action.id(),
+                "could not fail an action left running",
             ),
         }
     }

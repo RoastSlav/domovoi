@@ -20,6 +20,8 @@ mod api_routes;
 #[cfg(test)]
 mod api_updates;
 #[cfg(test)]
+mod atomic_actions;
+#[cfg(test)]
 mod csp;
 #[cfg(test)]
 mod dismiss;

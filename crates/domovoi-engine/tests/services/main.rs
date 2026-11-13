@@ -2,11 +2,15 @@
 //! link.
 
 #[cfg(test)]
+mod action_metrics;
+#[cfg(test)]
 mod actions;
 #[cfg(test)]
 mod actions_harness;
 #[cfg(test)]
 mod approve;
+#[cfg(test)]
+mod atomic;
 #[cfg(test)]
 mod attach;
 #[cfg(test)]
@@ -32,5 +36,7 @@ mod redact;
 mod report;
 #[cfg(test)]
 mod turns;
+#[cfg(test)]
+mod uow_probe;
 #[cfg(test)]
 mod writer;

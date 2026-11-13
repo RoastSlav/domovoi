@@ -13,15 +13,18 @@ mod executor;
 mod recheck;
 mod recover;
 mod writer;
+mod writer_propose;
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::{Arc, Mutex};
 
 use domovoi_core::ports::{
-    ActionRepo, AgentLink, AuditEvent, AuditLog, Clock, IncidentRepo, Redactor, StoreError,
+    ActionGuard, ActionRepo, AgentLink, AggregateRef, AuditDraft, AuditLog, Clock, CommitError,
+    IncidentRepo, JournalDraft, JournalKind, Redactor, StateWrite, Transaction, UnitOfWork,
 };
 use domovoi_core::{ActionError, ActionId, ActionRequest, HostId, HumanApproval};
 use jiff::{SignedDuration, Timestamp};
+use serde_json::{Value, json};
 use tokio::sync::{broadcast, oneshot};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -63,8 +66,10 @@ pub struct ActionDeps {
     pub actions: Arc<dyn ActionRepo>,
     /// Incidents, read only, for events and the check to verify.
     pub incidents: Arc<dyn IncidentRepo>,
-    /// The append-only audit log.
+    /// The append-only audit log, for reading back what past transitions recorded.
     pub audit: Arc<dyn AuditLog>,
+    /// One atomic commit for an action write, its audit entry and its journal entry.
+    pub uow: Arc<dyn UnitOfWork>,
     /// Skill catalogues, dispatch and re-checks.
     pub link: Arc<dyn AgentLink>,
     /// Runs on skill output before it is stored.
@@ -105,6 +110,15 @@ pub enum ApprovalError {
 /// Run dispatch times per host and skill, for the loop guard.
 type Dispatches = BTreeMap<(HostId, String), VecDeque<Timestamp>>;
 
+/// What a committed action write announces on the event bus.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Publish {
+    /// Publish `ActionChanged` for the action.
+    ActionChanged,
+    /// Announce nothing: whoever queued the write announces it another way.
+    Nothing,
+}
+
 pub(crate) struct Shared {
     pub(crate) deps: ActionDeps,
     pub(crate) settings: ActionSettings,
@@ -120,36 +134,69 @@ pub(crate) struct Shared {
 }
 
 impl Shared {
-    /// Stores `action` through the guarded write, so a decision that read the
-    /// action before it changed is refused rather than overwriting an outcome,
-    /// appends `entry` to the audit log and publishes `ActionChanged`. The store's
-    /// own error lets the caller tell a lost race from a real failure.
-    pub(crate) async fn record_from(
+    /// Commits one action write together with its audit and journal entries, then records
+    /// the status-change metric (only when the status actually changed) and publishes the
+    /// event. Nothing is recorded or published when the commit fails, so a store error can
+    /// never leave an action in a new status without its audit and journal rows. The
+    /// journal's `from` is the status the guard names; it is `null` for a creation.
+    pub(crate) async fn commit_action(
         &self,
         action: &ActionRequest,
-        expected: &str,
-        entry: AuditEvent,
-    ) -> Result<(), StoreError> {
-        self.deps.actions.update_from(action, expected).await?;
-        self.announce(action, entry).await;
-        Ok(())
-    }
-
-    /// Appends `entry` to the audit log, counts the status and publishes
-    /// `ActionChanged`. Only called once the store accepted the write.
-    pub(crate) async fn announce(&self, action: &ActionRequest, entry: AuditEvent) {
-        if let Err(err) = self.deps.audit.append(&entry).await {
-            tracing::error!(%err, kind = %entry.kind, "could not write the audit log");
+        guard: ActionGuard,
+        audit: AuditDraft,
+        now: Timestamp,
+        extra: Option<(&str, &str)>,
+        publish: Publish,
+    ) -> Result<(), CommitError> {
+        let (from, changed) = match &guard {
+            ActionGuard::New => (None, true),
+            ActionGuard::Status(status) => (
+                Some(status.as_str()),
+                status.as_str() != action.status().name(),
+            ),
+        };
+        let mut payload = json!({
+            "action": action.id().to_string(),
+            "incident": action.incident().to_string(),
+            "host": action.host().to_string(),
+            "skill": action.skill().as_str(),
+            "from": from,
+            "to": action.status().name(),
+            "plan_hash": action.plan_hash().to_string(),
+        });
+        if let (Value::Object(fields), Some((key, value))) = (&mut payload, extra) {
+            fields.insert(key.to_owned(), json!(value));
         }
-        crate::telemetry::record_action(action.status());
-        self.publish(
-            action,
-            EventKind::ActionChanged {
-                action: action.id(),
-                status: action.status().clone(),
-            },
-        )
-        .await;
+        let journal = JournalDraft {
+            aggregate: AggregateRef::action(action.id()),
+            kind: JournalKind::ActionTransition,
+            payload_v: 1,
+            payload,
+            actor: audit.actor.clone(),
+            occurred_at: now,
+        };
+        let tx = Transaction::new()
+            .write(StateWrite::Action {
+                action: action.clone(),
+                expected: guard,
+            })
+            .audit(audit)
+            .journal(journal);
+        self.deps.uow.commit(tx).await?;
+        if changed {
+            crate::telemetry::record_action(action.status());
+        }
+        if publish == Publish::ActionChanged {
+            self.publish(
+                action,
+                EventKind::ActionChanged {
+                    action: action.id(),
+                    status: action.status().clone(),
+                },
+            )
+            .await;
+        }
+        Ok(())
     }
 
     /// Publishes `kind` for the incident `action` belongs to.
@@ -269,6 +316,47 @@ impl ActionHandle {
         let command = writer::WriteCommand::Deny {
             id,
             approval,
+            reply,
+        };
+        if self.writer.tx.send(command).await.is_err() {
+            return Err(ApprovalError::Unavailable);
+        }
+        match answer.await {
+            Ok(result) => result,
+            Err(_) => Err(ApprovalError::Unavailable),
+        }
+    }
+
+    /// Stores a newly proposed action with its audit and journal entries. Refused when the
+    /// action is not in the `proposed` status, or when its id is already stored. The
+    /// write is queued for the writer task, so triage never writes action state itself.
+    pub async fn propose(&self, action: ActionRequest) -> Result<ActionRequest, ApprovalError> {
+        let (reply, answer) = oneshot::channel();
+        let command = writer::WriteCommand::Propose {
+            action: Box::new(action),
+            reply,
+        };
+        if self.writer.tx.send(command).await.is_err() {
+            return Err(ApprovalError::Unavailable);
+        }
+        match answer.await {
+            Ok(result) => result,
+            Err(_) => Err(ApprovalError::Unavailable),
+        }
+    }
+
+    /// Replaces the chat approval token hash of a still-proposed action. The previous
+    /// token stops working. Refused with `ChangedMeanwhile` when the action is no longer
+    /// `proposed`, and `NotFound` when it does not exist.
+    pub async fn rotate_chat_token(
+        &self,
+        id: ActionId,
+        token_hash: [u8; 32],
+    ) -> Result<ActionRequest, ApprovalError> {
+        let (reply, answer) = oneshot::channel();
+        let command = writer::WriteCommand::RotateChatToken {
+            id,
+            token_hash,
             reply,
         };
         if self.writer.tx.send(command).await.is_err() {

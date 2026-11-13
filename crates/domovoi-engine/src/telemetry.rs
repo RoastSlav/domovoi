@@ -59,7 +59,8 @@ pub(crate) fn record_active(active: &[Incident]) {
     }
 }
 
-/// Records an action's new status.
+/// Records an action's status change to `status`. Same-status updates, such as rotating a
+/// waiting action's chat token, must not call this.
 pub(crate) fn record_action(status: &ActionStatus) {
     metrics::counter!(ACTIONS_TOTAL, "status" => status.name()).increment(1);
 }

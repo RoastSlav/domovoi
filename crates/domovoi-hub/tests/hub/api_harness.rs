@@ -17,8 +17,9 @@ use domovoi_core::ports::{
 };
 use domovoi_core::{ActionRequest, HostId, HostName, Incident, Principal, Risk, SkillSummary};
 use domovoi_engine::{
-    ActionDeps, ActionService, ActionSettings, DomainEvent, EnginePolicy, IncidentManager,
-    ManagerDeps, ManagerHandle, PatternRedactor, TriageDeps, TriageService, TriageSettings,
+    ActionDeps, ActionHandle, ActionService, ActionSettings, DomainEvent, EnginePolicy,
+    IncidentManager, ManagerDeps, ManagerHandle, PatternRedactor, TriageDeps, TriageService,
+    TriageSettings,
 };
 use domovoi_hub::agent_server::{
     AgentServer, AgentServerDeps, AgentServerError, EnrollmentInvite, RealNetProbes,
@@ -182,6 +183,8 @@ pub struct Api {
     pub llm: Arc<ScriptedLlm>,
     /// The audit log the API and the services write to, for reading back what a call recorded.
     pub audit: Arc<dyn AuditLog>,
+    /// The action service, for testing what the writer commits.
+    pub actions_service: ActionHandle,
     pub incident: Incident,
     pub nas: domovoi_core::Host,
     pub shutdown: CancellationToken,
@@ -283,6 +286,7 @@ async fn build(
             actions: store.clone(),
             incidents: store.clone(),
             audit: store.clone(),
+            uow: store.clone(),
             link: link.clone(),
             redactor: Arc::new(PatternRedactor::default()),
             clock: clock.clone(),
@@ -304,7 +308,7 @@ async fn build(
                 signals: store.clone(),
                 notes: store.clone(),
                 actions: store.clone(),
-                audit: store.clone(),
+                actions_service: actions_service.clone(),
                 cache: store.clone(),
                 usage: store.clone(),
                 advisories: store.clone(),
@@ -375,7 +379,7 @@ async fn build(
         usage: store.clone(),
         acks: store.clone(),
         manager: manager.clone(),
-        actions_service,
+        actions_service: actions_service.clone(),
         triage,
         agents: Arc::new(TestAgents {
             link: link.clone(),
@@ -413,6 +417,7 @@ async fn build(
     let app = router(state.clone(), None).layer(MockConnectInfo(peer()));
     Api {
         audit: store.clone(),
+        actions_service,
         app,
         state,
         store,

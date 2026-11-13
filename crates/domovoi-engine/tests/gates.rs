@@ -13,6 +13,48 @@ use domovoi_testkit::link::LinkRequest;
 use jiff::tz::TimeZone;
 use serde_json::json;
 
+/// Action state is written only by the action writer, and only through the unit of work,
+/// so every transition keeps its audit and journal rows.
+#[test]
+fn action_writes_go_through_the_unit_of_work() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut offenders = Vec::new();
+    scans(&root, &mut offenders);
+    assert!(
+        offenders.is_empty(),
+        "action state is written outside the unit of work: {offenders:?}",
+    );
+}
+
+/// Collects every non-comment line under `dir` that writes action state directly.
+fn scans(dir: &std::path::Path, offenders: &mut Vec<String>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            scans(&path, offenders);
+            continue;
+        }
+        if path.extension().and_then(|ext| ext.to_str()) != Some("rs") {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        for (index, line) in text.lines().enumerate() {
+            let code = line.trim_start();
+            if code.starts_with("//") {
+                continue;
+            }
+            if code.contains(".update_from(") || code.contains("actions.insert(") {
+                offenders.push(format!("{}:{}: {code}", path.display(), index + 1));
+            }
+        }
+    }
+}
+
 use crate::harness::{
     SECRET, Setup, World, calls, disk, host_id, report, report_json, restart_skill, results, seen,
     world,
