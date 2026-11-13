@@ -1,10 +1,10 @@
 //! A failure after the journal, audit and effect stages still rolls everything back.
 
 use domovoi_core::ports::{
-    AggregateRef, AuditDraft, AuditEvent, AuditFilter, ClaimToken, CommitError, EffectCompletion,
-    EffectDraft, EffectKind, Expected, JournalDraft, JournalKind, Page, StateWrite, Transaction,
+    AggregateRef, AuditDraft, AuditFilter, ClaimToken, CommitError, EffectCompletion, EffectDraft,
+    EffectKind, Expected, JournalDraft, JournalKind, Page, StateWrite, Transaction,
 };
-use domovoi_core::{EffectId, IncidentId, Note, NoteId};
+use domovoi_core::{Actor, EffectId, IncidentId, Note, NoteId};
 use serde_json::json;
 
 use super::super::{ContractError, ContractResult};
@@ -79,16 +79,16 @@ pub async fn failed_effect_completion_rolls_back_every_stage(
                     kind: JournalKind::ActionTransition,
                     payload_v: 1,
                     payload: json!({"to": "approved"}),
-                    actor: "user:1".to_owned(),
+                    actor: Actor::System("test".to_owned()),
                     occurred_at: at(3),
                 })
-                .audit(AuditDraft::new(AuditEvent {
-                    at: at(4),
-                    actor: "system:test".to_owned(),
-                    kind: "test.write".to_owned(),
-                    subject: "note:x".to_owned(),
-                    detail: serde_json::Value::Null,
-                }))
+                .audit(AuditDraft::new(
+                    Actor::System("test".to_owned()),
+                    at(4),
+                    "test.write".to_owned(),
+                    "note:x".to_owned(),
+                    serde_json::Value::Null,
+                ))
                 .effect(new_effect.clone())
                 .complete(EffectCompletion {
                     id: claimed.id,

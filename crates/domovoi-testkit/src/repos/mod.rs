@@ -66,6 +66,9 @@ struct State {
 /// It follows the documented semantics of each port, so the contract suites in
 /// [`contracts`](crate::contracts) pass against it. [`fail_next`](Self::fail_next) makes the
 /// next call fail, for testing error paths.
+///
+/// The audit log here is a plain list: it does not compute the hash chain that the SQLite store
+/// writes, and it has no `verify_audit`.
 #[derive(Default)]
 pub struct InMemoryStore {
     state: Mutex<State>,
