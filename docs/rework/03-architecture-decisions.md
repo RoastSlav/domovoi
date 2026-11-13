@@ -869,8 +869,10 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
 ### Helper identity and key enrollment
 
 - **Key.**
-  - The helper generates an Ed25519 key pair at first start if absent: private key
-    `/var/lib/domovoi-helper/attest.key`, root 0600, directory root 0700.
+  - Ed25519 key pair, created only by the explicit `domovoi helper init` that the installer runs.
+    Private key `/var/lib/domovoi-helper/attest.key`, root 0600, directory root 0700.
+  - The helper never generates a key implicitly, at startup or during operation. A missing key or
+    state fails closed. See "Helper state, recovery and concurrency".
   - It is masked in the agent and skill-runner units.
   - `public_key` = the raw 32-byte Ed25519 public key.
 - **Fingerprint and key id.**
@@ -901,8 +903,9 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
 
   | Event | Behaviour |
   |---|---|
-  | `domovoi helper rotate-key` (proposed, root on the host) | new key, generation counter kept |
-  | reinstall or lost helper state | new key generated at start |
+  | `domovoi helper rotate-key` (proposed, root on the host) | new key and new state with `generation=1`; the old counter is not carried over |
+  | `domovoi helper recover` after lost or damaged state (proposed, root on the host) | old key and state retired; new key and new state with `generation=1` |
+  | reinstall | the installer's `domovoi helper init` creates a key only when neither file exists; otherwise the owner runs `recover` |
   | key received ≠ pinned key | host shows "helper key changed: unverified"; every attestation fails; unattended containment blocked; the old pin is kept and never replaced silently |
   | owner re-enrollment | owner compares the new fingerprint locally and confirms (step-up); the pin is replaced; audited `helper.key_rotated` with old and new fingerprints |
   | owner unpin | no pinned key; containment blocked; audited |
@@ -1130,12 +1133,19 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
   | write interrupted | old file intact (atomic rename); generation not advanced; retried next request; never decremented |
 
 - **Explicit local actions.** These are proposed commands, run as root on the host:
-  - `domovoi helper init` (run by the installer): creates the key and `state` with `generation=1`
-    if neither exists. It refuses if either exists.
+  - `domovoi helper init`: the **only** first-time initialization path, invoked by the installer.
+    It creates the key and `state` with `generation=1` only when neither exists, and refuses to
+    overwrite either.
   - `domovoi helper recover`: moves the old key and state to `/var/lib/domovoi-helper/retired/<ts>/`,
     then creates a **new key** and fresh `state` with `generation=1`. Recovery is always a key
     rotation, because generation continuity cannot be proven after state loss.
-  - `domovoi helper rotate-key`: also creates a new key and state with `generation=1`.
+  - `domovoi helper rotate-key`: creates a new key and new state with `generation=1`. It never
+    preserves the old counter under the new key.
+  - None of these run automatically. Missing, corrupt or mismatched state is never reset or recovered
+    without one of these local root actions.
+  - **Generation sequences.** Each key has its own sequence starting at 1. Under one key, the
+    generation never decreases or repeats. Old keys are never restored as trusted: the hub retains
+    the old pin, blocks containment, and requires owner re-enrollment of the new key.
 - **Hub view.**
   - A recovered or rotated helper presents a new public key, so the host shows **"helper key
     changed: re-enroll"** and containment stays blocked until owner enrollment.
