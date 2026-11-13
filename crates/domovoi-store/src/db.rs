@@ -15,7 +15,6 @@ use crate::codec::ms;
 use crate::compat;
 use crate::error::StoreOpenError;
 use crate::integrity;
-
 /// The embedded migrations, in order.
 pub static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
 
@@ -168,6 +167,7 @@ impl Store {
             .await
             .map_err(|e| StoreOpenError::Migrate(e.to_string()))?;
         compat::record(&write, !existed || pending, ms(options.now)).await?;
+        crate::audit_chain::ensure_anchor(&write, options.now).await?;
         integrity::quick_check(&write).await?;
         let read = SqlitePoolOptions::new()
             .max_connections(READ_CONNECTIONS)

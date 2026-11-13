@@ -25,7 +25,7 @@ pub(super) async fn insert(
         .bind(draft.kind.as_str())
         .bind(i64::from(draft.payload_v))
         .bind(payload)
-        .bind(&draft.actor)
+        .bind(draft.actor.to_string())
         .bind(ms(draft.occurred_at))
         .bind(legacy)
         .fetch_one(&mut *conn)

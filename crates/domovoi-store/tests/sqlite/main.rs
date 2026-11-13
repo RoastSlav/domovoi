@@ -6,6 +6,8 @@ mod actions;
 #[cfg(test)]
 mod audit;
 #[cfg(test)]
+mod audit_chain;
+#[cfg(test)]
 mod commit_cost;
 #[cfg(test)]
 mod common;

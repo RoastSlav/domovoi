@@ -10,8 +10,8 @@ use domovoi_core::ports::{
     CommitError, CommitReceipt, JournalDraft, StoreError, Transaction, UnitOfWork,
 };
 
+use crate::audit_chain::insert_audit;
 use crate::db::Store;
-use crate::repos::insert_audit;
 
 /// Maps a store failure onto the unit-of-work error.
 fn map_store(err: StoreError) -> CommitError {
@@ -65,9 +65,8 @@ impl UnitOfWork for Store {
                 .push(journal::insert(&mut dbtx, draft, None).await?);
         }
         for draft in &tx.audit {
-            let seq = insert_audit(&mut *dbtx, &draft.event)
-                .await
-                .map_err(map_store)?;
+            let event = draft.clone().into_event();
+            let seq = insert_audit(&mut dbtx, &event).await.map_err(map_store)?;
             receipt.audit_seqs.push(seq);
         }
         for draft in &tx.new_effects {

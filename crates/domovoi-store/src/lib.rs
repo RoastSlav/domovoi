@@ -9,6 +9,8 @@
 //! - [`Store::backup_to`] takes a `VACUUM INTO` backup; [`Store::purge`] applies the
 //!   [`RetentionPolicy`].
 
+mod audit_chain;
+mod audit_verify;
 mod backup;
 mod codec;
 mod compat;
