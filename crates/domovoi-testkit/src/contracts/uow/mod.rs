@@ -2,12 +2,13 @@
 
 mod effects;
 mod journal;
+mod rollback;
 mod states;
 
 pub use effects::{
     completing_an_unclaimed_effect_without_a_token_marks_it_done,
     duplicate_dedup_key_is_refused_while_pending, effect_completion_needs_the_current_claim_token,
-    zero_max_attempts_is_refused,
+    effect_id_must_be_unique, effects_are_listed_in_insertion_order, zero_max_attempts_is_refused,
 };
 pub use journal::{
     audit_draft_is_appended_with_the_next_sequence_number,
@@ -15,6 +16,7 @@ pub use journal::{
     incident_event_is_mirrored_into_the_journal_with_its_original_time,
     journal_sequence_follows_commit_order,
 };
+pub use rollback::failed_effect_completion_rolls_back_every_stage;
 pub use states::{
     action_guard_refuses_a_changed_status, chat_token_hash_must_be_unique_across_actions,
     commit_applies_state_journal_audit_and_effects_together, empty_transaction_commits_nothing,

@@ -1,8 +1,8 @@
 //! Unit-of-work contracts about effects.
 
 use domovoi_core::ports::{
-    AggregateRef, ClaimToken, CommitError, EffectCompletion, EffectDraft, EffectKind, Expected,
-    StateWrite, Transaction,
+    AggregateRef, ClaimToken, CommitError, EffectCompletion, EffectDraft, EffectKind, EffectRecord,
+    EffectStatus, Expected, StateWrite, Transaction,
 };
 use domovoi_core::{EffectId, IncidentId, Note, NoteId};
 use serde_json::json;
@@ -22,6 +22,17 @@ fn wake(aggregate: &AggregateRef, at_secs: i64) -> EffectDraft {
         dedup_key: None,
         created_at: at(at_secs),
     }
+}
+
+/// A wake effect with an id and creation time chosen by the test.
+fn fixed_wake(id: u128, aggregate: &AggregateRef, at_secs: i64) -> EffectDraft {
+    let mut draft = wake(aggregate, at_secs);
+    draft.id = EffectId::from_uuid(uuid::Uuid::from_u128(id));
+    draft
+}
+
+fn ids(records: &[EffectRecord]) -> Vec<EffectId> {
+    records.iter().map(|record| record.id).collect()
 }
 
 fn note(host_id: domovoi_core::HostId) -> Note {
@@ -207,5 +218,102 @@ pub async fn zero_max_attempts_is_refused(subject: &dyn UowSubject) -> ContractR
     ));
     assert_eq!(subject.versions().note(note_id).await?, None);
     assert_eq!(subject.effects().effect(effect.id).await?, None);
+    Ok(())
+}
+
+/// An effect id is unique: reusing it is refused and leaves the first effect untouched.
+pub async fn effect_id_must_be_unique(subject: &dyn UowSubject) -> ContractResult {
+    let aggregate = AggregateRef::incident(IncidentId::new());
+    let original = wake(&aggregate, 1);
+    subject
+        .uow()
+        .commit(Transaction::new().effect(original.clone()))
+        .await?;
+    let before = subject
+        .effects()
+        .effect(original.id)
+        .await?
+        .ok_or_else(|| super::super::ContractError::Setup("effect missing".to_owned()))?;
+
+    let mut competing = wake(&aggregate, 2);
+    competing.id = original.id;
+    competing.kind = EffectKind::Notify;
+    competing.max_attempts = 9;
+    let failed = subject
+        .uow()
+        .commit(Transaction::new().effect(competing))
+        .await;
+    assert!(matches!(
+        failed,
+        Err(CommitError::Constraint(ref message)) if message == "effect id exists"
+    ));
+    assert_eq!(
+        subject.effects().effect(original.id).await?,
+        Some(before),
+        "the existing effect is unchanged"
+    );
+
+    // Two effects with one fresh id: neither becomes visible, and neither does the note
+    // written before them.
+    let host = host("nas")?;
+    let note = note(host.id);
+    let note_id = note.id;
+    let shared = EffectId::new();
+    let mut first = wake(&aggregate, 3);
+    first.id = shared;
+    let mut second = wake(&aggregate, 4);
+    second.id = shared;
+    let failed = subject
+        .uow()
+        .commit(
+            Transaction::new()
+                .write(StateWrite::Note {
+                    note,
+                    expected: Expected::New,
+                })
+                .effect(first)
+                .effect(second),
+        )
+        .await;
+    assert!(matches!(
+        failed,
+        Err(CommitError::Constraint(ref message)) if message == "effect id exists"
+    ));
+    assert_eq!(subject.effects().effect(shared).await?, None);
+    assert_eq!(subject.versions().note(note_id).await?, None);
+    Ok(())
+}
+
+/// Effects are listed in insertion order, not by id or creation time.
+pub async fn effects_are_listed_in_insertion_order(subject: &dyn UowSubject) -> ContractResult {
+    let aggregate = AggregateRef::incident(IncidentId::new());
+    // Id order is 1, 2, 3; creation times are 20, 10, 30; insertion is 3, 1, 2.
+    let third = fixed_wake(3, &aggregate, 20);
+    let first = fixed_wake(1, &aggregate, 10);
+    let second = fixed_wake(2, &aggregate, 30);
+    subject
+        .uow()
+        .commit(
+            Transaction::new()
+                .effect(third.clone())
+                .effect(first.clone()),
+        )
+        .await?;
+    subject
+        .uow()
+        .commit(Transaction::new().effect(second.clone()))
+        .await?;
+
+    let listed = subject
+        .effects()
+        .effects_with_status(EffectStatus::Pending, 10)
+        .await?;
+    assert_eq!(ids(&listed), vec![third.id, first.id, second.id]);
+
+    let limited = subject
+        .effects()
+        .effects_with_status(EffectStatus::Pending, 2)
+        .await?;
+    assert_eq!(ids(&limited), vec![third.id, first.id]);
     Ok(())
 }
