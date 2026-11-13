@@ -29,3 +29,7 @@ An action can be decided by more than one party at once: the person clicks Appro
 - One writer task with no store guard: races settle in one place but an uncoordinated writer can still overwrite a decision; the guard costs nothing and closes that hole. Lost.
 - Locking per action: locks across `await` points are the trouble ADR 0011 names. Lost.
 - Deciding expiry inside one store transaction: the decision also needs the audit log and the event bus, which the store does not own. Lost.
+
+## Update
+
+All action creations and updates, including triage's proposals and the rotation of a waiting action's chat token, now go through this writer and commit through the unit of work: the action row, its `audit_log` entry and its journal entry land in one transaction. An audit failure fails the transition, and triage no longer writes `ActionRepo` directly.

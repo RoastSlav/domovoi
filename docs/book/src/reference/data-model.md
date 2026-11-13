@@ -24,7 +24,7 @@ The hub keeps its state in one SQLite database in WAL mode, under `[hub] data_di
 | `incidents_fts` | Full-text index of incident titles, kept in step by triggers. |
 | `incident_events` | Each incident's timeline (status changes, triage reports, actions), in the order it happened. |
 | `actions` | Proposed and approved actions: skill, arguments, plan hash, status, proposer, approval and the chat button token hash. |
-| `audit_log` | Who did what, when: approvals, dispatches, results, logins. Append-only: triggers reject every update, delete and replace. Rows written since the hash chain was introduced also carry `prev_hash` and `hash`. |
+| `audit_log` | Who did what, when: approvals, dispatches, results, logins. Append-only: triggers reject every update, delete and replace. Rows written since the hash chain was introduced also carry `prev_hash` and `hash`. An action transition is recorded in the same transaction as the change. |
 | `ack_rules` | Standing acknowledgements: check, optional host and target pattern, evidence predicates, note, expiry, and who created the rule and when. |
 | `maintenance_windows` | Planned windows per host when incidents are held back. |
 | `baselines` | What each host is expected to run: containers, units and listening ports, with criticality and when they were last seen. |
