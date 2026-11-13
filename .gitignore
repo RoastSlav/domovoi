@@ -15,6 +15,7 @@ docs/book/book
 *.db
 *.db-wal
 *.db-shm
+!/crates/domovoi-store/tests/fixtures/n1-schema5.db
 /data
 /dist
 /image-bin
