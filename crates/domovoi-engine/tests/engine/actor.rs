@@ -10,15 +10,16 @@ use domovoi_core::ports::{
     StateWrite, StoreError, Transaction, UnitOfWork, Versioned, VersionedRead,
 };
 use domovoi_core::{
-    CheckKey, HostId, Incident, IncidentId, IncidentPolicy, IncidentStatus, Note, NoteId, Severity,
-    Signal, SignalClass, SourceKind, TriageOutcome, TriageReport, UserId, Verdict, apply,
+    CheckKey, HostId, Incident, IncidentEvent, IncidentId, IncidentPolicy, IncidentStatus, Note,
+    NoteId, Severity, Signal, SignalClass, SourceKind, TriageOutcome, TriageReport, UserId,
+    Verdict, apply,
 };
 use domovoi_engine::redact::REDACTED;
 use domovoi_engine::{
     CommandError, DomainEvent, EnginePolicy, EventKind, IncidentManager, ManagerDeps,
     ManagerHandle, PatternRedactor,
 };
-use domovoi_testkit::build::T0;
+use domovoi_testkit::build::{T0, open_incident};
 use domovoi_testkit::{FakeClock, InMemoryStore};
 use jiff::SignedDuration;
 use secrecy::SecretString;
@@ -38,6 +39,9 @@ struct Watched {
     attempts: AtomicU32,
     early: AtomicBool,
     commits: Mutex<Vec<Transaction>>,
+    /// A status change to apply to one incident just before the manager reads it through
+    /// `VersionedRead`, so the race between the finder and the versioned read is exact.
+    mutate_before_read: Mutex<Option<(IncidentId, IncidentEvent)>>,
 }
 
 impl Watched {
@@ -50,7 +54,15 @@ impl Watched {
             attempts: AtomicU32::new(0),
             early: AtomicBool::new(false),
             commits: Mutex::new(Vec::new()),
+            mutate_before_read: Mutex::new(None),
         }
+    }
+
+    /// Applies `event` to `id` in the store immediately before the manager's next
+    /// `VersionedRead::incident` for it, reproducing a status change that lands between the
+    /// finder lookup and the versioned read.
+    fn change_before_read(&self, id: IncidentId, event: IncidentEvent) {
+        *self.mutate_before_read.lock().unwrap() = Some((id, event));
     }
 
     fn check_published(&self) {
@@ -95,6 +107,18 @@ impl UnitOfWork for Watched {
 #[async_trait]
 impl VersionedRead for Watched {
     async fn incident(&self, id: IncidentId) -> Result<Option<Versioned<Incident>>, StoreError> {
+        let pending = self.mutate_before_read.lock().unwrap().take();
+        if let Some((target, event)) = pending {
+            if target == id {
+                if let Some(mut incident) = IncidentRepo::get(&*self.inner, id).await? {
+                    apply(&mut incident, event, &IncidentPolicy::default(), T0)
+                        .map_err(|err| StoreError::Backend(err.to_string()))?;
+                    IncidentRepo::update(&*self.inner, &incident).await?;
+                }
+            } else {
+                *self.mutate_before_read.lock().unwrap() = Some((target, event));
+            }
+        }
         self.inner.incident(id).await
     }
 
@@ -700,6 +724,101 @@ async fn discarding_a_pending_incident_is_one_commit() {
     assert!(
         !journal.is_empty(),
         "journal rows from the opening commit are kept"
+    );
+    run.shutdown.cancel();
+}
+
+#[tokio::test]
+async fn an_active_incident_that_resolves_before_the_versioned_read_is_reopened() {
+    let mut run = start(EnginePolicy::default());
+    // Let the manager load its cache, so the incident below is a genuine cache miss.
+    let warm_up = immediate(HostId::new(), "cpu.load", None);
+    run.handle.ingest(vec![warm_up.firing(0)]).await.unwrap();
+    drain(&mut run.events);
+
+    let host = HostId::new();
+    let disk = immediate(host, "disk.free", Some("/"));
+    let signal = disk.firing(0);
+    // An active incident the manager has not cached, as if another writer opened it.
+    let incident = open_incident(host, "disk.free", Some("/")).unwrap();
+    let id = incident.id();
+    IncidentRepo::insert(&*run.store, &incident).await.unwrap();
+    assert_eq!(stored_version(&run.store, id).await, 1);
+
+    // The active finder sees it; it resolves before the versioned read.
+    run.watched
+        .change_before_read(id, IncidentEvent::Resolved { observed_at: T0 });
+    run.handle.ingest(vec![signal.clone()]).await.unwrap();
+
+    let stored = IncidentRepo::get(&*run.store, id).await.unwrap().unwrap();
+    assert_eq!(
+        stored.status(),
+        IncidentStatus::Open,
+        "the resolved incident was reopened"
+    );
+    let active_for_fingerprint =
+        IncidentRepo::find_active_by_fingerprint(&*run.store, &signal.fingerprint())
+            .await
+            .unwrap();
+    assert_eq!(
+        active_for_fingerprint.map(|incident| incident.id()),
+        Some(id),
+        "the original incident was reused, not duplicated"
+    );
+    assert_eq!(
+        stored_version(&run.store, id).await,
+        3,
+        "insert, the outside resolution, then the reopen"
+    );
+    let signals = SignalRepo::list_for_incident(&*run.store, id, 10)
+        .await
+        .unwrap();
+    assert_eq!(
+        signals.len(),
+        1,
+        "the signal is linked to the reopened incident"
+    );
+    run.shutdown.cancel();
+}
+
+#[tokio::test]
+async fn a_resolved_incident_that_reopens_before_the_versioned_read_is_folded_into() {
+    let run = start(EnginePolicy::default());
+    let host = HostId::new();
+    let disk = immediate(host, "disk.free", Some("/"));
+    run.handle.ingest(vec![disk.firing(0)]).await.unwrap();
+    let id = active(&run.store).await[0].id();
+    run.handle.ingest(vec![disk.resolved(10)]).await.unwrap();
+    assert!(active(&run.store).await.is_empty());
+    let resolved_version = stored_version(&run.store, id).await;
+
+    // The resolved finder sees it; it reopens before the versioned read.
+    run.watched.change_before_read(
+        id,
+        IncidentEvent::Firing {
+            severity: Severity::Warning,
+            class: SignalClass::Immediate,
+            observed_at: T0,
+            value: None,
+        },
+    );
+    run.handle.ingest(vec![disk.firing(20)]).await.unwrap();
+
+    let active = active(&run.store).await;
+    assert_eq!(active.len(), 1, "no duplicate incident was created");
+    assert_eq!(active[0].id(), id, "the existing incident was used");
+    assert_eq!(
+        stored_version(&run.store, id).await,
+        resolved_version + 2,
+        "the outside reopen, then the manager folding the signal in"
+    );
+    let signals = SignalRepo::list_for_incident(&*run.store, id, 10)
+        .await
+        .unwrap();
+    assert_eq!(
+        signals.len(),
+        3,
+        "the new signal is linked to the existing incident"
     );
     run.shutdown.cancel();
 }

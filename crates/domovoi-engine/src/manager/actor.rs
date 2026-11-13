@@ -8,7 +8,7 @@ use domovoi_core::ports::{
     AckRepo, Clock, CommitError, IncidentRepo, IncidentTimelineEntry, Redactor, StoreError,
     UnitOfWork, VersionedRead,
 };
-use domovoi_core::{HostId, Incident, IncidentId, IncidentStatus};
+use domovoi_core::{Fingerprint, HostId, Incident, IncidentId, IncidentStatus};
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -251,20 +251,23 @@ impl IncidentManager {
                     if self.active.iter().any(|i| i.is_member(&fingerprint)) {
                         continue;
                     }
-                    // A cache miss: the store may know an incident the cache does not. Read it
-                    // again through the versioned port so body and version come from one read.
+                    // A cache miss: the store may know an incident the cache does not. The
+                    // finder only names a candidate; the versioned read decides which
+                    // collection it belongs in, because it may have changed status since.
                     if let Some(found) = self
                         .deps
                         .incidents
                         .find_active_by_fingerprint(&fingerprint)
                         .await?
                     {
-                        if let Some(read) = self.deps.versions.incident(found.id()).await?
-                            && read.value.status() != IncidentStatus::Resolved
-                        {
-                            self.versions.set(read.value.id(), read.version);
-                            self.active.push(read.value);
-                        }
+                        self.record_miss(
+                            found.id(),
+                            fingerprint,
+                            Some(since),
+                            &mut resolved,
+                            &mut loaded,
+                        )
+                        .await?;
                         continue;
                     }
                     if let Some(found) = self
@@ -272,10 +275,9 @@ impl IncidentManager {
                         .incidents
                         .find_recent_resolved_by_fingerprint(&fingerprint, since)
                         .await?
-                        && let Some(read) = self.deps.versions.incident(found.id()).await?
                     {
-                        loaded.insert(read.value.id(), read.version);
-                        resolved.insert(fingerprint, read.value);
+                        self.record_miss(found.id(), fingerprint, None, &mut resolved, &mut loaded)
+                            .await?;
                     }
                 }
                 acks = self.deps.acks.list_rules().await?;
@@ -314,6 +316,41 @@ impl IncidentManager {
             timeline,
         };
         Ok((state, loaded))
+    }
+
+    /// Records an incident a cache-miss lookup found, using the versioned read as authoritative.
+    ///
+    /// The finder only names a candidate: the incident may have changed status between that
+    /// lookup and this read. An incident that is active now joins the cache; one that is
+    /// resolved now joins the reopen map, when `since` is given and it resolved inside the
+    /// window. A candidate that no longer exists is dropped rather than reused from its old
+    /// body or status.
+    async fn record_miss(
+        &mut self,
+        id: IncidentId,
+        fingerprint: Fingerprint,
+        since: Option<jiff::Timestamp>,
+        resolved: &mut BTreeMap<Fingerprint, Incident>,
+        loaded: &mut BTreeMap<IncidentId, u64>,
+    ) -> Result<(), StoreError> {
+        let Some(read) = self.deps.versions.incident(id).await? else {
+            return Ok(());
+        };
+        let incident = read.value;
+        if incident.status() == IncidentStatus::Resolved {
+            let in_window =
+                since.is_none_or(|since| incident.resolved_at().is_some_and(|at| at >= since));
+            if in_window {
+                loaded.insert(incident.id(), read.version);
+                resolved.insert(fingerprint, incident);
+            }
+            return Ok(());
+        }
+        self.versions.set(incident.id(), read.version);
+        if !self.active.iter().any(|i| i.id() == incident.id()) {
+            self.active.push(incident);
+        }
+        Ok(())
     }
 
     /// Updates the cache after a write was stored.
