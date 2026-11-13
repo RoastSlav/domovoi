@@ -114,7 +114,7 @@ Rework decisions: RW-09, RW-30, RW-08.
 
 **Evidence:** #13 implements a signal spool; #36 proposes making check-state commits contingent on durable spool writes, validating/repairing corrupted spool state, retaining notification state until delivery succeeds and preserving scheduler errors. #50/#52 address Discord delivery and quiet-hour behavior. #87/#88 add bounded log retrieval over the agent link.
 
-**Target rule:** distinguish “created”, “queued”, “sent”, “acknowledged”, “failed” and “expired” for messages and events. Persist work before acknowledging it. Use bounded retries with backoff and dead-letter/error visibility. Do not discard state merely because delivery failed. Offline agent data must be bounded and have explicit retention.
+**Target rule:** distinguish “created”, “queued”, “sent”, “acknowledged”, “failed” and “expired” for messages and events. Persist work before acknowledging it. Use bounded retries with backoff and dead-letter/error visibility. Delivery is at-least-once: a duplicate is possible after a crash window, so messages carry a stable id and the product never claims exactly-once (RW-35). Do not discard state merely because delivery failed. Offline agent data must be bounded and have explicit retention.
 
 **Status: ack-after-persist VERIFIED; #36 findings STATIC and still present on main.** The hub acks signals only after the store accepts them (`agent_server/session.rs:90-105`) and the spool is bounded (`agent/src/spool.rs:14-22`). Still open: the agent scheduler saves check state even when the spool push fails (`agent/src/scheduler.rs:333-344`); the hub saves notification state before delivery succeeds and treats a state read error as default state (`runtime/delivery.rs:55-67,111-125,242-248`); a corrupt `spool.json` becomes default meta (`spool.rs:66-95`). The earlier text "not implemented" for #36 is corrected to "confirmed present". Rework decisions: RW-03, RW-15, RW-30.
 
@@ -124,11 +124,11 @@ Rework decisions: RW-09, RW-30, RW-08.
 
 **Evidence:** #9 defines a typed, versioned protocol with frame bounds and explicit unknown-message handling; #86 adds minimum supported release checks with a human-readable reason; #72 detects Docker/Podman; #34 documents/handles unavailable host checks in container mode.
 
-**Target rule:** protocol evolution must be additive where possible, bounded, explicitly versioned and testable against compatibility matrices. Unsupported operations should return a typed explanation. Do not let incompatibility turn into an endless reconnect loop. Detect runtime capabilities rather than assuming the installation mode.
+**Target rule:** hub and agent speak the exact same protocol major.minor; an older or newer minor is rejected with a typed explanation, and there is no support window, previous-minor adapter or legacy execution path (owner decision D-20, RW-17). Same-protocol patch releases are compatible. Frames are bounded and explicitly versioned, golden frames are tested, and unknown values decode without crashing. Do not let incompatibility turn into an endless reconnect loop: the agent stops retrying and the hub shows the host as `Incompatible` with its history kept. Detect runtime capabilities rather than assuming the installation mode.
 
 **Status: VERIFIED.** `proto/src/version.rs:17-26`, `hub/src/agent_server/handshake.rs:140-148,194-215`, frame cap `proto/src/envelope.rs:11`. Notes: `at_least` lets an unparseable agent version pass the floor (`version.rs:104-108`); a new `ReadTool` variant or a new `Risk` variant in `hello` still breaks old peers (D13 in `docs/rework/01-repository-reality.md`). Rework decision: RW-17.
 
-**Design consequence:** UI should show hub/agent versions, compatibility state, runtime type, missing host permissions and unsupported capabilities with actionable remediation.
+**Design consequence:** UI should show hub/agent versions, compatibility state (`Incompatible` with the exact required protocol and an upgrade-required explanation, never offline), runtime type, missing host permissions and unsupported capabilities with actionable remediation. Upgrade is hub first, then agents through the install procedure; there is no agent self-update.
 
 ## Lessons that directly affect the UI plan
 

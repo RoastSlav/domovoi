@@ -9,7 +9,7 @@ The current `web/DESIGN.md` and `src/styles/tokens.css` establish a deliberate i
 - Warm charcoal/sand dark theme and paper/ink light theme.
 - Moss green as the action/accent color.
 - Walnut as a restrained brand marker.
-- Distinct semantic status tones: danger, warning, success, pending, progress, info and neutral.
+- Distinct semantic status tones: danger, warning, success, pending, progress, info and neutral. New statuses (the `Incompatible` host state, the locked-Deny treatment, and the `Refused`, `NotRun`, `Unavailable` and `OutcomeUnknown` outcomes) each get a label, tone, hint and icon through the shared status vocabulary (see the planned section of `web/DESIGN.md`).
 - Color-coded messages/statuses with text labels/icons; never rely on color alone.
 - Inter Variable/system sans typography and monospace for technical values, code, IDs, arguments and logs.
 - A 4 px spacing rhythm, consistent control geometry, semantic tokens and a controlled z-layer model.
@@ -72,7 +72,7 @@ Detailed is the reference design and the default for a new owner. Build layouts 
 - **Detailed:** full status metadata, exact timestamps where useful, phase/step detail, evidence, inputs/outputs, policy rationale, tool results and history. Raw/verbose payloads remain in inspectors/tabs, with secrets redacted.
 - **Standard:** primary content and the primary action and waiting state are obvious; capability calls, long outputs and secondary metadata are grouped and one click away.
 - **Essential:** outcome, current status and next action; technical detail stays reachable through collapsed sections and the "+N details" indicator. Nothing is deleted or inaccessible.
-- **Custom:** per-page overrides of one of the profiles (and table columns, dashboard layout, saved filters, graph defaults). A person can choose a compact overview and a Detailed operation workspace.
+- **Custom:** per-page overrides of one of the profiles (and table columns, saved filters, graph defaults; a customizable dashboard layout is DEFERRED to v1.x, `docs/rework/06` "Deferred and after-v1"). A person can choose a compact overview and a Detailed operation workspace.
 
 P0 is never hidden or collapsed in any profile, Custom included; a test asserts it for every page. Collapsed and hidden content is not rendered until revealed, so profiles also keep cost down. These are view preferences over the same information and controls, never separate application versions and never a change to authority.
 
@@ -154,9 +154,9 @@ Budgets win over presentation: when Detailed would exceed a budget on a given de
 
 Every page must explicitly design and test:
 
-- Every state in the canonical taxonomy that applies (doc 15, section 10): loading, empty, first-load error, refresh error, stale, offline/unavailable, partial and unknown value. Permission-denied is not a v1 state (single owner).
+- Every state in the canonical taxonomy that applies (doc 15, section 10): loading, empty, first-load error, refresh error, stale, offline/unavailable, partial and unknown value (plus `Incompatible` for hosts). Permission-denied is not a v1 state (single owner).
 - Dense and sparse data.
-- Long names, long logs, missing values and unknown enum values from newer agents/providers.
+- Long names, long logs, missing values, unknown enum values (shown as the raw value) and the host `Incompatible` state.
 - Keyboard and screen-reader behavior.
 - Both light and dark themes.
 - Detailed, Standard and Essential presentation profiles, with the P0-never-hidden assertion.

@@ -12,13 +12,13 @@ Most `v1` rows are read capabilities and are part of the initial supported set i
 
 | Capability | Class | Milestone | Status |
 |---|---|---|---|
-| Restart one named container (not recreate) | W | M8, L2 | First set. Needs the Docker write ADR below. |
+| Restart one named container (not recreate) | W | M8, L2 | First set. Goes through the narrow first-party Docker helper (H1, owner decision D-24); unavailable for unattended use until its ADR lands. |
 | Restart one named systemd unit | W | M8, L2 | First set. |
-| Temporary inbound block of one external address or small prefix (`firewall.block_source`, kernel-enforced timeout) | S | M9, L3 | **First set, proposed, open for owner confirmation.** |
-| Pause one named container with a time limit (`container.pause`) | S | M9, L3 | **First set, proposed, open.** Needs the Docker write ADR. |
-| Stop one named systemd unit with a time limit, excluding management units (`unit.stop_temporary`) | S | M9, L3 | **First set, proposed, open.** |
+| Temporary inbound block of one external address or small prefix (`firewall.block_source`, kernel-enforced timeout, 30 s two-step confirmation) | S | M9, L3 | **First set, and the only v1 containment capability** (owner decisions D-17, D-22). |
+| Pause one named container with a time limit (`container.pause`) | S | v1.x at earliest | **DEFERRED candidate.** An agent timer is not reliable automatic expiry. Needs the `docs/rework/04 §9.3` checklist and the Docker helper ADR. |
+| Stop one named systemd unit with a time limit (`unit.stop_temporary`) | S | v1.x at earliest | **DEFERRED candidate.** Same reason. Needs the `docs/rework/04 §9.3` checklist and a protected-unit list. |
 
-Later containment candidates (container network isolation, SSH session termination, account lock) are deferred because their lockout or recovery stories are weaker. Automatic containment is triggered only by a deterministic detector's typed signal naming a target that is the operation's pinned subject, never by free-form model output (owner decision D-04, RW-13). Destructive entries are never policy-allowed in v1 (owner decision D-06); a human can still approve one with typed confirmation.
+`container.pause`, `unit.stop_temporary` and the other containment candidates (container network isolation, SSH session termination, account lock) are DEFERRED: weaker recovery or lockout stories, or an expiry that would depend on the agent (`docs/rework/06` "Deferred and after-v1"; `docs/rework/04 §9.3`). Unattended containment on a host also requires owner-confirmed, current management paths (owner decision D-28). Automatic containment is triggered only by a deterministic detector's typed signal naming a target that is the operation's pinned subject, never by free-form model output (owner decision D-04, RW-13). Destructive entries are never policy-allowed in v1 (owner decision D-06); a human can still approve one with typed confirmation.
 
 ### Entries flagged unsafe until a prerequisite lands
 
@@ -26,9 +26,9 @@ The repository investigation ([`docs/rework/investigations/D-protocol.md`](../re
 
 | Flag | Entries | Why | Prerequisite |
 |---|---|---|---|
-| **Self-upgrade** | Agent and hub upgrade/restart; self-upgrade plan. | Pushes executable code to a host, contradicting the invariant that the hub cannot push scripts (INV-3) and that the hub never executes commands; restarting the agent mid-action destroys the channel its result travels on. Signed capability packages (owner decision D-11) are for capabilities, not for upgrading the agent or hub. | Keep upgrades out-of-band (package manager or installer), or design signed artifacts pinned on the host in an ADR. |
+| **Self-upgrade** | Agent and hub upgrade/restart; self-upgrade plan. | Pushes executable code to a host, contradicting the invariant that the hub cannot push scripts (INV-3) and that the hub never executes commands; restarting the agent mid-action destroys the channel its result travels on. Signed capability packages (owner decision D-11) are for capabilities, not for upgrading the agent or hub. | DEFERRED, not planned (owner decision D-20): upgrades follow the install procedure, hub first and then agents, and a mismatched agent shows as `Incompatible`. Changing the no-push rule would need its own ADR. |
 | **Lost result** | Host reboot/shutdown, update-then-reboot, power cycle, IPMI/PDU control, UPS-driven shutdown, cloud instance reboot, reboot coordination. | The connection drops mid-action by design. | `OutcomeUnknown` handling and boot-id based reconciliation (RW-09), plus a dependency model that knows what powers the hub. |
-| **Docker socket write** | Pull/redeploy/rollback, container stop, pause, network disconnect, container isolation, restart/recreate. | Write access to the Docker socket is root on the host, so the existing read-only rationale and the automatic default no longer hold. | An ADR and a separate off-by-default switch not covered by the automatic setting. |
+| **Docker socket write** | Pull/redeploy/rollback, container stop, pause, network disconnect, container isolation, restart/recreate. | Write access to the Docker socket is root on the host, so the existing read-only rationale and the automatic default no longer hold. | A narrow first-party helper with its own ADR (owner decision D-24, RW-39). The agent gets no general Docker socket write; Docker write capabilities stay unavailable for unattended use until then. |
 | **Secret handling** | Rotate an API key, certificate or credential; disable an account; revoke a token; rotate VPN keys. | No secret store or redaction design exists for values that must be generated, delivered and replaced; secret handling contradicts the redaction invariant until one does. | A secret-store design (not planned for v1). |
 
 The investigation also flagged file and volume destruction (never a typed-path capability without a path-scope model), third-party deployment and smart-home entries (outside the overseer's trust envelope until third-party trust is decided), message retry and failover (need real idempotency keys), and hub-side router/hypervisor/cloud providers (a different security design that holds third-party credentials). Treat those as non-goals for v1.
@@ -52,7 +52,7 @@ The investigation also flagged file and volume destruction (never a typed-path c
 | Users, groups, sudoers summary, login sessions, SSH config summary | R | v1 | Never return password hashes or private keys. |
 | Host reboot/shutdown | W | v1.x | Human approval; recovery path and dependency impact mandatory. **[FLAG: lost result]** the link drops mid-action; needs `OutcomeUnknown` and boot-id reconciliation first. |
 | Agent self-diagnostics, version, config validation, queue/spool state | R | v0.1/v1 | Domovoi must be able to diagnose itself. |
-| Agent upgrade/restart and hub upgrade/restart | W | later | **[FLAG: self-upgrade]** contradicts INV-3 (the hub cannot push scripts) and destroys the result channel. Keep out-of-band or design signed host-pinned artifacts in an ADR first. Not part of the capability-package install path. |
+| Agent upgrade/restart and hub upgrade/restart | W | later | **[FLAG: self-upgrade]** contradicts INV-3 (the hub cannot push scripts) and destroys the result channel. DEFERRED, not planned (owner decision D-20): upgrades follow the install procedure, hub first, then agents. Not part of the capability-package install path. |
 
 ## 2. Service and workload management
 
@@ -60,7 +60,7 @@ The investigation also flagged file and volume destruction (never a typed-path c
 |---|---:|---|---|
 | Discover services and relationships (systemd, container, supervisor) | R | v0.1/v1 | Feed the entity graph. |
 | Restart one named systemd unit | W | v1 | **First set (M8, L2)** only for opted-in, low-impact units; dependency-aware. |
-| Stop one named systemd unit temporarily (time limit, management units excluded) | S | v1 | **First set, proposed (M9, L3):** `unit.stop_temporary`. Open for owner confirmation. |
+| Stop one named systemd unit temporarily (time limit, management units excluded) | S | v1.x | **DEFERRED candidate** (`unit.stop_temporary`): its only expiry would be an agent timer. See the `docs/rework/04 §9.3` checklist. |
 | Start, stop or reload other systemd units | W | v1.x | Human approval initially; no time-limit-free unattended stop. |
 | Inspect service dependencies and reverse dependants | R | v1 | Essential before planned restarts. |
 | Compare service config fingerprints/mtime and known-good baseline | R | v1.x | Avoid storing secret config contents. |
@@ -75,13 +75,13 @@ The investigation also flagged file and volume destruction (never a typed-path c
 |---|---:|---|---|
 | Docker container list, inspect, logs, events, stats, health and restart history | R | v0.1 | Current foundation. |
 | Docker Compose project/stack inventory and service dependencies | R | v1 | Link containers to projects and volumes. |
-| Restart one selected container | W | v1 | **First set (M8, L2).** Verify health and dependent services. **[FLAG: Docker socket write]** needs the Docker write ADR first. Recreate is later. |
+| Restart one selected container | W | v1 | **First set (M8, L2).** Verify health and dependent services. **[FLAG: Docker socket write]** needs the narrow Docker helper and its ADR first (owner decision D-24). Recreate is later. |
 | Start/stop a Compose service or restart a selected stack | W | v1.x | Approval initially; concurrency and downtime constraints. |
 | Compose config validation and rendered diff | R | v1.x | Avoid exposing secrets in rendered config. |
 | Image inventory, digest drift, outdated image and vulnerability metadata | R | v1.x | Scanning can be an external provider. |
 | Pull image, redeploy service, rollback to previous digest | W | v1.x | Human approval by default, known-good image required for rollback. **[FLAG: Docker socket write]** |
 | Docker network/volume inventory and dangling-resource reporting | R | v1 | Never infer that unused means safe to delete. |
-| Pause one named container with a time limit | S | v1 | **First set, proposed (M9, L3):** `container.pause`. Open for owner confirmation. **[FLAG: Docker socket write]** |
+| Pause one named container with a time limit | S | v1.x | **DEFERRED candidate** (`container.pause`): its expiry would depend on the agent. **[FLAG: Docker socket write]** |
 | Container isolation, stop or network disconnect | S/W | v1.x | Security action with scope, TTL/recovery and owner policy. Deferred: weaker lockout/recovery story. **[FLAG: Docker socket write]** |
 | Podman and containerd providers | R/W | v1.x | Reuse the container capability family. |
 | Kubernetes cluster/node/pod/deployment/service/ingress inventory | R | later | Need cluster and namespace scope. |
@@ -124,7 +124,7 @@ The investigation also flagged file and volume destruction (never a typed-path c
 | VPN tunnel and peer health (WireGuard, Tailscale, OpenVPN) | R | v1.x | Know whether the tunnel is a management path. |
 | Add/remove or rotate VPN peers/keys | W | later | Approval and identity/recovery model required. **[FLAG: secret handling]** |
 | Router inventory, WAN status, routes, DHCP, DNS and port forwards | R | v1.x | API provider for selected router vendor. |
-| Temporary block of a confirmed external source IP | S | v1 limited | **First set, proposed (M9, L3):** `firewall.block_source`, with a kernel-enforced timeout. Only with agent-enforced management-path exclusions, rate limits, dead-man revert and `OutcomeUnknown` handling, because the agent dials out and a rule can sever its own control link. Triggered only by a deterministic detector's typed signal. |
+| Temporary block of a confirmed external source IP | S | v1 limited | **First set (M9, L3):** `firewall.block_source`, with a kernel-enforced timeout and a 30 s two-step confirmation (an unconfirmed block expires by itself). Only with owner-confirmed, current management paths (owner decision D-28), agent-enforced exclusions, rate limits and `OutcomeUnknown` handling, because the agent dials out and a rule can sever its own control link. Triggered only by a deterministic detector's typed signal. |
 | Remove/restrict a port forward or WAN exposure | S/W | v1.x | Higher blast radius; stage and verify alternate access. |
 | Firewall rule changes, network segmentation and VLAN changes | W/S | later | Human approval until robust simulation and rollback exist. |
 | ISP/WAN outage diagnosis and failover status | R/W | later | Depends on router dual-WAN support. |
@@ -143,7 +143,7 @@ The investigation also flagged file and volume destruction (never a typed-path c
 | Suspicious process, persistence, cron/service and startup change | R | v1.x | Heuristic findings require evidence and uncertainty labels. |
 | Secret leak detection in logs/config/repository | R | v1.x | Never echo the secret value; show location and type. |
 | Container privilege/capability/mount exposure audit | R | v1.x | Policy recommendations, not automatic hardening at first. |
-| Temporary block offending external IP at host firewall | S | v1 limited | **First set, proposed (M9, L3)**, same capability as above. Must exclude trusted ranges, gateway, VPN and current management session. |
+| Temporary block offending external IP at host firewall | S | v1 limited | **First set (M9, L3)**, same capability as above. Must exclude trusted ranges, gateway, VPN and current management session. |
 | Add temporary Fail2ban jail/ban with expiry | S | v1.x | Prefer native expiry and verify the rule. |
 | Isolate one compromised container/network namespace | S | v1.x | Preserve forensic evidence and dependencies. Deferred containment candidate. **[FLAG: Docker socket write]** |
 | Disable compromised account or revoke session/token | S/W | later | Requires identity provider integration, owner controls and recovery. |
@@ -228,6 +228,8 @@ These should be application profiles layered over generic capabilities. Do not c
 | Smart PDU outlet status/control | R/W | later | Risk of cutting off networking or hub. |
 
 ## 12. External systems and integration providers
+
+Hub-side integrations and providers (router, hypervisor, NAS, cloud) are DEFERRED: each needs hub-held credentials and its own contracts (`docs/rework/06` "Deferred and after-v1"). The rows below are an idea inventory, not a v1 commitment.
 
 | Provider family | Useful capabilities | Priority |
 |---|---|---|

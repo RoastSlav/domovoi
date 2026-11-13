@@ -17,7 +17,7 @@ Recommended top-level navigation:
 | **Capabilities** | Discover, install, configure and manage what Domovoi can do. | Catalog, installed capabilities, deployment history, capability detail |
 | **Knowledge** | Inspect and maintain what Domovoi knows about the environment. | Knowledge browser, graph explorer, notes, suggestions |
 | **Policies & Autonomy** | Define authority and understand what Domovoi is allowed to do. | Policies, per-host policy, simulator, decision history |
-| **Integrations** | Connect external systems and manage their providers. | Connected integrations, add integration, integration detail |
+| **Integrations** | DEFERRED past v1 (hub-side providers need hub-held credentials; `docs/rework/06` "Deferred and after-v1"). Connect external systems and manage their providers. | Connected integrations, add integration, integration detail |
 | **System** | Manage the hub and account-wide behavior. | Settings, models, notifications, audit, backups, updates, diagnostics |
 
 Do not force the final sidebar to contain every possible subpage. Important detail views can be reached through the parent page, global search and contextual links. The hierarchy should be reviewed after full page specifications exist.
@@ -35,6 +35,7 @@ Do not force the final sidebar to contain every possible subpage. Important deta
 | Operator launcher | P0 | Compact | Available from anywhere; opens the persistent side panel without losing current page state. |
 | Attention center | P0 | Compact | The one durable list of approvals, questions, manual interventions, failures and completed operations, with unread state; never rely only on toasts. Control Room "Waiting for you" and the Approvals page are views over this same list. |
 | Autonomy state | P0 | Compact | Shows when autonomy is paused or any rule is suspended by its circuit breaker; links to Policies & Autonomy. The pause switch is human-only. |
+| Incompatible-agent banner | P0 | Compact | Appears while any host is `Incompatible` (owner decision D-20): names the host(s), the exact required protocol and the agent's version, and says to upgrade the hub first and then each agent through the install procedure. Links to the host; history stays readable and the host is never shown as merely offline. |
 | Account/user menu | P2 | Compact | Profile, preferences, theme and sign out. |
 
 The shell may evolve from the current sidebar/topbar layout. Do not assume all actions must live in the top bar or that the current sidebar groups must remain.
@@ -127,6 +128,7 @@ Domovoi
 │       ├── Execution, verification and monitoring
 │       ├── Step timeline / tree (built first) and orchestration graph
 │       ├── Similar past operations
+│       ├── Historical playback (the last U2 deliverable)
 │       └── Timeline / technical trace
 ├── Incidents
 │   ├── Incident list / filters
@@ -143,13 +145,13 @@ Domovoi
 │   │   ├── Services and workloads
 │   │   ├── Capabilities
 │   │   ├── Monitoring and checks
-│   │   ├── Network and security
+│   │   ├── Network and security (management paths: provenance, freshness, what is blocked)
 │   │   ├── Knowledge and dependencies
 │   │   └── Activity
 │   ├── Service/workload detail
 │   └── Infrastructure topology
 ├── Capabilities
-│   ├── Discover catalog
+│   ├── Discover catalog (first-party and owner-signed packages; third-party registries DEFERRED)
 │   ├── Installed
 │   ├── Deployments / updates
 │   ├── Capability detail
@@ -162,7 +164,7 @@ Domovoi
 │   └── Suggested knowledge
 ├── Policies & Autonomy
 │   ├── Policy overview
-│   ├── Policy detail / editor
+│   ├── Policy detail / editor (locked rules, publication validation report)
 │   ├── Host policy
 │   ├── What-if simulator
 │   └── Decision history
@@ -175,10 +177,10 @@ Domovoi
 └── System
     ├── Settings and models
     ├── Notifications
-    ├── Audit log (with chain verification)
+    ├── Audit log (legacy and chained history verified separately)
     ├── Data retention
     ├── Backups / restore
-    ├── Updates
+    ├── Updates (versions and upgrade-required status; no agent self-update)
     └── Diagnostics
 ```
 
@@ -228,7 +230,7 @@ This interconnectedness is a core usability feature, not merely a graph visualiz
 
 ## 9. Open architecture choices for later design
 
-- Whether the Control Room supports multiple saved workspaces per user or one customizable layout initially.
+- Control Room customization (saved workspaces or a customizable layout) is DEFERRED to v1.x (demand unvalidated; `docs/rework/06` "Deferred and after-v1"); v1 ships one default layout.
 - Whether infrastructure topology is a subpage of Infrastructure or a global visualization entry point.
 - Whether Experience gets a dedicated global explorer. v1 surfaces it as "similar past operations" on incident and operation pages, with resolution summaries, marked historical and never an authorization; a global explorer is not in v1.
 - The final sidebar grouping and whether “Incidents” is grouped under “Respond” or has its own top-level section.

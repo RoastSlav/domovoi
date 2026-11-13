@@ -1,42 +1,56 @@
-# 99 — Owner decisions and remaining open items
+# 99 — Decision register
 
-## A. Decided by the owner (authoritative; do not reopen)
+This register is authoritative. Other documents cite these IDs and must not restate a different
+version. The earlier `O-NN` numbers are kept in brackets for traceability. The design pack's own principle
+ledger (`docs/design-pack/01`) also numbers its rows D-NN; cite those as "pack D-NN" and these as
+"owner D-NN" where both could be meant.
 
-| ID | Decision | Where applied |
+## A. Owner decisions
+
+| ID | Decision | Applied in |
 |---|---|---|
-| D-01 | No separate v0.1 release; former M0 becomes foundation slices F1–F4 inside the rework | RW-02, 06 |
-| D-02 | Hub-owned typed contracts; Operation aggregate ≠ Incident; coarse status + typed steps; unit of work; experience = journal (no third store); past operations easy to retrieve (typed journal linked to subjects, resolution summary per operation, FTS, host-scoped `search_experience`, similar past operations in UI, provenance in reasoning); past approvals/successes are evidence, never authorization | RW-03/04/05/07/15/25 |
-| D-03 | Host-local unattended ceiling on the agent; hub cannot modify or widen; UI read-only; hub policy may only narrow; human vs policy authorization distinguishable; agent enforces independently; owner-signed policy bundles after v1 | RW-12, 04 §8 |
-| D-04 | L3 containment in v1 as M9 under a general `Contain` class, not limited to firewall; offline emergency permits after v1 | RW-13, 04 §9 |
-| D-05 | Most specific rule wins, including over a broader Deny; equal specificity → Deny; host ids in v1, tags after v1 | RW-10, 04 §7 |
-| D-06 | `Destructive` never policy-allowed in v1 (evaluator hard limit); human approval with typed confirmation remains | RW-10, 04 §7.3 |
-| D-07 | Unattended targets: pinned subject + targets named by the matching rule | RW-23 |
-| D-08 | Both step timeline and interactive graph in v1; timeline first; shared frozen trace schema | RW-21, U1/U2 |
-| D-09 | All retention values configurable | RW-28, 04 §14 |
+| D-01 | No separate v0.1 release; former M0 becomes foundation slices F1–F4 | RW-02, 06 |
+| D-02 | Hub-owned typed contracts. Operation aggregate distinct from Incident; coarse status + typed steps. Unit of work. Experience = journal (no third store). Past operations easy to retrieve (typed journal, per-operation resolution summary, FTS, host-scoped `search_experience`, similar operations in UI, provenance). Past approvals are evidence, never authorization | RW-03/04/05/07/15/25/41 |
+| D-03 | Host-local unattended ceiling on the agent. Hub cannot modify or widen it; UI shows it read-only; hub policy may only narrow it; agent enforces it. Owner-signed bundles after v1 | RW-12, 04 §8 |
+| D-04 | L3 containment in v1 (M9) under a general `Contain` class. Offline emergency permits after v1 | RW-13, 04 §9 |
+| D-05 | Ordinary rules: most specific wins, including over a broader Deny; equal specificity → Deny. Host ids in v1, tags after v1 | RW-10, 04 §7 |
+| D-06 | `Destructive` never policy-allowed in v1 (evaluator hard limit). Human approval with typed confirmation remains | RW-10, 04 §7.3 |
+| D-07 | Unattended targets: pinned subject + targets named by the matching rule | RW-23, RW-34 |
+| D-08 | Step timeline and interactive graph both in v1; timeline first; shared frozen trace schema | RW-21, RW-40 |
+| D-09 | All retention configurable | RW-28 |
 | D-10 | Detailed/Standard/Essential profiles in v1 | RW-21, U3 |
 | D-11 | Capability install/deploy from the UI in v1 | RW-26, P1 |
-| D-12 | Longer motion allowed for visualization/transitions; reduced motion mandatory | RW-21, `web/DESIGN.md` |
-| D-13 | Single owner through v1; multi-user after v1; identities ready for roles | RW-29 |
+| D-12 | Longer motion for visualization/transitions; reduced motion mandatory | RW-21, `web/DESIGN.md` |
+| D-13 | Single owner through v1; identities ready for roles | RW-29 |
 | D-14 | Audit hash chain in v1 | RW-27 |
 | D-15 | `ARCHITECTURE.md` updated once per milestone; each prompt names its sections | 06, 07 |
+| D-16 [O-16] | Package trust in v1: first-party release key + owner keys installed locally on the agent. No third-party registries. Hub cannot add or replace keys | RW-26, 04 §11 |
+| D-17 [O-17] | First containment capability: `firewall.block_source` only. `container.pause` and `unit.stop_temporary` deferred until independent expiry and recovery are proven | RW-13, 04 §9 |
+| D-18 [O-18] | Ceiling scope: exact capability id, explicit targets, max rate, declared constrainable args, max TTL and max active for containment, mandatory management-path exclusions. No entry → no policy-authorized execution | RW-12, 04 §8.3 |
+| D-19 [O-19] | Incomparable conflicting maximal rules → Deny > RequireApproval > Allow. Publication shows the conflicts and requires acknowledgement | RW-10, 04 §7.3–7.6 |
+| D-20 [O-20] | Exact protocol major.minor match. Older and newer minors rejected; same-protocol patch releases compatible. No legacy adapter. Coordinated hub-then-agents upgrade. `Incompatible` host state is visible and keeps history. No agent self-update | RW-17, 04 §12, 05 §4 |
+| D-21 [O-21] | Retention defaults (configurable): signals 30 d; incident timeline raw 90 d; operation journal raw 180 d; raw execution outputs 30 d; operations and summaries retained; audit retained (checkpoint pruning only if configured); retracted fact content purged after 30 d; conversations 180 d; notifications and notification state 30 d; nightly backups 7; pre-migrate backups last 3 | RW-28, 04 §14 |
+| D-22 [O-22] | Every containment expires independently of the main agent. Connectivity-affecting containment also needs an independent watchdog. Firewall uses a kernel timeout. No unattended enablement until expiry, recovery, watchdog, outcome-unknown handling and drills exist | RW-13, 04 §9 |
+| D-23 [O-23] | Policy `Deny` = not offered for approval; the owner must change the policy. No approval bypass | RW-10, 04 §7.3 |
+| D-24 [O-24] | No general Docker socket write access for the agent. A narrow first-party helper with its own ADR. Docker write capabilities unavailable for unattended use until then | RW-39 |
+| D-25 [O-25] | Historical graph playback ships last in U2. The timeline and history stay fully useful without it | RW-21, 06 U2 |
+| D-26 [O-26] | Locked Deny (default off): an owner-declared prohibition that narrower rules cannot override. Visible in editor, simulator, explanation and trace. Step-up to change | RW-10, 04 §7 |
+| D-27 [O-27] | Agent-side mutation rate limits apply to all mutating executions, human- and policy-labelled. Separate from the ceiling | RW-38 |
+| D-28 [Q0.5] | Unattended containment on a host requires owner-confirmed, current management paths. Unknown, stale or conflicting → refused. Agent enforces local exclusions independently. UI shows paths, provenance, freshness and what is blocked. No effect on monitoring or other human-approved work | RW-37 |
 
-## B. Still open — each has a recommendation and is not assumed in code until answered
+## B. Open owner decisions
 
-| # | Question | Alternatives and consequences | Recommendation | Blocks |
-|---|---|---|---|---|
-| O-16 | Package trust in v1 | (a) first-party signed only; (b) (a) + owner-added keys on the agent; (c) arbitrary third-party registries. (c) makes every registry author able to ship code that runs as the agent user once the owner clicks Install. | (b) | P1 |
-| O-17 | First containment set in M9 | `firewall.block_source`, `container.pause`, `unit.stop_temporary` (04 §9); alternatives add container network isolation, SSH session kill, account lock (weaker recovery stories) | the three listed | M9 |
-| O-18 | Scope of the host-local ceiling | (a) capability ids only; (b) + explicit targets + `max_per_hour`; (c) (b) + declared-constrainable args + `max_active`/`max_ttl` for Contain + exclusions | (c), with (b) the minimum for M8 | M8, M9 |
-| O-19 | Incomparable conflicting rules | Deny > RequireApproval > Allow (conservative), or "first-created rule wins" (non-deterministic to users), or reject the policy at publish time with an error | Deny > RequireApproval > Allow, plus a publish-time warning listing incomparable conflicts | M7 |
-| O-20 | Old agent support window | current + previous two minors until 1.0 (then same major); or only the previous minor; or indefinite (untestable) | current + previous two minors | F3 |
-| O-21 | Retention defaults | proposed: signals 30 d (current), incident timeline 90 d (current), operation journal events 180 d, raw execution outputs 30 d, operations + resolution summaries kept, audit kept (checkpoint pruning only if configured), retracted fact content purged after 30 d, conversations 180 d, notifications 30 d, nightly backups 7 (current), pre-migrate backups last 3 | as proposed | F1 config, M3, M5 |
-| O-22 | Watchdog / dead-man for Contain contracts that can affect connectivity | required for all such contracts (agent self-reverts if hub confirmation does not arrive within 30 s), or only for `firewall.block_source` | required for all connectivity-affecting Contain contracts | M9 |
-| O-23 | Policy `Deny` and the owner: may the owner still approve a step that policy denies? | (a) no — Deny means not offered, owner edits policy; (b) yes with typed confirmation | (a); keeps Deny meaningful and visible | M7 |
-| O-24 | Docker socket write access for `container.restart`/`container.pause` | grant the agent write access to the socket (root-equivalent on the host, ADR 0018) or ship a narrow first-party helper that only performs restart/pause of named containers | narrow helper via package; ADR in M8 | M8 |
-| O-25 | Historical playback of an operation on the graph in v1 | ship last in U2 after the live graph / defer to v1.x | ship last in U2; the timeline already provides history | U2 |
-| O-26 | Should the owner be able to mark a Deny rule as **locked** (not overridable by narrower rules)? | (a) no — D-05 as is; families that must never run are covered only by hard limits (Destructive); (b) yes — an explicit `locked` flag, default off, shown prominently | (b); it keeps D-05 as the default while letting "never on this host" stay true | M7 |
-| O-27 | Agent-side `max_per_hour` also for human-approved runs | (a) yes — bounds a compromised hub that labels runs "human"; may block a burst of real approvals; (b) unattended only | (a), with a clear "host rate limit reached" refusal shown on the approval card | M1, M8 |
+None at this time. Technical details under approved directions are PROPOSALs in `03`/`04` and may
+be refined in review without an owner decision unless they change behaviour the owner sees.
 
-Technical questions that do not need the owner (decided in 03/04 as PROPOSAL): journal sequence
-source, unit-of-work shape, Execution-as-typed-Step, model-call retry rules, tolerant decoding,
-audit chain format, legacy-action projection, startup order, profile preference storage (hub-side, single owner).
+## C. Research and evidence still needed (not owner decisions)
+
+| ID | Question | Needed before | How resolved |
+|---|---|---|---|
+| R-1 | Graph library that works under the CSP, the no-inline-style rule and the bundle budget | U2 prompts | spike (prompt 33) |
+| R-2 | nftables availability, the `inet domovoi` table approach and helper privilege path (sudoers or file capability) on supported distros, Docker images and Unraid | M9 prompts | spike + ADR (RW-39) |
+| R-3 | Docker helper privilege path on the same platforms | M8 Docker contracts | spike + ADR (RW-39) |
+| R-4 | Discord `nonce` / `enforce_nonce` deduplication behaviour | F2 delivery prompt (affects wording only; at-least-once holds either way) | read docs + test against a test guild |
+| R-5 | Real prompt sizes, to set the total prompt cap | F4 LLM prompt | measure on dev hub with a busy fixture |
+| R-6 | fsync cost of `synchronous=FULL` and the agent journal on slow storage (SD card) | F1 / M1 | benchmark; documented, not blocking |
+| R-7 | Docker client escaping of container names (E §3) | M8 | read bollard usage / test |

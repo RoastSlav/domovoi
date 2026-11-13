@@ -96,7 +96,9 @@ Rules:
 | **Policy** | Owner-defined rules that decide what Domovoi may do and under which constraints. | Policy is configuration/authority; a permission is the result or grant. |
 | **Knowledge** | Current or persistent information about the environment, with provenance and freshness. | Not the same as notes, history or policy. |
 | **Experience** | Historical records of investigations, decisions, operations and outcomes. | Evidence of what happened, not automatically current truth or permission. |
-| **Integration** | A connected external system or service that provides data or operations. | For example router API, monitoring system or notification channel. |
+| **Integration** | A connected external system or service that provides data or operations. | For example router API, monitoring system or notification channel. Hub-side integrations are DEFERRED past v1 (`docs/rework/06` "Deferred and after-v1"). |
+| **Incompatible** | A host state: its agent speaks a different protocol minor than the hub. | Shown with an upgrade-required explanation, the required protocol and the agent's version; its history is kept. Never presented as offline. |
+| **Locked Deny** | An owner-declared prohibition (default off) that no narrower policy rule overrides. | Shown distinctly from ordinary rules; changing it needs step-up. A policy Deny is never offered for approval. |
 
 The exact navigation labels can evolve after page planning, but this vocabulary should remain coherent.
 
@@ -156,7 +158,7 @@ Tabs must not be used as a hiding place for P0 information. If the user needs tw
 Recommended customization:
 
 - Detailed/Standard/Essential presentation profiles, with Custom as per-page overrides of one of them.
-- Overview dashboard widgets can be added, removed, rearranged, resized and saved per user.
+- Overview dashboard widgets can be added, removed, rearranged, resized and saved per user. DEFERRED to v1.x (demand unvalidated; `docs/rework/06` "Deferred and after-v1"): v1 ships one carefully designed default layout.
 - Per-page preferences for density and default expanded sections.
 - Persist filters, table columns, sort order and selected views where it helps repeat workflows.
 - A user may reset to a strong default layout at any time.
@@ -173,7 +175,7 @@ A control may remain outside ordinary UI management only for a deliberate securi
 
 A beautiful screen that has stale state, lost context, confusing actions or flaky interactions is not a good UI.
 
-Every important control must have predictable behavior and feedback. Every data view must distinguish the states in the canonical taxonomy (doc 15, section 10): loading, empty, first-load error, refresh error, stale, offline, unavailable, partial and unknown value. Live updates must not reorder or replace content in a way that loses user focus or an inspector selection.
+Every important control must have predictable behavior and feedback. Every data view must distinguish the states in the canonical taxonomy (doc 15, section 10): loading, empty, first-load error, refresh error, stale, offline, unavailable, partial and unknown value (a host also has `Incompatible`). Live updates must not reorder or replace content in a way that loses user focus or an inspector selection.
 
 The UI should feel dynamic because the product is genuinely active, not because it constantly animates. Motion must communicate state changes, direction, hierarchy or spatial relationships.
 

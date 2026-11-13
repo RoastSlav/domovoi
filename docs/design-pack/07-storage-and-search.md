@@ -72,7 +72,7 @@ Start with the simplest search that solves real user queries:
 - FTS5 for notes, titles, entity descriptions and experience summaries.
 - Bounded recursive CTE traversal for relationships and small relevant subgraphs.
 - Structured predicates for current facts, freshness and provenance.
-- Later: local embeddings/vector similarity only when evaluation shows lexical/graph retrieval is insufficient.
+- Later: local embeddings/vector similarity only when evaluation shows lexical/graph retrieval is insufficient. Vector search and a graph database are DEFERRED until a measured need (`docs/rework/06` "Deferred and after-v1").
 
 Do not introduce a vector database just because the system is AI-powered. Do not introduce a dedicated graph database until measured multi-hop query complexity, scale, concurrency or required graph algorithms justify the operational cost.
 
@@ -95,13 +95,31 @@ Every traversal must be bounded by depth, node count, relationship filters and r
 ## Consistency and retention
 
 - Hub is canonical for long-lived knowledge, policy and experience.
-- Agent caches contain only the signed/versioned subset required for local enforcement or a permitted offline emergency action.
+- Agent caches contain only the versioned subset required for local enforcement (offline emergency actions are DEFERRED past v1, `docs/rework/06` "Deferred and after-v1").
 - Track policy/knowledge versions and reconcile cached data on reconnect.
 - Keep journal entries append-only for auditability, with explicit retention/redaction rules for sensitive payloads.
-- **All retention is configurable** (owner decision D-09, RW-28). Current defaults stay where they exist (for example the 90-day incident timeline), raw step output and durable resolution summaries are separate retention classes, and the interaction with full-text indexes, backups and the audit chain is defined in `docs/rework/04 §14`. Proposed default values are still open (see `09`).
-- Audit entries are hash-chained (owner decision D-14); pruning writes a chained checkpoint row, so retention never silently breaks verification.
+- **All retention is configurable** (owner decisions D-09, D-21, RW-28). Raw data and durable resolution summaries are separate retention classes, and the interaction with full-text indexes, backups and the audit chain is defined in `docs/rework/04 §14`. The defaults are in the table below.
+- Audit entries are hash-chained (owner decision D-14); pruning writes a chained checkpoint row, so retention never silently breaks verification. History that predates the chain is anchored once by a digest and verified separately from the chained part.
 - Keep current facts mutable through superseding/retraction, not destructive overwrites that erase provenance.
 - A deletion workflow must clean derived FTS/vector/cache data and prevent retrieval of the deleted content.
+
+### Retention defaults (owner decision D-21; all configurable)
+
+| Data | Default |
+|---|---|
+| Signals | 30 days |
+| Incident timeline (raw) | 90 days |
+| Operation journal (raw) | 180 days |
+| Raw execution outputs | 30 days |
+| Operations, steps and resolution summaries | retained |
+| Audit | retained (checkpoint pruning only if configured) |
+| Retracted fact content | purged after 30 days, tombstone kept |
+| Conversations | 180 days |
+| Notifications and notification state | 30 days |
+| Nightly backups | 7 |
+| Pre-migrate backups | last 3 |
+
+**What deletion guarantees.** Deleted data is gone from the live database, the full-text index and model context at commit. It remains in backups until they rotate, and restoring a backup brings it back; the retention settings and the book say so.
 
 ## Migration approach
 

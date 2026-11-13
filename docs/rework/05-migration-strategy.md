@@ -11,11 +11,11 @@ There is no separate v0.1 release (D-01).
 |---|---|---|
 | Crate graph, ports, `Clock`, runner, argv-only | Retain | FACT: enforced by arch-check (A §1, F §1) |
 | Transport, enrolment, ed25519 identity | Retain | FACT (D §1) |
-| Protocol version rule and decoding | Refactor (RW-17) | FACT: newer minor rejected permanently; `serde(other)` drops values |
-| Protocol messages | Extend additively with features | old agents keep working |
+| Protocol version rule and decoding | Refactor to exact major.minor match (D-20, RW-17) | FACT: today same-or-one-behind minor plus a release-number gate; `serde(other)` drops values |
+| Protocol messages | Extend; every minor bump is a coordinated hub + agent upgrade (D-20) | no legacy adapter |
 | Incident manager (ADR 0011) | Retain; writes move to unit of work; timeline → journal | FACT: writes not atomic |
 | Action service (ADR 0019) | Refactor into the operation writer's execution module (RW-04) | strongest existing safety code; one owner |
-| `HumanApproval` restriction | Strengthen (clippy disallowed-methods + arch rule + scan, RW-11) | FACT: text scan only |
+| `HumanApproval` restriction | Strengthen in CI (clippy disallowed-methods + arch rule + scan, RW-11); type fields unchanged, plan/session binding stored on the execution | FACT: text scan only |
 | Triage queue + deferred retries | Replace with Investigate operations (RW-04) | FACT: not reloaded at start |
 | `recheck.rs` in-memory verification | Replace with Verification steps + `Wake` effects | FACT: lost on restart |
 | `PROPOSALS:` text protocol | Remove after RW-06 | lesson #110 |
@@ -44,9 +44,14 @@ There is no separate v0.1 release (D-01).
   `incidents.body`; `schema_compat` table (RW-31).
 - `incident_events` → `journal`: rows copied in `(at, id)` order with original timestamps and kinds
   mapped to typed kinds; unmappable kinds copied as `Legacy{raw_kind}`. No events invented.
-- Audit chain: existing rows are not rehashed in place (triggers forbid updates). The first chained
-  row records `prev_hash = SHA-256(install_id ‖ count_of_prior_rows ‖ hash_of_their_canonical_dump)`,
-  so pre-chain rows are covered by one anchor without being modified.
+- Audit chain (RW-27): existing rows are never rewritten. The migration writes one `audit_anchor`
+  row (install id, last legacy id, legacy count, SHA-256 over the canonical serialization of every
+  legacy row); the first chained row commits to that anchor. Fresh installs write the same anchor with
+  count 0. `domovoi audit verify` and the UI report legacy (unchained, digest-checked) and chained
+  history separately.
+- Execution identity (RW-36): from F2/M1 the agent journal and plan hash v2 key on `execution_id`
+  (= `ActionId`); from M3 new executions use the step id. An id never changes after dispatch; legacy
+  actions pending at the M3 upgrade finish on the legacy path under their `ActionId`.
 - Legacy actions (RW-32): rows stay in `actions`; Operations list and incident page show them via a
   read-only projection labelled **Legacy**. Nothing is synthesized. The release that removes the
   legacy executor expires remaining `Proposed/Approved` legacy rows with an audited reason.
@@ -67,12 +72,17 @@ There is no separate v0.1 release (D-01).
 
 Restoring a pre-migration backup is never presented as a routine rollback.
 
-## 4. Protocol compatibility
+## 4. Protocol compatibility (D-20)
 
-See `04` §12. New hub + old agent: adapter gives human-approved read tools and skills only;
-unattended, reconciliation, install and containment refused with "agent too old". Support window
-OPEN (recommended: current + previous two minors until 1.0, then same major). An agent below the
-window is rejected with a final, explicit reason (FACT: reject reason mechanism exists since #86).
+- Exact protocol major.minor match. There is no support window and no previous-minor adapter.
+- Upgrade sequence: upgrade the hub, then upgrade each agent through the supported install path.
+  Until an agent is upgraded its host shows `Incompatible` ("agent upgrade required", with both
+  protocol versions); history and inventory stay; work for that host becomes `Unavailable`.
+- Executions `Dispatched` to an agent when the hub is upgraded are reconciled when the upgraded agent
+  connects: a matching epoch gives a real answer (the journal file survives agent upgrade); a new
+  epoch gives `OutcomeUnknown`.
+- Patch releases with the same protocol version interoperate in both directions.
+- Agent self-update is not provided (INV-3); the book documents the upgrade procedure.
 
 ## 5. Configuration
 

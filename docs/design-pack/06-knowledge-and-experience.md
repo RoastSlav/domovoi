@@ -47,6 +47,10 @@ Missing or unreadable data remains `unknown`/`unavailable`; do not write false o
 
 Lifecycle: discovered or supplied → validated → used in context → reverified/updated → superseded, expired or retracted. AI inference cannot become user-confirmed merely because it is repeated.
 
+## Management paths are safety-critical knowledge (owner decision D-28)
+
+The facts that say how the owner reaches a host (management networks, VPN endpoints, remote management routes, recovery access) decide whether unattended containment may run on it. They must be owner-confirmed and current: unknown, stale or conflicting entries mean unattended containment is refused on that host. A person can still approve work there and monitoring is unaffected. Each path shows its provenance, its freshness and what it blocks, and the agent keeps local exclusions the hub cannot empty (RW-37, `docs/rework/04 §7` and `§9`).
+
 ## Experience: finding past operations (owner decision D-02, RW-25)
 
 Past incidents and how they were solved must be easy to query.
@@ -55,7 +59,7 @@ Past incidents and how they were solved must be easy to query.
 - Every finished operation gets a **resolution summary**: deterministic fields filled by code (subjects, capabilities executed, verification results, outcome) and narrative fields (problem, cause, fix) drafted by the model, marked as model-sourced and editable or confirmable by the owner. Summaries are full-text indexed.
 - The model has a host-scoped `search_experience` read capability. The UI shows **similar past operations** on incident and operation pages.
 - When experience is supplied to the reasoner, each item carries its operation id, date, verified flag and source, inside a block labelled historical evidence, not authorization. **Past approvals and past successes are evidence and never satisfy policy.**
-- Retention of raw step output and of durable summaries are separate, both configurable (owner decision D-09; see `07`).
+- Retention of raw step output and of durable summaries are separate, both configurable (owner decisions D-09, D-21; defaults in `07`).
 
 ## Onboarding and discovery
 
@@ -71,7 +75,7 @@ Let discovery fill what it can from facts, checks and read capabilities. Ask the
 
 At incident resolution or during a repeated pattern, Domovoi may propose a fact, relationship, preference or constraint to remember. Show the proposed statement, source/evidence, scope and confidence. User confirmation is required for preferences and operational constraints; automatically discovered facts may be saved with their unverified source and can later be corrected. No proposal can alter policy implicitly.
 
-Deletion must remove the record from search indexes, graph edges, caches and retrieval paths. Audit may keep minimal deletion metadata but should not preserve deleted sensitive content.
+Deletion must remove the record from search indexes, graph edges, caches and retrieval paths. Audit may keep minimal deletion metadata but should not preserve deleted sensitive content. A deleted or retracted fact leaves the live database, the full-text index and model context at commit (retracted content is purged after 30 days, leaving a tombstone), but it remains in backups until they rotate (up to 7 nightly and the last 3 pre-migrate copies); restoring a backup brings it back, and the UI and book say so (owner decision D-21, `docs/rework/04 §14`).
 
 ## Notes remain useful
 

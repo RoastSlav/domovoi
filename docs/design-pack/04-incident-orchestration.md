@@ -44,6 +44,16 @@ flowchart TD
 
 A phase may return `complete`, `needs_evidence`, `waiting`, `failed`, `not_applicable` or `escalate`. Store these outcomes explicitly on the steps; do not treat missing output as a successful phase. An execution whose result is lost (a dropped link, a restart mid-dispatch) is `OutcomeUnknown`, not `Failed`: it is reconciled against the agent's action journal, and it blocks unattended re-execution of the same capability on the same target until a human or a verification step resolves it (RW-09).
 
+**Outcome vocabulary.** The single definition is in [`docs/rework/04 §3.2`](../rework/04-target-architecture.md); the UI and API use it verbatim.
+
+- **Succeeded** and **Failed:** it ran and reported success, or an attempted operation reported failure. `Failed` is only for attempted-and-failed work.
+- **NotRun:** only with positive evidence that it never started, or when its authorization or approval expired before dispatch.
+- **Unavailable:** the work could not be attempted (host absent past the wait limit, host `Incompatible`, capability not implemented or disabled, evidence source down).
+- **OutcomeUnknown:** it may have run and the result cannot be established.
+- **Refused:** rejected before running by validation, policy (`Deny`), the agent (ceiling, `allow_risk`, rate limit, exclusion) or a human.
+
+A step is never shown as `NotRun` or `Failed` when `OutcomeUnknown` is the honest answer.
+
 ## Context model
 
 Do not create one universal questionnaire or giant prompt. Build context in layers:
@@ -83,6 +93,10 @@ The plan is a proposal, not authorization. The policy engine evaluates each cons
 Record phase transitions and meaningful events with timestamp, actor/component, incident, input/output reference, evidence references, decision/rationale, policy result, operation identity and outcome. Preserve enough to reconstruct the lifecycle without persisting secrets or unlimited raw logs.
 
 The experience record **is the journal**: one append-only table of typed events that also feeds live UI replay, not a separate experience store (RW-15). Security-relevant facts (who authorized what, policy and settings changes, refusals) go to the separate hash-chained audit record, written in the same transaction. When an operation ends it gets a **resolution summary**: deterministic fields filled by code (subjects, capabilities executed, verification results, outcome) and narrative fields (problem, cause, fix) drafted by the model, marked as model-sourced and editable or confirmable by the owner. The UI shows similar past operations on incident and operation pages. A past approval or success never satisfies policy.
+
+## Delivery semantics
+
+Notification delivery is **at-least-once** (RW-35). If the platform accepts a message and the hub crashes before recording it, the message is retried and a duplicate is possible; each message carries a short stable id so duplicates are recognisable, and remote idempotency is used where the platform supports it. The product never claims exactly-once delivery. Notification state is written only after a confirmed success, and a failure to read it fails the delivery rather than becoming default state.
 
 ## Example: a fix reveals a second problem
 

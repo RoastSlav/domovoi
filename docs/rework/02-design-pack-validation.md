@@ -35,8 +35,8 @@ technical contracts).
 | P10 | 02 notifications from committed state | FACT: notify state saved before delivery; audit outside tx (G) | principle violated today | unit of work + journal-backed SSE (RW-03/15) |
 | P11 | 18 capability policy across consumers | G: wrapper must be handed in; `server.link()` public | holds by convention | single execution boundary + read boundary arch rules (RW-08) |
 | P12 | 13 approvals in four places | B §6 | no canonical home | one component, canonical home operation detail (RW-22) |
-| P13 | 14 §10 capability install | FACT: hub cannot write files on hosts; skills are owner-placed | install button without a trust model would be hub RCE | signed packages, agent-local keys and opt-in, install ≠ enable ≠ authorize (RW-26, D-11) |
-| P14 | 10 L3 "may ship in v1 if gates pass" | D §9: firewall actions can cut the agent link | no first set, no dead-man | L3 in v1 as M9 with a defined first set and watchdog (RW-13, D-04) |
+| P13 | 14 §10 capability install | FACT: hub cannot write files on hosts; skills are owner-placed | install button without a trust model would be hub RCE | detached-signature packages, agent-local keys (first-party + owner, D-16), opt-in, install ≠ enable ≠ authorize (RW-26) |
+| P14 | 10 L3 "may ship in v1 if gates pass" | D §9: firewall actions can cut the agent link | no first set, no dead-man | L3 in v1 as M9, firewall-only with kernel timeout and 30 s confirmation; management paths required (RW-13, D-17, D-22, D-28) |
 
 ## Incorrect
 
@@ -63,7 +63,7 @@ DESIGN.md did not address. DESIGN.md now defines both (D-12).
 | M5 | structured approval rendering | E risk 1 | RW-22 |
 | M6 | step-up for settings that execute programs | FACT `settings/patch.rs:109-116` | RW-24 |
 | M7 | live-update replay with sequence | B §2 | RW-15 |
-| M8 | protocol version rule; value-preserving tolerant decoding | D §1, §8; FACT `serde(other)` sites | RW-17 |
+| M8 | protocol compatibility rule (owner chose exact major.minor, D-20); value-preserving tolerant decoding | D §1, §8; FACT `serde(other)` sites | RW-17 |
 | M9 | admission persistence, fail-closed, prompt cap, per-call deadline, attribution | A §6, G | 04 §16 |
 | M10 | model-chosen targets vs autonomy | E risk 4 | RW-23 (D-07) |
 | M11 | durable conversations, stale replies, scope | B §3, G | RW-20 |
@@ -72,16 +72,16 @@ DESIGN.md did not address. DESIGN.md now defines both (D-12).
 | M14 | legacy action handling | — | RW-32 |
 | M15 | spool-before-state, notify-after-delivery | G | 04 §15 |
 | M16 | actor identity ready for roles | — | RW-29 (D-13) |
+| M17 | stable target identity (names are mutable) | — | RW-34 |
+| M18 | execution identity before operations exist | — | RW-36 |
+| M19 | agent crash windows, orphan processes | FACT `runner/src/exec/spawn.rs:54,62` | 04 §15.2 |
+| M20 | effect leases and at-least-once delivery | G | RW-35 |
+| M21 | management-path confirmation (pack Q0.5) | — | D-28, RW-37 |
+| M22 | narrow privileged helpers instead of Docker socket write | ADR 0018 | D-24, RW-39 |
 
 ## Deferred (decided)
 
-| Item | Decision |
-|---|---|
-| Offline emergency permits | after v1 (D-04) |
-| Owner-signed policy bundles | after v1 (D-03) |
-| Host tags in policy | after v1 (D-05) |
-| Multi-user and roles | after v1 (D-13) |
-| Customizable Control Room widgets | not decided; recommended after v1 (one default layout in v1) |
+See `06` "Deferred and after-v1" for the full list with reasons, conditions and reconsideration points.
 
 ## Unverified — needs a spike or evidence
 
@@ -90,7 +90,7 @@ DESIGN.md did not address. DESIGN.md now defines both (D-12).
 | Graph library under CSP, no-inline-style rule and bundle budget | spike (prompt 33) |
 | Real prompt sizes (A §6 estimates up to ~170 KiB) | measure on dev hub with a busy fixture |
 | Docker client escaping of container names (E §3) | read bollard usage / test |
-| nftables availability and privileges on supported distros for `firewall.block_source` | M9 spike |
+| nftables helper path on supported distros (`99` R-2) and Docker helper path (R-3) | spikes before H1 |
 
 ## Pack contradictions and how they were resolved
 

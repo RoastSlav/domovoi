@@ -21,17 +21,17 @@ The space classification is the amount of useful screen area required, not a fix
 | Incident detail | What happened and what response is being taken? | Evidence/story with related operations (Large) | Problem statement, evidence, state, linked operations/actions |
 | Operator side panel | Ask or request something from anywhere | Conversation and current operation summary (Large within panel) | Context, transcript, composer, active work |
 | Operator workspace | Manage complex conversations and requested work | Conversation + operation workspace split (Dominant) | Transcript, operation state/graph, evidence, composer |
-| Hosts list | Which machines are managed and in what state? | Host table/cards (Dominant) | Connectivity, role, health, active incidents, agent status |
-| Host detail | Understand and manage one host | Overview dashboard (Large) | Health, workloads, active issues, capability/policy state |
+| Hosts list | Which machines are managed and in what state? | Host table/cards (Dominant) | Connectivity (including `Incompatible`: upgrade required), role, health, active incidents, agent status |
+| Host detail | Understand and manage one host | Overview dashboard (Large) | Health, workloads, active issues, capability/policy state, management-path confirmation |
 | Capability Center | What can Domovoi do and where is it installed? | Catalog / installed inventory (Large) | Discover, install, enable, update, compatibility and trust |
 | Capability detail | What does this capability do and what authority does it need? | Manifest/operation contract (Large) | Purpose, provider, effects, schema, targets, verification, permissions |
-| Knowledge browser | What does Domovoi know? | Searchable entity/fact inventory (Large) | Fact, source, scope, freshness, confidence, edit controls |
+| Knowledge browser | What does Domovoi know? | Searchable entity/fact inventory (Large) | Fact, source, scope, freshness, status (current/stale/disputed/superseded/retracted), edit controls |
 | Knowledge graph | How are entities connected? | Graph canvas (Dominant) | Selected entity, relationships, provenance, filters |
-| Policies & Autonomy | What is Domovoi allowed to do? | Policy matrix/editor (Large) | Inheritance, allow/approval/deny, constraints and effective result |
+| Policies & Autonomy | What is Domovoi allowed to do? | Policy matrix/editor (Large) | Inheritance, allow/approval/deny, locked rules, constraints and effective result |
 | Policy simulator | What would this policy allow in a real situation? | Scenario/result comparison (Large) | Selected scenario, policy versions, exact deterministic result |
-| Integrations | Which external systems are connected? | Integration inventory (Large) | Connection health, scope, actions, reauthentication |
+| Integrations (DEFERRED past v1; `docs/rework/06`) | Which external systems are connected? | Integration inventory (Large) | Connection health, scope, actions, reauthentication |
 | Attention center | What needs a decision or a look? | Attention list (Large) | Approvals, questions, failures, manual interventions |
-| Audit log | Who did what, and is the record intact? | Audit table (Large) | Actor, action, target, outcome, chain verification status |
+| Audit log | Who did what, and is the record intact? | Audit table (Large) | Actor, action, target, outcome, chain verification status (legacy and chained reported separately) |
 | System settings | Configure hub-wide behavior | Settings sections/forms (Medium–Large) | Editable settings, source, validation, save/restart impact |
 
 ## 3. Control Room / Overview
@@ -46,13 +46,13 @@ Answer at a glance: “Is anything wrong?”, “What is Domovoi doing right now
 |---|---:|---:|---|
 | Critical attention queue | P0 | Large | Most urgent incidents, blocked operations, failed agents and security warnings; direct links to the right workspace. |
 | Active operations overview | P0 | Large | Active operation count and, per operation, only what the engine reports: current phase name, waiting reason and elapsed time. Select one to open it. Do not squeeze a full complex graph into a tiny card. |
-| Environment health | P0 | Medium | Hosts online/offline, services with issues, storage pressure and other high-value health indicators. |
+| Environment health | P0 | Medium | Hosts online, offline or `Incompatible` (upgrade required; never counted as offline), services with issues, storage pressure and other high-value health indicators. |
 | Waiting for you | P0 | Medium | The first items of the attention center: each approval is the shared approval card (compact), others link to their canonical page; age and expiry shown. |
 | Recent activity | P1 | Medium | Chronological events across incidents and operations; filter by host/type. |
 | Fleet/service summary | P1 | Medium–Large | Host groups, service status, key resource trends. |
 | LLM/provider status and usage | P2 | Compact–Medium | Provider availability, usage, latency, tokens/cost and budget pressure. |
 | Suggestions and maintenance reminders | P2 | Medium | Knowledge suggestions, capability updates, stale backups, maintenance recommendations. |
-| Custom dashboard widgets | P1 | Variable | Add/remove/rearrange/resize; user layouts persist. Defaults remain excellent without customization. |
+| Custom dashboard widgets (DEFERRED to v1.x; `docs/rework/06`) | P1 | Variable | Add/remove/rearrange/resize; user layouts persist. v1 ships one excellent default layout. |
 
 ### Interaction requirements
 
@@ -123,6 +123,7 @@ P0 content (header strip, approval card) is never in a tab. Findings and plan ar
 - Selecting a node opens an inspector without navigating away.
 - Do not flatten a branched/parallel graph into a fake linear progress bar.
 - Keyboard navigation and the outline are specified in doc 15, section 4.
+- Historical playback of a completed operation is the last U2 deliverable (owner decision D-25). The timeline, the outline and the history are fully useful without it.
 
 **Current state and next action** (Compact-Medium):
 
@@ -133,6 +134,7 @@ P0 content (header strip, approval card) is never in a tab. Findings and plan ar
 **Structured approval card** (one component, used everywhere an approval appears; canonical home is this page):
 
 - Renders from deterministic data: contract, target, arguments, effect class, reversibility, expiry, plan-hash prefix, and the policy decision with its winning rule.
+- Shows an agent refusal: when the agent refuses a step (its mutation rate limit, ceiling, `allow_risk` or an exclusion), the step is `Refused` with the agent's reason, and approving again offers no way around it (owner decision D-27). A policy `Deny` is never offered for approval; the card names the rule and says the owner must change the policy (owner decisions D-23, D-26).
 - Model-written text is secondary and labelled as model text.
 - One primary action per context; destructive approvals name the target and consequence and ask for confirmation.
 - Embedded or linked from incident detail, the Control Room, the Operator and the attention center; they never reimplement it.
@@ -158,7 +160,7 @@ Contextual panel; P1 when a node is selected, otherwise closed. It shows:
 - Start/end/duration and correlation IDs (P3).
 - Inputs and outputs with evidence/provenance references.
 - Capability ID/version, target and typed arguments where applicable.
-- Result, error, retry/replan relation and next node(s).
+- Result in the shared outcome vocabulary (`docs/rework/04 §3.2`): `Failed` only for attempted-and-failed work, `NotRun` only with positive evidence it never started, `Unavailable` when it could not be attempted (host absent or `Incompatible`), `OutcomeUnknown` when it may have run; plus error, retry/replan relation and next node(s).
 - LLM provider/model/token/latency data when relevant.
 - Policy matched rules and constraint result when relevant.
 
@@ -229,7 +231,7 @@ Tabs or view switch: Conversation, Operation, Evidence/Results. Avoid making the
 
 ### Hosts list
 
-P0: name, agent/connectivity state, host role/criticality, health summary, active incidents and update/version warning. P1: resource summary, tags/groups, recently active capability/operation. P2: inventory details.
+P0: name, agent/connectivity state (including `Incompatible`: upgrade required), host role/criticality, health summary, active incidents and version warning. P1: resource summary, tags/groups (display only; host tags in policy are DEFERRED, `docs/rework/06`), recently active capability/operation. P2: inventory details.
 
 Support cards and dense table as alternative user views; filters by state, role, tag, agent version, incident state and capability coverage. Adding/enrolling a host remains an obvious primary action.
 
@@ -241,7 +243,7 @@ One canonical page per host. Recommended high-level tabs (exact grouping to vali
 2. **Workloads** — services, containers, processes and their dependencies; actions link to capability/operation surfaces.
 3. **Capabilities** — installed, enabled, compatible and available capabilities; install/configure/update/uninstall paths.
 4. **Monitoring** — checks, schedules, thresholds, alert sources and health history.
-5. **Network & security** — interfaces, ports, SSH activity, firewall/security capabilities, trusted management paths and security events.
+5. **Network & security** — interfaces, ports, SSH activity, firewall/security capabilities, management-path confirmation (below) and security events.
 6. **Knowledge & dependencies** — confirmed facts, assumptions, upstream/downstream relationships, notes and recovery instructions.
 7. **Activity** — operations, incidents, capability runs, configuration changes and agent events.
 
@@ -249,7 +251,11 @@ Logs may remain a standalone global view with host filter and also be reachable 
 
 The host page shows the **host-local unattended ceiling** read-only (the most the host itself allows to run without a person), with the explanation that it is edited in the agent's configuration on the host, not here. Policy can only narrow it.
 
-Host actions (rename, enroll/revoke, maintenance, update agent) should be discoverable in page-level actions, with destructive actions contextual and confirmed.
+**Incompatible agent (owner decision D-20).** When the agent speaks another protocol minor than the hub, the host page leads with an upgrade banner above the tabs (P0): the exact required protocol, the agent's version and the upgrade order (hub first, then each agent through the install procedure). History, incidents and operations stay readable; nothing is dispatched and the host is never shown as offline. Steps waiting on it show `Unavailable` or keep waiting for a compatible agent.
+
+**Management paths (owner decision D-28).** The host page shows its management paths (management networks, VPN endpoints, remote routes) with where each came from, how fresh it is, whether the owner has confirmed it, and which containment is blocked because paths are unknown, stale or conflicting. The owner confirms or corrects a path here (an audited knowledge edit); the agent's local exclusions are shown read-only beside them. Monitoring and human-approved work are unaffected.
+
+Host actions (rename, enroll/revoke, maintenance, agent upgrade guidance since the agent never updates itself) should be discoverable in page-level actions, with destructive actions contextual and confirmed.
 
 ## 10. Capability Center
 
@@ -259,7 +265,7 @@ P0: Discover catalog, Installed inventory, deployment/installation status and ca
 
 Recommended tabs:
 
-- **Discover** — searchable catalog with categories, trust/provenance, compatibility, requested permissions, version and available targets.
+- **Discover** — searchable catalog of first-party and owner-signed packages (third-party registries are DEFERRED) with categories, trust/provenance, compatibility, requested permissions, version and available targets.
 - **Installed** — capabilities installed on agents/providers, status, version, enabled state, last used, updates and policy coverage.
 - **Deployments** — install/update/uninstall attempts, target agents, progress, failures and rollback history.
 
@@ -292,7 +298,7 @@ A guided wizard or dedicated deployment workspace:
 
 **Critical distinctions:** installed ≠ enabled; enabled ≠ authorized; authorized ≠ skipped local validation. No control installs and enables in one step; each is its own action, and enabling and starting an installation each ask for password re-entry.
 
-**Trust model shown in the UI:** packages are signed archives. The hub only relays the bytes; the **agent** verifies the signature against keys in its own local trusted-key list and installs only if the host has opted in (off by default) and the package is compatible. The UI shows, per host: opted in or not (with where to change it), which key signed the package, and the verification result reported by the agent. A host that has not opted in is shown as "does not accept installs", not as a failure. v1 scope (proposed): first-party signed packages plus packages signed with a key the owner added locally; no third-party registry.
+**Trust model shown in the UI:** packages are signed archives. The hub only relays the bytes; the **agent** verifies the signature against keys in its own local trusted-key list and installs only if the host has opted in (off by default) and the package is compatible. The UI shows, per host: opted in or not (with where to change it), which key signed the package, and the verification result reported by the agent. A host that has not opted in is shown as "does not accept installs", not as a failure. v1 scope (owner decision D-16): first-party signed packages plus packages signed with a key the owner added locally on the agent. The hub cannot add or replace keys, the signature is detached and verified before extraction, and a rollback must be signed by a currently trusted key. Third-party registries are DEFERRED (`docs/rework/06` "Deferred and after-v1").
 
 **Progress and recovery:** the deployment view shows one row per host (queued, delivered, verifying, installed, failed with the agent's reason, pending because offline), the overall result as "N of M hosts", retry for failed hosts only, and uninstall/rollback where the package declares it.
 
@@ -302,7 +308,7 @@ AI-generated capability drafts may be reviewed and tested, but the model cannot 
 
 ### Knowledge browser
 
-P0: searchable list of entities/facts, source/provenance, host/scope, verification/freshness, confidence/status and direct edit/correct/delete controls.
+P0: searchable list of entities/facts, source/provenance, host/scope, verification/freshness, status (no numeric confidence, RW-14) and direct edit/correct/delete controls.
 
 P1: filters by category, entity type, source, scope, freshness, inferred/confirmed/disputed state and related incident/operation.
 
@@ -330,9 +336,9 @@ Present proposed learnings with evidence and suggested scope. User can accept, e
 
 ### Policy overview/editor
 
-P0: effective policy by host and capability/operation, clear Allow automatically / Ask for approval / Deny semantics, inherited versus explicit values, rule precedence and a "why" explanation (below); the autonomy pause switch and any rule suspended by its circuit breaker; rules in shadow mode (new rules start there) clearly marked as not yet acting.
+P0: effective policy by host and capability/operation, clear Allow automatically / Ask for approval / Deny semantics, inherited versus explicit values, rule precedence, locked rules shown distinctly and a "why" explanation (below); the autonomy pause switch and any rule suspended by its circuit breaker; rules in shadow mode (new rules start there) clearly marked as not yet acting.
 
-P1: conditions, target restrictions, time windows, TTL, rate limits, blast-radius caps, trusted paths, recovery requirements and policy versioning. Publishing a policy version asks for password re-entry.
+P1: conditions, target restrictions, time windows, TTL, rate limits, blast-radius caps, trusted paths, recovery requirements and policy versioning. Publishing a policy version asks for password re-entry and first shows the **publication validation report**: incomparable conflicting rules (resolved Deny > RequireApproval > Allow) that the owner must acknowledge, specific Allows that override a broader Deny, and any locked rule affected (owner decisions D-19, D-26).
 
 P2: raw rule representation, import/export and policy-as-code support later.
 
@@ -343,8 +349,10 @@ A matrix view is recommended for host-by-capability review, but complex conditio
 For any host, capability and context the page answers "why this result?" using the production evaluator, never a re-implementation. It shows:
 
 - **All matching rules**, each with its effect (Allow, Ask, Deny) and specificity.
-- **The winning rule** and **why it won**, as one of: strictly more specific than the others; equal specificity where Deny wins; incomparable specificity resolved by the fallback.
+- **The winning rule** and **why it won**, as one of: strictly more specific than the others; equal specificity where Deny wins; incomparable specificity resolved by Deny > RequireApproval > Allow; or a locked Deny.
 - **Which broader rules it overrides.**
+- **A locked Deny (owner decision D-26) shown distinctly** from ordinary rules, with a lock icon and the text "Locked Deny" (never colour alone), in the matrix, the editor, the simulator, the explanation and the trace, together with what ordinary resolution would have decided. No narrower Allow can override it; changing or unlocking it asks for step-up.
+- **Deny is never offered for approval (owner decision D-23).** A `Deny` result says the owner must change the policy and shows no approval control; `RequireApproval` is offered to the owner.
 - **Hard limits shown separately from rules**: the host-local ceiling (read-only, edited on the host), the global pause, rate limits and target binding. A hard limit is never presented as a rule that could be edited here.
 - **Dangerous exceptions made obvious**: a specific Allow that overrides a broad Deny is marked with a warning tone, an icon and the text "Allow overrides a broader Deny", in the matrix, the explanation and the editor's diff before publishing.
 - Missing or unavailable context is named; the result may be "cannot determine".
@@ -362,7 +370,9 @@ Dedicated page/panel with:
 
 The simulator calls the production evaluator through a side-effect-free path. It is read-only and must never execute a capability. A historical scenario needs the stored context snapshot and policy version recorded when the decision was made (a backend requirement, doc 17 section 11); missing historical facts are labelled, and the page never silently simulates with today's environment and claims it was historically exact.
 
-## 13. Integrations
+## 13. Integrations (DEFERRED past v1)
+
+Hub-side integrations need hub-held credentials and their own contracts, so they are not in v1 (`docs/rework/06` "Deferred and after-v1"). The page is specified so that navigation and contracts leave room for it.
 
 P0: connected state, provider type, configured scope, last successful access, errors and primary actions (configure, test, reconnect, disconnect).
 
@@ -379,8 +389,8 @@ Settings should be grouped by the user's goal, not by implementation crate:
 - General hub behavior and URL/listener/network configuration.
 - Models and AI providers (primary/fallback, context limits, budgets, cost controls).
 - Notifications and channels.
-- Agent enrollment/trust and update policy.
-- Data, retention, backups and restore. Every retention value is editable (raw data and durable summaries are separate classes); the page states what each change deletes and when, and changing retention asks for password re-entry.
+- Agent enrollment/trust and upgrade-required status (agents never update themselves).
+- Data, retention, backups and restore. Every retention value is editable (raw data and durable summaries are separate classes); the page states what each change deletes and when, says that deleted data remains in backups until they rotate (up to 7 nightly and the last 3 pre-migrate copies; owner decision D-21), and changing retention asks for password re-entry.
 - Account/security/session management.
 - UI preferences (theme, density, presentation profile, dashboard layouts, shortcuts).
 - Updates, diagnostics and system health.
@@ -397,7 +407,7 @@ P0: source/host, severity, time range, search, live/pause, clear stale indicator
 
 ### Audit log
 
-P0: who/what/when/target/outcome, exact policy/action transition, and the **hash-chain verification status** (last verified time, result, head hash, and any checkpoint left by pruning). A failed verification is a page-level danger banner naming the first bad entry. P1: filters by actor, host, operation, capability, policy and date; links back to the original object. P2: export, retention and a "verify now" control. The page states what the chain detects (accidental corruption, edits that do not recompute it, deletion mid-chain) and what it does not (an attacker who rewrites the whole database).
+P0: who/what/when/target/outcome, exact policy/action transition, and the **hash-chain verification status**, reported in two parts: **legacy unchained history** (anchored by a digest: count and digest match, or "not verifiable (pruned)") and **chained history** (last verified time, result, head hash, the first broken link and any checkpoint left by pruning). A failed chained verification is a page-level danger banner naming the first bad entry; a legacy mismatch is shown as such and does not say which row changed. P1: filters by actor, host, operation, capability, policy and date; links back to the original object. P2: export, retention and a "verify now" control. The page states what the chain detects (accidental corruption, edits that do not recompute it, deletion mid-chain) and what it does not (an attacker who rewrites the whole database).
 
 The audit view is not the same as the user-facing operation timeline. Operation timeline explains work; audit captures security-sensitive changes and authority decisions. They should link to each other.
 

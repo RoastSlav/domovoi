@@ -1,7 +1,7 @@
 # 04 — Validated target architecture
 
 The technical contract for the rework. Decisions and rationale are in `03` (RW-NN); owner decisions
-are D-NN in `99`. Labels: FACT, INFERENCE, PROPOSAL, DECISION, OPEN. Anything not labelled here
+are D-NN in `99`. Labels: FACT, INFERENCE, PROPOSAL, DECISION, DEFERRED, OPEN. Anything not labelled here
 follows its RW entry's label.
 
 ## 1. Boundaries and crate placement
@@ -41,7 +41,7 @@ flowchart LR
 | `domovoi-engine` | pure `decide` functions, plan validator, policy evaluator, context selection; writers and effect runner behind ports | depend on hub; mint `HumanApproval`/`PolicyPermit` |
 | `domovoi-store` | `UnitOfWork` SQLite implementation, seq and hash-chain assignment, migrations, FTS | decide transitions |
 | `domovoi-proto` | `features`, `run_capability`, `action_status`, `get_catalog`, `install_package`, tolerant decoding | — |
-| `domovoi-agent` | journal, ceiling enforcement, package verification and installation, containment expiry | accept keys or ceiling from hub |
+| `domovoi-agent` | journal with epoch, ceiling and mutation limiter, package verification and installation, containment reconciliation; invokes privileged helpers (RW-39) through the runner | accept keys or ceiling from hub; hold Docker socket write access |
 | `domovoi-runner` | unchanged (only process spawner) | — |
 | `domovoi-hub` | transports, use-case services, `auth/` (HumanApproval), `policy/` (PermitIssuer impl), install relay | bypass use-case services |
 
@@ -54,13 +54,13 @@ No new crates. Dependency edges stay as in ARCHITECTURE.md §4 (FACT: enforced b
 | Signal | incident manager | `signals` | unchanged |
 | Incident | incident manager (ADR 0011) | `incidents` + `version` | timeline events → `journal` |
 | Operation | operation writer | `operations` + `version` | coarse status, budgets, pinned subjects, cycle |
-| Step (intent) | operation writer | `steps` (immutable columns) + derived `status` | kinds §3.2 |
+| Step (intent) | operation writer | `steps` (immutable columns) + derived `status`; `step_edges` | kinds, outcomes, edges §3.2 |
 | Execution detail | operation writer (execution module) | `executions` (1:1 with Execution step) | authorization, plan hash v2, dispatch, result |
 | Operation ↔ incident link | operation writer | `operation_incidents` | incident manager reads only |
 | Effect (outbox) | written by owning writer, completed by its writer on result | `effects` | §4 |
 | Conversation, messages | conversation writer | `conversations`, `messages` | §13 |
 | Fact, relation, entity | knowledge service | `facts`, `relations`, `entities` | §10 |
-| Resolution summary | operation writer (create); knowledge service (owner edits) | `resolution_summaries` + FTS | §10 |
+| Resolution summary fields | operation writer (code + model fields); knowledge service (owner edits) | `resolution_summary_fields` + FTS | §10, RW-41 |
 | Policy version | policy service | `policy_versions` (immutable rows) | §7 |
 | Policy decision | operation writer (as `PolicyDecision` step) | `steps` + `policy_decisions` | §7 |
 | Package install job | install service | `install_jobs` | §11 |
@@ -106,23 +106,42 @@ stateDiagram-v2
 - Cancel: pending effects are cancelled; an execution already `Dispatched` cannot be recalled — it
   is reconciled to its real outcome and recorded.
 
-### 3.2 Step kinds and outcomes
+### 3.2 Step kinds, outcomes and dependencies
 
-Kinds: `ReasoningTurn, EvidenceRequest, Assessment, Plan, PolicyDecision, Approval, Execution,
-Verification, Notification, Question, Note`. Each step: `id (UUIDv7), operation_id, kind, phase
-label, parent_step_id, cycle, created_at, intent (typed JSON, immutable)`.
+- **Kinds:** `ReasoningTurn`, `EvidenceRequest`, `Assessment`, `Plan`, `PolicyDecision`, `Approval`,
+  `Execution`, `Verification`, `Notification`, `Question`, `Note`.
+- **Fields on each step:** `id` (UUIDv7), `operation_id`, `kind`, phase label, `parent_step_id`
+  (grouping only), `cycle`, `created_at`, `intent` (typed JSON, immutable).
+- **Execution steps** additionally carry `execution_id` (= step id, RW-36).
 
-Step outcome vocabulary (closed): `Pending, Running, Succeeded, Failed, Refused, NotRun, Unavailable,
-OutcomeUnknown, Skipped, Cancelled`.
+**Outcome vocabulary.** This is the single definition. RW-09, the API and the UI use it verbatim.
 
-| Outcome | Meaning |
+| Outcome | Use only when |
 |---|---|
-| Failed | ran and reported failure |
-| Refused | rejected by validation, policy or agent before running |
-| NotRun | provably never started (agent journal `not_found` with matching epoch), or expired before dispatch |
-| Unavailable | source/capability not available (host absent past limit, contract not implemented) |
-| OutcomeUnknown | may have run; result unknowable (journal lost, old agent) |
-| Skipped | intentionally not run (superseded by another step) |
+| Pending | not started |
+| Running | started and its owner still holds it (an agent child process, an in-flight model call) |
+| Succeeded | ran and reported success |
+| Failed | an attempted operation reported failure |
+| Refused | rejected before running by validation, policy (`Deny`), the agent (ceiling, `allow_risk`, rate limit, exclusion) or a human deny |
+| NotRun | positive evidence it never started (`not_found` with matching epoch), or its authorization or approval expired before dispatch |
+| Unavailable | the intended work could not be attempted: host `Absent` past the wait limit, host `Incompatible`, contract not implemented or disabled, evidence source down |
+| OutcomeUnknown | it may have run, but the result cannot be established (agent restart mid-run, journal lost, epoch changed) |
+| Skipped | intentionally not run (superseded) |
+| Cancelled | the operation was cancelled before this step started |
+
+**Dependencies (RW-40).** `step_edges(from_step, to_step, kind)`, directed from dependent to
+prerequisite.
+
+| Kind | Meaning |
+|---|---|
+| `depends_on` | cannot start before `to` finishes |
+| `caused_by` | created from the output of `to` |
+| `verifies` | Verification → Execution |
+| `retry_of` | Execution → earlier Execution |
+| `answers` | user reply → Question |
+
+Edges must point to steps already committed in the same operation (checked by the writer), so the
+graph is acyclic by construction. Investigation cycles create new steps with `cycle + 1`.
 
 ### 3.3 Execution states (derived from step events)
 
@@ -136,10 +155,12 @@ stateDiagram-v2
   AwaitingApproval --> Refused: denied
   AwaitingApproval --> NotRun: authorization expired
   Authorized --> Dispatched: execute() sent, agent accepted
-  Authorized --> NotRun: freshness check failed / expired
+  Authorized --> NotRun: authorization expired before dispatch
+  Authorized --> Refused: plan hash / target identity changed, incident closed
   Dispatched --> Succeeded
   Dispatched --> Failed
-  Dispatched --> OutcomeUnknown: journal_lost / old agent link loss
+  Dispatched --> OutcomeUnknown: journal_lost / epoch change / agent restarted mid-run
+  Authorized --> Unavailable: host absent past limit / incompatible
   Dispatched --> NotRun: action_status not_found (epoch match)
 ```
 
@@ -173,12 +194,38 @@ operation is working on this") by reading, never by co-writing.
 - Effect runner: claims `pending` effects with `not_before <= now` (one claim marks `running` in a
   small commit), performs them, posts the result as an event to the owning writer, which completes
   the effect in the same commit as the state change. On restart, `running` effects revert to
-  `pending` except `Dispatch`, which is resolved by reconciliation (§15).
+  `pending` except `Dispatch`, which is resolved by reconciliation (§15). Full lifecycle in §4.1.
 - Idempotency per effect kind: `CallModel` re-issue is a new attempt (RW-06); `CollectEvidence` is
   read-only; `Dispatch` is idempotent by step id at the agent; `Notify` carries a dedup key
   `(operation_id, step_id, channel)`.
 - Timers are `Wake` effects with `not_before`; the scheduler uses the `Clock` port (tests advance
   `FakeClock`). Replaces `recheck.rs` in-memory sleep (FACT `actions/recheck.rs:65`).
+### 4.1 Effect lifecycle and delivery (RW-35)
+
+```mermaid
+stateDiagram-v2
+  [*] --> pending: created in owner's transaction
+  pending --> claimed: runner claims (lease_until = now + lease, attempt += 1)
+  claimed --> done: owner writer commits result + completion together
+  claimed --> pending: retryable failure (not_before = backoff(attempt))
+  claimed --> dead: permanent failure or attempt limit
+  claimed --> pending: lease expired (runner crashed)
+  pending --> cancelled: operation cancelled
+  claimed --> cancelled: operation cancelled (result, if any, still recorded)
+```
+
+- Columns: `status, lease_until, runner_id, attempt, max_attempts, not_before, last_error,
+  dedup_key`. Backoff is exponential with a cap; retry classification is per kind (§16 for model
+  calls; notifications: 429/5xx/timeouts retry, 4xx permanent).
+- `dead` effects raise an advisory and appear on the operation; nothing loops forever.
+- Restart: `claimed` → `pending`, except `Dispatch`, which is reconciled.
+- **Notifications are at-least-once.** Crash window: the platform accepts the message, the hub
+  crashes before committing `done` → the effect is retried → a duplicate message is possible. Remote
+  idempotency is used where the platform provides it (Discord `nonce` + `enforce_nonce`, R-4);
+  every message carries a short stable id so duplicates are recognisable. Notification state is
+  written only after a confirmed success response; a state read error fails the effect (retry), it
+  never becomes default state.
+
 - Budgets persisted on the operation (`budgets` JSON with limits and used): model turns, tool calls,
   evidence requests, executions, cycles, wall time, tokens, cost. Shared across cycles. Exceeded →
   `Paused{Budget}` + notification. Defaults configurable (`[orchestration]`).
@@ -254,9 +301,10 @@ pub struct CommitReceipt { pub journal_seqs: Vec<u64>, pub audit_seqs: Vec<u64> 
 ```text
 Rule {
   id, version_id, enabled, shadow: bool,
-  host:       All | Host(HostId)                         // tags post-v1
+  locked: bool,                                          // only valid when outcome = Deny (D-26)
+  host:       All | Host(HostId)                         // tags after v1 (06 Deferred)
   capability: Any | Effect(EffectClass) | Category(Cat) | Contract(ContractId)
-  targets:    Any | Exact(Set<TargetRef>)                // v1: no globs
+  targets:    Any | Exact(Set<TargetName>)               // names resolved to identities at evaluation (RW-34)
   conditions: [ArgConstraint | TimeWindow | RequiresFact(predicate) | MaxRate | MaxTtl]
   outcome:    Deny | RequireApproval | Allow
   note (owner text)
@@ -266,189 +314,333 @@ Rule {
 ### 7.2 Specificity (partial order, no numeric score)
 
 Per dimension, a set-inclusion order:
-- host: `Host(h) ⊂ All`;
-- capability: `Contract(c) ⊂ Category(category(c)) ⊂ Effect(effect(c)) ⊂ Any` (category and effect
-  come from the contract; a category belongs to exactly one effect class);
-- targets: `Exact(S1) ⊂ Exact(S2)` iff `S1 ⊊ S2`; `Exact(_) ⊂ Any`.
+- **host:** `Host(h) ⊂ All`.
+- **capability:** `Contract(c) ⊂ Category(category(c)) ⊂ Effect(effect(c)) ⊂ Any`. The category
+  and effect come from the contract; a category belongs to exactly one effect class.
+- **targets:** `Exact(S1) ⊂ Exact(S2)` iff `S1 ⊊ S2`, and `Exact(_) ⊂ Any`.
 
 Rule A is **strictly more specific** than B iff A ⊆ B on every dimension and A ⊊ B on at least one.
-Conditions do not affect specificity; they only decide whether a rule matches (a rule whose
-conditions are unmet does not match). Argument constraints are conditions.
 
-### 7.3 Evaluation
+Conditions do not affect specificity; they decide only whether a rule matches. A rule with an unmet
+condition does not match.
 
-1. `M` = enabled, non-shadow rules whose scope contains the request and whose conditions hold.
-   (Shadow rules are evaluated separately with the same algorithm and recorded, never enforced.)
-2. If `M` is empty → default by effect class: `Read → Allow (budgeted)`, `Mutate → RequireApproval`,
-   `Contain → RequireApproval`, `Destructive → RequireApproval + typed confirmation`.
-3. `W` = maximal elements of `M` (rules not strictly dominated by another rule in `M`).
-4. If all of `W` have the same outcome → that outcome; for `Allow`, constraints combine by
-   **intersection** (min rate, min TTL, intersection of target sets, conjunction of conditions).
-5. Otherwise (equal scope with different outcomes, or incomparable rules) → `Deny` if any `Deny` in
-   `W`, else `RequireApproval` (D-05 for equal scope; OPEN default for incomparable).
-6. Hard limits, applied in order, each recorded in the trace:
-   - `Destructive` and outcome `Allow` → `RequireApproval` (D-06);
-   - outcome `Allow` and target ∉ pinned subjects ∪ winning rules' `Exact` targets → `RequireApproval` (D-07);
-   - outcome `Allow` and any `RequiresFact` or containment-safety fact unknown/stale → `RequireApproval`;
-   - outcome `Allow` and host ceiling (as last reported, hash pinned into the permit) does not cover
-     contract+target+args+rate → `RequireApproval`;
-   - containment target in mandatory exclusions → `Deny` (even for humans in v1);
-   - autonomy paused or rule circuit-broken → `RequireApproval`.
+Two rules **overlap** iff their scopes intersect on every dimension. Two overlapping rules are
+**incomparable** iff neither is a subset of the other.
 
-Order independence: steps 1–5 are set operations over `M`; no rule order or id participates.
+### 7.3 Evaluation (`evaluate(policy, request, facts, ceiling_summary)`)
 
-**Meaning of outcomes.** `Allow` = unattended (permit issued). `RequireApproval` = human may approve.
-`Deny` = not offered for approval; the owner must change the policy.
+1. **Match.** `M` = enabled, non-shadow rules whose scope contains the request and whose conditions
+   hold. Shadow rules run through the same algorithm separately; the result is recorded, never
+   enforced.
+2. **Locked Deny (D-26).** If any rule in `M` is a locked Deny, the outcome is `Deny`, with reason
+   `LockedDeny`.
+   - Every matching locked rule is listed. Several locked rules are one `Deny` with several reasons.
+   - Ordinary resolution (steps 3–6) is still computed and recorded as `would_have_been`, so the
+     UI can show what the lock overrides.
+   - Go to step 7.
+3. **Default.** If `M` is empty, the outcome is the default for the effect class:
 
-### 7.4 Decision table (request: host = media, contract = `container.restart` [category
-`container.lifecycle`, effect `Mutate`], target = `plex`, unless stated)
+   | Effect class | Default |
+   |---|---|
+   | `Read` | `Allow` (budgeted) |
+   | `Mutate` | `RequireApproval` |
+   | `Contain` | `RequireApproval` |
+   | `Destructive` | `RequireApproval` + typed confirmation |
+
+4. **Winners.** `W` = maximal elements of `M` (rules not strictly dominated by another rule in `M`).
+5. **One outcome.** If all of `W` have the same outcome, that is the result. For `Allow`,
+   constraints combine by **intersection**: the minimum rate and TTL, the intersection of target
+   sets, and the conjunction of conditions.
+6. **Mixed outcomes.** Otherwise:
+   - equal scopes → `Deny` (D-05);
+   - incomparable → `Deny` if any `Deny` is in `W`, else `RequireApproval` (D-19).
+7. **Hard limits.** Applied in order; each applied limit is recorded in the trace:
+   - outcome `Allow` and effect `Destructive` → `RequireApproval` (D-06);
+   - outcome `Allow` and resolved target ∉ pinned subjects ∪ the winning rules' `Exact` targets →
+     `RequireApproval` (D-07);
+   - outcome `Allow` and any safety-critical fact the contract declares is unknown, stale or
+     disputed → `RequireApproval`;
+   - outcome `Allow` and the last reported host ceiling does not cover contract + target + args +
+     rate + TTL → `RequireApproval`;
+   - effect `Contain` and the host's management paths are not confirmed and current (D-28) →
+     `RequireApproval` for unattended; human approval is still possible unless the next limit
+     applies;
+   - containment target matches a mandatory exclusion → `Deny`. This holds for humans as well, and
+     the agent enforces it independently;
+   - autonomy paused, or the rule is circuit-broken → `RequireApproval`.
+
+**Outcome meaning (D-23).**
+- `Allow`: unattended; a permit is issued.
+- `RequireApproval`: offered to the owner.
+- `Deny`: not offered. The owner must change the policy. There is no bypass.
+
+**Order independence.** Steps 1–6 are set operations; rule order and ids play no part.
+
+### 7.4 Decision table
+
+Request unless stated: host = `media`, contract = `container.restart` (category
+`container.lifecycle`, effect `Mutate`), target = `plex`, pinned subject = `plex`.
 
 | # | Matching rules (host / capability / targets → outcome) | Result | Why |
 |---|---|---|---|
 | 1 | none | RequireApproval | default for Mutate |
 | 2 | All / container.restart / Any → Deny | Deny | single rule |
-| 3 | #2 + media / container.restart / {plex} → Allow | Allow | rule 2 strictly more specific (host and targets narrower) |
+| 3 | #2 + media / container.restart / {plex} → Allow | Allow | rule 2 strictly more specific (host, targets) |
 | 4 | #3 but target = radarr | Deny | only the broad Deny matches |
 | 5 | #3 but host = other | Deny | exception is host-scoped |
-| 6 | media / container.restart / {plex} → Allow and → Deny | Deny | equal scope, Deny wins |
-| 7 | All / container.restart / {plex} → Allow; media / Category(container.lifecycle) / Any → Deny | Deny | incomparable (first narrower on capability+target, second on host); recommended fallback Deny (OPEN) |
-| 7b | same as 7 but the second rule → RequireApproval | RequireApproval | incomparable; fallback RequireApproval over Allow |
+| 6 | media / container.restart / {plex} → Allow and → Deny | Deny | equal scope (D-05) |
+| 7 | All / container.restart / {plex} → Allow; media / Category(container.lifecycle) / Any → Deny | Deny | incomparable (D-19) |
+| 7b | as 7, second rule → RequireApproval | RequireApproval | incomparable (D-19) |
 | 8 | All / Effect(Mutate) / Any → Allow; media / container.restart / Any → RequireApproval | RequireApproval | second strictly more specific |
-| 9 | media / container.restart / {plex, jellyfin} → Allow (max 3/h); media / container.restart / {plex} → Allow (max 1/h) | Allow, max 1/h | second strictly more specific (target subset) wins alone |
-| 10 | two rules media / container.restart / {plex} → Allow with 3/h and 2/h | Allow, max 2/h | equal scope, both Allow, intersection |
-| 11 | All / Any / Any → Allow; request contract effect = Destructive | RequireApproval + typed confirmation | hard limit D-06 |
-| 12 | #3, but host ceiling lacks `container.restart` for `plex` | RequireApproval | hard limit: ceiling |
-| 13 | #3, but model-proposed target `postgres` (not pinned, not in rule) | Deny | the exception doesn't match `postgres`; broad Deny applies |
-| 13b | media / container.restart / Any → Allow; target `postgres` not pinned, rule names no targets | RequireApproval | hard limit D-07: unattended only on pinned or rule-named targets |
-| 14 | media / Effect(Contain) / Any → Allow; `firewall.block_source` target in management exclusions | Deny | hard limit: containment exclusion |
-| 15 | media / container.restart / {plex} → Allow with `RequiresFact(not_in_maintenance)`; fact unknown | rule does not match → falls to broader rules or default | conditions gate matching; unknown ≠ true |
+| 9 | media / container.restart / {plex, jellyfin} → Allow 3/h; media / container.restart / {plex} → Allow 1/h | Allow 1/h | second strictly more specific |
+| 10 | two rules media / container.restart / {plex} → Allow, 3/h and 2/h | Allow 2/h | equal scope, intersection |
+| 11 | All / Any / Any → Allow; contract effect Destructive | RequireApproval + typed confirmation | hard limit D-06 |
+| 12 | #3, ceiling lacks container.restart for plex | RequireApproval | hard limit: ceiling |
+| 13 | #3, target postgres | Deny | exception doesn't match; broad Deny applies |
+| 13b | media / container.restart / Any → Allow; target postgres not pinned | RequireApproval | hard limit D-07 |
+| 14 | media / Effect(Contain) / Any → Allow; `firewall.block_source` target in exclusions | Deny | mandatory exclusion |
+| 14b | as 14, target allowed, management paths stale | RequireApproval | hard limit D-28 |
+| 15 | media / container.restart / {plex} → Allow with RequiresFact(not_in_maintenance); fact unknown | rule doesn't match → broader rules or default | unknown ≠ true |
+| 16 | All / container.restart / Any → **locked** Deny; media / container.restart / {plex} → Allow | Deny (LockedDeny) | locked Deny beats specificity (D-26) |
+| 17 | two locked Denies match | Deny with both reasons | one result, several reasons |
+| 18 | shadow-only rule media / container.restart / {plex} → Allow, no other rule | RequireApproval (enforced); shadow result Allow recorded | shadow never enforced |
 
-Note for row 15: an unknown fact makes a `RequiresFact` condition unmet. The hard limit in 6.3
-additionally downgrades any `Allow` whose contract declares safety-critical facts that are unknown.
+### 7.5 Trace
 
-### 7.5 Trace and explanation
+```text
+Decision {
+  outcome,
+  reason: Default | SingleWinner | EqualScopeDeny | IncomparableFallback | LockedDeny,
+  matched: [rule],
+  winners: [rule_id],
+  locked: [rule_id],
+  overridden: [(broader_rule, by_rule)],
+  would_have_been,
+  constraints,
+  hard_limits_applied: [..],
+  policy_version,
+  ceiling_hash,
+  facts_used: [(fact_id, status)],
+}
+```
 
-`Decision { outcome, matched: [rule_id + scope], winners: [rule_id], overridden: [(broader_rule,
-by_rule)], reason: Default | SingleWinner | EqualScopeDeny | IncomparableFallback,
-constraints, hard_limits_applied: [..], policy_version, ceiling_hash, facts_used: [(fact_id,
-status)] }`. Persisted for every mutating/containing step (enforced and shadow). The UI renders:
-all matching rules, winner(s), why, which broader rules were overridden (highlighted when a
-specific Allow overrides a broader Deny), and hard limits in a separate block.
+The trace is persisted for every mutating or containing step, enforced or shadow. The UI shows:
+- every matching rule;
+- the winners, and why they won;
+- the overridden broader rules, with a specific Allow over a broad Deny highlighted as a dangerous
+  exception;
+- locked Denies, styled as a prohibition and distinct from an ordinary Deny;
+- hard limits in a separate block.
 
-### 7.6 Simulator
+### 7.6 Publication validation and simulator
 
-`simulate(policy_version_or_draft, requests | historical_operation_ids) -> [Decision]` calls the same
-`evaluate` with the facts and ceiling hash recorded at the time (historical) or current (what-if).
-No effects. Shown with a diff against the decision actually taken.
+- **Publishing a policy version runs a validation report** using the production evaluator's own
+  helpers:
+  - each pair of overlapping incomparable rules with different outcomes, with its resolution
+    (D-19);
+  - each enabled rule made ineffective by a locked Deny;
+  - each `Allow` that names a target outside every host's ceiling, as an informational note.
+
+  The owner must acknowledge each conflict to publish. Publishing needs step-up authentication. A
+  version that changes any locked rule also shows a simulation of the affected historical decisions.
+- `simulate(policy_version_or_draft, requests | historical_operation_ids) -> [Decision]` calls the
+  same `evaluate`.
+  - For history, it uses the facts, pinned subjects and ceiling hash recorded at the time; for
+    what-if, current values.
+  - No effects.
+  - Each result is shown with a diff against the decision actually taken.
 
 ### 7.7 Required tests (engine, table + property)
 
-`specific_allow_overrides_broader_deny`, `broader_deny_applies_without_exception`,
-`equal_scope_deny_wins`, `incomparable_conflict_falls_back_to_deny`,
-`incomparable_allow_vs_approval_requires_approval`, `evaluation_is_order_independent` (proptest:
-permutations), `equal_scope_allows_intersect_constraints`, `no_match_uses_effect_default`,
-`destructive_never_allowed`, `ceiling_caps_allow`, `unknown_safety_fact_never_allows`,
-`model_target_cannot_widen_scope`, `containment_exclusion_denies_even_with_allow`,
-`shadow_rules_never_enforced`, `simulator_matches_live_evaluator` (same inputs → same decision).
+- `specific_allow_overrides_broader_deny`
+- `broader_deny_applies_without_exception`
+- `equal_scope_deny_wins`
+- `incomparable_conflict_falls_back_to_deny`
+- `incomparable_allow_vs_approval_requires_approval`
+- `evaluation_is_order_independent` (proptest over permutations)
+- `equal_scope_allows_intersect_constraints`
+- `no_match_uses_effect_default`
+- `locked_deny_beats_narrower_allow`
+- `multiple_locked_denies_one_deny_all_reasons`
+- `locked_flag_ignored_unless_deny` (validation error)
+- `destructive_never_allowed`
+- `ceiling_caps_allow`
+- `unknown_safety_fact_never_allows`
+- `model_target_cannot_widen_scope`
+- `containment_exclusion_denies_even_with_allow`
+- `containment_requires_confirmed_management_paths`
+- `shadow_rules_never_enforced`
+- `deny_is_not_offered_for_approval`
+- `publish_reports_incomparable_conflicts`
+- `simulator_matches_live_evaluator` (proptest: same inputs, same decision)
 
 ## 8. Authorization and local enforcement
 
 ### 8.1 Types (RW-11)
 
-| Type | Crate | Constructed by (allowed path) | Restored by |
-|---|---|---|---|
-| `HumanApproval{user, channel, at, typed_confirmation, plan_hash, session_ref}` | core | `hub/src/auth/` after session/CSRF or chat allowlist check | `store/src/` |
-| `PolicyPermit{decision_id, rule_ids, policy_version, plan_hash, issued_at, expires_at, ceiling_hash}` | core | `hub/src/policy/` via `PermitIssuer` port | `store/src/` |
-| `Authorization = Human(..) \| Policy(..)` | core | from the above | store |
-| `AuthorizedExecution{step, authorization}` | engine (operation writer module) | `execute()` precondition | never persisted |
+| Type | Crate | Fields | Constructed by | Restored by |
+|---|---|---|---|---|
+| `HumanApproval` | core | `user`, `channel` (`Web{typed_confirmation}` or `Chat{platform, platform_user}`), `at` — unchanged | `hub/src/auth/` after session + CSRF or chat allowlist check | `store/src/` |
+| `PolicyPermit` | core | `decision_id`, `rule_ids`, `policy_version`, `plan_hash`, `issued_at`, `expires_at`, `ceiling_hash` | `hub/src/policy/` via `PermitIssuer` port | `store/src/` |
+| `Authorization` | core | `Human(HumanApproval) \| Policy(PolicyPermit)` | from the above | store |
+| `AuthorizedExecution` | engine (operation writer) | step + authorization | `execute()` precondition | never persisted |
 
-Enforcement: clippy `disallowed-methods` (path-resolved) + arch-check rule restricting the
-`#[expect(clippy::disallowed_methods)]` to allowed paths + existing text scan; testkit allowed and
-asserted dev-only. These are review/CI controls, not runtime security.
+**Execution detail columns.**
+- `plan_hash_v2`, `authorization_kind`, `expires_at`.
+- Approval columns (existing), plus `approved_plan_hash`, `approval_session_ref` and
+  `approval_client`.
+- Or, for policy authorization, the permit columns.
 
-Persisted on `executions`: `authorization_kind`, approval columns (existing) or permit columns,
-`plan_hash_v2`, `expires_at`. Gate tests kept/added: `no_approval_without_human` (kept),
-`no_permit_without_policy_allow`, `single_execution_boundary`, `destructive_never_allowed_by_policy`,
-`model_meta_tools_are_closed`.
+**Approve API.** `POST /operations/{id}/steps/{step}/approve { plan_hash, typed_confirmation? }`.
+The writer refuses unless `plan_hash == plan_hash_v2`. At dispatch, `plan_hash_v2` is recomputed
+(RW-11, RW-34).
+
+**Enforcement.** CI controls, not runtime:
+- clippy `disallowed-methods`;
+- an arch rule on the `expect` attribute;
+- the existing text scan;
+- testkit is dev-only.
+
+**Gates.**
+- Kept: `no_approval_without_human`.
+- Added: `no_permit_without_policy_allow`, `single_execution_boundary`,
+  `destructive_never_allowed_by_policy`, `model_meta_tools_are_closed`,
+  `approval_bound_to_displayed_plan_hash`, `changed_target_invalidates_approval`.
 
 ### 8.2 Wire
 
-`run_capability { step_id, contract, version, target, args, plan_hash, authorization_kind:
-human|policy, expires_at }` (`authorization_kind` and `expires_at` are hints the agent checks
-against its own rules; they are not proofs).
+```text
+run_capability {
+  execution_id, contract, version,
+  target (canonical identity), args, plan_hash,
+  authorization_kind: human | policy,
+  expires_at,
+}
+```
 
-### 8.3 Host-local ceiling (D-03)
+`authorization_kind` and `expires_at` are labels from the hub. The agent applies its own rules to
+them; they prove nothing.
+
+### 8.3 Host-local ceiling (D-03, D-18) and mutation limiter (D-27)
 
 ```toml
-# agent config (owner-edited on the host)
+# agent config, owner-edited on the host
 [unattended]
 enabled = true
 
 [[unattended.allow]]
-capability = "container.restart"
-targets = ["plex", "jellyfin"]   # or ["*"] written explicitly
+capability = "container.restart"     # exact contract id
+targets = ["plex", "jellyfin"]       # explicit; "*" must be written explicitly
 max_per_hour = 3
 
 [[unattended.allow]]
 capability = "firewall.block_source"
-targets = ["*"]
+targets = ["*"]                       # source addresses come from detector signals
 max_per_hour = 20
-max_active = 50
-max_ttl = "1h"
-args = { min_prefix_len_v4 = 24, min_prefix_len_v6 = 64 }
+max_active = 50                       # required for Contain
+max_ttl = "1h"                        # required for Contain
+args = { min_prefix_len_v4 = 24, min_prefix_len_v6 = 64 }   # only keys the contract declares constrainable
 
-[unattended.exclusions]
-management_cidrs = ["192.168.1.0/24", "100.64.0.0/10"]   # never blocked
+[unattended.exclusions]               # mandatory for any Contain entry; cannot be emptied by the hub
+management_cidrs = ["192.168.1.0/24", "100.64.0.0/10"]
 protected_units  = ["sshd", "domovoi-agent", "systemd-networkd", "NetworkManager", "nftables"]
-protected_containers = []
+
+[mutation_limits]                     # D-27, all mutating executions
+per_hour = 30
+per_capability = { "container.restart" = 6 }
 ```
 
-Agent checks for `authorization_kind = policy`: `enabled`; an entry exists for the contract; target
-∈ targets; each constrained arg within bounds (only keys the contract declares constrainable;
-unknown keys → config error at startup); rate window (persisted in the agent journal); `max_active`
-and `max_ttl` for Contain; exclusions. For any mutating kind (human or policy): `allow_risk` (FACT,
-today) and `max_per_hour` when an entry exists. Agent reports `ceiling_hash` + summary in `hello`
-and on change (file reload on SIGHUP or restart). Refusals are journaled locally and returned as
-`refused{reason}`.
+**`policy`-labelled requests.** The agent checks, in order:
+1. `[unattended].enabled`;
+2. an entry for the exact contract exists;
+3. the target is in `targets`;
+4. each constrained arg is in bounds;
+5. the entry's `max_per_hour` (journal-derived);
+6. for Contain: `max_active`, `max_ttl`, exclusions, plus always-excluded addresses (hub address,
+   current link peer, loopback, link-local);
+7. then the common checks below.
 
-### 8.4 Guarantees by threat
+**Every mutating request (either label).**
+- local catalogue, manifest and plan hash;
+- args;
+- `allow_risk`;
+- `[mutation_limits]`.
 
-| Threat | Guarantee (holds by design) | Defense in depth (reduces, does not guarantee) |
-|---|---|---|
-| Prompt injection via logs/notes | model cannot approve or execute (closed meta-tools); targets resolved and pinned; containment triggered only by detector-typed signals | redaction, quoting of untrusted input, structured approval cards |
-| Compromised browser session | approvals require session + CSRF; step-up for policy publish, enable, install, retention, LLM CLI | short sessions, audit with IP/session |
-| Misconfigured owner policy | hard limits (Destructive, ceiling, exclusions, pinned targets) not overridable; shadow mode first; circuit breaker; pause | dangerous-exception highlighting, simulator |
-| Modified hub database | agent ceiling limits unattended runs; agent rate limits all mutations; audit chain detects edits that don't recompute | head hash in digest (external copy) |
-| Compromised hub process | agent ceiling limits `policy`-kind runs; agent `allow_risk` and rate limits bound everything; packages need locally trusted signatures | none can stop a lying hub labelling runs `human` within `allow_risk` — owner-signed approvals are post-v1 |
-| Compromised agent | that host only; hub validates outputs as untrusted; agent cannot widen others' policy | output redaction, bounded outputs |
+**Config handling.**
+- Unknown keys, or Contain entries missing the required caps, are a startup error.
+- The ceiling hash and a summary go in `hello` and are re-sent on change (SIGHUP or restart).
+- Refusals are journaled locally and returned as `refused{reason}`.
 
-## 9. Containment (M9; first set OPEN, recommended)
+### 8.4 Threat model by attacker capability
 
-Common to all: effect `Contain`; requires M8 machinery; trigger only from a deterministic detector
-signal whose structured fields name the target; target must equal the pinned subject; TTL
-mandatory with automatic expiry; verification after apply and after expiry; `OutcomeUnknown` →
-operation `Paused`, owner notified, no repeat; containment state is journaled on the agent and
-re-armed on agent restart; drills required before a rule may leave shadow mode.
-
-| | `firewall.block_source` | `container.pause` | `unit.stop_temporary` |
+| Attacker can | They can then | Limited by (guarantee) | Not limited by |
 |---|---|---|---|
-| Threat | brute force / scanning from an external source | compromised or runaway workload | compromised or runaway service |
-| Target | one IPv4/IPv6 address or prefix ≥ ceiling min length, from detector signal | one named container on the host | one named systemd unit |
-| Privileges | CAP_NET_ADMIN via a first-party helper (package) managing a dedicated nftables table/set; no edits to other tables | Docker socket write (needs the docker-write ADR also required by M8) | systemd unit stop/start via first-party helper |
-| Lockout risk | blocking owner/VPN/hub path | low (workload unavailable) | stopping sshd/network/agent |
-| Local restrictions | `management_cidrs`, hub address, current agent link peer, loopback, link-local always excluded; `max_active` | `protected_containers` | `protected_units` (defaults above, cannot be emptied) |
-| TTL / expiry | nftables set element `timeout` (kernel-enforced, survives agent death) | agent timer from journal; re-armed on agent start | agent timer from journal; re-armed on agent start |
-| Dead-man | kernel timeout | if agent down past expiry the container stays paused until agent returns — documented; hub raises advisory | same as pause |
-| Rollback | delete element | unpause | start unit |
-| Postcondition | element present in set; management path reachability probe from the hub succeeds | container state `paused` | unit inactive; after expiry active again |
-| Outcome unknown | query set membership via `action_status` follow-up read | inspect container | `systemctl is-active` read |
-| Reconnect | hub reconciles active containments list from agent journal | same | same |
-| Drills | block applied/expired on time; excluded address refused; hub unreachable during TTL; agent restart mid-TTL; duplicate dispatch | pause/unpause; protected refused; agent restart mid-TTL | stop/start; protected refused; agent restart mid-TTL |
+| Inject text into logs, notes, webhooks | influence model reasoning and proposals | closed meta-tools (no approve/execute); target resolution and pinning; containment only from detector signals; structured approval cards show real plan | — |
+| Steal the owner's browser session | approve offered steps, edit non-sensitive settings | step-up for policy publish, locked rules, enable, install, retention, LLM CLI; approvals bound to the displayed plan hash; Deny not offerable | approval of already-offered RequireApproval steps |
+| Misconfigure policy (owner error) | allow more than intended | hard limits; host ceiling; shadow first; circuit breaker; pause; publish validation | — |
+| Write to `hub.db` | forge approvals or permits, edit audit | agent ceiling for `policy` runs; agent `allow_risk`, catalogue and rate limiter for all runs; audit chain detects edits that don't recompute it | forged `human` approvals within `allow_risk` and rate limits |
+| Run code as the hub process | send any request with any label | agent catalogue, manifest, args, `allow_risk`, mutation rate limiter (all runs); ceiling (`policy` runs only); trusted package keys (installs) | labelling a request `human` to bypass the ceiling — **accepted v1 limitation**; owner-signed approvals are deferred (`06`) |
+| Compromise one agent | act on that host | other hosts unaffected; hub treats outputs as untrusted and bounded | that host |
 
-Two-phase / dead-man protocol: only `firewall.block_source` needs a post-apply reachability check;
-if the hub cannot reach the agent within 30 s after apply, the agent removes the element itself
-(agent-side watchdog armed at apply, disarmed by the hub's confirmation message). Recommended
-generally: any Contain contract that can affect connectivity must declare such a watchdog.
+## 9. Containment (M9)
+
+### 9.1 v1 capability: `firewall.block_source` (D-17)
+
+| Aspect | Specification |
+|---|---|
+| Threat | brute force or scanning from an external source |
+| Target | `ipnet:{canonical}` from a detector signal's structured field; prefix ≥ ceiling minimum; equals the pinned subject |
+| Privileges | `domovoi-nft-helper` (RW-39), limited to set elements in table `inet domovoi`; no other table touched |
+| Management protection | D-28 facts confirmed and current; agent exclusions: `management_cidrs`, hub address, current link peer, loopback, link-local; refused if the target overlaps any |
+| Expiry | nftables set element `timeout` = TTL (≤ `max_ttl`). Kernel-enforced, so it does not depend on the agent, the hub or the helper process |
+| Watchdog (D-22) | built into the two-step apply below: the first element carries a 30 s kernel timeout, so if the hub never confirms reachability the block disappears by itself, whether or not the agent, helper or hub survives |
+| Apply semantics | step 1: element with a 30 s timeout; step 2: on hub confirmation, re-add with full TTL (an idempotent `add element … timeout`); if step 2 never happens, the block lasts 30 s |
+| Rollback | `del element` (idempotent; absent = success) |
+| Postcondition | element present with remaining timeout > 0; hub → agent round trip still works |
+| Outcome unknown | read set membership via helper `list`; present → treat as applied; absent → `NotRun` only if the journal proves no apply, else `OutcomeUnknown` |
+| Agent restart | agent lists elements, reconciles with journal, reports active containments; kernel timeouts continue regardless |
+| Hub crash | elements expire on their own; on restart the hub reconciles via `action_status` and the active list |
+| Partial application | element added but not confirmed → expires in ≤ 30 s |
+| Drills | expiry on time with agent stopped; excluded address refused; hub unreachable during the confirmation window → block gone ≤ 30 s; agent restart mid-TTL; duplicate dispatch idempotent; `max_active` reached → refused |
+
+Feasibility of the helper privilege path is research item R-2; the expiry mechanism itself relies only on nftables set timeouts.
+
+### 9.2 General rules for any v1 `Contain` capability
+
+- Triggered only from a deterministic detector signal naming the target.
+- Target equals the pinned subject.
+- TTL mandatory.
+- Expiry independent of the main agent (D-22).
+- Watchdog for connectivity effects.
+- Management paths confirmed (D-28).
+- Mandatory local exclusions.
+- Journaled apply and rollback.
+- Reconciliation on reconnect.
+- Drills pass before any rule may leave shadow mode.
+
+### 9.3 Deferred candidates (D-17): acceptance checklist before reconsideration
+
+`container.pause` (pause one container) and `unit.stop_temporary` (stop one unit) are deferred. Their
+only expiry today would be an agent timer re-armed after agent restart. That timer is not reliable
+automatic expiry: if the agent is down, the container stays paused or the unit stays stopped.
+
+Each may be reconsidered (earliest v1.x) only when all of the following hold:
+1. Expiry is independent of the main agent, e.g. a transient systemd timer
+   (`systemd-run --on-active=<ttl> docker unpause <id>` via the helper) or an equivalent OS
+   facility, proven on every supported platform.
+2. Recovery after a hub crash.
+3. Recovery after an agent crash or host reboot (a paused container after reboot; unit state after
+   reboot).
+4. Recovery after partial application.
+5. Idempotent apply and rollback.
+6. State verification.
+7. Outcome-unknown behaviour.
+8. Management-path protection (protected units and containers that cannot be emptied).
+9. Drills for each failure.
+10. A helper ADR (RW-39) covers the operations.
+
+Other candidates (container network isolation, SSH session termination, account lock): deferred for
+weaker recovery or lockout stories; the same checklist applies.
 
 ## 10. Knowledge and experience
 
@@ -469,9 +661,11 @@ generally: any Contain contract that can affect connectivity must declare such a
   `inferred` never becomes `user` without an explicit owner action.
 - Retraction: row status `retracted`, value cleared after the tombstone period, FTS row removed in the
   same transaction.
-- **Resolution summaries.** `resolution_summaries(operation_id, host_ids, subject_refs, outcome,
-  verified, contracts_executed, problem, cause, fix, source{model|user}, edited_at)` + FTS on
-  problem/cause/fix/subjects. Created by `DraftSummary` effect at terminal state.
+- **Resolution summaries (RW-41).** `resolution_summary_fields(operation_id, field, revision, value,
+  source{code|model|user}, actor, created_at)`, append-only. Code-owned fields (`outcome`, `verified`,
+  `subjects`, `contracts_executed`, `hosts`) accept only `source=code`; narrative fields (`problem`,
+  `cause`, `fix`) take `model` drafts and `user` edits/confirmations. FTS indexes current narrative.
+  Created by the code at terminal state plus a `DraftSummary` effect for the narrative.
 - **Experience search.** `search_experience(query, scope)`: FTS over summaries + journal kinds,
   filtered to operation hosts unless the owner's conversation is global; returns ≤ 5 items with
   operation id, date, verified flag, source, ≤ 1 KiB each. Context builder places them in a block
@@ -484,67 +678,137 @@ generally: any Contain contract that can affect connectivity must declare such a
 ### 11.1 Registry
 
 Availability per (host, contract): `Available | NotInstalled | DisabledByHub | NotAllowedOnHost
-(allow_risk/ceiling) | Unavailable(reason) | Incompatible(version) | HostUnknown | HostAbsent`.
+(allow_risk/ceiling) | Unavailable(reason) | HostUnknown | HostAbsent | HostIncompatible(protocol)`.
 Computed from contracts × agent catalogue (by hash, paged) × hub enable state × ceiling summary.
 
-### 11.2 Package lifecycle (D-11)
+### 11.2 Package lifecycle (D-11, D-16)
 
 ```mermaid
 stateDiagram-v2
-  [*] --> Discovered: index fetched by hub
+  [*] --> Discovered: signed index fetched by hub (display only)
   Discovered --> Downloading: owner requests install (step-up)
-  Downloading --> Relaying: hub verified digest matches index
-  Relaying --> Verifying: agent received all chunks
-  Verifying --> Rejected: signature/key/compat fails
-  Verifying --> Installing
-  Installing --> Installed: files written atomically (staging dir + rename), catalogue refreshed
-  Installing --> Failed: write/validation error, staging removed
-  Installed --> Enabled: owner enables in hub (separate action)
-  Installed --> Uninstalling
+  Downloading --> Relaying: hub checked digest against index
+  Relaying --> Verifying: agent received archive + detached signature (staging, not extracted)
+  Verifying --> Rejected: unknown/removed key, bad signature, digest/identity/compat mismatch
+  Verifying --> Extracting: all checks passed
+  Extracting --> Rejected: path escapes package dir, unexpected file type
+  Extracting --> Installed: atomic rename staging → skills_dir/<pkg>/<version>, catalogue refreshed
+  Installed --> Enabled: owner enables in hub (separate action, step-up)
   Enabled --> Installed: disabled
+  Installed --> Uninstalling
   Uninstalling --> [*]
 ```
 
-- Package: `.tar.zst` with `package.toml` (name, version, contracts provided, platforms, min agent
-  version, files), skill manifests and scripts; `package.sig` = Ed25519 over SHA-256 of the archive.
-- Discovery: hub fetches a signed index from configured registry URLs (default: first-party). Index
-  signature checked by the hub for display; authoritative check is on the agent.
-- Transport: hub downloads, checks digest, relays to agent in chunks over the existing link
-  (`install_package` messages; frame cap respected). Hosts without internet work.
-- Agent checks: `[packages] allow_install = true` (default false); signature against local
-  `trusted_keys` (first-party key in the config template; owner can add own key or remove first-party;
-  hub cannot add keys); compatibility; no file outside `skills_dir/<package>`; manifests parse.
-- Install never enables; enable is a hub action with step-up; unattended additionally needs policy
-  Allow + host ceiling entry.
-- Multi-host deploy: one `install_job` per host; per-host progress via ephemeral SSE + journal entry
-  on each state change; partial success shown per host; retry is per host; uninstall removes files and
-  disables in hub; previous version kept for one-step rollback (`rollback_package`).
-- Audit: requested, relayed, verified, installed, rejected (with reason), enabled, disabled,
-  uninstalled.
-- OPEN: third-party packages (recommend: not in v1 beyond owner-added keys).
+**Artifacts.**
+- `<name>-<version>.tar.zst`: the archive.
+- `<name>-<version>.sig.toml`: detached, never inside the archive. Fields: `format = 1`,
+  `algorithm = "ed25519"`, `key_id` (first 16 hex of SHA-256 of the public key), `package`,
+  `version`, `archive_sha256`, `signature` (base64).
 
-## 12. Protocol (RW-17)
+**Signing message.** `"domovoi-package-v1\n{package}\n{version}\n{archive_sha256}\n{key_id}\n"`.
+The Ed25519 signature covers exactly these bytes.
 
-- Version: reject on major mismatch or agent < `MIN_AGENT_VERSION`; otherwise accept and negotiate
-  features: `journal`, `run_capability`, `catalog_v1`, `action_status`, `ceiling_v1`, `packages_v1`,
-  `containment_v1`.
-- `Open<T>`: custom `Deserialize` reading a string, then `T::from_str`; unknown → `Unknown(raw)`.
-  Replace the three `#[serde(other)]` sites (FACT) where the raw value matters.
-- Unknown message type → `unsupported{type}`; session continues.
-- `get_catalog{page, page_size}` with `catalog_hash` in `hello`; hub refetches on hash change.
-- Hub pings too (FACT: today only the agent pings).
-- Golden frames: `crates/domovoi-proto/tests/golden/<version>/` committed per release, decoded by
-  current code in CI.
+**Agent verification.** Done in this order, before extracting anything:
+1. `[packages] allow_install = true`;
+2. `key_id` is in the agent's local `trusted_keys` and not revoked;
+3. the signature over the signing message is valid;
+4. the SHA-256 of the received archive bytes equals `archive_sha256`;
+5. `package` and `version` in the signature equal the requested ones and equal `package.toml`
+   inside the archive. This is read by streaming the tar entry for `package.toml` without writing
+   files, after steps 1–4;
+6. compatibility: agent protocol, platform, contract versions;
+7. extraction into a staging directory, rejecting absolute paths, `..`, symlinks, device files and
+   anything outside `<pkg>/`;
+8. atomic rename.
 
-| Capability | Old agent (no features) | New agent |
-|---|---|---|
-| read tools, skills with human approval | via hub adapter | native |
-| policy-authorized (unattended) | refused ("agent too old") | yes, within ceiling |
-| reconciliation | none: link loss / restart → OutcomeUnknown | `action_status` |
-| install from UI | refused | `packages_v1` |
-| containment | refused | `containment_v1` |
+**Local keys (agent config, owner-edited).**
 
-Support window OPEN (recommended: current + previous two minors until 1.0).
+```toml
+[packages]
+allow_install = false
+[[packages.trusted_keys]]
+id = "a1b2..."; public_key = "base64..."; label = "Domovoi release"   # shipped in the template
+[[packages.trusted_keys]]
+id = "c3d4..."; public_key = "base64..."; label = "Owner"            # added by the owner
+revoked = ["e5f6..."]
+```
+
+- Adding, removing or rotating a key: the owner edits the file, then reloads (SIGHUP or restart).
+- Unknown key → rejected.
+- A removed or revoked key → new installs refused. Already-installed packages signed by it are
+  reported as "signed by untrusted key" and **disabled by the agent** (refused at execution) until
+  re-signed or removed.
+- The hub cannot add, replace or revoke keys. It only sees `key_id`s.
+
+**Rollback and update rule.**
+- Any install — including a rollback to a previous version — passes the full verification against
+  the keys trusted *now*.
+- Having been installed before grants nothing. Older versions are kept on disk only for a quick
+  re-install that is still verified.
+
+**Hub role.**
+- It fetches the signed index (default: first-party) and downloads the artifacts.
+- It relays them in chunks over the agent link (`install_package`). Hosts without internet still
+  work.
+- It cannot change the agent's decision.
+
+**Jobs.** One `install_job` per host. Per-host progress uses ephemeral SSE events plus a journal
+entry per state change. Partial success is shown per host, retry is per host, and uninstall removes
+files and disables the package in the hub.
+
+**Audit.** requested, relayed, verified, rejected (with reason), installed, enabled, disabled,
+uninstalled, key-untrusted detected.
+
+**Threat model.**
+- A malicious hub can offer packages and withhold installs. It cannot install unsigned or
+  foreign-signed code.
+- An owner-signed package is as trusted as files the owner places on the host. Its risk is the owner
+  key's custody and review.
+- A first-party key compromise affects every host that trusts it. Revocation is a local config
+  change on each host.
+
+**Tests.**
+- `agent_rejects_untrusted_signature`
+- `agent_rejects_digest_mismatch_before_extracting`
+- `agent_rejects_path_escape`
+- `hub_cannot_add_trusted_key`
+- `rollback_requires_current_trust`
+- `revoked_key_disables_installed_package`
+- `install_never_enables`
+- `install_refused_when_allow_install_false`
+- `partial_install_reports_per_host`
+
+## 12. Protocol (RW-17, D-20)
+
+- **Version.** The hub accepts an agent only if `agent.protocol.major == hub.major` and
+  `agent.protocol.minor == hub.minor`. Otherwise:
+  - the hub sends `reject{reason: protocol_mismatch, hub_protocol, agent_protocol}`;
+  - the agent logs an upgrade instruction and stops retrying (FACT: reject is already final,
+    `version.rs:22`);
+  - the hub marks the host `Incompatible` and keeps its history.
+- **Patch releases** of the application with the same protocol version are compatible.
+- **The release-number gate (`MIN_AGENT_VERSION`) is removed from compatibility.** An optional
+  revoked-build list for security is deferred (`06`).
+- **Upgrade sequence** (book + UI banner): upgrade the hub, then each agent through the supported
+  install path (`install.sh`, package or image). Until then the UI shows each host as `Incompatible`
+  with the exact required protocol and the agent's version.
+- **`features`.** Optional build or platform capabilities, e.g. `nft_helper`, `docker_helper`,
+  `packages`. They are never used to accept another protocol generation.
+- **`Open<T>`.** A custom `Deserialize` reads the string, then `T::from_str`; an unknown value
+  becomes `Unknown(raw)`. It replaces the `#[serde(other)]` sites where the value matters.
+- **Unknown message type** → `unsupported{type}`; the session continues. This defends against bugs
+  only, since the version matches exactly.
+- **Catalogue.** `get_catalog{page, page_size}`, with `catalog_hash` in `hello`.
+- **Pings.** The hub pings too.
+- **Golden frames.** `crates/domovoi-proto/tests/golden/<protocol>/` hold the current protocol's
+  frames. A minor bump replaces them deliberately and bumps the version constant.
+- **Tests.**
+  - `older_minor_agent_rejected_with_reason`
+  - `newer_minor_agent_rejected_with_reason`
+  - `same_protocol_different_patch_releases_communicate`
+  - `incompatible_host_keeps_history_and_shows_upgrade_required`
+  - `unknown_enum_value_preserved`
+  - `unsupported_message_does_not_end_session`
 
 ## 13. Frontend
 
@@ -556,7 +820,8 @@ Support window OPEN (recommended: current + previous two minors until 1.0).
 - Operation detail: header (goal, status, waiting-for, budgets, pinned subjects); graph canvas
   (primary, lazy chunk) and step tree/timeline (accessible outline, same data); inspector.
 - Trace schema: `{operation, steps[{id, parent, kind, phase, cycle, outcome, started_at, ended_at,
-  summary, refs}], edges derived from parent + dependency}` frozen with golden fixtures shared by
+  summary, refs}], edges[{from, to, kind}]}` (§3.2); parent = grouping, edges = graph; timeline and
+  graph render from this one contract frozen with golden fixtures shared by
   Rust tests and `web/src/test/fixtures`.
 - Profiles: category per element (P0 safety/approval/audit/current state, P1 primary, P2 technical,
   P3 metadata); mapping Detailed/Standard/Essential per `16` UI doc; `useVisibility(category)` primitive;
@@ -569,47 +834,81 @@ Support window OPEN (recommended: current + previous two minors until 1.0).
 - Graph library: spike required (CSP, inline-style rule, bundle chunk budget); outcome becomes a
   DESIGN.md amendment.
 
-## 14. Retention and deletion (D-09: all configurable; defaults OPEN in `99`)
+## 14. Retention and deletion (D-09, D-21)
 
-| Data | Class | Notes |
-|---|---|---|
-| signals | raw | current 30 d |
-| incident timeline (journal, aggregate=incident) | raw→summary | current 90 d |
-| operations rows | summary | kept with summaries |
-| operation journal events | raw | step detail |
-| raw execution outputs | raw | bounded blobs |
-| resolution summaries | summary | experience |
-| audit | security | pruned only via checkpoint |
-| facts/relations | knowledge | retracted content purged after tombstone |
-| conversations | raw | |
-| notifications / notify state | raw | |
-| backups (nightly, pre-migrate) | copies | count-based |
+| Data | Class | Default | Pruning effect |
+|---|---|---|---|
+| signals | raw | 30 d | rows deleted |
+| incident timeline (journal, aggregate=incident) | raw | 90 d | journal rows deleted; incident row and summary kept |
+| operations, steps, step edges | structure | kept with operation | graph and timeline reconstructable |
+| operation journal events | raw | 180 d | event payloads deleted; steps keep outcome and summary |
+| raw execution outputs | raw | 30 d | blob deleted; step shows "output expired" |
+| resolution summaries (field revisions) | summary | retained | — |
+| audit | security | retained | only via chained checkpoint (RW-27) |
+| facts and relations | knowledge | until retracted | retracted content purged after 30 d, tombstone kept |
+| conversations | raw | 180 d | messages deleted; operation links kept |
+| notifications and notification state | raw | 30 d | rows deleted |
+| nightly backups | copies | 7 | file rotation |
+| pre-migrate backups | copies | last 3 | file rotation |
 
+**Rules.**
 - Pruning deletes FTS rows in the same transaction.
-- Journal pruning raises `min_retained_seq`; SSE clients older than that get `reset`.
-- Audit pruning writes a chained checkpoint (RW-27); verification starts at the newest checkpoint.
-- Backups contain deleted data until they rotate; the UI and docs say so.
-- Summaries outlive raw events; an operation whose events are pruned still shows its summary and
-  "details expired".
+- Journal pruning raises `min_retained_seq`; SSE clients behind it get `reset`.
+- Audit pruning writes a chained checkpoint.
+
+**What deletion guarantees.** The data is gone from the live database, FTS and model context at
+commit. It remains in backups until they rotate: up to 7 nightly backups plus the last 3
+pre-migrate copies. The UI's retention settings and the book state this. Restoring a backup brings
+the deleted data back.
 
 ## 15. Recovery
 
-Startup order RW-30. Reconciliation per host on `hello`:
+### 15.1 Startup and reconciliation
 
-| Execution state at start | Agent has `journal` | Action |
-|---|---|---|
-| Dispatched | yes, epoch matches | `action_status`: finished → result; running → wait; not_found → NotRun |
-| Dispatched | yes, epoch differs / journal_lost | OutcomeUnknown |
-| Dispatched | no (old agent) | OutcomeUnknown |
-| Authorized, not dispatched | any | freshness check (expiry, incident open, plan hash) → dispatch when host Known, else NotRun |
-| AwaitingApproval | any | unchanged; expiry applies |
+Startup order: RW-30. Reconciliation per host on `hello`:
 
-Hosts that never reconnect: after `[orchestration] agent_wait_limit` (default 30 min) waiting
-steps become `Unavailable`; `Dispatched` stays "awaiting host" (never auto-failed).
+| Execution state at start | Action |
+|---|---|
+| Dispatched, agent epoch matches | `action_status` → see 15.2 |
+| Dispatched, agent epoch differs | OutcomeUnknown |
+| Dispatched, host `Incompatible` | stays Dispatched ("awaiting compatible agent"); OutcomeUnknown once the agent reconnects with a different epoch |
+| Authorized, not dispatched | freshness check (expiry, incident open, plan hash with current registry and target identity) → dispatch when host `Known`; expired → `NotRun`; plan or target changed, incident closed → `Refused`; host absent past limit or incompatible → `Unavailable` |
+| AwaitingApproval | unchanged; expiry applies → `NotRun` |
 
-Durability fixes carried into foundation slices: agent saves check state only after spool push
-succeeds; hub saves notification state only after delivery succeeds, and a state read error is an
-error, not default state (01 D37).
+Hosts that never reconnect: after `[orchestration] agent_wait_limit` (default 30 min), waiting
+steps become `Unavailable`. `Dispatched` executions stay "awaiting host" and are never auto-failed.
+
+### 15.2 Agent journal crash windows (RW-09)
+
+| # | Scenario | Agent journal after restart | `action_status` answer | Hub outcome |
+|---|---|---|---|---|
+| 1 | `accepted` durable, crash before launch | `accepted` only | `outcome_unknown{no_start_record}` | OutcomeUnknown (indistinguishable from #2) |
+| 2 | launched, crash before `started` durable | `accepted` only | `outcome_unknown{no_start_record}` | OutcomeUnknown |
+| 3 | running, agent crashes | `accepted`, `started{pid,t0}` | agent checks pid + start time: alive orphan → kill group, record `abandoned`; either way `outcome_unknown{agent_restarted}` | OutcomeUnknown |
+| 4 | process finished, crash before `finished` durable | `accepted`, `started` | same as #3 | OutcomeUnknown |
+| 5 | `finished` durable, hub lost reply | `finished{result}` | `finished(result)` | result committed |
+| 6 | hub received result, crashed before commit | `finished{result}` | `finished(result)` (within retention) | result committed |
+| 7 | journal corrupt, replaced (new epoch) or id older than retention | — | `outcome_unknown{journal_lost}` / epoch mismatch | OutcomeUnknown |
+| 8 | agent restarts with active containment | containment records | agent lists nft elements, reconciles, reports active set | hub updates containment state; kernel timeouts unaffected |
+| — | request never reached agent | no record, epoch matches | `not_found` | NotRun |
+
+`running` is returned only by the agent instance that spawned the child and still holds its handle.
+
+Tests exercise each boundary with a fault-injecting journal and a fake runner that can crash between
+steps:
+- `crash_after_accepted_is_outcome_unknown`
+- `crash_after_started_is_outcome_unknown`
+- `orphan_process_killed_on_agent_restart`
+- `finished_durable_reply_lost_reconciles`
+- `hub_crash_before_commit_reconciles_from_journal`
+- `epoch_change_is_outcome_unknown`
+- `not_found_with_matching_epoch_is_not_run`
+- `active_containment_reconciled_after_agent_restart`
+
+Durability fixes carried into F2:
+- the agent saves check state only after the spool push succeeds;
+- the hub saves notification state only after confirmed delivery;
+- a state read error is an error, not default state (01 D37).
 
 ## 16. LLM reliability
 
@@ -642,15 +941,17 @@ writer stall.
 |---|---|
 | state+journal+audit atomic | `unit_of_work` contract suite (SQLite + InMemory); `audit_failure_rolls_back_transition` |
 | crash safety | `CrashingStore` + restart helper sweep: `no_duplicate_execution_across_crash`, `operation_resumes_after_restart` |
-| no duplicate dispatch | stateful `FakeAgent`: `duplicate_dispatch_runs_once`, `lost_reply_reconciles_to_finished`, `journal_lost_is_outcome_unknown`, `not_found_with_epoch_is_not_run` |
+| no duplicate dispatch / crash windows | stateful `FakeAgent` + fault-injecting journal and crashing fake runner: `duplicate_dispatch_runs_once` and the §15.2 tests |
 | startup order | `catch_up_waits_for_unknown_host`, `stale_approval_not_dispatched_after_restart` |
 | SSE replay | `sse_replays_missed_events`, `sse_resets_beyond_retention`, `lagged_subscriber_loses_nothing` |
 | orchestration determinism | seeded simulator with invariants after each event; `failed_verification_starts_new_cycle`, `budget_exhaustion_pauses`, `no_blind_retry_of_failed_step` |
 | policy | §7.7 |
-| authorization | gates §8.1; `agent_refuses_policy_dispatch_outside_ceiling`, `agent_rate_limit_applies_to_human_kind` |
-| containment | §9 drills; `containment_expires_without_agent` (nftables timeout, integration on Linux CI) |
-| packages | `agent_rejects_untrusted_signature`, `install_never_enables`, `hub_cannot_add_trusted_key` |
-| protocol | golden frames; `unknown_enum_value_preserved`, `newer_minor_agent_is_accepted`, `unsupported_message_does_not_end_session` |
+| authorization | gates §8.1; `agent_refuses_policy_dispatch_outside_ceiling`, `agent_rate_limit_applies_to_human_kind`, `rate_limit_survives_hub_restart`, `unreadable_journal_refuses_mutations`, `target_identity_change_refused` |
+| containment | §9.1 drills; `block_expires_with_agent_stopped`, `unconfirmed_block_expires_in_30s`, `containment_requires_confirmed_management_paths` (nftables integration on Linux CI) |
+| packages | §11.2 tests |
+| effects | `claimed_effect_reclaimed_after_lease_expiry`, `dead_effect_raises_advisory`, `notification_state_written_only_after_success` |
+| privileged helpers | `docker_helper_refuses_exec`, `docker_helper_refuses_unlisted_container`, `nft_helper_refuses_foreign_table` |
+| protocol | golden frames for the current protocol; `older_minor_agent_rejected_with_reason`, `newer_minor_agent_rejected_with_reason`, `same_protocol_different_patch_releases_communicate`, `unknown_enum_value_preserved`, `unsupported_message_does_not_end_session` |
 | migrations | N-1 upgrade test per release; `older_binary_refuses_incompatible_schema` |
 | audit chain | `audit_chain_detects_edit`, `audit_checkpoint_survives_pruning` |
 | UI | Playwright smoke in CI against `dev_hub`; `p0_visible_in_every_profile`; axe on every page test (FACT) |
@@ -660,7 +961,7 @@ writer stall.
 
 - **Settled (FACT + DECISION):** hub/agent split, argv-only runner, SQLite only, three separate
   knowledge/policy/experience stores, Operation ≠ Incident, hub-owned contracts, unit of work,
-  journal as experience, D-01…D-15.
+  journal as experience, D-01…D-28 (`99` §A).
 - **Proposed:** the contracts in §3–§18 not covered by a DECISION.
-- **OPEN:** see `99` (incomparable fallback, containment first set, ceiling arg scope, package trust,
-  agent support window, retention defaults, watchdog generalisation).
+- **Research needed:** `99` §C (R-1…R-7).
+- **Deferred:** `06` "Deferred and after-v1".

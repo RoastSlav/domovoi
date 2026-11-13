@@ -15,6 +15,7 @@ This document cross-checks pages as workflows. The UI should be designed as one 
 **Acceptance:**
 - Critical attention is distinguishable from informational activity.
 - The overview shows active operations, not only incidents and approvals.
+- A host whose agent is `Incompatible` appears in the attention queue and in environment health as upgrade required, distinct from offline.
 - In the default layout no counter is duplicated across tile, heading and filter (user-rearranged layouts are exempt).
 - Clicking a metric opens the relevant filtered list.
 - Returning preserves the useful context; live changes are reflected without a full-page reset.
@@ -78,6 +79,8 @@ This document cross-checks pages as workflows. The UI should be designed as one 
 - Simulation calls the same deterministic evaluator as real operation authorization.
 - All matching rules, the winning rule, why it won, the broader rules it overrides and any constraint failures are visible; hard limits (host ceiling, pause) are shown apart from rules; a specific Allow over a broad Deny is visibly flagged.
 - Applying a draft is a distinct audited action.
+- A locked Deny is shown distinctly in the editor, simulator, explanation and trace, with what ordinary resolution would have decided, and changing it needs step-up. A policy Deny shows no approval control: the owner must change the policy.
+- Publishing shows the publication validation report, and incomparable conflicts must be acknowledged.
 
 ## 5. Journey: install a capability from the UI
 
@@ -98,6 +101,7 @@ This document cross-checks pages as workflows. The UI should be designed as one 
 - Hosts that have not opted in to installs are shown as such, not as failed.
 - An offline agent is shown as pending delivery, not installed.
 - Package provenance and integrity checks are visible.
+- A package signed by an untrusted key is rejected by the agent and shown with that reason; the trusted keys are the first-party key and keys the owner installed on that host (owner decision D-16).
 - Failed agents can be retried without reinstalling successfully updated agents.
 - Model-generated capability drafts cannot self-install or self-authorize.
 
@@ -107,7 +111,7 @@ This document cross-checks pages as workflows. The UI should be designed as one 
 
 1. Open Operations and filter Completed/Failed.
 2. Open an operation.
-3. View the historical graph, switch to the timeline/tree or the outline, or play it back.
+3. View the historical graph, switch to the timeline/tree or the outline, or, once it ships, play it back (the last U2 deliverable, owner decision D-25; the timeline and history do not depend on it).
 4. Select an earlier failed node and inspect its input/output/error.
 5. Compare cycle 1 and cycle 2 to see which evidence changed the plan.
 6. Open the policy evaluation and matched rule.
@@ -152,6 +156,7 @@ This document cross-checks pages as workflows. The UI should be designed as one 
 - Model-written text is labelled and secondary.
 - Only an authenticated person can approve; nothing in the UI, the Operator or chat approves on a person's behalf.
 - An expired approval is shown as expired with the reason, not as pending.
+- When the agent refuses a step (for example its mutation rate limit), the card shows `Refused` with the agent's reason and offers no way around it (owner decision D-27).
 
 ## 9. Journey: resolve an incident with past experience
 
@@ -178,6 +183,9 @@ This document cross-checks pages as workflows. The UI should be designed as one 
 - Knowledge links connect relevant hosts, services, incidents, operations and notes.
 - Global search can reach these canonical objects when implemented; search results are scoped to the sources it covers and say so. No permission filtering in v1 (single owner); the search layer keeps one filter point as a hook for future roles.
 - An approval has one canonical home (operation detail); other surfaces embed or link the same card.
+- An `Incompatible` host shows the same upgrade-required banner and explanation on its host page, in the attention center and in environment health; its history stays readable and it is never shown as offline (owner decision D-20).
+- A host page shows management paths with provenance, freshness and which containment is blocked, and the owner can confirm or correct them (owner decision D-28).
+- The audit page reports legacy unchained history and chained history separately (owner decision D-14).
 
 ## 11. Backend contracts the UI depends on, and build order
 
@@ -188,14 +196,18 @@ The UI is built against contracts, not against the live engine. These must exist
 - **Live events with ids and resume** per topic (operations, hosts, attention), replacing invalidate-by-prefix; keep invalidation as the fallback.
 - **Conversations:** durable messages, explicit scope, request ids for discarding stale responses.
 - **Policy decisions** stored with the context snapshot and policy version used, so the simulator can reproduce a historical decision.
-- **Attention feed**, **audit API with chain verification**, **retention settings**, **resolution summaries and similar-operation search**, **capability deployment state per host**.
+- **Attention feed**, **audit API with chain verification reporting legacy and chained history separately**, **retention settings**, **resolution summaries and similar-operation search**, **capability deployment state per host**.
+- **Host protocol state:** `Incompatible` with the required and reported protocol and the agent's version, so the banner and host page render from data (owner decision D-20).
+- **Management-path facts** with source, confirmation, freshness and the containment they block, plus the host's read-only ceiling summary (owner decisions D-28, D-18).
+- **Policy publication validation report** (incomparable conflicts, overrides of a broader Deny, locked rules) and the locked flag on rules in the trace (owner decisions D-19, D-26).
+- **Agent refusal reasons**, including rate-limit refusals (owner decision D-27), and the shared outcome vocabulary (`docs/rework/04 §3.2`).
 - **Presentation profile and dashboard preferences:** where they are stored (hub or browser) is a backend decision; the UI reads them through one provider.
 
 Build order for UI work:
 
 1. Shared foundations: live layer, freshness and stale states, motion tokens, virtualised list, right-hand slot and inspector shell, and the shared visibility infrastructure.
 2. **Presentation profiles and the category table**, before any page is implemented.
-3. Trace schema and fixtures; then the step timeline/tree; then the graph, outline and keyboard navigation; playback last.
+3. Trace schema and fixtures; then the step timeline/tree; then the graph, outline and keyboard navigation; playback last (a late U2 deliverable, owner decision D-25).
 4. Pages on top of these, with the structured approval card built once with operation detail and reused.
 
 ## 12. Implementation acceptance checklist

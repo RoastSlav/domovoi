@@ -45,7 +45,7 @@ This is a conceptual contract, not a final serialized schema. Avoid requiring ev
 ## Discovery and invocation
 
 1. The hub holds the typed contracts; providers register the implementations they can offer against those contracts.
-2. Agent handshake reports which contracts and versions it implements, with an implementation hash and availability, not just script filenames. Availability is `Known`, `Unknown` (no session yet since hub start) or `Absent`; an unknown host is waited for, never rejected.
+2. Agent handshake reports which contracts and versions it implements, with an implementation hash and availability, not just script filenames. Availability is `Known`, `Unknown` (no session yet since hub start), `Absent` or `Incompatible` (the agent speaks another protocol minor; owner decision D-20). An unknown host is waited for, never rejected; an incompatible host is shown with an upgrade-required explanation and its history, never as offline, and nothing is dispatched to it.
 3. Hub builds a scoped catalogue for the incident: only capabilities that exist for the target and whose basic prerequisites are met.
 4. Reasoner may ask to inspect a capability's schema or request an operation using typed arguments. The model sees a closed set of meta-tools (list and describe capabilities, request evidence, search experience, propose a plan, ask the user, finish); none of them approves or executes anything.
 5. Engine checks the schema, scope, freshness, budget and current policy before dispatch.
@@ -59,7 +59,7 @@ Capability discovery must not expose secrets or imply permission. **Available do
 Initial broad groups (examples, not a closed list):
 
 - **Host observation:** processes, memory, disk, filesystems, temperatures, journal, listening sockets, service state.
-- **Application/container operations:** inspect, logs, restart, health checks, queue state, deployment metadata.
+- **Application/container operations:** inspect, logs, restart, health checks, queue state, deployment metadata. Docker write operations go only through a narrow first-party helper with its own ADR; the agent gets no general Docker socket write access, and Docker write capabilities stay unavailable for unattended use until the helper exists (owner decision D-24, RW-39).
 - **Storage:** pool/device health, mount state, backup state, free space, scrub/sync status; destructive storage operations require strict treatment.
 - **Network:** routes, DNS, gateway reachability, connection state, firewall inspection and narrowly scoped firewall changes.
 - **Security:** authentication events, suspicious-source analysis, temporary blocks, isolation and exposure restriction.
@@ -80,10 +80,11 @@ Do not model every log line or metric as a capability. Capabilities are operatio
 
 Capability install and deploy from the UI is part of v1, with these properties:
 
-- A capability package is signed. The agent installs it only if the host opted in (`allow_install`, off by default), the signature verifies against a key in the agent's **locally** trusted keys, and the package is compatible with the agent. The hub only relays the bytes and cannot add trusted keys, so a compromised hub cannot make an agent accept an unsigned package.
+- A capability package is signed. The agent installs it only if the host opted in (`allow_install`, off by default), the signature verifies against a key in the agent's **locally** trusted keys, and the package is compatible with the agent. The hub only relays the bytes and cannot add or replace trusted keys, so a compromised hub cannot make an agent accept an unsigned package.
+- **Trust (owner decision D-16, RW-26).** v1 trusts two kinds of key, both installed locally on the agent: the first-party release key and keys the owner adds. The signature is **detached** (a separate file, never inside the archive) and covers a canonical message naming the package, version, archive digest and key; the agent verifies it before extracting anything. Any install, including a rollback to an older version, must be signed by a key that is trusted now.
 - Installing never enables or authorizes anything. Install, enable (hub) and unattended use (policy plus the host ceiling) remain three separate steps.
-- **Open:** third-party or community packages. Recommendation for v1: first-party signed packages plus packages signed with the owner's own key; no arbitrary third-party registries.
-- Agent self-update stays out of scope (see the catalogue flags in `11`).
+- **DEFERRED:** third-party or community packages and registries. Anyone publishing a package could run code as the agent after one click, so v1 has none (`docs/rework/06` "Deferred and after-v1").
+- **DEFERRED, not planned:** agent self-update. It violates the rule that the hub cannot push code to a host; upgrades follow the install procedure (owner decision D-20; see the catalogue flags in `11`).
 
 ## Missing capabilities
 
@@ -95,4 +96,4 @@ Playbooks are advisory assets that can describe known diagnostic patterns, usefu
 
 ## Open design items
 
-The ownership split above is decided; the exact schema and version negotiation are specified in `docs/rework` (RW-07, RW-17). Still open: discovery refresh details, provider lifecycle for hub-side integrations, third-party package trust, and how generated capability drafts are reviewed. See [`09-open-questions.md`](09-open-questions.md).
+The ownership split above is decided; the exact schema and version negotiation are specified in `docs/rework` (RW-07, RW-17). Package trust is decided (owner decision D-16) and protocol compatibility is exact-match (owner decision D-20). Still open: discovery refresh details, the provider lifecycle for hub-side integrations (DEFERRED, `docs/rework/06`), and how generated capability drafts are reviewed. See [`09-open-questions.md`](09-open-questions.md).

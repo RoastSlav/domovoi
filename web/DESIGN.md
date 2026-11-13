@@ -375,7 +375,7 @@ with its tokens, kit component, `/dev/design` demo and test.
 | `--motion-graph` (node entry, state, status settle) | 240 ms                   | Graph nodes and status changes                                   |
 | `--motion-graph-edge`                               | up to 400 ms             | Active-path reveal, used sparingly                               |
 | `--motion-layout`                                   | 240 to 400 ms            | Group collapse and expand, re-layout, fit to view                |
-| Playback                                            | user-controlled speed    | Replay of a completed operation                                  |
+| Playback                                            | user-controlled speed    | Replay of a completed operation; the last U2 deliverable (D-25)  |
 
 - Recommended 240 to 400 ms. A single transition never exceeds 600 ms; a test reads the tokens
   and fails above it.
@@ -414,7 +414,7 @@ canvas with an outline (real DOM, the screen-reader path) and keyboard navigatio
 between connected nodes, Enter opens the inspector, Home and End go to the first and last node, a
 key jumps to the active node); an inspector; a split pane with a keyboard-operable divider; a
 virtual list; the one structured approval card (contract, target, arguments, effect class,
-reversibility, expiry, plan-hash prefix, policy decision; model text secondary and labelled); a
+reversibility, expiry, plan-hash prefix, policy decision, and an agent refusal reason such as a rate limit; model text secondary and labelled); a
 freshness label; the profile provider and visibility primitive.
 
 **Lint and size amendments the graph will need, each written here before the code.** Computed
@@ -428,7 +428,18 @@ updated" label, so a failed refetch no longer hides behind old data. "Live" will
 event stream the page uses, not only incidents and actions.
 
 **New statuses** (operation, node including uncertain and planned, policy outcome, capability
-install, enable and authorize, knowledge state) follow the "Add a status" recipe.
+install, enable and authorize, knowledge state, and the step outcomes `Refused`, `NotRun`,
+`Unavailable` and `OutcomeUnknown`) follow the "Add a status" recipe, each with a label, tone,
+hint and icon. Two more are planned. The host state **`Incompatible`** (agent upgrade required:
+the agent speaks another protocol minor than the hub, D-20) is its own status with an
+upgrade-required hint and is never shown with the offline status; its banner and host page keep
+history readable. The **locked rule** treatment (D-26) makes a locked Deny read differently from
+an ordinary Deny: a lock icon and the text "Locked Deny", never colour alone, in the policy
+editor, simulator, explanation and trace.
+
+Playback of a completed operation is the last U2 deliverable (D-25); the timeline and the outline
+do not depend on it, and its motion follows the same visualization class and reduced-motion rule
+as the graph.
 
 ## Checks that will fail your PR
 

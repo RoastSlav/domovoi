@@ -18,15 +18,15 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
 | 06 | Typed model output, checkpointed reasoning, model-call retry semantics | PROPOSAL |
 | 07 | Hub-owned capability contracts | DECISION D-02 |
 | 08 | One execution boundary bound to an immutable plan | PROPOSAL |
-| 09 | Agent action journal, idempotency, OutcomeUnknown, availability states | PROPOSAL |
-| 10 | Policy evaluator: most-specific rule wins | DECISION D-05 / PROPOSAL (formalisation, incomparable fallback OPEN) |
+| 09 | Agent action journal, crash windows, OutcomeUnknown, availability states | PROPOSAL |
+| 10 | Policy evaluator: most-specific wins, locked Deny, incomparable fallback | DECISION D-05, D-19, D-23, D-26 / PROPOSAL (formalisation) |
 | 11 | Authorization types and their enforcement in Rust | PROPOSAL (corrects the earlier "compile-time seal" claim) |
-| 12 | Host-local unattended ceiling | DECISION D-03 / PROPOSAL (format) |
-| 13 | L3 containment in v1 (M9), first capability set | DECISION D-04 / OPEN (exact set) |
+| 12 | Host-local unattended ceiling | DECISION D-03, D-18 / PROPOSAL (format) |
+| 13 | L3 containment in v1 (M9): firewall.block_source first | DECISION D-04, D-17, D-22, D-28 |
 | 14 | Knowledge: typed facts and relations over existing inventory | DECISION D-02 / PROPOSAL |
 | 15 | One journal: experience, change stream and SSE replay | DECISION D-02 / PROPOSAL (sequence model) |
-| 16 | One SQLite file; durability settings | FACT + PROPOSAL |
-| 17 | Protocol evolution and support window | PROPOSAL (support window OPEN) |
+| 16 | One SQLite file; synchronous=FULL from F1 | FACT + PROPOSAL |
+| 17 | Protocol compatibility: exact major.minor | DECISION D-20 / PROPOSAL (detail) |
 | 18 | Superseded — merged into RW-15 | — |
 | 19 | Use-case layer in the hub | PROPOSAL |
 | 20 | Durable Operator conversations | DECISION (pack D-23) / PROPOSAL |
@@ -35,14 +35,22 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
 | 23 | Autonomy guardrails and target binding | DECISION D-07 / PROPOSAL |
 | 24 | Step-up authentication | PROPOSAL |
 | 25 | Experience retrieval and resolution summaries | DECISION D-02 |
-| 26 | Capability packages and UI installation | DECISION D-11 / OPEN (third-party trust) |
+| 26 | Capability packages and UI installation | DECISION D-11, D-16 / PROPOSAL (format) |
 | 27 | Audit hash chain | DECISION D-14 / PROPOSAL (format) |
-| 28 | Configurable retention | DECISION D-09 / OPEN (defaults) |
+| 28 | Configurable retention and defaults | DECISION D-09, D-21 |
 | 29 | Actor identity ready for multi-user | DECISION D-13 / PROPOSAL |
 | 30 | Startup recovery order | PROPOSAL |
 | 31 | Schema compatibility and rollback | PROPOSAL |
 | 32 | Legacy actions: retained and projected, never rewritten | PROPOSAL |
 | 33 | UI mutation and state safety rules | PROPOSAL |
+| 34 | Stable target identity | PROPOSAL |
+| 35 | Effect delivery semantics (at-least-once) | PROPOSAL |
+| 36 | Execution identity across Action → Step | PROPOSAL |
+| 37 | Management-path confirmation for containment | DECISION D-28 / PROPOSAL (procedure) |
+| 38 | Agent-side mutation rate limiter | DECISION D-27 / PROPOSAL (format) |
+| 39 | Narrow first-party privileged helpers | DECISION D-24 / PROPOSAL |
+| 40 | Step graph: parentage plus typed edges | PROPOSAL |
+| 41 | Resolution summary provenance per field | PROPOSAL |
 
 ---
 
@@ -169,9 +177,9 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
     enablement, availability and host scope) is the only caller of `AgentLink::run_tool`, for the
     model, profile collection and the Operator alike. The raw link stops being publicly reachable
     from transports (FACT today: `server.link()` is public, G).
-  - Plan hash v2 = SHA-256 over a canonical encoding of: contract id + version, implementation hash
-    (skills: manifest **and** entry-script bytes), canonical target, canonical args, operation id,
-    step id.
+  - Plan hash v2 = SHA-256 over a canonical encoding of: `plan:v2`, contract id + version,
+    implementation hash (skills: manifest **and** entry-script bytes), canonical target identity
+    (RW-34), canonical args, `execution_id` (RW-36: the ActionId before M3, the step id after).
   - The approve request carries the plan hash the UI displayed. A mismatch is refused.
   - At dispatch: authorization unexpired; plan hash recomputed and equal; operation `Running`;
     linked incident not `Resolved`/`Dismissed` unless the step says otherwise; contract enabled; agent
@@ -179,145 +187,197 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
 
 ## RW-09 Agent action journal, idempotency, OutcomeUnknown, availability
 
-- **FACT.** On a dropped link the hub marks the action `Failed` while the agent keeps running it, and
-  the late reply is discarded (`hub/src/agent_server/session.rs:117-146`). The agent only logs
-  `action_id` and does not deduplicate (`agent/src/requests/skills.rs:110`). Restart catch-up runs
-  before agents reconnect, and `revalidate` reads the live skill list, which is empty for a host that
-  has not connected yet (`engine/src/actions/executor.rs:48, 329-332`). INFERENCE: valid approvals
-  are rejected after a restart; no test reproduces this yet.
-- **Decision.**
-  - Step id = idempotency key.
-  - The agent's journal has an **epoch** (random id created with the journal) and records
-    `accepted(step_id)` **durably (fsync) before** acknowledging or starting the process, then
-    `started`, then `finished(result)`.
-  - `action_status(step_ids, expected_epoch)` answers per id: `finished(result)`, `running`,
-    `not_found`, or `journal_lost`.
-    - `not_found` proves "never started" only because `accepted` is written durably before start, the
-      epoch matches the one recorded at dispatch, and the id is inside the journal retention window.
-      In that case the step becomes `NotRun`.
-    - An epoch mismatch, a corrupt journal or an id older than the window → `journal_lost` →
-      `OutcomeUnknown`.
-  - `OutcomeUnknown` is terminal for the step and blocks unattended execution of the same contract on
-    the same target until a human resolves it or a verification step establishes the state.
-  - Agent availability is `Known(catalogue) | Unknown | Absent(since)`.
-    - `Unknown`: no session yet since hub start. Steps wait (`WaitingAgent`) and are never rejected.
-    - `Absent`: the session ended. Steps wait up to a configurable limit, then become `NotRun` with a
-      reason.
-  - Old agents (no `journal` feature): a step left `Dispatched` at restart or on link loss becomes
-    `OutcomeUnknown` (not `Failed`).
+- **FACT.**
+  - On a dropped link the hub marks the action `Failed` while the agent keeps running it; the late
+    reply is discarded (`hub/src/agent_server/session.rs:117-146`).
+  - The agent only logs `action_id` and does not deduplicate (`agent/src/requests/skills.rs:110`).
+  - The runner starts each child in its own process group with `kill_on_drop(true)`
+    (`runner/src/exec/spawn.rs:54,62`). `kill_on_drop` only runs when the handle is dropped, not
+    when the agent process is killed.
+  - The shipped agent unit uses `Restart=always` with systemd's default `KillMode=control-group`
+    (`deploy/systemd/domovoi-agent.service:25`). INFERENCE from systemd semantics: leftover children
+    in the unit's cgroup are killed before a restart. Manual runs have no such guarantee.
+  - Restart catch-up reads the live skill list, which is empty for a host that has not reconnected
+    (`engine/src/actions/executor.rs:48,329-332`). STATIC: not reproduced.
+- **Decision (PROPOSAL).**
+  - **Identity.** The idempotency key is an opaque `execution_id` that never changes after dispatch
+    (RW-36).
+  - **Journal records.** The agent journal has an **epoch**: a random id created with the journal
+    and reported in `hello`. Records, each fsynced:
+    1. `accepted{execution_id}`, written before the reply and before spawning;
+    2. `started{pid, proc_start_time}`, written immediately after spawn;
+    3. `finished{result}`.
 
-## RW-10 Policy evaluator: most specific rule wins (D-05)
+    A second request with a known `execution_id` never spawns again. It returns the recorded
+    state.
+  - **`action_status(execution_ids, expected_epoch)` answers:**
+    - `finished(result)`;
+    - `running`, only from the agent instance that spawned the child and still holds it;
+    - `not_found`, only when the epoch matches and the id is inside the journal retention window;
+    - `outcome_unknown{reason}`.
+  - **Mapping to outcomes:** `not_found` → `NotRun` (the request never reached the journal). An
+    `accepted` record without `finished`, after an agent restart → `OutcomeUnknown`: the agent
+    cannot prove whether the process ran. Crash-window table: `04` §15.2.
+  - **No indefinite `Running`.** After an agent restart, a `started` record without `finished` is
+    never reported as `running`.
+    - If `pid` is alive and its `/proc/<pid>/stat` start time equals the recorded one (orphan,
+      possible only outside systemd or a container), the agent kills that process group, records
+      `abandoned`, and reports `outcome_unknown`.
+    - Otherwise it reports `outcome_unknown` directly.
+  - **`OutcomeUnknown`** is terminal for the execution. It blocks unattended execution of the same
+    contract on the same target until a human resolves it or a verification step establishes the
+    state.
+  - **Host availability:** `Known(catalogue) | Unknown | Absent(since) | Incompatible(reason)`.
+    - `Unknown`: no session since hub start. Steps wait, and are never refused for this reason.
+    - `Absent`: steps wait up to `agent_wait_limit`, then become `Unavailable`.
+    - `Incompatible`: protocol mismatch (RW-17). Steps become `Unavailable` with "agent upgrade
+      required".
+  - **Outcome vocabulary** (single definition in `04` §3.2):
+    - `NotRun`: positive evidence of never starting, or expiry before dispatch.
+    - `Unavailable`: could not be attempted.
+    - `Failed`: attempted and reported failure.
+    - `OutcomeUnknown`: may have run, result unknowable.
 
-- **DECISION D-05.** The original "explicit deny always wins" is intentionally replaced. A strictly
-  more specific matching rule overrides a broader one, even when the broader one is `Deny`. At equal
-  specificity `Deny` wins. Host ids only in v1; host tags after v1.
-- **Formalisation (PROPOSAL).** A rule's scope is a product of dimensions: host, capability, target.
-  Rule A is strictly more specific than B iff A's scope ⊆ B's scope on every dimension and ⊂ on at
-  least one. This is a partial order; there is no numeric score. The full definition, decision table,
-  trace format and tests are in `04` §7.
-- **Incomparable rules (OPEN, recommended default).** When the most specific matching rules
-  conflict and none dominates the others: `Deny` > `RequireApproval` > `Allow`.
-- **Hard limits** are not rules and are applied after rule resolution: the host-local ceiling
-  (RW-12), `Destructive` never `Allow` in v1 (D-06), mandatory containment exclusions (RW-13), and
-  unknown/stale safety-critical facts never yielding `Allow`.
-- **Pure and deterministic.** `domovoi-engine::policy::evaluate` does no I/O. The simulator calls the
-  same function (pack D-28).
+## RW-10 Policy evaluator: most specific rule wins, plus locked Deny (D-05, D-19, D-26)
+
+- **DECISION D-05.** The original "explicit deny always wins" is intentionally replaced for ordinary
+  rules:
+  - a strictly more specific matching rule overrides a broader one, even a broader `Deny`;
+  - at equal specificity, `Deny` wins;
+  - host ids only in v1, host tags after v1.
+- **DECISION D-19.** Incomparable conflicting maximal rules resolve
+  `Deny > RequireApproval > Allow`. Publication shows each such conflict and requires an explicit
+  acknowledgement. Runtime and simulator use the same function.
+- **DECISION D-26.** A `Deny` rule may be marked **locked** (default off). A matching locked Deny is
+  a hard prohibition: no narrower rule overrides it.
+  - Several matching locked Denies produce one `Deny` that lists every locked rule as a reason.
+  - Creating, editing, unlocking or removing a locked rule needs step-up authentication, a
+    simulation preview of the affected decisions, and an audit entry (`policy.lock_changed`).
+- **DECISION D-23.** `Deny` means "not offered for approval". There is no approval bypass; the owner
+  must change the policy. `RequireApproval` means "a human may approve".
+- **Formalisation (PROPOSAL).**
+  - A rule's scope is a product of dimensions: host, capability, target.
+  - A is strictly more specific than B iff A ⊆ B on every dimension and A ⊊ B on at least one.
+    This is a partial order; there is no numeric score.
+  - Evaluation order:
+    1. locked Denies;
+    2. ordinary resolution;
+    3. hard limits.
+  - Full algorithm, decision table, publish-time validation, trace and tests: `04` §7.
+- **Hard limits** are applied after rule resolution and are not rules:
+  - host-local ceiling (RW-12);
+  - `Destructive` never `Allow` in v1 (D-06);
+  - targets outside pinned subjects ∪ rule-named targets (D-07);
+  - unknown or stale safety-critical facts;
+  - containment management-path requirements (D-28);
+  - pause and circuit breaker.
+- **Pure and deterministic.** `domovoi-engine::policy::evaluate` does no I/O.
 
 ## RW-11 Authorization types and their enforcement in Rust
 
-- **Correction (FACT).** The earlier claim that `HumanApproval` is compile-time sealed is wrong.
-  `HumanApproval` is defined in `domovoi-core` (`core/src/action/approval.rs:54`) with `pub fn new`
-  and `pub fn restore`. There is no `Default` and no `Deserialize`. The call sites are restricted by a
-  **line-based text scan** in `xtask arch-check` (`xtask/src/arch/scan.rs`). Allowed prefixes:
-  - `new`: `domovoi-hub/src/auth/` and `domovoi-testkit/`;
-  - `restore`: `domovoi-store/src/` and `domovoi-testkit/`
-  (`xtask/src/arch/rules.rs:169-175`).
-  A renamed import (`use … as X`) or a macro would evade the scan.
-- **Why a cross-crate private constructor is impossible.** Rust privacy is per crate and module. A
-  constructor in `domovoi-core` cannot be made callable only from a module in `domovoi-hub`. The
-  engine (which executes) cannot depend on the hub (R1). So the type must live in `domovoi-core`, and
-  its constructor must be `pub`.
-- **Decision (PROPOSAL).**
-  - `domovoi-core::action`:
-    - `HumanApproval` (unchanged fields);
-    - `PolicyPermit { decision_id, rule_ids, policy_version, plan_hash, issued_at, expires_at,
-      ceiling_hash }`;
-    - `enum Authorization { Human(HumanApproval), Policy(PolicyPermit) }`.
-    No `Default`, no `Deserialize`.
-  - Constructors: `HumanApproval::new`/`restore` (as today), `PolicyPermit::issue`/`restore`.
-  - Who constructs:
-    - `HumanApproval::new` — `domovoi-hub/src/auth/` after authentication.
-    - `PolicyPermit::issue` — `domovoi-hub/src/policy/`, behind the `PermitIssuer` port. The port is
-      defined in core and implemented in the hub; the engine's operation writer calls it. It issues
-      only after evaluator `Allow` + ceiling check + circuit breaker + target binding.
-    - `restore` — `domovoi-store/src/` only.
-  - Enforcement, three layers:
-    1. `clippy.toml` `disallowed-methods` entries for all four constructors. Clippy resolves paths, so
-       aliases do not evade it. Allowed sites carry
-       `#[expect(clippy::disallowed_methods, reason = "...")]`.
-    2. An arch-check rule permits that `expect` only under the allowed prefixes.
-    3. The existing text scan stays as a third line.
-    `domovoi-testkit` remains allowed. Arch-check additionally asserts that testkit is only ever a
-    dev-dependency.
-  - Persisted executions store `authorization_kind` plus the fields of the active variant. The store
-    rebuilds them with `restore`.
-- **Honesty.** These controls stop accidental or careless code paths in review and CI. They are not
-  a runtime security boundary against a compromised hub process. Runtime protection comes from the
-  plan hash, the agent's local checks (RW-12) and the audit chain (RW-27). Guarantees per threat are
-  in `04` §8.
+- **Correction (FACT).**
+  - `HumanApproval` is defined in `domovoi-core` (`core/src/action/approval.rs:54`) with fields
+    `user`, `channel`, `at`, and with `pub fn new` and `pub fn restore`.
+  - Typed confirmation is part of `ApprovalChannel::Web { typed_confirmation }` (`approval.rs:35-38`).
+  - There is no `Default` and no `Deserialize`.
+  - Call sites are restricted by a **line-based text scan** in `xtask arch-check`
+    (`xtask/src/arch/scan.rs`, `rules.rs:169-175`), not by the compiler.
+  - `PlanHash` v1 = SHA-256 over `plan:v1\n{skill}\n{manifest_hash}\n{host_id}\n{canonical args}`
+    (`approval.rs:16-27`).
+- **Why no cross-crate seal.** Rust privacy is per crate. The engine executes and cannot depend on
+  the hub (R1). So these types live in `domovoi-core`, and their constructors are `pub`.
+- **Decision (PROPOSAL): `HumanApproval` stays the authenticated-human fact.**
+  - Its fields are unchanged: `user`, `channel` (incl. typed confirmation), `at`.
+  - Plan and session binding live in the **execution detail**, written in the same transaction as
+    the approval:
+    - `approved_plan_hash` (the hash the approval surface displayed and the request carried);
+    - `approval_session_ref` (opaque session id hash, or chat interaction id);
+    - `approval_client` (IP for web, platform user for chat).
+  - **Proof of exact plan.**
+    1. The approve request carries `plan_hash`.
+    2. The operation writer accepts it only if it equals the execution's stored `plan_hash_v2`,
+       which was computed at proposal from the immutable intent.
+    3. At dispatch, `plan_hash_v2` is recomputed from the current registry and the resolved target
+       identity (RW-34).
 
-## RW-12 Host-local unattended ceiling (D-03)
+    Any difference (contract version, implementation hash including script bytes, target identity,
+    args) means the execution is `Refused` (before dispatch) with "plan changed; new approval required".
+- **Other types (core).**
+  - `PolicyPermit { decision_id, rule_ids, policy_version, plan_hash, issued_at, expires_at,
+    ceiling_hash }`.
+  - `enum Authorization { Human(HumanApproval), Policy(PolicyPermit) }`.
+  - No `Default`, no `Deserialize`.
+- **Who constructs.**
+  - `HumanApproval::new`: `domovoi-hub/src/auth/`.
+  - `PolicyPermit::issue`: `domovoi-hub/src/policy/`, behind the `PermitIssuer` port (core trait,
+    hub implementation, called by the operation writer).
+  - `restore` for both: `domovoi-store/src/`.
+- **Enforcement (CI, not runtime).**
+  1. `clippy.toml` `disallowed-methods` for the four constructors. Clippy resolves paths, so
+     renamed imports are caught.
+  2. An arch rule allowing `#[expect(clippy::disallowed_methods)]` only under the allowed paths.
+  3. The existing text scan.
+  4. An arch check that `domovoi-testkit` is only ever a dev-dependency.
+- **Persistence.** `executions.authorization_kind` plus the variant's columns and the binding
+  columns above; the store rebuilds the value with `restore`.
+- **Honesty.** These controls stop careless code paths. They are not a runtime boundary against a
+  compromised hub. Runtime limits are the plan hash, the agent's local checks (RW-12, RW-38) and the
+  audit chain (RW-27). Threat table: `04` §8.4.
 
-- **DECISION D-03.**
-  - Owner-controlled config on the agent's host.
-  - The hub cannot modify or widen it. The UI shows it read-only. Hub policy may only narrow it.
-  - Human-approved and policy-authorized executions stay distinguishable.
-  - The agent enforces the ceiling independently of the hub.
-  - Owner-signed policy bundles are planned after v1.
-- **Format (PROPOSAL, smallest useful).** The agent config gains `[[unattended.allow]]` entries:
-  - `capability` (exact contract id);
-  - `targets` (explicit list, or `"*"` written explicitly);
-  - `max_per_hour`;
-  - for contracts that declare ceiling-constrainable arguments, an `args` table using only those
-    keys (e.g. `max_ttl`, `min_prefix_len`);
-  - for `Contain` contracts, `max_active` and `max_ttl` are required.
-  `[unattended.exclusions]` holds the mandatory management-path list used by containment (RW-13).
-  No entry means nothing runs unattended. Full schema: `04` §8.
-- **Protocol.** `run_capability` carries `authorization_kind = human | policy`.
-  - For `policy`, the agent checks the ceiling (capability, target, args, rate, TTL) and
-    `allow_risk`.
-  - For `human`, it checks `allow_risk` as today.
-  - Agent-side `max_per_hour` applies to **both** kinds for mutating contracts. This bounds the damage
-    from a hub that lies about the kind.
-  - The agent reports a hash and a summary of the ceiling in `hello` for read-only display and hub
-    pre-checks.
-- **What it does not protect against** (stated plainly). The ceiling is an enforcement limit, not a
-  signature. A compromised hub can label a dispatch `human` and run any skill `allow_risk` permits;
-  that is today's exposure, now rate-bounded. Owner-signed approvals and bundles (post-v1) are the
-  fix.
-- **Rejected for v1.** Signed bundles (key custody, rotation and recovery cost), and capability-name-only
-  lists (no target bound, so they are too broad for containment).
+## RW-12 Host-local unattended ceiling (D-03, D-18)
 
-## RW-13 L3 containment in v1 (D-04)
+- **DECISIONS.**
+  - D-03: owner-controlled config on the host; the hub cannot modify or widen it; the UI shows it
+    read-only; hub policy may only narrow it; the agent enforces it independently; owner-signed
+    bundles after v1.
+  - D-18: full scope —
+    - exact capability id;
+    - explicit targets;
+    - max rate;
+    - declared constrainable args;
+    - `max_ttl` and `max_active` for containment;
+    - mandatory management-path exclusions.
 
-- **DECISION D-04.** `Contain` is a general policy class. L3 ships in v1 as milestone M9 and is not
-  limited to firewall/IP blocking. Offline emergency permits are excluded from v1.
-- **First set (OPEN, recommended):**
-  - `firewall.block_source` — temporary inbound block of one external address or a small prefix,
-    using an nftables set element with a kernel-enforced timeout;
-  - `container.pause` — pause one named container, with a TTL;
-  - `unit.stop_temporary` — stop one named systemd unit, with a TTL, excluding a hard-coded list of
-    management units.
-  Per-capability threat, privileges, lockout analysis, expiry, dead-man, verification, outcome-unknown
-  handling and drills: `04` §9. Later candidates (container network isolation, SSH session
-  termination, account lock) are deferred because their lockout or recovery stories are weaker.
-- **Triggering.** Automatic containment is eligible only when a deterministic detector (check code)
-  emitted a typed signal whose structured fields name the target (e.g. a source address), and that
-  target is the operation's pinned subject. Free-form model output never triggers or targets
-  automatic containment. The model may investigate, explain and recommend; such recommendations go
-  through human approval.
-- **Prerequisites.** M8 complete (permits, ceiling, target pinning, journal, verification, circuit
-  breaker), plus management-path facts and the drill suite.
+    No allow entry means no policy-authorized execution.
+- **Format.** `04` §8.3.
+- **What the agent receives.** `authorization_kind = human | policy`. This is a **label set by the
+  hub, not proof**.
+  - **`policy`-labelled requests** must pass:
+    - the complete ceiling;
+    - the mutation rate limiter (RW-38);
+    - catalogue, manifest, args and `allow_risk` checks.
+  - **`human`-labelled requests** must pass:
+    - catalogue, manifest, args and `allow_risk` checks;
+    - the mutation rate limiter.
+
+    They do **not** pass the ceiling.
+- **Accepted v1 limitation (stated plainly).** A compromised hub can label a request `human` and so
+  bypass the ceiling. It is then limited only by `allow_risk`, the local catalogue and the rate
+  limiter. The ceiling is not cryptographic proof of owner authorization.
+- **Planned (deferred, see `06` Deferred).** Owner-signed approvals and policy bundles close this
+  gap.
+
+## RW-13 L3 containment in v1 (D-04, D-17, D-22, D-28)
+
+- **DECISIONS.**
+  - D-04: `Contain` is a general v1 policy class; L3 ships as M9; offline permits are after v1.
+  - D-17: the first and only v1 containment capability is `firewall.block_source`. `container.pause`
+    and `unit.stop_temporary` are **deferred** until independent expiry and recovery are proven
+    (acceptance checklist in `04` §9.3).
+  - D-22: every containment expires without depending on the main agent staying alive.
+    Connectivity-affecting containment also needs an independent watchdog. A capability cannot be
+    enabled for unattended use until expiry, recovery, watchdog, outcome-unknown handling and drills
+    are implemented.
+  - D-28: a host cannot enable unattended containment until its management paths are
+    owner-confirmed and current.
+- **Mechanism (PROPOSAL).**
+  - `firewall.block_source` adds an element to a dedicated nftables set with a kernel `timeout`.
+  - It goes through a narrow first-party helper (RW-39).
+  - A 30-second confirmation watchdog (`04` §9.1) removes the element if the hub's post-apply
+    reachability confirmation does not arrive.
+- **Triggering.** Only a deterministic detector's typed signal names the target, and the target must
+  be the pinned subject. Model output may investigate and recommend; it never triggers or targets
+  automatic containment.
 
 ## RW-14 Knowledge: typed facts and relations over existing inventory
 
@@ -362,35 +422,54 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
 ## RW-16 One SQLite file; durability settings
 
 - **FACT.** WAL, `synchronous=NORMAL`, busy timeout 5 s, one writer connection and 4 readers, no
-  startup integrity check, nightly `VACUUM INTO` keeping 7 copies, `pre-migrate-*` files never pruned
-  (C §2–3).
-- **Decision.** Stay on one file. Use `synchronous=FULL` once execution state lives in the journal:
-  a committed dispatch must survive power loss. Add a startup `quick_check`, backup verification
-  (open the copy and run `quick_check`), `domovoi restore`, and pruning of `pre-migrate-*` per
-  retention. No vector database, graph database, broker or workflow engine (pack Q2.1, Q2.2, Q2.6).
+  startup integrity check, nightly `VACUUM INTO` keeping 7 copies, `pre-migrate-*` never pruned (C).
+- **Decision.** Switch to `synchronous=FULL` **in F1**, together with the unit of work and the audit
+  chain.
+  - **Why then.** Approvals, audit and the hash chain must survive power loss from F1 on, not only
+    once the execution journal exists.
+  - **Cost.** One extra fsync per commit. That is milliseconds, at a write rate of a few commits per
+    second at most (INFERENCE from current workload).
+- **Also:**
+  - startup `quick_check`;
+  - backup verification (open the copy and run `quick_check`);
+  - `domovoi restore`;
+  - pre-migrate pruning to the last 3 (D-21).
+- No vector database, graph database, broker or workflow engine.
 
-## RW-17 Protocol evolution and support window
+## RW-17 Protocol compatibility: exact protocol version (D-20)
 
 - **FACT.**
-  - `PROTOCOL_VERSION` is 1.1 (`proto/src/version.rs:17`). The hub accepts only the same minor or one
-    behind; a newer minor is rejected, and the rejection is final on the agent (`version.rs:22`).
-  - `#[serde(other)]` is used at `messages/handshake.rs:246` and `messages/work.rs:110,207`. It maps
-    unknown variants to a unit variant and **discards the original value**.
-  - Frame cap is 1 MiB.
-- **Decision.**
-  - Reject only on a major mismatch or an agent below `MIN_AGENT_VERSION`.
-  - `hello` carries a `features` set; a feature is used only when both sides list it.
-  - Tolerant decoding with `Open<T> = Known(T) | Unknown(String)`, implemented by a custom
-    `Deserialize` that reads the raw string and then parses it, so the original value is kept for
-    logs and replies.
-  - An unknown message `type` gets an `unsupported{type}` reply; the session continues.
+  - `PROTOCOL_VERSION` is 1.1 (`proto/src/version.rs:17`).
+  - Today the hub accepts the same minor or one behind, and the agent treats a reject as final
+    (`version.rs:22`).
+  - A release-number gate also exists (`MIN_AGENT_VERSION` / `MIN_HUB_VERSION` 0.0.5).
+  - `#[serde(other)]` at `messages/handshake.rs:246`, `messages/work.rs:110,207` discards unknown
+    values.
+- **DECISION D-20.**
+  - The hub accepts an agent only when protocol **major and minor both match**. Older and newer
+    minors are rejected.
+  - Application patch releases with the same protocol version are compatible.
+  - There is no previous-minor adapter and no legacy execution path.
+  - A minor change is a coordinated upgrade: hub first, then agents through the supported install
+    procedure. Agents not yet upgraded cannot reconnect or execute.
+  - An incompatible agent stays visible as `Incompatible` with "upgrade required". It is not shown
+    as offline, and its history and inventory are kept.
+  - Agent self-update stays out of scope (INV-3).
+- **Decision (PROPOSAL).**
+  - The release-number gate is removed from compatibility. A separate **revoked-build list** (hub
+    config) may refuse specific agent builds for security reasons. It is deferred unless needed, and
+    it is distinct from protocol compatibility.
+  - `reject{reason: protocol_mismatch, hub_protocol, agent_protocol}` is final on the agent, which
+    logs an upgrade instruction.
+  - `features` remains, for optional build or platform capabilities (e.g. nftables helper present),
+    never for older protocol generations.
+  - Tolerant decoding with `Open<T> = Known(T) | Unknown(String)` (custom `Deserialize` that keeps
+    the raw value) still matters: within one protocol version, enums in data (contract ids, effect
+    classes, journal kinds) can carry values newer than a reader's build only through skill or
+    package content, and a bad value must not drop a session.
   - Catalogue by hash plus paged `get_catalog`.
   - New messages `run_capability` and `action_status`.
-  - Golden frames for every release are kept and decoded in CI.
-- **Support window (OPEN, recommended).** Until 1.0, the hub supports agents from the current and
-  the previous two minor releases; `MIN_AGENT_VERSION` moves accordingly; older agents get a final
-  reject with a clear reason. After 1.0: same major, all minors. Feature-dependent behaviour on old
-  agents: `04` §12.
+  - Golden frames for the current protocol are committed; a minor bump replaces them deliberately.
 
 ## RW-19 Use-case layer in the hub
 
@@ -454,7 +533,7 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
       within 24 h);
     - every new rule starts in shadow mode.
   - First L2 contracts (M8): `container.restart` and `unit.restart` of one named target, each with a
-    postcondition check. Docker write access for the former needs its own ADR (O-24).
+    postcondition check. Docker write access for the former needs its own helper ADR (D-24, RW-39); until then `container.restart` is not available unattended.
 
 ## RW-24 Step-up authentication
 
@@ -486,51 +565,86 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
   - Past approvals and successes never satisfy policy.
   - Details: `04` §10.
 
-## RW-26 Capability packages and UI installation (D-11)
+## RW-26 Capability packages and UI installation (D-11, D-16)
 
-- **FACT.**
-  - Skills are owner-placed files in the agent's `skills_dir` (`config/src/agent.rs:52`).
-  - The hub cannot write files on a host today.
-  - Agent self-update is out of scope (INV-3, ADR 0003).
-- **Decision (PROPOSAL).**
-  - A capability package is a signed archive: manifest, entry script(s), package metadata, and an
-    Ed25519 signature over the archive digest.
-  - The agent installs a package only if:
-    1. local config `[packages] allow_install = true`, which is off by default;
-    2. the signature verifies against a key in the agent's **local** `trusted_keys`. The first-party
-       release key is shipped in the agent config template and can be removed by the owner. The hub
-       cannot add keys.
-    3. the package is compatible (agent version, platform, contract versions).
-  - The hub only **relays** the bytes. A compromised hub can offer packages but cannot make the
-    agent accept one not signed by a locally trusted key.
-  - Installing never enables or authorizes anything. Enablement (hub) and unattended use (policy +
-    host ceiling) stay separate steps.
-  - Full lifecycle: `04` §11.
-- **OPEN.** Third-party/community packages. Recommendation for v1: first-party signed packages, plus
-  the owner adding their own key locally (owner-signed packages). No arbitrary third-party
-  registries in v1.
+- **FACT.** Skills are owner-placed files in `skills_dir` (`config/src/agent.rs:52`). The hub cannot
+  write files on a host. Agent self-update is out of scope (INV-3, ADR 0003).
+- **DECISION D-16.** v1 trusts:
+  - first-party packages signed by the Domovoi release key;
+  - owner-signed packages, once the owner installs their public key locally on the agent.
+
+  There are no third-party registries in v1. The hub cannot add or replace agent keys.
+- **Format and lifecycle (PROPOSAL, `04` §11.2).**
+  - A `.tar.zst` archive.
+  - A **detached** signature file whose Ed25519 signature covers a canonical signing message: format
+    version, package name, version, archive SHA-256, key id.
+  - The agent verifies signature, digest, identity, compatibility and path containment **before
+    extracting anything**.
+  - A rollback must also be signed by a currently trusted key and compatible. Having been installed
+    before is not trust.
+- **Trust boundary.**
+  - An owner-signed package runs whatever its scripts do, as the agent user, within `allow_risk`.
+  - Signing a package is equivalent to the owner placing those files on the host themselves. Its
+    risk is the owner's key custody and their review of the package content.
+- **Install never enables or authorizes.**
 
 ## RW-27 Audit hash chain (D-14)
 
-- **Decision.**
-  - Each audit row stores `prev_hash` and `hash = SHA-256("domovoi-audit-v1" ‖ seq ‖ prev_hash ‖
-    canonical_json(entry))`, computed inside the unit-of-work transaction.
-  - Genesis `prev_hash` = SHA-256 of the installation id.
-  - Startup verifies the last N rows (configurable, default 10 000). `domovoi audit verify` checks
-    everything.
-  - Pruning writes a checkpoint row (first retained seq, its prev_hash), which is itself chained.
-- **Threat model (stated plainly).** It detects accidental corruption, out-of-band edits by tools
-  that do not recompute the chain, and deletion in the middle of the chain. It does **not** stop an
-  attacker who can rewrite the whole database and recompute the chain.
-- **Cheap external anchor (PROPOSAL, v1).** The current head hash appears in the daily digest and in
-  `domovoi audit head`, so the owner has off-host copies. Stronger anchoring (a transparency log,
-  remote append-only storage) is post-v1.
+- **Decision (PROPOSAL; one scheme for new and migrated installations).**
+  - **Anchor.** The migration that introduces the chain writes one `audit_anchor` row:
+    - `install_id`;
+    - `legacy_last_id` (highest pre-chain row id; 0 on a fresh install);
+    - `legacy_count`;
+    - `legacy_digest` = SHA-256 over the canonical serialization of every pre-chain row, in id
+      order (SHA-256 of the empty string on a fresh install).
 
-## RW-28 Configurable retention (D-09)
+    Historical rows are never rewritten.
+  - **Chain.**
+    - The first chained row's `prev_hash` = SHA-256(`"domovoi-audit-anchor-v1"` ‖ install_id ‖
+      legacy_last_id ‖ legacy_count ‖ legacy_digest).
+    - Each row: `hash = SHA-256("domovoi-audit-v1" ‖ seq ‖ prev_hash ‖ canonical_json(entry))`,
+      computed inside the unit-of-work transaction.
+  - **Verification** (`domovoi audit verify`, and startup over the last N rows, default 10 000)
+    reports two parts separately:
+    1. **legacy unchained history**: count and digest match. A mismatch shows that legacy rows
+       changed, without saying which.
+    2. **chained history**: the first broken link, if any.
 
-- **DECISION D-09.** Every retention value is configurable. Current defaults are kept where they
-  exist. Raw data and durable summaries are separate classes. Interaction with FTS, backups and the
-  audit chain: `04` §14. Proposed default values are OPEN in `99`.
+    The UI's audit page shows the same two parts.
+  - **Pruning.** Writes a chained `checkpoint` row: first retained seq, its `prev_hash`, pruned
+    count. Verification starts at the newest checkpoint. Pruning legacy rows records `legacy_pruned`;
+    the legacy digest is then reported as "not verifiable (pruned)".
+  - **Restore.** A restored database verifies as it was at backup time. The restore itself is the
+    first new chained row (`audit.restored{backup_head_hash}`). Off-host head hashes newer than the
+    backup show the expected divergence.
+- **Threat model.** Detects accidental corruption, edits by tools that do not recompute the chain,
+  and mid-chain deletion. It does not stop an attacker who rewrites the whole database and recomputes
+  it.
+- **Cheap anchor (v1).** The head hash appears in the daily digest and in `domovoi audit head`.
+  Stronger anchoring is deferred (`06` Deferred).
+
+## RW-28 Configurable retention (D-09, D-21)
+
+- **DECISION D-21.** Defaults, all configurable:
+
+  | Data | Default |
+  |---|---|
+  | signals | 30 d |
+  | incident timeline raw events | 90 d |
+  | operation journal raw events | 180 d |
+  | raw execution outputs | 30 d |
+  | operations and resolution summaries | retained |
+  | audit | retained; pruning only via configured checkpoints |
+  | retracted fact content | purged after 30 d |
+  | conversations | 180 d |
+  | notifications and notification state | 30 d |
+  | nightly backups | 7 |
+  | pre-migrate backups | last 3 |
+
+- **What deletion guarantees.** Deletion and FTS interaction, backup interaction and structure versus
+  raw data: `04` §14.
+  - Deleted data stays in backups until those backups rotate out.
+  - Deletion removes data from the live database, FTS and model context in the same transaction.
 
 ## RW-29 Actor identity ready for multi-user (D-13)
 
@@ -553,7 +667,8 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
   6. `Approved`/`Permitted` but undispatched executions are re-checked for freshness and dispatched
      only when the host becomes `Known`.
 
-  Nothing is rejected because a host is still `Unknown`.
+  Nothing is rejected because a host is still `Unknown`. A host reported `Incompatible` (RW-17)
+  turns its waiting steps `Unavailable` with "agent upgrade required"; its history is kept.
 
 ## RW-31 Schema compatibility and rollback
 
@@ -598,3 +713,150 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
   - Acknowledge-with-rule creates the rule before closing the incident (lesson #66). The order is
     kept by doing both in one use-case service call.
   - Provider error text shown in the UI passes through `describeError` and the redactor (RW-06).
+
+## RW-34 Stable target identity
+
+- **Decision (PROPOSAL).** Plans bind a canonical `TargetRef`, resolved at planning time and
+  re-validated by the agent immediately before execution:
+
+  | Kind | Canonical identity | Display | Behaviour |
+  |---|---|---|---|
+  | host | `HostId` plus the agent's enrolled public-key fingerprint | host name | re-enrolment changes the fingerprint, so the plan is invalid |
+  | container | `container:{host}/{container_id}` (full runtime id) | name | restart keeps the id (valid); recreate changes the id (refused: `target_changed`); rename keeps the id (valid, display updated) |
+  | systemd unit | `unit:{host}/{unit_name}` plus `fragment_path` and SHA-256 of the unit file content at planning time | unit name | changed unit file or a missing unit → refused |
+  | network source | `ipnet:{canonical}`: IPv4 dotted, IPv6 RFC 5952, host bits zeroed, explicit prefix | same | prefix must satisfy ceiling bounds |
+
+- Policy rules name targets the way the owner thinks of them (container or unit names). Matching
+  resolves the name to the current identity at evaluation time. The permit and plan hash bind the
+  resolved identity.
+- An inventory refresh never changes an approved plan. It can only make the plan's identity no
+  longer resolve, which leads to refusal and a request for new approval.
+
+## RW-35 Effect delivery semantics
+
+- **Decision (PROPOSAL).**
+  - **Lifecycle.** `pending → claimed{lease_until, runner_id, attempt} → done | pending{not_before}
+    (retryable) | dead{reason} (permanent or attempts exhausted) | cancelled`.
+  - **Leases.** An expired lease makes the effect claimable again. Completion happens in the owning
+    writer's transaction, together with the state change.
+  - **Recovery.** On restart all `claimed` effects revert to `pending`, except `Dispatch`, which is
+    reconciled (RW-09).
+  - **Delivery guarantee.** At-least-once, never exactly-once.
+    - If a remote service accepts a notification and the hub crashes before recording success, the
+      notification is sent again.
+    - Remote idempotency is used where the platform supports it. Discord's message-create `nonce`
+      with `enforce_nonce` is believed to deduplicate within a short window (INFERENCE; verify during
+      F2).
+    - Otherwise duplicates are possible. Messages carry a stable short id, so a duplicate is
+      recognisable.
+  - **State recording.** Notification state is recorded only after a confirmed success response. A
+    state read error is an error, never default state.
+- Detail: `04` §4.1.
+
+## RW-36 Execution identity across the Action → Step transition
+
+- **Decision (PROPOSAL).**
+  - The agent-facing idempotency key is an opaque UUID `execution_id`.
+  - **In F2/M1 (before operations exist):** `execution_id = ActionId`, and plan hash v2 includes
+    `execution_id`.
+  - **From M3:** a new Execution step gets `execution_id = step_id`, generated when the step is
+    inserted.
+  - **The key never changes once dispatched.** Legacy actions keep their `ActionId` and finish on the
+    legacy path. No legacy action is re-dispatched under a new id.
+  - Agent journal entries are keyed by `execution_id` regardless of origin. The hub's `executions`
+    table and the legacy `actions` table are the only two sources, and an id never appears in both
+    (UUIDv7 uniqueness plus a check at insertion).
+- **Why.** M1 can ship idempotency and reconciliation using objects that exist then, and M3 does not
+  have to touch the agent contract.
+
+## RW-37 Management-path confirmation for containment (D-28)
+
+- **DECISION D-28.**
+  - Unattended containment on a host requires owner-confirmed, current management-path facts:
+    - LAN and VPN ranges;
+    - hub address;
+    - the agent's current management connection;
+    - protected management services.
+  - Unknown, stale, conflicting or unavailable information means containment is refused.
+  - The agent enforces its mandatory local exclusions independently; the hub cannot remove or widen
+    them.
+  - The UI shows the configured paths, their provenance and freshness, and which containment
+    capabilities are blocked by missing information.
+  - This does not affect monitoring or other human-approved capabilities.
+- **Procedure (PROPOSAL).**
+  1. During host onboarding or from the host's Network/Security tab, the owner enters trusted
+     ranges and protected services, or accepts discovered suggestions.
+  2. The hub runs a reachability probe (hub → agent link, and owner-specified checks).
+  3. The owner presses **Confirm current**.
+
+  Facts are `user`-sourced with `last_verified_at`; freshness defaults to 30 days, configurable.
+  Facts become `stale` immediately when the agent reports interface or route changes, or when the
+  hub sees the agent from a new address.
+- Pack Q0.5 is resolved by this decision.
+
+## RW-38 Agent-side mutation rate limiter (D-27)
+
+- **DECISION D-27.** Applies to all mutating executions, human- or policy-labelled. It is separate
+  from the ceiling.
+- **Decision (PROPOSAL).**
+  - **Config.** Agent `[mutation_limits]`:
+    - `per_hour` (global, default 30);
+    - optional `per_capability = { "container.restart" = 6 }`.
+  - **Counters** are derived from the agent journal's durable `accepted` timestamps for mutating
+    contracts. A hub restart cannot reset them.
+  - **Clock.** If wall time moves backwards, entries count until their monotonic age (recorded per
+    entry) exceeds the window.
+  - **Failure.** If the journal is unreadable, mutations are refused (fail closed); reads still work.
+  - **Refusal.** `refused{rate_limited, scope, retry_after}`, shown on the approval card and the step.
+
+## RW-39 Narrow first-party privileged helpers (D-24)
+
+- **DECISION D-24.** The agent does not get general Docker socket write access. Docker write
+  capabilities stay unavailable for unattended use until the helper ADR and its implementation exist.
+- **Decision (PROPOSAL).**
+  - Privileged operations go through small first-party helper programs, shipped as first-party
+    packages:
+    - `domovoi-docker-helper` supports `restart|pause|unpause <container-id>` only;
+    - `domovoi-nft-helper` supports `add|del|list` on the `inet domovoi` table's block sets only.
+  - **Privilege path.** The agent invokes a helper through the runner (argv) via a root-owned
+    `sudoers` rule restricted to the exact helper path, or via a file capability (`CAP_NET_ADMIN`
+    for the nft helper). The agent user is not in the `docker` group.
+  - **Helper checks.**
+    - The helper reads its own allowlist (root-owned file).
+    - It refuses any operation, table or target outside it.
+    - It never accepts free-form flags.
+  - Each helper needs its own ADR (privilege analysis, file ownership, package trust, update path).
+  - **Tests** prove refusal of unrelated operations:
+    - `docker_helper_refuses_exec`;
+    - `docker_helper_refuses_unlisted_container`;
+    - `nft_helper_refuses_foreign_table`.
+
+## RW-40 Step graph: parentage plus typed dependency edges
+
+- **Decision (PROPOSAL).**
+  - `parent_step_id` is grouping and presentation only.
+  - Ordering and causality use typed edges in `step_edges(from_step, to_step, kind)`, directed from
+    dependent to prerequisite. Kinds:
+    - `depends_on`: cannot start before `to` finishes;
+    - `caused_by`: created from the output of `to`;
+    - `verifies`: a Verification step pointing to an Execution step;
+    - `retry_of`: a new Execution step pointing to the earlier one;
+    - `answers`: a reply pointing to a Question step.
+  - **Acyclic by construction.** Edges may only point to steps already committed in the same
+    operation (checked in the writer). Investigation cycles are new steps with `cycle + 1`, never
+    graph cycles.
+  - **Retention.** Steps and edges are kept as long as their operation; only raw outputs and raw
+    events are pruned (D-21). The graph and timeline are always reconstructable from the same trace
+    contract (`04` §13).
+
+## RW-41 Resolution summary provenance per field
+
+- **Decision (PROPOSAL).**
+  - Summaries are stored as append-only field revisions:
+    `resolution_summary_fields(operation_id, field, revision, value, source{code|model|user}, actor,
+    created_at)`.
+  - Code-owned fields (`outcome`, `verified`, `subjects`, `contracts_executed`, `hosts`) accept only
+    `source=code`.
+  - Narrative fields (`problem`, `cause`, `fix`) take `model` drafts and `user` edits or
+    confirmations. The latest revision is current; history is kept.
+  - FTS indexes current narrative values. Search results and model context show each field's source.

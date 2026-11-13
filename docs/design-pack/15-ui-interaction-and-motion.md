@@ -33,7 +33,7 @@ Both must be interruptible and non-blocking, and both are off or instant under r
 | Status settle | 240 ms | Ease out | Running to succeeded/failed/waiting. |
 | Graph edge progression | up to 400 ms | Linear or slight ease | Directional active-path reveal; use sparingly. |
 | Layout transition | 240-400 ms | Ease in-out | Collapse/expand of a node group, re-layout after a cycle is added, fit-to-view. |
-| Graph playback | User-controlled | Consistent playback clock | Replay of a completed operation; speed is chosen by the user. |
+| Graph playback | User-controlled | Consistent playback clock | Replay of a completed operation; speed is chosen by the user. The last U2 deliverable (owner decision D-25). |
 
 Rules for the class:
 
@@ -83,6 +83,8 @@ The graph must visually distinguish **what happened** (durable node/event) from 
 - Retrying/replanned.
 - Uncertain outcome (for example, agent disconnected after dispatch; result not confirmed).
 - Monitoring/delayed verification.
+- Refused (by validation, policy or the agent, with the reason, for example a rate limit).
+- Not run (positive evidence it never started, or its approval expired) and Unavailable (it could not be attempted, for example the host is absent or `Incompatible`), each distinct from Failed.
 
 Each state has text and an icon/tone; color is supplemental.
 
@@ -141,7 +143,7 @@ The **outline** is the screen-reader path: a nested list (cycle, branch, node) i
 - Retry/re-run only through the operation's permitted action path; do not provide a generic retry button on every failed node.
 - Stop/cancel/pause only when supported by the underlying operation and policy; clearly state whether stopping prevents further work or only cancels future steps.
 - Compare cycles/plans.
-- Enter historical playback mode for completed operations: replay of the stored trace through the same renderer, with play/pause, scrub and a user-chosen speed. Playback is built after the live graph and never changes the operation.
+- Enter historical playback mode for completed operations: replay of the stored trace through the same renderer, with play/pause, scrub and a user-chosen speed. Playback is the last U2 deliverable (owner decision D-25), built after the live graph; the timeline, the outline and the history are fully useful without it, and it never changes the operation.
 
 ## 5. Operation and incident state transitions
 
@@ -149,6 +151,7 @@ The **outline** is the screen-reader path: a nested list (cycle, branch, node) i
 - Avoid optimistic UI that says an operation succeeded before the server/agent reports a confirmed result.
 - Distinguish “command returned successfully”, “verification passed” and “incident resolved”.
 - On a lost connection after dispatch, show “outcome unknown / checking state” rather than immediately showing success or issuing a duplicate action.
+- A host that becomes `Incompatible` after dispatch leaves its in-flight step awaiting a compatible agent; the step is neither failed nor shown as offline (owner decision D-20).
 - A new investigation cycle should say why it started (failed verification, new evidence, user request, recurrence, timeout).
 - A failed step must not disappear when a later step succeeds.
 - Long-running work should support safe navigation away and return; page closure must not be interpreted as cancellation.
@@ -176,7 +179,7 @@ The **outline** is the screen-reader path: a nested list (cycle, branch, node) i
 
 ### Action cards inside conversation
 
-A response that creates a proposed action/operation renders the shared structured approval card (doc 14, section 5), not a free-text promise. It shows contract, target, arguments, effect class, reversibility, expiry, plan-hash prefix, the policy decision and approval state; any model prose is secondary and labelled. Chat must not simulate success before execution has returned.
+A response that creates a proposed action/operation renders the shared structured approval card (doc 14, section 5), not a free-text promise. It shows contract, target, arguments, effect class, reversibility, expiry, plan-hash prefix, the policy decision and approval state; any model prose is secondary and labelled. Chat must not simulate success before execution has returned. An agent-side refusal (for example a rate limit) shows on the card with its reason.
 
 ## 7. Policy simulator interactions
 
@@ -186,7 +189,7 @@ A response that creates a proposed action/operation renders the shared structure
 - Results show exact matched rules and constraints, including the winning deny/allow rule and any unknown/missing context.
 - Every scenario run is read-only. Applying a draft policy is a separate explicit action with review and audit.
 - The “simulate” result must call the production policy evaluator through a side-effect-free path.
-- Every result renders the full effective-policy explanation (doc 14, section 12): all matching rules, the winning rule and why it won, broader rules overridden, hard limits shown separately, dangerous exceptions marked.
+- Every result renders the full effective-policy explanation (doc 14, section 12): all matching rules, the winning rule and why it won, broader rules overridden, hard limits shown separately, a locked Deny shown distinctly (with what ordinary resolution would have decided), dangerous exceptions marked.
 - Loading a historical scenario requires the context snapshot and policy version stored at decision time; if absent, say so and offer only the current-policy comparison.
 
 ## 8. Capability installation interactions
@@ -196,6 +199,7 @@ A response that creates a proposed action/operation renders the shared structure
 - A host that has not opted in to installs is shown as such, with where to change it, not as a failure.
 - Partial success must be clearly represented; allow retry only for failed targets, not duplicate the entire fleet deployment.
 - Signature/source verification and privilege changes must be conspicuous.
+- A package signed by a key the agent does not trust, or an older version whose key is no longer trusted, is rejected by the agent and shown with that reason (owner decision D-16).
 - Rollback/uninstall availability is declared and displayed before installation.
 - Enabling a capability and granting it permission are separate explicit decisions.
 - If an agent is offline, show pending delivery, not installed.
@@ -223,6 +227,7 @@ This is the one list of data states. Other documents refer to it instead of keep
 | Refresh error | Refetch failed, data present | Last data stays with "last updated" time and a visible failure notice with Retry | yes |
 | Stale | Data older than its freshness window, or live updates paused | Freshness label with age; never presented as current | yes |
 | Offline / unavailable | A host or agent cannot be reached, or a provider is not configured | Says which source is unavailable; distinct from "no data" and from "not configured" | last known, marked |
+| Incompatible | A host's agent speaks another protocol minor than the hub (owner decision D-20) | Upgrade-required banner naming the required protocol and the agent's version; history stays readable; never presented as offline | last known, marked |
 | Partial | Some sources of a page loaded and others did not | Each section shows its own state; a failed source is named, never silently omitted | per section |
 | Unknown value | A status or schema value this UI does not know (newer hub, agent or provider) | Neutral pill with the raw value; never crashes | n/a |
 
