@@ -14,6 +14,7 @@ import {
 } from "../../components";
 import { hostConnectionMeta, hostConnectionOf, hostKindMeta } from "../../design/tone";
 import { openIncidentsNoun } from "./hostFacts";
+import { protocolDetail } from "./hostProtocol";
 import { HostRowMenu, hostPath } from "./HostRowMenu";
 import { DEFAULT_HOST_SORT, nextSort, sortHosts } from "./hostSort";
 
@@ -32,11 +33,13 @@ function Kind({ host }: { host: Host }) {
 }
 
 function Version({ host }: { host: Host }) {
-  if (host.refused) {
+  const detail = protocolDetail(host);
+  if (detail) {
+    const connection = hostConnectionOf(host);
     return (
-      <Tooltip content={hostConnectionMeta("refused").hint}>
+      <Tooltip content={hostConnectionMeta(connection).hint}>
         <span>
-          <Tag tone="danger">{host.refused}</Tag>
+          <Tag tone={connection === "incompatible" ? "danger" : "warning"}>{detail}</Tag>
         </span>
       </Tooltip>
     );

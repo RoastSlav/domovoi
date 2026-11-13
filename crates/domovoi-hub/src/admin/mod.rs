@@ -111,6 +111,7 @@ impl OfflineAdmin {
                 hosts: store.clone(),
                 facts: store.clone(),
                 sink: Arc::new(Discard),
+                audit: store.clone(),
                 probes: Arc::new(RealNetProbes::new(clock.clone())),
                 hub_host,
             },

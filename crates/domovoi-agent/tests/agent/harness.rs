@@ -87,6 +87,7 @@ pub fn start_link_with(
         overrides: None,
         spool,
         jitter: Box::new(|| 1.0),
+        status_dir: Some(dir.path().to_path_buf()),
     };
     let (link, handle, requests) = Link::new(parts);
     let shutdown = CancellationToken::new();

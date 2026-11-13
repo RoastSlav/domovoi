@@ -236,6 +236,144 @@ mod tests {
     }
 
     #[test]
+    fn agent_status_reports_incompatible_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = dir.path().join("state");
+        let config = dir.path().join("agent.toml");
+        fs::write(
+            &config,
+            format!(
+                "[agent]\nhost_name = \"box\"\nhub_url = \"wss://hub.example:7421\"\nstate_dir = '{}'\nskills_dir = '{}'\n[docker]\nenabled = false\n",
+                state.display(),
+                dir.path().join("skills").display()
+            ),
+        )
+        .unwrap();
+        domovoi_agent::link::status::write(
+            &state,
+            &domovoi_agent::link::status::LinkStatus {
+                state: "incompatible".to_owned(),
+                updated_at: "2026-01-02T03:04:05Z".parse().unwrap(),
+                connected_since: None,
+                hub_protocol: Some("1.2".to_owned()),
+                agent_protocol: Some("1.1".to_owned()),
+                last_notice_at: None,
+                detail: Some("the hub speaks protocol 1.2".to_owned()),
+            },
+        )
+        .unwrap();
+        domovoi()
+            .args(["agent", "status", "--config"])
+            .arg(&config)
+            .assert()
+            .success()
+            .stdout(contains("incompatible"))
+            .stdout(contains("1.1"))
+            .stdout(contains("1.2"));
+    }
+
+    #[test]
+    fn agent_status_legacy_incompatible_reports_the_detail() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = dir.path().join("state");
+        let config = dir.path().join("agent.toml");
+        fs::write(
+            &config,
+            format!(
+                "[agent]\nhost_name = \"box\"\nhub_url = \"wss://hub.example:7421\"\nstate_dir = '{}'\nskills_dir = '{}'\n[docker]\nenabled = false\n",
+                state.display(),
+                dir.path().join("skills").display()
+            ),
+        )
+        .unwrap();
+        let detail = "this agent is release 0.0.1, older than the hub's minimum 0.0.5; \
+                      update the agent; upgrade the agent and restart it; staying up without \
+                      reconnecting";
+        domovoi_agent::link::status::write(
+            &state,
+            &domovoi_agent::link::status::LinkStatus {
+                state: "incompatible".to_owned(),
+                updated_at: "2026-01-02T03:04:05Z".parse().unwrap(),
+                connected_since: None,
+                hub_protocol: None,
+                agent_protocol: None,
+                last_notice_at: None,
+                detail: Some(detail.to_owned()),
+            },
+        )
+        .unwrap();
+        let assert = domovoi()
+            .args(["agent", "status", "--config"])
+            .arg(&config)
+            .assert()
+            .success();
+        let out = String::from_utf8_lossy(&assert.get_output().stdout).into_owned();
+        assert!(out.contains("older than the hub's minimum"), "{out}");
+        assert!(out.contains("updated 2026-01-02T03:04:05Z"), "{out}");
+        assert!(!out.contains("protocol unknown"), "{out}");
+    }
+
+    #[test]
+    fn agent_status_incompatible_without_detail_names_the_upgrade() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = dir.path().join("state");
+        let config = dir.path().join("agent.toml");
+        fs::write(
+            &config,
+            format!(
+                "[agent]\nhost_name = \"box\"\nhub_url = \"wss://hub.example:7421\"\nstate_dir = '{}'\nskills_dir = '{}'\n[docker]\nenabled = false\n",
+                state.display(),
+                dir.path().join("skills").display()
+            ),
+        )
+        .unwrap();
+        domovoi_agent::link::status::write(
+            &state,
+            &domovoi_agent::link::status::LinkStatus {
+                state: "incompatible".to_owned(),
+                updated_at: "2026-01-02T03:04:05Z".parse().unwrap(),
+                connected_since: None,
+                hub_protocol: None,
+                agent_protocol: None,
+                last_notice_at: None,
+                detail: None,
+            },
+        )
+        .unwrap();
+        let assert = domovoi()
+            .args(["agent", "status", "--config"])
+            .arg(&config)
+            .assert()
+            .success();
+        let out = String::from_utf8_lossy(&assert.get_output().stdout).into_owned();
+        assert!(out.contains("incompatible:"), "{out}");
+        assert!(out.contains("upgrade the agent"), "{out}");
+        assert!(out.contains("updated 2026-01-02T03:04:05Z"), "{out}");
+        assert!(!out.contains("protocol unknown"), "{out}");
+    }
+
+    #[test]
+    fn agent_status_without_file_says_not_run_yet() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("agent.toml");
+        fs::write(
+            &config,
+            format!(
+                "[agent]\nhost_name = \"box\"\nhub_url = \"wss://hub.example:7421\"\nstate_dir = '{}'\nskills_dir = '{}'\n[docker]\nenabled = false\n",
+                dir.path().join("state").display(),
+                dir.path().join("skills").display()
+            ),
+        )
+        .unwrap();
+        domovoi()
+            .args(["agent", "status", "--config"])
+            .arg(&config)
+            .assert()
+            .success()
+            .stdout(contains("has not run yet"));
+    }
+
+    #[test]
     fn selftest_offline_passes_all_stages() {
         let dir = tempfile::tempdir().unwrap();
         let config = dir.path().join("hub.toml");

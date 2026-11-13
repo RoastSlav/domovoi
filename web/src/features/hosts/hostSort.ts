@@ -6,9 +6,9 @@ import { hostConnectionOf, hostKindMeta, type HostConnection } from "../../desig
 export const DEFAULT_HOST_SORT: TableSort = { key: "connection", direction: "ascending" };
 
 /**
- * Where a host falls in the list: trouble first (offline or refused, then never connected,
- * then connected but out of date), then the quiet ones. An external host has no agent to be
- * in trouble, so it sorts with the quiet ones.
+ * Where a host falls in the list: trouble first (offline or incompatible, then never
+ * connected, then connected but out of date), then the quiet ones. An external host has no
+ * agent to be in trouble, so it sorts with the quiet ones.
  */
 function rankOf(host: Host): number {
   const connection = hostConnectionOf(host);
@@ -17,7 +17,8 @@ function rankOf(host: Host): number {
   }
   const RANKS: Record<HostConnection, number> = {
     offline: 0,
-    refused: 0,
+    incompatible: 0,
+    expected_incompatible: 0,
     never_connected: 1,
     connected: host.outdated ? 2 : 3,
     hub_only: 4,

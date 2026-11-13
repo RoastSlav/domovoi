@@ -943,9 +943,20 @@ expression: spec
               "null"
             ]
           },
+          "hub_protocol": {
+            "description": "The protocol this hub speaks.",
+            "type": "string"
+          },
           "id": {
             "description": "Host id.",
             "type": "string"
+          },
+          "incompatible_since": {
+            "description": "When this hub first rejected the agent's protocol, as RFC 3339; absent otherwise.",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "kind": {
             "description": "`agent`, `container_agent` or `external`.",
@@ -972,8 +983,19 @@ expression: spec
             "description": "Whether the connected agent is older than the hub.",
             "type": "boolean"
           },
-          "refused": {
-            "description": "Why the host's agent was refused at its last handshake, for example\n`agent 0.0.1 is older than the minimum 0.0.5; update it`. `None` when the agent\nconnected, or was never refused.",
+          "protocol_state": {
+            "description": "`compatible`, `incompatible`, `expected_incompatible` or `unknown`.",
+            "type": "string"
+          },
+          "reported_protocol": {
+            "description": "The protocol the agent last reported, such as `1.1`; absent when it never did.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reported_release": {
+            "description": "The release the agent last reported; absent when it never did.",
             "type": [
               "string",
               "null"
@@ -994,6 +1016,8 @@ expression: spec
           "connected",
           "agent_enrolled",
           "outdated",
+          "protocol_state",
+          "hub_protocol",
           "open_incidents"
         ],
         "type": "object"

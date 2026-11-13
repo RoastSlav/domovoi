@@ -20,6 +20,8 @@ pub enum AgentCommand {
     Run(ConfigArg),
     /// Trade a one-time token for this agent's identity and pin the hub's certificate.
     Enroll(EnrollArgs),
+    /// Show what the link last recorded: connected, reconnecting or incompatible.
+    Status(ConfigArg),
 }
 
 /// `--config` for agent commands.
@@ -69,6 +71,46 @@ pub async fn run(command: AgentCommand, logs: Arc<LogRing>) -> anyhow::Result<Ex
             )?;
             let agent = AgentRuntime::new(config, deps).await?;
             agent.run(init::shutdown_on_signals()).await?;
+            Ok(ExitCode::SUCCESS)
+        }
+        AgentCommand::Status(args) => {
+            let config = load_agent(&args.config)?;
+            match domovoi_agent::link::status::read(&config.agent.state_dir)? {
+                None => println!("no status recorded; the agent has not run yet."),
+                Some(status) if status.state == "incompatible" => {
+                    match (
+                        status.agent_protocol.as_deref(),
+                        status.hub_protocol.as_deref(),
+                    ) {
+                        (Some(agent), Some(hub)) => {
+                            println!(
+                                "incompatible: this agent speaks protocol {agent}, the hub \
+                                 speaks {hub}. Upgrade the agent, then restart it. (updated {})",
+                                status.updated_at
+                            );
+                            if let Some(detail) = status.detail {
+                                println!("{detail}");
+                            }
+                        }
+                        _ => {
+                            // A legacy `agent_too_old` reject names no protocol pair; the
+                            // stored detail says what happened.
+                            let detail = status
+                                .detail
+                                .unwrap_or_else(|| "upgrade the agent, then restart it".to_owned());
+                            println!("incompatible: {detail} (updated {})", status.updated_at);
+                        }
+                    }
+                }
+                Some(status) if status.state == "connected" => {
+                    let since = status.connected_since.unwrap_or(status.updated_at);
+                    println!("connected since {since}.");
+                }
+                Some(status) => {
+                    let detail = status.detail.unwrap_or_else(|| "not connected".to_owned());
+                    println!("{}: {detail} (updated {})", status.state, status.updated_at);
+                }
+            }
             Ok(ExitCode::SUCCESS)
         }
         AgentCommand::Enroll(args) => {

@@ -16,7 +16,7 @@ The hub keeps its state in one SQLite database in WAL mode, under `[hub] data_di
 | Table | Contents |
 | --- | --- |
 | `hosts` | Every host Domovoi knows: name, kind (local, remote, external), labels. Names are unique. |
-| `agents` | Agent identities: public key, version, enrolled and revoked times. A host has at most one agent that is not revoked, and a revoked agent never returns. |
+| `agents` | Agent identities: public key, version, enrolled and revoked times, plus what the agent last reported after authenticating: its protocol, release, last authentication and, when the hub rejected its protocol, the time it did so. A host has at most one agent that is not revoked, and a revoked agent never returns. |
 | `enrollment_tokens` | Hashes of single-use enrollment tokens with their host and expiry. Consuming one is a single atomic update. |
 | `signals` | Raw signals from checks, probes and webhooks, kept as JSON with indexed host, check, status and time. |
 | `incident_signals` | Which signals belong to which incident. |

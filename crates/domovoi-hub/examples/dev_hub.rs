@@ -30,7 +30,7 @@ use domovoi_engine::{
     ManagerHandle, PatternRedactor,
 };
 use domovoi_hub::agent_server::{
-    AgentServer, AgentServerDeps, AgentServerError, EnrollmentInvite, RealNetProbes, Refusal,
+    AgentServer, AgentServerDeps, AgentServerError, EnrollmentInvite, RealNetProbes,
     ServerSettings, SkillPolicy,
 };
 use domovoi_hub::api::{AgentAdmin, ApiDeps, ApiState};
@@ -132,10 +132,6 @@ impl AgentAdmin for DevAgents {
         }
     }
 
-    fn refusal(&self, host: HostId) -> Option<Refusal> {
-        AgentAdmin::refusal(&self.server, host)
-    }
-
     async fn logs(
         &self,
         host: HostId,
@@ -165,8 +161,9 @@ fn agent_server(
     let deps = AgentServerDeps {
         clock: clock.clone(),
         hosts: store.clone(),
-        facts: store,
+        facts: store.clone(),
         sink: Arc::new(sink),
+        audit: store,
         probes: Arc::new(RealNetProbes::new(clock)),
         hub_host: HostId::new(),
     };

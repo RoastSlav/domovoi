@@ -29,7 +29,9 @@ const VIEWS = [
 function Summary({ hosts }: { hosts: readonly Host[] }) {
   const connections = hosts.map(hostConnectionOf);
   const online = connections.filter((state) => state === "connected").length;
-  const offline = connections.filter((state) => state === "offline" || state === "refused").length;
+  const offline = connections.filter(
+    (state) => state === "offline" || state === "incompatible" || state === "expected_incompatible",
+  ).length;
   return (
     <>
       <Tag>{hosts.length === 1 ? "1 host" : `${hosts.length} hosts`}</Tag>

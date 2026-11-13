@@ -101,10 +101,15 @@ function Incidents({ host }: { host: Host }) {
   );
 }
 
-/** The agent's version in mono, or why it was refused, with a note when it is out of date. */
+/** The agent's version in mono, or its protocol state, with a note when it is out of date. */
 function Version({ host }: { host: Host }) {
-  if (host.refused) {
-    return <Tag tone="danger">Refused</Tag>;
+  const connection = hostConnectionOf(host);
+  if (connection === "incompatible" || connection === "expected_incompatible") {
+    return (
+      <Tag tone={connection === "incompatible" ? "danger" : "warning"}>
+        {hostConnectionMeta(connection).label}
+      </Tag>
+    );
   }
   if (!host.version) {
     return null;

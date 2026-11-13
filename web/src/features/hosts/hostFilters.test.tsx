@@ -30,8 +30,33 @@ const down = (name: string) =>
 const never = (name: string) =>
   host(name, { connected: false, version: null, last_seen: null, agent_enrolled: false });
 const old = (name: string) => host(name, { outdated: true, version: "0.0.1" });
+const incompatible = (name: string) =>
+  host(name, {
+    connected: false,
+    version: null,
+    protocol_state: "incompatible",
+    reported_protocol: "1.1",
+    hub_protocol: "1.2",
+  });
+const expected = (name: string) =>
+  host(name, {
+    connected: false,
+    version: null,
+    protocol_state: "expected_incompatible",
+    reported_protocol: "1.1",
+    hub_protocol: "1.2",
+  });
 
-const FLEET = [host("a"), host("b"), down("c"), never("d"), old("e"), host("f")];
+const FLEET = [
+  host("a"),
+  host("b"),
+  down("c"),
+  never("d"),
+  old("e"),
+  host("f"),
+  incompatible("g"),
+  expected("h"),
+];
 
 function names(): string[] {
   const table = screen.getByRole("table", { name: "Hosts" });
@@ -41,10 +66,10 @@ function names(): string[] {
     .map((row) => within(row).getAllByRole("cell")[0]?.textContent ?? "");
 }
 
-test("problems_are_offline_never_connected_refused_or_outdated_hosts", () => {
-  expect(countsOf(FLEET)).toEqual({ all: 6, problems: 3, online: 4, offline: 2 });
-  expect(filterHosts(FLEET, "problems", "").map((h) => h.name)).toEqual(["c", "d", "e"]);
-  expect(filterHosts(FLEET, "offline", "").map((h) => h.name)).toEqual(["c", "d"]);
+test("problems_are_offline_incompatible_never_connected_or_outdated_hosts", () => {
+  expect(countsOf(FLEET)).toEqual({ all: 8, problems: 5, online: 4, offline: 4 });
+  expect(filterHosts(FLEET, "problems", "").map((h) => h.name)).toEqual(["c", "d", "e", "g", "h"]);
+  expect(filterHosts(FLEET, "offline", "").map((h) => h.name)).toEqual(["c", "d", "g", "h"]);
   expect(filterHosts(FLEET, "online", "").map((h) => h.name)).toEqual(["a", "b", "e", "f"]);
   expect(filterHosts(FLEET, "all", "  B ").map((h) => h.name)).toEqual(["b"]);
 });
@@ -52,6 +77,8 @@ test("problems_are_offline_never_connected_refused_or_outdated_hosts", () => {
 test("problem_hosts_sort_before_healthy_ones", () => {
   expect(sortHosts(FLEET, DEFAULT_HOST_SORT).map((h) => h.name)).toEqual([
     "c",
+    "g",
+    "h",
     "d",
     "e",
     "a",
@@ -68,14 +95,14 @@ test("the_filter_chips_narrow_the_list_and_show_how_many_hosts_each_one_holds", 
 
   const chips = screen.getByRole("group", { name: "Show hosts" });
   expect(
-    within(chips).getByRole("radio", { name: /Problems.*3 hosts with problems/ }),
+    within(chips).getByRole("radio", { name: /Problems.*5 hosts with problems/ }),
   ).toBeVisible();
   await user.click(within(chips).getByRole("radio", { name: /^Problems/ }));
-  expect(names()).toEqual(["c", "d", "e"]);
+  expect(names()).toEqual(["c", "g", "h", "d", "e"]);
   await user.click(within(chips).getByRole("radio", { name: /^Online/ }));
   expect(names()).toEqual(["e", "a", "b", "f"]);
   await user.click(within(chips).getByRole("radio", { name: /^All/ }));
-  expect(names()).toHaveLength(6);
+  expect(names()).toHaveLength(8);
   expect(screen.queryByRole("searchbox", { name: "Search hosts" })).toBeNull();
 });
 

@@ -7,7 +7,7 @@
       "name": "MIT OR Apache-2.0",
       "identifier": "MIT OR Apache-2.0"
     },
-    "version": "0.0.9"
+    "version": "0.0.10"
   },
   "paths": {
     "/api/v1/ack-rules": {
@@ -4210,6 +4210,8 @@
           "connected",
           "agent_enrolled",
           "outdated",
+          "protocol_state",
+          "hub_protocol",
           "open_incidents"
         ],
         "properties": {
@@ -4228,9 +4230,20 @@
             ],
             "description": "Since when it is connected."
           },
+          "hub_protocol": {
+            "type": "string",
+            "description": "The protocol this hub speaks."
+          },
           "id": {
             "type": "string",
             "description": "Host id."
+          },
+          "incompatible_since": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "When this hub first rejected the agent's protocol, as RFC 3339; absent otherwise."
           },
           "kind": {
             "type": "string",
@@ -4257,12 +4270,23 @@
             "type": "boolean",
             "description": "Whether the connected agent is older than the hub."
           },
-          "refused": {
+          "protocol_state": {
+            "type": "string",
+            "description": "`compatible`, `incompatible`, `expected_incompatible` or `unknown`."
+          },
+          "reported_protocol": {
             "type": [
               "string",
               "null"
             ],
-            "description": "Why the host's agent was refused at its last handshake, for example\n`agent 0.0.1 is older than the minimum 0.0.5; update it`. `None` when the agent\nconnected, or was never refused."
+            "description": "The protocol the agent last reported, such as `1.1`; absent when it never did."
+          },
+          "reported_release": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The release the agent last reported; absent when it never did."
           },
           "version": {
             "type": [

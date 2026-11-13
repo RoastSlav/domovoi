@@ -4,6 +4,7 @@ import type { Host } from "../../api/types";
 import { Count, RelativeTime, StatusPill, Tag, Text, Tooltip } from "../../components";
 import { hostConnectionMeta, hostConnectionOf, hostKindMeta } from "../../design/tone";
 import { openIncidentsNoun } from "./hostFacts";
+import { protocolDetail } from "./hostProtocol";
 import styles from "./hostMeta.module.css";
 
 /** Whether the host is the hub's own machine and no agent was ever enrolled on it.
@@ -24,11 +25,13 @@ function Fact({ label, children }: { children: ReactNode; label: string }) {
 }
 
 function Agent({ host }: { host: Host }) {
-  if (host.refused) {
+  const detail = protocolDetail(host);
+  if (detail) {
+    const connection = hostConnectionOf(host);
     return (
-      <Tooltip content={hostConnectionMeta("refused").hint}>
+      <Tooltip content={hostConnectionMeta(connection).hint}>
         <span>
-          <Tag tone="danger">{host.refused}</Tag>
+          <Tag tone={connection === "incompatible" ? "danger" : "warning"}>{detail}</Tag>
         </span>
       </Tooltip>
     );

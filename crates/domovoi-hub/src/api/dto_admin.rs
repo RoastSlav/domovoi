@@ -64,10 +64,16 @@ pub struct HostDto {
     pub last_seen: Option<String>,
     /// Whether the connected agent is older than the hub.
     pub outdated: bool,
-    /// Why the host's agent was refused at its last handshake, for example
-    /// `agent 0.0.1 is older than the minimum 0.0.5; update it`. `None` when the agent
-    /// connected, or was never refused.
-    pub refused: Option<String>,
+    /// `compatible`, `incompatible`, `expected_incompatible` or `unknown`.
+    pub protocol_state: String,
+    /// The protocol the agent last reported, such as `1.1`; absent when it never did.
+    pub reported_protocol: Option<String>,
+    /// The protocol this hub speaks.
+    pub hub_protocol: String,
+    /// The release the agent last reported; absent when it never did.
+    pub reported_release: Option<String>,
+    /// When this hub first rejected the agent's protocol, as RFC 3339; absent otherwise.
+    pub incompatible_since: Option<String>,
     /// Incidents not yet resolved (pending, open, acked or muted), counted up to 200.
     pub open_incidents: u32,
 }

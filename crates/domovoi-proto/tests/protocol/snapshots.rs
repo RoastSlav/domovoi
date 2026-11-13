@@ -33,3 +33,16 @@ fn every_message_kind_matches_its_wire_snapshot() {
         pretty(&samples::agent_too_old(), true)
     );
 }
+
+#[test]
+fn golden_frames_stay_at_1_1() {
+    assert_eq!(domovoi_proto::PROTOCOL_VERSION.to_string(), "1.1");
+    let reject = samples::all()
+        .into_iter()
+        .find(|message| message.kind() == "reject")
+        .expect("the samples include a reject");
+    assert_eq!(
+        pretty(&reject, true)["payload"]["reason"],
+        serde_json::json!({"code": "incompatible", "hub": {"major": 1, "minor": 1}})
+    );
+}

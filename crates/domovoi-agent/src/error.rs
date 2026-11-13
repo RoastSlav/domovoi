@@ -48,7 +48,8 @@ pub enum LinkError {
     /// The hub has revoked this agent or does not know it. The link stops.
     #[error("the hub rejected this agent ({0}); enroll it again")]
     Revoked(&'static str),
-    /// The hub speaks an incompatible protocol version. The link stops.
+    /// The hub speaks another protocol version. The link stays up idle until the agent is
+    /// upgraded and restarted.
     #[error(
         "the hub speaks protocol {}.{} and this agent speaks {}.{}; upgrade the older one",
         hub.major, hub.minor, agent.major, agent.minor
@@ -60,7 +61,7 @@ pub enum LinkError {
         agent: ProtocolVersion,
     },
     /// The hub refused this agent because its release is older than the hub accepts. The
-    /// link stops: the agent has to be updated.
+    /// link stays up idle until the agent is upgraded and restarted.
     #[error(
         "this agent is release {}, older than the hub's minimum {}; update the agent",
         agent_version,
@@ -72,32 +73,19 @@ pub enum LinkError {
         /// The oldest agent release the hub accepts.
         minimum: Release,
     },
-    /// This agent refuses the hub because the hub's release is older than the agent accepts.
-    /// The link stops: the hub has to be updated.
-    #[error(
-        "the hub says it runs release {}, older than this agent's minimum {}; update the hub",
-        hub_version,
-        minimum
-    )]
-    HubTooOld {
-        /// The hub's release, as the hub said it.
-        hub_version: String,
-        /// The oldest hub release this agent accepts.
-        minimum: Release,
-    },
 }
 
 impl LinkError {
     /// Whether retrying cannot help, so the link stops.
     #[must_use]
     pub fn is_final(&self) -> bool {
-        matches!(
-            self,
-            Self::Revoked(_)
-                | Self::Incompatible { .. }
-                | Self::AgentTooOld { .. }
-                | Self::HubTooOld { .. },
-        )
+        matches!(self, Self::Revoked(_))
+    }
+
+    /// Whether the agent should stay up and stop reconnecting until upgraded and restarted.
+    #[must_use]
+    pub fn is_idle(&self) -> bool {
+        matches!(self, Self::Incompatible { .. } | Self::AgentTooOld { .. })
     }
 }
 

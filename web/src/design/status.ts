@@ -55,7 +55,13 @@ export type Risk = "read" | "write" | "destructive";
 /** How a triage run went. */
 export type TriageKind = "report" | "cached" | "skipped" | "failed";
 /** Whether a host's agent is reachable. */
-export type HostConnection = "connected" | "offline" | "never_connected" | "hub_only" | "refused";
+export type HostConnection =
+  | "connected"
+  | "offline"
+  | "never_connected"
+  | "hub_only"
+  | "incompatible"
+  | "expected_incompatible";
 /** How a container runs, as its host reports it. */
 export type ContainerState =
   "healthy" | "running" | "unhealthy" | "restarting" | "exited" | "other";

@@ -1,6 +1,9 @@
 use async_trait::async_trait;
 use domovoi_core::ports::{EnrollmentToken, HostRepo, StoreError};
-use domovoi_core::{AgentId, AgentIdentity, Host, HostId, HostName};
+use domovoi_core::{
+    AgentId, AgentIdentity, AgentReport, AuthenticatedReport, Host, HostId, HostName,
+    REPORT_REFRESH, ReportOutcome,
+};
 use jiff::Timestamp;
 
 use super::{InMemoryStore, conflict};
@@ -78,6 +81,54 @@ impl HostRepo for InMemoryStore {
         let agent = state.agents.get_mut(&id).ok_or(StoreError::NotFound)?;
         agent.revoked_at.get_or_insert(at);
         Ok(())
+    }
+
+    async fn agent_report(&self, agent: AgentId) -> Result<Option<AgentReport>, StoreError> {
+        Ok(self.begin()?.reports.get(&agent).cloned())
+    }
+
+    async fn record_agent_report(
+        &self,
+        agent: AgentId,
+        seen: &AuthenticatedReport,
+        now: Timestamp,
+    ) -> Result<ReportOutcome, StoreError> {
+        let mut state = self.begin()?;
+        if !state.agents.contains_key(&agent) {
+            return Err(StoreError::NotFound);
+        }
+        let previous = state.reports.get(&agent).cloned();
+        let since_was = previous
+            .as_ref()
+            .and_then(|report| report.incompatible_since);
+        let changed = previous.as_ref().is_none_or(|report| {
+            report.protocol != seen.protocol
+                || report.release != seen.release
+                || report.incompatible_since.is_some() != !seen.compatible
+        });
+        if changed {
+            let since = if seen.compatible {
+                None
+            } else {
+                since_was.or(Some(now))
+            };
+            state.reports.insert(
+                agent,
+                AgentReport {
+                    protocol: seen.protocol,
+                    release: seen.release.clone(),
+                    last_authenticated_at: now,
+                    incompatible_since: since,
+                },
+            );
+        } else if previous
+            .as_ref()
+            .is_none_or(|report| now.duration_since(report.last_authenticated_at) >= REPORT_REFRESH)
+            && let Some(report) = state.reports.get_mut(&agent)
+        {
+            report.last_authenticated_at = now;
+        }
+        Ok(ReportOutcome { changed, previous })
     }
 
     async fn create_enrollment_token(&self, token: &EnrollmentToken) -> Result<(), StoreError> {

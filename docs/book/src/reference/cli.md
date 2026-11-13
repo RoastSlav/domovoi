@@ -46,6 +46,16 @@ Runs the agent until SIGINT or SIGTERM. Skills and check commands run through th
 domovoi agent run --config /etc/domovoi/agent.toml
 ```
 
+### `domovoi agent status`
+
+Prints what the link last recorded: whether it is connected, reconnecting, or idle because the hub speaks another protocol version. For an incompatible agent it names both protocols and the file's update time. The file is only as fresh as the last write, so a stopped agent leaves a stale line.
+
+```sh
+domovoi agent status --config /etc/domovoi/agent.toml
+```
+
+Without a status file it prints `no status recorded; the agent has not run yet.`
+
 ## Enrolling agents
 
 ### `domovoi hub token create <host>`

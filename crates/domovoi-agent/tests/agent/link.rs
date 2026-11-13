@@ -5,6 +5,7 @@ use std::sync::Arc;
 use domovoi_agent::enroll::{EnrollEnv, enroll};
 use domovoi_agent::identity::{Identity, generate_key};
 use domovoi_agent::link::RequestKind;
+use domovoi_agent::link::status;
 use domovoi_agent::link::tls::PinnedVerifier;
 use domovoi_agent::link::ws::{Connector, TlsConnector};
 use domovoi_agent::{EnrollError, LinkError};
@@ -15,7 +16,7 @@ use domovoi_proto::messages::{
     Enrolled, Ping, RejectReason, RunTool, ToolFailure, ToolFailureCode, ToolOutcome, ToolResult,
 };
 use domovoi_proto::{
-    CertFingerprint, EnrollToken, MIN_AGENT_VERSION, Message, PROTOCOL_VERSION, ProtocolVersion,
+    CertFingerprint, EnrollToken, Message, PROTOCOL_VERSION, ProtocolVersion, Release,
     challenge_message,
 };
 use domovoi_testkit::FakeClock;
@@ -206,63 +207,172 @@ async fn revoked_reject_stops_retrying() {
     assert_eq!(hub.accepted(), 1);
 }
 
-/// The hub rejects the agent because its release is older than the hub's minimum: the
-/// agent stops rather than retrying.
+/// A too-old reject from a hub that still sends the legacy reason leaves the agent idle,
+/// not stopped and restarted.
 #[tokio::test]
-async fn agent_refused_by_the_hub_for_being_too_old_is_final() {
+async fn agent_too_old_reject_from_older_hub_is_idle() {
     let mut hub = TestHub::start().await;
     let dir = tempfile::tempdir().unwrap();
     let identity = identity(&hub);
-    let link = start_link(&hub, &identity, &clock(), &dir);
+    let clock = clock();
+    let link = start_link(&hub, &identity, &clock, &dir);
+    let shutdown = link.shutdown.clone();
     let mut conn = hub.accept().await;
     conn.reject(
         &identity,
         RejectReason::AgentTooOld {
-            minimum: MIN_AGENT_VERSION,
+            minimum: Release {
+                major: 0,
+                minor: 0,
+                patch: 5,
+            },
         },
     )
     .await;
-    let err = guard(link.task).await.unwrap().unwrap_err();
-    assert!(
-        err.is_final(),
-        "the agent must not retry an age the hub will not accept"
-    );
+    settle().await;
+    assert!(!link.task.is_finished(), "the agent stays up idle");
+    let err = LinkError::AgentTooOld {
+        agent_version: "0.0.1".to_owned(),
+        minimum: Release {
+            major: 0,
+            minor: 0,
+            patch: 5,
+        },
+    };
+    assert!(err.is_idle() && !err.is_final());
     let said = err.to_string();
     assert!(said.contains("update the agent"), "{said}");
-    assert!(said.contains("0.0.5"), "the hub names the minimum it wants");
+    shutdown.cancel();
+    assert!(guard(link.task).await.unwrap().is_ok());
 }
 
 #[tokio::test]
-async fn incompatible_reject_stops_with_upgrade_message() {
+async fn incompatible_reject_is_idle_not_final() {
     let mut hub = TestHub::start().await;
     let dir = tempfile::tempdir().unwrap();
     let identity = identity(&hub);
-    let link = start_link(&hub, &identity, &clock(), &dir);
+    let clock = clock();
+    let link = start_link(&hub, &identity, &clock, &dir);
+    let shutdown = link.shutdown.clone();
     let mut conn = hub.accept().await;
     let hub_version = ProtocolVersion { major: 2, minor: 0 };
     conn.reject(&identity, RejectReason::Incompatible { hub: hub_version })
         .await;
-    let err = guard(link.task).await.unwrap().unwrap_err();
-    assert!(err.is_final());
+    settle().await;
+    assert!(!link.task.is_finished(), "the agent stays up idle");
+    let err = LinkError::Incompatible {
+        hub: hub_version,
+        agent: PROTOCOL_VERSION,
+    };
+    assert!(err.is_idle());
+    assert!(!err.is_final(), "an upgrade and restart ends the state");
     assert!(err.to_string().contains("upgrade"), "{err}");
+    shutdown.cancel();
+    assert!(guard(link.task).await.unwrap().is_ok());
 }
 
-/// The hub says it runs an old release, but is otherwise a normal hub: the agent refuses
-/// it and the link stops.
 #[tokio::test]
-async fn hub_older_than_the_agent_minimum_is_refused() {
+async fn incompatible_agent_idles_without_reconnecting() {
     let mut hub = TestHub::start().await;
     let dir = tempfile::tempdir().unwrap();
     let identity = identity(&hub);
-    let link = start_link(&hub, &identity, &clock(), &dir);
+    let clock = clock();
+    let link = start_link(&hub, &identity, &clock, &dir);
+    let shutdown = link.shutdown.clone();
+    let mut conn = hub.accept().await;
+    conn.reject(
+        &identity,
+        RejectReason::Incompatible {
+            hub: ProtocolVersion { major: 2, minor: 0 },
+        },
+    )
+    .await;
+    settle().await;
+    assert!(!link.task.is_finished(), "the link did not exit");
+    for _ in 0..3 {
+        clock.advance(SignedDuration::from_hours(1));
+        settle().await;
+    }
+    assert_eq!(hub.accepted(), 1, "an idle agent never reconnects");
+    assert!(!link.task.is_finished());
+    shutdown.cancel();
+    assert!(guard(link.task).await.unwrap().is_ok());
+}
+
+#[tokio::test]
+async fn idle_incompatible_agent_logs_and_updates_status_hourly() {
+    let mut hub = TestHub::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let identity = identity(&hub);
+    let clock = clock();
+    let link = start_link(&hub, &identity, &clock, &dir);
+    let shutdown = link.shutdown.clone();
+    let mut conn = hub.accept().await;
+    conn.reject(
+        &identity,
+        RejectReason::Incompatible {
+            hub: ProtocolVersion { major: 2, minor: 0 },
+        },
+    )
+    .await;
+    settle().await;
+    let before = status::read(dir.path()).unwrap().expect("status written");
+    assert_eq!(before.state, "incompatible");
+    assert_eq!(before.agent_protocol.as_deref(), Some("1.1"));
+    assert_eq!(before.hub_protocol.as_deref(), Some("2.0"));
+    let first = before.last_notice_at.expect("the first notice is timed");
+    clock.advance(SignedDuration::from_hours(1));
+    settle().await;
+    let after = status::read(dir.path()).unwrap().expect("status rewritten");
+    assert!(
+        after.last_notice_at.expect("the hourly notice is timed") > first,
+        "the idle agent says hourly that it is still waiting"
+    );
+    shutdown.cancel();
+    assert!(guard(link.task).await.unwrap().is_ok());
+}
+
+/// A hub release is not a compatibility dimension: any welcome is accepted.
+#[tokio::test]
+async fn welcome_from_any_hub_release_is_accepted() {
+    let mut hub = TestHub::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let identity = identity(&hub);
+    let clock = clock();
+    let link = start_link(&hub, &identity, &clock, &dir);
     let mut conn = hub.accept().await;
     conn.welcome_from_release(&identity, 3600, "0.0.1").await;
-    let err = guard(link.task).await.unwrap().unwrap_err();
-    assert!(err.is_final(), "an update of the hub is the only way out");
-    let said = err.to_string();
-    assert!(said.contains("update the hub"), "{said}");
-    assert!(said.contains("0.0.1"), "the hub names its own release");
-    assert!(said.contains("0.0.5"), "and the minimum the agent accepts");
+    let (first, _) = advancing(&clock, SignedDuration::from_secs(1), conn.expect()).await;
+    assert!(
+        matches!(first.message, Message::Ping(Ping { .. })),
+        "the session starts and heartbeats as usual"
+    );
+    link.shutdown.cancel();
+    assert!(guard(link.task).await.unwrap().is_ok());
+}
+
+#[tokio::test]
+async fn link_status_written_on_connect_and_drop() {
+    let mut hub = TestHub::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let identity = identity(&hub);
+    let clock = clock();
+    let link = start_link(&hub, &identity, &clock, &dir);
+    let shutdown = link.shutdown.clone();
+    let mut conn = hub.accept().await;
+    conn.welcome(&identity, 3600).await;
+    settle().await;
+    let connected = status::read(dir.path()).unwrap().expect("status written");
+    assert_eq!(connected.state, "connected");
+    assert!(connected.connected_since.is_some());
+
+    drop(conn);
+    settle().await;
+    let dropped = status::read(dir.path()).unwrap().expect("status rewritten");
+    assert_eq!(dropped.state, "reconnecting");
+    assert!(dropped.connected_since.is_none());
+    shutdown.cancel();
+    assert!(guard(link.task).await.unwrap().is_ok());
 }
 
 /// A hub whose release does not parse, as a development build's does, is never locked out.

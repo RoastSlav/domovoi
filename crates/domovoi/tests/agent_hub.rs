@@ -83,8 +83,9 @@ mod common {
         let deps = AgentServerDeps {
             clock: Arc::new(FakeClock::new(t0())),
             hosts: store.clone(),
-            facts: store,
+            facts: store.clone(),
             sink: sink.clone(),
+            audit: store,
             probes: Arc::new(Up),
             hub_host: HostId::new(),
         };

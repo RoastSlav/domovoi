@@ -111,13 +111,16 @@ export function hostConnectionMeta(connection: string): StatusMeta {
 
 /** Which connection state `host` is in, for `hostConnectionMeta`. */
 export function hostConnectionOf(
-  host: Pick<Host, "agent_enrolled" | "connected" | "kind" | "last_seen" | "refused">,
+  host: Pick<Host, "agent_enrolled" | "connected" | "kind" | "last_seen" | "protocol_state">,
 ): HostConnection {
   if (host.connected) {
     return "connected";
   }
-  if (host.refused) {
-    return "refused";
+  if (host.protocol_state === "incompatible") {
+    return "incompatible";
+  }
+  if (host.protocol_state === "expected_incompatible") {
+    return "expected_incompatible";
   }
   if (host.kind === "local" && !host.agent_enrolled) {
     return "hub_only";

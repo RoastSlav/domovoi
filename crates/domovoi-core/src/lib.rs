@@ -42,7 +42,10 @@ pub use digest::{Digest, DigestFact, FactValue, HostDigest, Trend};
 pub use error::{TransitionError, ValidationError};
 pub use fingerprint::Fingerprint;
 pub use history::EntityHistory;
-pub use host::{AgentIdentity, Host, HostKind, HostName};
+pub use host::{
+    AgentIdentity, AgentReport, AuthenticatedReport, Host, HostKind, HostName, ProtocolParseError,
+    REPORT_REFRESH, ReportOutcome, ReportedProtocol,
+};
 pub use id::{
     AckRuleId, ActionId, AdvisoryId, AgentId, EffectId, HostId, IncidentId, NoteId, RequestId,
     SignalId, UserId,

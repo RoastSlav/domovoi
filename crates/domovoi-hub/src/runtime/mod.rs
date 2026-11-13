@@ -206,6 +206,7 @@ impl HubRuntime {
                 hosts: store.clone(),
                 facts: store.clone(),
                 sink: Arc::new(manager.clone()),
+                audit: store.clone(),
                 probes: Arc::new(RealNetProbes::new(clock.clone())),
                 hub_host,
             },

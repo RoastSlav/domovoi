@@ -77,6 +77,16 @@ fn other_major_is_rejected() {
         request_id(1)
     );
     assert_eq!(decode(&frame), Err(ProtoError::UnsupportedMajor { v: 2 }));
+
+    // A hello with an otherwise valid payload is refused at the envelope, before the
+    // payload is parsed: a peer on another major is never authenticated.
+    let hello = samples::all()
+        .into_iter()
+        .find(|message| message.kind() == "hello")
+        .expect("the samples include a hello");
+    let frame = encode(&hello, request_id(1), None).unwrap();
+    let frame = frame.replacen("\"v\":1", "\"v\":2", 1);
+    assert_eq!(decode(&frame), Err(ProtoError::UnsupportedMajor { v: 2 }));
 }
 
 #[test]

@@ -8,7 +8,7 @@ export interface Fleet {
   online: number;
   /** Hosts that have, or should have, an agent: the hub's own machine is not counted. */
   total: number;
-  /** Enrolled agents that are not connected, or were refused. */
+  /** Enrolled agents that are not connected, or speak another protocol. */
   offline: number;
   /** Hosts whose agent has never connected. */
   never: number;

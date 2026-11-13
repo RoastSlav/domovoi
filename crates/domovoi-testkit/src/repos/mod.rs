@@ -20,8 +20,8 @@ use domovoi_core::ports::{
 };
 use domovoi_core::{
     AckRule, AckRuleId, ActionId, ActionRequest, Advisory, AdvisoryId, AgentId, AgentIdentity,
-    BaselineEntry, DigestFact, Fingerprint, Host, HostId, Incident, IncidentId, MaintenanceWindow,
-    Note, NoteId, Session, Signal, SignalId, TriageReport, User, UserId,
+    AgentReport, BaselineEntry, DigestFact, Fingerprint, Host, HostId, Incident, IncidentId,
+    MaintenanceWindow, Note, NoteId, Session, Signal, SignalId, TriageReport, User, UserId,
 };
 use jiff::Timestamp;
 use serde_json::Value;
@@ -35,6 +35,7 @@ type UsageRow = (String, u64, u64, u64, Timestamp);
 struct State {
     hosts: BTreeMap<HostId, Host>,
     agents: BTreeMap<AgentId, AgentIdentity>,
+    reports: BTreeMap<AgentId, AgentReport>,
     tokens: BTreeMap<[u8; 32], EnrollmentToken>,
     signals: BTreeMap<SignalId, (Signal, Option<IncidentId>)>,
     incidents: BTreeMap<IncidentId, Incident>,

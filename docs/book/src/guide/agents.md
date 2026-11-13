@@ -31,7 +31,7 @@ Keep `<data_dir>/tls/` with your backups. If the certificate is lost, the hub ma
 
 Each time it connects, the agent says hello. The hub answers with a random challenge, which the agent signs with its key. The signature also covers the TLS session itself, so it cannot be replayed on another connection. Only then does the session start and the hub send work to the agent.
 
-The hub refuses an agent that it does not know, one that has been revoked, or one whose protocol version is too far from its own. A new connection from the same agent replaces the old one.
+The hub refuses an agent that it does not know, one that has been revoked, or one whose protocol `major.minor` differs from its own. A new connection from the same agent replaces the old one.
 
 ## Revoking and re-enrolling
 

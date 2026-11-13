@@ -4,9 +4,7 @@ use domovoi_core::SkillSummary;
 use domovoi_proto::messages::{
     AgentSettings, ChallengeResponse, CheckInfo, Hello, HostFacts, RejectReason, Welcome,
 };
-use domovoi_proto::{
-    MIN_HUB_VERSION, Message, PROTOCOL_VERSION, Transport, at_least, challenge_message,
-};
+use domovoi_proto::{Message, PROTOCOL_VERSION, Transport, challenge_message};
 use jiff::SignedDuration;
 
 use super::frame;
@@ -60,17 +58,7 @@ pub async fn handshake(
     };
     frame::send(transport, &Message::ChallengeResponse(response), None).await?;
     match frame::expect(transport).await?.message {
-        Message::Welcome(welcome) => {
-            // The link is only as good as the hub's release: refuse an agent-to-hub pair
-            // where the hub is older than this build's minimum, and say to update the hub.
-            if !at_least(&welcome.hub_version, MIN_HUB_VERSION) {
-                return Err(LinkError::HubTooOld {
-                    hub_version: welcome.hub_version,
-                    minimum: MIN_HUB_VERSION,
-                });
-            }
-            Ok(welcome)
-        }
+        Message::Welcome(welcome) => Ok(welcome),
         other => Err(refused(other, release)),
     }
 }

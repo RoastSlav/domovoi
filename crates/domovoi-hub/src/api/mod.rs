@@ -53,7 +53,7 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use self::error::ApiError;
-use crate::agent_server::{AgentServer, AgentServerError, EnrollmentInvite, Refusal, SkillPolicy};
+use crate::agent_server::{AgentServer, AgentServerError, EnrollmentInvite, SkillPolicy};
 use crate::auth::{AuthState, Current, csrf};
 
 /// The default page size of list endpoints.
@@ -78,9 +78,6 @@ pub trait AgentAdmin: Send + Sync {
     fn checks(&self, host: HostId) -> Vec<CheckInfo>;
     /// The skills `host`'s agent reported.
     fn skills(&self, host: HostId) -> Vec<SkillSummary>;
-    /// Why `host`'s agent was refused at its last handshake: it runs a release older than
-    /// this hub accepts. `None` while it connects, or when it was never refused.
-    fn refusal(&self, host: HostId) -> Option<Refusal>;
     /// The recent log lines `host`'s agent keeps, oldest first. Fails with a
     /// [`domovoi_core::ports::LinkError`] when it is not connected, did not answer,
     /// or is too old to send logs.
@@ -116,10 +113,6 @@ impl AgentAdmin for AgentServer {
 
     fn skills(&self, host: HostId) -> Vec<SkillSummary> {
         domovoi_core::ports::AgentLink::skills(&*self.link(), host)
-    }
-
-    fn refusal(&self, host: HostId) -> Option<Refusal> {
-        self.host_refusal(host)
     }
 
     async fn logs(

@@ -37,11 +37,17 @@ export const HOST_CONNECTIONS: Table<HostConnection> = {
     hint: "The hub records its own problems here. No agent watches this machine.",
     icon: "server",
   },
-  refused: {
-    label: "Refused",
+  incompatible: {
+    label: "Incompatible",
     tone: "danger",
-    hint: "The handshake was refused; update the older side.",
+    hint: "The agent speaks another protocol version than the hub. Upgrade the agent, then restart it.",
     icon: "ban",
+  },
+  expected_incompatible: {
+    label: "Expected incompatible",
+    tone: "warning",
+    hint: "The hub was upgraded and this agent has not reconnected yet. It will be incompatible if it still speaks the old protocol.",
+    icon: "alert",
   },
 };
 

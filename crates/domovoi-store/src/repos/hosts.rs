@@ -4,12 +4,15 @@ use std::collections::BTreeMap;
 
 use async_trait::async_trait;
 use domovoi_core::ports::{EnrollmentToken, HostRepo, StoreError};
-use domovoi_core::{AgentId, AgentIdentity, Host, HostId, HostName};
+use domovoi_core::{
+    AgentId, AgentIdentity, AgentReport, AuthenticatedReport, Host, HostId, HostName,
+    REPORT_REFRESH, ReportOutcome,
+};
 use jiff::Timestamp;
 
 use crate::codec::{from_json, from_ms, from_ms_opt, from_name, hash32, json, ms, name, parse};
 use crate::db::Store;
-use crate::error::db;
+use crate::error::{corrupt, db};
 
 #[derive(sqlx::FromRow)]
 struct HostRow {
@@ -52,6 +55,36 @@ impl AgentRow {
             enrolled_at: from_ms(self.enrolled_at)?,
             revoked_at: from_ms_opt(self.revoked_at)?,
         })
+    }
+}
+
+#[derive(sqlx::FromRow)]
+struct ReportRow {
+    reported_protocol: Option<String>,
+    reported_release: Option<String>,
+    last_authenticated_at: Option<i64>,
+    incompatible_since: Option<i64>,
+}
+
+impl ReportRow {
+    /// The stored report, or `None` when the columns are NULL (an agent that never
+    /// authenticated since the columns existed).
+    fn into_report(self) -> Result<Option<AgentReport>, StoreError> {
+        let (Some(protocol), Some(release), Some(last)) = (
+            self.reported_protocol,
+            self.reported_release,
+            self.last_authenticated_at,
+        ) else {
+            return Ok(None);
+        };
+        Ok(Some(AgentReport {
+            protocol: protocol
+                .parse()
+                .map_err(|e| corrupt("reported protocol", e))?,
+            release,
+            last_authenticated_at: from_ms(last)?,
+            incompatible_since: from_ms_opt(self.incompatible_since)?,
+        }))
     }
 }
 
@@ -186,6 +219,79 @@ impl HostRepo for Store {
             return Err(StoreError::NotFound);
         }
         Ok(())
+    }
+
+    async fn agent_report(&self, agent: AgentId) -> Result<Option<AgentReport>, StoreError> {
+        const SQL: &str = "SELECT reported_protocol, reported_release, last_authenticated_at, \
+            incompatible_since FROM agents WHERE agent_id = ?";
+        let row: Option<ReportRow> = sqlx::query_as(SQL)
+            .bind(agent.to_string())
+            .fetch_optional(&self.read)
+            .await
+            .map_err(db)?;
+        row.map(ReportRow::into_report)
+            .transpose()
+            .map(Option::flatten)
+    }
+
+    async fn record_agent_report(
+        &self,
+        agent: AgentId,
+        seen: &AuthenticatedReport,
+        now: Timestamp,
+    ) -> Result<ReportOutcome, StoreError> {
+        const READ: &str = "SELECT reported_protocol, reported_release, last_authenticated_at, \
+            incompatible_since FROM agents WHERE agent_id = ?";
+        const WRITE_ALL: &str = "UPDATE agents SET reported_protocol = ?, reported_release = ?, \
+            last_authenticated_at = ?, incompatible_since = ? WHERE agent_id = ?";
+        const REFRESH: &str = "UPDATE agents SET last_authenticated_at = ? WHERE agent_id = ?";
+        let mut tx = self.write.begin().await.map_err(db)?;
+        let row: Option<ReportRow> = sqlx::query_as(READ)
+            .bind(agent.to_string())
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(db)?;
+        let Some(stored) = row else {
+            return Err(StoreError::NotFound);
+        };
+        let existing_since = from_ms_opt(stored.incompatible_since)?;
+        let stored_last = stored.last_authenticated_at.map(from_ms).transpose()?;
+        let protocol = seen.protocol.to_string();
+        let changed = stored.reported_protocol.as_deref() != Some(protocol.as_str())
+            || stored.reported_release.as_deref() != Some(seen.release.as_str())
+            || existing_since.is_some() != !seen.compatible;
+        let previous = ReportRow {
+            reported_protocol: stored.reported_protocol,
+            reported_release: stored.reported_release,
+            last_authenticated_at: stored.last_authenticated_at,
+            incompatible_since: stored.incompatible_since,
+        }
+        .into_report()?;
+        let since = if seen.compatible {
+            None
+        } else {
+            existing_since.or(Some(now))
+        };
+        if changed {
+            sqlx::query(WRITE_ALL)
+                .bind(&protocol)
+                .bind(&seen.release)
+                .bind(ms(now))
+                .bind(since.map(ms))
+                .bind(agent.to_string())
+                .execute(&mut *tx)
+                .await
+                .map_err(db)?;
+        } else if stored_last.is_none_or(|last| now.duration_since(last) >= REPORT_REFRESH) {
+            sqlx::query(REFRESH)
+                .bind(ms(now))
+                .bind(agent.to_string())
+                .execute(&mut *tx)
+                .await
+                .map_err(db)?;
+        }
+        tx.commit().await.map_err(db)?;
+        Ok(ReportOutcome { changed, previous })
     }
 
     async fn create_enrollment_token(&self, token: &EnrollmentToken) -> Result<(), StoreError> {

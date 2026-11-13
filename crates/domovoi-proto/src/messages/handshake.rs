@@ -228,12 +228,12 @@ pub enum RejectReason {
     UnknownAgent,
     /// The agent was revoked.
     Revoked,
-    /// The protocol versions are not compatible.
+    /// The protocol versions are not equal.
     Incompatible {
         /// The hub's version.
         hub: ProtocolVersion,
     },
-    /// The agent's release is older than this hub accepts, so it must be updated.
+    /// No longer sent by the hub; kept so frames from older hubs still decode.
     AgentTooOld {
         /// The oldest agent release this hub accepts.
         minimum: Release,

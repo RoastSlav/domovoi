@@ -2,8 +2,9 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
+use std::str::FromStr;
 
-use jiff::Timestamp;
+use jiff::{SignedDuration, Timestamp};
 
 use crate::error::ValidationError;
 use crate::id::{AgentId, HostId};
@@ -116,6 +117,77 @@ pub struct AgentIdentity {
     pub enrolled_at: Timestamp,
     /// When the agent was revoked; a revoked agent may never connect again.
     pub revoked_at: Option<Timestamp>,
+}
+
+/// How often a report is refreshed without writing anything but its timestamp.
+pub const REPORT_REFRESH: SignedDuration = SignedDuration::from_hours(1);
+
+/// A protocol version as an agent reported it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ReportedProtocol {
+    /// The reported protocol major.
+    pub major: u16,
+    /// The reported protocol minor.
+    pub minor: u16,
+}
+
+impl fmt::Display for ReportedProtocol {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}.{}", self.major, self.minor)
+    }
+}
+
+/// Why a string could not be read as a [`ReportedProtocol`].
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("a protocol version is `major.minor`; got {0:?}")]
+pub struct ProtocolParseError(String);
+
+impl FromStr for ReportedProtocol {
+    type Err = ProtocolParseError;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        let fail = || ProtocolParseError(text.to_owned());
+        let (major, minor) = text.split_once('.').ok_or_else(fail)?;
+        Ok(Self {
+            major: major.parse().map_err(|_| fail())?,
+            minor: minor.parse().map_err(|_| fail())?,
+        })
+    }
+}
+
+/// What the hub last recorded about an agent after it proved its key.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentReport {
+    /// The protocol the agent reported.
+    pub protocol: ReportedProtocol,
+    /// The release the agent reported.
+    pub release: String,
+    /// When the agent last authenticated.
+    pub last_authenticated_at: Timestamp,
+    /// When this hub first rejected the agent's protocol; `None` while it was compatible.
+    pub incompatible_since: Option<Timestamp>,
+}
+
+/// What an authenticated `hello` said, for [`HostRepo::record_agent_report`].
+///
+/// [`HostRepo::record_agent_report`]: crate::ports::HostRepo::record_agent_report
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AuthenticatedReport {
+    /// The protocol the agent reported.
+    pub protocol: ReportedProtocol,
+    /// The release the agent reported.
+    pub release: String,
+    /// The hub's verdict under the exact rule for this hello.
+    pub compatible: bool,
+}
+
+/// The result of recording a report.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReportOutcome {
+    /// True when protocol, release or the incompatible flag differed from the stored row.
+    pub changed: bool,
+    /// What was stored before, when anything was.
+    pub previous: Option<AgentReport>,
 }
 
 #[cfg(test)]

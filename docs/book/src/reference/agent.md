@@ -20,7 +20,7 @@ The agent runs on every guarded host. It keeps one outbound connection to the hu
 | Heartbeat | a `ping` every `heartbeat_seconds` from `welcome` (10 s if unset) |
 | Dead connection | three `ping`s without a `pong` |
 
-The agent stops retrying, with an error that says what to do, when the hub answers `reject` with `revoked` or `unknown_agent` (enroll the agent again) or `incompatible` (upgrade the older side). Any other failure, including a hub presenting a different certificate, is retried.
+The agent stops retrying, with an error that says what to do, when the hub answers `reject` with `revoked` or `unknown_agent` (enroll the agent again). When the hub answers `incompatible`, the agent stays up idle: it does not reconnect, logs hourly, and writes `link-status.json`, which `domovoi agent status` prints. Upgrade the agent, then restart it. Any other failure, including a hub presenting a different certificate, is retried.
 
 ## Checks and signals
 

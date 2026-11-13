@@ -22,11 +22,13 @@ Unknown fields in the envelope or a payload are ignored, so newer peers can add 
 
 ## Versioning
 
-The current version is **1.0**. The hub accepts an agent with the same major version and a minor version equal to its own or one behind. An agent newer than the hub, more than one minor behind, or on another major is refused with `reject` and the reason `incompatible`.
+The current version is **1.1**. Peers talk only when their protocol `major.minor` are equal: patch releases never matter, and there is no backward or forward window. An agent whose reported version differs in either number is refused with `reject` and the reason `incompatible`.
 
-On top of protocol compatibility, each side refuses the other below a minimum release: the hub refuses an agent older than release **0.0.5**, and an agent refuses a hub whose `welcome` announces a release older than **0.0.5**. Both minimums are constants in the protocol crate and only ever move forward. A release string that does not parse, as a source build's `dev` does, is treated as unknown and never refused.
+The envelope's `v` is the sender's protocol major. A frame whose `v` is not this build's major is not decoded: the receiver refuses it as an unsupported major before reading the payload, so that peer is never authenticated, never recorded, and gets no reject frame. A `hello` payload can still claim another major or minor inside a decodable frame; that claim is unauthenticated until the challenge signature verifies, and only then is the exact rule applied.
 
-The hub states that age rule only once the agent's signature has verified, so a client that does not hold the agent's key cannot leave a refusal on the Hosts page. It then sends `agent_too_old`, naming the minimum, to agents from release 0.0.5 onwards: an earlier agent never saw that reason and would read it as an unknown code, which it retries, so it gets `incompatible` instead, a reason every client already treats as final and stops reconnecting on.
+The hub states the rule only once the agent's signature has verified, so a client that does not hold the agent's key cannot leave anything on the Hosts page. It answers `incompatible`. An agent from this release treats that as an idle state rather than a final one: it stays up without reconnecting, logs hourly, and `domovoi agent status` shows what happened until the agent is upgraded and restarted. Agents older than this release exit and are restarted by systemd until they are upgraded.
+
+There are no release-number floors. The wire variant `agent_too_old` is still decodable so frames from older hubs keep working, but the hub no longer sends it.
 
 ## Limits
 
@@ -50,9 +52,9 @@ The hub states that age rule only once the agent's signature has verified, so a 
 ## Handshake
 
 1. The agent connects and sends `hello`.
-2. The hub replies `challenge` with a random nonce, or `reject` (`unknown_agent`, `revoked`, `incompatible`).
+2. The hub replies `challenge` with a random nonce, or `reject` (`unknown_agent`, `revoked`) before any challenge.
 3. The agent signs the challenge message and sends `challenge_response`.
-4. The hub verifies the signature against the enrolled public key and replies `welcome`, or `reject` with `bad_signature`. Only then does it refuse an agent release below its minimum, with `agent_too_old` for clients that know that reason and `incompatible` for those that do not.
+4. The hub verifies the signature against the enrolled public key and replies `welcome`, or `reject` with `bad_signature`. Only after the signature verifies does it record what the hello said and apply the exact protocol rule: a differing major or minor is answered with `incompatible`. There is no release check.
 
 After `welcome` either side may send any message.
 
@@ -170,7 +172,7 @@ Each example is a complete frame with fixed ids and times.
     },
     "protocol": {
       "major": 1,
-      "minor": 0
+      "minor": 1
     },
     "skills": [
       {
@@ -266,7 +268,7 @@ Each example is a complete frame with fixed ids and times.
       "code": "incompatible",
       "hub": {
         "major": 1,
-        "minor": 0
+        "minor": 1
       }
     }
   },
