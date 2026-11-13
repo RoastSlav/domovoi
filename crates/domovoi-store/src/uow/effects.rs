@@ -19,6 +19,14 @@ pub(super) async fn insert(
         VALUES (?, ?, ?, ?, ?, 'pending', ?, 0, ?, ?, NULL, 0, NULL, NULL, NULL, ?, NULL)";
     let payload = serde_json::to_string(&draft.payload)
         .map_err(|e| CommitError::Backend(format!("cannot encode effect payload: {e}")))?;
+    let existing: Option<(i64,)> = sqlx::query_as("SELECT 1 FROM effects WHERE id = ?")
+        .bind(draft.id.to_string())
+        .fetch_optional(&mut *conn)
+        .await
+        .map_err(backend)?;
+    if existing.is_some() {
+        return Err(CommitError::Constraint("effect id exists".to_owned()));
+    }
     if let Some(key) = &draft.dedup_key {
         let existing: Option<(i64,)> = sqlx::query_as(
             "SELECT 1 FROM effects WHERE dedup_key = ? AND status IN ('pending', 'claimed')",

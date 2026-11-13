@@ -45,6 +45,8 @@ struct State {
     versions: BTreeMap<AggregateRef, u64>,
     journal: Vec<JournalEntry>,
     effects: BTreeMap<domovoi_core::EffectId, EffectRecord>,
+    /// Effect ids in insertion order; `effects` keeps lookup by id.
+    effect_order: Vec<domovoi_core::EffectId>,
     baselines: Vec<BaselineEntry>,
     ack_rules: BTreeMap<AckRuleId, AckRule>,
     windows: Vec<MaintenanceWindow>,

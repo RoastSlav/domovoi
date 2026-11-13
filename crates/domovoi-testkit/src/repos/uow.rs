@@ -36,6 +36,9 @@ fn insert_effect(state: &mut State, draft: &EffectDraft) -> Result<(), CommitErr
             "max_attempts must be at least 1".to_owned(),
         ));
     }
+    if state.effects.contains_key(&draft.id) {
+        return Err(CommitError::Constraint("effect id exists".to_owned()));
+    }
     if let Some(key) = &draft.dedup_key
         && state.effects.values().any(|effect| {
             effect.dedup_key.as_ref() == Some(key)
@@ -65,6 +68,7 @@ fn insert_effect(state: &mut State, draft: &EffectDraft) -> Result<(), CommitErr
             completed_at: None,
         },
     );
+    state.effect_order.push(draft.id);
     Ok(())
 }
 
@@ -249,8 +253,9 @@ impl EffectRead for InMemoryStore {
     ) -> Result<Vec<EffectRecord>, StoreError> {
         let state = self.begin()?;
         Ok(state
-            .effects
-            .values()
+            .effect_order
+            .iter()
+            .filter_map(|id| state.effects.get(id))
             .filter(|effect| effect.status == status.as_str())
             .take(limit_of(limit))
             .cloned()
