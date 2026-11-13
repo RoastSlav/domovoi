@@ -12,7 +12,6 @@ mod incidents;
 mod knowledge;
 mod notify;
 mod triage;
-pub mod uow;
 
 pub use accounts::{session_repo_contract, settings_repo_contract, user_repo_contract};
 pub use actions::{action_repo_contract, audit_log_contract};
@@ -24,7 +23,6 @@ pub use knowledge::{
 };
 pub use notify::notify_state_repo_contract;
 pub use triage::{triage_cache_repo_contract, usage_repo_contract};
-pub use uow::*;
 
 use domovoi_core::ports::StoreError;
 
@@ -42,9 +40,6 @@ pub enum ContractError {
     /// Preparing test data failed for another reason.
     #[error("setup failed: {0}")]
     Setup(String),
-    /// The unit of work refused the transaction.
-    #[error(transparent)]
-    Commit(#[from] domovoi_core::ports::CommitError),
 }
 
 /// What every contract suite returns.

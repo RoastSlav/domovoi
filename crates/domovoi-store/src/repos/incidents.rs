@@ -11,191 +11,11 @@ use domovoi_core::{
     Fingerprint, Incident, IncidentGroup, IncidentId, IncidentStatus, Signal, SignalStatus,
 };
 use jiff::Timestamp;
-use sqlx::{Executor, Sqlite, SqliteConnection};
 
-use crate::codec::{Cursor, fetch_limit, from_json, from_ms, json, ms, name, paginate, uint};
+use crate::codec::{Cursor, fetch_limit, from_json, from_ms, json, ms, name, paginate};
 use crate::db::Store;
 use crate::error::{db, db_parent};
 use crate::fts::match_all_in;
-
-/// Written as `"schema_version"` inside every stored incident body.
-pub(crate) const INCIDENT_BODY_SCHEMA_VERSION: u64 = 1;
-
-/// The stored `body` of `incident`, with its body schema version.
-pub(crate) fn incident_body(incident: &Incident) -> Result<String, StoreError> {
-    let mut body = serde_json::to_value(incident)
-        .map_err(|e| StoreError::Backend(format!("cannot encode incident: {e}")))?;
-    if let serde_json::Value::Object(fields) = &mut body {
-        fields.insert(
-            "schema_version".to_owned(),
-            serde_json::json!(INCIDENT_BODY_SCHEMA_VERSION),
-        );
-    }
-    serde_json::to_string(&body)
-        .map_err(|e| StoreError::Backend(format!("cannot encode incident: {e}")))
-}
-
-/// Inserts an incident row with version 1.
-pub(crate) async fn insert_incident(
-    executor: impl Executor<'_, Database = Sqlite>,
-    incident: &Incident,
-) -> Result<(), StoreError> {
-    const SQL: &str = "INSERT INTO incidents \
-        (id, fingerprint, host_id, check_key, target, title, summary_text, status, severity, \
-         opened_at, resolved_at, body) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-    sqlx::query(SQL)
-        .bind(incident.id().to_string())
-        .bind(name(&incident.fingerprint())?)
-        .bind(incident.host().to_string())
-        .bind(incident.check().to_string())
-        .bind(incident.target().map(ToString::to_string))
-        .bind(incident.title())
-        .bind(summary_text(incident))
-        .bind(status_text(incident.status()))
-        .bind(name(&incident.severity())?)
-        .bind(ms(incident.opened_at()))
-        .bind(incident.resolved_at().map(ms))
-        .bind(incident_body(incident)?)
-        .execute(executor)
-        .await
-        .map_err(db)?;
-    Ok(())
-}
-
-/// Replaces an incident's columns and raises its version by one.
-///
-/// With `expected`, the update only applies at that version. Returns the rows affected.
-pub(crate) async fn update_incident(
-    executor: impl Executor<'_, Database = Sqlite>,
-    incident: &Incident,
-    expected: Option<u64>,
-) -> Result<u64, StoreError> {
-    const SQL: &str = "UPDATE incidents SET fingerprint = ?, host_id = ?, check_key = ?, \
-        target = ?, title = ?, summary_text = ?, status = ?, severity = ?, opened_at = ?, \
-        resolved_at = ?, body = ?, version = version + 1 \
-        WHERE id = ? AND (? IS NULL OR version = ?)";
-    let expected = expected.map(|v| i64::try_from(v).unwrap_or(i64::MAX));
-    let done = sqlx::query(SQL)
-        .bind(name(&incident.fingerprint())?)
-        .bind(incident.host().to_string())
-        .bind(incident.check().to_string())
-        .bind(incident.target().map(ToString::to_string))
-        .bind(incident.title())
-        .bind(summary_text(incident))
-        .bind(status_text(incident.status()))
-        .bind(name(&incident.severity())?)
-        .bind(ms(incident.opened_at()))
-        .bind(incident.resolved_at().map(ms))
-        .bind(incident_body(incident)?)
-        .bind(incident.id().to_string())
-        .bind(expected)
-        .bind(expected)
-        .execute(executor)
-        .await
-        .map_err(db)?;
-    Ok(done.rows_affected())
-}
-
-/// Stores a signal and, if given, links it to an incident.
-pub(crate) async fn insert_signal_and_link(
-    conn: &mut SqliteConnection,
-    signal: &Signal,
-    incident: Option<IncidentId>,
-) -> Result<(), StoreError> {
-    const SIGNAL: &str = "INSERT INTO signals \
-        (id, host_id, check_key, target, status, severity, observed_at, body) \
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
-    const LINK: &str = "INSERT INTO incident_signals (incident_id, signal_id) VALUES (?, ?)";
-    let existing: Option<(i64,)> = sqlx::query_as("SELECT 1 FROM signals WHERE id = ?")
-        .bind(signal.id().to_string())
-        .fetch_optional(&mut *conn)
-        .await
-        .map_err(db)?;
-    if existing.is_some() {
-        return Err(StoreError::Conflict("signal id exists".to_owned()));
-    }
-    sqlx::query(SIGNAL)
-        .bind(signal.id().to_string())
-        .bind(signal.host().to_string())
-        .bind(signal.check().to_string())
-        .bind(signal.target().map(ToString::to_string))
-        .bind(signal_status(signal.status()))
-        .bind(name(&signal.severity())?)
-        .bind(ms(signal.observed_at()))
-        .bind(json(signal)?)
-        .execute(&mut *conn)
-        .await
-        .map_err(db)?;
-    if let Some(incident) = incident {
-        sqlx::query(LINK)
-            .bind(incident.to_string())
-            .bind(signal.id().to_string())
-            .execute(&mut *conn)
-            .await
-            .map_err(db)?;
-    }
-    Ok(())
-}
-
-/// Appends a timeline entry and returns its `incident_events.seq`.
-pub(crate) async fn insert_incident_event(
-    executor: impl Executor<'_, Database = Sqlite>,
-    entry: &IncidentTimelineEntry,
-) -> Result<u64, StoreError> {
-    const SQL: &str = "INSERT INTO incident_events (incident_id, at, kind, summary, detail) \
-        VALUES (?, ?, ?, ?, ?) RETURNING seq";
-    let (seq,): (i64,) = sqlx::query_as(SQL)
-        .bind(entry.incident.to_string())
-        .bind(ms(entry.at))
-        .bind(&entry.kind)
-        .bind(&entry.summary)
-        .bind(json(&entry.detail)?)
-        .fetch_one(executor)
-        .await
-        .map_err(db_parent)?;
-    Ok(uint(seq))
-}
-
-/// What [`discard_pending_incident`] found.
-pub(crate) enum DiscardOutcome {
-    /// The incident and its timeline and links were deleted.
-    Discarded,
-    /// No incident has that id.
-    Missing,
-    /// The incident is not pending.
-    NotPending,
-}
-
-/// Deletes a pending incident's signal links and the incident itself; its timeline cascades.
-pub(crate) async fn discard_pending_incident(
-    conn: &mut SqliteConnection,
-    id: IncidentId,
-) -> Result<DiscardOutcome, StoreError> {
-    const STATUS: &str = "SELECT status FROM incidents WHERE id = ?";
-    const LINKS: &str = "DELETE FROM incident_signals WHERE incident_id = ?";
-    const DELETE: &str = "DELETE FROM incidents WHERE id = ? AND status = 'pending'";
-    let status: Option<(String,)> = sqlx::query_as(STATUS)
-        .bind(id.to_string())
-        .fetch_optional(&mut *conn)
-        .await
-        .map_err(db)?;
-    match status {
-        None => return Ok(DiscardOutcome::Missing),
-        Some((status,)) if status != "pending" => return Ok(DiscardOutcome::NotPending),
-        Some(_) => {}
-    }
-    sqlx::query(LINKS)
-        .bind(id.to_string())
-        .execute(&mut *conn)
-        .await
-        .map_err(db)?;
-    sqlx::query(DELETE)
-        .bind(id.to_string())
-        .execute(&mut *conn)
-        .await
-        .map_err(db)?;
-    Ok(DiscardOutcome::Discarded)
-}
 
 fn status_text(status: IncidentStatus) -> &'static str {
     match status {
@@ -249,8 +69,31 @@ impl SignalRepo for Store {
         signal: &Signal,
         incident: Option<IncidentId>,
     ) -> Result<(), StoreError> {
+        const SIGNAL: &str = "INSERT INTO signals \
+            (id, host_id, check_key, target, status, severity, observed_at, body) \
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+        const LINK: &str = "INSERT INTO incident_signals (incident_id, signal_id) VALUES (?, ?)";
         let mut tx = self.write.begin().await.map_err(db)?;
-        insert_signal_and_link(&mut tx, signal, incident).await?;
+        sqlx::query(SIGNAL)
+            .bind(signal.id().to_string())
+            .bind(signal.host().to_string())
+            .bind(signal.check().to_string())
+            .bind(signal.target().map(ToString::to_string))
+            .bind(signal_status(signal.status()))
+            .bind(name(&signal.severity())?)
+            .bind(ms(signal.observed_at()))
+            .bind(json(signal)?)
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
+        if let Some(incident) = incident {
+            sqlx::query(LINK)
+                .bind(incident.to_string())
+                .bind(signal.id().to_string())
+                .execute(&mut *tx)
+                .await
+                .map_err(db)?;
+        }
         tx.commit().await.map_err(db)
     }
 
@@ -287,11 +130,49 @@ impl SignalRepo for Store {
 #[async_trait]
 impl IncidentRepo for Store {
     async fn insert(&self, incident: &Incident) -> Result<(), StoreError> {
-        insert_incident(&self.write, incident).await
+        const SQL: &str = "INSERT INTO incidents \
+            (id, fingerprint, host_id, check_key, target, title, summary_text, status, severity, \
+             opened_at, resolved_at, body) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        sqlx::query(SQL)
+            .bind(incident.id().to_string())
+            .bind(name(&incident.fingerprint())?)
+            .bind(incident.host().to_string())
+            .bind(incident.check().to_string())
+            .bind(incident.target().map(ToString::to_string))
+            .bind(incident.title())
+            .bind(summary_text(incident))
+            .bind(status_text(incident.status()))
+            .bind(name(&incident.severity())?)
+            .bind(ms(incident.opened_at()))
+            .bind(incident.resolved_at().map(ms))
+            .bind(json(incident)?)
+            .execute(&self.write)
+            .await
+            .map_err(db)?;
+        Ok(())
     }
 
     async fn update(&self, incident: &Incident) -> Result<(), StoreError> {
-        if update_incident(&self.write, incident, None).await? == 0 {
+        const SQL: &str = "UPDATE incidents SET fingerprint = ?, host_id = ?, check_key = ?, \
+            target = ?, title = ?, summary_text = ?, status = ?, severity = ?, opened_at = ?, \
+            resolved_at = ?, body = ? WHERE id = ?";
+        let done = sqlx::query(SQL)
+            .bind(name(&incident.fingerprint())?)
+            .bind(incident.host().to_string())
+            .bind(incident.check().to_string())
+            .bind(incident.target().map(ToString::to_string))
+            .bind(incident.title())
+            .bind(summary_text(incident))
+            .bind(status_text(incident.status()))
+            .bind(name(&incident.severity())?)
+            .bind(ms(incident.opened_at()))
+            .bind(incident.resolved_at().map(ms))
+            .bind(json(incident)?)
+            .bind(incident.id().to_string())
+            .execute(&self.write)
+            .await
+            .map_err(db)?;
+        if done.rows_affected() == 0 {
             return Err(StoreError::NotFound);
         }
         Ok(())
@@ -388,20 +269,51 @@ impl IncidentRepo for Store {
     }
 
     async fn discard_pending(&self, id: IncidentId) -> Result<(), StoreError> {
+        const STATUS: &str = "SELECT status FROM incidents WHERE id = ?";
+        const LINKS: &str = "DELETE FROM incident_signals WHERE incident_id = ?";
+        const DELETE: &str = "DELETE FROM incidents WHERE id = ? AND status = 'pending'";
         let mut tx = self.write.begin().await.map_err(db)?;
-        let outcome = discard_pending_incident(&mut tx, id).await?;
-        tx.commit().await.map_err(db)?;
-        match outcome {
-            DiscardOutcome::Discarded => Ok(()),
-            DiscardOutcome::Missing => Err(StoreError::NotFound),
-            DiscardOutcome::NotPending => Err(StoreError::Conflict(
-                "only pending incidents are discarded".to_owned(),
-            )),
+        let status: Option<(String,)> = sqlx::query_as(STATUS)
+            .bind(id.to_string())
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(db)?;
+        match status {
+            None => return Err(StoreError::NotFound),
+            Some((status,)) if status != "pending" => {
+                return Err(StoreError::Conflict(
+                    "only pending incidents are discarded".to_owned(),
+                ));
+            }
+            Some(_) => {}
         }
+        sqlx::query(LINKS)
+            .bind(id.to_string())
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
+        // Timeline rows go with the incident (ON DELETE CASCADE).
+        sqlx::query(DELETE)
+            .bind(id.to_string())
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
+        tx.commit().await.map_err(db)
     }
 
     async fn append_event(&self, entry: &IncidentTimelineEntry) -> Result<(), StoreError> {
-        insert_incident_event(&self.write, entry).await.map(|_| ())
+        const SQL: &str = "INSERT INTO incident_events (incident_id, at, kind, summary, detail) \
+            VALUES (?, ?, ?, ?, ?)";
+        sqlx::query(SQL)
+            .bind(entry.incident.to_string())
+            .bind(ms(entry.at))
+            .bind(&entry.kind)
+            .bind(&entry.summary)
+            .bind(json(&entry.detail)?)
+            .execute(&self.write)
+            .await
+            .map_err(db_parent)?;
+        Ok(())
     }
 
     async fn timeline(&self, id: IncidentId) -> Result<Vec<IncidentTimelineEntry>, StoreError> {

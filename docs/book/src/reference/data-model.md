@@ -8,7 +8,7 @@ The hub keeps its state in one SQLite database in WAL mode, under `[hub] data_di
 - Timestamps are `INTEGER` unix milliseconds, UTC.
 - Hashes are 32-byte `BLOB`s; fingerprints and plan hashes are lowercase hex `TEXT`.
 - Structured values (labels, evidence, arguments, reports) are `TEXT` JSON.
-- Enums are `TEXT`. Older columns carry a `CHECK` constraint; new enum-like columns are validated by the program so a new variant needs no migration.
+- Enums are `TEXT` with a `CHECK` constraint.
 - Every table is `STRICT`, so SQLite rejects a value of the wrong type.
 
 ## Tables
@@ -38,9 +38,6 @@ The hub keeps its state in one SQLite database in WAL mode, under `[hub] data_di
 | `sessions` | Web sessions: hashes of the session and CSRF tokens, owner and expiry. |
 | `settings` | Hub settings changed from the UI, as JSON values. |
 | `notify_state` | Per incident: where its card and thread are on each chat platform, when it was last reminded about, folded repeats not yet mentioned, and an alert held for the end of quiet hours. |
-| `journal` | The operational record: typed events in commit order, with a global sequence number, the aggregate they belong to and when they happened. |
-| `effects` | The work outbox: pending side effects with their kind, payload, attempts, claim token and lease. |
-| `schema_compat` | One row naming the lowest Domovoi version that can read this schema. |
 
 ## Search
 
@@ -67,15 +64,3 @@ Backups go to `[backup] dir` (default `<data_dir>/backups`).
 - The nightly backup writes `domovoi-<time>.db` and keeps the newest `[backup] keep` (default 7).
 
 The database directory is created readable by its owner only.
-
-## Durability
-
-Every commit is flushed to disk before it is acknowledged (`synchronous=FULL`), so an approval or an audit row survives a power loss. State, journal, audit and effects of one business event are written in one SQLite transaction: either all of them are stored or none is.
-
-At start-up the hub runs `PRAGMA quick_check`. If the database reports a problem, the hub refuses to start and says so. The fix is to restore a backup; the hub never continues with a damaged database. On a very large database the first start after an upgrade is slower because this check reads the whole file.
-
-## Compatibility
-
-`schema_compat` records the lowest Domovoi version that can read the schema. A binary older than that refuses to open the database, before it takes a backup or touches the file, and says which version is needed. The only way back is to restore an older backup.
-
-A binary that knows fewer migrations than the database ignores the ones it does not know, so upgrading can be rolled back to the previous release when that release already has this rule. A rollback to an older release that does not is a forward-fix or restore situation.

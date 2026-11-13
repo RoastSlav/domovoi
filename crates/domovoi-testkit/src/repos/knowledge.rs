@@ -8,7 +8,7 @@ use domovoi_core::{
 };
 use jiff::Timestamp;
 
-use super::{AggregateRef, InMemoryStore, bump_version, limit, set_version, word_score, words};
+use super::{InMemoryStore, limit, word_score, words};
 
 /// Longest snippet returned by note search, in characters.
 const SNIPPET_CHARS: usize = 160;
@@ -45,14 +45,7 @@ const fn kind_rank(kind: BaselineKind) -> u8 {
 #[async_trait]
 impl NoteRepo for InMemoryStore {
     async fn upsert(&self, note: &Note) -> Result<(), StoreError> {
-        let mut state = self.begin()?;
-        let aggregate = AggregateRef::note(note.id);
-        let existed = state.notes.insert(note.id, note.clone()).is_some();
-        if existed {
-            bump_version(&mut state, aggregate);
-        } else {
-            set_version(&mut state, aggregate, 1);
-        }
+        self.begin()?.notes.insert(note.id, note.clone());
         Ok(())
     }
 

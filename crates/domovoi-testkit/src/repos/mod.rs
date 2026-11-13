@@ -8,15 +8,12 @@ mod incidents;
 mod knowledge;
 mod notify;
 mod triage;
-mod uow;
-mod uow_apply;
 
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::{Mutex, MutexGuard};
 
 use domovoi_core::ports::{
-    AggregateRef, AuditEvent, EffectRecord, EnrollmentToken, IncidentTimelineEntry, JournalEntry,
-    Page, Paged, StoreError,
+    AuditEvent, EnrollmentToken, IncidentTimelineEntry, Page, Paged, StoreError,
 };
 use domovoi_core::{
     AckRule, AckRuleId, ActionId, ActionRequest, Advisory, AdvisoryId, AgentId, AgentIdentity,
@@ -31,7 +28,7 @@ use crate::lock;
 /// A usage record: provider, tokens in, tokens out, cost, time.
 type UsageRow = (String, u64, u64, u64, Timestamp);
 
-#[derive(Default, Clone)]
+#[derive(Default)]
 struct State {
     hosts: BTreeMap<HostId, Host>,
     agents: BTreeMap<AgentId, AgentIdentity>,
@@ -42,9 +39,6 @@ struct State {
     actions: BTreeMap<ActionId, ActionRequest>,
     audit: Vec<AuditEvent>,
     notes: BTreeMap<NoteId, Note>,
-    versions: BTreeMap<AggregateRef, u64>,
-    journal: Vec<JournalEntry>,
-    effects: BTreeMap<domovoi_core::EffectId, EffectRecord>,
     baselines: Vec<BaselineEntry>,
     ack_rules: BTreeMap<AckRuleId, AckRule>,
     windows: Vec<MaintenanceWindow>,
@@ -161,21 +155,4 @@ fn conflict(what: &str) -> StoreError {
 
 fn limit(limit: u16) -> usize {
     Page::first(limit).effective_limit()
-}
-
-/// The stored version of an aggregate; a row written before versions existed is 1.
-pub(in crate::repos) fn version(state: &State, aggregate: &AggregateRef) -> u64 {
-    state.versions.get(aggregate).copied().unwrap_or(1)
-}
-
-/// Stores a new version for an aggregate.
-pub(in crate::repos) fn set_version(state: &mut State, aggregate: AggregateRef, next: u64) {
-    state.versions.insert(aggregate, next);
-}
-
-/// Raises an aggregate's version by one and returns the new value.
-pub(in crate::repos) fn bump_version(state: &mut State, aggregate: AggregateRef) -> u64 {
-    let next = version(state, &aggregate).saturating_add(1);
-    set_version(state, aggregate, next);
-    next
 }

@@ -11,7 +11,6 @@ use domovoi_core::{
     StoredAction,
 };
 use jiff::Timestamp;
-use sqlx::{Executor, Sqlite};
 
 use crate::codec::{
     Cursor, fetch_limit, from_json, from_ms, from_name, hash32, json, ms, name, paginate, parse,
@@ -155,55 +154,37 @@ macro_rules! bind_columns {
     };
 }
 
-/// Inserts an action row.
-pub(crate) async fn insert_action(
-    executor: impl Executor<'_, Database = Sqlite>,
-    action: &ActionRequest,
-) -> Result<(), StoreError> {
-    const SQL: &str = "INSERT INTO actions (id, incident_id, host_id, skill, risk, args, \
-        plan_hash, status, proposed_by_kind, proposed_by, approved_by, approved_channel, \
-        approved_at, expires_at, created_at, updated_at, chat_token_hash) \
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-    let b = bound(action)?;
-    let query = sqlx::query(SQL).bind(action.id().to_string());
-    bind_columns!(query, b)
-        .execute(executor)
-        .await
-        .map_err(db)?;
-    Ok(())
-}
-
-/// Replaces an action only while its stored status is `expected`. Returns the rows affected.
-pub(crate) async fn update_action_from(
-    executor: impl Executor<'_, Database = Sqlite>,
-    action: &ActionRequest,
-    expected: &str,
-) -> Result<u64, StoreError> {
-    const SQL: &str = "UPDATE actions SET incident_id = ?, host_id = ?, skill = ?, \
-        risk = ?, args = ?, plan_hash = ?, status = ?, proposed_by_kind = ?, \
-        proposed_by = ?, approved_by = ?, approved_channel = ?, approved_at = ?, \
-        expires_at = ?, created_at = ?, updated_at = ?, chat_token_hash = ? \
-        WHERE id = ? AND json_extract(status, '$.type') = ?";
-    let b = bound(action)?;
-    let done = bind_columns!(sqlx::query(SQL), b)
-        .bind(action.id().to_string())
-        .bind(expected)
-        .execute(executor)
-        .await
-        .map_err(db)?;
-    Ok(done.rows_affected())
-}
-
 #[async_trait]
 impl ActionRepo for Store {
     async fn insert(&self, action: &ActionRequest) -> Result<(), StoreError> {
-        insert_action(&self.write, action).await
+        const SQL: &str = "INSERT INTO actions (id, incident_id, host_id, skill, risk, args, \
+            plan_hash, status, proposed_by_kind, proposed_by, approved_by, approved_channel, \
+            approved_at, expires_at, created_at, updated_at, chat_token_hash) \
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        let b = bound(action)?;
+        let query = sqlx::query(SQL).bind(action.id().to_string());
+        bind_columns!(query, b)
+            .execute(&self.write)
+            .await
+            .map_err(db)?;
+        Ok(())
     }
 
     async fn update_from(&self, action: &ActionRequest, expected: &str) -> Result<(), StoreError> {
+        const SQL: &str = "UPDATE actions SET incident_id = ?, host_id = ?, skill = ?, \
+            risk = ?, args = ?, plan_hash = ?, status = ?, proposed_by_kind = ?, \
+            proposed_by = ?, approved_by = ?, approved_channel = ?, approved_at = ?, \
+            expires_at = ?, created_at = ?, updated_at = ?, chat_token_hash = ? \
+            WHERE id = ? AND json_extract(status, '$.type') = ?";
         const WHERE: &str = concat!(action_columns!(), " WHERE id = ?");
-        let done = update_action_from(&self.write, action, expected).await?;
-        if done == 0 {
+        let b = bound(action)?;
+        let done = bind_columns!(sqlx::query(SQL), b)
+            .bind(action.id().to_string())
+            .bind(expected)
+            .execute(&self.write)
+            .await
+            .map_err(db)?;
+        if done.rows_affected() == 0 {
             let found: Option<ActionRow> = sqlx::query_as(WHERE)
                 .bind(action.id().to_string())
                 .fetch_optional(&self.read)

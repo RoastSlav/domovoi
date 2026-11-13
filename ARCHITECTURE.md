@@ -192,7 +192,6 @@ All ports are `async_trait` traits in `domovoi-core::ports`, object-safe, `Send 
 | `Clock` | Current time, sleeping | engine (system), testkit (fake) | engine, agent, hub |
 | `IncidentRepo`, `SignalRepo`, `ActionRepo`, `HostRepo`, `NoteRepo`, `BaselineRepo`, `AckRepo` | Persistence | store, testkit | engine, hub |
 | `AuditLog` | Append-only audit events | store, testkit | engine, hub |
-| `UnitOfWork`, `VersionedRead`, `JournalRead`, `EffectRead` | Commit state writes, journal, audit and effects atomically; read aggregates with their version, the journal and the effect outbox | store, testkit | engine, hub (being adopted) |
 | `LlmProvider` | One model turn with tools; returns text or tool calls and token usage | llm, testkit (scripted) | engine |
 | `ChatGateway` | Post or update a card, reply in a thread, receive interactions and messages | chat, testkit (recording) | engine, hub |
 | `Notifier` | One-way message (digest, alert) | chat, testkit | engine |
@@ -265,12 +264,9 @@ flowchart LR
 ## 9. Persistence (`domovoi-store`)
 
 - SQLite in WAL mode via `sqlx` with runtime-checked queries; every query is covered by an integration test against a temporary database.
-- Migrations are embedded with `sqlx::migrate!` and run at start-up after an automatic `VACUUM INTO` backup. A binary ignores applied migrations it does not know.
+- Migrations are embedded with `sqlx::migrate!` and run at start-up after an automatic `VACUUM INTO` backup.
 - Timestamps are stored as `INTEGER` unix milliseconds UTC; IDs as `TEXT`.
-- Tables (v0.1): `hosts`, `agents`, `enrollment_tokens`, `signals`, `incidents`, `incident_signals`, `incident_events` (timeline), `actions`, `audit_log`, `ack_rules`, `maintenance_windows`, `baselines`, `notes` + `notes_fts` (FTS5), `incidents_fts`, `triage_cache`, `llm_usage`, `digests`, `advisories`, `users`, `sessions`, `settings`, `journal`, `effects`, `schema_compat`.
-- `incidents` and `notes` carry an optimistic `version` column: a write names the version it read, and a mismatch rolls the whole transaction back.
-- `journal` is the operational record in commit order, `effects` is the work outbox and `schema_compat` records the lowest binary version that can read the schema.
-- Every commit is flushed to disk (`synchronous=FULL`), one write connection serialises writers, and start-up runs `PRAGMA quick_check`; a failed check refuses to open the database.
+- Tables (v0.1): `hosts`, `agents`, `enrollment_tokens`, `signals`, `incidents`, `incident_signals`, `incident_events` (timeline), `actions`, `audit_log`, `ack_rules`, `maintenance_windows`, `baselines`, `notes` + `notes_fts` (FTS5), `incidents_fts`, `triage_cache`, `llm_usage`, `digests`, `advisories`, `users`, `sessions`, `settings`.
 - `audit_log` is append-only: a trigger rejects `UPDATE` and `DELETE`.
 - Retention: signals 30 days, transcripts 90 days, incidents and audit kept. A nightly `VACUUM INTO` backup goes to a configurable path.
 

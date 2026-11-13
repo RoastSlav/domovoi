@@ -9,7 +9,6 @@
 use async_trait::async_trait;
 use domovoi_core::ports::{NoteHit, NoteRepo, Page, StoreError};
 use domovoi_core::{HostId, Note, NoteId};
-use sqlx::{Executor, Sqlite};
 
 use crate::codec::{from_json, from_ms, json, ms, parse};
 use crate::db::Store;
@@ -72,79 +71,24 @@ fn shorten(text: &str) -> String {
     }
 }
 
-/// Inserts a note, or replaces the one with the same id and raises its version by one.
-pub(crate) async fn upsert_note(
-    executor: impl Executor<'_, Database = Sqlite>,
-    note: &Note,
-) -> Result<(), StoreError> {
-    const SQL: &str = "INSERT INTO notes (id, host_id, title, body, tags, updated_at) \
-        VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET host_id = excluded.host_id, \
-        title = excluded.title, body = excluded.body, tags = excluded.tags, \
-        updated_at = excluded.updated_at, version = version + 1";
-    sqlx::query(SQL)
-        .bind(note.id.to_string())
-        .bind(note.host.map(|h| h.to_string()))
-        .bind(&note.title)
-        .bind(&note.body_markdown)
-        .bind(json(&note.tags)?)
-        .bind(ms(note.updated_at))
-        .execute(executor)
-        .await
-        .map_err(db)?;
-    Ok(())
-}
-
-/// Replaces a note's columns and raises its version by one.
-///
-/// With `expected`, the update only applies at that version. Returns the rows affected.
-pub(crate) async fn update_note(
-    executor: impl Executor<'_, Database = Sqlite>,
-    note: &Note,
-    expected: Option<u64>,
-) -> Result<u64, StoreError> {
-    const SQL: &str = "UPDATE notes SET host_id = ?, title = ?, body = ?, tags = ?, \
-        updated_at = ?, version = version + 1 \
-        WHERE id = ? AND (? IS NULL OR version = ?)";
-    let expected = expected.map(|v| i64::try_from(v).unwrap_or(i64::MAX));
-    let done = sqlx::query(SQL)
-        .bind(note.host.map(|h| h.to_string()))
-        .bind(&note.title)
-        .bind(&note.body_markdown)
-        .bind(json(&note.tags)?)
-        .bind(ms(note.updated_at))
-        .bind(note.id.to_string())
-        .bind(expected)
-        .bind(expected)
-        .execute(executor)
-        .await
-        .map_err(db)?;
-    Ok(done.rows_affected())
-}
-
-/// Inserts a new note with version 1. A duplicate id is a constraint error.
-pub(crate) async fn insert_note(
-    executor: impl Executor<'_, Database = Sqlite>,
-    note: &Note,
-) -> Result<(), StoreError> {
-    const SQL: &str = "INSERT INTO notes (id, host_id, title, body, tags, updated_at) \
-        VALUES (?, ?, ?, ?, ?, ?)";
-    sqlx::query(SQL)
-        .bind(note.id.to_string())
-        .bind(note.host.map(|h| h.to_string()))
-        .bind(&note.title)
-        .bind(&note.body_markdown)
-        .bind(json(&note.tags)?)
-        .bind(ms(note.updated_at))
-        .execute(executor)
-        .await
-        .map_err(db)?;
-    Ok(())
-}
-
 #[async_trait]
 impl NoteRepo for Store {
     async fn upsert(&self, note: &Note) -> Result<(), StoreError> {
-        upsert_note(&self.write, note).await
+        const SQL: &str = "INSERT INTO notes (id, host_id, title, body, tags, updated_at) \
+            VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET host_id = excluded.host_id, \
+            title = excluded.title, body = excluded.body, tags = excluded.tags, \
+            updated_at = excluded.updated_at";
+        sqlx::query(SQL)
+            .bind(note.id.to_string())
+            .bind(note.host.map(|h| h.to_string()))
+            .bind(&note.title)
+            .bind(&note.body_markdown)
+            .bind(json(&note.tags)?)
+            .bind(ms(note.updated_at))
+            .execute(&self.write)
+            .await
+            .map_err(db)?;
+        Ok(())
     }
 
     async fn get(&self, id: NoteId) -> Result<Option<Note>, StoreError> {

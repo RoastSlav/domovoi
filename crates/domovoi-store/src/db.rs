@@ -11,10 +11,7 @@ use sqlx::sqlite::{
 use sqlx::{ConnectOptions, Connection};
 
 use crate::backup::{pre_migrate_name, vacuum_into};
-use crate::codec::ms;
-use crate::compat;
 use crate::error::StoreOpenError;
-use crate::integrity;
 
 /// The embedded migrations, in order.
 pub static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
@@ -93,7 +90,7 @@ fn connect_options(path: &Path) -> SqliteConnectOptions {
         .filename(path)
         .create_if_missing(true)
         .journal_mode(SqliteJournalMode::Wal)
-        .synchronous(SqliteSynchronous::Full)
+        .synchronous(SqliteSynchronous::Normal)
         .foreign_keys(true)
         .busy_timeout(BUSY_TIMEOUT)
 }
@@ -132,25 +129,18 @@ impl Store {
             create_private_dir(dir)?;
         }
         let existed = path.metadata().is_ok_and(|m| m.len() > 0);
-        let available: Vec<i64> = MIGRATOR.iter().map(|m| m.version).collect();
-        let applied = if existed {
-            applied_versions(path).await?
-        } else {
-            Vec::new()
-        };
-        let pending = needs_backup(&applied, &available);
         if existed {
-            compat::check(path).await?;
-        }
-        if existed && pending {
-            create_private_dir(&options.backup_dir)?;
-            let target = options.backup_dir.join(pre_migrate_name(options.now));
-            let mut conn = connect_options(path).connect().await.map_err(database)?;
-            vacuum_into(&mut conn, &target)
-                .await
-                .map_err(|e| io(&target, e))?;
-            conn.close().await.map_err(database)?;
-            tracing::info!(backup = %target.display(), "backed up the database before migrating");
+            let available: Vec<i64> = MIGRATOR.iter().map(|m| m.version).collect();
+            if needs_backup(&applied_versions(path).await?, &available) {
+                create_private_dir(&options.backup_dir)?;
+                let target = options.backup_dir.join(pre_migrate_name(options.now));
+                let mut conn = connect_options(path).connect().await.map_err(database)?;
+                vacuum_into(&mut conn, &target)
+                    .await
+                    .map_err(|e| io(&target, e))?;
+                conn.close().await.map_err(database)?;
+                tracing::info!(backup = %target.display(), "backed up the database before migrating");
+            }
         }
         let write = SqlitePoolOptions::new()
             .max_connections(1)
@@ -161,14 +151,10 @@ impl Store {
             .execute(&write)
             .await
             .map_err(|_| StoreOpenError::NoFts5)?;
-        let mut migrator = Migrator::with_migrations(MIGRATOR.iter().cloned().collect());
-        migrator.set_ignore_missing(true);
-        migrator
+        MIGRATOR
             .run(&write)
             .await
             .map_err(|e| StoreOpenError::Migrate(e.to_string()))?;
-        compat::record(&write, !existed || pending, ms(options.now)).await?;
-        integrity::quick_check(&write).await?;
         let read = SqlitePoolOptions::new()
             .max_connections(READ_CONNECTIONS)
             .connect_with(connect_options(path))
@@ -179,13 +165,6 @@ impl Store {
             write,
             options,
         })
-    }
-
-    /// Runs `PRAGMA quick_check` on the database.
-    ///
-    /// A backup verification uses this too: an `Ok` means the file is sound.
-    pub async fn quick_check(&self) -> Result<(), StoreOpenError> {
-        integrity::quick_check(&self.write).await
     }
 
     /// Closes both pools, waiting for open connections.

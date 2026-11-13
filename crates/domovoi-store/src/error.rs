@@ -24,20 +24,6 @@ pub enum StoreOpenError {
     /// A migration failed; the pre-migration backup is untouched.
     #[error("database migration failed: {0}")]
     Migrate(String),
-    /// The database was written by a newer Domovoi than this binary.
-    #[error(
-        "this database needs Domovoi {min_reader} or newer, but this is {binary}; upgrade Domovoi. \
-         Restoring an older backup is the only way back"
-    )]
-    SchemaTooNew {
-        /// The lowest binary version the database accepts.
-        min_reader: String,
-        /// This binary's version.
-        binary: String,
-    },
-    /// The database failed its integrity check.
-    #[error("the database failed its integrity check ({0}); restore a backup")]
-    Integrity(String),
 }
 
 /// Maps a query error: unique violations are conflicts, everything else is a backend error.
