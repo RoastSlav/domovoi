@@ -263,19 +263,31 @@ nft add element inet "$table" "$set4" \
 echo '--- before'
 nft list set inet "$table" "$set4"
 
-# One batch: delete a committed element, add two more. The third command overflows the set,
-# and the kernel rejects it after the delete and the first add were accepted.
-if nft -f - <<'EOF'
+# One batch: delete a committed element, add two more; the second add overflows the set.
+# Capture the complete diagnostic (netlink dump plus error) and the exit status together.
+set +e
+batch_output=$(nft --debug=netlink -f - 2>&1 <<'EOF'
 delete element inet domovoi_probe_kernel blocked4 { 198.51.100.10 }
 add element inet domovoi_probe_kernel blocked4 { 198.51.100.20 timeout 300s }
 add element inet domovoi_probe_kernel blocked4 { 198.51.100.21 timeout 300s }
 EOF
-then
-    echo 'UNEXPECTED: the batch succeeded, so this probe proves nothing.' >&2
+)
+batch_status=$?
+set -e
+
+echo '--- batch diagnostics'
+printf '%s\n' "$batch_output"
+
+if [ "$batch_status" -eq 0 ]; then
+    echo 'FAILED: the batch succeeded, so this probe proves nothing.' >&2
     exit 1
-else
-    batch_status=$?
-    echo "Batch rejected by the kernel (exit $batch_status)." >&2
+fi
+
+# Only a kernel-side capacity rejection counts; a userspace parse or evaluation error must fail the probe.
+expected='Could not process rule: Too many open files in system'
+if ! printf '%s' "$batch_output" | grep -Fq "$expected"; then
+    echo "FAILED: the batch failed without the expected kernel error ($expected)." >&2
+    exit 1
 fi
 
 echo '--- after failed batch'
@@ -298,6 +310,11 @@ for unexpected in 198.51.100.20 198.51.100.21; do
     fi
 done
 
+if ! printf '%s' "$after" | grep -Eq 'count 2([^0-9]|$)'; then
+    echo 'FAILED: the set does not report exactly two elements after the failed batch.' >&2
+    failed=1
+fi
+
 if [ "$failed" -eq 0 ]; then
     echo 'Rollback verified: the delete did not stick and neither new element was committed.' >&2
 fi
@@ -316,15 +333,20 @@ OBSERVED (agent-run):
 ```text
 --- before
 size 2 # count 2
-elements = { 198.51.100.10 expires 4m59s996ms,
-             198.51.100.11 expires 4m59s996ms }
+elements = { 198.51.100.10 expires 5m,
+             198.51.100.11 expires 5m }
+--- batch diagnostics
 /dev/stdin:3:50-62: Error: Could not process rule: Too many open files in system
 add element inet domovoi_probe_kernel blocked4 { 198.51.100.21 timeout 300s }
-Batch rejected by the kernel (exit 1).
+family 1 blocked4 domovoi_probe_kernel 10 timeout 300000ms size 2 backend nft_set_rhash_type count 2
+family 1 blocked4 domovoi_probe_kernel 0
+        element 0a6433c6  : 0 [end]
+family 1 blocked4 domovoi_probe_kernel 0
+        element 146433c6  : 0 [end]   element 156433c6  : 0 [end]
 --- after failed batch
 size 2 # count 2
-elements = { 198.51.100.10 expires 4m59s964ms,
-             198.51.100.11 expires 4m59s964ms }
+elements = { 198.51.100.10 expires 4m59s976ms,
+             198.51.100.11 expires 4m59s976ms }
 Rollback verified: the delete did not stick and neither new element was committed.
 ```
 
@@ -332,15 +354,17 @@ ESTABLISHES:
 
 - The batch reached the kernel with all three commands, as the netlink debug dump shows, and the kernel
   rejected it at the second `add element` (`ENFILE`); the error names that command, not the earlier ones.
-- The delete did not survive: `198.51.100.10` is still in the set after the batch, 32 milliseconds later
+- The delete did not survive: `198.51.100.10` is still in the set after the batch, 24 milliseconds later
   in its own TTL. Had the delete been committed, the element would be gone.
 - Neither added element was committed: `198.51.100.20` and `198.51.100.21` are absent. The set still
   reports `count 2`, matching the original state.
 - Expiry cannot explain this. The elements carry a 300-second timeout, the whole test takes milliseconds,
-  and the TTL shows the expected small decrease (4m59s996ms to 4m59s964ms), so they were alive before
-  and after the batch.
-- The probe exits 0 only when the batch failed, the resulting set was read successfully, and both
-  expectations hold. A failed read exits 2, an unexpected success exits 1, and a state mismatch exits 1.
+  and the TTL shows the expected small decrease (5m to 4m59s976ms), so they were alive before and after
+  the batch.
+- The probe exits 0 only when the batch failed with the expected kernel error, the resulting set was read
+  successfully, and the state expectations hold. Any other batch failure — a userspace parse or
+  evaluation error, for instance — exits 1, an unexpected success exits 1, a failed read exits 2, and a
+  state mismatch exits 1.
 
 NOT TESTED: the same behaviour on other nftables versions; failure modes where the kernel has already
 begun committing (no such path is expected, but none was observed); and whether a packet can observe an
