@@ -443,9 +443,13 @@ affected check and capability, never as a failure or as offline).
 The host page shows the helper's verified effective set (computed and signed by the helper, relayed
 unchanged by the agent, never an agent-reported summary; the UI has no second editable list)
 read-only beside the confirmed management paths, each discovered path marked covered or uncovered
-with the attestation's freshness, an unverified state when no fresh verified report exists, and
-the instruction to edit `helper.toml` on the host (then Re-check) for an uncovered path (RW-37). The
-owner confirms only covered paths. The Capability
+judged only against verified data, with the attestation's freshness, an unverified state when no
+fresh verified report exists, and the instruction to edit `helper.toml` on the host (then Re-check)
+for an uncovered path (RW-37). The enrollment screen shows the received helper key's full
+fingerprint as unverified until the owner confirms it against the host's own printout (nothing is
+pinned automatically; the key id is a label); a changed key reads "helper key changed" and blocks
+containment; a containment step the helper refuses because its safety state changed carries the
+reason `safety_changed`. The owner confirms only covered paths. The Capability
 Center gets an owner package import (upload of an owner-signed archive and its signature, RW-26)
 before the install wizard, which is built after the visibility infrastructure. The **locked rule** treatment (D-26) makes a locked Deny read differently from
 an ordinary Deny: a lock icon and the text "Locked Deny", never colour alone, in the policy

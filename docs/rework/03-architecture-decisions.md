@@ -317,7 +317,7 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
 - **Types (core).**
   - `HumanApproval` is unchanged.
   - `PolicyPermit { decision_id, rule_ids, policy_version, plan_hash, issued_at, expires_at,
-    ceiling_hash }`.
+    ceiling_hash, safety_identity? }` (`safety_identity` required for `Contain`, RW-37).
   - `enum Authorization { Human(HumanApproval), Policy(PolicyPermit) }` (M1 introduces it with only
     `Human` usable).
   - No `Default`, no `Deserialize`.
@@ -846,142 +846,295 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
 
 ## RW-37 Management paths: helper-owned exclusions, signed attestation, owner confirmation (D-28)
 
-- **DECISION D-28** as recorded in `99`.
+- **DECISION D-28** as recorded in `99`. Everything below is PROPOSAL. **R-10 stays open** until a
+  spike validates it; nothing here is implemented.
+
 - **Ownership:**
 
-  | Concern | Owner and enforcement |
-  |---|---|
-  | unattended capability ceiling | `/etc/domovoi/agent.toml` `[unattended]`, enforced by the agent (RW-12) |
-  | general mutation rate limiter | agent journal, enforced by the agent (RW-38) |
-  | mandatory management-path exclusions | root-owned `/etc/domovoi/helper.toml` `[safety]`, enforced by the helper |
-  | containment TTL and max active | `[safety.containment]` in `helper.toml`, enforced by the helper |
-  | effective safety report | computed and signed by the helper, relayed by the agent |
-  | owner-confirmed management paths | hub knowledge, confirmable only after verified helper coverage |
-
-  The helper safety set is not a copy of the agent ceiling. The agent config has no exclusion list.
-- **Invariant (PROPOSAL).** A management path becomes owner-confirmed, and eligible to unlock
-  unattended containment, only if it is contained in the helper's root-owned effective safety set
-  **as shown by a verified, fresh helper attestation**. The hub never trusts an agent-supplied
-  description of what the helper enforces.
-- **Effective set.** The helper computes it at every attestation and every containment request:
-
-  | Element | Source | Trusted because |
+  | Concern | Owner | Enforced by |
   |---|---|---|
-  | configured management CIDRs, protected units, protected containers | `[safety]` | root-owned, owner-edited |
-  | loopback and link-local | constants | definition |
-  | hub address(es) | helper resolves `hub.url` from the root-owned `/etc/domovoi/agent.toml` | root-owned config |
-  | current link peer | kernel socket table: established TCP sockets owned by uid `domovoi-agent` toward the hub port | kernel state |
-  | local interface addresses, default gateways | netlink | kernel state |
+  | unattended capability ceiling | `/etc/domovoi/agent.toml` `[unattended]` | agent (RW-12) |
+  | general mutation rate limiter | agent journal | agent (RW-38) |
+  | mandatory management-path exclusions | root-owned `/etc/domovoi/helper.toml` `[safety]` | helper |
+  | containment hard maxima (TTL, active count) and active-count accounting | `[safety.containment]` + helper state | helper only. Agent values may only be stricter (`04` §8.3) |
+  | effective safety report | computed and signed by the helper | relayed unchanged by the agent |
+  | owner-confirmed management paths | hub knowledge | confirmable only after verified helper coverage |
 
-  If any element cannot be established, the helper refuses every containment operation and returns
-  an attestation marked `incomplete`.
-- **Signed attestation.**
-  - **Key.** At install the helper generates an Ed25519 attestation key:
-    - stored at `/var/lib/domovoi-helper/attest.key`, root 0600, in a directory root 0700;
-    - inaccessible to `domovoi-agent` and `domovoi-skill`, with `InaccessiblePaths=` also set in
-      both of their units;
-    - its key id is the first 16 hex characters of SHA-256 of the public key.
-  - **Request.** The hub sends `attest_safety{nonce}` (32 random bytes, single use, valid for 60 s)
-    over wire 1.2. The agent forwards the nonce to the helper's `safety.attest` operation. The nonce
-    is the only input, and it is opaque fixed-length bytes.
-  - **Report.** The helper signs `"domovoi-safety-attest-v1\n" ‖ canonical_json(report)`, where the
-    report contains:
-    - `format`, `helper_key_id`, `nonce`, `boot_id`;
-    - `config_hash` (SHA-256 of the canonical `[safety]` section);
-    - `generation` (increments whenever the computed set changes, persisted in helper state);
-    - `effective_set`: canonical sorted CIDRs, protected units, protected containers by id,
-      containment limits;
-    - `dynamic`: hub addresses, link peer, local addresses, gateways;
-    - `complete: bool`;
-    - `computed_at` (wall time, informational).
-  - **Transport.** The agent relays `safety_attestation{report, signature}` unchanged.
-  - **Hub verification.** It checks:
-    - the signature against the host's pinned helper public key;
-    - that the nonce was issued for this host, is unused and is under 60 s old;
-    - `complete = true`.
+  The agent config has no exclusion list.
 
-    Only then is the report stored as the host's **verified effective set**. Anything else leaves
-    the set **unverified**.
-  - **When the hub requests a report:**
-    - on `hello`;
-    - on an `agent_status` change notice;
-    - every 15 minutes;
-    - on the owner's "Re-check" in the UI;
-    - immediately before issuing any unattended containment permit, which requires a verified report
-      under 5 minutes old whose `generation` matches the one the confirmation was made against.
-  - **What a compromised agent can do:** request fresh reports, withhold them (the set becomes
-    unverified and containment is blocked), or replay one. A replay fails the nonce check. A report
-    from another host's helper fails the pinned-key check. It cannot forge a report, because it
-    cannot read the key.
-- **Helper key enrollment and rotation (PROPOSAL).** Proposed commands are not yet specified CLI.
-  - **Enrollment.**
-    1. The owner runs the proposed `domovoi helper fingerprint` as root on the host, which prints the
-       key id and fingerprint.
-    2. The hub's host page shows the fingerprint reported through the agent, marked **unverified**.
-    3. The owner compares the two out of band and confirms with step-up.
-    4. The hub pins the key, audited as `helper.key_pinned`.
+- **Invariant.** A management path is owner-confirmed, and can unlock unattended containment, only
+  when a **verified, fresh helper attestation** shows it covered. The hub never trusts an
+  agent-supplied description of helper state.
 
-    A key reported by the agent is never pinned without this owner comparison.
-  - **Rotation.** The owner runs the proposed `domovoi helper rotate-key` as root. The hub then sees
-    a key-id mismatch: attestations become unverified and unattended containment is blocked until the
-    owner repeats enrollment for the new fingerprint (`helper.key_rotated`).
-  - **Re-enrollment** of the agent does not change the helper key.
-  - **Unpin.** The owner can unpin a key in the UI, which blocks containment.
-- **Owner confirmation workflow.**
-  1. The owner sets management CIDRs, protected units and protected containers in `[safety]` by
-     editing `/etc/domovoi/helper.toml` as root on the host. The helper reads its config at every
-     request (socket-activated instance per connection), so no reload command is needed. An invalid
-     file makes the helper refuse containment and report `incomplete`.
-  2. The owner presses "Re-check" (or waits for the periodic request). The hub obtains a fresh
-     verified attestation.
-  3. The hub compares the **discovered management paths** with the verified effective set. Discovered
-     paths are the agent's interfaces and routes, the hub's view of the agent address, and
-     owner-entered candidates. The UI lists **covered** and **uncovered** paths separately.
-  4. The owner can confirm only covered paths (step-up; fact `source = user`, `evidence_ref` = the
-     attestation generation).
-  5. An uncovered path shows instructions: "add `<cidr>` to `[safety].management_cidrs` in
-     `/etc/domovoi/helper.toml` on `<host>`, then Re-check".
+### Helper identity and key enrollment
+
+- **Key.**
+  - The helper generates an Ed25519 key pair at first start if absent: private key
+    `/var/lib/domovoi-helper/attest.key`, root 0600, directory root 0700.
+  - It is masked in the agent and skill-runner units.
+  - `public_key` = the raw 32-byte Ed25519 public key.
+- **Fingerprint and key id.**
+  - `fingerprint` = lowercase hex SHA-256 of the 32 raw public-key bytes (64 hex characters). It is
+    displayed in groups of four.
+  - `helper_key_id` = the first 16 hex characters of the fingerprint. It is a **label only**: it is
+    never used to verify a signature or to decide trust.
+- **Delivery.**
+  - `hello.helper_identity` and `agent_status.helper_identity` carry
+    `{ public_key: base64 (standard, padded) of exactly 32 bytes }`. Any other length is rejected.
+  - Every `safety_attestation` also carries `public_key`.
+  - **The hub computes the fingerprint itself.** It ignores any fingerprint or id the agent sends.
+- **Enrollment.**
+  1. The hub shows the received key as **unverified**: its fingerprint and "not pinned".
+  2. The owner runs the proposed `domovoi helper fingerprint` as root on the host. It prints the
+     full fingerprint and the key id, computed from the private key file.
+  3. The owner compares the two out of band and confirms with step-up.
+  4. The hub **pins the exact 32-byte public key** for that host (`helper_keys(host_id, public_key,
+     fingerprint, pinned_at, pinned_by)`), audited as `helper.key_pinned`.
+
+  Nothing is pinned automatically, including on first contact.
+- **Verification.** An attestation verifies only when **both** hold:
+  - `public_key` in the message equals the pinned key byte for byte;
+  - `ed25519::verify_strict(pinned_key, signing_bytes, signature)` succeeds.
+
+  A matching key id with a different key is a mismatch.
+- **Key changes.**
+
+  | Event | Behaviour |
+  |---|---|
+  | `domovoi helper rotate-key` (proposed, root on the host) | new key, generation counter kept |
+  | reinstall or lost helper state | new key generated at start |
+  | key received ≠ pinned key | host shows "helper key changed: unverified"; every attestation fails; unattended containment blocked; the old pin is kept and never replaced silently |
+  | owner re-enrollment | owner compares the new fingerprint locally and confirms (step-up); the pin is replaced; audited `helper.key_rotated` with old and new fingerprints |
+  | owner unpin | no pinned key; containment blocked; audited |
+  | agent re-enrollment or agent upgrade | helper pin unchanged; a different helper key is a key change as above |
+  | host deleted from the hub | pin deleted |
+
+  A compromised agent that substitutes another key only produces a mismatch. It cannot get a key
+  pinned without the owner's local comparison.
+
+### Signed report
+
+- **Request.** The hub sends `attest_safety{ nonce }`: 32 random bytes, base64. Each nonce is issued
+  for one host, single use, and valid for 60 s. The agent passes the nonce to the helper's
+  `safety.attest` operation. The nonce is the helper's only input.
+- **Report bytes.** The report is the exact signed byte string. It is UTF-8, LF-terminated
+  `key=value` lines in this order. Lines marked `*` repeat zero or more times, sorted bytewise
+  ascending, with no duplicates.
+
+  ```text
+  format=1
+  helper_key_id=<16 hex>
+  nonce=<64 hex>
+  boot_id=<lowercase uuid from /proc/sys/kernel/random/boot_id>
+  generation=<u64 decimal, no leading zeros>
+  config_hash=<64 hex: SHA-256 of the canonical [safety] lines below>
+  route_state_hash=<64 hex: SHA-256 of the route lines below>
+  complete=<true|false>
+  incomplete_reason=<token or empty>
+  computed_at=<RFC 3339 UTC, seconds, Z>
+  cidr=<canonical CIDR>*                  configured management CIDRs
+  protected_unit=<canonical unit id>*
+  protected_container=<64 hex container id>*
+  max_ttl_s=<u64>
+  max_active=<u64>
+  hub_addr=<canonical IP>*
+  link_peer=<canonical IP>|<port>*
+  local_addr=<canonical IP/prefix>|<ifname>*
+  route=<family>|<table>|<dst canonical CIDR>|<gateway IP or ->|<ifname>|<metric>*
+  rule=<family>|<priority>|<selector>|<table>*
+  endpoint_route=<endpoint IP>|<table>|<gateway IP or ->|<ifname>|<src IP>*
+  ```
+
+  - **Canonical values.** IPv4 dotted decimal; IPv6 RFC 5952; CIDRs with host bits zero; unit ids
+    after alias resolution.
+  - **Signing bytes.** `"domovoi-safety-attest-v1\n"` ‖ the report bytes.
+  - **Message.** `safety_attestation{ public_key, report: base64(report bytes), signature:
+    base64(64 bytes) }`.
+  - **Strict parsing.** The hub verifies the signature over the received bytes **first**, then
+    parses those same bytes with a strict parser. It never re-serializes them. It rejects:
+    - unknown, missing, duplicate or out-of-order keys;
+    - unsorted or duplicated repeated lines;
+    - non-canonical values;
+    - CR characters, trailing whitespace, or a missing final LF;
+    - `format` ≠ 1;
+    - a `nonce` that does not match an outstanding nonce for this host.
+- **Hub acceptance.** The hub accepts the report as the host's **verified safety state** only if:
+  - the signature verifies with the pinned key;
+  - the nonce is valid;
+  - `complete=true`.
+
+  It stores the report bytes and the safety identity (below). Requests happen on `hello`, on
+  `agent_status`, every 15 min, on the owner's Re-check, and before permit issuance.
+
+### Route coverage
+
+- **What the helper observes** (via netlink, as root):
+  - all IPv4 and IPv6 policy rules;
+  - every routing table referenced by a rule, plus `main` and `local`;
+  - interface addresses and link state.
+- **Relevant route state.** Only these lines appear in the report and in `route_state_hash`:
+  - `endpoint_route`: the kernel route-lookup result (equivalent to `ip route get`, honouring policy
+    rules) for each **management endpoint**:
+    - every `hub_addr`;
+    - every `link_peer` address;
+    - the network address of every configured `cidr`.
+  - `route`: every route that one of those lookups selected, plus every default route in any
+    referenced table.
+  - `rule`: every policy rule that can select one of those tables.
+  - `local_addr`: addresses on interfaces named by any `endpoint_route`.
+- **What does not count.** Routes and addresses not involved in reaching a management endpoint are
+  not attested. Changing them does **not** invalidate confirmation. The docs and UI must not claim
+  that "any route change" invalidates.
+- **Incomplete data.** If rules, tables, lookups or addresses cannot be read, or a lookup fails,
+  then `complete=false` with a reason, and the helper refuses all containment.
+- **Coverage check (hub, pure, against verified data only).** Candidate paths come from:
+  - hub-observed agent addresses;
+  - agent-reported inventory, which is untrusted and used only to propose candidates;
+  - owner entries.
+
+  A candidate is **covered** iff its CIDR is a subset of some `cidr` line, or equals a `hub_addr`
+  or `link_peer` address, which the helper always excludes. Agent-reported interfaces or routes
+  never make anything covered.
+
+### Safety identity and generation
+
+- **Safety identity** = (`fingerprint` of the pinned key, `boot_id`, `generation`, `config_hash`,
+  `route_state_hash`).
+- **`generation`** is a u64 in root-owned helper state (`/var/lib/domovoi-helper/state`). The helper
+  increments it whenever the effective set differs from the last computed one, meaning any change
+  of `config_hash`, `route_state_hash`, the dynamic lines, or the limits. It never decreases. Lost
+  helper state also means a new key, so the reset is caught as a key change.
+- **Where the identity lives:**
+
+  | Place | Use |
+  |---|---|
+  | stored management-path confirmation | the identity it was confirmed against |
+  | `PolicyPermit` for `Contain` (new field `safety_identity`) | the identity at issuance |
+  | execution detail (`safety_identity`) and approval card | for human-approved containment, the identity shown when approving |
+  | `run_capability.expected_safety` (wire 1.2; optional field, required for `Contain`) | the dispatch guard sent to the agent |
+  | helper `nft` request field `expected_safety` | the comparison at apply time |
+
+- **Normal (hub-authorized) flow:**
+  1. The hub gets a fresh verified attestation (≤ 5 min old).
+  2. It checks that every confirmed path is still covered and that each confirmation's identity
+     equals the current identity, except `boot_id`, so a reboot alone does not discard owner
+     confirmations.
+  3. It issues the permit with `safety_identity` (for human approvals, it binds the identity shown
+     on the card).
+  4. The agent dispatches with `expected_safety` = that identity.
+  5. The helper recomputes its current state.
+  6. The helper compares: current ≠ `expected_safety` → `refused{safety_changed}`; it cannot
+     compute → `refused{safety_unknown}`; otherwise it checks the target against the actual
+     current set and the limits, then applies.
+- **Changes between the steps:**
+
+  | Change | Result |
+  |---|---|
+  | `helper.toml` edited after attestation | `config_hash` and `generation` change; dispatch refused `safety_changed`; confirmations become stale until re-attested and re-confirmed |
+  | relevant network state changes | `route_state_hash` and `generation` change; same as above |
+  | irrelevant network change | no effect |
+  | helper restarts (new instance per connection) | no effect if state is unchanged; `generation` is persisted |
+  | host reboot | `boot_id` changes; dispatch refused; re-attest needed. Confirmations survive if `generation` and hashes are unchanged |
+  | pinned key changes | no verification possible; no permits; the helper compares its own fingerprint, so an old identity is refused |
+  | report older than 5 min at issuance | no permit |
+  | generation changes between verification and apply | `refused{safety_changed}`; the step is `Refused`; the hub re-attests and re-evaluates; any new attempt is a new step with new authorization |
+  | helper cannot recompute | `refused{safety_unknown}` |
+
+- **Security limitation (stated plainly).** `expected_safety` is a **consistency guard for the
+  honest path**, not proof of a hub permit. A compromised agent can omit or fabricate it and call
+  the helper directly. What always holds, whatever the request says:
+  - the helper recomputes its **actual** set;
+  - it refuses any overlapping target;
+  - it enforces its own TTL and active-count maxima and mutation limits;
+  - it fails closed when state is unknown.
+
+  A hub-signed permit the helper could verify would be a **separate architectural change**. It
+  would need a new helper-side trust root, hub signing-key custody and rotation, clock or nonce
+  semantics, and a protocol change. It is **not** part of this design; it belongs with the DEFERRED
+  owner-signed approvals (`06`).
+
+### Owner workflow, semantics and enforcement
+
+- **Workflow.**
+  1. The owner edits `[safety]` on the host as root.
+  2. The owner presses Re-check.
+  3. The hub shows covered and uncovered candidates against the verified state.
+  4. The owner confirms covered paths only (step-up). A confirmation records the safety identity.
+  5. Uncovered paths show the exact `helper.toml` line to add.
 
   The hub never writes `helper.toml`.
-- **Unknown, uncovered and stale cases:**
+- **Semantics:**
 
   | Condition | Behaviour |
   |---|---|
-  | helper cannot compute its effective set | helper refuses every containment operation (`refused{safety_unknown}`); attestation `incomplete` |
-  | attestation missing, invalid, stale, or key not pinned | hub treats the set as unverified; unattended containment blocked; human-approved containment is offered only with a warning and typed confirmation, and the helper still enforces its actual set |
-  | discovered or owner-entered path not covered by the verified set | cannot be confirmed; unattended containment blocked; human approval as in the row above |
-  | a confirmed path becomes uncovered (config or network change, `generation` or `config_hash` change, interface/route change, new agent address) or confirmation older than 30 d | confirmation becomes stale; unattended containment blocked until re-attested and re-confirmed |
-  | target overlaps the helper's actual effective set | helper refuses, regardless of policy, permit or human approval |
-  | monitoring, unrelated human-approved capabilities | unaffected |
+  | helper cannot compute its state | all containment refused (`safety_unknown`); attestation `complete=false` |
+  | no verified fresh attestation, key not pinned, or key mismatch | unattended containment blocked; human approval only with typed confirmation and a "safety state unverified" warning; the helper still enforces its actual set |
+  | candidate path uncovered | cannot be confirmed; unattended containment blocked; human approval as in the row above, with the path listed as not protected |
+  | confirmation stale (identity changed, other than `boot_id`, or older than 30 d) | unattended containment blocked until re-confirmed |
+  | target overlaps the actual helper set | helper refuses regardless of policy, permit or approval |
+  | monitoring, unrelated human-approved work | unaffected |
 
-  A human approval never makes an uncovered path protected. The approval card lists the uncovered
-  paths and says they are not protected.
-- **Helper enforcement** (independent of the hub and agent). Immediately before applying any
-  containment, the helper:
-  1. recomputes the effective set;
-  2. canonicalises and validates the target network;
-  3. refuses any overlap;
-  4. enforces protected units and containers;
-  5. enforces containment `max_ttl` and `max_active`;
-  6. enforces helper mutation limits.
-- **Residual risk.** A compromised control agent can call the helper directly. It can still never
-  block an address inside the helper's actual effective set, and it cannot make the hub believe a
-  path is protected when it is not.
-- **Tests.**
+- **Helper enforcement at apply time,** independent of anything in the request:
+  1. recompute the effective set;
+  2. compare with `expected_safety` when present;
+  3. canonicalise the target;
+  4. refuse overlap;
+  5. enforce protected units and containers;
+  6. enforce `max_ttl` and `max_active` (the active count is helper-owned, from its nft set);
+  7. enforce helper mutation limits.
+- **Residual risk.** A compromised control agent can call the helper directly. It still cannot:
+  - block an address inside the helper's actual effective set;
+  - exceed the helper's maxima;
+  - make the hub believe a path is protected when it is not.
+
+### Tests
+
+- **Key exchange and enrollment:**
+  - `helper_public_key_exchange_and_fingerprint`
+  - `key_id_never_used_for_verification`
+  - `first_contact_does_not_pin_key`
+  - `key_substitution_by_agent_is_detected`
+  - `key_rotation_blocks_until_reenrolled`
+  - `unpin_blocks_containment`
+  - `agent_reenrollment_keeps_helper_pin`
+- **Signature and report parsing:**
   - `helper_attestation_signature_verifies`
+  - `attestation_rejected_for_wrong_key`
+  - `attestation_rejected_for_other_host`
   - `helper_attestation_rejects_forged_report`
   - `helper_attestation_rejects_replayed_nonce`
-  - `helper_attestation_rejects_other_hosts_key`
+  - `report_parser_rejects_duplicates_unsorted_and_noncanonical`
+- **Agent trust:**
   - `agent_cannot_fabricate_effective_safety_set`
   - `hub_rejects_unverified_safety_report`
-  - `helper_key_not_pinned_without_owner_fingerprint_confirmation`
+- **Confirmation and coverage:**
   - `owner_cannot_confirm_uncovered_management_path`
   - `new_management_path_requires_local_helper_configuration`
   - `changed_helper_safety_set_invalidates_confirmation`
   - `stale_attestation_blocks_unattended_containment`
+- **Route state:**
+  - `nondefault_route_change_for_endpoint_changes_generation`
+  - `irrelevant_route_change_keeps_generation`
+  - `route_replacement_and_deletion_detected`
+  - `multiple_tables_and_rules_observed`
+  - `multiple_interfaces_and_gateways_observed`
+  - `vpn_tunnel_route_to_hub_observed`
+  - `incomplete_route_data_fails_closed`
+- **Races between attestation, permit and apply:**
+  - `config_change_between_attestation_and_apply_refused`
+  - `network_change_between_attestation_and_apply_refused`
+  - `reboot_between_permit_and_apply_refused`
+  - `generation_change_between_permit_and_apply_refused`
+- **Helper enforcement:**
   - `helper_refuses_target_overlapping_exclusion_even_if_agent_requests`
+  - `helper_refuses_overlap_without_expected_safety`
   - `helper_fails_closed_when_safety_state_unknown`
   - `helper_attestation_key_not_readable_by_agent_or_skill`
+- **Limits:**
+  - `agent_limit_stricter_than_helper_applies`
+  - `agent_limit_above_helper_is_capped`
+  - `helper_active_count_is_authoritative`
+- **Approval and unrelated work:**
   - `human_approved_containment_shows_uncovered_paths`
   - `monitoring_unaffected_by_missing_management_paths`
 
@@ -1272,7 +1425,8 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
     - `skill_runner_status` (`absent | unsupported{reason} | error{reason} | ok{version}`, RW-39);
     - `helper_status` (`absent | ok{ops} | error{reason}`);
     - `runs_as_root`;
-    - `helper_key_id` (informational; the hub pins keys only through owner enrollment, RW-37);
+    - `helper_identity{ public_key: base64 of 32 raw bytes }` (the hub computes the fingerprint and
+      pins only through owner enrollment, RW-37);
     - `boot_id` (already reported in facts today).
   - `run_capability{execution_id, contract, version, target, args, plan_hash, authorization_kind,
     expires_at}` and its result.
@@ -1281,10 +1435,13 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
   - `get_catalog{page, page_size}`.
   - `transfer_begin{transfer_id, kind, size, sha256}`, `transfer_chunk{transfer_id, seq, bytes}`,
     `transfer_end{transfer_id}`, a generic chunked byte stream used by package installation (P1).
-  - `agent_status{helper_status, skill_runner_status, runs_as_root, ceiling_hash, ceiling_summary}`
-    for runtime changes (agent → hub, sent on change).
-  - `attest_safety{nonce}` (hub → agent) and `safety_attestation{report, signature}` (agent → hub,
-    report and signature produced by the helper, RW-37).
+  - `agent_status{helper_status, helper_identity, skill_runner_status, runs_as_root, ceiling_hash,
+    ceiling_summary}` for runtime changes (agent → hub, sent on change).
+  - `attest_safety{ nonce: base64 32 bytes }` (hub → agent).
+  - `safety_attestation{ public_key: base64 32 bytes, report: base64 report bytes, signature: base64
+    64 bytes }` (agent → hub, all produced by the helper; the report format is RW-37).
+  - `run_capability.expected_safety` (optional; required for `Contain`): `{ fingerprint, boot_id,
+    generation, config_hash, route_state_hash }`.
   - `unsupported{type}` reply.
   - `ping` from the hub.
 - **Later milestones use only capabilities over this wire:**

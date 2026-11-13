@@ -2,8 +2,8 @@
 
 Baseline `64117f0`.
 - `docs/design-pack/` is the **product-intent** reference.
-- `docs/rework/` is the validated **technical direction**: decisions in `03` (RW-01…41), contracts in
-  `04`, decision register in `99` (D-01…D-29, open O-30, research R-1…R-8).
+- `docs/rework/` is the validated **technical direction**: decisions in `03` (RW-01…42), contracts in
+  `04`, decision register in `99` (D-01…D-29, open O-30, research R-1…R-10).
 
 Files: `01` repository facts · `02` pack validation · `03` decisions · `04` target architecture ·
 `05` migration · `06` roadmap, readiness, deferred list · `07` prompt index (draft) · `99` register ·
@@ -77,6 +77,9 @@ Evolve the existing workspace (RW-01), foundation first inside the rework (D-01)
   learns the helper's effective set only from a helper-signed attestation over a fresh hub nonce,
   verified against a key the owner pinned by fingerprint comparison. A path can be confirmed only if
   that verified set covers it. The hub never trusts an agent-supplied summary.
+  The helper's 32-byte public key is pinned only after the owner compares the full SHA-256
+  fingerprint with a local root command. Containment requests carry the attested safety identity as
+  an honest-path guard: it is not proof of a permit, and the helper always enforces its actual set.
 - **Host-local limits.**
   - The `[unattended]` ceiling applies to `policy`-labelled runs.
   - The `[mutation_limits]` rate limiter applies to every mutation. It is journal-backed, so a hub
@@ -110,8 +113,8 @@ Corrected: authenticated, durable `Incompatible` state and agent idle state (RW-
 removed; one coordinated wire bump in M1 (RW-42); unprivileged agent and root-owned helper (D-29,
 RW-39) with installer migration; approval stages F4 (hash v1) → M1 (v2) → M3 (steps); resolution
 summaries owned by the operation writer (RW-41); equal-scope conflicts in publish validation;
-effect lease fencing (RW-35); reboot-safe rate limiter (RW-38); management-path ⊆ agent-exclusion
-invariant (RW-37); atomic nftables TTL replacement; package import, signer record, archive limits,
+effect lease fencing (RW-35); reboot-safe rate limiter (RW-38); helper-owned exclusions verified by the hub only through
+helper-signed attestations (RW-37, superseding the earlier agent-reported coverage check); atomic nftables TTL replacement; package import, signer record, archive limits,
 valid TOML (validated with Python `tomllib`); systemd identity over fragment + drop-ins (RW-34).
 Root `package-lock.json` removed.
 

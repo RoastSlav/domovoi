@@ -146,7 +146,7 @@ Domovoi
 │   │   ├── Services and workloads
 │   │   ├── Capabilities
 │   │   ├── Monitoring and checks
-│   │   ├── Network and security (management paths: provenance, freshness, covered or uncovered by the helper's verified set, what is blocked)
+│   │   ├── Network and security (management paths: provenance, freshness, covered or uncovered judged against the helper's verified set, helper key enrollment and key-changed state, what is blocked)
 │   │   ├── Knowledge and dependencies
 │   │   └── Activity
 │   ├── Service/workload detail

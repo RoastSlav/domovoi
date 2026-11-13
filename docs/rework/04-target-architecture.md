@@ -497,7 +497,7 @@ The trace is persisted for every mutating or containing step, enforced or shadow
 | Type | Crate | Fields | Constructed by | Restored by |
 |---|---|---|---|---|
 | `HumanApproval` | core | `user`, `channel` (`Web{typed_confirmation}` or `Chat{platform, platform_user}`), `at` — unchanged | `hub/src/auth/` after session + CSRF or chat allowlist check | `store/src/` |
-| `PolicyPermit` | core | `decision_id`, `rule_ids`, `policy_version`, `plan_hash`, `issued_at`, `expires_at`, `ceiling_hash` | `hub/src/policy/` via `PermitIssuer` port | `store/src/` |
+| `PolicyPermit` | core | `decision_id`, `rule_ids`, `policy_version`, `plan_hash`, `issued_at`, `expires_at`, `ceiling_hash`, `safety_identity` (Contain only, RW-37) | `hub/src/policy/` via `PermitIssuer` port | `store/src/` |
 | `Authorization` | core | `Human(HumanApproval) \| Policy(PolicyPermit)` | from the above | store |
 | `AuthorizedExecution` | engine (operation writer) | step + authorization | `execute()` precondition | never persisted |
 
@@ -536,8 +536,12 @@ run_capability {
   target (canonical identity), args, plan_hash,
   authorization_kind: human | policy,
   expires_at,
+  expected_safety?: { fingerprint, boot_id, generation, config_hash, route_state_hash },  // required for Contain
 }
 ```
+
+`expected_safety` is a consistency guard on the honest path (RW-37). It is not proof of authorization:
+the helper always enforces its actual current set whatever this field says.
 
 `authorization_kind` and `expires_at` are labels from the hub. The agent applies its own rules to
 them; they prove nothing.
@@ -566,8 +570,8 @@ max_per_hour = 3
 capability = "firewall.block_source"
 targets = ["*"]                       # source addresses come from detector signals
 max_per_hour = 20
-max_active = 50                       # may be narrower than the helper's [safety] limit, never wider in effect
-max_ttl = "1h"
+max_active = 50                       # optional; stricter-only (see below)
+max_ttl = "1h"                        # optional; stricter-only
 args = { min_prefix_len_v4 = 24, min_prefix_len_v6 = 64 }   # only keys the contract declares constrainable
 
 [mutation_limits]                     # D-27, all mutating executions
@@ -653,7 +657,23 @@ hash, the arguments, `allow_risk` and `[mutation_limits]`.
 the helper against `helper.toml`, the effective safety set (RW-37) and the helper limits. The helper
 does not see or verify approval or policy (RW-39).
 
-**Config errors.** Unknown keys are startup errors, as are Contain entries without the required caps.
+**Containment limits: two layers.**
+
+| Value | Where | Enforced by | Meaning |
+|---|---|---|---|
+| `[safety.containment] max_ttl`, `max_active` | `helper.toml` (root) | helper, on every apply, for every caller | host hard maxima; not overridable |
+| active-count accounting | helper state (counts elements in its nft set) | helper only | authoritative count |
+| `[[unattended.allow]] max_ttl`, `max_active` | `agent.toml` (optional) | agent, before dispatching `policy`-labelled requests | stricter-only limits for unattended runs |
+
+- The effective limit for unattended runs is the stricter of the two.
+- With no agent value, the helper maxima apply.
+- If an agent value exceeds the helper maximum, the agent logs a config warning at load and the
+  helper maximum applies. The UI shows the effective value with both sources.
+- The agent checks `max_active` against the active count read from the helper
+  (`firewall.list_blocks`).
+- No agent setting can widen a helper limit.
+
+**Config errors.** Unknown keys are startup errors.
 
 **Reporting.** The agent sends `ceiling_hash` and a summary, `helper_status`, `skill_runner_status`
 and `runs_as_root` in `hello`, and again in `agent_status` on any change. The effective safety set
@@ -694,7 +714,7 @@ Assumes D-29 is in effect: control agent as `domovoi-agent`, skills as `domovoi-
 | Management protection | D-28: paths confirmed and current, covered by a **verified, fresh helper attestation** (≤ 5 min, same `generation`) of the effective set (RW-37: `[safety]` CIDRs, hub address from root-owned config, kernel-observed link peer, loopback, link-local); immediately before apply the helper recomputes its actual set, refuses any overlapping target, and refuses everything if a safety element cannot be established |
 | Expiry | nftables set element `timeout` = TTL (≤ `max_ttl`). Kernel-enforced, so it does not depend on the agent, the hub or the helper process |
 | Watchdog (D-22) | built into the two-step apply below: the first element carries a 30 s kernel timeout, so if the hub never confirms reachability the block disappears by itself, whether or not the agent, helper or hub survives |
-| Apply semantics | step 1: element added with a 30 s timeout; step 2: on hub confirmation, `replace_ttl` = `delete element` + `add element … timeout <TTL>` in **one** `nft -f` transaction (atomic netlink batch, so the element is never absent); if the element already expired, the transaction fails and the helper reports `expired` (no silent re-add). `add element` on an existing element is not relied on to refresh its timeout. Exact behaviour per supported nftables version is verified in R-2 |
+| Apply semantics | step 1: element added with a 30 s timeout; step 2: on hub confirmation, `replace_ttl` = `delete element` + `add element … timeout <TTL>` in **one** `nft -f` transaction (atomic netlink batch, so the element is never absent); if the element already expired, the transaction fails and the helper reports `expired` (no silent re-add). `add element` on an existing element is not relied on to refresh its timeout. Exact behaviour per supported nftables version is verified in R-2 Each request carries `expected_safety`; the helper refuses `safety_changed` if its recomputed identity differs (honest-path guard), and always checks the target against its actual set |
 | Rollback | `del element` (idempotent; absent = success) |
 | Postcondition | element present with remaining timeout > 0; hub → agent round trip still works |
 | Outcome unknown | read set membership via helper `list`; present → treat as applied; absent → `NotRun` only if the journal proves no apply, else `OutcomeUnknown` |
@@ -964,6 +984,8 @@ only on change and rate-limits its logs.
 
 **Host status fields (wire 1.2).** `hello` and `agent_status` carry:
 - `helper_status`: `absent | error{reason} | ok{ops}`;
+- `helper_identity`: `{ public_key }` (32 raw bytes, base64), from which the hub computes the
+  fingerprint itself; never pinned without owner enrollment (RW-37);
 - `skill_runner_status`: `absent | unsupported{reason} | error{reason} | ok{version}`;
 - `runs_as_root`;
 - `ceiling_hash` and `ceiling_summary`.
@@ -1140,6 +1162,7 @@ writer stall.
 | orchestration determinism | seeded simulator with invariants after each event; `failed_verification_starts_new_cycle`, `budget_exhaustion_pauses`, `no_blind_retry_of_failed_step` |
 | policy | §7.7 |
 | authorization | gates §8.1; `agent_refuses_policy_dispatch_outside_ceiling`, `agent_rate_limit_applies_to_human_kind`, `rate_limit_survives_hub_restart`, `unreadable_journal_refuses_mutations`, `target_identity_change_refused` |
+| attestation and safety generation | RW-37 test list (key exchange, report parsing, route state, races, limits) |
 | containment | §9.1 drills; `block_expires_with_agent_stopped`, `unconfirmed_block_expires_in_30s`, `containment_requires_confirmed_management_paths` (nftables integration on Linux CI) |
 | packages | §11.2 tests |
 | effects | `claimed_effect_reclaimed_after_lease_expiry`, `dead_effect_raises_advisory`, `notification_state_written_only_after_success` |

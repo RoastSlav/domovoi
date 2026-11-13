@@ -176,8 +176,11 @@ recorded 1.3 coordinated upgrade; none is planned.
   - Journal with epoch; fsynced `accepted` / `started{pid,start_time}` / `finished`.
   - Deduplication; `action_status`; orphan handling (04 §15.2).
   - `authorization_kind`; mutation rate limiter with boot-id ages (RW-38).
-  - `hello` extensions incl. `helper_status`, `skill_runner_status`, `runs_as_root`; `agent_status`;
-    `attest_safety` / `safety_attestation` relay (handlers present; the helper arrives in H1).
+  - `hello` extensions incl. `helper_status`, `helper_identity` (32-byte public key),
+    `skill_runner_status`, `runs_as_root`; `agent_status`; `attest_safety` / `safety_attestation`
+    (exact fields in RW-37 and RW-42); `run_capability.expected_safety`. Handlers are present; the
+    helper arrives in H1. These definitions must be final before the 1.2 golden frames are
+    committed. Any change after that is a coordinated protocol decision, never a silent edit.
 - **Backend.**
   - `OutcomeUnknown`; reconcile on `hello`.
   - **Plan hash v2** for new actions (script bytes, target identity, `execution_id`) plus approval
@@ -331,7 +334,9 @@ recorded 1.3 coordinated upgrade; none is planned.
   - On each supported platform, a skill process cannot open the helper socket, list or read
     `/etc/domovoi/*` (except `skills/`), `/var/lib/domovoi-agent` or `/var/lib/domovoi-helper`, or
     write to package and skill sources.
-  - The hub accepts a safety set only from a verified attestation.
+  - The hub accepts a safety set only from an attestation verified against an owner-pinned key.
+  - **Not met by design alone.** H1 acceptance requires R-3, R-9 and R-10 evidence (tests passing on
+    the supported platforms), not just the specification in RW-37 and RW-39.
   - No privileged write group is enabled.
   - No package can write helper or runner paths.
 
@@ -355,7 +360,10 @@ recorded 1.3 coordinated upgrade; none is planned.
 
 - **Prereqs.** M8, M5 (management-path facts, D-28), H1 (helper `nft` group and attestation), R-2,
   R-10. Includes the RW-37 invariant: a confirmed path must be covered by a verified, fresh helper
-  attestation. The RW-37 tests are included.
+  attestation, and each containment request carries the attested safety identity as an honest-path
+  guard. The RW-37 tests are included.
+- **Acceptance** requires the R-2 and R-10 spikes to have produced evidence, plus the §9.1 drills
+  and the RW-37 race tests passing. The design specification alone does not satisfy it.
 - Capability per 04 §9.1: kernel timeout, a two-step apply with a 30 s confirmation window,
   detector-only triggering, reconciliation.
 - **Not enabled** for unattended use until all 04 §9.1 drills pass (D-22).
