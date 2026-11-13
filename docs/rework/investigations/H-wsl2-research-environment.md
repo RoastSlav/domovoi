@@ -1,13 +1,14 @@
-# H. WSL2 research environment (owner-executed record)
+# H. WSL2 research environment (recorded experiments)
 
 Scope: the owner's existing Windows Subsystem for Linux 2 installation, recorded as the initial Linux
-research environment for prompts 53, 54, 55 and 56. Nothing in this document was produced by a coding
-agent and nothing was implemented: every command and result below was run by the owner in a terminal on
-that machine and reported here verbatim.
+research environment for prompts 53, 54, 55 and 56. Nothing was implemented. §1 to §3.3 record commands
+and results the owner ran in a terminal on that machine and reported verbatim; §3.4 was run later by a
+coding agent in the same environment and is labelled as such. No command below changed a production
+ruleset: every nftables experiment ran inside a throwaway network namespace.
 
 Labels used in this record:
 
-- **OBSERVED** — output the owner saw and reported.
+- **OBSERVED** — output that was seen and reported; the subsection says who ran it.
 - **ESTABLISHES** — what that output proves, stated as narrowly as the evidence allows.
 - **NOT TESTED** — untested, and stays untested until someone runs it.
 
@@ -20,7 +21,7 @@ supported distribution.
 | Property | Observed value |
 |---|---|
 | Environment | Windows Subsystem for Linux 2 |
-| Distribution | Ubuntu 26. Exact point release and `VERSION_ID` were not captured; read `/etc/os-release` before relying on one, and never infer a point release from "26" |
+| Distribution | Ubuntu 26.04.1 LTS (Resolute Raccoon), `VERSION_ID="26.04"` from `/etc/os-release` (read on 2026-11-13) |
 | Kernel | `6.18.58.1-microsoft-standard-WSL2` |
 | Init process | `systemd` (PID 1) |
 | systemd | `259.5-0ubuntu3.4` |
@@ -107,7 +108,7 @@ The whole sequence succeeded.
 - A per-element `timeout` overrides the set's default timeout.
 - The delete-and-add batch was accepted and applied as one `nft -f` transaction: the replacement carried
   the new timeout, so the delete was not silently ignored and the add did not collide with a surviving
-  element.
+  element. §3.4 tests the failing case of the same mechanism.
 - nftables operations can be exercised in a separate network namespace, so the experiment does not touch
   the instance's own ruleset.
 
@@ -116,10 +117,12 @@ The whole sequence succeeded.
 - It does not show that packets traverse Domovoi's intended chains, hooks or priorities; no packet was
   sent, counted or dropped in this experiment.
 - It does not show coexistence with an existing base ruleset, `firewalld`, `ufw` or Docker.
-- It does not show that no packet observed an intermediate state during the batch. The batch was applied
-  as one transaction, which is the property `04 §9.1` relies on; independently proving the netlink-level
-  atomicity under live traffic is part of R-2, not of this test.
-- It does not show behaviour under set size limits, resource pressure, failure cases, reboot or recovery.
+- It does not show that no packet observed an intermediate state during the batch. §3.4 shows that a
+  failed batch commits nothing at the ruleset level; it says nothing about what a packet sees while a
+  successful batch is applied, which is the property `04 §9.1` relies on and part of R-2 under live
+  traffic.
+- It does not show behaviour outside the single failure case in §3.4: set size limits, resource
+  pressure, other failure modes, reboot and recovery are untested.
 - It says nothing about production safety or about any distribution other than this WSL2 instance.
 
 ### 3.3 Reproduction
@@ -180,24 +183,110 @@ fi
 just under `60s` (the owner saw about `59.98s`). If instead it reports about `28s`, the delete-and-add
 batch did not replace the element and R-2 must treat `replace_ttl` as broken on this environment.
 
-**Expected shape on failure.** A failed batch makes the script exit non-zero, with nftables' own exit
-status, and the `after` listing is not printed. The failure branch prints the set state before the
-namespace disappears, while the probe's table still exists:
+**Expected shape on failure.** A failed batch is aborted, not partially applied: nftables submits the
+file's commands as one kernel transaction, and if any command fails, none of the batch's changes are
+committed. The script exits non-zero with nftables' own status, does not print the `after` listing, and
+prints the set state before the namespace disappears.
 
-- if the original element survives, its `expires` is roughly 28 seconds — the two-second sleep plus
-  execution and inspection time — but that figure is an estimate, not a guaranteed value, and the
-  reading drifts as the commands run;
-- if the batch failed after the delete, the element may be absent or the query may report an empty set.
-  The branch prints whatever the query returns and falls back to a message if the set cannot be read.
+- The `delete element` in that batch does not survive. The original element should still be present
+  with its remaining TTL — about 28 seconds here, because it was added with 30 seconds and the script
+  slept for two before the batch. That figure is an estimate: the reading decreases while the commands
+  run, and Bash startup and `nft` invocation add time.
+- A missing element is not evidence of partial application. Either the element expired independently
+  before the batch (the 30-second TTL limits how long it can exist) or something else changed the set.
+  Compare the `before` listing with the failure time: with a 30-second TTL, an element that was alive
+  two seconds earlier cannot plausibly have expired. §3.4 repeats the check with a 300-second TTL, where
+  expiry and a failed transaction cannot be confused.
 
 The failure branch has been checked for Bash syntax and its control flow exercised with a stand-in `nft`
-command, but it has never run against a real failing nftables batch. The owner's run succeeded, so no
-failure was observed on this environment, and the failure path must not be reported as experimentally
-verified.
+command. The aborted-transaction behaviour itself is demonstrated in §3.4 against a real failing batch;
+this replacement probe's own failure path was not triggered in the owner's run, which succeeded.
 
 Requirements: `sudo` rights, nftables 1.1.6 or later, and a kernel that permits `unshare --net` under
 root, all of which this environment has. The probe must stay inside a network namespace: on a real host
 it would modify the live ruleset.
+
+### 3.4 A failed batch is aborted, not partially applied
+
+Run by a coding agent on 2026-11-13 in this WSL2 environment (`Ubuntu 26.04.1`, nftables 1.1.6), inside
+`sudo unshare --net`, so the instance's own ruleset was never touched.
+
+The reference for the behaviour: nftables handles the commands in one `nft -f` file in a single kernel
+transaction, and the nftables wiki's scripting and atomic-replacement pages describe `nft -f` as applying
+a file atomically rather than command by command. A batch is therefore expected to commit either in full
+or not at all.
+
+The probe adds an element with a **300-second** timeout, so the element cannot expire during the test,
+then deletes it and deliberately fails a later command in the same batch:
+
+```bash
+#!/usr/bin/env bash
+# Batch-failure probe: a failing batch must not keep the operations before the failure.
+set -euo pipefail
+
+table=domovoi_probe_atomic
+set4=blocked4
+
+cleanup() { nft delete table inet "$table" 2>/dev/null || true; }
+trap cleanup EXIT
+
+nft add table inet "$table"
+nft add set inet "$table" "$set4" \
+    '{ type ipv4_addr; flags timeout; timeout 300s; }'
+nft add element inet "$table" "$set4" '{ 198.51.100.10 timeout 300s }'
+
+echo '--- before'
+nft list set inet "$table" "$set4"
+
+# Delete the element, then fail on a set that does not exist: one batch, one transaction.
+if nft -f - <<'EOF'
+delete element inet domovoi_probe_atomic blocked4 { 198.51.100.10 }
+add element inet domovoi_probe_atomic no_such_set { 203.0.113.5 }
+EOF
+then
+    echo 'UNEXPECTED: the batch succeeded, so this probe proves nothing.' >&2
+    exit 1
+else
+    batch_status=$?
+    echo "Batch failed as intended (exit $batch_status)." >&2
+    echo '--- after failed batch'
+    nft list set inet "$table" "$set4" ||
+        echo 'Could not inspect the set after the failed batch.' >&2
+fi
+```
+
+Run it the same way, with the file saved as `probe-nft-batch-failure.sh`:
+
+```bash
+sudo unshare --net bash ./probe-nft-batch-failure.sh
+```
+
+OBSERVED (agent-run):
+
+```text
+--- before
+elements = { 198.51.100.10 expires 4m59s996ms }
+/dev/stdin:2:39-49: Error: No such file or directory
+add element inet domovoi_probe_atomic no_such_set { 203.0.113.5 }
+--- after failed batch
+Batch failed as intended (exit 1).
+elements = { 198.51.100.10 expires 4m59s992ms }
+```
+
+ESTABLISHES:
+
+- The batch failed with exit status 1, and the probe reported that status instead of aborting: the
+  failure was captured in the `if` condition, the set was inspected, and only then did the script end.
+  This dedicated probe treats the expected failure as success, so it exits 0; the replacement probe in
+  §3.3 is the one that propagates nftables' status as its own exit code.
+- The element is still there, four milliseconds later in its own TTL. The preceding `delete element` was
+  not committed, so this batch did not partially apply.
+- A failed transaction is therefore distinguishable from expiry: with a 300-second TTL and a four-
+  millisecond gap, the element cannot have expired, and it is not absent.
+
+NOT TESTED: the same behaviour on other nftables versions, failure modes after the kernel has begun
+committing, and whether a packet can observe an intermediate state during a successful batch (`04 §9.1`)
+— this probe inspects the ruleset after the batch, not traffic during it.
 
 ## 4. Evidence limitations
 
