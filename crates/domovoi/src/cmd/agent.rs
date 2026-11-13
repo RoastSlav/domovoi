@@ -78,15 +78,28 @@ pub async fn run(command: AgentCommand, logs: Arc<LogRing>) -> anyhow::Result<Ex
             match domovoi_agent::link::status::read(&config.agent.state_dir)? {
                 None => println!("no status recorded; the agent has not run yet."),
                 Some(status) if status.state == "incompatible" => {
-                    let agent = status.agent_protocol.as_deref().unwrap_or("unknown");
-                    let hub = status.hub_protocol.as_deref().unwrap_or("unknown");
-                    println!(
-                        "incompatible: this agent speaks protocol {agent}, the hub speaks {hub}. \
-                         Upgrade the agent, then restart it. (updated {})",
-                        status.updated_at
-                    );
-                    if let Some(detail) = status.detail {
-                        println!("{detail}");
+                    match (
+                        status.agent_protocol.as_deref(),
+                        status.hub_protocol.as_deref(),
+                    ) {
+                        (Some(agent), Some(hub)) => {
+                            println!(
+                                "incompatible: this agent speaks protocol {agent}, the hub \
+                                 speaks {hub}. Upgrade the agent, then restart it. (updated {})",
+                                status.updated_at
+                            );
+                            if let Some(detail) = status.detail {
+                                println!("{detail}");
+                            }
+                        }
+                        _ => {
+                            // A legacy `agent_too_old` reject names no protocol pair; the
+                            // stored detail says what happened.
+                            let detail = status
+                                .detail
+                                .unwrap_or_else(|| "upgrade the agent, then restart it".to_owned());
+                            println!("incompatible: {detail} (updated {})", status.updated_at);
+                        }
                     }
                 }
                 Some(status) if status.state == "connected" => {
