@@ -195,7 +195,8 @@ impl HubRuntime {
         let intake_shutdown = CancellationToken::new();
         let (manager, manager_task) = IncidentManager::spawn(ManagerDeps {
             incidents: store.clone(),
-            signals: store.clone(),
+            uow: store.clone(),
+            versions: store.clone(),
             acks: store.clone(),
             clock: clock.clone(),
             redactor: redactor.clone(),

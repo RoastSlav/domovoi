@@ -117,7 +117,8 @@ async fn seeded_over(store: Arc<InMemoryStore>) -> Seeded {
     let shutdown = CancellationToken::new();
     let (manager, _task) = IncidentManager::spawn(ManagerDeps {
         incidents: store.clone(),
-        signals: store.clone(),
+        uow: store.clone(),
+        versions: store.clone(),
         acks: store.clone(),
         clock: clock.clone(),
         redactor: Arc::new(PatternRedactor::default()),

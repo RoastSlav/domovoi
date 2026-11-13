@@ -22,6 +22,8 @@ mod api_updates;
 #[cfg(test)]
 mod atomic_actions;
 #[cfg(test)]
+mod atomic_incidents;
+#[cfg(test)]
 mod csp;
 #[cfg(test)]
 mod dismiss;
