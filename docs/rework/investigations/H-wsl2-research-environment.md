@@ -77,8 +77,8 @@ OBSERVED results:
 | `sudo nft list ruleset` | no displayed output |
 
 ESTABLISHES: systemd is the real init under WSL2 here, not the compatibility shim; `systemctl` can
-report state; unprivileged-with-`sudo` creation of mount and network namespaces works; the nftables CLI
-is installed and runnable as root.
+report state; creation of mount and network namespaces with `sudo` works (namespace creation without root
+privileges was not tested); the nftables CLI is installed and runnable as root.
 
 ## 3. Isolated nftables experiment
 
@@ -199,94 +199,156 @@ prints the set state before the namespace disappears.
   expiry and a failed transaction cannot be confused.
 
 The failure branch has been checked for Bash syntax and its control flow exercised with a stand-in `nft`
-command. The aborted-transaction behaviour itself is demonstrated in §3.4 against a real failing batch;
-this replacement probe's own failure path was not triggered in the owner's run, which succeeded.
+command. Transaction rollback itself is demonstrated in §3.4 with a batch the kernel rejects after
+processing earlier commands; this replacement probe's own failure path was not triggered in the owner's
+run, which succeeded.
 
 Requirements: `sudo` rights, nftables 1.1.6 or later, and a kernel that permits `unshare --net` under
 root, all of which this environment has. The probe must stay inside a network namespace: on a real host
 it would modify the live ruleset.
 
-### 3.4 A failed batch is aborted, not partially applied
+### 3.4 A batch rejected by the kernel is rolled back in full
 
 Run by a coding agent on 2026-11-13 in this WSL2 environment (`Ubuntu 26.04.1`, nftables 1.1.6), inside
 `sudo unshare --net`, so the instance's own ruleset was never touched.
 
-The reference for the behaviour: nftables handles the commands in one `nft -f` file in a single kernel
+The documented behaviour: nftables handles the commands in one `nft -f` file in a single kernel
 transaction, and the nftables wiki's scripting and atomic-replacement pages describe `nft -f` as applying
-a file atomically rather than command by command. A batch is therefore expected to commit either in full
-or not at all.
+a file atomically rather than command by command. A batch should therefore commit either in full or not
+at all. This subsection tests that with a failure the kernel produces *after* earlier commands in the
+batch were accepted.
 
-The probe adds an element with a **300-second** timeout, so the element cannot expire during the test,
-then deletes it and deliberately fails a later command in the same batch:
+**Failure mechanism: set capacity.** The set is created with `size 2` and holds two committed elements.
+The batch then deletes one element and adds two new ones. Every command is syntactically valid and every
+identifier and type resolves, so nftables userspace evaluation accepts all of them; the kernel is what
+refuses the batch, at the second `add element`, because committing it would put more elements in the set
+than its declared size allows. nft userspace does not track the set's current element count, so this
+diagnostic cannot come from it. A control run with the identical three commands against a set of
+`size 4` succeeds and leaves `count 3`, which confirms the rejection is capacity, not syntax or
+semantics.
+
+**How the submission was established.** nft's own netlink debugging (`nft --debug=netlink`) dumps the
+messages it serializes for the batch. For the failing batch the dump contains the `delete element` for
+`198.51.100.10` and one message for each of the two added elements, so all three commands were serialized
+and sent, not filtered out earlier. The rejection is reported as
+`Error: Could not process rule: Too many open files in system` — nft's rendering of the batch's netlink
+error (`ENFILE`, the kernel's set-full error here), not a parse or evaluation diagnostic, and it names
+the second `add element` as the failing command.
+
+**Userspace rejection is not rollback evidence.** A batch that names a set that does not exist fails
+earlier, during userspace evaluation: it prints `Error: No such file or directory`, has no
+`Could not process rule:` prefix, and its debug dump contains only the set lookup, with no element
+messages — the element commands were never serialized. Such a batch says nothing about kernel rollback.
+The capacity test above is the one that reaches the kernel.
 
 ```bash
 #!/usr/bin/env bash
-# Batch-failure probe: a failing batch must not keep the operations before the failure.
+# Kernel-side batch failure: a valid delete and a valid add must both be rolled back.
 set -euo pipefail
 
-table=domovoi_probe_atomic
+table=domovoi_probe_kernel
 set4=blocked4
+failed=0
 
 cleanup() { nft delete table inet "$table" 2>/dev/null || true; }
 trap cleanup EXIT
 
 nft add table inet "$table"
+# size 2 holds the two committed elements but not the extra inserts in the failing batch.
 nft add set inet "$table" "$set4" \
-    '{ type ipv4_addr; flags timeout; timeout 300s; }'
-nft add element inet "$table" "$set4" '{ 198.51.100.10 timeout 300s }'
+    '{ type ipv4_addr; flags timeout; timeout 300s; size 2; }'
+nft add element inet "$table" "$set4" \
+    '{ 198.51.100.10 timeout 300s, 198.51.100.11 timeout 300s }'
 
 echo '--- before'
 nft list set inet "$table" "$set4"
 
-# Delete the element, then fail on a set that does not exist: one batch, one transaction.
+# One batch: delete a committed element, add two more. The third command overflows the set,
+# and the kernel rejects it after the delete and the first add were accepted.
 if nft -f - <<'EOF'
-delete element inet domovoi_probe_atomic blocked4 { 198.51.100.10 }
-add element inet domovoi_probe_atomic no_such_set { 203.0.113.5 }
+delete element inet domovoi_probe_kernel blocked4 { 198.51.100.10 }
+add element inet domovoi_probe_kernel blocked4 { 198.51.100.20 timeout 300s }
+add element inet domovoi_probe_kernel blocked4 { 198.51.100.21 timeout 300s }
 EOF
 then
     echo 'UNEXPECTED: the batch succeeded, so this probe proves nothing.' >&2
     exit 1
 else
     batch_status=$?
-    echo "Batch failed as intended (exit $batch_status)." >&2
-    echo '--- after failed batch'
-    nft list set inet "$table" "$set4" ||
-        echo 'Could not inspect the set after the failed batch.' >&2
+    echo "Batch rejected by the kernel (exit $batch_status)." >&2
 fi
+
+echo '--- after failed batch'
+if ! after=$(nft list set inet "$table" "$set4"); then
+    echo 'FAILED: could not inspect the set after the failed batch.' >&2
+    exit 2
+fi
+printf '%s\n' "$after"
+
+for kept in 198.51.100.10 198.51.100.11; do
+    if ! printf '%s' "$after" | grep -q "$kept"; then
+        echo "FAILED: $kept is missing, so the batch was not rolled back." >&2
+        failed=1
+    fi
+done
+for unexpected in 198.51.100.20 198.51.100.21; do
+    if printf '%s' "$after" | grep -q "$unexpected"; then
+        echo "FAILED: $unexpected was committed despite the failed batch." >&2
+        failed=1
+    fi
+done
+
+if [ "$failed" -eq 0 ]; then
+    echo 'Rollback verified: the delete did not stick and neither new element was committed.' >&2
+fi
+
+exit "$failed"
 ```
 
-Run it the same way, with the file saved as `probe-nft-batch-failure.sh`:
+Run it like the other probes, with the file saved as `probe-nft-kernel-failure.sh`:
 
 ```bash
-sudo unshare --net bash ./probe-nft-batch-failure.sh
+sudo unshare --net bash ./probe-nft-kernel-failure.sh
 ```
 
 OBSERVED (agent-run):
 
 ```text
 --- before
-elements = { 198.51.100.10 expires 4m59s996ms }
-/dev/stdin:2:39-49: Error: No such file or directory
-add element inet domovoi_probe_atomic no_such_set { 203.0.113.5 }
+size 2 # count 2
+elements = { 198.51.100.10 expires 4m59s996ms,
+             198.51.100.11 expires 4m59s996ms }
+/dev/stdin:3:50-62: Error: Could not process rule: Too many open files in system
+add element inet domovoi_probe_kernel blocked4 { 198.51.100.21 timeout 300s }
+Batch rejected by the kernel (exit 1).
 --- after failed batch
-Batch failed as intended (exit 1).
-elements = { 198.51.100.10 expires 4m59s992ms }
+size 2 # count 2
+elements = { 198.51.100.10 expires 4m59s964ms,
+             198.51.100.11 expires 4m59s964ms }
+Rollback verified: the delete did not stick and neither new element was committed.
 ```
 
 ESTABLISHES:
 
-- The batch failed with exit status 1, and the probe reported that status instead of aborting: the
-  failure was captured in the `if` condition, the set was inspected, and only then did the script end.
-  This dedicated probe treats the expected failure as success, so it exits 0; the replacement probe in
-  §3.3 is the one that propagates nftables' status as its own exit code.
-- The element is still there, four milliseconds later in its own TTL. The preceding `delete element` was
-  not committed, so this batch did not partially apply.
-- A failed transaction is therefore distinguishable from expiry: with a 300-second TTL and a four-
-  millisecond gap, the element cannot have expired, and it is not absent.
+- The batch reached the kernel with all three commands, as the netlink debug dump shows, and the kernel
+  rejected it at the second `add element` (`ENFILE`); the error names that command, not the earlier ones.
+- The delete did not survive: `198.51.100.10` is still in the set after the batch, 32 milliseconds later
+  in its own TTL. Had the delete been committed, the element would be gone.
+- Neither added element was committed: `198.51.100.20` and `198.51.100.21` are absent. The set still
+  reports `count 2`, matching the original state.
+- Expiry cannot explain this. The elements carry a 300-second timeout, the whole test takes milliseconds,
+  and the TTL shows the expected small decrease (4m59s996ms to 4m59s964ms), so they were alive before
+  and after the batch.
+- The probe exits 0 only when the batch failed, the resulting set was read successfully, and both
+  expectations hold. A failed read exits 2, an unexpected success exits 1, and a state mismatch exits 1.
 
-NOT TESTED: the same behaviour on other nftables versions, failure modes after the kernel has begun
-committing, and whether a packet can observe an intermediate state during a successful batch (`04 §9.1`)
-— this probe inspects the ruleset after the batch, not traffic during it.
+NOT TESTED: the same behaviour on other nftables versions; failure modes where the kernel has already
+begun committing (no such path is expected, but none was observed); and whether a packet can observe an
+intermediate state during a successful batch (`04 §9.1`), because this probe inspects the ruleset after
+the batch rather than traffic during it.
+
+The earlier `no_such_set` batch that this subsection replaces was rejected during userspace evaluation —
+it is kept only as the contrast case above, and it is not evidence of kernel rollback.
 
 ## 4. Evidence limitations
 
