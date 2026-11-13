@@ -12,10 +12,22 @@ not a brief, and must not be launched.
   index means the prompts have no dependency forcing an order — it never means concurrent execution.
 - **Migrations are sequential.** A prompt that adds a migration runs only after the previous
   migration-adding prompt has merged, and takes the next free number (index §7).
-- **Branch and target.** Branch from the latest `overhaul-investigation` and open the pull request
-  against it; do not target `main` while prompt 08 is absent from it (index §1, steps 3 and 4).
+- **One active V2 branch.** `overhaul-investigation` is the base for all V2 work and holds both the
+  internal planning documents and the V2 implementation. Branch from its latest HEAD and open the pull
+  request against it; `main` is never a prompt target (index §1.1). The coding agent works in the
+  repository checkout and reads `docs/rework/`, `docs/design-pack/` and these prompt files there — no
+  second branch, worktree, documentation overlay or sync step is needed.
+- **Internal documents stay out of `main`.** `docs/rework/`, `docs/design-pack/` and these prompts are
+  never merged into `main`; product documentation under `docs/book/` travels with the feature that
+  changes it. Promotion to `main` is a curated branch later, not a merge of the whole V2 branch (index
+  §1.2).
 - **Authoritative design:** `../03-architecture-decisions.md` (RW-NN), `../04-target-architecture.md`,
   `../04b-attestation-encoding.md`, `../99-open-decisions.md` (D-NN, O-NN, R-NN).
+- **Linux research environment:** the owner's Ubuntu WSL2 environment, recorded in
+  [`../investigations/H-wsl2-research-environment.md`](../investigations/H-wsl2-research-environment.md).
+  Research prompts 53, 54 and 56 may run there for scoped, preliminary evidence; prompt 55 needs no
+  environment gate. WSL2 evidence does not accept a research item and does not stand for supported
+  conventional Linux hosts.
 - **Repository rules:** `AGENTS.md`, `ARCHITECTURE.md`, `TESTING.md`.
 
 The design pack in `docs/design-pack/` is product intent, not an implementation reference.
