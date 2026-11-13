@@ -262,19 +262,19 @@ row as pending or as still to be implemented.
 
 | ID | File | Launch state from `overhaul-investigation` |
 |---|---|---|
-| 08 | `08-store-unit-of-work.md` | already in the base branch |
-| 13 | `13-exact-protocol-rule.md` | ready: 08 is in the base |
-| 16 | `16-delivery-durability.md` | ready: 08 is in the base |
-| 17 | `17-llm-reliability.md` | ready: 08 is in the base; adds a migration, so run it after 13 and 09 (§7) |
-| 19 | `19-ops-readiness.md` | ready: 08 is in the base; adds a migration, so run it after 17 (§7) |
-| 57 | `57-configurable-retention.md` | ready: 08 is in the base |
-| 09 | `09-audit-hash-chain.md` | waiting: 13 must merge first (both add a migration; §7) |
-| 10 | `10-atomic-action-writes.md` | waiting: 09 |
-| 11 | `11-atomic-incident-writes.md` | waiting: 09 |
-| 12 | `12-crash-harness.md` | waiting: 10 and 11 |
-| 14 | `14-recovery-order.md` | waiting: 10 |
-| 15 | `15-durable-timers.md` | waiting: 08, 10 and 14 |
-| 18 | `18-structured-approvals.md` | waiting: 10 |
+| 08 | `08-store-unit-of-work.md` | merged into `overhaul-investigation` (#114, `f562d06`) |
+| 13 | `13-exact-protocol-rule.md` | merged into `overhaul-investigation` (#116, `4edda64`; migration `0008`) |
+| 16 | `16-delivery-durability.md` | ready: 08 is merged |
+| 17 | `17-llm-reliability.md` | ready: 08 is merged; adds a migration, and 13 and 09 have merged, so it is next in the migration sequence (read the next free number, §7) |
+| 19 | `19-ops-readiness.md` | ready: 08 is merged; adds a migration, so run it after 17 (§7) |
+| 57 | `57-configurable-retention.md` | ready: 08 is merged; no schema change |
+| 09 | `09-audit-hash-chain.md` | merged into `overhaul-investigation` (#117, `e3252aa`; migration `0009`) |
+| 10 | `10-atomic-action-writes.md` | merged into `overhaul-investigation` (#118, `689e2df`; no migration) |
+| 11 | `11-atomic-incident-writes.md` | ready: 09 is merged; adds no migration |
+| 12 | `12-crash-harness.md` | waiting: 11 (10 is merged) |
+| 14 | `14-recovery-order.md` | ready: 10 is merged; adds no migration |
+| 15 | `15-durable-timers.md` | waiting: 14 (08 and 10 are merged); adds a migration, so take the next free number when it runs |
+| 18 | `18-structured-approvals.md` | ready: 10 is merged; adds no migration |
 | 24 | `24-capability-contracts.md` | waiting: 23, which is unwritten (§6.2) |
 
 ### 6.2 Unwritten implementation prompts (29)

@@ -124,10 +124,11 @@ The whole sequence succeeded.
 
 ### 3.3 Reproduction
 
-Save as `probe-nft.sh` and run it as root inside a fresh network namespace:
+Save as `probe-nft.sh`, then run it as root inside a fresh network namespace. Invoking it through `bash`
+means the file needs no executable bit and no `chmod` step:
 
 ```bash
-sudo unshare --net ./probe-nft.sh
+sudo unshare --net bash ./probe-nft.sh
 ```
 
 ```bash
@@ -143,7 +144,8 @@ cleanup() { nft delete table inet "$table" 2>/dev/null || true; }
 trap cleanup EXIT
 
 nft add table inet "$table"
-nft add set inet "$table" "$set4" '{ type ipv4_addr; timeout 30s; }'
+nft add set inet "$table" "$set4" \
+    '{ type ipv4_addr; flags timeout; timeout 30s; }'
 nft add element inet "$table" "$set4" '{ 198.51.100.10 timeout 30s }'
 
 echo '--- before'
@@ -153,18 +155,45 @@ nft list set inet "$table" "$set4"
 sleep 2
 
 # One transaction: delete the element, add it back with the longer timeout.
-nft -f - <<'EOF'
+# The batch runs as an `if` condition, so `set -e` does not abort before the state is inspected.
+if nft -f - <<'EOF'
 delete element inet domovoi_probe blocked4 { 198.51.100.10 }
 add element inet domovoi_probe blocked4 { 198.51.100.10 timeout 60s }
 EOF
+then
+    echo 'Replacement transaction succeeded.'
+    echo '--- after'
+    nft list set inet "$table" "$set4"
+else
+    batch_status=$?
 
-echo '--- after'
-nft list set inet domovoi_probe blocked4
+    echo "Replacement transaction failed (exit $batch_status)." >&2
+    echo '--- state after failed transaction' >&2
+    nft list set inet "$table" "$set4" ||
+        echo 'Could not inspect the set after the failed transaction.' >&2
+
+    exit "$batch_status"
+fi
 ```
 
-Expected shape of the last listing: one element for `198.51.100.10` with `expires` just under `60s`
-(the owner saw about `59.98s`). If the listing reports about `28s` instead, the delete-and-add batch did
-not replace the element and R-2 must treat `replace_ttl` as broken on this environment.
+**Expected shape on success.** The final listing shows one element for `198.51.100.10` with `expires`
+just under `60s` (the owner saw about `59.98s`). If instead it reports about `28s`, the delete-and-add
+batch did not replace the element and R-2 must treat `replace_ttl` as broken on this environment.
+
+**Expected shape on failure.** A failed batch makes the script exit non-zero, with nftables' own exit
+status, and the `after` listing is not printed. The failure branch prints the set state before the
+namespace disappears, while the probe's table still exists:
+
+- if the original element survives, its `expires` is roughly 28 seconds — the two-second sleep plus
+  execution and inspection time — but that figure is an estimate, not a guaranteed value, and the
+  reading drifts as the commands run;
+- if the batch failed after the delete, the element may be absent or the query may report an empty set.
+  The branch prints whatever the query returns and falls back to a message if the set cannot be read.
+
+The failure branch has been checked for Bash syntax and its control flow exercised with a stand-in `nft`
+command, but it has never run against a real failing nftables batch. The owner's run succeeded, so no
+failure was observed on this environment, and the failure path must not be reported as experimentally
+verified.
 
 Requirements: `sudo` rights, nftables 1.1.6 or later, and a kernel that permits `unshare --net` under
 root, all of which this environment has. The probe must stay inside a network namespace: on a real host
