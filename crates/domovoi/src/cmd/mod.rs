@@ -1,6 +1,7 @@
 //! One module per subcommand. Each parses nothing itself and calls library APIs.
 
 mod agent;
+mod audit;
 mod check;
 mod digest;
 mod hub;
@@ -47,6 +48,9 @@ pub enum Command {
     /// Build and send the daily digest.
     #[command(subcommand)]
     Digest(digest::DigestCommand),
+    /// Verify the audit log's hash chain or print its head.
+    #[command(subcommand)]
+    Audit(audit::AuditCommand),
     /// Print the hub's OpenAPI document as JSON (used by `cargo xtask openapi`).
     #[command(hide = true)]
     Openapi,
@@ -105,6 +109,7 @@ pub fn run(command: Command, logs: Arc<LogRing>) -> anyhow::Result<ExitCode> {
         Command::Notify(command) => block_on(notify::run(command)),
         Command::Selftest(args) => block_on(selftest::run(args)),
         Command::Digest(command) => block_on(digest::run(command)),
+        Command::Audit(command) => block_on(audit::run(command)),
         Command::Upgrade(args) => block_on(upgrade::run(args)),
     }
 }
