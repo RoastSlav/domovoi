@@ -109,6 +109,9 @@ uow_contract_tests! {
     sqlite_effect_completion_needs_the_current_claim_token => effect_completion_needs_the_current_claim_token,
     sqlite_completing_an_unclaimed_effect_without_a_token_marks_it_done => completing_an_unclaimed_effect_without_a_token_marks_it_done,
     sqlite_zero_max_attempts_is_refused => zero_max_attempts_is_refused,
+    sqlite_effect_id_must_be_unique => effect_id_must_be_unique,
+    sqlite_effects_are_listed_in_insertion_order => effects_are_listed_in_insertion_order,
+    sqlite_failed_effect_completion_rolls_back_every_stage => failed_effect_completion_rolls_back_every_stage,
 }
 
 #[tokio::test]

@@ -50,6 +50,9 @@ contract_tests! {
     in_memory_effect_completion_needs_the_current_claim_token => effect_completion_needs_the_current_claim_token,
     in_memory_completing_an_unclaimed_effect_without_a_token_marks_it_done => completing_an_unclaimed_effect_without_a_token_marks_it_done,
     in_memory_zero_max_attempts_is_refused => zero_max_attempts_is_refused,
+    in_memory_effect_id_must_be_unique => effect_id_must_be_unique,
+    in_memory_effects_are_listed_in_insertion_order => effects_are_listed_in_insertion_order,
+    in_memory_failed_effect_completion_rolls_back_every_stage => failed_effect_completion_rolls_back_every_stage,
 }
 
 #[tokio::test]
