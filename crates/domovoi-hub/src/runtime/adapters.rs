@@ -4,11 +4,15 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use domovoi_config::hub::HubConfig;
-use domovoi_core::ports::{ChatGateway, Clock, HostRepo, InteractionSink, Notifier, SettingsRepo};
-use domovoi_core::{Host, HostId, HostKind, HostName};
+use domovoi_core::audit_chain::{ChainStatus, VerifyScope};
+use domovoi_core::ports::{
+    AuditEvent, AuditFilter, AuditLog, ChatGateway, Clock, HostRepo, InteractionSink, Notifier,
+    Page, SettingsRepo,
+};
+use domovoi_core::{Actor, Host, HostId, HostKind, HostName, SYSTEM_AUDIT};
 use domovoi_store::{Store, StoreOptions};
 
-use super::{AdapterOverrides, RuntimeError};
+use super::{AdapterOverrides, RuntimeError, STARTUP_AUDIT_VERIFY_ROWS};
 use crate::api::ApiState;
 use crate::auth::interactions::{ChatDeps, InteractionAuthorizer};
 
@@ -41,6 +45,66 @@ pub(crate) async fn open_store_at(
         now: clock.now(),
     };
     Ok(Store::open(&data_dir.join("hub.db"), options).await?)
+}
+
+/// Checks the newest chained audit rows at hub start and records one `audit.chain_broken` row if
+/// the chain does not hold. A broken chain never stops the hub: the chain is evidence, not a gate.
+pub(crate) async fn verify_audit_on_start(store: &Store, clock: &dyn Clock) {
+    let report = match store
+        .verify_audit(VerifyScope::Last(STARTUP_AUDIT_VERIFY_ROWS))
+        .await
+    {
+        Ok(report) => report,
+        Err(err) => {
+            tracing::warn!(error = %err, "cannot verify the audit chain at start");
+            return;
+        }
+    };
+    let ChainStatus::Broken {
+        checked,
+        first_broken_seq,
+        reason,
+    } = report.chained
+    else {
+        return;
+    };
+    tracing::error!(
+        seq = first_broken_seq,
+        checked,
+        reason = %reason,
+        "the audit chain is broken"
+    );
+    if newest_broken_seq(store).await == Some(first_broken_seq) {
+        return;
+    }
+    let event = AuditEvent {
+        at: clock.now(),
+        actor: Actor::System(SYSTEM_AUDIT.to_owned()).to_string(),
+        kind: "audit.chain_broken".to_owned(),
+        subject: "audit".to_owned(),
+        detail: serde_json::json!({
+            "first_broken_seq": first_broken_seq,
+            "reason": reason.to_string(),
+            "checked": checked,
+        }),
+    };
+    if let Err(err) = AuditLog::append(store, &event).await {
+        tracing::warn!(error = %err, "cannot record the broken audit chain");
+    }
+}
+
+/// The `first_broken_seq` of the newest `audit.chain_broken` row, if there is one.
+async fn newest_broken_seq(store: &Store) -> Option<u64> {
+    let filter = AuditFilter {
+        kind: Some("audit.chain_broken".to_owned()),
+        ..AuditFilter::default()
+    };
+    let page = store.list(&filter, &Page::first(1)).await.ok()?;
+    page.items
+        .first()?
+        .detail
+        .get("first_broken_seq")
+        .and_then(serde_json::Value::as_u64)
 }
 
 pub(crate) async fn ensure_hub_host(

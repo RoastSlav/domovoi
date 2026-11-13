@@ -63,6 +63,7 @@ tempfile = { workspace = true }
 [dev-dependencies]
 domovoi-testkit = { workspace = true }
 insta = { workspace = true }
+sqlx = { workspace = true }
 tracing-subscriber = { workspace = true }
 wiremock = { workspace = true }
 
