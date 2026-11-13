@@ -15,7 +15,8 @@ This document cross-checks pages as workflows. The UI should be designed as one 
 **Acceptance:**
 - Critical attention is distinguishable from informational activity.
 - The overview shows active operations, not only incidents and approvals.
-- A host whose agent is `Incompatible` appears in the attention queue and in environment health as upgrade required, distinct from offline.
+- A host whose agent is `Incompatible` (or "expected incompatible" after a hub upgrade) appears in the attention queue and in environment health as upgrade required, distinct from offline.
+- A host whose agent runs as root appears with a warning that the privilege boundary is not in effect and that it gets no unattended execution.
 - In the default layout no counter is duplicated across tile, heading and filter (user-rearranged layouts are exempt).
 - Clicking a metric opens the relevant filtered list.
 - Returning preserves the useful context; live changes are reflected without a full-page reset.
@@ -80,13 +81,13 @@ This document cross-checks pages as workflows. The UI should be designed as one 
 - All matching rules, the winning rule, why it won, the broader rules it overrides and any constraint failures are visible; hard limits (host ceiling, pause) are shown apart from rules; a specific Allow over a broad Deny is visibly flagged.
 - Applying a draft is a distinct audited action.
 - A locked Deny is shown distinctly in the editor, simulator, explanation and trace, with what ordinary resolution would have decided, and changing it needs step-up. A policy Deny shows no approval control: the owner must change the policy.
-- Publishing shows the publication validation report, and incomparable conflicts must be acknowledged.
+- Publishing shows the publication validation report, and both equal-scope and incomparable conflicts must be acknowledged.
 
 ## 5. Journey: install a capability from the UI
 
 **Goal:** add new functionality to one or more agents safely.
 
-1. Open Capability Center and search catalog.
+1. Open Capability Center and search the catalog, or import an owner-signed package (archive plus detached signature).
 2. Open capability detail; inspect source/trust, effect, permissions, schemas, prerequisites and rollback.
 3. Select target agents and rollout strategy.
 4. Run preflight and review exactly what will change.
@@ -101,7 +102,8 @@ This document cross-checks pages as workflows. The UI should be designed as one 
 - Hosts that have not opted in to installs are shown as such, not as failed.
 - An offline agent is shown as pending delivery, not installed.
 - Package provenance and integrity checks are visible.
-- A package signed by an untrusted key is rejected by the agent and shown with that reason; the trusted keys are the first-party key and keys the owner installed on that host (owner decision D-16).
+- A package signed by an untrusted key is rejected by the agent and shown with that reason; the trusted keys are the first-party key and keys the owner installed on that host (owner decision D-16). An archive that breaks the limits or contains a link is likewise rejected and shown with its reason.
+- A package never installs or changes the root-owned helper; it runs as the agent user (owner decision D-29).
 - Failed agents can be retried without reinstalling successfully updated agents.
 - Model-generated capability drafts cannot self-install or self-authorize.
 
@@ -146,7 +148,7 @@ This document cross-checks pages as workflows. The UI should be designed as one 
 **Goal:** make a safe decision quickly without hunting for context.
 
 1. A step needs approval; the attention center shows it and the shell indicator counts it.
-2. Open the item; the shared approval card shows contract, target, arguments, effect class, reversibility, expiry, plan-hash prefix and the policy decision.
+2. Open the item; the shared approval card shows contract, target, arguments, effect class, reversibility, expiry, plan-hash prefix, the plan-hash version it binds (v1 or v2 during the migration) and the policy decision.
 3. If the target is outside the operation's scope, the card says so and offers approval only.
 4. Open the operation from the card to see the graph and the evidence behind the step.
 5. Approve (or deny); the card and the operation show the decision, who made it and when.
@@ -183,8 +185,9 @@ This document cross-checks pages as workflows. The UI should be designed as one 
 - Knowledge links connect relevant hosts, services, incidents, operations and notes.
 - Global search can reach these canonical objects when implemented; search results are scoped to the sources it covers and say so. No permission filtering in v1 (single owner); the search layer keeps one filter point as a hook for future roles.
 - An approval has one canonical home (operation detail); other surfaces embed or link the same card.
-- An `Incompatible` host shows the same upgrade-required banner and explanation on its host page, in the attention center and in environment health; its history stays readable and it is never shown as offline (owner decision D-20).
-- A host page shows management paths with provenance, freshness and which containment is blocked, and the owner can confirm or correct them (owner decision D-28).
+- An `Incompatible` host shows the same upgrade-required banner and explanation on its host page, in the attention center and in environment health, also after a hub restart; its history stays readable and it is never shown as offline (owner decision D-20).
+- A host page shows management paths with provenance, freshness and which containment is blocked, beside the agent-reported exclusions (hash and summary) with each path marked covered or uncovered, and the owner can confirm or correct them (owner decision D-28).
+- A host page warns when its agent runs as root, and marks checks and capabilities "helper unavailable" where the helper is absent or in error (owner decision D-29).
 - The audit page reports legacy unchained history and chained history separately (owner decision D-14).
 
 ## 11. Backend contracts the UI depends on, and build order
@@ -197,9 +200,10 @@ The UI is built against contracts, not against the live engine. These must exist
 - **Conversations:** durable messages, explicit scope, request ids for discarding stale responses.
 - **Policy decisions** stored with the context snapshot and policy version used, so the simulator can reproduce a historical decision.
 - **Attention feed**, **audit API with chain verification reporting legacy and chained history separately**, **retention settings**, **resolution summaries and similar-operation search**, **capability deployment state per host**.
-- **Host protocol state:** `Incompatible` with the required and reported protocol and the agent's version, so the banner and host page render from data (owner decision D-20).
-- **Management-path facts** with source, confirmation, freshness and the containment they block, plus the host's read-only ceiling summary (owner decisions D-28, D-18).
-- **Policy publication validation report** (incomparable conflicts, overrides of a broader Deny, locked rules) and the locked flag on rules in the trace (owner decisions D-19, D-26).
+- **Host protocol state:** `Incompatible` or "expected incompatible" with the required and reported protocol and the agent's version, read from the persisted agent record so the banner and host page render from data (owner decision D-20).
+- **Host privilege state:** whether the agent runs as root and the helper's status (`absent`, `ok`, `error`), so the root warning and "helper unavailable" markers render from data (owner decision D-29).
+- **Management-path facts** with source, confirmation, freshness and the containment they block, the agent-reported exclusions (hash and summary) with per-path coverage, plus the host's read-only ceiling summary (owner decisions D-28, D-18).
+- **Policy publication validation report** (equal-scope and incomparable conflicts, overrides of a broader Deny, locked rules) and the locked flag on rules in the trace (owner decisions D-19, D-26).
 - **Agent refusal reasons**, including rate-limit refusals (owner decision D-27), and the shared outcome vocabulary (`docs/rework/04 §3.2`).
 - **Presentation profile and dashboard preferences:** where they are stored (hub or browser) is a backend decision; the UI reads them through one provider.
 

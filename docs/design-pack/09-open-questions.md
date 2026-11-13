@@ -1,12 +1,12 @@
 # 09 — Open questions and recommended defaults
 
-The high-level architecture is coherent enough to proceed. On 2026-11-13 the owner answered the questions that blocked the rework (`D-01`..`D-28` in [`docs/rework/99-open-decisions.md`](../rework/99-open-decisions.md)); they are listed first and are not open, and no owner decision is open at this time. What remains are detailed-design questions (kept open so later design work does not silently invent answers) and research and evidence items (`R-1`..`R-7`, [`99-open-decisions.md`](../rework/99-open-decisions.md) §C, summarised below). Technical detail for every answered item is in the linked `RW` decision in [`docs/rework/03-architecture-decisions.md`](../rework/03-architecture-decisions.md).
+The high-level architecture is coherent enough to proceed. On 2026-11-13 the owner answered the questions that blocked the rework (`D-01`..`D-29` in [`docs/rework/99-open-decisions.md`](../rework/99-open-decisions.md)); they are listed first and are not open. One owner question is open: **O-30**, skills whose manifest sets `run_as` to another user (below). What remains besides it are detailed-design questions (kept open so later design work does not silently invent answers) and research and evidence items (`R-1`..`R-8`, [`99-open-decisions.md`](../rework/99-open-decisions.md) §C, summarised below). Technical detail for every answered item is in the linked `RW` decision in [`docs/rework/03-architecture-decisions.md`](../rework/03-architecture-decisions.md).
 
 ## Answered by owner
 
 | Pack question or topic | Owner decision | Answer | Technical detail |
 |---|---|---|---|
-| Release strategy | **D-01** | No separate v0.1 release. Foundation work (atomic writes, protocol tolerance, approval freshness, reliability fixes) comes first inside the rework. | RW-02 |
+| Release strategy | **D-01** | No separate v0.1 release. Foundation work (atomic writes, exact protocol rule, approval freshness, reliability fixes) comes first inside the rework. | RW-02 |
 | **Q0.1** What is an autonomous authorization? | **D-02, D-03** | A typed policy permit, distinct from a human approval, valid only inside a host-local ceiling on the agent that the hub cannot widen. A hub permit is not a cryptographic proof of owner approval; owner-signed bundles come after v1. (The exact permit fields are a proposal.) | RW-11, RW-12 |
 | **Q0.2** Policy precedence | **D-05, D-06** | The strictly more specific rule wins, **even over a broader Deny**; equal specificity: Deny wins. Hard limits (host ceiling, Destructive never Allow in v1, containment exclusions, unknown safety facts) are not rules and cannot be overridden. Host ids in v1, tags after. This replaces the earlier "explicit deny anywhere wins" by owner decision. | RW-10 |
 | Destructive operations | **D-06** | Never policy-allowed in v1; a human can still approve with typed confirmation. | RW-10 |
@@ -31,10 +31,17 @@ The high-level architecture is coherent enough to proceed. On 2026-11-13 the own
 | **Q0.5** How is management access protected during containment? | **D-28** | Resolved. Unattended containment on a host requires owner-confirmed, current management paths; unknown, stale or conflicting means refused; the agent enforces local exclusions independently; the UI shows paths, provenance, freshness and what is blocked. Monitoring and other human-approved work are unaffected. | RW-37 |
 | **Q0.6** Trust model for external providers and third-party packages | **D-16** | First-party release key plus owner keys installed locally on the agent; the hub cannot add or replace keys; a detached signature over a canonical message, verified before extraction; a rollback needs a currently trusted key. Third-party registries are DEFERRED; hub-side integrations are DEFERRED (`docs/rework/06`). | RW-26 |
 | Ceiling scope and honesty | **D-18, D-27** | The ceiling covers the exact capability id, explicit targets, rate, constrainable arguments, and for containment max TTL, max active and exclusions; no entry means no policy-authorized execution. `authorization_kind` is a hub label, and a compromised hub can label a request `human` and bypass the ceiling (accepted v1 limitation), but the agent's catalogue, manifest, argument, `allow_risk` and mutation rate-limiter checks apply to all mutating executions. Owner-signed approvals are DEFERRED. | RW-12, RW-38 |
-| **Q1.1a** Agent support window | **D-20** | There is no support window. Exact protocol major.minor match: older and newer minors are rejected, same-protocol patch releases are compatible. No legacy adapter. Coordinated upgrade, hub first, then agents through the install procedure. `Incompatible` host state, visible with history kept. No agent self-update. | RW-17 |
+| **Q1.1a** Agent support window | **D-20** | There is no support window. Exact protocol major.minor match, checked only after the agent has proven its identity: older and newer minors are rejected with the existing reason, same-protocol patch releases are compatible, and application release numbers are not a compatibility dimension. No legacy adapter. `Incompatible` is persisted on the agent record, survives a hub restart, keeps history, and an incompatible agent idles instead of reconnecting. Coordinated upgrade, hub first, then agents through the install procedure. Exactly one protocol bump before v1 (1.1 → 1.2 in M1); F3 changes no wire format. No agent self-update. A revoked-build list is DEFERRED and separate. | RW-17, RW-42 |
 | **Q1.6** Default retention values | **D-21** | Signals 30 d; incident timeline 90 d; operation journal 180 d; raw execution outputs 30 d; operations and summaries retained; audit retained; retracted fact content purged after 30 d; conversations 180 d; notifications 30 d; 7 nightly and the last 3 pre-migrate backups. Deleted data stays in backups until they rotate. | RW-28 |
 | Docker access | **D-24** | No general Docker socket write for the agent; a narrow first-party helper with its own ADR; Docker write capabilities unavailable for unattended use until then. | RW-39 |
+| Agent privilege | **D-29** | The main agent runs as the dedicated unprivileged user `domovoi-agent`. Privileged host operations go only through one narrow, root-owned helper installed and updated by the owner-controlled OS path, never by capability packages. Root installs are labelled and get no unattended execution. | RW-39, RW-12, RW-26 |
 | Graph playback | **D-25** | Ships last in U2; the timeline and history are fully useful without it. | RW-21 |
+
+## Open owner question
+
+| ID | Question | Recommended default | Blocks |
+|---|---|---|---|
+| **O-30** | What happens to skills whose manifest sets `run_as` to a user other than the agent user, now that the agent is unprivileged (D-29)? Options: (a) unsupported, reported `Unavailable(run_as_unsupported)`; (b) a helper operation that switches users for allowlisted pairs, which reintroduces a root path controlled by package content; (c) owner-configured sudoers rules, which gives the agent user sudo and undermines D-29. | (a) unsupported | H1 migration (skills impact) and package guidance |
 
 ## Priority 0 — resolve before implementing autonomous actions
 
@@ -71,12 +78,13 @@ These are tracked in [`docs/rework/99-open-decisions.md`](../rework/99-open-deci
 | ID | Question | Needed before |
 |---|---|---|
 | R-1 | A graph library that works under the content policy, the no-inline-style rule and the bundle budget | U2 |
-| R-2 | nftables availability, the `inet domovoi` table approach and the helper privilege path on supported distributions, images and Unraid | M9 |
-| R-3 | Docker helper privilege path on the same platforms | M8 Docker contracts |
+| R-2 | nftables containment on supported platforms: table, hook and packet path, coexistence with firewalld, ufw and Docker, set limits, TTL validation, atomic delete-and-add replacement; containment is not production-ready until verified | M9 |
+| R-3 | Helper delivery on supported platforms: socket activation, peer credential check, sandboxing, containers, Unraid and no-systemd supervisors, Docker API access | H1 |
 | R-4 | Discord deduplication behaviour (wording only; delivery stays at-least-once) | F2 delivery |
 | R-5 | Real prompt sizes, to set the total prompt cap | F4 |
 | R-6 | Cost of durable writes on slow storage | F1, M1 (informational) |
-| R-7 | Docker client escaping of container names | M8 |
+| R-7 | Container names validated against Docker's name grammar; all helper operations take ids (a test, no longer research) | M2 (RW-34) |
+| R-8 | Effective-configuration identity of systemd units (fragment and drop-ins) across supported systemd versions | M8 `unit.restart` |
 
 ## Product-level questions to answer with usage, not speculation
 
@@ -94,7 +102,7 @@ These are no longer open questions (those marked with an owner decision were set
 - Detailed, Standard and Essential presentation profiles ship in v1 (owner decision D-10); P0 safety, approval and audit content is present in every profile.
 - Longer motion is allowed for visualization and layout transitions; reduced motion is mandatory (owner decision D-12).
 - Historical graph playback ships last in U2; the timeline and history are fully useful without it (owner decision D-25).
-- A host whose agent speaks another protocol minor is shown as `Incompatible` with an upgrade-required explanation and its history kept, never as offline (owner decision D-20).
+- A host whose agent speaks another protocol minor is shown as `Incompatible` with an upgrade-required explanation and its history kept, never as offline, also after a hub restart; after a hub upgrade a host that has not reconnected shows "expected incompatible" (owner decision D-20).
 - Capability install and deploy happen from the UI in v1 (owner decision D-11).
 - The Operator exists as both a global side panel and a dedicated full workspace over shared conversation/operation state.
 - Operations are first-class work records and are not synonymous with incidents.
@@ -118,4 +126,4 @@ These are no longer open questions (those marked with an owner decision were set
 
 ## Decision rule
 
-Do not block general architecture work on Priority 2 questions. Do not implement L2 execution before the policy evaluator, host ceiling and target binding exist, and do not enable L3 containment on any host before the owner has confirmed that host's management paths (D-28) and the drills required by D-22 pass. For Priority 1, specify only the parts required by the next vertical slice; keep the rest extensible.
+Do not block general architecture work on Priority 2 questions. Do not implement L2 execution before the policy evaluator, host ceiling and target binding exist, and do not enable L3 containment on any host before the owner has confirmed that host's management paths and they are covered by the agent-reported exclusions (D-28), and the drills required by D-22 pass. For Priority 1, specify only the parts required by the next vertical slice; keep the rest extensible.

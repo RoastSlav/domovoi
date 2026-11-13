@@ -9,20 +9,21 @@ Categories: **F** foundation, **C** core, **U** user-facing, **A** autonomy, **H
 ```mermaid
 flowchart LR
   F1[F1 Unit of work + audit chain] --> F2[F2 Recovery + freshness + delivery]
-  F1 --> F4[F4 LLM + ops reliability]
-  F3[F3 Exact protocol version + tolerance] --> M1
-  F2 --> M1[M1 Execution journal + reconciliation]
-  F3 --> M2[M2 Capability contracts + registry]
-  M1 --> M3[M3 Operation aggregate + journal SSE]
+  F1 --> F4[F4 LLM + ops + approval cards, hash v1]
+  F3[F3 Exact protocol rule, durable Incompatible, no wire change] --> M1
+  F2 --> M1[M1 Execution journal + hash v2 + wire 1.2 bump]
+  F4 --> M1
+  F1 --> H1[H1 Unprivileged agent + root helper]
+  M1 --> M2[M2 Capability contracts + registry]
+  M1 --> M3[M3 Operation aggregate + journal SSE + step approvals]
   M2 --> M3
   M3 --> M4[M4 Dynamic investigation]
   M3 --> M5[M5 Knowledge + experience]
   M3 --> M6[M6 Operator]
   M2 --> M7[M7 Policy shadow]
   M3 --> M7
-  M2 --> P1[P1 Packages + UI install]
-  F3 --> P1
-  P1 --> H1[H1 Privileged helpers: docker, nft]
+  M1 --> P1[P1 Package backend]
+  M2 --> P1
   M4 --> M8[M8 L2 autonomy]
   M7 --> M8
   H1 --> M8
@@ -32,7 +33,7 @@ flowchart LR
   M3 --> U1[U1 Shell + Operations timeline]
   U1 --> U2[U2 Graph canvas; playback last]
   U1 --> U3[U3 Visibility infra + profiles]
-  U3 --> U4[U4 Policy / Knowledge / Capability / Attention / Audit pages]
+  U3 --> U4[U4 Policy / Knowledge / Capability incl. install wizard / Attention / Audit]
   M5 --> U4
   M7 --> U4
   P1 --> U4
@@ -42,15 +43,26 @@ flowchart LR
   M6 --> V1
 ```
 
-**Parallel after prerequisites.**
-- F1 ∥ F3; F2 ∥ F4 (after F1); M1 ∥ M2.
-- M4 ∥ M5 ∥ M6: separate aggregates. Their shared surface is the context retrieval port, frozen in
-  M4's first PR.
-- The M7 evaluator (pure) can start once M2's contract types land.
-- P1 ∥ M3–M6; U2 ∥ U3.
+**Coordinated upgrades (D-20, RW-42).** Exactly one protocol bump before v1: **1.1 → 1.2 in M1**,
+which upgrades the hub and every agent together. F1–F4 keep protocol 1.1. Every milestone after M1
+uses the frozen 1.2 wire contract through capabilities. An unavoidable later wire change would be a
+recorded 1.3 coordinated upgrade; none is planned.
 
-**Strictly sequential.** F1 → anything that writes state; M1 → M3; H1 → M8 Docker contracts and M9;
-M8 → M9.
+**Parallel after prerequisites.**
+- F1 ∥ F3.
+- F2 ∥ F4 ∥ H1 (after F1).
+- M2 starts after M1, because it needs `get_catalog` from wire 1.2.
+- M4 ∥ M5 ∥ M6.
+- The M7 evaluator can start once M2's contract types land.
+- P1 ∥ M3–M6.
+- U2 ∥ U3.
+
+**Strictly sequential.**
+- F1 → anything that writes state.
+- F4 (hash v1 binding) → M1 (hash v2) → M3 (step approvals).
+- M1 → M2, M3, P1.
+- H1 → M8 privileged contracts and M9.
+- M8 → M9.
 
 ---
 
@@ -101,82 +113,96 @@ M8 → M9.
   and passes afterwards.
 - **Research.** R-4 (Discord nonce) affects only the delivery wording.
 
-## F3 — Exact protocol version and tolerant decoding (F)
+## F3 — Exact protocol rule and durable Incompatible state (F)
 
-- **Backend and agent.**
-  - Exact major.minor check with a `protocol_mismatch` reject (D-20).
-  - Remove the release-number compatibility gate.
-  - `Incompatible` host state with history kept, plus a UI banner and book upgrade procedure.
-  - `features` for optional build capabilities only.
-  - `Open<T>` decoding, the `unsupported{type}` reply, hub pings.
+- **No wire change.** Protocol stays 1.1.
+- **Hub.**
+  - Exact major.minor rule.
+  - Protocol comparison moved after the challenge signature check.
+  - Authenticated report persisted on the `agents` row (`reported_protocol`, `reported_release`,
+    `last_authenticated_at`, `incompatible_since`), written only on change, with audit.
+  - Existing `RejectReason::Incompatible{hub}` used.
+  - `MIN_AGENT_VERSION` check removed; the in-memory `record_refusal` path removed.
+  - UI host state `Incompatible` / "expected incompatible" derived from the row.
+  - `Unavailable(agent_incompatible)` for work on such hosts.
+- **Agent.**
+  - Idle incompatible state: stays up, no reconnects, hourly log, `domovoi agent status`.
+  - `MIN_HUB_VERSION` check removed.
+- **Docs.** Book upgrade procedure: hub first, then agents.
 - **Tests.**
-  - Golden frames for the current protocol.
+  - Golden frames for 1.1.
   - `older_minor_agent_rejected_with_reason`, `newer_minor_agent_rejected_with_reason`
   - `same_protocol_different_patch_releases_communicate`
-  - `incompatible_host_keeps_history_and_shows_upgrade_required`
-  - `unknown_enum_value_preserved`, `unsupported_message_does_not_end_session`
-- **Acceptance.** A fixture test proves agents at other protocol minors are rejected with the
-  documented message, and different patch builds at the same protocol interoperate.
-- **Note.** Because the protocol minor will change in M1 (journal messages), F3 lands first, and M1
-  is a coordinated upgrade.
+  - `unauthenticated_hello_does_not_persist_incompatibility`
+  - `incompatible_state_survives_hub_restart`, `incompatible_agent_idles_without_reconnecting`
+  - `release_floor_no_longer_rejects`
+- **Acceptance.**
+  - A mismatched agent is shown `Incompatible` after a hub restart.
+  - An unauthenticated client with a known agent id changes nothing.
+  - Agents from this release do not reconnect after `Incompatible`.
 
-## F4 — LLM, approval-surface and ops reliability (H)
+## F4 — LLM, approval cards (hash v1) and ops reliability (H)
 
 - **Prereqs.** F1.
 - **Backend.**
-  - Persisted admission with fail-closed behaviour; cache hits use no slot (04 §16).
+  - Persisted admission with fail-closed behaviour; cache hits use no slot.
   - Per-call deadline; total prompt cap (value from R-5).
   - Attribution on success and failure; usage recorded for failed calls.
   - Redaction of replayed history and provider errors.
   - Host-scoped `similar()`.
-  - Step-up list including `llm.cli.*` (RW-24).
-  - Structured approval rendering in web and Discord (RW-22); the approve request carries the plan
-    hash.
-  - `/readyz`, metrics auth, backup verification, `domovoi restore`, `pre-migrate-*` pruning to 3.
+  - Step-up list including `llm.cli.*`.
+  - `/readyz`, metrics auth, backup verification, `domovoi restore`, `pre-migrate-*` pruning.
+- **Approvals, current action flow.**
+  - Structured cards in web and Discord.
+  - The approve request carries the **v1** plan hash shown; the action writer refuses on mismatch.
+  - **Must not** introduce hash v2, script-byte binding, target identity or step endpoints. Those
+    belong to M1 and M3.
 - **Tests.**
   - `admission_survives_restart`, `cache_hit_uses_no_slot`, `call_deadline_enforced`
   - `failed_call_records_usage`, `provider_error_redacted`
   - `llm_cli_change_requires_step_up`, `discord_card_names_target_and_args`
-  - `approve_with_stale_plan_hash_refused`
-- **Acceptance.** 01 defects D01, D03 and D38 are closed. `/readyz` reports false when the writer is
-  stalled.
+  - `approve_with_stale_v1_plan_hash_refused`
 
-## M1 — Execution journal and reconciliation (F)
+## M1 — Execution journal, plan hash v2, wire 1.2 (F)
 
-- **Prereqs.** F2, F3.
-- **Identity.** `execution_id = ActionId` (RW-36). Operations do not exist yet.
+- **Prereqs.** F2, F3, F4.
+- **Coordinated upgrade.** Protocol 1.1 → 1.2 (complete wire list in RW-42).
+- **Identity.** `execution_id = ActionId` (RW-36).
 - **Agent.**
-  - Journal with epoch; fsynced `accepted`, `started{pid,start_time}` and `finished` records.
-  - Deduplicate by `execution_id`; `action_status`; orphan handling on restart (04 §15.2).
-  - `authorization_kind` field; mutation rate limiter (RW-38).
+  - Journal with epoch; fsynced `accepted` / `started{pid,start_time}` / `finished`.
+  - Deduplication; `action_status`; orphan handling (04 §15.2).
+  - `authorization_kind`; mutation rate limiter with boot-id ages (RW-38).
+  - `hello` extensions.
 - **Backend.**
   - `OutcomeUnknown`; reconcile on `hello`.
-  - Plan hash v2 (`plan:v2`, script bytes, canonical target, `execution_id`).
-  - Approval binding columns (RW-11); `Authorization` enum (only `Human` usable yet).
-  - Constructor enforcement in CI; single execution boundary and read boundary with arch rules.
-- **Protocol.** Minor bump, `run_capability` (skills), `action_status`.
+  - **Plan hash v2** for new actions (script bytes, target identity, `execution_id`) plus approval
+    binding columns. The approve endpoint requires v2 for v2 actions. Pre-upgrade actions finish
+    with v1, labelled.
+  - `Authorization` enum (only `Human` usable); constructor enforcement in CI.
+  - Single execution boundary and read boundary.
+  - `get_catalog`, and the `transfer_*` handlers present but unused until P1.
 - **Tests.**
   - The §15.2 crash-window tests.
+  - Golden frames for 1.2.
   - `duplicate_dispatch_runs_once`, `agent_rate_limit_applies_to_human_kind`
-  - `rate_limit_survives_hub_restart`, `unreadable_journal_refuses_mutations`
-  - `single_execution_boundary` gate, `approval_bound_to_displayed_plan_hash`
-- **Acceptance.** A crash sweep across dispatch shows never two runs, and never `Succeeded` without a
-  result.
+  - All RW-38 tests.
+  - `approval_bound_to_displayed_plan_hash`, `v1_actions_keep_v1_binding_after_upgrade`
+- **Acceptance.** A crash sweep across dispatch shows never two runs and never `Succeeded` without a
+  result. Hub 1.2 rejects 1.1 agents as `Incompatible`.
 
 ## M2 — Capability contracts and registry (F)
 
-- **Prereqs.** F3.
+- **Prereqs.** M1, which provides `get_catalog` in wire 1.2.
 - **Backend.**
-  - Contract types (RW-07); built-ins from `ReadTool`; `skill.<name>` adapter with the floor.
-  - Availability states (04 §11.1); the registry replaces `PolicyLink`.
-  - Catalogue hash and paging.
-  - Target identity resolution (RW-34) for containers, units and hosts.
-- **Frontend.**
-  - Read-only capability inventory per host, replacing the Skills page.
-  - Ceiling summary, read-only.
+  - Contract types; built-ins from `ReadTool`; `skill.<name>` adapter with the floor.
+  - Availability states, including `Unavailable(helper_missing)` and `HostIncompatible`.
+  - The registry replaces `PolicyLink`.
+  - Target identity resolution (RW-34).
+- **Frontend.** Read-only capability inventory; ceiling and exclusions summaries, read-only.
 - **Tests.**
   - `provider_cannot_lower_effect_class`, `unknown_effect_is_destructive`
   - `disabled_capability_refused_at_boundary`, `target_identity_change_refused`
+  - `container_name_grammar_enforced`
 
 ## M3 — Operation aggregate and journal-backed SSE (F/C)
 
@@ -189,6 +215,8 @@ M8 → M9.
   - Investigate operation behind `orchestration.enabled`, with a parity suite.
   - Legacy projection (RW-32); use-case services (RW-19).
   - Journal SSE with `as_of_seq`; `incident_events` copy.
+- **Approvals.** The approve endpoint moves to `POST /operations/{id}/steps/{step}/approve` with the
+  v2 hash; the action endpoint remains for legacy actions only (RW-11, RW-32).
 - **Contract freeze.** Trace schema golden fixtures for steps and edges.
 - **Tests.**
   - The seeded simulator.
@@ -248,43 +276,61 @@ M8 → M9.
 - **Acceptance.** For two weeks of real incidents or the drill suite, shadow decisions are recorded
   and the simulator reproduces each one.
 
-## P1 — Capability packages and UI installation (C/U)
+## P1 — Capability package backend (C)
 
-- **Prereqs.** M2, F3.
-- **Agent and backend.**
-  - Detached-signature format; verification before extraction; local keys and revocation (04 §11.2,
-    D-16).
-  - Index fetch, relay, jobs, audit.
-- **Frontend.** Install wizard in U4; enabling is a separate step.
+- **Prereqs.** M1 (`transfer_*`), M2.
+- **Agent.**
+  - Package verification before extraction; limits; link rejection.
+  - Local keys and revocation; signer `key_id` recorded per package.
+  - The capabilities `agent.package.install`, `agent.package.uninstall` and `agent.package.list`.
+- **Hub.**
+  - First-party index.
+  - Owner import (UI upload endpoint and `domovoi package import`).
+  - Package store, relay, install jobs, audit.
+- **No wizard UI here.** The wizard is part of U4, after U3.
 - **Tests.** All of 04 §11.2.
 
-## H1 — Narrow privileged helpers (F/A)
+## H1 — Unprivileged agent and root-owned helper (F/A)
 
-- **Prereqs.** P1 (helpers ship as first-party packages); research R-2 and R-3; one ADR per helper
-  (RW-39, D-24).
-- `domovoi-docker-helper`: `restart`, `pause`, `unpause` by container id against a root-owned
-  allowlist.
-- `domovoi-nft-helper`: add, del and list on `inet domovoi` sets.
-- Privilege via sudoers rule or file capability.
-- **Tests.** `docker_helper_refuses_exec`, `docker_helper_refuses_unlisted_container`,
-  `nft_helper_refuses_foreign_table`.
+- **Prereqs.** F1; research R-3; the helper ADR (RW-39, D-29). Not dependent on P1: the helper is
+  installed by the OS install path, not by packages.
+- **Work.**
+  - `domovoi helper serve`; socket activation; peer-uid check; typed operations and allowlist.
+  - Installer changes: user, group, state ownership, helper units, default allowlist with read groups
+    only, `User=domovoi-agent`.
+  - Monitoring checks moved to helper reads (SMART, kernel, listeners, Docker reads).
+  - Selftest report of lost access.
+  - Root-install warning in the UI.
+  - Skills with `run_as` handled per O-30.
+- **Tests.**
+  - All RW-39 tests.
+  - `agent_runs_unprivileged_after_install`
+  - `checks_report_helper_unavailable_not_failure`
+- **Acceptance.**
+  - On a fresh install the agent runs as `domovoi-agent`.
+  - Every existing check either works through the helper or reports "helper unavailable".
+  - No package can write helper paths.
 
 ## M8 — L2 bounded autonomy (A)
 
-- **Prereqs.** M4, M7, H1 (for `container.restart`); ceiling format (D-18).
+- **Prereqs.** M4, M7, H1 (`systemd.write`, and `docker.write` for containers), R-8 for unit identity.
 - **Backend.**
-  - `PermitIssuer`; hard limits; guardrails (RW-23); circuit breaker; global pause.
-  - First L2 contracts: `unit.restart`, then `container.restart` once the Docker helper exists.
+  - `PermitIssuer`, hard limits, guardrails, circuit breaker, pause.
+  - First L2 contracts: `unit.restart` (helper `systemd.write`, identity per RW-34) and
+    `container.restart` (helper `docker.write`).
+  - Neither exists without H1. There is no other privilege path.
 - **Agent.** Full ceiling enforcement for `policy`-labelled requests.
-- **Frontend.** "Authorized by rule X vN" versus "approved by owner" everywhere; the pause switch.
+- **Frontend.** Authorization attribution; pause switch.
 - **Tests.**
-  - `no_permit_without_policy_allow` gate, `agent_refuses_policy_dispatch_outside_ceiling`
+  - `no_permit_without_policy_allow`, `agent_refuses_policy_dispatch_outside_ceiling`
   - `circuit_breaker_suspends_rule`, `pause_blocks_new_permits`
+  - `unit_restart_refused_when_unit_not_in_helper_allowlist`, `unit_config_change_invalidates_approval`
   - An injection drill.
 
 ## M9 — L3 containment: `firewall.block_source` (A)
 
-- **Prereqs.** M8, M5 (management-path facts, D-28), H1 (nft helper), R-2.
+- **Prereqs.** M8, M5 (management-path facts, D-28), H1 (helper `nft` group), R-2. Includes the
+  RW-37 coverage invariant (hub-confirmed paths ⊆ agent-reported exclusions) and its tests.
 - Capability per 04 §9.1: kernel timeout, a two-step apply with a 30 s confirmation window,
   detector-only triggering, reconciliation.
 - **Not enabled** for unattended use until all 04 §9.1 drills pass (D-22).
@@ -309,40 +355,41 @@ M8 → M9.
   - Policies: editor with locked-rule styling, effective-policy explanation, simulator, publication
     report.
   - Knowledge; management paths.
-  - Capability Center: inventory, install wizard, ceiling view.
+  - Capability Center: inventory, install wizard (needs P1 backend + U3), owner package import,
+    ceiling and exclusions views.
   - Audit (legacy and chained status); retention settings; Control Room; global search.
 
 ## Readiness
 
 Columns:
-- **Arch**: the architecture is defined.
-- **Owner**: the owner decisions are complete.
+- **Arch**: architecture defined.
+- **Owner**: owner decisions complete.
 - **Evidence**: the spike or research is done.
-- **Prereqs**: predecessor milestones are merged.
-- **Prompt**: safe to generate the implementation prompt now.
+- **Prereqs**: predecessor milestones merged.
+- **Prompt**: safe to generate the prompt now.
 
 | Milestone | Arch | Owner | Evidence | Prereqs | Prompt |
 |---|---|---|---|---|---|
 | F1 | yes | yes | R-6 informational | none | **yes** |
 | F3 | yes | yes (D-20) | — | none | **yes** |
 | F2 | yes | yes | R-4 wording only | F1 | after F1 merges |
-| F4 | yes | yes | R-5 for the cap value | F1 | after F1 merges (cap value configurable until R-5) |
-| M1 | yes | yes | R-6 | F2, F3 | after F2 and F3 |
-| M2 | yes | yes | — | F3 | after F3 |
+| F4 | yes | yes | R-5 for the cap value | F1 | after F1 merges |
+| H1 | yes (ADR pending) | O-30 open (skills `run_as`) | **R-3 open** | F1 | no: needs R-3, the ADR and O-30 |
+| M1 | yes | yes | R-6 | F2, F3, F4 | after those merge |
+| M2 | yes | yes | — | M1 | after M1 |
 | M3 | yes | yes | — | M1, M2 | after M1 and M2 |
 | M4 / M5 / M6 | yes | yes | — | M3 | after M3 |
 | M7 | yes | yes | — | M2, M3 | after M3 |
-| P1 | yes | yes (D-16) | — | M2, F3 | after M2 |
-| H1 | yes (pending ADRs) | yes (D-24) | **R-2, R-3 open** | P1 | no: spikes and ADRs first |
-| M8 | yes | yes | R-3 for Docker contracts; R-7 | M4, M7, H1 | no: predecessors (`unit.restart` part possible after M4 and M7) |
-| M9 | yes | yes (D-17, D-22, D-28) | **R-2 open** | M8, M5, H1 | no |
+| P1 (backend) | yes | yes (D-16) | — | M1, M2 | after M2 |
+| M8 | yes | yes | **R-8** (and R-3 via H1) | M4, M7, H1 | no |
+| M9 | yes | yes | **R-2** | M8, M5, H1 | no |
 | U1 | yes | yes | — | M3 | after M3 |
-| U2 | yes | yes (D-08, D-25) | **R-1 open** | U1 | spike prompt only |
-| U3 | yes | yes (D-10) | — | U1 | after U1 |
-| U4 | per page | yes | — | U3, M5, M7, P1 | per page, after its backend |
+| U2 | yes | yes | **R-1** | U1 | spike prompt only |
+| U3 | yes | yes | — | U1 | after U1 |
+| U4 (incl. install wizard) | per page | yes | — | U3 + its backend (P1 for the wizard) | per page |
 
-Architecture completeness does not imply readiness. A row is prompt-ready only when every column
-to its left is satisfied.
+Architecture completeness does not imply readiness. A row is prompt-ready only when every column to
+its left is satisfied.
 
 ## Deferred and after-v1
 
@@ -360,7 +407,7 @@ migrations, protocol, UI and retention.
 | Other containment candidates (network isolation, SSH session kill, account lock) | weaker recovery or lockout stories | v1.x+ | 04 §9.3 checklist, plus a lockout analysis per candidate | `Contain` class supports them | helpers, UI |
 | Historical graph playback (D-25) | not deferred past v1; ships last in U2 | U2 end | live graph and timeline stable | trace contract suffices | UI only |
 | Protocol support for older agent generations (D-20) | owner decision: exact match only | not planned | would need a new decision | not supported | — |
-| Revoked-build list (security, distinct from protocol) | no current need | if a vulnerable agent build ships | hub config list, reject reason | leaves room in reject reasons | protocol reject reason |
+| Revoked-build list (security, distinct from protocol) | no current need | if a vulnerable agent build ships | hub config list of refused builds; refusal via existing `AgentTooOld{minimum}` (final on released agents) | leaves room; no new wire variant | none until built |
 | Host tags in policy (D-05) | v1 uses host ids | v1.x | tag model on hosts; specificity order `Host ⊂ Tag ⊂ All`, with overlap rules for multiple tags | specificity is a partial order, so tags fit; tags themselves need a data model | DB, UI |
 | Multi-user / RBAC (D-13) | single owner in v1 | v2 | roles, approval quorum, per-user audit | `Actor` enum and single `authorize()` function (RW-29) make it additive | UI, audit fields already compatible |
 | Advanced audit anchoring (D-14) | v1 has head hash in digest only | v1.x | external append-only store or transparency log | chain format supports external anchoring of head hashes | none |

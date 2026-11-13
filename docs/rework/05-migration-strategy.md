@@ -72,17 +72,39 @@ There is no separate v0.1 release (D-01).
 
 Restoring a pre-migration backup is never presented as a routine rollback.
 
-## 4. Protocol compatibility (D-20)
+## 4. Protocol compatibility (D-20, RW-42)
 
-- Exact protocol major.minor match. There is no support window and no previous-minor adapter.
-- Upgrade sequence: upgrade the hub, then upgrade each agent through the supported install path.
-  Until an agent is upgraded its host shows `Incompatible` ("agent upgrade required", with both
-  protocol versions); history and inventory stay; work for that host becomes `Unavailable`.
-- Executions `Dispatched` to an agent when the hub is upgraded are reconciled when the upgraded agent
-  connects: a matching epoch gives a real answer (the journal file survives agent upgrade); a new
-  epoch gives `OutcomeUnknown`.
-- Patch releases with the same protocol version interoperate in both directions.
-- Agent self-update is not provided (INV-3); the book documents the upgrade procedure.
+- Exact protocol major.minor match; no window, no adapter; release floors are removed in F3.
+- Protocol stays 1.1 through F1–F4. **M1 is the only coordinated upgrade before v1 (1.1 → 1.2)**:
+  upgrade the hub, then every agent through the supported install path. Until an agent is upgraded
+  its host shows `Incompatible` (persisted after authentication, survives hub restart); history and
+  inventory stay; work for it is `Unavailable(agent_incompatible)`.
+- Agents from the F3 release onward idle without reconnecting when incompatible. Older agents exit
+  and are restarted by systemd every 5 s until upgraded; the hub writes their state only on change.
+- Executions dispatched before the M1 upgrade (no journal on the old agent) become `OutcomeUnknown`
+  when the upgraded agent connects with a new journal epoch.
+- Patch releases with the same protocol interoperate. Agent self-update is not provided (INV-3).
+
+## 4a. Agent privilege migration (D-29, RW-39, workstream H1)
+
+- FACT: `install.sh` installs the agent unit running as root; skills may declare `run_as`.
+- The installer (rerun by the owner as root) creates `domovoi-agent`, moves ownership of
+  `/var/lib/domovoi-agent`, installs the helper binary path (root-owned), `domovoi-helper.socket` and
+  service, a default `/etc/domovoi/helper.toml` with read groups only, and switches the agent unit to
+  `User=domovoi-agent` with group `systemd-journal`.
+- `domovoi agent selftest` lists checks that now go through the helper and skills that can no longer
+  run (`run_as` other users, O-30).
+- Until the owner reruns the installer, existing root installs keep working; the UI labels them
+  "agent running as root: privilege boundary not in effect" and L2/L3 unattended execution is refused
+  on such hosts (the threat model assumes D-29).
+- Rollback: rerunning the previous installer restores the root unit; the helper units can stay
+  inert.
+
+## 4b. Approval migration stages (RW-11)
+
+- F4: action approvals bind the v1 hash shown on the card (no script bytes, no target identity).
+- M1: new actions use hash v2 and binding columns; pre-upgrade actions finish with v1, labelled.
+- M3: new work is approved on steps; the action endpoint serves legacy actions only.
 
 ## 5. Configuration
 

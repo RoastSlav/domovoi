@@ -49,14 +49,14 @@ Lifecycle: discovered or supplied → validated → used in context → reverifi
 
 ## Management paths are safety-critical knowledge (owner decision D-28)
 
-The facts that say how the owner reaches a host (management networks, VPN endpoints, remote management routes, recovery access) decide whether unattended containment may run on it. They must be owner-confirmed and current: unknown, stale or conflicting entries mean unattended containment is refused on that host. A person can still approve work there and monitoring is unaffected. Each path shows its provenance, its freshness and what it blocks, and the agent keeps local exclusions the hub cannot empty (RW-37, `docs/rework/04 §7` and `§9`).
+The facts that say how the owner reaches a host (management networks, VPN endpoints, remote management routes, recovery access) decide whether unattended containment may run on it. They must be owner-confirmed and current: unknown, stale or conflicting entries mean unattended containment is refused on that host. A person can still approve work there and monitoring is unaffected. Each path shows its provenance, its freshness and what it blocks, and the agent keeps local exclusions the hub cannot empty. The agent reports a hash and a summary of those exclusions; every hub-confirmed path must be covered by them, and a mismatch, or any network or exclusion change, blocks unattended containment until the owner re-confirms (RW-37, `docs/rework/04 §7` and `§9`).
 
 ## Experience: finding past operations (owner decision D-02, RW-25)
 
 Past incidents and how they were solved must be easy to query.
 
 - The journal holds typed events linked to subjects, so an operator can ask "what happened to this container" and get a precise answer, not a text search over prose.
-- Every finished operation gets a **resolution summary**: deterministic fields filled by code (subjects, capabilities executed, verification results, outcome) and narrative fields (problem, cause, fix) drafted by the model, marked as model-sourced and editable or confirmable by the owner. Summaries are full-text indexed.
+- Every finished operation gets a **resolution summary**: deterministic fields filled by code (subjects, capabilities executed, verification results, outcome) and narrative fields (problem, cause, fix) drafted by the model, marked as model-sourced and editable or confirmable by the owner. Summaries belong to the Operation aggregate and the operation writer is their only writer: the Knowledge UI sends edit commands to it, and edits to code-owned fields are rejected (RW-41). Summaries are full-text indexed.
 - The model has a host-scoped `search_experience` read capability. The UI shows **similar past operations** on incident and operation pages.
 - When experience is supplied to the reasoner, each item carries its operation id, date, verified flag and source, inside a block labelled historical evidence, not authorization. **Past approvals and past successes are evidence and never satisfy policy.**
 - Retention of raw step output and of durable summaries are separate, both configurable (owner decisions D-09, D-21; defaults in `07`).

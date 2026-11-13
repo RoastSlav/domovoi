@@ -2,7 +2,7 @@
 
 **Purpose:** durable product and architecture direction for future design, implementation, refactoring and feature work. It captures decisions, rationale, capability ideas, release scope and the difference between the target and the current codebase.
 
-**Design snapshot:** 2026-11-12 (UI pass after current main overhaul); revised 2026-11-13 to reflect the owner decisions in [`docs/rework/99-open-decisions.md`](../rework/99-open-decisions.md) (`D-01`..`D-28` below)  
+**Design snapshot:** 2026-11-12 (UI pass after current main overhaul); revised 2026-11-13 to reflect the owner decisions in [`docs/rework/99-open-decisions.md`](../rework/99-open-decisions.md) (`D-01`..`D-29` below)  
 **Repository baseline checked:** [`RoastSlav/domovoi`](https://github.com/RoastSlav/domovoi), `main` at [`393694b`](https://github.com/RoastSlav/domovoi/commit/393694b0d16ad722961748744226e80b8cbac518)  
 **Status:** evolving target design; not a claim that the described features are implemented.
 
@@ -10,11 +10,11 @@
 
 | | This pack (`docs/design-pack`) | `docs/rework` |
 |---|---|---|
-| Role | **Product-intent reference**: what Domovoi should become, why, and what the owner must always be able to rely on. | **Validated technical implementation direction**: decisions `RW-01`..`RW-41`, target architecture, migration strategy, roadmap and prompt index. |
+| Role | **Product-intent reference**: what Domovoi should become, why, and what the owner must always be able to rely on. | **Validated technical implementation direction**: decisions `RW-01`..`RW-42`, target architecture, migration strategy, roadmap and prompt index. |
 | Level | Product and safety properties, vocabulary, scope, UI requirements. | Contracts, schemas, state machines, crate placement, tests. |
 | Authority | Intent. Where the pack and a validated `RW` decision disagree on a technical mechanism, the `RW` decision wins; where they disagree on product intent, the owner decides. | Implementation. [`03-architecture-decisions.md`](../rework/03-architecture-decisions.md) labels each item DECISION (owner-approved), PROPOSAL or OPEN. |
 
-Pack documents stay at product level and link to the `RW` decision for technical detail instead of duplicating it. The owner decisions (`D-01`..`D-28` in [`99-open-decisions.md`](../rework/99-open-decisions.md)) are reflected throughout the pack and are no longer presented as open; the pack's own decision ledger in `01` uses a separate `D-nn` numbering, so owner decisions are always cited as "owner decision D-nn" or by their `RW` number. No owner decision is open. What remains are research and evidence tasks (`R-1`..`R-7`, [`99-open-decisions.md`](../rework/99-open-decisions.md) §C), summarised in [`09-open-questions.md`](09-open-questions.md). Having an architecture defined is not the same as being ready to implement: see "Readiness" in [`06-implementation-roadmap.md`](../rework/06-implementation-roadmap.md).
+Pack documents stay at product level and link to the `RW` decision for technical detail instead of duplicating it. The owner decisions (`D-01`..`D-29` in [`99-open-decisions.md`](../rework/99-open-decisions.md)) are reflected throughout the pack and are no longer presented as open; the pack's own decision ledger in `01` uses a separate `D-nn` numbering, so owner decisions are always cited as "owner decision D-nn" or by their `RW` number. One owner question is open (O-30, skills with another `run_as` user; see `09`). The rest are research and evidence tasks (`R-1`..`R-8`, [`99-open-decisions.md`](../rework/99-open-decisions.md) §C), summarised in [`09-open-questions.md`](09-open-questions.md). Having an architecture defined is not the same as being ready to implement: see "Readiness" in [`06-implementation-roadmap.md`](../rework/06-implementation-roadmap.md).
 
 ## Start here
 
@@ -76,7 +76,7 @@ Before changing architecture or rebuilding a feature, read [`18-lessons-from-clo
 | **Partial** | A foundation exists, but not the target behavior or full abstraction. |
 | **Missing** | Not found in the verified baseline. |
 | **Later** | Valuable capability intentionally deferred beyond v1.0.0. Written **DEFERRED** in the documents, with a pointer to "Deferred and after-v1" in `docs/rework/06-implementation-roadmap.md`. |
-| **Owner decision** | Decided by the owner (`D-01`..`D-28` in `docs/rework/99-open-decisions.md`); not open. |
+| **Owner decision** | Decided by the owner (`D-01`..`D-29` in `docs/rework/99-open-decisions.md`); not open. |
 
 ## Scope note
 

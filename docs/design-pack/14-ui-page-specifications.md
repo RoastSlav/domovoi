@@ -134,6 +134,7 @@ P0 content (header strip, approval card) is never in a tab. Findings and plan ar
 **Structured approval card** (one component, used everywhere an approval appears; canonical home is this page):
 
 - Renders from deterministic data: contract, target, arguments, effect class, reversibility, expiry, plan-hash prefix, and the policy decision with its winning rule.
+- Says what the approval binds. During the migration it carries a label, "v1 binding" (manifest, host, arguments) or "v2 binding" (also script bytes, target identity and execution id; RW-11). The card never claims more than its version binds, and it states what is not bound, for example files a systemd unit references (RW-34).
 - Shows an agent refusal: when the agent refuses a step (its mutation rate limit, ceiling, `allow_risk` or an exclusion), the step is `Refused` with the agent's reason, and approving again offers no way around it (owner decision D-27). A policy `Deny` is never offered for approval; the card names the rule and says the owner must change the policy (owner decisions D-23, D-26).
 - Model-written text is secondary and labelled as model text.
 - One primary action per context; destructive approvals name the target and consequence and ask for confirmation.
@@ -231,7 +232,7 @@ Tabs or view switch: Conversation, Operation, Evidence/Results. Avoid making the
 
 ### Hosts list
 
-P0: name, agent/connectivity state (including `Incompatible`: upgrade required), host role/criticality, health summary, active incidents and version warning. P1: resource summary, tags/groups (display only; host tags in policy are DEFERRED, `docs/rework/06`), recently active capability/operation. P2: inventory details.
+P0: name, agent/connectivity state (including `Incompatible` and "expected incompatible": upgrade required; and a root-agent warning where the agent runs as root), host role/criticality, health summary, active incidents and version warning. P1: resource summary, tags/groups (display only; host tags in policy are DEFERRED, `docs/rework/06`), recently active capability/operation. P2: inventory details.
 
 Support cards and dense table as alternative user views; filters by state, role, tag, agent version, incident state and capability coverage. Adding/enrolling a host remains an obvious primary action.
 
@@ -251,9 +252,11 @@ Logs may remain a standalone global view with host filter and also be reachable 
 
 The host page shows the **host-local unattended ceiling** read-only (the most the host itself allows to run without a person), with the explanation that it is edited in the agent's configuration on the host, not here. Policy can only narrow it.
 
-**Incompatible agent (owner decision D-20).** When the agent speaks another protocol minor than the hub, the host page leads with an upgrade banner above the tabs (P0): the exact required protocol, the agent's version and the upgrade order (hub first, then each agent through the install procedure). History, incidents and operations stay readable; nothing is dispatched and the host is never shown as offline. Steps waiting on it show `Unavailable` or keep waiting for a compatible agent.
+**Incompatible agent (owner decision D-20, RW-17).** When the agent speaks another protocol minor than the hub, the host page leads with an upgrade banner above the tabs (P0): the exact required protocol, the agent's version and the upgrade order (hub first, then each agent through the install procedure). The state is read from the persisted agent record, so it survives a hub restart; after a hub upgrade a host that has not reconnected shows "expected incompatible (last reported X, hub requires Y)". History, incidents and operations stay readable; nothing is dispatched and the host is never shown as offline. Steps waiting on it show `Unavailable` or keep waiting for a compatible agent.
 
-**Management paths (owner decision D-28).** The host page shows its management paths (management networks, VPN endpoints, remote routes) with where each came from, how fresh it is, whether the owner has confirmed it, and which containment is blocked because paths are unknown, stale or conflicting. The owner confirms or corrects a path here (an audited knowledge edit); the agent's local exclusions are shown read-only beside them. Monitoring and human-approved work are unaffected.
+**Root agent and helper (owner decision D-29, RW-39).** When the agent runs as root, the host page shows a warning above the tabs: the privilege boundary is not in effect, the host gets no unattended execution, and rerunning the installer moves it to the unprivileged user. When the helper is absent or in error, the Monitoring and Capabilities tabs mark each affected check or capability "helper unavailable" with the reason, distinct from a failure. The helper and its allowlist are shown read-only (they are edited on the host).
+
+**Management paths (owner decision D-28, RW-37).** The host page shows its management paths (management networks, VPN endpoints, remote routes) with where each came from, how fresh it is, whether the owner has confirmed it, and which containment is blocked because paths are unknown, stale, conflicting or not covered. The owner confirms or corrects a path here (an audited knowledge edit). The **agent-reported exclusions** (their hash and summary) are shown read-only beside the confirmed paths, with each confirmed path marked covered or uncovered; a mismatch, or any network or exclusion change, blocks unattended containment until the owner re-confirms. Monitoring and human-approved work are unaffected.
 
 Host actions (rename, enroll/revoke, maintenance, agent upgrade guidance since the agent never updates itself) should be discoverable in page-level actions, with destructive actions contextual and confirmed.
 
@@ -265,7 +268,7 @@ P0: Discover catalog, Installed inventory, deployment/installation status and ca
 
 Recommended tabs:
 
-- **Discover** — searchable catalog of first-party and owner-signed packages (third-party registries are DEFERRED) with categories, trust/provenance, compatibility, requested permissions, version and available targets.
+- **Discover** — searchable catalog of first-party and owner-signed packages (third-party registries are DEFERRED) with categories, trust/provenance, compatibility, requested permissions, version and available targets. An **Import package** action lets the owner upload an owner-signed archive and its detached signature (the same as `domovoi package import` on the hub); that is the only way an owner-signed package enters the catalog (RW-26).
 - **Installed** — capabilities installed on agents/providers, status, version, enabled state, last used, updates and policy coverage.
 - **Deployments** — install/update/uninstall attempts, target agents, progress, failures and rollback history.
 
@@ -283,7 +286,7 @@ P2: raw manifest, source files/package provenance, developer diagnostics and ver
 
 ### Install/configure flow
 
-A guided wizard or dedicated deployment workspace:
+A guided wizard or dedicated deployment workspace. The package backend (P1) is built separately; the wizard is part of the Capability Center work in U4, after the visibility infrastructure (U3).
 
 1. Select capability/package and version/channel.
 2. Review provenance, signature, requested privileges/effects, data access and network needs.
@@ -298,7 +301,7 @@ A guided wizard or dedicated deployment workspace:
 
 **Critical distinctions:** installed ≠ enabled; enabled ≠ authorized; authorized ≠ skipped local validation. No control installs and enables in one step; each is its own action, and enabling and starting an installation each ask for password re-entry.
 
-**Trust model shown in the UI:** packages are signed archives. The hub only relays the bytes; the **agent** verifies the signature against keys in its own local trusted-key list and installs only if the host has opted in (off by default) and the package is compatible. The UI shows, per host: opted in or not (with where to change it), which key signed the package, and the verification result reported by the agent. A host that has not opted in is shown as "does not accept installs", not as a failure. v1 scope (owner decision D-16): first-party signed packages plus packages signed with a key the owner added locally on the agent. The hub cannot add or replace keys, the signature is detached and verified before extraction, and a rollback must be signed by a currently trusted key. Third-party registries are DEFERRED (`docs/rework/06` "Deferred and after-v1").
+**Trust model shown in the UI:** packages are signed archives. The hub only relays the bytes; the **agent** verifies the signature against keys in its own local trusted-key list and installs only if the host has opted in (off by default) and the package is compatible. The UI shows, per host: opted in or not (with where to change it), which key signed the package (the signer's `key_id` is kept per installed package, so a revoked key shows which packages it signed), and the verification result reported by the agent, including a refused archive (limits exceeded, a link, an unsafe path). A host that has not opted in is shown as "does not accept installs", not as a failure. v1 scope (owner decision D-16): first-party signed packages plus packages signed with a key the owner added locally on the agent. The hub cannot add or replace keys, the signature is detached and verified before extraction, and a rollback must be signed by a currently trusted key. Third-party registries are DEFERRED (`docs/rework/06` "Deferred and after-v1"). Packages run as the agent user, never root, and cannot install or modify the root-owned helper; the UI says so on the package review step (owner decision D-29, RW-26).
 
 **Progress and recovery:** the deployment view shows one row per host (queued, delivered, verifying, installed, failed with the agent's reason, pending because offline), the overall result as "N of M hosts", retry for failed hosts only, and uninstall/rollback where the package declares it.
 
@@ -315,6 +318,8 @@ P1: filters by category, entity type, source, scope, freshness, inferred/confirm
 P2: bulk review, merge suggestions and data lifecycle tools.
 
 The UI must clearly distinguish confirmed environment fact, automatically discovered fact, inferred hypothesis, user preference, operational constraint and temporary observation.
+
+Resolution summaries are shown here and on operation detail with the source of each field. They belong to the Operation, and the operation writer is their only writer: an edit in the Knowledge UI is sent as an edit command with the revision it was based on, a stale edit is rejected and shown as such, and code-owned fields cannot be edited by a person (RW-41).
 
 ### Entity detail
 
@@ -338,7 +343,7 @@ Present proposed learnings with evidence and suggested scope. User can accept, e
 
 P0: effective policy by host and capability/operation, clear Allow automatically / Ask for approval / Deny semantics, inherited versus explicit values, rule precedence, locked rules shown distinctly and a "why" explanation (below); the autonomy pause switch and any rule suspended by its circuit breaker; rules in shadow mode (new rules start there) clearly marked as not yet acting.
 
-P1: conditions, target restrictions, time windows, TTL, rate limits, blast-radius caps, trusted paths, recovery requirements and policy versioning. Publishing a policy version asks for password re-entry and first shows the **publication validation report**: incomparable conflicting rules (resolved Deny > RequireApproval > Allow) that the owner must acknowledge, specific Allows that override a broader Deny, and any locked rule affected (owner decisions D-19, D-26).
+P1: conditions, target restrictions, time windows, TTL, rate limits, blast-radius caps, trusted paths, recovery requirements and policy versioning. Publishing a policy version asks for password re-entry and first shows the **publication validation report**: equal-scope rules with different outcomes (resolved to Deny) and incomparable conflicting rules (resolved Deny > RequireApproval > Allow), each of which the owner must acknowledge, specific Allows that override a broader Deny, and any locked rule affected (owner decisions D-19, D-26).
 
 P2: raw rule representation, import/export and policy-as-code support later.
 

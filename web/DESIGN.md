@@ -414,7 +414,7 @@ canvas with an outline (real DOM, the screen-reader path) and keyboard navigatio
 between connected nodes, Enter opens the inspector, Home and End go to the first and last node, a
 key jumps to the active node); an inspector; a split pane with a keyboard-operable divider; a
 virtual list; the one structured approval card (contract, target, arguments, effect class,
-reversibility, expiry, plan-hash prefix, policy decision, and an agent refusal reason such as a rate limit; model text secondary and labelled); a
+reversibility, expiry, plan-hash prefix, a label for which plan hash the approval binds ("v1 binding" or "v2 binding" during the migration, RW-11), policy decision, and an agent refusal reason such as a rate limit; model text secondary and labelled); a
 freshness label; the profile provider and visibility primitive.
 
 **Lint and size amendments the graph will need, each written here before the code.** Computed
@@ -430,10 +430,19 @@ event stream the page uses, not only incidents and actions.
 **New statuses** (operation, node including uncertain and planned, policy outcome, capability
 install, enable and authorize, knowledge state, and the step outcomes `Refused`, `NotRun`,
 `Unavailable` and `OutcomeUnknown`) follow the "Add a status" recipe, each with a label, tone,
-hint and icon. Two more are planned. The host state **`Incompatible`** (agent upgrade required:
+hint and icon. More are planned. The host state **`Incompatible`** (agent upgrade required:
 the agent speaks another protocol minor than the hub, D-20) is its own status with an
 upgrade-required hint and is never shown with the offline status; its banner and host page keep
-history readable. The **locked rule** treatment (D-26) makes a locked Deny read differently from
+history readable. It is read from the persisted agent record, so it survives a hub restart, and
+after a hub upgrade a host that has not reconnected reads "expected incompatible" (RW-17). The
+privilege states (D-29, RW-39) are statuses too: a **root-agent warning** (the agent runs as root,
+the privilege boundary is not in effect, no unattended execution; shown as a banner and on the host
+page) and **helper unavailable** (the root-owned helper is absent or in error; shown on each
+affected check and capability, never as a failure or as offline).
+The host page shows the agent-reported exclusions (hash and summary) read-only beside the
+confirmed management paths, each path marked covered or uncovered (RW-37), and the Capability
+Center gets an owner package import (upload of an owner-signed archive and its signature, RW-26)
+before the install wizard, which is built after the visibility infrastructure. The **locked rule** treatment (D-26) makes a locked Deny read differently from
 an ordinary Deny: a lock icon and the text "Locked Deny", never colour alone, in the policy
 editor, simulator, explanation and trace.
 

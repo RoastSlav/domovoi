@@ -97,7 +97,8 @@ Rules:
 | **Knowledge** | Current or persistent information about the environment, with provenance and freshness. | Not the same as notes, history or policy. |
 | **Experience** | Historical records of investigations, decisions, operations and outcomes. | Evidence of what happened, not automatically current truth or permission. |
 | **Integration** | A connected external system or service that provides data or operations. | For example router API, monitoring system or notification channel. Hub-side integrations are DEFERRED past v1 (`docs/rework/06` "Deferred and after-v1"). |
-| **Incompatible** | A host state: its agent speaks a different protocol minor than the hub. | Shown with an upgrade-required explanation, the required protocol and the agent's version; its history is kept. Never presented as offline. |
+| **Incompatible** | A host state: its agent speaks a different protocol minor than the hub. | Shown with an upgrade-required explanation, the required protocol and the agent's version; its history is kept, also after a hub restart. After a hub upgrade, a host that has not reconnected shows "expected incompatible". Never presented as offline. |
+| **Helper** | The root-owned first-party process through which the unprivileged agent performs privileged host operations (owner decision D-29, RW-39). | Installed only by the owner-controlled OS install path, never by a package. Where it is missing or in error, affected checks and capabilities say "helper unavailable", not "failed". A host whose agent still runs as root is labelled "privilege boundary not in effect".
 | **Locked Deny** | An owner-declared prohibition (default off) that no narrower policy rule overrides. | Shown distinctly from ordinary rules; changing it needs step-up. A policy Deny is never offered for approval. |
 
 The exact navigation labels can evolve after page planning, but this vocabulary should remain coherent.

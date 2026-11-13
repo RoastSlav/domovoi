@@ -151,7 +151,7 @@ The **outline** is the screen-reader path: a nested list (cycle, branch, node) i
 - Avoid optimistic UI that says an operation succeeded before the server/agent reports a confirmed result.
 - Distinguish “command returned successfully”, “verification passed” and “incident resolved”.
 - On a lost connection after dispatch, show “outcome unknown / checking state” rather than immediately showing success or issuing a duplicate action.
-- A host that becomes `Incompatible` after dispatch leaves its in-flight step awaiting a compatible agent; the step is neither failed nor shown as offline (owner decision D-20).
+- A host that becomes `Incompatible` after dispatch leaves its in-flight step awaiting a compatible agent; the step is neither failed nor shown as offline (owner decision D-20). The same holds after a hub restart: the state is read from the persisted agent record, not from a live connection.
 - A new investigation cycle should say why it started (failed verification, new evidence, user request, recurrence, timeout).
 - A failed step must not disappear when a later step succeeds.
 - Long-running work should support safe navigation away and return; page closure must not be interpreted as cancellation.
@@ -179,7 +179,7 @@ The **outline** is the screen-reader path: a nested list (cycle, branch, node) i
 
 ### Action cards inside conversation
 
-A response that creates a proposed action/operation renders the shared structured approval card (doc 14, section 5), not a free-text promise. It shows contract, target, arguments, effect class, reversibility, expiry, plan-hash prefix, the policy decision and approval state; any model prose is secondary and labelled. Chat must not simulate success before execution has returned. An agent-side refusal (for example a rate limit) shows on the card with its reason.
+A response that creates a proposed action/operation renders the shared structured approval card (doc 14, section 5), not a free-text promise. It shows contract, target, arguments, effect class, reversibility, expiry, plan-hash prefix, whether the approval binds the v1 or the v2 plan hash during the migration, the policy decision and approval state; any model prose is secondary and labelled. Chat must not simulate success before execution has returned. An agent-side refusal (for example a rate limit) shows on the card with its reason.
 
 ## 7. Policy simulator interactions
 
@@ -227,7 +227,8 @@ This is the one list of data states. Other documents refer to it instead of keep
 | Refresh error | Refetch failed, data present | Last data stays with "last updated" time and a visible failure notice with Retry | yes |
 | Stale | Data older than its freshness window, or live updates paused | Freshness label with age; never presented as current | yes |
 | Offline / unavailable | A host or agent cannot be reached, or a provider is not configured | Says which source is unavailable; distinct from "no data" and from "not configured" | last known, marked |
-| Incompatible | A host's agent speaks another protocol minor than the hub (owner decision D-20) | Upgrade-required banner naming the required protocol and the agent's version; history stays readable; never presented as offline | last known, marked |
+| Incompatible | A host's agent speaks another protocol minor than the hub (owner decision D-20), or has not reconnected since a hub upgrade changed the protocol ("expected incompatible") | Upgrade-required banner naming the required protocol and the agent's version; history stays readable; never presented as offline | last known, marked |
+| Helper unavailable | The privileged helper is absent or in error on a host (owner decision D-29, RW-39) | The affected check or capability says "helper unavailable" with the reason; distinct from failed and from offline | last known, marked |
 | Partial | Some sources of a page loaded and others did not | Each section shows its own state; a failed source is named, never silently omitted | per section |
 | Unknown value | A status or schema value this UI does not know (newer hub, agent or provider) | Neutral pill with the raw value; never crashes | n/a |
 

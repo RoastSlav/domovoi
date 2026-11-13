@@ -35,7 +35,8 @@ Do not force the final sidebar to contain every possible subpage. Important deta
 | Operator launcher | P0 | Compact | Available from anywhere; opens the persistent side panel without losing current page state. |
 | Attention center | P0 | Compact | The one durable list of approvals, questions, manual interventions, failures and completed operations, with unread state; never rely only on toasts. Control Room "Waiting for you" and the Approvals page are views over this same list. |
 | Autonomy state | P0 | Compact | Shows when autonomy is paused or any rule is suspended by its circuit breaker; links to Policies & Autonomy. The pause switch is human-only. |
-| Incompatible-agent banner | P0 | Compact | Appears while any host is `Incompatible` (owner decision D-20): names the host(s), the exact required protocol and the agent's version, and says to upgrade the hub first and then each agent through the install procedure. Links to the host; history stays readable and the host is never shown as merely offline. |
+| Incompatible-agent banner | P0 | Compact | Appears while any host is `Incompatible` or "expected incompatible" after a hub upgrade (owner decision D-20, RW-17): names the host(s), the exact required protocol and the agent's version, and says to upgrade the hub first and then each agent through the install procedure. Links to the host; history stays readable and the host is never shown as merely offline. |
+| Root-agent warning banner | P1 | Compact | Appears while any host's agent runs as root (owner decision D-29, RW-39): the privilege boundary is not in effect, unattended execution is off on that host, and the owner can rerun the installer. Links to the host. |
 | Account/user menu | P2 | Compact | Profile, preferences, theme and sign out. |
 
 The shell may evolve from the current sidebar/topbar layout. Do not assume all actions must live in the top bar or that the current sidebar groups must remain.
@@ -110,7 +111,7 @@ The Operations page is a unified view of work. The Incidents page remains a view
 
 ### One home for approvals
 
-An approval is a step of an operation, so **operation detail is its canonical home**. It is rendered by one structured approval card component (doc 14, section 5) that shows contract, target, arguments, effect class, reversibility, expiry, plan-hash prefix and the policy decision; model text is secondary and labelled. Incident detail, the Control Room, the Operator and the attention center embed that card or link to the operation; none builds its own version. Incident controls (acknowledge, mute, dismiss) stay separate from operation controls (stop, cancel, retry) and from approval controls.
+An approval is a step of an operation, so **operation detail is its canonical home**. It is rendered by one structured approval card component (doc 14, section 5) that shows contract, target, arguments, effect class, reversibility, expiry, plan-hash prefix, whether the approval binds the v1 or the v2 plan hash (labelled during the migration, RW-11) and the policy decision; model text is secondary and labelled. Incident detail, the Control Room, the Operator and the attention center embed that card or link to the operation; none builds its own version. Incident controls (acknowledge, mute, dismiss) stay separate from operation controls (stop, cancel, retry) and from approval controls.
 
 ## 5. Page map
 
@@ -152,6 +153,7 @@ Domovoi
 │   └── Infrastructure topology
 ├── Capabilities
 │   ├── Discover catalog (first-party and owner-signed packages; third-party registries DEFERRED)
+│   ├── Import package (owner-signed archive and signature)
 │   ├── Installed
 │   ├── Deployments / updates
 │   ├── Capability detail

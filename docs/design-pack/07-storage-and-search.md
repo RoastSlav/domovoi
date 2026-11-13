@@ -54,13 +54,13 @@ journal(                        -- the experience record and the SSE change stre
   operation_id, incident_id, subject_refs, payload_json
 )
 
-resolution_summaries(           -- one per terminal operation, full-text indexed
+resolution_summaries(           -- one per terminal operation, full-text indexed; stored as field revisions (below)
   operation_id, subjects, capabilities_executed, verification, outcome,
   problem, cause, fix, narrative_source, confirmed_by, updated_at
 )
 ```
 
-The earlier draft had `experience_events` and `experience_links` tables and a numeric `confidence`. Both are dropped: the journal is the experience record, links to subjects live on the journal entry as typed refs, and a fact carries a status and a source, not a number. The `digest_facts` table, which holds metric samples and collides with the word "facts", is renamed `metric_samples` first.
+Resolution summaries are append-only field revisions owned by the Operation aggregate; the operation writer is the only writer, and the Knowledge UI sends edit commands to it, which reject user edits to code-owned fields and stale revisions (RW-41). The earlier draft had `experience_events` and `experience_links` tables and a numeric `confidence`. Both are dropped: the journal is the experience record, links to subjects live on the journal entry as typed refs, and a fact carries a status and a source, not a number. The `digest_facts` table, which holds metric samples and collides with the word "facts", is renamed `metric_samples` first.
 
 Use typed definitions/validation for relation types and predicates (a closed enum in v1). Do not create unconstrained EAV where every field is a free-form string. Keep stable/query-critical fields relational; put only variable optional properties in JSON. Store evidence references/hashes and bounded summaries rather than unlimited raw logs or secrets.
 

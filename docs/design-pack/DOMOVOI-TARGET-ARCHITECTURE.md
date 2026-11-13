@@ -132,7 +132,7 @@ These are product-level properties to preserve through whatever implementation i
 
 ## Owner decisions since the first snapshot
 
-On 2026-11-13 the owner answered the open decisions in [`docs/rework/99-open-decisions.md`](../rework/99-open-decisions.md), including the later entries D-16..D-28. They are binding product direction and are reflected in the documents named below. Technical detail lives in the linked `RW` decision.
+On 2026-11-13 the owner answered the open decisions in [`docs/rework/99-open-decisions.md`](../rework/99-open-decisions.md), including the later entries D-16..D-29. They are binding product direction and are reflected in the documents named below. Technical detail lives in the linked `RW` decision.
 
 | Owner decision | Outcome | Reflected in | Technical detail |
 |---|---|---|---|
@@ -154,16 +154,17 @@ On 2026-11-13 the owner answered the open decisions in [`docs/rework/99-open-dec
 | D-16 | Package trust: first-party release key plus owner keys installed locally on the agent; the hub cannot add or replace keys; a detached signature over a canonical message, verified before extraction; a rollback must be signed by a currently trusted key. Third-party registries are DEFERRED. | 03, 09, 14, 17 | RW-26 |
 | D-17 | The first and only v1 containment capability is `firewall.block_source`. `container.pause` and `unit.stop_temporary` are DEFERRED until independent expiry and recovery are proven. | 05, 10, 11 | RW-13 |
 | D-18 | Ceiling scope: exact capability id, explicit targets, maximum rate, declared constrainable arguments, maximum TTL and maximum active for containment, mandatory management-path exclusions. No entry, no policy-authorized execution. | 02, 05 | RW-12 |
-| D-19 | Incomparable conflicting rules resolve Deny > RequireApproval > Allow; publication shows the conflicts and needs acknowledgement. | 05, 09, 14 | RW-10 |
-| D-20 | Exact protocol major.minor match: older and newer minors are rejected, same-protocol patch releases are compatible. No legacy adapter and no support window. Coordinated upgrade: hub first, then agents through the install procedure. The `Incompatible` host state is visible and keeps history. No agent self-update. | 02, 10, 13, 14, 15, 17, 18 | RW-17 |
+| D-19 | Incomparable conflicting rules resolve Deny > RequireApproval > Allow; publication shows the conflicts, equal-scope ones as well, and needs acknowledgement. | 05, 09, 14 | RW-10 |
+| D-20 | Exact protocol major.minor match, checked only after the agent has proven its identity: older and newer minors are rejected, same-protocol patch releases are compatible, and application release numbers are not a compatibility dimension. No legacy adapter and no support window. Coordinated upgrade: hub first, then agents through the install procedure. The `Incompatible` host state is persisted, survives a hub restart, is visible and keeps history; an incompatible agent idles instead of reconnecting. One protocol bump before v1 (M1). No agent self-update. | 02, 10, 13, 14, 15, 17, 18 | RW-17, RW-42 |
 | D-21 | Retention defaults, all configurable. Deleted data leaves the live database, search and model context, and stays in backups until they rotate. | 07, 14 | RW-28 |
 | D-22 | Every containment expires independently of the main agent; connectivity-affecting containment also needs an independent watchdog; nothing is enabled unattended until expiry, recovery, watchdog, outcome-unknown handling and drills exist. | 05, 10 | RW-13 |
 | D-23 | A policy Deny is not offered for approval; the owner must change the policy. No bypass. | 05, 14 | RW-10 |
-| D-24 | No general Docker socket write access for the agent; a narrow first-party helper with its own ADR; Docker write capabilities are unavailable for unattended use until then. | 03, 05, 10, 11 | RW-39 |
+| D-24 | No general Docker socket write access for the agent; a narrow first-party helper with its own ADR; Docker write capabilities are unavailable for unattended use until then (the helper is part of D-29's design). | 03, 05, 10, 11 | RW-39 |
 | D-25 | Historical graph playback ships last in U2; the timeline and history are fully useful without it. | 10, 14, 15, 17 | RW-21 |
 | D-26 | Locked Deny (default off): an owner-declared prohibition that narrower rules cannot override; visible in the editor, simulator, explanation and trace; step-up to change. | 05, 14, 17 | RW-10 |
 | D-27 | Agent-side mutation rate limits apply to all mutating executions, human- and policy-labelled, separately from the ceiling. | 02, 05, 14 | RW-38 |
-| D-28 | Unattended containment on a host requires owner-confirmed, current management paths; unknown, stale or conflicting means refused. The agent enforces local exclusions independently; the UI shows paths, provenance, freshness and what is blocked. | 05, 06, 09, 14 | RW-37 |
+| D-28 | Unattended containment on a host requires owner-confirmed, current management paths covered by the exclusions the agent reports; unknown, stale, conflicting or uncovered means refused. The agent enforces local exclusions independently; the UI shows paths, the agent-reported exclusions, provenance, freshness and what is blocked. | 05, 06, 09, 14 | RW-37 |
+| D-29 | The main agent runs as the dedicated unprivileged user `domovoi-agent`; privileged host operations go only through one narrow, root-owned helper installed and updated by the owner-controlled OS path, never by capability packages or skills. Root installs are labelled and get no unattended execution. Skills that need another `run_as` user are an open owner question (O-30; recommended unsupported). | 02, 03, 05, 10, 13, 14 | RW-39, RW-12, RW-26 |
 
 Ledger rows above that an owner decision changed say so in their Status column.
 
@@ -227,7 +228,7 @@ flowchart TB
 | **Policy engine** | Deterministic authorization decision using owner policy and current context. | Learning or changing permissions from model output/history. |
 | **Execution coordinator** | Validated dispatch, idempotency, operation state, timeouts, result capture and rollback/expiry coordination. | Bypassing the policy engine or provider-specific validation. |
 | **Capability provider** | Implements an operation using its specific host/API mechanism. | Granting its own authority or broadening its scope. |
-| **Host agent** | Local discovery, local manifest revalidation, bounded execution, the host-local unattended ceiling, a mutation rate limiter for every mutating execution (owner decision D-27), an action journal for idempotency and reconciliation, and a local audit buffer. | Trusting a hub/model authorization flag without validating its own contract and ceiling. |
+| **Host agent** | Runs as an unprivileged OS user (owner decision D-29, RW-39). Local discovery, local manifest revalidation, bounded execution, the host-local unattended ceiling, a mutation rate limiter for every mutating execution (owner decision D-27), an action journal for idempotency and reconciliation, and a local audit buffer. | Trusting a hub/model authorization flag without validating its own contract and ceiling. |
 | **Verification service** | Checks postconditions and monitors for regression over a defined window. | Treating process exit code as proof of recovery. |
 | **Knowledge service** | Structured facts, entities, relationships, provenance, lifecycle and search. | Storing permissions or silently converting inference into confirmed fact. |
 | **Experience service** | The append-only journal of typed operational events, plus a searchable resolution summary per operation. There is no separate experience event store (owner decision D-02, RW-15, RW-25). | Becoming the source of current environment truth or permissions. |
@@ -245,7 +246,8 @@ A capability request should carry at least: capability ID/version, target host/e
 - Capabilities may also be provided by hub-side or external integration adapters (for example, a router API); they must declare their enforcement point and security boundary.
 - The agent enforces a **host-local unattended ceiling**: owner-controlled configuration on the host that lists which capabilities may run without a human, on which explicit targets, how often and with which argument limits. The hub cannot modify or widen it, the UI shows it read-only, and hub policy can only narrow it (owner decision D-03, RW-12). The ceiling covers the exact capability id, explicit targets, maximum rate, declared constrainable arguments and, for containment, maximum TTL, maximum active containments and management-path exclusions; no entry means no policy-authorized execution (owner decision D-18). The ceiling is an enforcement limit, not a signature: a hub permit is not a cryptographic proof of owner approval. `authorization_kind` is a hub label; a compromised hub can label a request `human` and bypass the ceiling (accepted v1 limitation). It is still limited by the agent's local catalogue, manifest, argument and `allow_risk` checks and by the mutation rate limiter, which applies to all mutating executions (owner decision D-27).
 - Owner-signed policy bundles and approvals, and cached offline emergency permits, are DEFERRED past v1: they need owner key custody and a replay and revocation design (`docs/rework/06` "Deferred and after-v1"). Until then an agent does not invent or cache new policy while offline.
-- **Version match (owner decision D-20, RW-17).** Hub and agent speak the same protocol major.minor or not at all. There is no support window, no previous-minor adapter and no legacy execution path; same-protocol patch releases are compatible. A mismatched agent is rejected with a reason, and its host is shown as `Incompatible` (upgrade required, history kept), not as offline. Upgrades are coordinated: hub first, then each agent through the install procedure. The agent never updates itself (DEFERRED, not planned; see `docs/rework/06` "Deferred and after-v1").
+- **Unprivileged agent and root-owned helper (owner decision D-29, RW-39).** The agent runs as the dedicated user `domovoi-agent`. Privileged host operations (Docker, systemd control, nftables, SMART, kernel messages, listening sockets with their owning process) go only through one narrow, root-owned helper (`domovoi helper serve`): socket-activated, it checks the caller's uid and validates every typed request against a root-owned allowlist (`/etc/domovoi/helper.toml`), independently of the agent and hub. The helper is installed and updated only by the owner-controlled OS install path; capability packages and skills can never install or modify it, and packages run as the agent user, never root. An agent still running as root is labelled "privilege boundary not in effect" and gets no unattended execution. Skills whose manifest names another `run_as` user are an open owner question (O-30; recommended: unsupported).
+- **Version match (owner decision D-20, RW-17, RW-42).** Hub and agent speak the same protocol major.minor or not at all. The check happens only after the agent has proven its identity; there is no support window, no previous-minor adapter, no legacy execution path and no application-release floor (a release number is not a compatibility dimension). Same-protocol patch releases are compatible. A mismatched agent is rejected with the existing `Incompatible` reason, and its host is shown as `Incompatible` (upgrade required, history kept), not as offline; the state is persisted on the agent record and survives a hub restart, and after a hub upgrade a host that has not reconnected shows "expected incompatible". An incompatible agent idles instead of reconnecting (agents older than the F3 release restart-loop under systemd until upgraded). Exactly one protocol bump is planned before v1 (1.1 → 1.2 in M1); F3 changes no wire format and later milestones use capabilities over the frozen 1.2 wire. Upgrades are coordinated: hub first, then each agent through the install procedure. The agent never updates itself (DEFERRED, not planned; see `docs/rework/06` "Deferred and after-v1"). A revoked-build list is DEFERRED and distinct from protocol compatibility.
 - When a host disconnects, the orchestrator records that the operation is unavailable or uncertain. It must not treat missing responses as success.
 
 ## Durable state and concurrency
@@ -276,7 +278,7 @@ The UI can change layout, view state and presentation profile, but all consequen
 
 ## Extension path
 
-Add capabilities through providers/adapters behind the common hub-owned contract. Preserve current `ReadTool`, skill and action behavior during migration by wrapping them first; existing action records stay as they are and are shown as legacy (RW-32). Avoid coupling orchestration or policy to Docker, systemd, a particular firewall, or one script format. Capability packages can be installed from the UI, but only as signed packages that the agent verifies against locally trusted keys (the first-party release key plus keys the owner installed on that host); the hub merely relays them and cannot add keys (owner decisions D-11, D-16, RW-26). Third-party registries are DEFERRED.
+Add capabilities through providers/adapters behind the common hub-owned contract. Preserve current `ReadTool`, skill and action behavior during migration by wrapping them first; existing action records stay as they are and are shown as legacy (RW-32). Avoid coupling orchestration or policy to Docker, systemd, a particular firewall, or one script format. Capability packages can be installed from the UI, but only as signed packages that the agent verifies against locally trusted keys (the first-party release key plus keys the owner installed on that host); the hub merely relays them and cannot add keys (owner decisions D-11, D-16, RW-26). Owner-signed packages arrive by manual import. Packages install into the agent-owned skills directory and run as the agent user. Third-party registries are DEFERRED.
 
 ---
 
@@ -327,7 +329,7 @@ This is a conceptual contract, not a final serialized schema. Avoid requiring ev
 ## Discovery and invocation
 
 1. The hub holds the typed contracts; providers register the implementations they can offer against those contracts.
-2. Agent handshake reports which contracts and versions it implements, with an implementation hash and availability, not just script filenames. Availability is `Known`, `Unknown` (no session yet since hub start), `Absent` or `Incompatible` (the agent speaks another protocol minor; owner decision D-20). An unknown host is waited for, never rejected; an incompatible host is shown with an upgrade-required explanation and its history, never as offline, and nothing is dispatched to it.
+2. Agent handshake reports which contracts and versions it implements, with an implementation hash and availability, not just script filenames. Availability is `Known`, `Unknown` (no session yet since hub start), `Absent` or `Incompatible` (the agent authenticated but speaks another protocol minor; owner decision D-20, RW-17). An unknown host is waited for, never rejected; an incompatible host is shown with an upgrade-required explanation and its history, never as offline (also after a hub restart, because the state is persisted on the agent record), and nothing is dispatched to it. A capability that needs the privileged helper is unavailable when the helper is absent or in error, and each affected check says so instead of failing silently (owner decision D-29, RW-39).
 3. Hub builds a scoped catalogue for the incident: only capabilities that exist for the target and whose basic prerequisites are met.
 4. Reasoner may ask to inspect a capability's schema or request an operation using typed arguments. The model sees a closed set of meta-tools (list and describe capabilities, request evidence, search experience, propose a plan, ask the user, finish); none of them approves or executes anything.
 5. Engine checks the schema, scope, freshness, budget and current policy before dispatch.
@@ -341,7 +343,7 @@ Capability discovery must not expose secrets or imply permission. **Available do
 Initial broad groups (examples, not a closed list):
 
 - **Host observation:** processes, memory, disk, filesystems, temperatures, journal, listening sockets, service state.
-- **Application/container operations:** inspect, logs, restart, health checks, queue state, deployment metadata. Docker write operations go only through a narrow first-party helper with its own ADR; the agent gets no general Docker socket write access, and Docker write capabilities stay unavailable for unattended use until the helper exists (owner decision D-24, RW-39).
+- **Application/container operations:** inspect, logs, restart, health checks, queue state, deployment metadata. Docker write operations go only through the narrow, root-owned first-party helper (typed `docker.read` and `docker.write` operation groups against a root-owned allowlist; owner decisions D-24, D-29, RW-39); the agent runs unprivileged and gets no general Docker socket write access, and Docker write capabilities stay unavailable for unattended use until the helper and its ADR exist. Container targets are bound by full id and systemd unit targets by canonical id plus a hash of the fragment and drop-ins; generated and transient units are not valid mutation targets, and files a unit references are not bound (RW-34).
 - **Storage:** pool/device health, mount state, backup state, free space, scrub/sync status; destructive storage operations require strict treatment.
 - **Network:** routes, DNS, gateway reachability, connection state, firewall inspection and narrowly scoped firewall changes.
 - **Security:** authentication events, suspicious-source analysis, temporary blocks, isolation and exposure restriction.
@@ -363,8 +365,10 @@ Do not model every log line or metric as a capability. Capabilities are operatio
 Capability install and deploy from the UI is part of v1, with these properties:
 
 - A capability package is signed. The agent installs it only if the host opted in (`allow_install`, off by default), the signature verifies against a key in the agent's **locally** trusted keys, and the package is compatible with the agent. The hub only relays the bytes and cannot add or replace trusted keys, so a compromised hub cannot make an agent accept an unsigned package.
+- **Sources (RW-26).** First-party packages come from a signed index. Owner-signed packages arrive by **manual import**: the owner uploads the archive and signature in the Capability Center or runs `domovoi package import` on the hub; there is no other discovery in v1. The agent applies archive limits, rejects links and verifies before extracting, and the signer's `key_id` is persisted per installed package so a revoked key finds the packages it signed. The package backend (P1) is separate from the install wizard (U4, after U3).
 - **Trust (owner decision D-16, RW-26).** v1 trusts two kinds of key, both installed locally on the agent: the first-party release key and keys the owner adds. The signature is **detached** (a separate file, never inside the archive) and covers a canonical message naming the package, version, archive digest and key; the agent verifies it before extracting anything. Any install, including a rollback to an older version, must be signed by a key that is trusted now.
 - Installing never enables or authorizes anything. Install, enable (hub) and unattended use (policy plus the host ceiling) remain three separate steps.
+- **Privileges (owner decision D-29, RW-26, RW-39).** Packages install under the agent-owned skills directory and run as the agent user, never root. They can never install or modify the root-owned helper or its allowlist; that is a separate step through the owner-controlled OS install path. Signing grants execution as the agent user only. A root install is labelled and gets no unattended execution.
 - **DEFERRED:** third-party or community packages and registries. Anyone publishing a package could run code as the agent after one click, so v1 has none (`docs/rework/06` "Deferred and after-v1").
 - **DEFERRED, not planned:** agent self-update. It violates the rule that the hub cannot push code to a host; upgrades follow the install procedure (owner decision D-20; see the catalogue flags in `11`).
 
@@ -476,11 +480,11 @@ The plan is a proposal, not authorization. The policy engine evaluates each cons
 
 Record phase transitions and meaningful events with timestamp, actor/component, incident, input/output reference, evidence references, decision/rationale, policy result, operation identity and outcome. Preserve enough to reconstruct the lifecycle without persisting secrets or unlimited raw logs.
 
-The experience record **is the journal**: one append-only table of typed events that also feeds live UI replay, not a separate experience store (RW-15). Security-relevant facts (who authorized what, policy and settings changes, refusals) go to the separate hash-chained audit record, written in the same transaction. When an operation ends it gets a **resolution summary**: deterministic fields filled by code (subjects, capabilities executed, verification results, outcome) and narrative fields (problem, cause, fix) drafted by the model, marked as model-sourced and editable or confirmable by the owner. The UI shows similar past operations on incident and operation pages. A past approval or success never satisfies policy.
+The experience record **is the journal**: one append-only table of typed events that also feeds live UI replay, not a separate experience store (RW-15). Security-relevant facts (who authorized what, policy and settings changes, refusals) go to the separate hash-chained audit record, written in the same transaction. When an operation ends it gets a **resolution summary**: deterministic fields filled by code (subjects, capabilities executed, verification results, outcome) and narrative fields (problem, cause, fix) drafted by the model, marked as model-sourced and editable or confirmable by the owner. Summaries belong to the Operation aggregate and the operation writer is their only writer; the Knowledge UI sends edit commands to it (RW-41). The UI shows similar past operations on incident and operation pages. A past approval or success never satisfies policy.
 
 ## Delivery semantics
 
-Notification delivery is **at-least-once** (RW-35). If the platform accepts a message and the hub crashes before recording it, the message is retried and a duplicate is possible; each message carries a short stable id so duplicates are recognisable, and remote idempotency is used where the platform supports it. The product never claims exactly-once delivery. Notification state is written only after a confirmed success, and a failure to read it fails the delivery rather than becoming default state.
+Notification delivery is **at-least-once** (RW-35). If the platform accepts a message and the hub crashes before recording it, the message is retried and a duplicate is possible; each message carries a short stable id so duplicates are recognisable, and remote idempotency is used where the platform supports it. The product never claims exactly-once delivery. Notification state is written only after a confirmed success, and a failure to read it fails the delivery rather than becoming default state. Side effects are claimed under a lease with a claim token: a worker whose lease expired and was reclaimed can no longer commit any local state, so only remote delivery can repeat, which is why it stays at-least-once (RW-35).
 
 ## Example: a fix reveals a second problem
 
@@ -520,13 +524,13 @@ These are capability categories, not a single host-wide ranking. A host may allo
 1. A rule's scope is its host, capability and target dimensions. Rule A is **strictly more specific** than rule B when A's scope is a subset of B's on every dimension and a strict subset on at least one. This is a partial order; there is no numeric score.
 2. The strictly more specific matching rule overrides the broader one, **including a broader Deny**.
 3. At **equal specificity, Deny wins**.
-4. Conflicting rules that are **incomparable** (neither is more specific) resolve by **Deny > RequireApproval > Allow** (owner decision D-19). Publishing a policy version shows these conflicts and requires the owner to acknowledge them.
+4. Conflicting rules that are **incomparable** (neither is more specific) resolve by **Deny > RequireApproval > Allow** (owner decision D-19). Publishing a policy version warns about both kinds of conflict, equal-scope rules with different outcomes as well as incomparable ones, shows how each resolves, and requires the owner to acknowledge them (RW-10, `docs/rework/04 §7.6`).
 5. No matching rule → approval required or denied according to the operation class; never implicitly allow.
 6. Host ids only in v1; host tags are DEFERRED (`docs/rework/06` "Deferred and after-v1").
 7. **Locked Deny (owner decision D-26).** The owner may mark a Deny rule as locked (off by default). A locked Deny is a hard prohibition: no narrower rule overrides it, it is shown distinctly from ordinary rules in the editor, simulator, explanation and trace (with what ordinary resolution would have decided), and changing it needs step-up authentication.
 8. **A policy Deny is never offered for approval (owner decision D-23).** The owner must change the policy; there is no approval bypass. A `RequireApproval` outcome, by contrast, is offered to the owner.
 
-**Hard limits are not rules.** They apply after rule resolution and cannot be overridden by any rule, however specific: the host-local ceiling, Destructive operations never being policy-allowed in v1 (owner decision D-06), the mandatory containment exclusions, and unknown or stale safety-critical facts never yielding Allow. A locked Deny (below) behaves the same way for the one prohibition the owner wrote it for.
+**Hard limits are not rules.** They apply after rule resolution and cannot be overridden by any rule, however specific: the host-local ceiling, Destructive operations never being policy-allowed in v1 (owner decision D-06), the mandatory containment exclusions, unknown or stale safety-critical facts never yielding Allow, and a host whose agent still runs as root never yielding an unattended Allow (owner decision D-29). A locked Deny (below) behaves the same way for the one prohibition the owner wrote it for.
 
 The evaluator is pure and deterministic, produces an explainable decision record naming the winning rule, and is the same function the simulator calls.
 
@@ -557,7 +561,7 @@ The exact capability names and constraints would be configured per environment. 
 
 Beyond the policy decision, an unattended (policy-authorized) step is bounded by three further controls.
 
-- **Host-local ceiling (owner decision D-03, [RW-12](../rework/03-architecture-decisions.md)).** Owner-controlled configuration on the agent's host lists, per capability, the explicit targets, a maximum rate per hour, constrained arguments where the contract allows them, and for Contain capabilities a maximum lifetime, a maximum number of active containments and mandatory management-path exclusions (owner decision D-18). No entry means no policy-authorized execution. The hub cannot change or widen it, the UI shows it read-only, and hub policy may only narrow it. Human-approved and policy-authorized executions stay distinguishable. A separate agent-side **mutation rate limiter** applies to all mutating executions, human- and policy-labelled (owner decision D-27), which bounds the damage a lying hub could do. A request it refuses is recorded as `Refused` with the reason (for example the rate limit), and the approval card shows that reason.
+- **Host-local ceiling (owner decision D-03, [RW-12](../rework/03-architecture-decisions.md)).** Owner-controlled configuration on the agent's host lists, per capability, the explicit targets, a maximum rate per hour, constrained arguments where the contract allows them, and for Contain capabilities a maximum lifetime, a maximum number of active containments and mandatory management-path exclusions (owner decision D-18). No entry means no policy-authorized execution. The hub cannot change or widen it, the UI shows it read-only, and hub policy may only narrow it. Human-approved and policy-authorized executions stay distinguishable. A separate agent-side **mutation rate limiter** applies to all mutating executions, human- and policy-labelled (owner decision D-27), which bounds the damage a lying hub could do. It survives a reboot: entries are aged by the boot's monotonic clock and entries from before a reboot are kept for a full window, so a reboot or a wall-clock change never opens an unrestricted window (RW-38). A request it refuses is recorded as `Refused` with the reason (for example the rate limit), and the approval card shows that reason.
 - **Target binding (owner decision D-07, RW-23).** An unattended step may target only the operation's **pinned subjects** plus targets **explicitly named by the matching owner-authored rule**. A target outside that set can only be routed to human approval, flagged as outside the operation's scope. Pinned subjects change only by owner command.
 - **Operational brakes.** Per-rule and global rate limits, a human-only global **pause autonomy** switch, a circuit breaker that suspends a rule after repeated failed or unknown results, and shadow mode for every new rule.
 
@@ -576,6 +580,8 @@ Keep the current human approval path distinct from autonomous authorization. The
 Every action should carry a decision trace: requested operation, relevant policy rule/version, decision, conditions evaluated, actor/principal, plan hash, execution outcome and verification. The UI must make clear whether a human approved it or a policy authorized it. Past approvals and past successes are evidence for the reasoner and never authorization: they cannot satisfy a policy condition.
 
 **Audit tamper evidence (owner decision D-14, RW-27).** Audit entries are hash-chained, computed inside the same transaction as the state change. The honest threat model: the chain detects accidental corruption, out-of-band edits and deletion in the middle of the chain; it does **not** stop an attacker who can rewrite the whole database and recompute the chain. As a cheap external anchor, the current head hash appears in the daily digest, so the owner holds off-host copies. Stronger anchoring is DEFERRED (`docs/rework/06` "Deferred and after-v1"). History that predates the chain stays unchained and is anchored once by a digest; verification and the audit page report that legacy part and the chained part separately.
+
+Approval binding is staged (RW-11). The current action flow (F4) binds an approval to the existing plan hash v1: the manifest, the host and the arguments, not the entry-script bytes or the target's identity. M1 introduces plan hash v2 (script bytes, resolved target identity, execution id), and actions created before that keep v1 binding until they finish, labelled as such. M3 moves approval onto Operation steps. Systemd unit targets are identified by canonical id plus a hash of the fragment and drop-ins; generated and transient units are not valid mutation targets, and referenced files such as `EnvironmentFile=` and binaries are not bound, which the approval card states (RW-34).
 
 The current implementation is human-approval-only for mutations. Treat that as a migration starting point, not as a permanent design limit. The target adds a separate owner-policy authorization path; never fabricate a human approval. Replace the current gate only when a typed policy decision, local enforcement, audit, migration and failure tests are ready together.
 
@@ -598,10 +604,10 @@ When the cached permit is stale, expired or ambiguous, fail closed. This mechani
 
 Containment (L3) ships in v1 as milestone M9, after bounded L2 autonomy is complete. It is a general **Contain** class, so the safeguards below apply to any contain capability, not just firewall rules.
 
-- **First and only v1 capability (owner decisions D-17, D-22):** `firewall.block_source`, a temporary inbound block of one external address or small prefix. The block carries a kernel-enforced nftables timeout, so it expires even if the agent, the hub or the helper is down. Applying it is a two-step confirmation: the first element lives 30 s, and only a hub confirmation that management reachability still works extends it to the full TTL; an unconfirmed block expires by itself.
+- **First and only v1 capability (owner decisions D-17, D-22):** `firewall.block_source`, a temporary inbound block of one external address or small prefix. The block carries a kernel-enforced nftables timeout, so it expires even if the agent, the hub or the helper is down. Applying it is a two-step confirmation: the first element lives 30 s, and only a hub confirmation that management reachability still works extends it to the full TTL, by one atomic delete-and-add in a single nftables transaction (never by assuming that adding an existing element refreshes it); an unconfirmed block expires by itself. Only the root-owned helper's `nft` group touches nftables, and containment is not production-ready until the nftables research item R-2 is complete (`docs/rework/04 §9.1`).
 - **DEFERRED:** `container.pause` and `unit.stop_temporary`. Their only expiry today would be an agent-side timer, which is not reliable automatic expiry (a paused container stays paused if the agent is down). They may be reconsidered in v1.x once expiry is independent of the agent and recovery is proven (the checklist in `docs/rework/04 §9.3`). Container network isolation, SSH session termination and account lock are likewise deferred for weaker recovery or lockout stories (`docs/rework/06` "Deferred and after-v1").
 - **Triggering.** Automatic containment is eligible only when a deterministic detector emitted a typed signal whose structured fields name the target (for example a source address) and that target is the operation's pinned subject. **Free-form model output never triggers or targets automatic containment.** The model may investigate, explain and recommend; its recommendations go through human approval.
-- **Management paths (owner decision D-28).** Unattended containment on a host requires owner-confirmed, current management paths. Unknown, stale or conflicting paths mean it is refused, and the agent enforces its own local exclusions regardless of the hub. This affects neither monitoring nor other human-approved work. The UI shows the paths, where each came from, how fresh it is and which containment is blocked.
+- **Management paths (owner decision D-28).** Unattended containment on a host requires owner-confirmed, current management paths, and every confirmed path must be covered by the exclusions the agent itself reports (a hash and a summary sent to the hub). Unknown, stale, conflicting or uncovered paths mean it is refused, a mismatch or any network or exclusion change blocks it until the owner re-confirms, and the agent and helper enforce their own local exclusions regardless of the hub (RW-37). This affects neither monitoring nor other human-approved work. The UI shows the confirmed paths beside the agent-reported exclusions, where each came from, how fresh it is and which containment is blocked.
 - **Safeguards.** Expiry independent of the main agent on every containment, a watchdog for connectivity effects (the 30 s two-step above), caps on simultaneous containments, verification that management access still works, outcome-unknown handling, and drills before any host is enabled unattended (owner decision D-22). The hub cannot empty the mandatory exclusions.
 
 ## Security containment example: suspected SSH brute force
@@ -625,7 +631,8 @@ Do not reflexively stop SSH or apply a broad firewall policy: that can lock the 
 - The model cannot modify its own policy, grant itself capabilities, approve its plan or disable audit.
 - A capability must declare target, effect, prerequisites, rollback/expiry and verification. If it cannot be bounded, it is not eligible for autonomous execution.
 - Agent-side validation is mandatory even after hub authorization.
-- The agent gets no general Docker socket write access, which would be root on the host. Docker write operations go through a narrow first-party helper with its own ADR, and Docker write capabilities are unavailable for unattended use until it exists (owner decision D-24, RW-39).
+- The agent gets no general Docker socket write access, which would be root on the host. The agent runs as an unprivileged user (owner decision D-29); Docker write operations and other privileged host operations go through one narrow, root-owned first-party helper with a root-owned allowlist and its own ADR, installed only by the owner-controlled OS path and never by a package or skill. Docker write capabilities are unavailable for unattended use until it exists (owner decisions D-24, D-29, RW-39).
+- Packages and skills run as the agent user, never root. A skill that needs another `run_as` user is an open owner question (O-30; recommended: unsupported). A root install is labelled and gets no unattended execution.
 - Unknown, stale, conflicting or unavailable safety-critical context means no autonomous execution.
 
 ---
@@ -681,14 +688,14 @@ Lifecycle: discovered or supplied → validated → used in context → reverifi
 
 ## Management paths are safety-critical knowledge (owner decision D-28)
 
-The facts that say how the owner reaches a host (management networks, VPN endpoints, remote management routes, recovery access) decide whether unattended containment may run on it. They must be owner-confirmed and current: unknown, stale or conflicting entries mean unattended containment is refused on that host. A person can still approve work there and monitoring is unaffected. Each path shows its provenance, its freshness and what it blocks, and the agent keeps local exclusions the hub cannot empty (RW-37, `docs/rework/04 §7` and `§9`).
+The facts that say how the owner reaches a host (management networks, VPN endpoints, remote management routes, recovery access) decide whether unattended containment may run on it. They must be owner-confirmed and current: unknown, stale or conflicting entries mean unattended containment is refused on that host. A person can still approve work there and monitoring is unaffected. Each path shows its provenance, its freshness and what it blocks, and the agent keeps local exclusions the hub cannot empty. The agent reports a hash and a summary of those exclusions; every hub-confirmed path must be covered by them, and a mismatch, or any network or exclusion change, blocks unattended containment until the owner re-confirms (RW-37, `docs/rework/04 §7` and `§9`).
 
 ## Experience: finding past operations (owner decision D-02, RW-25)
 
 Past incidents and how they were solved must be easy to query.
 
 - The journal holds typed events linked to subjects, so an operator can ask "what happened to this container" and get a precise answer, not a text search over prose.
-- Every finished operation gets a **resolution summary**: deterministic fields filled by code (subjects, capabilities executed, verification results, outcome) and narrative fields (problem, cause, fix) drafted by the model, marked as model-sourced and editable or confirmable by the owner. Summaries are full-text indexed.
+- Every finished operation gets a **resolution summary**: deterministic fields filled by code (subjects, capabilities executed, verification results, outcome) and narrative fields (problem, cause, fix) drafted by the model, marked as model-sourced and editable or confirmable by the owner. Summaries belong to the Operation aggregate and the operation writer is their only writer: the Knowledge UI sends edit commands to it, and edits to code-owned fields are rejected (RW-41). Summaries are full-text indexed.
 - The model has a host-scoped `search_experience` read capability. The UI shows **similar past operations** on incident and operation pages.
 - When experience is supplied to the reasoner, each item carries its operation id, date, verified flag and source, inside a block labelled historical evidence, not authorization. **Past approvals and past successes are evidence and never satisfy policy.**
 - Retention of raw step output and of durable summaries are separate, both configurable (owner decisions D-09, D-21; defaults in `07`).
@@ -783,13 +790,13 @@ journal(                        -- the experience record and the SSE change stre
   operation_id, incident_id, subject_refs, payload_json
 )
 
-resolution_summaries(           -- one per terminal operation, full-text indexed
+resolution_summaries(           -- one per terminal operation, full-text indexed; stored as field revisions (below)
   operation_id, subjects, capabilities_executed, verification, outcome,
   problem, cause, fix, narrative_source, confirmed_by, updated_at
 )
 ```
 
-The earlier draft had `experience_events` and `experience_links` tables and a numeric `confidence`. Both are dropped: the journal is the experience record, links to subjects live on the journal entry as typed refs, and a fact carries a status and a source, not a number. The `digest_facts` table, which holds metric samples and collides with the word "facts", is renamed `metric_samples` first.
+Resolution summaries are append-only field revisions owned by the Operation aggregate; the operation writer is the only writer, and the Knowledge UI sends edit commands to it, which reject user edits to code-owned fields and stale revisions (RW-41). The earlier draft had `experience_events` and `experience_links` tables and a numeric `confidence`. Both are dropped: the journal is the experience record, links to subjects live on the journal entry as typed refs, and a fact carries a status and a source, not a number. The `digest_facts` table, which holds metric samples and collides with the word "facts", is renamed `metric_samples` first.
 
 Use typed definitions/validation for relation types and predicates (a closed enum in v1). Do not create unconstrained EAV where every field is a free-form string. Keep stable/query-critical fields relational; put only variable optional properties in JSON. Store evidence references/hashes and bounded summaries rather than unlimited raw logs or secrets.
 
@@ -998,13 +1005,13 @@ The current UI is now a credible v0.1 operator interface, but it is still center
 
 # 09 — Open questions and recommended defaults
 
-The high-level architecture is coherent enough to proceed. On 2026-11-13 the owner answered the questions that blocked the rework (`D-01`..`D-28` in [`docs/rework/99-open-decisions.md`](../rework/99-open-decisions.md)); they are listed first and are not open, and no owner decision is open at this time. What remains are detailed-design questions (kept open so later design work does not silently invent answers) and research and evidence items (`R-1`..`R-7`, [`99-open-decisions.md`](../rework/99-open-decisions.md) §C, summarised below). Technical detail for every answered item is in the linked `RW` decision in [`docs/rework/03-architecture-decisions.md`](../rework/03-architecture-decisions.md).
+The high-level architecture is coherent enough to proceed. On 2026-11-13 the owner answered the questions that blocked the rework (`D-01`..`D-29` in [`docs/rework/99-open-decisions.md`](../rework/99-open-decisions.md)); they are listed first and are not open. One owner question is open: **O-30**, skills whose manifest sets `run_as` to another user (below). What remains besides it are detailed-design questions (kept open so later design work does not silently invent answers) and research and evidence items (`R-1`..`R-8`, [`99-open-decisions.md`](../rework/99-open-decisions.md) §C, summarised below). Technical detail for every answered item is in the linked `RW` decision in [`docs/rework/03-architecture-decisions.md`](../rework/03-architecture-decisions.md).
 
 ## Answered by owner
 
 | Pack question or topic | Owner decision | Answer | Technical detail |
 |---|---|---|---|
-| Release strategy | **D-01** | No separate v0.1 release. Foundation work (atomic writes, protocol tolerance, approval freshness, reliability fixes) comes first inside the rework. | RW-02 |
+| Release strategy | **D-01** | No separate v0.1 release. Foundation work (atomic writes, exact protocol rule, approval freshness, reliability fixes) comes first inside the rework. | RW-02 |
 | **Q0.1** What is an autonomous authorization? | **D-02, D-03** | A typed policy permit, distinct from a human approval, valid only inside a host-local ceiling on the agent that the hub cannot widen. A hub permit is not a cryptographic proof of owner approval; owner-signed bundles come after v1. (The exact permit fields are a proposal.) | RW-11, RW-12 |
 | **Q0.2** Policy precedence | **D-05, D-06** | The strictly more specific rule wins, **even over a broader Deny**; equal specificity: Deny wins. Hard limits (host ceiling, Destructive never Allow in v1, containment exclusions, unknown safety facts) are not rules and cannot be overridden. Host ids in v1, tags after. This replaces the earlier "explicit deny anywhere wins" by owner decision. | RW-10 |
 | Destructive operations | **D-06** | Never policy-allowed in v1; a human can still approve with typed confirmation. | RW-10 |
@@ -1029,10 +1036,17 @@ The high-level architecture is coherent enough to proceed. On 2026-11-13 the own
 | **Q0.5** How is management access protected during containment? | **D-28** | Resolved. Unattended containment on a host requires owner-confirmed, current management paths; unknown, stale or conflicting means refused; the agent enforces local exclusions independently; the UI shows paths, provenance, freshness and what is blocked. Monitoring and other human-approved work are unaffected. | RW-37 |
 | **Q0.6** Trust model for external providers and third-party packages | **D-16** | First-party release key plus owner keys installed locally on the agent; the hub cannot add or replace keys; a detached signature over a canonical message, verified before extraction; a rollback needs a currently trusted key. Third-party registries are DEFERRED; hub-side integrations are DEFERRED (`docs/rework/06`). | RW-26 |
 | Ceiling scope and honesty | **D-18, D-27** | The ceiling covers the exact capability id, explicit targets, rate, constrainable arguments, and for containment max TTL, max active and exclusions; no entry means no policy-authorized execution. `authorization_kind` is a hub label, and a compromised hub can label a request `human` and bypass the ceiling (accepted v1 limitation), but the agent's catalogue, manifest, argument, `allow_risk` and mutation rate-limiter checks apply to all mutating executions. Owner-signed approvals are DEFERRED. | RW-12, RW-38 |
-| **Q1.1a** Agent support window | **D-20** | There is no support window. Exact protocol major.minor match: older and newer minors are rejected, same-protocol patch releases are compatible. No legacy adapter. Coordinated upgrade, hub first, then agents through the install procedure. `Incompatible` host state, visible with history kept. No agent self-update. | RW-17 |
+| **Q1.1a** Agent support window | **D-20** | There is no support window. Exact protocol major.minor match, checked only after the agent has proven its identity: older and newer minors are rejected with the existing reason, same-protocol patch releases are compatible, and application release numbers are not a compatibility dimension. No legacy adapter. `Incompatible` is persisted on the agent record, survives a hub restart, keeps history, and an incompatible agent idles instead of reconnecting. Coordinated upgrade, hub first, then agents through the install procedure. Exactly one protocol bump before v1 (1.1 → 1.2 in M1); F3 changes no wire format. No agent self-update. A revoked-build list is DEFERRED and separate. | RW-17, RW-42 |
 | **Q1.6** Default retention values | **D-21** | Signals 30 d; incident timeline 90 d; operation journal 180 d; raw execution outputs 30 d; operations and summaries retained; audit retained; retracted fact content purged after 30 d; conversations 180 d; notifications 30 d; 7 nightly and the last 3 pre-migrate backups. Deleted data stays in backups until they rotate. | RW-28 |
 | Docker access | **D-24** | No general Docker socket write for the agent; a narrow first-party helper with its own ADR; Docker write capabilities unavailable for unattended use until then. | RW-39 |
+| Agent privilege | **D-29** | The main agent runs as the dedicated unprivileged user `domovoi-agent`. Privileged host operations go only through one narrow, root-owned helper installed and updated by the owner-controlled OS path, never by capability packages. Root installs are labelled and get no unattended execution. | RW-39, RW-12, RW-26 |
 | Graph playback | **D-25** | Ships last in U2; the timeline and history are fully useful without it. | RW-21 |
+
+## Open owner question
+
+| ID | Question | Recommended default | Blocks |
+|---|---|---|---|
+| **O-30** | What happens to skills whose manifest sets `run_as` to a user other than the agent user, now that the agent is unprivileged (D-29)? Options: (a) unsupported, reported `Unavailable(run_as_unsupported)`; (b) a helper operation that switches users for allowlisted pairs, which reintroduces a root path controlled by package content; (c) owner-configured sudoers rules, which gives the agent user sudo and undermines D-29. | (a) unsupported | H1 migration (skills impact) and package guidance |
 
 ## Priority 0 — resolve before implementing autonomous actions
 
@@ -1069,12 +1083,13 @@ These are tracked in [`docs/rework/99-open-decisions.md`](../rework/99-open-deci
 | ID | Question | Needed before |
 |---|---|---|
 | R-1 | A graph library that works under the content policy, the no-inline-style rule and the bundle budget | U2 |
-| R-2 | nftables availability, the `inet domovoi` table approach and the helper privilege path on supported distributions, images and Unraid | M9 |
-| R-3 | Docker helper privilege path on the same platforms | M8 Docker contracts |
+| R-2 | nftables containment on supported platforms: table, hook and packet path, coexistence with firewalld, ufw and Docker, set limits, TTL validation, atomic delete-and-add replacement; containment is not production-ready until verified | M9 |
+| R-3 | Helper delivery on supported platforms: socket activation, peer credential check, sandboxing, containers, Unraid and no-systemd supervisors, Docker API access | H1 |
 | R-4 | Discord deduplication behaviour (wording only; delivery stays at-least-once) | F2 delivery |
 | R-5 | Real prompt sizes, to set the total prompt cap | F4 |
 | R-6 | Cost of durable writes on slow storage | F1, M1 (informational) |
-| R-7 | Docker client escaping of container names | M8 |
+| R-7 | Container names validated against Docker's name grammar; all helper operations take ids (a test, no longer research) | M2 (RW-34) |
+| R-8 | Effective-configuration identity of systemd units (fragment and drop-ins) across supported systemd versions | M8 `unit.restart` |
 
 ## Product-level questions to answer with usage, not speculation
 
@@ -1092,7 +1107,7 @@ These are no longer open questions (those marked with an owner decision were set
 - Detailed, Standard and Essential presentation profiles ship in v1 (owner decision D-10); P0 safety, approval and audit content is present in every profile.
 - Longer motion is allowed for visualization and layout transitions; reduced motion is mandatory (owner decision D-12).
 - Historical graph playback ships last in U2; the timeline and history are fully useful without it (owner decision D-25).
-- A host whose agent speaks another protocol minor is shown as `Incompatible` with an upgrade-required explanation and its history kept, never as offline (owner decision D-20).
+- A host whose agent speaks another protocol minor is shown as `Incompatible` with an upgrade-required explanation and its history kept, never as offline, also after a hub restart; after a hub upgrade a host that has not reconnected shows "expected incompatible" (owner decision D-20).
 - Capability install and deploy happen from the UI in v1 (owner decision D-11).
 - The Operator exists as both a global side panel and a dedicated full workspace over shared conversation/operation state.
 - Operations are first-class work records and are not synonymous with incidents.
@@ -1116,7 +1131,7 @@ These are no longer open questions (those marked with an owner decision were set
 
 ## Decision rule
 
-Do not block general architecture work on Priority 2 questions. Do not implement L2 execution before the policy evaluator, host ceiling and target binding exist, and do not enable L3 containment on any host before the owner has confirmed that host's management paths (D-28) and the drills required by D-22 pass. For Priority 1, specify only the parts required by the next vertical slice; keep the rest extensible.
+Do not block general architecture work on Priority 2 questions. Do not implement L2 execution before the policy evaluator, host ceiling and target binding exist, and do not enable L3 containment on any host before the owner has confirmed that host's management paths and they are covered by the agent-reported exclusions (D-28), and the drills required by D-22 pass. For Priority 1, specify only the parts required by the next vertical slice; keep the rest extensible.
 
 ---
 
@@ -1130,9 +1145,9 @@ This roadmap is deliberately ambitious about the **capability universe** and con
 
 | Stage | Product outcome | Autonomy | Scope posture |
 |---|---|---|---|
-| **Foundation slices F1–F4** | The current product becomes trustworthy and restart-safe: atomic state and audit, recovery order, protocol tolerance, reliability and operational readiness. | Observe + human-approved changes only. | The former v0.1.0 quality bar, delivered as slices; no release tag. |
+| **Foundation slices F1–F4** | The current product becomes trustworthy and restart-safe: atomic state and audit, recovery order, exact protocol rule, reliability and operational readiness. | Observe + human-approved changes only. | The former v0.1.0 quality bar, delivered as slices; no release tag. |
 | **Milestones M1–M7 and the UI/package track** | Build the extensible foundations: execution boundary, capability contracts, operations, dynamic investigation, knowledge and experience, the Operator, policy in shadow, the Operations UI, graph, profiles and capability install. | Human approval remains default; policy runs in shadow/dry-run. | Incremental vertical slices; no autonomous authority until M8 gates pass. |
-| **H1 Narrow privileged helpers** | The Docker and nftables helpers that M8 and M9 rely on exist, each with its own ADR; the agent never gets a general Docker socket write (owner decision D-24). | None by itself. | After P1 and the research spikes R-2 and R-3; before M8's Docker contracts and M9. |
+| **H1 Unprivileged agent and root-owned helper** | The agent runs as the unprivileged `domovoi-agent` user and privileged host operations go through one narrow root-owned helper, installed only by the owner-controlled OS path (owner decisions D-24, D-29; RW-39). M8 and M9 rely on it; the agent never gets a general Docker socket write. | None by itself. | Needs F1, not P1 (packages never install the helper). After research R-3, the helper ADR and the open owner question O-30; before M8's helper-backed contracts and M9. |
 | **M8 and M9 (inside v1.0.0)** | Bounded L2 autonomy, then L3 containment, which in v1 is `firewall.block_source` only. | L2 for a reviewed operation set; L3 under a general Contain class. | Gated by drills and the host-local ceiling. |
 | **v1.0.0** | A genuinely adaptive self-hosted operations agent that dynamically investigates, plans, executes explicitly authorized low-risk repairs and contains narrowly scoped threats, and verifies outcomes. | L2 and L3 as above; nothing Destructive is ever policy-allowed. | Complete end-to-end product for Linux + common homelab services, not every possible integration. |
 | **Post-v1 (DEFERRED)** | The deferred items in section 5 (offline emergency permits, owner-signed bundles and approvals, host tags, multi-user and roles, stronger audit anchoring, third-party registries and more). | Grow L2/L3 by explicit capability and evidence, never by a global switch. | Each needs its own design; none is promised for v1. |
@@ -1141,7 +1156,7 @@ This roadmap is deliberately ambitious about the **capability universe** and con
 
 **Important release rule:** v1.0.0 should not be declared merely because more screens and scripts exist; the adaptive investigation → policy → operation → verification loop must work end to end. Foundation work is never skipped to reach a visible feature sooner.
 
-**Readiness rule.** An architecture being defined is not the same as a milestone being ready for an implementation prompt. A milestone is prompt-ready only when its architecture, owner decisions, research evidence and predecessor milestones are all in place. H1 and M9 still wait for the nftables and Docker privilege spikes (R-2, R-3) and their ADRs, and U2 waits for the graph-library spike (R-1); see "Readiness" in `docs/rework/06`.
+**Readiness rule.** An architecture being defined is not the same as a milestone being ready for an implementation prompt. A milestone is prompt-ready only when its architecture, owner decisions, research evidence and predecessor milestones are all in place. H1 still waits for the helper-delivery spike (R-3), its ADR and the open owner question O-30; M9 waits for the nftables spike (R-2); U2 waits for the graph-library spike (R-1). See "Readiness" in `docs/rework/06`, which holds the per-milestone readiness table.
 
 ## 2. Foundation slices — the quality bar of the former v0.1.0
 
@@ -1151,7 +1166,7 @@ These requirements used to define a separate v0.1.0 release. Under owner decisio
 |---|---|---|
 | **F1** | A state change, its journal entries and its audit record commit together or not at all; the audit chain exists; crash tests exist. | One transactional unit of work, hash-chained audit, atomic action and incident writes, crash harness (RW-03, RW-27). |
 | **F2** | After a restart nothing stale runs and nothing waits forever: approvals are re-checked for freshness, hosts that have not reconnected are waited for, verification and triage resume, notifications are not lost. | Recovery order, durable timers, delivery durability (RW-09, RW-30). |
-| **F3** | Hub and agent talk only on the exact same protocol major.minor. A mismatched agent is rejected with a reason and its host is shown as `Incompatible` (upgrade required, history kept, not offline); same-protocol patch releases communicate; unknown values degrade gracefully. | Exact protocol version and tolerant decoding (RW-17, owner decision D-20); no support window and no legacy adapter. Must land before any protocol minor bump. |
+| **F3** | Hub and agent talk only on the exact same protocol major.minor. The check happens only after the agent has proven its identity; a mismatched agent is rejected with the existing reason, its host is shown as `Incompatible` (upgrade required, history kept, not offline) and the state survives a hub restart; after a hub upgrade a host that has not reconnected shows "expected incompatible". An incompatible agent idles instead of reconnecting. Same-protocol patch releases communicate; application release numbers are not a compatibility dimension. | Exact protocol version, durable authenticated report and idle agent (RW-17, owner decision D-20); no support window, no legacy adapter and no release floors. **F3 changes no wire format.** Agents released before F3 restart-loop under systemd until upgraded. A revoked-build list is a separate, DEFERRED mechanism. |
 | **F4** | The model path is bounded and attributable, approvals show exactly what will run, and the hub can say whether it is ready. | LLM reliability, structured approval surfaces, operational readiness (RW-06, RW-22, RW-16). |
 
 The detail below is the product quality requirement each slice must satisfy, kept from the former v0.1.0 definition.
@@ -1218,17 +1233,27 @@ These are not separate releases; order by dependency and deliver in usable slice
 | Milestone | Product outcome | Sections below |
 |---|---|---|
 | **F1–F4** | Foundation slices (section 2). | 2 |
-| **M1 Execution foundation** | No execution is duplicated or silently lost: idempotency, `OutcomeUnknown`, agent action journal, plan hash v2, one execution boundary. | 3.6 |
-| **M2 Capability contracts** | One hub-owned registry the model, UI and executor share; available is not authorized. | 3.1 |
+| **M1 Execution foundation** | No execution is duplicated or silently lost: idempotency, `OutcomeUnknown`, agent action journal, plan hash v2, one execution boundary. It carries the **one and only protocol bump before v1 (1.1 → 1.2, a coordinated fleet upgrade)**; later milestones use capabilities over the frozen 1.2 wire (RW-42). | 3.6 |
+| **M2 Capability contracts** | One hub-owned registry the model, UI and executor share; available is not authorized. Starts after M1 (needs the catalogue call of wire 1.2). | 3.1 |
 | **M3 Operation aggregate, journal and SSE v2** | Durable, resumable operations; triage becomes an Investigate operation with identical behaviour; live updates that replay after a gap. | 3.2 |
 | **M4 Dynamic investigation** | Typed meta-tools, validated plans, layered context, no text-protocol proposals. | 3.2 |
 | **M5 Knowledge and experience** | Typed facts and relations over inventory; resolution summaries, full-text search and similar past operations. | 3.3 |
 | **M6 Operator** | Durable conversations as side panel and workspace over the same state. | 3.7 |
 | **M7 Policy in shadow** | Versioned policy, pure evaluator, shadow decisions, historical simulator. | 3.5 |
-| **UI track U1–U4, P1** | Operations list/detail with step timeline first (U1), interactive graph (U2, with historical playback last), presentation profiles (U3), policy, knowledge and capability pages (U4), capability packages and install from the UI (P1). All in v1. | 3.7 |
-| **H1 Narrow privileged helpers** | First-party Docker and nftables helpers with allowlists and one ADR each; the prerequisite for Docker write capabilities and for containment. | 3.6 |
+| **UI track U1–U4, P1** | Operations list/detail with step timeline first (U1), interactive graph (U2, with historical playback last), presentation profiles (U3), policy, knowledge and capability pages (U4), capability packages and install from the UI (P1 backend; the install wizard is part of U4, after U3). All in v1. | 3.7 |
+| **H1 Unprivileged agent and root-owned helper** | The agent runs unprivileged; one first-party root-owned helper with a root-owned allowlist and one ADR is the only privileged path and the prerequisite for Docker write capabilities and for containment (D-29, RW-39). | 3.6 |
 | **M8 Bounded autonomy (L2)** | Policy permits inside the host-local ceiling, target binding, circuit breaker, pause switch, first reviewed L2 operations. | 3.6 |
 | **M9 Containment (L3)** | A general Contain class whose first and only v1 capability is `firewall.block_source`: kernel-enforced expiry, a 30 s two-step confirmation, management-path protection and drills. | 3.9 |
+
+### Milestone dependencies (mirror of `docs/rework/06`)
+
+- H1 depends on F1, not on P1: the helper is installed by the OS install path, never by a package.
+- M2 starts after M1, because it needs the catalogue call carried by wire 1.2.
+- P1 is the package backend (after M1 and M2); the install wizard is part of U4, after U3.
+- Approval chain: F4 binds approvals to the existing plan hash v1 (RW-11), M1 introduces hash v2, M3 moves approval to Operation steps.
+- Protocol: F3 changes no wire format; M1 is the single 1.1 → 1.2 bump; M2 onward uses capabilities over that wire (RW-42).
+- H1 precedes M8's helper-backed contracts and M9; M8 precedes M9.
+- Per-milestone readiness for an implementation prompt is the "Readiness" table in `docs/rework/06`.
 
 ### 3.1 Capability platform
 
@@ -1281,15 +1306,16 @@ These are not separate releases; order by dependency and deliver in usable slice
 - Add policy test fixtures, simulation and an autonomy UI showing inherited versus explicit decisions.
 - Make policy versioned and revocable. Local verification in v1 is the host-local unattended ceiling that the agent enforces and the hub cannot widen (owner decision D-03); owner-signed policy bundles are DEFERRED past v1.
 
-### 3.6 Execution foundation (M1), helpers (H1) and first safe automation (M8)
+### 3.6 Execution foundation (M1), the helper (H1) and first safe automation (M8)
 
-- M1: idempotency keys, an agent action journal, `OutcomeUnknown` for lost results, plan hash v2 (binding the entry-script bytes and resolved target), one execution boundary with an enforced rule that nothing else dispatches.
+- F4 (current action flow): approvals bind to the existing plan hash v1 (manifest, host, arguments); it does not bind entry-script bytes or target identity (RW-11).
+- M1: idempotency keys, an agent action journal, `OutcomeUnknown` for lost results, plan hash v2 (binding the entry-script bytes, resolved target identity and execution id; pre-upgrade actions keep v1 and are labelled), one execution boundary with an enforced rule that nothing else dispatches, and the single protocol bump 1.1 → 1.2 (RW-42). M3 then moves approval to Operation steps (RW-11).
 - M8: choose reversible low-impact operations with reliable postconditions (for example, restart one known service/container, reload a specific config, renew a certificate through a supported provider, unload an unused inference model).
 - M8: policy permits, target revalidation and binding to the operation's pinned subjects, concurrency locks, operation budgets, postcondition checks, a circuit breaker and a human-only pause switch.
 - Add rollback or automatic expiry wherever possible.
 - Use per-host opt-in through the host-local ceiling; default to human approval; Destructive operations are never policy-allowed.
-- H1: narrow first-party helpers (a Docker helper against a root-owned allowlist, an nftables helper limited to set elements in table `inet domovoi`), each with its own ADR, after the privilege-path spikes (R-2, R-3).
-- The agent gets no general Docker socket write access, which would be root on the host. Docker write capabilities, including `container.restart`, stay unavailable for unattended use until the Docker helper and its ADR exist (owner decision D-24); `unit.restart` does not depend on it.
+- H1: the agent runs as the unprivileged `domovoi-agent` user; one root-owned helper (socket-activated, peer-uid checked, typed operation groups, a root-owned allowlist) is the only privileged path. It is installed and updated only by the owner-controlled OS install path; capability packages and skills can never install or modify it, and packages run as the agent user, never root (owner decision D-29, RW-26, RW-39). One ADR, after the helper-delivery spike R-3; the nftables group also needs R-2. Root installs are labelled in the UI and get no unattended execution. Skills whose manifest names another `run_as` user are an open owner question (O-30; recommended: unsupported).
+- The agent gets no general Docker socket write access, which would be root on the host. Docker write capabilities, including `container.restart`, stay unavailable for unattended use until the helper and its ADR exist (owner decision D-24); `unit.restart` also goes through the helper (`systemd.write`). Unit targets are bound by canonical id plus a hash of the fragment and drop-ins; generated and transient units are not valid mutation targets, and files a unit references are not bound (RW-34).
 - Every mutating execution, human- or policy-labelled, is bounded by the agent's mutation rate limiter (owner decision D-27); the host ceiling covers the exact capability, targets, rate, constrainable arguments and, for containment, TTL, maximum active and exclusions (D-18).
 - Run drills before granting autonomy to real hosts.
 
@@ -1305,8 +1331,8 @@ These are not separate releases; order by dependency and deliver in usable slice
 - Add the detailed/standard/essential presentation profiles (U3; owner decision D-10). Safety, approval and audit content appears in every profile. Customizable Control Room widgets are DEFERRED to v1.x (demand unvalidated; `docs/rework/06` "Deferred and after-v1").
 - Allow longer motion for graph and layout transitions while keeping the short micro-interaction tokens; reduced motion is mandatory (owner decision D-12).
 - Add a page design-spec and interaction/motion quality gate to implementation planning.
-- Show a host whose agent speaks another protocol minor as `Incompatible`, with an upgrade-required explanation, the exact required protocol and the agent version, history kept and never shown as offline (owner decision D-20).
-- Policy editor: locked-Deny styling and a publication validation report listing incomparable conflicts that need acknowledgement (D-19, D-26). Host pages: management-path confirmation with provenance, freshness and which containment is blocked (D-28). Approval cards show an agent-side rate-limit refusal (D-27). The audit page shows legacy and chained history separately (D-14).
+- Show a host whose agent speaks another protocol minor as `Incompatible`, with an upgrade-required explanation, the exact required protocol and the agent version, history kept and never shown as offline; after a hub upgrade, hosts that have not reconnected show "expected incompatible" (owner decision D-20, RW-17).
+- Policy editor: locked-Deny styling and a publication validation report listing incomparable conflicts that need acknowledgement (D-19, D-26). Host pages: management-path confirmation with provenance, freshness and which containment is blocked (D-28). Approval cards show an agent-side rate-limit refusal (D-27) and, during the migration, whether an action carries v1 or v2 plan binding (RW-11). Host pages show a warning when the agent runs as root, "helper unavailable" on affected checks and capabilities (RW-39), and the agent-reported exclusions beside the confirmed management paths (RW-37). The Capability Center includes owner package import (RW-26). The audit page shows legacy and chained history separately (D-14).
 
 ### 3.8 First provider expansion
 
@@ -1318,11 +1344,11 @@ These are not separate releases; order by dependency and deliver in usable slice
 
 ### 3.9 Containment — L3 (M9, inside v1.0.0)
 
-- **Owner decision D-04:** L3 ships in v1 as milestone M9, under a general **Contain** class whose first and only v1 capability is `firewall.block_source` (owner decision D-17). Prerequisites: M8 complete (permits, ceiling, target pinning, journal, verification, circuit breaker), H1 (the nftables helper), the privilege spike R-2, owner-confirmed management-path facts (D-28) and the drill suite.
+- **Owner decision D-04:** L3 ships in v1 as milestone M9, under a general **Contain** class whose first and only v1 capability is `firewall.block_source` (owner decision D-17). Prerequisites: M8 complete (permits, ceiling, target pinning, journal, verification, circuit breaker), H1 (the helper's `nft` group), the nftables spike R-2, owner-confirmed management-path facts (D-28) and the drill suite. Refreshing a block's TTL is one atomic delete-and-add in a single nftables transaction, never an `add` that is assumed to refresh; containment is not production-ready until R-2 is complete (04 §9.1).
 - **First and only v1 capability (owner decisions D-17, D-22):** `firewall.block_source`, an nftables set element with a kernel-enforced timeout and a 30 s two-step confirmation: the first element lives 30 s and is extended to the full TTL only when the hub confirms, so an unconfirmed block expires by itself.
 - **DEFERRED:** `container.pause` and `unit.stop_temporary` (an agent timer is not reliable automatic expiry; reconsider in v1.x when the checklist in `docs/rework/04 §9.3` is met) and the other containment candidates (container network isolation, SSH session termination, account lock). See `docs/rework/06` "Deferred and after-v1".
 - **Triggering:** a deterministic detector's typed signal whose structured fields name the target, and that target is the operation's pinned subject. Free-form model output never triggers or targets automatic containment; model recommendations go through human approval.
-- Every containment has an expiry, mandatory management-path exclusions, a cap on simultaneous containments, verification that management access still works, and outcome-unknown handling. Unattended containment on a host also requires owner-confirmed, current management paths (owner decision D-28). Offline emergency permits are DEFERRED (not in v1).
+- Every containment has an expiry, mandatory management-path exclusions, a cap on simultaneous containments, verification that management access still works, and outcome-unknown handling. Unattended containment on a host also requires owner-confirmed, current management paths that are covered by the exclusions the agent itself reports (hash and summary); a mismatch, or any network or exclusion change, blocks unattended containment while monitoring is unaffected (owner decision D-28, RW-37). Offline emergency permits are DEFERRED (not in v1).
 
 **Why this stage:** it establishes the common contracts, durable memory and policy machinery that make new capabilities additive instead of one-off LLM prompts and scripts.
 
@@ -1386,7 +1412,8 @@ Prioritize a reliable built-in set rather than a large shallow integration catal
 - A past approval, past success or retrieved experience never satisfies a policy condition.
 - Every operation has a traceable proposal/authorization/dispatch/result/verification sequence.
 - Security containment cannot block configured management paths; if the management paths are unknown, stale or conflicting, unattended containment is refused (owner decision D-28).
-- Hub and agent communicate only on the exact same protocol major.minor; an older or newer agent is rejected with a reason and its host is shown as `Incompatible` with history kept (owner decision D-20).
+- Hub and agent communicate only on the exact same protocol major.minor; the check follows identity verification, an older or newer agent is rejected with a reason, and its host is shown as `Incompatible` with history kept, also after a hub restart; the agent idles instead of reconnecting, and no release-number floor exists (owner decision D-20, RW-17, RW-42).
+- The agent runs as an unprivileged user on a fresh install; privileged operations go only through the root-owned helper, which no package or skill can install or modify (owner decision D-29, RW-39). A host still running the agent as root is labelled and gets no unattended execution.
 - Every mutating execution, human- or policy-labelled, is bounded by the agent's mutation rate limiter, and a refusal is shown with its reason (owner decision D-27).
 - Notification delivery is at-least-once: duplicates after a crash window are possible and nothing claims exactly-once.
 - The agent upgrade procedure (hub first, then agents; no agent self-update) is documented and tested.
@@ -1522,10 +1549,10 @@ Most `v1` rows are read capabilities and are part of the initial supported set i
 
 | Capability | Class | Milestone | Status |
 |---|---|---|---|
-| Restart one named container (not recreate) | W | M8, L2 | First set. Goes through the narrow first-party Docker helper (H1, owner decision D-24); unavailable for unattended use until its ADR lands. |
+| Restart one named container (not recreate) | W | M8, L2 | First set. Goes through the root-owned first-party helper's `docker.write` group (H1, owner decisions D-24, D-29); unavailable for unattended use until the helper and its ADR land. |
 | Restart one named systemd unit | W | M8, L2 | First set. |
 | Temporary inbound block of one external address or small prefix (`firewall.block_source`, kernel-enforced timeout, 30 s two-step confirmation) | S | M9, L3 | **First set, and the only v1 containment capability** (owner decisions D-17, D-22). |
-| Pause one named container with a time limit (`container.pause`) | S | v1.x at earliest | **DEFERRED candidate.** An agent timer is not reliable automatic expiry. Needs the `docs/rework/04 §9.3` checklist and the Docker helper ADR. |
+| Pause one named container with a time limit (`container.pause`) | S | v1.x at earliest | **DEFERRED candidate.** An agent timer is not reliable automatic expiry. Needs the `docs/rework/04 §9.3` checklist and the helper ADR. |
 | Stop one named systemd unit with a time limit (`unit.stop_temporary`) | S | v1.x at earliest | **DEFERRED candidate.** Same reason. Needs the `docs/rework/04 §9.3` checklist and a protected-unit list. |
 
 `container.pause`, `unit.stop_temporary` and the other containment candidates (container network isolation, SSH session termination, account lock) are DEFERRED: weaker recovery or lockout stories, or an expiry that would depend on the agent (`docs/rework/06` "Deferred and after-v1"; `docs/rework/04 §9.3`). Unattended containment on a host also requires owner-confirmed, current management paths (owner decision D-28). Automatic containment is triggered only by a deterministic detector's typed signal naming a target that is the operation's pinned subject, never by free-form model output (owner decision D-04, RW-13). Destructive entries are never policy-allowed in v1 (owner decision D-06); a human can still approve one with typed confirmation.
@@ -1538,7 +1565,7 @@ The repository investigation ([`docs/rework/investigations/D-protocol.md`](../re
 |---|---|---|---|
 | **Self-upgrade** | Agent and hub upgrade/restart; self-upgrade plan. | Pushes executable code to a host, contradicting the invariant that the hub cannot push scripts (INV-3) and that the hub never executes commands; restarting the agent mid-action destroys the channel its result travels on. Signed capability packages (owner decision D-11) are for capabilities, not for upgrading the agent or hub. | DEFERRED, not planned (owner decision D-20): upgrades follow the install procedure, hub first and then agents, and a mismatched agent shows as `Incompatible`. Changing the no-push rule would need its own ADR. |
 | **Lost result** | Host reboot/shutdown, update-then-reboot, power cycle, IPMI/PDU control, UPS-driven shutdown, cloud instance reboot, reboot coordination. | The connection drops mid-action by design. | `OutcomeUnknown` handling and boot-id based reconciliation (RW-09), plus a dependency model that knows what powers the hub. |
-| **Docker socket write** | Pull/redeploy/rollback, container stop, pause, network disconnect, container isolation, restart/recreate. | Write access to the Docker socket is root on the host, so the existing read-only rationale and the automatic default no longer hold. | A narrow first-party helper with its own ADR (owner decision D-24, RW-39). The agent gets no general Docker socket write; Docker write capabilities stay unavailable for unattended use until then. |
+| **Docker socket write** | Pull/redeploy/rollback, container stop, pause, network disconnect, container isolation, restart/recreate. | Write access to the Docker socket is root on the host, so the existing read-only rationale and the automatic default no longer hold. | The narrow root-owned first-party helper with its own ADR (owner decisions D-24, D-29, RW-39); the agent runs unprivileged and gets no general Docker socket write. Docker write capabilities stay unavailable for unattended use until then. |
 | **Secret handling** | Rotate an API key, certificate or credential; disable an account; revoke a token; rotate VPN keys. | No secret store or redaction design exists for values that must be generated, delivered and replaced; secret handling contradicts the redaction invariant until one does. | A secret-store design (not planned for v1). |
 
 The investigation also flagged file and volume destruction (never a typed-path capability without a path-scope model), third-party deployment and smart-home entries (outside the overseer's trust envelope until third-party trust is decided), message retry and failover (need real idempotency keys), and hub-side router/hypervisor/cloud providers (a different security design that holds third-party credentials). Treat those as non-goals for v1.
@@ -1585,7 +1612,7 @@ The investigation also flagged file and volume destruction (never a typed-path c
 |---|---:|---|---|
 | Docker container list, inspect, logs, events, stats, health and restart history | R | v0.1 | Current foundation. |
 | Docker Compose project/stack inventory and service dependencies | R | v1 | Link containers to projects and volumes. |
-| Restart one selected container | W | v1 | **First set (M8, L2).** Verify health and dependent services. **[FLAG: Docker socket write]** needs the narrow Docker helper and its ADR first (owner decision D-24). Recreate is later. |
+| Restart one selected container | W | v1 | **First set (M8, L2).** Verify health and dependent services. **[FLAG: Docker socket write]** needs the root-owned helper and its ADR first (owner decisions D-24, D-29). Recreate is later. |
 | Start/stop a Compose service or restart a selected stack | W | v1.x | Approval initially; concurrency and downtime constraints. |
 | Compose config validation and rendered diff | R | v1.x | Avoid exposing secrets in rendered config. |
 | Image inventory, digest drift, outdated image and vulnerability metadata | R | v1.x | Scanning can be an external provider. |
@@ -1634,7 +1661,7 @@ The investigation also flagged file and volume destruction (never a typed-path c
 | VPN tunnel and peer health (WireGuard, Tailscale, OpenVPN) | R | v1.x | Know whether the tunnel is a management path. |
 | Add/remove or rotate VPN peers/keys | W | later | Approval and identity/recovery model required. **[FLAG: secret handling]** |
 | Router inventory, WAN status, routes, DHCP, DNS and port forwards | R | v1.x | API provider for selected router vendor. |
-| Temporary block of a confirmed external source IP | S | v1 limited | **First set (M9, L3):** `firewall.block_source`, with a kernel-enforced timeout and a 30 s two-step confirmation (an unconfirmed block expires by itself). Only with owner-confirmed, current management paths (owner decision D-28), agent-enforced exclusions, rate limits and `OutcomeUnknown` handling, because the agent dials out and a rule can sever its own control link. Triggered only by a deterministic detector's typed signal. |
+| Temporary block of a confirmed external source IP | S | v1 limited | **First set (M9, L3):** `firewall.block_source`, with a kernel-enforced timeout and a 30 s two-step confirmation (an unconfirmed block expires by itself). Only with owner-confirmed, current management paths covered by the agent-reported exclusions (owner decision D-28), agent- and helper-enforced exclusions, rate limits and `OutcomeUnknown` handling, applied through the helper's `nft` group (not production-ready until R-2), because the agent dials out and a rule can sever its own control link. Triggered only by a deterministic detector's typed signal. |
 | Remove/restrict a port forward or WAN exposure | S/W | v1.x | Higher blast radius; stage and verify alternate access. |
 | Firewall rule changes, network segmentation and VLAN changes | W/S | later | Human approval until robust simulation and rollback exist. |
 | ISP/WAN outage diagnosis and failover status | R/W | later | Depends on router dual-WAN support. |
@@ -2020,7 +2047,8 @@ Rules:
 | **Knowledge** | Current or persistent information about the environment, with provenance and freshness. | Not the same as notes, history or policy. |
 | **Experience** | Historical records of investigations, decisions, operations and outcomes. | Evidence of what happened, not automatically current truth or permission. |
 | **Integration** | A connected external system or service that provides data or operations. | For example router API, monitoring system or notification channel. Hub-side integrations are DEFERRED past v1 (`docs/rework/06` "Deferred and after-v1"). |
-| **Incompatible** | A host state: its agent speaks a different protocol minor than the hub. | Shown with an upgrade-required explanation, the required protocol and the agent's version; its history is kept. Never presented as offline. |
+| **Incompatible** | A host state: its agent speaks a different protocol minor than the hub. | Shown with an upgrade-required explanation, the required protocol and the agent's version; its history is kept, also after a hub restart. After a hub upgrade, a host that has not reconnected shows "expected incompatible". Never presented as offline. |
+| **Helper** | The root-owned first-party process through which the unprivileged agent performs privileged host operations (owner decision D-29, RW-39). | Installed only by the owner-controlled OS install path, never by a package. Where it is missing or in error, affected checks and capabilities say "helper unavailable", not "failed". A host whose agent still runs as root is labelled "privilege boundary not in effect".
 | **Locked Deny** | An owner-declared prohibition (default off) that no narrower policy rule overrides. | Shown distinctly from ordinary rules; changing it needs step-up. A policy Deny is never offered for approval. |
 
 The exact navigation labels can evolve after page planning, but this vocabulary should remain coherent.
@@ -2161,7 +2189,8 @@ Do not force the final sidebar to contain every possible subpage. Important deta
 | Operator launcher | P0 | Compact | Available from anywhere; opens the persistent side panel without losing current page state. |
 | Attention center | P0 | Compact | The one durable list of approvals, questions, manual interventions, failures and completed operations, with unread state; never rely only on toasts. Control Room "Waiting for you" and the Approvals page are views over this same list. |
 | Autonomy state | P0 | Compact | Shows when autonomy is paused or any rule is suspended by its circuit breaker; links to Policies & Autonomy. The pause switch is human-only. |
-| Incompatible-agent banner | P0 | Compact | Appears while any host is `Incompatible` (owner decision D-20): names the host(s), the exact required protocol and the agent's version, and says to upgrade the hub first and then each agent through the install procedure. Links to the host; history stays readable and the host is never shown as merely offline. |
+| Incompatible-agent banner | P0 | Compact | Appears while any host is `Incompatible` or "expected incompatible" after a hub upgrade (owner decision D-20, RW-17): names the host(s), the exact required protocol and the agent's version, and says to upgrade the hub first and then each agent through the install procedure. Links to the host; history stays readable and the host is never shown as merely offline. |
+| Root-agent warning banner | P1 | Compact | Appears while any host's agent runs as root (owner decision D-29, RW-39): the privilege boundary is not in effect, unattended execution is off on that host, and the owner can rerun the installer. Links to the host. |
 | Account/user menu | P2 | Compact | Profile, preferences, theme and sign out. |
 
 The shell may evolve from the current sidebar/topbar layout. Do not assume all actions must live in the top bar or that the current sidebar groups must remain.
@@ -2236,7 +2265,7 @@ The Operations page is a unified view of work. The Incidents page remains a view
 
 ### One home for approvals
 
-An approval is a step of an operation, so **operation detail is its canonical home**. It is rendered by one structured approval card component (doc 14, section 5) that shows contract, target, arguments, effect class, reversibility, expiry, plan-hash prefix and the policy decision; model text is secondary and labelled. Incident detail, the Control Room, the Operator and the attention center embed that card or link to the operation; none builds its own version. Incident controls (acknowledge, mute, dismiss) stay separate from operation controls (stop, cancel, retry) and from approval controls.
+An approval is a step of an operation, so **operation detail is its canonical home**. It is rendered by one structured approval card component (doc 14, section 5) that shows contract, target, arguments, effect class, reversibility, expiry, plan-hash prefix, whether the approval binds the v1 or the v2 plan hash (labelled during the migration, RW-11) and the policy decision; model text is secondary and labelled. Incident detail, the Control Room, the Operator and the attention center embed that card or link to the operation; none builds its own version. Incident controls (acknowledge, mute, dismiss) stay separate from operation controls (stop, cancel, retry) and from approval controls.
 
 ## 5. Page map
 
@@ -2278,6 +2307,7 @@ Domovoi
 │   └── Infrastructure topology
 ├── Capabilities
 │   ├── Discover catalog (first-party and owner-signed packages; third-party registries DEFERRED)
+│   ├── Import package (owner-signed archive and signature)
 │   ├── Installed
 │   ├── Deployments / updates
 │   ├── Capability detail
@@ -2500,6 +2530,7 @@ P0 content (header strip, approval card) is never in a tab. Findings and plan ar
 **Structured approval card** (one component, used everywhere an approval appears; canonical home is this page):
 
 - Renders from deterministic data: contract, target, arguments, effect class, reversibility, expiry, plan-hash prefix, and the policy decision with its winning rule.
+- Says what the approval binds. During the migration it carries a label, "v1 binding" (manifest, host, arguments) or "v2 binding" (also script bytes, target identity and execution id; RW-11). The card never claims more than its version binds, and it states what is not bound, for example files a systemd unit references (RW-34).
 - Shows an agent refusal: when the agent refuses a step (its mutation rate limit, ceiling, `allow_risk` or an exclusion), the step is `Refused` with the agent's reason, and approving again offers no way around it (owner decision D-27). A policy `Deny` is never offered for approval; the card names the rule and says the owner must change the policy (owner decisions D-23, D-26).
 - Model-written text is secondary and labelled as model text.
 - One primary action per context; destructive approvals name the target and consequence and ask for confirmation.
@@ -2597,7 +2628,7 @@ Tabs or view switch: Conversation, Operation, Evidence/Results. Avoid making the
 
 ### Hosts list
 
-P0: name, agent/connectivity state (including `Incompatible`: upgrade required), host role/criticality, health summary, active incidents and version warning. P1: resource summary, tags/groups (display only; host tags in policy are DEFERRED, `docs/rework/06`), recently active capability/operation. P2: inventory details.
+P0: name, agent/connectivity state (including `Incompatible` and "expected incompatible": upgrade required; and a root-agent warning where the agent runs as root), host role/criticality, health summary, active incidents and version warning. P1: resource summary, tags/groups (display only; host tags in policy are DEFERRED, `docs/rework/06`), recently active capability/operation. P2: inventory details.
 
 Support cards and dense table as alternative user views; filters by state, role, tag, agent version, incident state and capability coverage. Adding/enrolling a host remains an obvious primary action.
 
@@ -2617,9 +2648,11 @@ Logs may remain a standalone global view with host filter and also be reachable 
 
 The host page shows the **host-local unattended ceiling** read-only (the most the host itself allows to run without a person), with the explanation that it is edited in the agent's configuration on the host, not here. Policy can only narrow it.
 
-**Incompatible agent (owner decision D-20).** When the agent speaks another protocol minor than the hub, the host page leads with an upgrade banner above the tabs (P0): the exact required protocol, the agent's version and the upgrade order (hub first, then each agent through the install procedure). History, incidents and operations stay readable; nothing is dispatched and the host is never shown as offline. Steps waiting on it show `Unavailable` or keep waiting for a compatible agent.
+**Incompatible agent (owner decision D-20, RW-17).** When the agent speaks another protocol minor than the hub, the host page leads with an upgrade banner above the tabs (P0): the exact required protocol, the agent's version and the upgrade order (hub first, then each agent through the install procedure). The state is read from the persisted agent record, so it survives a hub restart; after a hub upgrade a host that has not reconnected shows "expected incompatible (last reported X, hub requires Y)". History, incidents and operations stay readable; nothing is dispatched and the host is never shown as offline. Steps waiting on it show `Unavailable` or keep waiting for a compatible agent.
 
-**Management paths (owner decision D-28).** The host page shows its management paths (management networks, VPN endpoints, remote routes) with where each came from, how fresh it is, whether the owner has confirmed it, and which containment is blocked because paths are unknown, stale or conflicting. The owner confirms or corrects a path here (an audited knowledge edit); the agent's local exclusions are shown read-only beside them. Monitoring and human-approved work are unaffected.
+**Root agent and helper (owner decision D-29, RW-39).** When the agent runs as root, the host page shows a warning above the tabs: the privilege boundary is not in effect, the host gets no unattended execution, and rerunning the installer moves it to the unprivileged user. When the helper is absent or in error, the Monitoring and Capabilities tabs mark each affected check or capability "helper unavailable" with the reason, distinct from a failure. The helper and its allowlist are shown read-only (they are edited on the host).
+
+**Management paths (owner decision D-28, RW-37).** The host page shows its management paths (management networks, VPN endpoints, remote routes) with where each came from, how fresh it is, whether the owner has confirmed it, and which containment is blocked because paths are unknown, stale, conflicting or not covered. The owner confirms or corrects a path here (an audited knowledge edit). The **agent-reported exclusions** (their hash and summary) are shown read-only beside the confirmed paths, with each confirmed path marked covered or uncovered; a mismatch, or any network or exclusion change, blocks unattended containment until the owner re-confirms. Monitoring and human-approved work are unaffected.
 
 Host actions (rename, enroll/revoke, maintenance, agent upgrade guidance since the agent never updates itself) should be discoverable in page-level actions, with destructive actions contextual and confirmed.
 
@@ -2631,7 +2664,7 @@ P0: Discover catalog, Installed inventory, deployment/installation status and ca
 
 Recommended tabs:
 
-- **Discover** — searchable catalog of first-party and owner-signed packages (third-party registries are DEFERRED) with categories, trust/provenance, compatibility, requested permissions, version and available targets.
+- **Discover** — searchable catalog of first-party and owner-signed packages (third-party registries are DEFERRED) with categories, trust/provenance, compatibility, requested permissions, version and available targets. An **Import package** action lets the owner upload an owner-signed archive and its detached signature (the same as `domovoi package import` on the hub); that is the only way an owner-signed package enters the catalog (RW-26).
 - **Installed** — capabilities installed on agents/providers, status, version, enabled state, last used, updates and policy coverage.
 - **Deployments** — install/update/uninstall attempts, target agents, progress, failures and rollback history.
 
@@ -2649,7 +2682,7 @@ P2: raw manifest, source files/package provenance, developer diagnostics and ver
 
 ### Install/configure flow
 
-A guided wizard or dedicated deployment workspace:
+A guided wizard or dedicated deployment workspace. The package backend (P1) is built separately; the wizard is part of the Capability Center work in U4, after the visibility infrastructure (U3).
 
 1. Select capability/package and version/channel.
 2. Review provenance, signature, requested privileges/effects, data access and network needs.
@@ -2664,7 +2697,7 @@ A guided wizard or dedicated deployment workspace:
 
 **Critical distinctions:** installed ≠ enabled; enabled ≠ authorized; authorized ≠ skipped local validation. No control installs and enables in one step; each is its own action, and enabling and starting an installation each ask for password re-entry.
 
-**Trust model shown in the UI:** packages are signed archives. The hub only relays the bytes; the **agent** verifies the signature against keys in its own local trusted-key list and installs only if the host has opted in (off by default) and the package is compatible. The UI shows, per host: opted in or not (with where to change it), which key signed the package, and the verification result reported by the agent. A host that has not opted in is shown as "does not accept installs", not as a failure. v1 scope (owner decision D-16): first-party signed packages plus packages signed with a key the owner added locally on the agent. The hub cannot add or replace keys, the signature is detached and verified before extraction, and a rollback must be signed by a currently trusted key. Third-party registries are DEFERRED (`docs/rework/06` "Deferred and after-v1").
+**Trust model shown in the UI:** packages are signed archives. The hub only relays the bytes; the **agent** verifies the signature against keys in its own local trusted-key list and installs only if the host has opted in (off by default) and the package is compatible. The UI shows, per host: opted in or not (with where to change it), which key signed the package (the signer's `key_id` is kept per installed package, so a revoked key shows which packages it signed), and the verification result reported by the agent, including a refused archive (limits exceeded, a link, an unsafe path). A host that has not opted in is shown as "does not accept installs", not as a failure. v1 scope (owner decision D-16): first-party signed packages plus packages signed with a key the owner added locally on the agent. The hub cannot add or replace keys, the signature is detached and verified before extraction, and a rollback must be signed by a currently trusted key. Third-party registries are DEFERRED (`docs/rework/06` "Deferred and after-v1"). Packages run as the agent user, never root, and cannot install or modify the root-owned helper; the UI says so on the package review step (owner decision D-29, RW-26).
 
 **Progress and recovery:** the deployment view shows one row per host (queued, delivered, verifying, installed, failed with the agent's reason, pending because offline), the overall result as "N of M hosts", retry for failed hosts only, and uninstall/rollback where the package declares it.
 
@@ -2681,6 +2714,8 @@ P1: filters by category, entity type, source, scope, freshness, inferred/confirm
 P2: bulk review, merge suggestions and data lifecycle tools.
 
 The UI must clearly distinguish confirmed environment fact, automatically discovered fact, inferred hypothesis, user preference, operational constraint and temporary observation.
+
+Resolution summaries are shown here and on operation detail with the source of each field. They belong to the Operation, and the operation writer is their only writer: an edit in the Knowledge UI is sent as an edit command with the revision it was based on, a stale edit is rejected and shown as such, and code-owned fields cannot be edited by a person (RW-41).
 
 ### Entity detail
 
@@ -2704,7 +2739,7 @@ Present proposed learnings with evidence and suggested scope. User can accept, e
 
 P0: effective policy by host and capability/operation, clear Allow automatically / Ask for approval / Deny semantics, inherited versus explicit values, rule precedence, locked rules shown distinctly and a "why" explanation (below); the autonomy pause switch and any rule suspended by its circuit breaker; rules in shadow mode (new rules start there) clearly marked as not yet acting.
 
-P1: conditions, target restrictions, time windows, TTL, rate limits, blast-radius caps, trusted paths, recovery requirements and policy versioning. Publishing a policy version asks for password re-entry and first shows the **publication validation report**: incomparable conflicting rules (resolved Deny > RequireApproval > Allow) that the owner must acknowledge, specific Allows that override a broader Deny, and any locked rule affected (owner decisions D-19, D-26).
+P1: conditions, target restrictions, time windows, TTL, rate limits, blast-radius caps, trusted paths, recovery requirements and policy versioning. Publishing a policy version asks for password re-entry and first shows the **publication validation report**: equal-scope rules with different outcomes (resolved to Deny) and incomparable conflicting rules (resolved Deny > RequireApproval > Allow), each of which the owner must acknowledge, specific Allows that override a broader Deny, and any locked rule affected (owner decisions D-19, D-26).
 
 P2: raw rule representation, import/export and policy-as-code support later.
 
@@ -2954,7 +2989,7 @@ The **outline** is the screen-reader path: a nested list (cycle, branch, node) i
 - Avoid optimistic UI that says an operation succeeded before the server/agent reports a confirmed result.
 - Distinguish “command returned successfully”, “verification passed” and “incident resolved”.
 - On a lost connection after dispatch, show “outcome unknown / checking state” rather than immediately showing success or issuing a duplicate action.
-- A host that becomes `Incompatible` after dispatch leaves its in-flight step awaiting a compatible agent; the step is neither failed nor shown as offline (owner decision D-20).
+- A host that becomes `Incompatible` after dispatch leaves its in-flight step awaiting a compatible agent; the step is neither failed nor shown as offline (owner decision D-20). The same holds after a hub restart: the state is read from the persisted agent record, not from a live connection.
 - A new investigation cycle should say why it started (failed verification, new evidence, user request, recurrence, timeout).
 - A failed step must not disappear when a later step succeeds.
 - Long-running work should support safe navigation away and return; page closure must not be interpreted as cancellation.
@@ -2982,7 +3017,7 @@ The **outline** is the screen-reader path: a nested list (cycle, branch, node) i
 
 ### Action cards inside conversation
 
-A response that creates a proposed action/operation renders the shared structured approval card (doc 14, section 5), not a free-text promise. It shows contract, target, arguments, effect class, reversibility, expiry, plan-hash prefix, the policy decision and approval state; any model prose is secondary and labelled. Chat must not simulate success before execution has returned. An agent-side refusal (for example a rate limit) shows on the card with its reason.
+A response that creates a proposed action/operation renders the shared structured approval card (doc 14, section 5), not a free-text promise. It shows contract, target, arguments, effect class, reversibility, expiry, plan-hash prefix, whether the approval binds the v1 or the v2 plan hash during the migration, the policy decision and approval state; any model prose is secondary and labelled. Chat must not simulate success before execution has returned. An agent-side refusal (for example a rate limit) shows on the card with its reason.
 
 ## 7. Policy simulator interactions
 
@@ -3030,7 +3065,8 @@ This is the one list of data states. Other documents refer to it instead of keep
 | Refresh error | Refetch failed, data present | Last data stays with "last updated" time and a visible failure notice with Retry | yes |
 | Stale | Data older than its freshness window, or live updates paused | Freshness label with age; never presented as current | yes |
 | Offline / unavailable | A host or agent cannot be reached, or a provider is not configured | Says which source is unavailable; distinct from "no data" and from "not configured" | last known, marked |
-| Incompatible | A host's agent speaks another protocol minor than the hub (owner decision D-20) | Upgrade-required banner naming the required protocol and the agent's version; history stays readable; never presented as offline | last known, marked |
+| Incompatible | A host's agent speaks another protocol minor than the hub (owner decision D-20), or has not reconnected since a hub upgrade changed the protocol ("expected incompatible") | Upgrade-required banner naming the required protocol and the agent's version; history stays readable; never presented as offline | last known, marked |
+| Helper unavailable | The privileged helper is absent or in error on a host (owner decision D-29, RW-39) | The affected check or capability says "helper unavailable" with the reason; distinct from failed and from offline | last known, marked |
 | Partial | Some sources of a page loaded and others did not | Each section shows its own state; a failed source is named, never silently omitted | per section |
 | Unknown value | A status or schema value this UI does not know (newer hub, agent or provider) | Neutral pill with the raw value; never crashes | n/a |
 
@@ -3071,7 +3107,7 @@ The current `web/DESIGN.md` and `src/styles/tokens.css` establish a deliberate i
 - Warm charcoal/sand dark theme and paper/ink light theme.
 - Moss green as the action/accent color.
 - Walnut as a restrained brand marker.
-- Distinct semantic status tones: danger, warning, success, pending, progress, info and neutral. New statuses (the `Incompatible` host state, the locked-Deny treatment, and the `Refused`, `NotRun`, `Unavailable` and `OutcomeUnknown` outcomes) each get a label, tone, hint and icon through the shared status vocabulary (see the planned section of `web/DESIGN.md`).
+- Distinct semantic status tones: danger, warning, success, pending, progress, info and neutral. New statuses (the `Incompatible` host state, the root-agent warning, "helper unavailable", the v1 versus v2 approval-binding label, the locked-Deny treatment, and the `Refused`, `NotRun`, `Unavailable` and `OutcomeUnknown` outcomes) each get a label, tone, hint and icon through the shared status vocabulary (see the planned section of `web/DESIGN.md`).
 - Color-coded messages/statuses with text labels/icons; never rely on color alone.
 - Inter Variable/system sans typography and monospace for technical values, code, IDs, arguments and logs.
 - A 4 px spacing rhythm, consistent control geometry, semantic tokens and a controlled z-layer model.
@@ -3216,7 +3252,7 @@ Budgets win over presentation: when Detailed would exceed a budget on a given de
 
 Every page must explicitly design and test:
 
-- Every state in the canonical taxonomy that applies (doc 15, section 10): loading, empty, first-load error, refresh error, stale, offline/unavailable, partial and unknown value (plus `Incompatible` for hosts). Permission-denied is not a v1 state (single owner).
+- Every state in the canonical taxonomy that applies (doc 15, section 10): loading, empty, first-load error, refresh error, stale, offline/unavailable, partial and unknown value (plus `Incompatible` and "helper unavailable" for hosts). Permission-denied is not a v1 state (single owner).
 - Dense and sparse data.
 - Long names, long logs, missing values, unknown enum values (shown as the raw value) and the host `Incompatible` state.
 - Keyboard and screen-reader behavior.
@@ -3255,7 +3291,8 @@ This document cross-checks pages as workflows. The UI should be designed as one 
 **Acceptance:**
 - Critical attention is distinguishable from informational activity.
 - The overview shows active operations, not only incidents and approvals.
-- A host whose agent is `Incompatible` appears in the attention queue and in environment health as upgrade required, distinct from offline.
+- A host whose agent is `Incompatible` (or "expected incompatible" after a hub upgrade) appears in the attention queue and in environment health as upgrade required, distinct from offline.
+- A host whose agent runs as root appears with a warning that the privilege boundary is not in effect and that it gets no unattended execution.
 - In the default layout no counter is duplicated across tile, heading and filter (user-rearranged layouts are exempt).
 - Clicking a metric opens the relevant filtered list.
 - Returning preserves the useful context; live changes are reflected without a full-page reset.
@@ -3320,13 +3357,13 @@ This document cross-checks pages as workflows. The UI should be designed as one 
 - All matching rules, the winning rule, why it won, the broader rules it overrides and any constraint failures are visible; hard limits (host ceiling, pause) are shown apart from rules; a specific Allow over a broad Deny is visibly flagged.
 - Applying a draft is a distinct audited action.
 - A locked Deny is shown distinctly in the editor, simulator, explanation and trace, with what ordinary resolution would have decided, and changing it needs step-up. A policy Deny shows no approval control: the owner must change the policy.
-- Publishing shows the publication validation report, and incomparable conflicts must be acknowledged.
+- Publishing shows the publication validation report, and both equal-scope and incomparable conflicts must be acknowledged.
 
 ## 5. Journey: install a capability from the UI
 
 **Goal:** add new functionality to one or more agents safely.
 
-1. Open Capability Center and search catalog.
+1. Open Capability Center and search the catalog, or import an owner-signed package (archive plus detached signature).
 2. Open capability detail; inspect source/trust, effect, permissions, schemas, prerequisites and rollback.
 3. Select target agents and rollout strategy.
 4. Run preflight and review exactly what will change.
@@ -3341,7 +3378,8 @@ This document cross-checks pages as workflows. The UI should be designed as one 
 - Hosts that have not opted in to installs are shown as such, not as failed.
 - An offline agent is shown as pending delivery, not installed.
 - Package provenance and integrity checks are visible.
-- A package signed by an untrusted key is rejected by the agent and shown with that reason; the trusted keys are the first-party key and keys the owner installed on that host (owner decision D-16).
+- A package signed by an untrusted key is rejected by the agent and shown with that reason; the trusted keys are the first-party key and keys the owner installed on that host (owner decision D-16). An archive that breaks the limits or contains a link is likewise rejected and shown with its reason.
+- A package never installs or changes the root-owned helper; it runs as the agent user (owner decision D-29).
 - Failed agents can be retried without reinstalling successfully updated agents.
 - Model-generated capability drafts cannot self-install or self-authorize.
 
@@ -3386,7 +3424,7 @@ This document cross-checks pages as workflows. The UI should be designed as one 
 **Goal:** make a safe decision quickly without hunting for context.
 
 1. A step needs approval; the attention center shows it and the shell indicator counts it.
-2. Open the item; the shared approval card shows contract, target, arguments, effect class, reversibility, expiry, plan-hash prefix and the policy decision.
+2. Open the item; the shared approval card shows contract, target, arguments, effect class, reversibility, expiry, plan-hash prefix, the plan-hash version it binds (v1 or v2 during the migration) and the policy decision.
 3. If the target is outside the operation's scope, the card says so and offers approval only.
 4. Open the operation from the card to see the graph and the evidence behind the step.
 5. Approve (or deny); the card and the operation show the decision, who made it and when.
@@ -3423,8 +3461,9 @@ This document cross-checks pages as workflows. The UI should be designed as one 
 - Knowledge links connect relevant hosts, services, incidents, operations and notes.
 - Global search can reach these canonical objects when implemented; search results are scoped to the sources it covers and say so. No permission filtering in v1 (single owner); the search layer keeps one filter point as a hook for future roles.
 - An approval has one canonical home (operation detail); other surfaces embed or link the same card.
-- An `Incompatible` host shows the same upgrade-required banner and explanation on its host page, in the attention center and in environment health; its history stays readable and it is never shown as offline (owner decision D-20).
-- A host page shows management paths with provenance, freshness and which containment is blocked, and the owner can confirm or correct them (owner decision D-28).
+- An `Incompatible` host shows the same upgrade-required banner and explanation on its host page, in the attention center and in environment health, also after a hub restart; its history stays readable and it is never shown as offline (owner decision D-20).
+- A host page shows management paths with provenance, freshness and which containment is blocked, beside the agent-reported exclusions (hash and summary) with each path marked covered or uncovered, and the owner can confirm or correct them (owner decision D-28).
+- A host page warns when its agent runs as root, and marks checks and capabilities "helper unavailable" where the helper is absent or in error (owner decision D-29).
 - The audit page reports legacy unchained history and chained history separately (owner decision D-14).
 
 ## 11. Backend contracts the UI depends on, and build order
@@ -3437,9 +3476,10 @@ The UI is built against contracts, not against the live engine. These must exist
 - **Conversations:** durable messages, explicit scope, request ids for discarding stale responses.
 - **Policy decisions** stored with the context snapshot and policy version used, so the simulator can reproduce a historical decision.
 - **Attention feed**, **audit API with chain verification reporting legacy and chained history separately**, **retention settings**, **resolution summaries and similar-operation search**, **capability deployment state per host**.
-- **Host protocol state:** `Incompatible` with the required and reported protocol and the agent's version, so the banner and host page render from data (owner decision D-20).
-- **Management-path facts** with source, confirmation, freshness and the containment they block, plus the host's read-only ceiling summary (owner decisions D-28, D-18).
-- **Policy publication validation report** (incomparable conflicts, overrides of a broader Deny, locked rules) and the locked flag on rules in the trace (owner decisions D-19, D-26).
+- **Host protocol state:** `Incompatible` or "expected incompatible" with the required and reported protocol and the agent's version, read from the persisted agent record so the banner and host page render from data (owner decision D-20).
+- **Host privilege state:** whether the agent runs as root and the helper's status (`absent`, `ok`, `error`), so the root warning and "helper unavailable" markers render from data (owner decision D-29).
+- **Management-path facts** with source, confirmation, freshness and the containment they block, the agent-reported exclusions (hash and summary) with per-path coverage, plus the host's read-only ceiling summary (owner decisions D-28, D-18).
+- **Policy publication validation report** (equal-scope and incomparable conflicts, overrides of a broader Deny, locked rules) and the locked flag on rules in the trace (owner decisions D-19, D-26).
 - **Agent refusal reasons**, including rate-limit refusals (owner decision D-27), and the shared outcome vocabulary (`docs/rework/04 §3.2`).
 - **Presentation profile and dashboard preferences:** where they are stored (hub or browser) is a backend decision; the UI reads them through one provider.
 
@@ -3595,7 +3635,7 @@ Rework decisions: RW-09, RW-30, RW-08.
 
 **Evidence:** #9 defines a typed, versioned protocol with frame bounds and explicit unknown-message handling; #86 adds minimum supported release checks with a human-readable reason; #72 detects Docker/Podman; #34 documents/handles unavailable host checks in container mode.
 
-**Target rule:** hub and agent speak the exact same protocol major.minor; an older or newer minor is rejected with a typed explanation, and there is no support window, previous-minor adapter or legacy execution path (owner decision D-20, RW-17). Same-protocol patch releases are compatible. Frames are bounded and explicitly versioned, golden frames are tested, and unknown values decode without crashing. Do not let incompatibility turn into an endless reconnect loop: the agent stops retrying and the hub shows the host as `Incompatible` with its history kept. Detect runtime capabilities rather than assuming the installation mode.
+**Target rule:** hub and agent speak the exact same protocol major.minor; an older or newer minor is rejected with a typed explanation, and there is no support window, previous-minor adapter or legacy execution path (owner decision D-20, RW-17). Same-protocol patch releases are compatible, and application release floors (#86's `MIN_AGENT_VERSION` and `MIN_HUB_VERSION`) are removed: a release number is not a compatibility dimension (a revoked-build list is DEFERRED and separate). The protocol check happens only after the agent has proven its identity, and the incompatibility is persisted on the agent record so it survives a hub restart. Frames are bounded and explicitly versioned, golden frames are tested, and unknown values decode without crashing. Do not let incompatibility turn into an endless reconnect loop: the agent idles instead of reconnecting (agents older than the F3 release still restart-loop under systemd until upgraded) and the hub shows the host as `Incompatible` with its history kept. Exactly one protocol bump is planned before v1 (RW-42). Detect runtime capabilities rather than assuming the installation mode.
 
 **Status: VERIFIED.** `proto/src/version.rs:17-26`, `hub/src/agent_server/handshake.rs:140-148,194-215`, frame cap `proto/src/envelope.rs:11`. Notes: `at_least` lets an unparseable agent version pass the floor (`version.rs:104-108`); a new `ReadTool` variant or a new `Risk` variant in `hello` still breaks old peers (D13 in `docs/rework/01-repository-reality.md`). Rework decision: RW-17.
 
@@ -3850,7 +3890,7 @@ The PR descriptions often summarize the intended change; the maintainer's follow
 - **Conversation clear needs generation semantics.** **Status: VERIFIED for incident follow-ups; STATIC weak points in lesson 11.** The general chat has no server conversation, so no generation exists to protect. #91 prevents a slow in-flight answer from restoring a conversation after the user clears it. Requests capture a conversation generation and asking time; persistence rejects stale generations and history replays in asking order even if responses finish out of order. Apply the same pattern to any resettable long-running UI or task context.
 - **Provider fallback must preserve diagnostic information.** **Status: VERIFIED for failures, STATIC for successes.** Failure reasons carry provider and model and are now redacted and clipped (#113); a successful output records neither (lesson 5). #89 found that fallback could hide the primary provider's failure and that invalid model output could omit provider identity. Aggregate provider-specific failure reasons and include provider/model attribution in diagnostics and operation history.
 - **Never trust release metadata just because it parses as a version.** **Status: VERIFIED** (`is_release_tag`, `proto/src/version.rs:97-103`, used in `cmd/upgrade/fetch.rs:48`). #96 found tag-injection risk: a parser that stops at a prerelease/build separator can accept a version prefix while ignoring unsafe suffix characters. Validate the entire release tag against a strict allowlist before using it in URLs, UI or copyable shell commands. Pin the exact image version in generated Docker upgrade commands. Bound HTTP response bodies at the shared HTTP layer, not just one call site.
-- **Protocol additions must be understood by old peers.** **Status: VERIFIED** (`handshake.rs:140-148,194-215`). #86 found that sending a newly introduced rejection reason to an old agent could leave it in a reconnect loop. Only send a reason the peer version can understand; otherwise use a compatible terminal rejection. Authenticate the peer before recording a version refusal, so unauthenticated traffic cannot create misleading host events.
+- **Protocol additions must be understood by old peers.** **Status: VERIFIED** (`handshake.rs:140-148,194-215`). #86 found that sending a newly introduced rejection reason to an old agent could leave it in a reconnect loop. Only send a reason the peer version can understand; otherwise use a compatible terminal rejection. Authenticate the peer before recording a version refusal, so unauthenticated traffic cannot create misleading host events; the existing `Incompatible` rejection is used, because released agents already treat it as final (RW-17).
 - **A disabled capability must be disabled on every path.** **Status: VERIFIED for current consumers; STATIC for the structure.** Every consumer is handed the policy wrapper, but the raw link stays reachable and `run_check` is unfiltered (lesson 15). #84 found host-profile collection bypassing the skill policy wrapper even though triage and action execution used it. All consumers (profile collection, chat, incident investigation, scheduled jobs, etc.) must use the same policy-enforcing capability access layer. Concurrent per-host enable/disable updates need serialized read-modify-write behavior so one update cannot silently erase another.
 - **Missing data must not be interpreted as deletion or recovery.** **Status: VERIFIED for host profiles** (`profile/diff.rs:26-31,75`). **STATIC: the same lesson is broken elsewhere.** An offline or not-yet-connected agent looks like "no skills" (lesson 2); a notification-state read error becomes default state (lesson 6); a failed duplicate lookup becomes an empty list (lesson 3); a budget read error becomes "not spent" (lesson 5 and #112). #82 found that a failed container or listening-port query could make the next profile claim all previous entities had disappeared. Compare snapshots only when both sides contain valid data; represent collection failure/unknown separately from an empty successful result. Do not infer removals from missing observations.
 - **Generated host profiles need explicit limits and honest semantics.** **Status: UNVERIFIED** (PR text only; fence escaping, refresh concurrency and note editability were not re-checked). #81 found read skills with required parameters being called with empty arguments, generated profile notes overwriting prior content, tool output breaking Markdown fences, profile refresh being synchronous/expensive, and editable generated notes being ambiguous. Skip skills that cannot be called safely without parameters; escape/fence arbitrary tool output; label generated data as a latest snapshot rather than a history if it is overwritten; decide whether generated records are editable; bound refresh work and add backoff for failed sections.

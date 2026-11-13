@@ -44,6 +44,7 @@ flowchart LR
 | `domovoi-agent` | journal with epoch, ceiling and mutation limiter, package verification and installation, containment reconciliation; invokes privileged helpers (RW-39) through the runner | accept keys or ceiling from hub; hold Docker socket write access |
 | `domovoi-runner` | unchanged (only process spawner) | — |
 | `domovoi-hub` | transports, use-case services, `auth/` (HumanApproval), `policy/` (PermitIssuer impl), install relay | bypass use-case services |
+| `domovoi` (binary) | `domovoi helper serve` root-only subcommand (RW-39; ADR decides if it needs its own crate); spawns only via `domovoi-runner` | accept requests from any uid but `domovoi-agent`; free-form commands |
 
 No new crates. Dependency edges stay as in ARCHITECTURE.md §4 (FACT: enforced by arch-check).
 
@@ -60,7 +61,7 @@ No new crates. Dependency edges stay as in ARCHITECTURE.md §4 (FACT: enforced b
 | Effect (outbox) | written by owning writer, completed by its writer on result | `effects` | §4 |
 | Conversation, messages | conversation writer | `conversations`, `messages` | §13 |
 | Fact, relation, entity | knowledge service | `facts`, `relations`, `entities` | §10 |
-| Resolution summary fields | operation writer (code + model fields); knowledge service (owner edits) | `resolution_summary_fields` + FTS | §10, RW-41 |
+| Resolution summary fields | operation writer only; Knowledge UI sends `EditSummaryField` commands to it | `resolution_summary_fields` + FTS | §10, RW-41 |
 | Policy version | policy service | `policy_versions` (immutable rows) | §7 |
 | Policy decision | operation writer (as `PolicyDecision` step) | `steps` + `policy_decisions` | §7 |
 | Package install job | install service | `install_jobs` | §11 |
@@ -209,13 +210,15 @@ stateDiagram-v2
   claimed --> done: owner writer commits result + completion together
   claimed --> pending: retryable failure (not_before = backoff(attempt))
   claimed --> dead: permanent failure or attempt limit
-  claimed --> pending: lease expired (runner crashed)
+  claimed --> pending: lease expired (new token on next claim; old holder fenced out)
   pending --> cancelled: operation cancelled
   claimed --> cancelled: operation cancelled (result, if any, still recorded)
 ```
 
-- Columns: `status, lease_until, runner_id, attempt, max_attempts, not_before, last_error,
-  dedup_key`. Backoff is exponential with a cap; retry classification is per kind (§16 for model
+- Columns: `status, claim_token, claim_generation, lease_until, runner_id, attempt, max_attempts,
+  not_before, last_error, dedup_key`. Completion, reschedule and dead-letter are conditional on
+  `claim_token` and run in the owning writer's transaction; a stale lease holder's commit affects zero
+  rows and the whole transaction rolls back (RW-35). Backoff is exponential with a cap; retry classification is per kind (§16 for model
   calls; notifications: 429/5xx/timeouts retry, 4xx permanent).
 - `dead` effects raise an advisory and appear on the operation; nothing loops forever.
 - Restart: `claimed` → `pending`, except `Dispatch`, which is reconciled.
@@ -368,6 +371,8 @@ Two rules **overlap** iff their scopes intersect on every dimension. Two overlap
    - containment target matches a mandatory exclusion → `Deny`. This holds for humans as well, and
      the agent enforces it independently;
    - autonomy paused, or the rule is circuit-broken → `RequireApproval`.
+   - outcome `Allow` and the host's agent runs as root (`hello.runs_as_root`, D-29 not in effect) →
+     `RequireApproval`.
 
 **Outcome meaning (D-23).**
 - `Allow`: unattended; a permit is issued.
@@ -436,6 +441,7 @@ The trace is persisted for every mutating or containing step, enforced or shadow
 
 - **Publishing a policy version runs a validation report** using the production evaluator's own
   helpers:
+  - each pair of equal-scope rules with different outcomes (resolves to Deny, D-05);
   - each pair of overlapping incomparable rules with different outcomes, with its resolution
     (D-19);
   - each enabled rule made ineffective by a locked Deny;
@@ -472,6 +478,7 @@ The trace is persisted for every mutating or containing step, enforced or shadow
 - `shadow_rules_never_enforced`
 - `deny_is_not_offered_for_approval`
 - `publish_reports_incomparable_conflicts`
+- `publish_reports_equal_scope_conflicts`
 - `simulator_matches_live_evaluator` (proptest: same inputs, same decision)
 
 ## 8. Authorization and local enforcement
@@ -491,9 +498,14 @@ The trace is persisted for every mutating or containing step, enforced or shadow
   `approval_client`.
 - Or, for policy authorization, the permit columns.
 
-**Approve API.** `POST /operations/{id}/steps/{step}/approve { plan_hash, typed_confirmation? }`.
-The writer refuses unless `plan_hash == plan_hash_v2`. At dispatch, `plan_hash_v2` is recomputed
-(RW-11, RW-34).
+**Approve API by stage (RW-11).**
+- F4: the existing action approve endpoint gains `plan_hash` (v1); the action writer refuses on
+  mismatch. v1 does not bind entry-script bytes or target identity.
+- M1: same endpoint, v2 hash and binding columns.
+- M3: `POST /operations/{id}/steps/{step}/approve { plan_hash, typed_confirmation? }`; the writer
+  refuses unless `plan_hash == plan_hash_v2`.
+
+Dispatch always recomputes the hash for its version (RW-34 for v2 target resolution).
 
 **Enforcement.** CI controls, not runtime:
 - clippy `disallowed-methods`;
@@ -550,6 +562,32 @@ per_hour = 30
 per_capability = { "container.restart" = 6 }
 ```
 
+**Helper allowlist (D-29, RW-39).** Root-owned, owner-edited, read only by the helper:
+
+```toml
+# /etc/domovoi/helper.toml
+groups = ["docker.read", "smart.read", "kernel.read", "net.read", "systemd.write", "nft"]
+
+[docker]
+write_containers = []                 # ids or names resolved at helper start; empty = docker.write off
+
+[systemd]
+restart_units = ["plex.service"]
+protected_units = ["sshd.service", "domovoi-agent.service", "domovoi-helper.socket"]
+
+[nft]
+table = "domovoi"
+max_elements = 1000
+max_timeout = "24h"
+management_cidrs = ["192.168.1.0/24"]  # helper re-checks exclusions independently of the agent
+
+[smart]
+devices = ["/dev/sd[a-z]", "/dev/nvme[0-9]n1"]
+
+[limits]
+timeout = "30s"
+```
+
 **`policy`-labelled requests.** The agent checks, in order:
 1. `[unattended].enabled`;
 2. an entry for the exact contract exists;
@@ -573,14 +611,19 @@ per_capability = { "container.restart" = 6 }
 
 ### 8.4 Threat model by attacker capability
 
+Assumes D-29 is in effect (agent unprivileged, helper installed). On installs where the agent still runs
+as root, the helper is not a boundary and "run code as the agent user" equals root; the UI labels such
+hosts.
+
 | Attacker can | They can then | Limited by (guarantee) | Not limited by |
 |---|---|---|---|
 | Inject text into logs, notes, webhooks | influence model reasoning and proposals | closed meta-tools (no approve/execute); target resolution and pinning; containment only from detector signals; structured approval cards show real plan | — |
 | Steal the owner's browser session | approve offered steps, edit non-sensitive settings | step-up for policy publish, locked rules, enable, install, retention, LLM CLI; approvals bound to the displayed plan hash; Deny not offerable | approval of already-offered RequireApproval steps |
 | Misconfigure policy (owner error) | allow more than intended | hard limits; host ceiling; shadow first; circuit breaker; pause; publish validation | — |
 | Write to `hub.db` | forge approvals or permits, edit audit | agent ceiling for `policy` runs; agent `allow_risk`, catalogue and rate limiter for all runs; audit chain detects edits that don't recompute it | forged `human` approvals within `allow_risk` and rate limits |
-| Run code as the hub process | send any request with any label | agent catalogue, manifest, args, `allow_risk`, mutation rate limiter (all runs); ceiling (`policy` runs only); trusted package keys (installs) | labelling a request `human` to bypass the ceiling — **accepted v1 limitation**; owner-signed approvals are deferred (`06`) |
-| Compromise one agent | act on that host | other hosts unaffected; hub treats outputs as untrusted and bounded | that host |
+| Run code as the hub process | send any request with any label | agent catalogue, manifest, args, `allow_risk`, mutation rate limiter (all runs); ceiling (`policy` runs only); trusted package keys (installs); agent runs unprivileged and privileged operations are bounded by the root-owned helper allowlist (D-29) | labelling a request `human` to bypass the ceiling — **accepted v1 limitation**; owner-signed approvals are deferred (`06`) |
+| Run code as the agent user (malicious package, compromised agent) | anything `domovoi-agent` can do; any helper operation within the helper allowlist | helper allowlist and peer-uid check; root-owned helper and config; other hosts unaffected | agent-user actions on that host |
+| Gain root on a host | everything on that host | nothing in Domovoi | — |
 
 ## 9. Containment (M9)
 
@@ -590,11 +633,11 @@ per_capability = { "container.restart" = 6 }
 |---|---|
 | Threat | brute force or scanning from an external source |
 | Target | `ipnet:{canonical}` from a detector signal's structured field; prefix ≥ ceiling minimum; equals the pinned subject |
-| Privileges | `domovoi-nft-helper` (RW-39), limited to set elements in table `inet domovoi`; no other table touched |
+| Privileges | root-owned helper `nft` group (RW-39), limited to set elements in table `inet domovoi`; no other table touched; exclusions re-checked in the helper |
 | Management protection | D-28 facts confirmed and current; agent exclusions: `management_cidrs`, hub address, current link peer, loopback, link-local; refused if the target overlaps any |
 | Expiry | nftables set element `timeout` = TTL (≤ `max_ttl`). Kernel-enforced, so it does not depend on the agent, the hub or the helper process |
 | Watchdog (D-22) | built into the two-step apply below: the first element carries a 30 s kernel timeout, so if the hub never confirms reachability the block disappears by itself, whether or not the agent, helper or hub survives |
-| Apply semantics | step 1: element with a 30 s timeout; step 2: on hub confirmation, re-add with full TTL (an idempotent `add element … timeout`); if step 2 never happens, the block lasts 30 s |
+| Apply semantics | step 1: element added with a 30 s timeout; step 2: on hub confirmation, `replace_ttl` = `delete element` + `add element … timeout <TTL>` in **one** `nft -f` transaction (atomic netlink batch, so the element is never absent); if the element already expired, the transaction fails and the helper reports `expired` (no silent re-add). `add element` on an existing element is not relied on to refresh its timeout. Exact behaviour per supported nftables version is verified in R-2 |
 | Rollback | `del element` (idempotent; absent = success) |
 | Postcondition | element present with remaining timeout > 0; hub → agent round trip still works |
 | Outcome unknown | read set membership via helper `list`; present → treat as applied; absent → `NotRun` only if the journal proves no apply, else `OutcomeUnknown` |
@@ -603,7 +646,7 @@ per_capability = { "container.restart" = 6 }
 | Partial application | element added but not confirmed → expires in ≤ 30 s |
 | Drills | expiry on time with agent stopped; excluded address refused; hub unreachable during the confirmation window → block gone ≤ 30 s; agent restart mid-TTL; duplicate dispatch idempotent; `max_active` reached → refused |
 
-Feasibility of the helper privilege path is research item R-2; the expiry mechanism itself relies only on nftables set timeouts.
+**Not production-ready until R-2 is complete** (table/hook placement, packet path, coexistence with firewalld/ufw/Docker, set limits, atomic replacement). The expiry mechanism itself relies only on nftables set timeouts.
 
 ### 9.2 General rules for any v1 `Contain` capability
 
@@ -665,7 +708,8 @@ weaker recovery or lockout stories; the same checklist applies.
   source{code|model|user}, actor, created_at)`, append-only. Code-owned fields (`outcome`, `verified`,
   `subjects`, `contracts_executed`, `hosts`) accept only `source=code`; narrative fields (`problem`,
   `cause`, `fix`) take `model` drafts and `user` edits/confirmations. FTS indexes current narrative.
-  Created by the code at terminal state plus a `DraftSummary` effect for the narrative.
+  Created by the code at terminal state plus a `DraftSummary` effect for the narrative. All revisions,
+  including owner edits from the Knowledge UI, are committed by the operation writer (RW-41).
 - **Experience search.** `search_experience(query, scope)`: FTS over summaries + journal kinds,
   filtered to operation hosts unless the owner's conversation is global; returns ≤ 5 items with
   operation id, date, verified flag, source, ≤ 1 KiB each. Context builder places them in a block
@@ -685,130 +729,199 @@ Computed from contracts × agent catalogue (by hash, paged) × hub enable state 
 
 ```mermaid
 stateDiagram-v2
-  [*] --> Discovered: signed index fetched by hub (display only)
-  Discovered --> Downloading: owner requests install (step-up)
-  Downloading --> Relaying: hub checked digest against index
-  Relaying --> Verifying: agent received archive + detached signature (staging, not extracted)
-  Verifying --> Rejected: unknown/removed key, bad signature, digest/identity/compat mismatch
+  [*] --> Discovered: first-party signed index, or owner import (UI upload / domovoi package import)
+  Discovered --> Relaying: owner requests install (step-up); hub checked digest
+  Relaying --> Verifying: agent received archive + detached signature into staging (not extracted)
+  Verifying --> Rejected: limits, unknown/revoked key, bad signature, digest/identity/compat mismatch
   Verifying --> Extracting: all checks passed
-  Extracting --> Rejected: path escapes package dir, unexpected file type
-  Extracting --> Installed: atomic rename staging → skills_dir/<pkg>/<version>, catalogue refreshed
+  Extracting --> Rejected: link, traversal, absolute path, duplicate path, limit exceeded
+  Extracting --> Installed: atomic rename staging → skills_dir/<pkg>/<version>; record signer key_id
   Installed --> Enabled: owner enables in hub (separate action, step-up)
   Enabled --> Installed: disabled
   Installed --> Uninstalling
   Uninstalling --> [*]
 ```
 
+**Sources (RW-26).**
+- **First-party:** a signed index at the configured URL.
+- **Owner-signed:** manual import. Upload the archive and signature in the Capability Center, or run
+  `domovoi package import <archive> <sig>` on the hub; files are kept in the hub's package store.
+
+There is no other discovery in v1.
+
 **Artifacts.**
-- `<name>-<version>.tar.zst`: the archive.
-- `<name>-<version>.sig.toml`: detached, never inside the archive. Fields: `format = 1`,
-  `algorithm = "ed25519"`, `key_id` (first 16 hex of SHA-256 of the public key), `package`,
-  `version`, `archive_sha256`, `signature` (base64).
+- `<name>-<version>.tar.zst`.
+- A detached `<name>-<version>.sig.toml`, with these fields:
+
+  ```toml
+  format = 1
+  algorithm = "ed25519"
+  key_id = "a1b2c3d4e5f60718"          # first 16 hex of SHA-256 of the public key
+  package = "nginx-tools"
+  version = "1.2.0"
+  archive_sha256 = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+  signature = "base64-ed25519-signature"
+  ```
 
 **Signing message.** `"domovoi-package-v1\n{package}\n{version}\n{archive_sha256}\n{key_id}\n"`.
-The Ed25519 signature covers exactly these bytes.
 
-**Agent verification.** Done in this order, before extracting anything:
-1. `[packages] allow_install = true`;
-2. `key_id` is in the agent's local `trusted_keys` and not revoked;
-3. the signature over the signing message is valid;
-4. the SHA-256 of the received archive bytes equals `archive_sha256`;
-5. `package` and `version` in the signature equal the requested ones and equal `package.toml`
-   inside the archive. This is read by streaming the tar entry for `package.toml` without writing
-   files, after steps 1–4;
-6. compatibility: agent protocol, platform, contract versions;
-7. extraction into a staging directory, rejecting absolute paths, `..`, symlinks, device files and
-   anything outside `<pkg>/`;
-8. atomic rename.
+**Limits** (agent config `[packages.limits]`, defaults shown):
 
-**Local keys (agent config, owner-edited).**
+| Limit | Default |
+|---|---|
+| compressed size | 20 MiB |
+| uncompressed total | 100 MiB |
+| per-file size | 20 MiB |
+| entry count | 2 000 |
+| path depth | 8 |
+| path length | 255 bytes |
+| extraction time | 60 s |
+| staging space | 2× uncompressed limit, else refused |
+
+- Script execution time and output size are not package limits. They come from each skill
+  manifest's existing timeout and output limit, capped by the agent's maximum.
+
+**Verification order.** Nothing is extracted before steps 1–5 pass.
+1. `allow_install = true`.
+2. Compressed size within limit.
+3. `key_id` trusted and not revoked.
+4. Signature valid over the signing message.
+5. Archive SHA-256 equals `archive_sha256`.
+6. `package.toml` (read by streaming the tar entry, nothing written) matches the signed
+   `package` and `version`; compatibility (agent protocol, platform, contract versions).
+7. Extraction into a staging directory owned by `domovoi-agent`, with all limits enforced. Reject:
+   - absolute paths, `..` components, and duplicate paths;
+   - symlinks, hardlinks and device or FIFO entries (any link type is rejected; v1 packages
+     contain only regular files and directories);
+   - anything outside `<pkg>/`.
+8. Atomic rename.
+9. Record `key_id`, archive digest and install time in `skills_dir/.packages.toml` (agent) and in
+   the hub's install record.
+
+**Local keys.** Agent config, owner-edited; this example validates as TOML:
 
 ```toml
 [packages]
 allow_install = false
+revoked = ["e5f6a7b8c9d0e1f2"]
+
 [[packages.trusted_keys]]
-id = "a1b2..."; public_key = "base64..."; label = "Domovoi release"   # shipped in the template
+id = "a1b2c3d4e5f60718"
+public_key = "base64-ed25519-public-key"
+label = "Domovoi release"
+
 [[packages.trusted_keys]]
-id = "c3d4..."; public_key = "base64..."; label = "Owner"            # added by the owner
-revoked = ["e5f6..."]
+id = "c3d4e5f60718a9b0"
+public_key = "base64-ed25519-public-key"
+label = "Owner"
 ```
 
-- Adding, removing or rotating a key: the owner edits the file, then reloads (SIGHUP or restart).
-- Unknown key → rejected.
-- A removed or revoked key → new installs refused. Already-installed packages signed by it are
-  reported as "signed by untrusted key" and **disabled by the agent** (refused at execution) until
-  re-signed or removed.
-- The hub cannot add, replace or revoke keys. It only sees `key_id`s.
+- **Add, remove or rotate a key:** edit the file and reload (SIGHUP or restart).
+- **Unknown key:** rejected.
+- **Revoked or removed key:**
+  - new installs signed by it are refused;
+  - installed packages whose recorded `key_id` matches are disabled by the agent (refused at
+    execution) and reported "signed by untrusted key";
+  - they stay disabled until re-signed by a trusted key or removed.
+- **Hub authority:** none over keys. It sees `key_id`s only.
 
-**Rollback and update rule.**
-- Any install — including a rollback to a previous version — passes the full verification against
-  the keys trusted *now*.
-- Having been installed before grants nothing. Older versions are kept on disk only for a quick
-  re-install that is still verified.
+**Rollback and update.**
+- Any install, including a rollback, passes full verification against the keys trusted now.
+- Having been installed before grants nothing.
+
+**Privileges (D-29).**
+- Packages are written only under the agent-owned `skills_dir/<pkg>/` and run as `domovoi-agent`.
+- The helper binary, its units and `/etc/domovoi/helper.toml` are root-owned, so the agent user
+  cannot write them. The installer also refuses targets outside `skills_dir`.
+- Signing grants execution as the agent user, never root.
 
 **Hub role.**
-- It fetches the signed index (default: first-party) and downloads the artifacts.
-- It relays them in chunks over the agent link (`install_package`). Hosts without internet still
-  work.
-- It cannot change the agent's decision.
+- Store, relay over `transfer_*` (wire 1.2), track install jobs.
+- One job per host, per-host progress, partial success per host, retry per host, uninstall.
 
-**Jobs.** One `install_job` per host. Per-host progress uses ephemeral SSE events plus a journal
-entry per state change. Partial success is shown per host, retry is per host, and uninstall removes
-files and disables the package in the hub.
-
-**Audit.** requested, relayed, verified, rejected (with reason), installed, enabled, disabled,
+**Audit.** requested, relayed, verified, rejected (reason), installed, enabled, disabled,
 uninstalled, key-untrusted detected.
 
 **Threat model.**
-- A malicious hub can offer packages and withhold installs. It cannot install unsigned or
+- A malicious hub can offer packages or withhold installs; it cannot install unsigned or
   foreign-signed code.
-- An owner-signed package is as trusted as files the owner places on the host. Its risk is the owner
-  key's custody and review.
-- A first-party key compromise affects every host that trusts it. Revocation is a local config
-  change on each host.
+- An owner-signed package is as trusted as files the owner places in `skills_dir`, and it runs with
+  agent-user rights.
+- A first-party key compromise affects hosts that trust that key; revocation is a local edit per host.
 
-**Tests.**
+**Tests:**
 - `agent_rejects_untrusted_signature`
 - `agent_rejects_digest_mismatch_before_extracting`
 - `agent_rejects_path_escape`
+- `agent_rejects_links_in_archive`
+- `agent_enforces_archive_limits`
 - `hub_cannot_add_trusted_key`
 - `rollback_requires_current_trust`
 - `revoked_key_disables_installed_package`
+- `package_install_cannot_write_helper_paths`
 - `install_never_enables`
 - `install_refused_when_allow_install_false`
+- `owner_import_requires_trusted_owner_key`
 - `partial_install_reports_per_host`
 
-## 12. Protocol (RW-17, D-20)
+## 12. Protocol (RW-17, RW-42, D-20)
 
-- **Version.** The hub accepts an agent only if `agent.protocol.major == hub.major` and
-  `agent.protocol.minor == hub.minor`. Otherwise:
-  - the hub sends `reject{reason: protocol_mismatch, hub_protocol, agent_protocol}`;
-  - the agent logs an upgrade instruction and stops retrying (FACT: reject is already final,
-    `version.rs:22`);
-  - the hub marks the host `Incompatible` and keeps its history.
-- **Patch releases** of the application with the same protocol version are compatible.
-- **The release-number gate (`MIN_AGENT_VERSION`) is removed from compatibility.** An optional
-  revoked-build list for security is deferred (`06`).
-- **Upgrade sequence** (book + UI banner): upgrade the hub, then each agent through the supported
-  install path (`install.sh`, package or image). Until then the UI shows each host as `Incompatible`
-  with the exact required protocol and the agent's version.
-- **`features`.** Optional build or platform capabilities, e.g. `nft_helper`, `docker_helper`,
-  `packages`. They are never used to accept another protocol generation.
-- **`Open<T>`.** A custom `Deserialize` reads the string, then `T::from_str`; an unknown value
-  becomes `Unknown(raw)`. It replaces the `#[serde(other)]` sites where the value matters.
-- **Unknown message type** → `unsupported{type}`; the session continues. This defends against bugs
-  only, since the version matches exactly.
-- **Catalogue.** `get_catalog{page, page_size}`, with `catalog_hash` in `hello`.
-- **Pings.** The hub pings too.
-- **Golden frames.** `crates/domovoi-proto/tests/golden/<protocol>/` hold the current protocol's
-  frames. A minor bump replaces them deliberately and bumps the version constant.
-- **Tests.**
-  - `older_minor_agent_rejected_with_reason`
-  - `newer_minor_agent_rejected_with_reason`
-  - `same_protocol_different_patch_releases_communicate`
-  - `incompatible_host_keeps_history_and_shows_upgrade_required`
-  - `unknown_enum_value_preserved`
-  - `unsupported_message_does_not_end_session`
+**Compatibility.** The hub accepts an agent only when `agent.protocol.major == hub.major` and
+`agent.protocol.minor == hub.minor`. Patch releases with the same protocol version interoperate.
+There is no window, no adapter and no release-number floor (`MIN_AGENT_VERSION`/`MIN_HUB_VERSION`
+are removed in F3).
+
+**Handshake order (hub):**
+1. `hello`;
+2. agent lookup (`UnknownAgent` / `Revoked`, not persisted);
+3. challenge;
+4. signature verification with the enrolled key;
+5. exact protocol comparison;
+6. on mismatch, a unit-of-work commit of `agents.reported_protocol`, `reported_release`,
+   `last_authenticated_at`, `incompatible_since` + an audit entry (only when values change);
+7. `reject{Incompatible{hub}}` (existing variant, final on all released agents).
+
+Nothing is persisted for unauthenticated clients.
+
+**State after restart.** The UI derives `Incompatible` from the `agents` row: the last authenticated
+`reported_protocol` differs from the hub's. After a hub upgrade, hosts that have not reconnected show
+"expected incompatible (last reported 1.1, hub 1.2)". Operations targeting them get
+`Unavailable(agent_incompatible)`.
+
+**Agent behaviour on `Incompatible`** (from F3's agent release onward):
+- the process stays up in an idle incompatible state, with no reconnects;
+- it logs on entry and hourly;
+- `domovoi agent status` shows it;
+- upgrading and restarting ends the state.
+
+Agents released before F3 exit and are restarted by systemd every 5 s until upgraded. The hub writes
+only on change and rate-limits its logs.
+
+**Upgrade procedure** (book, UI banner, release notes):
+1. upgrade the hub;
+2. upgrade each agent through the supported install path;
+3. watch the Hosts page until no host is `Incompatible`.
+
+**Wire versions (RW-42).**
+- **1.1:** current, unchanged through F1–F4.
+- **1.2:** introduced in M1, freezing the v1 wire contract (complete list in RW-42).
+- No later bump is planned. Any unavoidable one is a recorded, coordinated 1.3 upgrade.
+
+**Decoding.**
+- `Open<T>` for data enums whose values can come from skills or packages.
+- `unsupported{type}` reply for unknown message types; the session continues.
+- Golden frames are committed for 1.1 and 1.2.
+
+**Tests:**
+- `older_minor_agent_rejected_with_reason`
+- `newer_minor_agent_rejected_with_reason`
+- `same_protocol_different_patch_releases_communicate`
+- `unauthenticated_hello_does_not_persist_incompatibility`
+- `incompatible_state_survives_hub_restart`
+- `incompatible_agent_idles_without_reconnecting`
+- `release_floor_no_longer_rejects`
+- `unknown_enum_value_preserved`
+- `unsupported_message_does_not_end_session`
 
 ## 13. Frontend
 

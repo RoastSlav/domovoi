@@ -9,7 +9,7 @@ The current `web/DESIGN.md` and `src/styles/tokens.css` establish a deliberate i
 - Warm charcoal/sand dark theme and paper/ink light theme.
 - Moss green as the action/accent color.
 - Walnut as a restrained brand marker.
-- Distinct semantic status tones: danger, warning, success, pending, progress, info and neutral. New statuses (the `Incompatible` host state, the locked-Deny treatment, and the `Refused`, `NotRun`, `Unavailable` and `OutcomeUnknown` outcomes) each get a label, tone, hint and icon through the shared status vocabulary (see the planned section of `web/DESIGN.md`).
+- Distinct semantic status tones: danger, warning, success, pending, progress, info and neutral. New statuses (the `Incompatible` host state, the root-agent warning, "helper unavailable", the v1 versus v2 approval-binding label, the locked-Deny treatment, and the `Refused`, `NotRun`, `Unavailable` and `OutcomeUnknown` outcomes) each get a label, tone, hint and icon through the shared status vocabulary (see the planned section of `web/DESIGN.md`).
 - Color-coded messages/statuses with text labels/icons; never rely on color alone.
 - Inter Variable/system sans typography and monospace for technical values, code, IDs, arguments and logs.
 - A 4 px spacing rhythm, consistent control geometry, semantic tokens and a controlled z-layer model.
@@ -154,7 +154,7 @@ Budgets win over presentation: when Detailed would exceed a budget on a given de
 
 Every page must explicitly design and test:
 
-- Every state in the canonical taxonomy that applies (doc 15, section 10): loading, empty, first-load error, refresh error, stale, offline/unavailable, partial and unknown value (plus `Incompatible` for hosts). Permission-denied is not a v1 state (single owner).
+- Every state in the canonical taxonomy that applies (doc 15, section 10): loading, empty, first-load error, refresh error, stale, offline/unavailable, partial and unknown value (plus `Incompatible` and "helper unavailable" for hosts). Permission-denied is not a v1 state (single owner).
 - Dense and sparse data.
 - Long names, long logs, missing values, unknown enum values (shown as the raw value) and the host `Incompatible` state.
 - Keyboard and screen-reader behavior.

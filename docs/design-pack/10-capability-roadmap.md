@@ -8,9 +8,9 @@ This roadmap is deliberately ambitious about the **capability universe** and con
 
 | Stage | Product outcome | Autonomy | Scope posture |
 |---|---|---|---|
-| **Foundation slices F1–F4** | The current product becomes trustworthy and restart-safe: atomic state and audit, recovery order, protocol tolerance, reliability and operational readiness. | Observe + human-approved changes only. | The former v0.1.0 quality bar, delivered as slices; no release tag. |
+| **Foundation slices F1–F4** | The current product becomes trustworthy and restart-safe: atomic state and audit, recovery order, exact protocol rule, reliability and operational readiness. | Observe + human-approved changes only. | The former v0.1.0 quality bar, delivered as slices; no release tag. |
 | **Milestones M1–M7 and the UI/package track** | Build the extensible foundations: execution boundary, capability contracts, operations, dynamic investigation, knowledge and experience, the Operator, policy in shadow, the Operations UI, graph, profiles and capability install. | Human approval remains default; policy runs in shadow/dry-run. | Incremental vertical slices; no autonomous authority until M8 gates pass. |
-| **H1 Narrow privileged helpers** | The Docker and nftables helpers that M8 and M9 rely on exist, each with its own ADR; the agent never gets a general Docker socket write (owner decision D-24). | None by itself. | After P1 and the research spikes R-2 and R-3; before M8's Docker contracts and M9. |
+| **H1 Unprivileged agent and root-owned helper** | The agent runs as the unprivileged `domovoi-agent` user and privileged host operations go through one narrow root-owned helper, installed only by the owner-controlled OS path (owner decisions D-24, D-29; RW-39). M8 and M9 rely on it; the agent never gets a general Docker socket write. | None by itself. | Needs F1, not P1 (packages never install the helper). After research R-3, the helper ADR and the open owner question O-30; before M8's helper-backed contracts and M9. |
 | **M8 and M9 (inside v1.0.0)** | Bounded L2 autonomy, then L3 containment, which in v1 is `firewall.block_source` only. | L2 for a reviewed operation set; L3 under a general Contain class. | Gated by drills and the host-local ceiling. |
 | **v1.0.0** | A genuinely adaptive self-hosted operations agent that dynamically investigates, plans, executes explicitly authorized low-risk repairs and contains narrowly scoped threats, and verifies outcomes. | L2 and L3 as above; nothing Destructive is ever policy-allowed. | Complete end-to-end product for Linux + common homelab services, not every possible integration. |
 | **Post-v1 (DEFERRED)** | The deferred items in section 5 (offline emergency permits, owner-signed bundles and approvals, host tags, multi-user and roles, stronger audit anchoring, third-party registries and more). | Grow L2/L3 by explicit capability and evidence, never by a global switch. | Each needs its own design; none is promised for v1. |
@@ -19,7 +19,7 @@ This roadmap is deliberately ambitious about the **capability universe** and con
 
 **Important release rule:** v1.0.0 should not be declared merely because more screens and scripts exist; the adaptive investigation → policy → operation → verification loop must work end to end. Foundation work is never skipped to reach a visible feature sooner.
 
-**Readiness rule.** An architecture being defined is not the same as a milestone being ready for an implementation prompt. A milestone is prompt-ready only when its architecture, owner decisions, research evidence and predecessor milestones are all in place. H1 and M9 still wait for the nftables and Docker privilege spikes (R-2, R-3) and their ADRs, and U2 waits for the graph-library spike (R-1); see "Readiness" in `docs/rework/06`.
+**Readiness rule.** An architecture being defined is not the same as a milestone being ready for an implementation prompt. A milestone is prompt-ready only when its architecture, owner decisions, research evidence and predecessor milestones are all in place. H1 still waits for the helper-delivery spike (R-3), its ADR and the open owner question O-30; M9 waits for the nftables spike (R-2); U2 waits for the graph-library spike (R-1). See "Readiness" in `docs/rework/06`, which holds the per-milestone readiness table.
 
 ## 2. Foundation slices — the quality bar of the former v0.1.0
 
@@ -29,7 +29,7 @@ These requirements used to define a separate v0.1.0 release. Under owner decisio
 |---|---|---|
 | **F1** | A state change, its journal entries and its audit record commit together or not at all; the audit chain exists; crash tests exist. | One transactional unit of work, hash-chained audit, atomic action and incident writes, crash harness (RW-03, RW-27). |
 | **F2** | After a restart nothing stale runs and nothing waits forever: approvals are re-checked for freshness, hosts that have not reconnected are waited for, verification and triage resume, notifications are not lost. | Recovery order, durable timers, delivery durability (RW-09, RW-30). |
-| **F3** | Hub and agent talk only on the exact same protocol major.minor. A mismatched agent is rejected with a reason and its host is shown as `Incompatible` (upgrade required, history kept, not offline); same-protocol patch releases communicate; unknown values degrade gracefully. | Exact protocol version and tolerant decoding (RW-17, owner decision D-20); no support window and no legacy adapter. Must land before any protocol minor bump. |
+| **F3** | Hub and agent talk only on the exact same protocol major.minor. The check happens only after the agent has proven its identity; a mismatched agent is rejected with the existing reason, its host is shown as `Incompatible` (upgrade required, history kept, not offline) and the state survives a hub restart; after a hub upgrade a host that has not reconnected shows "expected incompatible". An incompatible agent idles instead of reconnecting. Same-protocol patch releases communicate; application release numbers are not a compatibility dimension. | Exact protocol version, durable authenticated report and idle agent (RW-17, owner decision D-20); no support window, no legacy adapter and no release floors. **F3 changes no wire format.** Agents released before F3 restart-loop under systemd until upgraded. A revoked-build list is a separate, DEFERRED mechanism. |
 | **F4** | The model path is bounded and attributable, approvals show exactly what will run, and the hub can say whether it is ready. | LLM reliability, structured approval surfaces, operational readiness (RW-06, RW-22, RW-16). |
 
 The detail below is the product quality requirement each slice must satisfy, kept from the former v0.1.0 definition.
@@ -96,17 +96,27 @@ These are not separate releases; order by dependency and deliver in usable slice
 | Milestone | Product outcome | Sections below |
 |---|---|---|
 | **F1–F4** | Foundation slices (section 2). | 2 |
-| **M1 Execution foundation** | No execution is duplicated or silently lost: idempotency, `OutcomeUnknown`, agent action journal, plan hash v2, one execution boundary. | 3.6 |
-| **M2 Capability contracts** | One hub-owned registry the model, UI and executor share; available is not authorized. | 3.1 |
+| **M1 Execution foundation** | No execution is duplicated or silently lost: idempotency, `OutcomeUnknown`, agent action journal, plan hash v2, one execution boundary. It carries the **one and only protocol bump before v1 (1.1 → 1.2, a coordinated fleet upgrade)**; later milestones use capabilities over the frozen 1.2 wire (RW-42). | 3.6 |
+| **M2 Capability contracts** | One hub-owned registry the model, UI and executor share; available is not authorized. Starts after M1 (needs the catalogue call of wire 1.2). | 3.1 |
 | **M3 Operation aggregate, journal and SSE v2** | Durable, resumable operations; triage becomes an Investigate operation with identical behaviour; live updates that replay after a gap. | 3.2 |
 | **M4 Dynamic investigation** | Typed meta-tools, validated plans, layered context, no text-protocol proposals. | 3.2 |
 | **M5 Knowledge and experience** | Typed facts and relations over inventory; resolution summaries, full-text search and similar past operations. | 3.3 |
 | **M6 Operator** | Durable conversations as side panel and workspace over the same state. | 3.7 |
 | **M7 Policy in shadow** | Versioned policy, pure evaluator, shadow decisions, historical simulator. | 3.5 |
-| **UI track U1–U4, P1** | Operations list/detail with step timeline first (U1), interactive graph (U2, with historical playback last), presentation profiles (U3), policy, knowledge and capability pages (U4), capability packages and install from the UI (P1). All in v1. | 3.7 |
-| **H1 Narrow privileged helpers** | First-party Docker and nftables helpers with allowlists and one ADR each; the prerequisite for Docker write capabilities and for containment. | 3.6 |
+| **UI track U1–U4, P1** | Operations list/detail with step timeline first (U1), interactive graph (U2, with historical playback last), presentation profiles (U3), policy, knowledge and capability pages (U4), capability packages and install from the UI (P1 backend; the install wizard is part of U4, after U3). All in v1. | 3.7 |
+| **H1 Unprivileged agent and root-owned helper** | The agent runs unprivileged; one first-party root-owned helper with a root-owned allowlist and one ADR is the only privileged path and the prerequisite for Docker write capabilities and for containment (D-29, RW-39). | 3.6 |
 | **M8 Bounded autonomy (L2)** | Policy permits inside the host-local ceiling, target binding, circuit breaker, pause switch, first reviewed L2 operations. | 3.6 |
 | **M9 Containment (L3)** | A general Contain class whose first and only v1 capability is `firewall.block_source`: kernel-enforced expiry, a 30 s two-step confirmation, management-path protection and drills. | 3.9 |
+
+### Milestone dependencies (mirror of `docs/rework/06`)
+
+- H1 depends on F1, not on P1: the helper is installed by the OS install path, never by a package.
+- M2 starts after M1, because it needs the catalogue call carried by wire 1.2.
+- P1 is the package backend (after M1 and M2); the install wizard is part of U4, after U3.
+- Approval chain: F4 binds approvals to the existing plan hash v1 (RW-11), M1 introduces hash v2, M3 moves approval to Operation steps.
+- Protocol: F3 changes no wire format; M1 is the single 1.1 → 1.2 bump; M2 onward uses capabilities over that wire (RW-42).
+- H1 precedes M8's helper-backed contracts and M9; M8 precedes M9.
+- Per-milestone readiness for an implementation prompt is the "Readiness" table in `docs/rework/06`.
 
 ### 3.1 Capability platform
 
@@ -159,15 +169,16 @@ These are not separate releases; order by dependency and deliver in usable slice
 - Add policy test fixtures, simulation and an autonomy UI showing inherited versus explicit decisions.
 - Make policy versioned and revocable. Local verification in v1 is the host-local unattended ceiling that the agent enforces and the hub cannot widen (owner decision D-03); owner-signed policy bundles are DEFERRED past v1.
 
-### 3.6 Execution foundation (M1), helpers (H1) and first safe automation (M8)
+### 3.6 Execution foundation (M1), the helper (H1) and first safe automation (M8)
 
-- M1: idempotency keys, an agent action journal, `OutcomeUnknown` for lost results, plan hash v2 (binding the entry-script bytes and resolved target), one execution boundary with an enforced rule that nothing else dispatches.
+- F4 (current action flow): approvals bind to the existing plan hash v1 (manifest, host, arguments); it does not bind entry-script bytes or target identity (RW-11).
+- M1: idempotency keys, an agent action journal, `OutcomeUnknown` for lost results, plan hash v2 (binding the entry-script bytes, resolved target identity and execution id; pre-upgrade actions keep v1 and are labelled), one execution boundary with an enforced rule that nothing else dispatches, and the single protocol bump 1.1 → 1.2 (RW-42). M3 then moves approval to Operation steps (RW-11).
 - M8: choose reversible low-impact operations with reliable postconditions (for example, restart one known service/container, reload a specific config, renew a certificate through a supported provider, unload an unused inference model).
 - M8: policy permits, target revalidation and binding to the operation's pinned subjects, concurrency locks, operation budgets, postcondition checks, a circuit breaker and a human-only pause switch.
 - Add rollback or automatic expiry wherever possible.
 - Use per-host opt-in through the host-local ceiling; default to human approval; Destructive operations are never policy-allowed.
-- H1: narrow first-party helpers (a Docker helper against a root-owned allowlist, an nftables helper limited to set elements in table `inet domovoi`), each with its own ADR, after the privilege-path spikes (R-2, R-3).
-- The agent gets no general Docker socket write access, which would be root on the host. Docker write capabilities, including `container.restart`, stay unavailable for unattended use until the Docker helper and its ADR exist (owner decision D-24); `unit.restart` does not depend on it.
+- H1: the agent runs as the unprivileged `domovoi-agent` user; one root-owned helper (socket-activated, peer-uid checked, typed operation groups, a root-owned allowlist) is the only privileged path. It is installed and updated only by the owner-controlled OS install path; capability packages and skills can never install or modify it, and packages run as the agent user, never root (owner decision D-29, RW-26, RW-39). One ADR, after the helper-delivery spike R-3; the nftables group also needs R-2. Root installs are labelled in the UI and get no unattended execution. Skills whose manifest names another `run_as` user are an open owner question (O-30; recommended: unsupported).
+- The agent gets no general Docker socket write access, which would be root on the host. Docker write capabilities, including `container.restart`, stay unavailable for unattended use until the helper and its ADR exist (owner decision D-24); `unit.restart` also goes through the helper (`systemd.write`). Unit targets are bound by canonical id plus a hash of the fragment and drop-ins; generated and transient units are not valid mutation targets, and files a unit references are not bound (RW-34).
 - Every mutating execution, human- or policy-labelled, is bounded by the agent's mutation rate limiter (owner decision D-27); the host ceiling covers the exact capability, targets, rate, constrainable arguments and, for containment, TTL, maximum active and exclusions (D-18).
 - Run drills before granting autonomy to real hosts.
 
@@ -183,8 +194,8 @@ These are not separate releases; order by dependency and deliver in usable slice
 - Add the detailed/standard/essential presentation profiles (U3; owner decision D-10). Safety, approval and audit content appears in every profile. Customizable Control Room widgets are DEFERRED to v1.x (demand unvalidated; `docs/rework/06` "Deferred and after-v1").
 - Allow longer motion for graph and layout transitions while keeping the short micro-interaction tokens; reduced motion is mandatory (owner decision D-12).
 - Add a page design-spec and interaction/motion quality gate to implementation planning.
-- Show a host whose agent speaks another protocol minor as `Incompatible`, with an upgrade-required explanation, the exact required protocol and the agent version, history kept and never shown as offline (owner decision D-20).
-- Policy editor: locked-Deny styling and a publication validation report listing incomparable conflicts that need acknowledgement (D-19, D-26). Host pages: management-path confirmation with provenance, freshness and which containment is blocked (D-28). Approval cards show an agent-side rate-limit refusal (D-27). The audit page shows legacy and chained history separately (D-14).
+- Show a host whose agent speaks another protocol minor as `Incompatible`, with an upgrade-required explanation, the exact required protocol and the agent version, history kept and never shown as offline; after a hub upgrade, hosts that have not reconnected show "expected incompatible" (owner decision D-20, RW-17).
+- Policy editor: locked-Deny styling and a publication validation report listing incomparable conflicts that need acknowledgement (D-19, D-26). Host pages: management-path confirmation with provenance, freshness and which containment is blocked (D-28). Approval cards show an agent-side rate-limit refusal (D-27) and, during the migration, whether an action carries v1 or v2 plan binding (RW-11). Host pages show a warning when the agent runs as root, "helper unavailable" on affected checks and capabilities (RW-39), and the agent-reported exclusions beside the confirmed management paths (RW-37). The Capability Center includes owner package import (RW-26). The audit page shows legacy and chained history separately (D-14).
 
 ### 3.8 First provider expansion
 
@@ -196,11 +207,11 @@ These are not separate releases; order by dependency and deliver in usable slice
 
 ### 3.9 Containment — L3 (M9, inside v1.0.0)
 
-- **Owner decision D-04:** L3 ships in v1 as milestone M9, under a general **Contain** class whose first and only v1 capability is `firewall.block_source` (owner decision D-17). Prerequisites: M8 complete (permits, ceiling, target pinning, journal, verification, circuit breaker), H1 (the nftables helper), the privilege spike R-2, owner-confirmed management-path facts (D-28) and the drill suite.
+- **Owner decision D-04:** L3 ships in v1 as milestone M9, under a general **Contain** class whose first and only v1 capability is `firewall.block_source` (owner decision D-17). Prerequisites: M8 complete (permits, ceiling, target pinning, journal, verification, circuit breaker), H1 (the helper's `nft` group), the nftables spike R-2, owner-confirmed management-path facts (D-28) and the drill suite. Refreshing a block's TTL is one atomic delete-and-add in a single nftables transaction, never an `add` that is assumed to refresh; containment is not production-ready until R-2 is complete (04 §9.1).
 - **First and only v1 capability (owner decisions D-17, D-22):** `firewall.block_source`, an nftables set element with a kernel-enforced timeout and a 30 s two-step confirmation: the first element lives 30 s and is extended to the full TTL only when the hub confirms, so an unconfirmed block expires by itself.
 - **DEFERRED:** `container.pause` and `unit.stop_temporary` (an agent timer is not reliable automatic expiry; reconsider in v1.x when the checklist in `docs/rework/04 §9.3` is met) and the other containment candidates (container network isolation, SSH session termination, account lock). See `docs/rework/06` "Deferred and after-v1".
 - **Triggering:** a deterministic detector's typed signal whose structured fields name the target, and that target is the operation's pinned subject. Free-form model output never triggers or targets automatic containment; model recommendations go through human approval.
-- Every containment has an expiry, mandatory management-path exclusions, a cap on simultaneous containments, verification that management access still works, and outcome-unknown handling. Unattended containment on a host also requires owner-confirmed, current management paths (owner decision D-28). Offline emergency permits are DEFERRED (not in v1).
+- Every containment has an expiry, mandatory management-path exclusions, a cap on simultaneous containments, verification that management access still works, and outcome-unknown handling. Unattended containment on a host also requires owner-confirmed, current management paths that are covered by the exclusions the agent itself reports (hash and summary); a mismatch, or any network or exclusion change, blocks unattended containment while monitoring is unaffected (owner decision D-28, RW-37). Offline emergency permits are DEFERRED (not in v1).
 
 **Why this stage:** it establishes the common contracts, durable memory and policy machinery that make new capabilities additive instead of one-off LLM prompts and scripts.
 
@@ -264,7 +275,8 @@ Prioritize a reliable built-in set rather than a large shallow integration catal
 - A past approval, past success or retrieved experience never satisfies a policy condition.
 - Every operation has a traceable proposal/authorization/dispatch/result/verification sequence.
 - Security containment cannot block configured management paths; if the management paths are unknown, stale or conflicting, unattended containment is refused (owner decision D-28).
-- Hub and agent communicate only on the exact same protocol major.minor; an older or newer agent is rejected with a reason and its host is shown as `Incompatible` with history kept (owner decision D-20).
+- Hub and agent communicate only on the exact same protocol major.minor; the check follows identity verification, an older or newer agent is rejected with a reason, and its host is shown as `Incompatible` with history kept, also after a hub restart; the agent idles instead of reconnecting, and no release-number floor exists (owner decision D-20, RW-17, RW-42).
+- The agent runs as an unprivileged user on a fresh install; privileged operations go only through the root-owned helper, which no package or skill can install or modify (owner decision D-29, RW-39). A host still running the agent as root is labelled and gets no unattended execution.
 - Every mutating execution, human- or policy-labelled, is bounded by the agent's mutation rate limiter, and a refusal is shown with its reason (owner decision D-27).
 - Notification delivery is at-least-once: duplicates after a crash window are possible and nothing claims exactly-once.
 - The agent upgrade procedure (hub first, then agents; no agent self-update) is documented and tested.

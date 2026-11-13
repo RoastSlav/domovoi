@@ -50,7 +50,7 @@ These are product-level properties to preserve through whatever implementation i
 
 ## Owner decisions since the first snapshot
 
-On 2026-11-13 the owner answered the open decisions in [`docs/rework/99-open-decisions.md`](../rework/99-open-decisions.md), including the later entries D-16..D-28. They are binding product direction and are reflected in the documents named below. Technical detail lives in the linked `RW` decision.
+On 2026-11-13 the owner answered the open decisions in [`docs/rework/99-open-decisions.md`](../rework/99-open-decisions.md), including the later entries D-16..D-29. They are binding product direction and are reflected in the documents named below. Technical detail lives in the linked `RW` decision.
 
 | Owner decision | Outcome | Reflected in | Technical detail |
 |---|---|---|---|
@@ -72,16 +72,17 @@ On 2026-11-13 the owner answered the open decisions in [`docs/rework/99-open-dec
 | D-16 | Package trust: first-party release key plus owner keys installed locally on the agent; the hub cannot add or replace keys; a detached signature over a canonical message, verified before extraction; a rollback must be signed by a currently trusted key. Third-party registries are DEFERRED. | 03, 09, 14, 17 | RW-26 |
 | D-17 | The first and only v1 containment capability is `firewall.block_source`. `container.pause` and `unit.stop_temporary` are DEFERRED until independent expiry and recovery are proven. | 05, 10, 11 | RW-13 |
 | D-18 | Ceiling scope: exact capability id, explicit targets, maximum rate, declared constrainable arguments, maximum TTL and maximum active for containment, mandatory management-path exclusions. No entry, no policy-authorized execution. | 02, 05 | RW-12 |
-| D-19 | Incomparable conflicting rules resolve Deny > RequireApproval > Allow; publication shows the conflicts and needs acknowledgement. | 05, 09, 14 | RW-10 |
-| D-20 | Exact protocol major.minor match: older and newer minors are rejected, same-protocol patch releases are compatible. No legacy adapter and no support window. Coordinated upgrade: hub first, then agents through the install procedure. The `Incompatible` host state is visible and keeps history. No agent self-update. | 02, 10, 13, 14, 15, 17, 18 | RW-17 |
+| D-19 | Incomparable conflicting rules resolve Deny > RequireApproval > Allow; publication shows the conflicts, equal-scope ones as well, and needs acknowledgement. | 05, 09, 14 | RW-10 |
+| D-20 | Exact protocol major.minor match, checked only after the agent has proven its identity: older and newer minors are rejected, same-protocol patch releases are compatible, and application release numbers are not a compatibility dimension. No legacy adapter and no support window. Coordinated upgrade: hub first, then agents through the install procedure. The `Incompatible` host state is persisted, survives a hub restart, is visible and keeps history; an incompatible agent idles instead of reconnecting. One protocol bump before v1 (M1). No agent self-update. | 02, 10, 13, 14, 15, 17, 18 | RW-17, RW-42 |
 | D-21 | Retention defaults, all configurable. Deleted data leaves the live database, search and model context, and stays in backups until they rotate. | 07, 14 | RW-28 |
 | D-22 | Every containment expires independently of the main agent; connectivity-affecting containment also needs an independent watchdog; nothing is enabled unattended until expiry, recovery, watchdog, outcome-unknown handling and drills exist. | 05, 10 | RW-13 |
 | D-23 | A policy Deny is not offered for approval; the owner must change the policy. No bypass. | 05, 14 | RW-10 |
-| D-24 | No general Docker socket write access for the agent; a narrow first-party helper with its own ADR; Docker write capabilities are unavailable for unattended use until then. | 03, 05, 10, 11 | RW-39 |
+| D-24 | No general Docker socket write access for the agent; a narrow first-party helper with its own ADR; Docker write capabilities are unavailable for unattended use until then (the helper is part of D-29's design). | 03, 05, 10, 11 | RW-39 |
 | D-25 | Historical graph playback ships last in U2; the timeline and history are fully useful without it. | 10, 14, 15, 17 | RW-21 |
 | D-26 | Locked Deny (default off): an owner-declared prohibition that narrower rules cannot override; visible in the editor, simulator, explanation and trace; step-up to change. | 05, 14, 17 | RW-10 |
 | D-27 | Agent-side mutation rate limits apply to all mutating executions, human- and policy-labelled, separately from the ceiling. | 02, 05, 14 | RW-38 |
-| D-28 | Unattended containment on a host requires owner-confirmed, current management paths; unknown, stale or conflicting means refused. The agent enforces local exclusions independently; the UI shows paths, provenance, freshness and what is blocked. | 05, 06, 09, 14 | RW-37 |
+| D-28 | Unattended containment on a host requires owner-confirmed, current management paths covered by the exclusions the agent reports; unknown, stale, conflicting or uncovered means refused. The agent enforces local exclusions independently; the UI shows paths, the agent-reported exclusions, provenance, freshness and what is blocked. | 05, 06, 09, 14 | RW-37 |
+| D-29 | The main agent runs as the dedicated unprivileged user `domovoi-agent`; privileged host operations go only through one narrow, root-owned helper installed and updated by the owner-controlled OS path, never by capability packages or skills. Root installs are labelled and get no unattended execution. Skills that need another `run_as` user are an open owner question (O-30; recommended unsupported). | 02, 03, 05, 10, 13, 14 | RW-39, RW-12, RW-26 |
 
 Ledger rows above that an owner decision changed say so in their Status column.
 

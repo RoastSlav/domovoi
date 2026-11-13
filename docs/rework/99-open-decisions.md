@@ -28,7 +28,7 @@ ledger (`docs/design-pack/01`) also numbers its rows D-NN; cite those as "pack D
 | D-17 [O-17] | First containment capability: `firewall.block_source` only. `container.pause` and `unit.stop_temporary` deferred until independent expiry and recovery are proven | RW-13, 04 §9 |
 | D-18 [O-18] | Ceiling scope: exact capability id, explicit targets, max rate, declared constrainable args, max TTL and max active for containment, mandatory management-path exclusions. No entry → no policy-authorized execution | RW-12, 04 §8.3 |
 | D-19 [O-19] | Incomparable conflicting maximal rules → Deny > RequireApproval > Allow. Publication shows the conflicts and requires acknowledgement | RW-10, 04 §7.3–7.6 |
-| D-20 [O-20] | Exact protocol major.minor match. Older and newer minors rejected; same-protocol patch releases compatible. No legacy adapter. Coordinated hub-then-agents upgrade. `Incompatible` host state is visible and keeps history. No agent self-update | RW-17, 04 §12, 05 §4 |
+| D-20 [O-20] | Exact protocol major.minor match; no backward or forward window; same-protocol patch releases compatible; mismatched agent is `Incompatible` (persisted only after authentication, survives hub restart, history kept), operations on it are `Unavailable(agent_incompatible)`; no endless reconnect loop; coordinated hub-then-agents upgrade; application release floors are not a compatibility dimension; no agent self-update | RW-17, RW-42, 04 §12, 05 §4 |
 | D-21 [O-21] | Retention defaults (configurable): signals 30 d; incident timeline raw 90 d; operation journal raw 180 d; raw execution outputs 30 d; operations and summaries retained; audit retained (checkpoint pruning only if configured); retracted fact content purged after 30 d; conversations 180 d; notifications and notification state 30 d; nightly backups 7; pre-migrate backups last 3 | RW-28, 04 §14 |
 | D-22 [O-22] | Every containment expires independently of the main agent. Connectivity-affecting containment also needs an independent watchdog. Firewall uses a kernel timeout. No unattended enablement until expiry, recovery, watchdog, outcome-unknown handling and drills exist | RW-13, 04 §9 |
 | D-23 [O-23] | Policy `Deny` = not offered for approval; the owner must change the policy. No approval bypass | RW-10, 04 §7.3 |
@@ -37,20 +37,25 @@ ledger (`docs/design-pack/01`) also numbers its rows D-NN; cite those as "pack D
 | D-26 [O-26] | Locked Deny (default off): an owner-declared prohibition that narrower rules cannot override. Visible in editor, simulator, explanation and trace. Step-up to change | RW-10, 04 §7 |
 | D-27 [O-27] | Agent-side mutation rate limits apply to all mutating executions, human- and policy-labelled. Separate from the ceiling | RW-38 |
 | D-28 [Q0.5] | Unattended containment on a host requires owner-confirmed, current management paths. Unknown, stale or conflicting → refused. Agent enforces local exclusions independently. UI shows paths, provenance, freshness and what is blocked. No effect on monitoring or other human-approved work | RW-37 |
+| D-29 | The main agent runs as a dedicated unprivileged OS user; privileged host operations go only through one narrow, root-owned helper installed and updated by the owner-controlled OS path, never by capability packages | RW-39, RW-12, RW-26 |
 
 ## B. Open owner decisions
 
-None at this time. Technical details under approved directions are PROPOSALs in `03`/`04` and may
-be refined in review without an owner decision unless they change behaviour the owner sees.
+| ID | Question | Alternatives and consequences | Recommendation | Blocks |
+|---|---|---|---|---|
+| O-30 | Skills whose manifest sets `run_as` to a user other than the agent user, after D-29 | (a) unsupported: reported `Unavailable(run_as_unsupported)`; owner rewrites the skill or runs it outside Domovoi; (b) a helper operation that switches users for allowlisted (skill, user) pairs — reintroduces a root path controlled by package content; (c) owner-configured sudoers rules inside skills — gives the agent user sudo and undermines D-29 | (a) | H1 migration step 5 (skills impact), P1 package guidance |
+
+Technical details under approved directions are PROPOSALs in `03`/`04`.
 
 ## C. Research and evidence still needed (not owner decisions)
 
 | ID | Question | Needed before | How resolved |
 |---|---|---|---|
 | R-1 | Graph library that works under the CSP, the no-inline-style rule and the bundle budget | U2 prompts | spike (prompt 33) |
-| R-2 | nftables availability, the `inet domovoi` table approach and helper privilege path (sudoers or file capability) on supported distros, Docker images and Unraid | M9 prompts | spike + ADR (RW-39) |
-| R-3 | Docker helper privilege path on the same platforms | M8 Docker contracts | spike + ADR (RW-39) |
+| R-2 | nftables containment on supported platforms: existing base tables, chains, hooks and priorities; whether packets actually reach the `inet domovoi` set; coexistence with firewalld, ufw, Docker and common host networking; set size and resource limits; TTL validation; atomic delete + add replacement and failure recovery; exclusion enforcement in the helper | M9 prompts | spike + helper ADR; containment is not production-ready until verified |
+| R-3 | Helper delivery on supported platforms: systemd socket activation, `SO_PEERCRED`, sandboxing options, container deployments (socket mount), Unraid/no-systemd supervisors; Docker API access from the helper | H1 prompts | spike + helper ADR |
+| R-8 | Effective-configuration identity for systemd units (fragment + drop-ins) across supported systemd versions | M8 `unit.restart` | test on supported distros |
 | R-4 | Discord `nonce` / `enforce_nonce` deduplication behaviour | F2 delivery prompt (affects wording only; at-least-once holds either way) | read docs + test against a test guild |
 | R-5 | Real prompt sizes, to set the total prompt cap | F4 LLM prompt | measure on dev hub with a busy fixture |
 | R-6 | fsync cost of `synchronous=FULL` and the agent journal on slow storage (SD card) | F1 / M1 | benchmark; documented, not blocking |
-| R-7 | Docker client escaping of container names (E §3) | M8 | read bollard usage / test |
+| R-7 | (Reframed) Container names are only used for resolution and are validated against Docker's name grammar; all helper operations take ids (RW-34). Remaining work is a test, not research: `container_name_grammar_enforced` | — | covered by RW-34 tests |
