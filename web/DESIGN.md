@@ -414,7 +414,7 @@ canvas with an outline (real DOM, the screen-reader path) and keyboard navigatio
 between connected nodes, Enter opens the inspector, Home and End go to the first and last node, a
 key jumps to the active node); an inspector; a split pane with a keyboard-operable divider; a
 virtual list; the one structured approval card (contract, target, arguments, effect class,
-reversibility, expiry, plan-hash prefix, a label for which plan hash the approval binds ("v1 binding" or "v2 binding" during the migration, RW-11), policy decision, and an agent refusal reason such as a rate limit; model text secondary and labelled); a
+reversibility, expiry, plan-hash prefix, a label for which plan hash the approval binds ("v1 binding" or "v2 binding" during the migration, RW-11), policy decision, an agent refusal reason such as a rate limit, and the unverified human variant for containment without verified helper coverage (reason, NOT PROTECTED path list, step-up then typed confirmation, RW-37); model text secondary and labelled); a
 freshness label; the profile provider and visibility primitive.
 
 **Lint and size amendments the graph will need, each written here before the code.** Computed
@@ -447,9 +447,11 @@ judged only against verified data, with the attestation's freshness, an unverifi
 fresh verified report exists, and the instruction to edit `helper.toml` on the host (then Re-check)
 for an uncovered path (RW-37). The enrollment screen shows the received helper key's full
 fingerprint as unverified until the owner confirms it against the host's own printout (nothing is
-pinned automatically; the key id is a label); a changed key reads "helper key changed" and blocks
-containment; a containment step the helper refuses because its safety state changed carries the
-reason `safety_changed`. The owner confirms only covered paths. The Capability
+pinned automatically; the key id is a label); a changed key reads "helper key changed: re-enroll" and blocks
+containment; the helper's fail-closed reasons (`state_missing`, `state_corrupt`, `state_key_mismatch`,
+`key_missing`, `uninitialized`, `generation_regressed`) show with the matching local action; a
+containment step the helper refuses because its safety identity changed carries the reason
+`safety_changed`. The owner confirms only covered paths. The Capability
 Center gets an owner package import (upload of an owner-signed archive and its signature, RW-26)
 before the install wizard, which is built after the visibility infrastructure. The **locked rule** treatment (D-26) makes a locked Deny read differently from
 an ordinary Deny: a lock icon and the text "Locked Deny", never colour alone, in the policy

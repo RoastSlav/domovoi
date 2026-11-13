@@ -154,6 +154,7 @@ The **outline** is the screen-reader path: a nested list (cycle, branch, node) i
 - A host that becomes `Incompatible` after dispatch leaves its in-flight step awaiting a compatible agent; the step is neither failed nor shown as offline (owner decision D-20). The same holds after a hub restart: the state is read from the persisted agent record, not from a live connection.
 - A new investigation cycle should say why it started (failed verification, new evidence, user request, recurrence, timeout).
 - A failed step must not disappear when a later step succeeds.
+- The unverified human approval (containment without verified helper coverage, owner decision D-28, RW-37) is a deliberate two-stage interaction: step-up, then a typed confirmation, with the NOT PROTECTED path list and the "coverage cannot be verified" warning visible while typing. There is no one-click approve, no default focus on the confirm control and no remembered confirmation; the warning and list are text, never colour alone, and are announced to assistive technology.
 - Long-running work should support safe navigation away and return; page closure must not be interpreted as cancellation.
 
 ## 6. Operator interactions

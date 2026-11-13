@@ -497,7 +497,7 @@ The trace is persisted for every mutating or containing step, enforced or shadow
 | Type | Crate | Fields | Constructed by | Restored by |
 |---|---|---|---|---|
 | `HumanApproval` | core | `user`, `channel` (`Web{typed_confirmation}` or `Chat{platform, platform_user}`), `at` — unchanged | `hub/src/auth/` after session + CSRF or chat allowlist check | `store/src/` |
-| `PolicyPermit` | core | `decision_id`, `rule_ids`, `policy_version`, `plan_hash`, `issued_at`, `expires_at`, `ceiling_hash`, `safety_identity` (Contain only, RW-37) | `hub/src/policy/` via `PermitIssuer` port | `store/src/` |
+| `PolicyPermit` | core | `decision_id`, `rule_ids`, `policy_version`, `plan_hash`, `issued_at`, `expires_at`, `ceiling_hash`, `safety_identity` (Contain only; always the full verified identity, RW-37) | `hub/src/policy/` via `PermitIssuer` port | `store/src/` |
 | `Authorization` | core | `Human(HumanApproval) \| Policy(PolicyPermit)` | from the above | store |
 | `AuthorizedExecution` | engine (operation writer) | step + authorization | `execute()` precondition | never persisted |
 
@@ -536,12 +536,16 @@ run_capability {
   target (canonical identity), args, plan_hash,
   authorization_kind: human | policy,
   expires_at,
-  expected_safety?: { fingerprint, boot_id, generation, config_hash, route_state_hash },  // required for Contain
+  expected_safety?: verified{ fingerprint, boot_id, generation, config_hash, route_state_hash }
+                 | unverified{ reason },   // required for Contain; unverified only with authorization_kind = human
 }
 ```
 
 `expected_safety` is a consistency guard on the honest path (RW-37). It is not proof of authorization:
-the helper always enforces its actual current set whatever this field says.
+the helper always enforces its actual current set whatever this field says. `unverified` is the
+human-only exception (step-up and typed confirmation; persisted on the execution as
+`safety_assurance = unverified{reason, unprotected_paths}`). The agent refuses it with a `policy`
+label. The hub never puts it in a permit.
 
 `authorization_kind` and `expires_at` are labels from the hub. The agent applies its own rules to
 them; they prove nothing.
@@ -711,10 +715,10 @@ Assumes D-29 is in effect: control agent as `domovoi-agent`, skills as `domovoi-
 | Threat | brute force or scanning from an external source |
 | Target | `ipnet:{canonical}` from a detector signal's structured field; prefix ≥ ceiling minimum; equals the pinned subject |
 | Privileges | root-owned helper `nft` group (RW-39), limited to set elements in table `inet domovoi`; no other table touched; exclusions re-checked in the helper |
-| Management protection | D-28: paths confirmed and current, covered by a **verified, fresh helper attestation** (≤ 5 min, same `generation`) of the effective set (RW-37: `[safety]` CIDRs, hub address from root-owned config, kernel-observed link peer, loopback, link-local); immediately before apply the helper recomputes its actual set, refuses any overlapping target, and refuses everything if a safety element cannot be established |
+| Management protection | D-28: paths confirmed and current, covered by a **verified, fresh helper attestation** (≤ 5 min) whose full safety identity (fingerprint, `boot_id`, `generation`, `config_hash`, `route_state_hash`) is bound to the permit and dispatch of the effective set (RW-37: `[safety]` CIDRs, hub address from root-owned config, kernel-observed link peer, loopback, link-local); immediately before apply the helper recomputes its actual set, refuses any overlapping target, and refuses everything if a safety element cannot be established |
 | Expiry | nftables set element `timeout` = TTL (≤ `max_ttl`). Kernel-enforced, so it does not depend on the agent, the hub or the helper process |
 | Watchdog (D-22) | built into the two-step apply below: the first element carries a 30 s kernel timeout, so if the hub never confirms reachability the block disappears by itself, whether or not the agent, helper or hub survives |
-| Apply semantics | step 1: element added with a 30 s timeout; step 2: on hub confirmation, `replace_ttl` = `delete element` + `add element … timeout <TTL>` in **one** `nft -f` transaction (atomic netlink batch, so the element is never absent); if the element already expired, the transaction fails and the helper reports `expired` (no silent re-add). `add element` on an existing element is not relied on to refresh its timeout. Exact behaviour per supported nftables version is verified in R-2 Each request carries `expected_safety`; the helper refuses `safety_changed` if its recomputed identity differs (honest-path guard), and always checks the target against its actual set |
+| Apply semantics | step 1: element added with a 30 s timeout; step 2: on hub confirmation, `replace_ttl` = `delete element` + `add element … timeout <TTL>` in **one** `nft -f` transaction (atomic netlink batch, so the element is never absent); if the element already expired, the transaction fails and the helper reports `expired` (no silent re-add). `add element` on an existing element is not relied on to refresh its timeout. Exact behaviour per supported nftables version is verified in R-2 Each request carries `expected_safety`; the helper refuses `safety_changed` if its recomputed full identity differs from `verified{…}` (honest-path guard; `unverified` skips only this comparison), and always checks the target against its actual set |
 | Rollback | `del element` (idempotent; absent = success) |
 | Postcondition | element present with remaining timeout > 0; hub → agent round trip still works |
 | Outcome unknown | read set membership via helper `list`; present → treat as applied; absent → `NotRun` only if the journal proves no apply, else `OutcomeUnknown` |
@@ -727,6 +731,9 @@ Assumes D-29 is in effect: control agent as `domovoi-agent`, skills as `domovoi-
 
 ### 9.2 General rules for any v1 `Contain` capability
 
+- Unattended: only on the verified path (RW-37), with the full safety identity bound to the permit
+  and dispatch. A permit from before a reboot is invalid. Human-approved containment without
+  verification follows the unverified human path.
 - Triggered only from a deterministic detector signal naming the target.
 - Target equals the pinned subject.
 - TTL mandatory.
@@ -1018,6 +1025,8 @@ The safety set is not a status field: it arrives only as a signed attestation.
 - `skill_runner_status_absent_ok_error_unsupported`
 - `agent_status_change_updates_availability`
 - `attestation_roundtrip_over_wire`
+- `expected_safety_tagged_variants_roundtrip`
+- `malformed_expected_safety_refused`
 - `release_floor_no_longer_rejects`
 - `unknown_enum_value_preserved`
 - `unsupported_message_does_not_end_session`

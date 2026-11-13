@@ -111,7 +111,7 @@ The Operations page is a unified view of work. The Incidents page remains a view
 
 ### One home for approvals
 
-An approval is a step of an operation, so **operation detail is its canonical home**. It is rendered by one structured approval card component (doc 14, section 5) that shows contract, target, arguments, effect class, reversibility, expiry, plan-hash prefix, whether the approval binds the v1 or the v2 plan hash (labelled during the migration, RW-11) and the policy decision; model text is secondary and labelled. Incident detail, the Control Room, the Operator and the attention center embed that card or link to the operation; none builds its own version. Incident controls (acknowledge, mute, dismiss) stay separate from operation controls (stop, cancel, retry) and from approval controls.
+An approval is a step of an operation, so **operation detail is its canonical home**. It is rendered by one structured approval card component (doc 14, section 5) that shows contract, target, arguments, effect class, reversibility, expiry, plan-hash prefix, whether the approval binds the v1 or the v2 plan hash (labelled during the migration, RW-11) and the policy decision; model text is secondary and labelled. For containment without verified helper coverage the card is the unverified human variant (doc 14, section 5). Incident detail, the Control Room, the Operator and the attention center embed that card or link to the operation; none builds its own version. Incident controls (acknowledge, mute, dismiss) stay separate from operation controls (stop, cancel, retry) and from approval controls.
 
 ## 5. Page map
 
@@ -146,7 +146,7 @@ Domovoi
 │   │   ├── Services and workloads
 │   │   ├── Capabilities
 │   │   ├── Monitoring and checks
-│   │   ├── Network and security (management paths: provenance, freshness, covered or uncovered judged against the helper's verified set, helper key enrollment and key-changed state, what is blocked)
+│   │   ├── Network and security (management paths: provenance, freshness, covered or uncovered judged against the helper's verified set, helper key enrollment and "helper key changed: re-enroll" state, helper fail-closed reasons with the matching local action, what is blocked)
 │   │   ├── Knowledge and dependencies
 │   │   └── Activity
 │   ├── Service/workload detail

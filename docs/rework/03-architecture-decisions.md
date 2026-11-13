@@ -927,14 +927,14 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
   nonce=<64 hex>
   boot_id=<lowercase uuid from /proc/sys/kernel/random/boot_id>
   generation=<u64 decimal, no leading zeros>
-  config_hash=<64 hex: SHA-256 of the canonical [safety] lines below>
-  route_state_hash=<64 hex: SHA-256 of the route lines below>
+  config_hash=<64 hex: SHA-256 per 04b §3 (effective config incl. mandatory units and defaults)>
+  route_state_hash=<64 hex: SHA-256 per 04b §3 (route lines)>
   complete=<true|false>
   incomplete_reason=<token or empty>
   computed_at=<RFC 3339 UTC, seconds, Z>
   cidr=<canonical CIDR>*                  configured management CIDRs
   protected_unit=<canonical unit id>*
-  protected_container=<64 hex container id>*
+  protected_container=<container name, percent-encoded>*
   max_ttl_s=<u64>
   max_active=<u64>
   hub_addr=<canonical IP>*
@@ -945,8 +945,10 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
   endpoint_route=<endpoint IP>|<table>|<gateway IP or ->|<ifname>|<src IP>*
   ```
 
-  - **Canonical values.** IPv4 dotted decimal; IPv6 RFC 5952; CIDRs with host bits zero; unit ids
-    after alias resolution.
+  - **Field grammar, canonical values and hash inputs:** `04b`. Every field is strictly
+    percent-encoded, so `|` and LF cannot occur inside a value. `protected_container` carries the
+    configured container name, not an id; ids are resolved at apply time. `config_hash` and
+    `route_state_hash` use their own domain prefixes, and `04b` §4 has the vectors.
   - **Signing bytes.** `"domovoi-safety-attest-v1\n"` ‖ the report bytes.
   - **Message.** `safety_attestation{ public_key, report: base64(report bytes), signature:
     base64(64 bytes) }`.
@@ -1000,10 +1002,12 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
 
 - **Safety identity** = (`fingerprint` of the pinned key, `boot_id`, `generation`, `config_hash`,
   `route_state_hash`).
-- **`generation`** is a u64 in root-owned helper state (`/var/lib/domovoi-helper/state`). The helper
-  increments it whenever the effective set differs from the last computed one, meaning any change
-  of `config_hash`, `route_state_hash`, the dynamic lines, or the limits. It never decreases. Lost
-  helper state also means a new key, so the reset is caught as a key change.
+- **`generation`** is a u64 that counts changes of the **effective safety set**: the config lines and
+  route lines of the report, which together produce `config_hash` and `route_state_hash`.
+  - Adding or removing a containment element in the nft set does **not** change it.
+  - It is incremented only when the newly computed hashes differ from the last persisted ones.
+  - A new `boot_id` with identical content does not increment it.
+  - Under one key it never decreases and never repeats.
 - **Where the identity lives:**
 
   | Place | Use |
@@ -1011,17 +1015,50 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
   | stored management-path confirmation | the identity it was confirmed against |
   | `PolicyPermit` for `Contain` (new field `safety_identity`) | the identity at issuance |
   | execution detail (`safety_identity`) and approval card | for human-approved containment, the identity shown when approving |
-  | `run_capability.expected_safety` (wire 1.2; optional field, required for `Contain`) | the dispatch guard sent to the agent |
+  | `run_capability.expected_safety` (wire 1.2; required for `Contain`) | the dispatch guard sent to the agent |
   | helper `nft` request field `expected_safety` | the comparison at apply time |
+
+- **`expected_safety` type.** A tagged value. It is required on every `Contain` request; a missing
+  or unknown tag is refused (`refused{malformed_safety}`).
+  - `verified{ fingerprint, boot_id, generation, config_hash, route_state_hash }`
+  - `unverified{ reason }`, where `reason` ∈ `key_not_pinned | key_mismatch | attestation_missing |
+    attestation_stale | signature_invalid | report_incomplete | generation_regressed |
+    path_uncovered | confirmation_stale`.
+
+  No fingerprint or identity is ever fabricated for `unverified`.
+
+- **Verified path** (unattended or human):
+  - Requires a pinned key, a verified, complete attestation under 5 minutes old, and current
+    confirmations.
+  - The full identity is bound to the confirmation, the permit or approval, and the dispatch.
+  - The helper compares the full identity with its freshly computed one. A mismatch is refused
+    `safety_changed`; unknown state is refused `safety_unknown`.
+- **Unverified human path** (human only):
+  - Requires an authenticated human approval with step-up **and** typed confirmation.
+  - The approval card states that management-path coverage cannot be verified, gives the reason,
+    and lists every discovered path that is uncovered or unverified as **not protected**.
+  - The hub persists `safety_assurance = unverified{reason, unprotected_paths}` on the execution and
+    audits `containment.unverified_approved`.
+  - The hub never issues a `PolicyPermit` with `unverified`.
+  - The agent refuses `unverified` when `authorization_kind = policy`
+    (`refused{unverified_requires_human}`).
+  - The helper skips only the identity comparison. It still recomputes its set, refuses overlap,
+    enforces maxima and mutation limits, and fails closed on unknown state.
+  - **Bounded concern.** The owner accepts uncertainty about coverage; helper enforcement is
+    unchanged. A compromised agent could send `unverified` on its own, as with any direct call.
+    That is the existing residual risk, and it gains nothing beyond what the helper already allows.
 
 - **Normal (hub-authorized) flow:**
   1. The hub gets a fresh verified attestation (≤ 5 min old).
-  2. It checks that every confirmed path is still covered and that each confirmation's identity
-     equals the current identity, except `boot_id`, so a reboot alone does not discard owner
-     confirmations.
-  3. It issues the permit with `safety_identity` (for human approvals, it binds the identity shown
-     on the card).
-  4. The agent dispatches with `expected_safety` = that identity.
+  2. It checks that every confirmed path is still covered.
+     - Each confirmation's stored identity must equal the current identity on fingerprint,
+       `generation`, `config_hash` and `route_state_hash`.
+     - `boot_id` may differ only when all of those match **and** the current attestation is fresh
+       and verified. That is the reboot exception for confirmations; it never applies to permits or
+       dispatches.
+  3. It issues the permit with the full `safety_identity`, including `boot_id`. For human approvals
+     it binds the identity shown on the card.
+  4. The agent dispatches with `expected_safety = verified{…}` carrying that full identity.
   5. The helper recomputes its current state.
   6. The helper compares: current ≠ `expected_safety` → `refused{safety_changed}`; it cannot
      compute → `refused{safety_unknown}`; otherwise it checks the target against the actual
@@ -1036,7 +1073,8 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
   | helper restarts (new instance per connection) | no effect if state is unchanged; `generation` is persisted |
   | host reboot | `boot_id` changes; dispatch refused; re-attest needed. Confirmations survive if `generation` and hashes are unchanged |
   | pinned key changes | no verification possible; no permits; the helper compares its own fingerprint, so an old identity is refused |
-  | report older than 5 min at issuance | no permit |
+  | report older than 5 min at issuance | no unattended permit; a human may approve only on the unverified path |
+  | permit issued before a reboot | invalid after it (`boot_id` is part of the permit identity); a new attestation and a new permit are needed |
   | generation changes between verification and apply | `refused{safety_changed}`; the step is `Refused`; the hub re-attests and re-evaluates; any new attempt is a new step with new authorization |
   | helper cannot recompute | `refused{safety_unknown}` |
 
@@ -1053,6 +1091,59 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
   semantics, and a protocol change. It is **not** part of this design; it belongs with the DEFERRED
   owner-signed approvals (`06`).
 
+### Helper state, recovery and concurrency
+
+- **Files** (all root, directory `/var/lib/domovoi-helper` 0700):
+  - `attest.key` (0600): Ed25519 private key.
+  - `state` (0600): LF lines `format=1`, `key_fingerprint=<64 hex>`, `generation=<u64>`,
+    `config_hash=<64 hex>`, `route_state_hash=<64 hex>`, `boot_id=<uuid>`, then
+    `checksum=<64 hex SHA-256 of all preceding bytes>`.
+  - `state.lock` (0600): an empty lock file.
+- **Serialization.** Every helper instance (one per connection) takes `flock(LOCK_EX)` on
+  `state.lock` and holds it across the whole sequence:
+  1. read and validate `state`;
+  2. recompute config and route lines;
+  3. compare;
+  4. increment and write if changed;
+  5. sign the attestation, **or**, for an apply, compare `expected_safety` and run the nft
+     transaction.
+
+  Concurrent instances therefore cannot compute conflicting next generations, and helper state
+  cannot change between the comparison and the nft transaction. A kernel route change during that
+  short window is an accepted, documented race; the next attestation sees it.
+- **Atomic write.**
+  1. Write `state.tmp`; `fsync` it.
+  2. `rename(state.tmp, state)`; `fsync` the directory.
+  3. A leftover `state.tmp` is deleted under the lock at start.
+  4. `rename` is atomic, so a reader sees either the old or the new complete file.
+  5. A checksum mismatch, a missing field or an unknown `format` means **corrupt**.
+- **State conditions:**
+
+  | Condition | Behaviour |
+  |---|---|
+  | key and state valid, `key_fingerprint` matches the key | normal |
+  | state missing, key present | fail closed: attestation `complete=false`, `incomplete_reason=state_missing`, all containment refused; no silent reset |
+  | state corrupt (checksum, parse, `format`) | fail closed (`state_corrupt`) |
+  | state `key_fingerprint` ≠ key | fail closed (`state_key_mismatch`) |
+  | key missing, state present | fail closed (`key_missing`); the helper **never** generates a key on its own |
+  | both missing | fail closed (`uninitialized`) until `domovoi helper init` |
+  | write interrupted | old file intact (atomic rename); generation not advanced; retried next request; never decremented |
+
+- **Explicit local actions.** These are proposed commands, run as root on the host:
+  - `domovoi helper init` (run by the installer): creates the key and `state` with `generation=1`
+    if neither exists. It refuses if either exists.
+  - `domovoi helper recover`: moves the old key and state to `/var/lib/domovoi-helper/retired/<ts>/`,
+    then creates a **new key** and fresh `state` with `generation=1`. Recovery is always a key
+    rotation, because generation continuity cannot be proven after state loss.
+  - `domovoi helper rotate-key`: also creates a new key and state with `generation=1`.
+- **Hub view.**
+  - A recovered or rotated helper presents a new public key, so the host shows **"helper key
+    changed: re-enroll"** and containment stays blocked until owner enrollment.
+  - The hub stores the highest verified `generation` per pinned key. A report with a lower
+    generation under the same key is rejected as `generation_regressed`, for example after an old
+    state file was restored. Containment is blocked and the owner is alerted.
+  - Helper fail-closed reasons show on the host page with the matching local action.
+
 ### Owner workflow, semantics and enforcement
 
 - **Workflow.**
@@ -1068,7 +1159,7 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
   | Condition | Behaviour |
   |---|---|
   | helper cannot compute its state | all containment refused (`safety_unknown`); attestation `complete=false` |
-  | no verified fresh attestation, key not pinned, or key mismatch | unattended containment blocked; human approval only with typed confirmation and a "safety state unverified" warning; the helper still enforces its actual set |
+  | no verified fresh attestation, key not pinned, key mismatch, invalid signature, incomplete report, generation regressed | unattended containment blocked; human approval only on the **unverified human path** (step-up, typed confirmation, "not protected" list); the helper still enforces its actual set |
   | candidate path uncovered | cannot be confirmed; unattended containment blocked; human approval as in the row above, with the path listed as not protected |
   | confirmation stale (identity changed, other than `boot_id`, or older than 30 d) | unattended containment blocked until re-confirmed |
   | target overlaps the actual helper set | helper refuses regardless of policy, permit or approval |
@@ -1130,6 +1221,34 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
   - `helper_refuses_overlap_without_expected_safety`
   - `helper_fails_closed_when_safety_state_unknown`
   - `helper_attestation_key_not_readable_by_agent_or_skill`
+- **Unverified human path:**
+  - `human_containment_with_no_pinned_key_uses_unverified_path`
+  - `human_containment_with_expired_attestation_uses_unverified_path`
+  - `human_containment_with_invalid_signature_uses_unverified_path`
+  - `human_containment_with_incomplete_routes_uses_unverified_path`
+  - `unattended_containment_refused_in_every_unverified_case`
+  - `agent_refuses_unverified_with_policy_label`
+  - `exclusion_overlap_refused_even_on_unverified_human_path`
+  - `malformed_expected_safety_refused`
+- **Helper state:**
+  - `generation_state_missing_with_key_fails_closed`
+  - `generation_state_corrupt_with_key_fails_closed`
+  - `generation_state_key_mismatch_fails_closed`
+  - `generation_never_decreases_under_same_key`
+  - `concurrent_attestations_serialize_generation_updates`
+  - `interrupted_state_write_never_reuses_generation`
+  - `helper_state_recovery_requires_explicit_local_action`
+  - `key_rotation_invalidates_previous_pin`
+  - `hub_rejects_generation_regression`
+  - `containment_membership_change_keeps_generation`
+- **Encoding (04b vectors):**
+  - `config_hash_matches_vectors`
+  - `route_state_hash_matches_vectors`
+  - `equivalent_toml_same_config_hash`
+  - `report_rejects_invalid_encoding_vectors`
+- **Freshness:**
+  - `permit_from_before_reboot_refused`
+  - `confirmation_survives_reboot_only_when_identity_otherwise_equal`
 - **Limits:**
   - `agent_limit_stricter_than_helper_applies`
   - `agent_limit_above_helper_is_capped`
@@ -1440,8 +1559,10 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
   - `attest_safety{ nonce: base64 32 bytes }` (hub → agent).
   - `safety_attestation{ public_key: base64 32 bytes, report: base64 report bytes, signature: base64
     64 bytes }` (agent → hub, all produced by the helper; the report format is RW-37).
-  - `run_capability.expected_safety` (optional; required for `Contain`): `{ fingerprint, boot_id,
-    generation, config_hash, route_state_hash }`.
+  - `run_capability.expected_safety`, required for `Contain`, refused when missing or malformed:
+    `verified{ fingerprint, boot_id, generation, config_hash, route_state_hash }` or
+    `unverified{ reason }` (human only; RW-37).
+  - The `safety_attestation` report is the line format in RW-37, encoded per `04b`.
   - `unsupported{type}` reply.
   - `ping` from the hub.
 - **Later milestones use only capabilities over this wire:**

@@ -6,6 +6,7 @@ Baseline `64117f0`.
   `04`, decision register in `99` (D-01…D-29, open O-30, research R-1…R-10).
 
 Files: `01` repository facts · `02` pack validation · `03` decisions · `04` target architecture ·
+`04b` attestation encoding and vectors ·
 `05` migration · `06` roadmap, readiness, deferred list · `07` prompt index (draft) · `99` register ·
 `investigations/` evidence snapshots.
 
@@ -80,6 +81,9 @@ Evolve the existing workspace (RW-01), foundation first inside the rework (D-01)
   The helper's 32-byte public key is pinned only after the owner compares the full SHA-256
   fingerprint with a local root command. Containment requests carry the attested safety identity as
   an honest-path guard: it is not proof of a permit, and the helper always enforces its actual set.
+  Without a verified attestation, only a human (step-up, typed confirmation) can approve containment,
+  on an explicit unverified path that lists unprotected paths. Hash inputs, encoding and computed
+  test vectors are in `04b`.
 - **Host-local limits.**
   - The `[unattended]` ceiling applies to `policy`-labelled runs.
   - The `[mutation_limits]` rate limiter applies to every mutation. It is journal-backed, so a hub

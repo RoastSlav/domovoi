@@ -178,7 +178,8 @@ recorded 1.3 coordinated upgrade; none is planned.
   - `authorization_kind`; mutation rate limiter with boot-id ages (RW-38).
   - `hello` extensions incl. `helper_status`, `helper_identity` (32-byte public key),
     `skill_runner_status`, `runs_as_root`; `agent_status`; `attest_safety` / `safety_attestation`
-    (exact fields in RW-37 and RW-42); `run_capability.expected_safety`. Handlers are present; the
+    (exact fields in RW-37, RW-42 and `04b`); tagged `run_capability.expected_safety`
+    (`verified{…}` | `unverified{reason}`). Handlers are present; the
     helper arrives in H1. These definitions must be final before the 1.2 golden frames are
     committed. Any change after that is a coordinated protocol decision, never a silent edit.
 - **Backend.**
@@ -309,8 +310,9 @@ recorded 1.3 coordinated upgrade; none is planned.
   - Not dependent on P1: the helper and runner are installed by the OS install path, not by packages.
 - **Work.**
   - `domovoi helper serve`: socket activation, peer-uid layer, typed operation groups (no pause or
-    unpause), `[safety]`, attestation key generation, `safety.attest` with signed reports (RW-37),
-    helper limits.
+    unpause), `[safety]`, `domovoi helper init` / `recover` / `rotate-key` (proposed), key and
+    `state` files with `flock` serialization and atomic writes, `safety.attest` with signed reports in
+    the `04b` encoding (RW-37), helper limits.
   - `domovoi skill-runner` as `domovoi-skill`: socket-activated instance per execution;
     `impl_hash` check; read-only package and skill roots; cancellation on EOF.
   - Agent: skills only via the runner, privileged operations only via the helper, status probes
@@ -361,7 +363,9 @@ recorded 1.3 coordinated upgrade; none is planned.
 - **Prereqs.** M8, M5 (management-path facts, D-28), H1 (helper `nft` group and attestation), R-2,
   R-10. Includes the RW-37 invariant: a confirmed path must be covered by a verified, fresh helper
   attestation, and each containment request carries the attested safety identity as an honest-path
-  guard. The RW-37 tests are included.
+  guard (`verified{…}`). Human-approved containment without verification uses the unverified human
+  path (step-up, typed confirmation, "not protected" list). The RW-37 tests and the `04b` vectors
+  are included.
 - **Acceptance** requires the R-2 and R-10 spikes to have produced evidence, plus the §9.1 drills
   and the RW-37 race tests passing. The design specification alone does not satisfy it.
 - Capability per 04 §9.1: kernel timeout, a two-step apply with a 30 s confirmation window,
