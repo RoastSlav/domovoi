@@ -97,6 +97,10 @@ define_id!(
     /// Identifies an advisory.
     AdvisoryId
 );
+define_id!(
+    /// Identifies a pending effect in the work outbox.
+    EffectId
+);
 
 #[cfg(test)]
 mod tests {
