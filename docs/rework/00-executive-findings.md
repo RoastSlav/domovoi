@@ -39,7 +39,7 @@ Evolve the existing workspace (RW-01), foundation first inside the rework (D-01)
 | **Planned after v1** | owner-signed approvals and policy bundles; offline emergency permits; `container.pause` / `unit.stop_temporary` and other containment candidates; host tags; multi-user/RBAC; advanced audit anchoring; more integrations; customizable widgets — each in `06` "Deferred and after-v1" with conditions |
 | **Intentionally unsupported** | older protocol generations (D-20); agent self-update (INV-3); arbitrary third-party registries in v1; general Docker socket write for the agent; exactly-once external delivery; vector/graph databases without measured need |
 | **Open owner decision** | O-30: skills with `run_as` another user after D-29 (recommended: unsupported) |
-| **Open research** | R-1 graph library; R-2 nftables containment behaviour; R-3 helper delivery on supported platforms; R-4 Discord nonce; R-5 prompt sizes; R-6 fsync cost; R-8 systemd effective-config identity; R-9 skill-runner isolation on supported platforms (R-7 reframed into a test) |
+| **Open research** | R-1 graph library; R-2 nftables containment behaviour; R-3 helper delivery on supported platforms; R-4 Discord nonce; R-5 prompt sizes; R-6 fsync cost; R-8 systemd effective-config identity; R-9 skill-runner isolation and filesystem view; R-10 helper safety attestation (R-7 reframed into a test) |
 
 ## Key architecture choices
 
@@ -73,6 +73,10 @@ Evolve the existing workspace (RW-01), foundation first inside the rework (D-01)
   The helper enforces targets, exclusions and limits but cannot verify approval. A compromised
   control agent remains bounded only by the helper's constraints, which is a stated residual risk.
   Hosts still running the agent as root get no unattended execution.
+- **Management paths (RW-37).** Exclusions live only in the root-owned helper `[safety]`. The hub
+  learns the helper's effective set only from a helper-signed attestation over a fresh hub nonce,
+  verified against a key the owner pinned by fingerprint comparison. A path can be confirmed only if
+  that verified set covers it. The hub never trusts an agent-supplied summary.
 - **Host-local limits.**
   - The `[unattended]` ceiling applies to `policy`-labelled runs.
   - The `[mutation_limits]` rate limiter applies to every mutation. It is journal-backed, so a hub
@@ -125,9 +129,9 @@ M1 and M2; M4, M5, M6, M7, U1 after M3; P1 backend after M2; U3 after U1; U4 pag
 (install wizard after P1 and U3).
 
 **Blocked:**
-- **H1** (three identities): M1, O-30, R-3, R-9 and the helper/runner ADR.
+- **H1** (three identities): M1, O-30, R-3, R-9, R-10 and the helper/runner ADR.
 - **M8**: H1 and R-8.
-- **M9**: M8, M5, H1 and R-2. nftables containment is not production-ready until R-2.
+- **M9**: M8, M5, H1, R-2 and R-10. nftables containment is not production-ready until R-2.
 - **U2 graph**: R-1 spike first.
 
 **Assessment.** Consistent and ready for review, but not fully implementation-ready: one owner

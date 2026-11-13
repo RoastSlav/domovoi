@@ -437,12 +437,15 @@ history readable. It is read from the persisted agent record, so it survives a h
 after a hub upgrade a host that has not reconnected reads "expected incompatible" (RW-17). The
 privilege states (D-29, RW-39) are statuses too: a **root-agent warning** (the agent runs as root,
 the privilege boundary is not in effect, no unattended execution; shown as a banner and on the host
-page), **skill runner missing** (skills are unavailable; they never fall back to the control agent)
+page), **skill runner unavailable** (`skill_runner_status` is `absent`, `unsupported{reason}` or `error{reason}`, RW-42: every skill is `Unavailable(skill_runner_*)` with the reason, and skills never fall back to the control agent)
 and **helper unavailable** (the root-owned helper is absent or in error; shown on each
 affected check and capability, never as a failure or as offline).
-The host page shows the helper's effective exclusion set (hash and summary, as reported by the agent;
-the UI has no second editable list) read-only beside the
-confirmed management paths, each path marked covered or uncovered (RW-37), and the Capability
+The host page shows the helper's verified effective set (computed and signed by the helper, relayed
+unchanged by the agent, never an agent-reported summary; the UI has no second editable list)
+read-only beside the confirmed management paths, each discovered path marked covered or uncovered
+with the attestation's freshness, an unverified state when no fresh verified report exists, and
+the instruction to edit `helper.toml` on the host (then Re-check) for an uncovered path (RW-37). The
+owner confirms only covered paths. The Capability
 Center gets an owner package import (upload of an owner-signed archive and its signature, RW-26)
 before the install wizard, which is built after the visibility infrastructure. The **locked rule** treatment (D-26) makes a locked Deny read differently from
 an ordinary Deny: a lock icon and the text "Locked Deny", never colour alone, in the policy

@@ -46,7 +46,7 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
 | 34 | Stable target identity | PROPOSAL |
 | 35 | Effect delivery semantics, lease fencing | PROPOSAL |
 | 36 | Execution identity across Action → Step | PROPOSAL |
-| 37 | Management paths and one authoritative exclusion set | DECISION D-28 / PROPOSAL (design) |
+| 37 | Management paths: helper-owned exclusions, signed attestation, owner confirmation | DECISION D-28 / PROPOSAL (design) |
 | 38 | Agent-side mutation rate limiter | DECISION D-27 / PROPOSAL (format) |
 | 39 | Three identities: control agent, isolated skill runner, root helper | DECISION D-24, D-29 / PROPOSAL (design) |
 | 40 | Step graph: parentage plus typed edges | PROPOSAL |
@@ -345,7 +345,7 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
   | Check | `policy` | `human` |
   |---|---|---|
   | complete unattended ceiling | yes | no |
-  | helper-enforced exclusions and containment limits (RW-37) | yes | yes |
+  | helper-enforced exclusions and containment limits (root-owned `[safety]`, RW-37) | yes | yes |
   | mutation rate limiter (RW-38) | yes | yes |
   | local catalogue, manifest, args, `allow_risk` | yes | yes |
   | helper allowlist, for privileged operations (RW-39) | yes | yes |
@@ -844,65 +844,145 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
 - **Why.** M1 can ship idempotency and reconciliation using objects that exist then, and M3 does not
   have to touch the agent contract.
 
-## RW-37 Management-path confirmation and one authoritative exclusion set (D-28)
+## RW-37 Management paths: helper-owned exclusions, signed attestation, owner confirmation (D-28)
 
 - **DECISION D-28** as recorded in `99`.
-- **Single source (PROPOSAL).**
-  - Mandatory exclusions live only in the root-owned, owner-edited `[safety]` section of
-    `/etc/domovoi/helper.toml`: `management_cidrs`, `protected_units`, `protected_containers`,
-    `containment.max_ttl` and `containment.max_active`.
-  - The agent config no longer has an exclusions section. The previous `[unattended.exclusions]`
-    is superseded.
-  - The helper reads `[safety]` and enforces it on every applicable operation.
-  - The agent obtains the effective set **from the helper** (`safety.read`), never by parsing the
-    file itself. A non-compromised agent therefore cannot report anything other than what the
-    helper enforces.
-- **Effective set** (computed by the helper at every containment request and every `safety.read`):
+- **Ownership:**
+
+  | Concern | Owner and enforcement |
+  |---|---|
+  | unattended capability ceiling | `/etc/domovoi/agent.toml` `[unattended]`, enforced by the agent (RW-12) |
+  | general mutation rate limiter | agent journal, enforced by the agent (RW-38) |
+  | mandatory management-path exclusions | root-owned `/etc/domovoi/helper.toml` `[safety]`, enforced by the helper |
+  | containment TTL and max active | `[safety.containment]` in `helper.toml`, enforced by the helper |
+  | effective safety report | computed and signed by the helper, relayed by the agent |
+  | owner-confirmed management paths | hub knowledge, confirmable only after verified helper coverage |
+
+  The helper safety set is not a copy of the agent ceiling. The agent config has no exclusion list.
+- **Invariant (PROPOSAL).** A management path becomes owner-confirmed, and eligible to unlock
+  unattended containment, only if it is contained in the helper's root-owned effective safety set
+  **as shown by a verified, fresh helper attestation**. The hub never trusts an agent-supplied
+  description of what the helper enforces.
+- **Effective set.** The helper computes it at every attestation and every containment request:
 
   | Element | Source | Trusted because |
   |---|---|---|
-  | configured management CIDRs, protected units and containers | `[safety]` | root-owned, owner-edited |
-  | loopback (`127.0.0.0/8`, `::1`) and link-local (`169.254.0.0/16`, `fe80::/10`) | constants | definition |
-  | hub address(es) | the helper resolves `hub.url` from the root-owned `/etc/domovoi/agent.toml` | root-owned config, not agent-supplied |
-  | current link peer | the helper reads established TCP sockets owned by uid `domovoi-agent` toward the hub port, from the kernel (netlink or `/proc/net/tcp*`) | kernel state |
-  | local interface addresses and default gateways | netlink | kernel state |
+  | configured management CIDRs, protected units, protected containers | `[safety]` | root-owned, owner-edited |
+  | loopback and link-local | constants | definition |
+  | hub address(es) | helper resolves `hub.url` from the root-owned `/etc/domovoi/agent.toml` | root-owned config |
+  | current link peer | kernel socket table: established TCP sockets owned by uid `domovoi-agent` toward the hub port | kernel state |
+  | local interface addresses, default gateways | netlink | kernel state |
 
-  - Agent-supplied addresses are never inputs.
-  - If the helper cannot establish an element (config unreadable, DNS resolution of the hub fails,
-    socket table unreadable), it refuses every containment operation (`refused{safety_unknown}`).
-- **Hash.** `exclusions_hash` = SHA-256 over the canonical serialization of the configured part,
-  plus the dynamic part's sorted values. The agent reports `exclusions_hash` + `exclusions_summary`
-  (wire 1.2) as returned by `safety.read`.
-- **Invariant.** Unattended containment on a host is enabled only while every hub-confirmed
-  management path is covered by the reported effective set.
-  - **Hub-confirmed paths:** `user`-sourced, current facts (trusted CIDRs, protected services).
-  - **Coverage check (pure, hub):**
-    - each confirmed CIDR ⊆ the effective set's CIDRs;
-    - each confirmed protected service ∈ protected units or containers.
+  If any element cannot be established, the helper refuses every containment operation and returns
+  an attestation marked `incomplete`.
+- **Signed attestation.**
+  - **Key.** At install the helper generates an Ed25519 attestation key:
+    - stored at `/var/lib/domovoi-helper/attest.key`, root 0600, in a directory root 0700;
+    - inaccessible to `domovoi-agent` and `domovoi-skill`, with `InaccessiblePaths=` also set in
+      both of their units;
+    - its key id is the first 16 hex characters of SHA-256 of the public key.
+  - **Request.** The hub sends `attest_safety{nonce}` (32 random bytes, single use, valid for 60 s)
+    over wire 1.2. The agent forwards the nonce to the helper's `safety.attest` operation. The nonce
+    is the only input, and it is opaque fixed-length bytes.
+  - **Report.** The helper signs `"domovoi-safety-attest-v1\n" ‖ canonical_json(report)`, where the
+    report contains:
+    - `format`, `helper_key_id`, `nonce`, `boot_id`;
+    - `config_hash` (SHA-256 of the canonical `[safety]` section);
+    - `generation` (increments whenever the computed set changes, persisted in helper state);
+    - `effective_set`: canonical sorted CIDRs, protected units, protected containers by id,
+      containment limits;
+    - `dynamic`: hub addresses, link peer, local addresses, gateways;
+    - `complete: bool`;
+    - `computed_at` (wall time, informational).
+  - **Transport.** The agent relays `safety_attestation{report, signature}` unchanged.
+  - **Hub verification.** It checks:
+    - the signature against the host's pinned helper public key;
+    - that the nonce was issued for this host, is unused and is under 60 s old;
+    - `complete = true`.
 
-    Any gap means unattended containment becomes `RequireApproval`, and the UI lists each uncovered
-    item.
-- **Invalidation.** Confirmation becomes stale, and unattended containment is blocked, when any of
-  these happen:
-  - the agent reports an interface, address or route change;
-  - the hub sees the agent from a new address;
-  - `exclusions_hash` changes;
-  - `helper.toml` fails to load;
-  - the confirmation is older than the freshness period (default 30 d).
-- **Authority.** Neither the hub nor any package can change `[safety]`, which is root-owned. The
-  helper refuses a target overlapping the effective set even when the hub requests it.
-- **Scope.** Monitoring and unrelated human-approved capabilities are unaffected.
-- **Residual risk.** A compromised control agent can misreport the summary to the hub. It still
-  cannot make the helper apply a target inside the effective set.
+    Only then is the report stored as the host's **verified effective set**. Anything else leaves
+    the set **unverified**.
+  - **When the hub requests a report:**
+    - on `hello`;
+    - on an `agent_status` change notice;
+    - every 15 minutes;
+    - on the owner's "Re-check" in the UI;
+    - immediately before issuing any unattended containment permit, which requires a verified report
+      under 5 minutes old whose `generation` matches the one the confirmation was made against.
+  - **What a compromised agent can do:** request fresh reports, withhold them (the set becomes
+    unverified and containment is blocked), or replay one. A replay fails the nonce check. A report
+    from another host's helper fails the pinned-key check. It cannot forge a report, because it
+    cannot read the key.
+- **Helper key enrollment and rotation (PROPOSAL).** Proposed commands are not yet specified CLI.
+  - **Enrollment.**
+    1. The owner runs the proposed `domovoi helper fingerprint` as root on the host, which prints the
+       key id and fingerprint.
+    2. The hub's host page shows the fingerprint reported through the agent, marked **unverified**.
+    3. The owner compares the two out of band and confirms with step-up.
+    4. The hub pins the key, audited as `helper.key_pinned`.
+
+    A key reported by the agent is never pinned without this owner comparison.
+  - **Rotation.** The owner runs the proposed `domovoi helper rotate-key` as root. The hub then sees
+    a key-id mismatch: attestations become unverified and unattended containment is blocked until the
+    owner repeats enrollment for the new fingerprint (`helper.key_rotated`).
+  - **Re-enrollment** of the agent does not change the helper key.
+  - **Unpin.** The owner can unpin a key in the UI, which blocks containment.
+- **Owner confirmation workflow.**
+  1. The owner sets management CIDRs, protected units and protected containers in `[safety]` by
+     editing `/etc/domovoi/helper.toml` as root on the host. The helper reads its config at every
+     request (socket-activated instance per connection), so no reload command is needed. An invalid
+     file makes the helper refuse containment and report `incomplete`.
+  2. The owner presses "Re-check" (or waits for the periodic request). The hub obtains a fresh
+     verified attestation.
+  3. The hub compares the **discovered management paths** with the verified effective set. Discovered
+     paths are the agent's interfaces and routes, the hub's view of the agent address, and
+     owner-entered candidates. The UI lists **covered** and **uncovered** paths separately.
+  4. The owner can confirm only covered paths (step-up; fact `source = user`, `evidence_ref` = the
+     attestation generation).
+  5. An uncovered path shows instructions: "add `<cidr>` to `[safety].management_cidrs` in
+     `/etc/domovoi/helper.toml` on `<host>`, then Re-check".
+
+  The hub never writes `helper.toml`.
+- **Unknown, uncovered and stale cases:**
+
+  | Condition | Behaviour |
+  |---|---|
+  | helper cannot compute its effective set | helper refuses every containment operation (`refused{safety_unknown}`); attestation `incomplete` |
+  | attestation missing, invalid, stale, or key not pinned | hub treats the set as unverified; unattended containment blocked; human-approved containment is offered only with a warning and typed confirmation, and the helper still enforces its actual set |
+  | discovered or owner-entered path not covered by the verified set | cannot be confirmed; unattended containment blocked; human approval as in the row above |
+  | a confirmed path becomes uncovered (config or network change, `generation` or `config_hash` change, interface/route change, new agent address) or confirmation older than 30 d | confirmation becomes stale; unattended containment blocked until re-attested and re-confirmed |
+  | target overlaps the helper's actual effective set | helper refuses, regardless of policy, permit or human approval |
+  | monitoring, unrelated human-approved capabilities | unaffected |
+
+  A human approval never makes an uncovered path protected. The approval card lists the uncovered
+  paths and says they are not protected.
+- **Helper enforcement** (independent of the hub and agent). Immediately before applying any
+  containment, the helper:
+  1. recomputes the effective set;
+  2. canonicalises and validates the target network;
+  3. refuses any overlap;
+  4. enforces protected units and containers;
+  5. enforces containment `max_ttl` and `max_active`;
+  6. enforces helper mutation limits.
+- **Residual risk.** A compromised control agent can call the helper directly. It can still never
+  block an address inside the helper's actual effective set, and it cannot make the hub believe a
+  path is protected when it is not.
 - **Tests.**
-  - `agent_reports_exactly_the_helper_effective_set`
-  - `inconsistent_or_stale_safety_config_blocks_containment`
-  - `helper_refuses_target_overlapping_exclusion_even_if_hub_requests`
-  - `changed_effective_set_invalidates_confirmation`
-  - `unreadable_safety_config_fails_closed`
-  - `unknown_link_peer_refuses_containment`
-  - `containment_blocked_when_confirmed_path_not_covered`
-  - `network_change_marks_management_paths_stale`
+  - `helper_attestation_signature_verifies`
+  - `helper_attestation_rejects_forged_report`
+  - `helper_attestation_rejects_replayed_nonce`
+  - `helper_attestation_rejects_other_hosts_key`
+  - `agent_cannot_fabricate_effective_safety_set`
+  - `hub_rejects_unverified_safety_report`
+  - `helper_key_not_pinned_without_owner_fingerprint_confirmation`
+  - `owner_cannot_confirm_uncovered_management_path`
+  - `new_management_path_requires_local_helper_configuration`
+  - `changed_helper_safety_set_invalidates_confirmation`
+  - `stale_attestation_blocks_unattended_containment`
+  - `helper_refuses_target_overlapping_exclusion_even_if_agent_requests`
+  - `helper_fails_closed_when_safety_state_unknown`
+  - `helper_attestation_key_not_readable_by_agent_or_skill`
+  - `human_approved_containment_shows_uncovered_paths`
   - `monitoring_unaffected_by_missing_management_paths`
 
 ## RW-38 Agent-side mutation rate limiter (D-27)
@@ -973,11 +1053,24 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
       - `User=domovoi-skill`, `Group=domovoi-skill`, `SupplementaryGroups=` empty;
       - `NoNewPrivileges=yes`, `ProtectSystem=strict`, `ProtectHome=yes`, `PrivateTmp=yes`,
         `PrivateDevices=yes`;
-      - `ReadOnlyPaths=/etc/domovoi/skills /var/lib/domovoi-packages`;
-      - `InaccessiblePaths=/var/lib/domovoi-agent /run/domovoi-helper.sock /etc/domovoi/helper.toml
-        /etc/domovoi/agent.toml`;
-      - `RestrictSUIDSGID=yes`, `CapabilityBoundingSet=` empty, `RuntimeMaxSec=` = the agent's
-        maximum skill timeout + margin.
+      - **Filesystem view.** `ProtectSystem=strict` alone makes `/etc` read-only but still readable,
+        and `ReadOnlyPaths=` does not hide anything. So the unit masks whole trees with
+        `TemporaryFileSystem=` and re-exposes only skill content with `BindReadOnlyPaths=`:
+        - `TemporaryFileSystem=/etc/domovoi:ro /var/lib:ro /run:ro`. These are empty tmpfs mounts:
+          the hub, agent and helper config, agent and helper state, and every socket under `/run`
+          become invisible and cannot be enumerated.
+        - `BindReadOnlyPaths=/etc/domovoi/skills /var/lib/domovoi-packages`. systemd applies binds
+          after the temporary filesystems, so only these two trees reappear, read-only.
+        - `InaccessiblePaths=/var/lib/domovoi-helper` as a second layer (already hidden by the
+          `/var/lib` tmpfs).
+      - `RestrictSUIDSGID=yes`, `CapabilityBoundingSet=` empty, `AmbientCapabilities=` empty,
+        `RuntimeMaxSec=` = the agent's maximum skill timeout + margin.
+      - **Known limitation.** A static unit exposes **all** owner-placed skills and installed
+        packages read-only, not only the invoked one. Skill and package content is code, not
+        secret: packages are signed artifacts, and the docs and install checks forbid secrets in
+        skill directories. Per-invocation narrowing (for example template instances started per
+        package with `BindReadOnlyPaths=/var/lib/domovoi-packages/%i`) is part of R-9.
+        Unrelated Domovoi config, credentials, agent state and helper config are invisible.
     - **Not root.** The runner itself runs as `domovoi-skill` and never as root, so it cannot raise
       privileges for a skill.
     - **Request.** The agent sends one typed request per connection: `{execution_id, source:
@@ -1003,11 +1096,12 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
       instance. No orphan survives. That gives the "process killed, result unknown" outcome of
       crash window 3 in `04` §15.2.
     - **What a compromised skill cannot reach.**
-      - The helper socket: wrong group, and the socket path is inaccessible.
-      - The skill-runner socket: wrong group.
-      - The agent's key, spool, journal, config and credentials: `state_dir` is 0700 and
-        inaccessible.
-      - The helper config: inaccessible.
+      - The helper socket and skill-runner socket: wrong group, and `/run` is masked.
+      - The agent's key, spool, journal and credentials: `state_dir` is 0700, and `/var/lib` is
+        masked except the packages tree.
+      - Any file under `/etc/domovoi` other than `skills/`: masked, so it can be neither listed nor
+        read.
+      - The helper config, helper state and attestation key: masked.
       - The package and skill content: read-only to it.
       - It also cannot replace the executable being run: the files are owned by root (skills) or
         `domovoi-agent` (packages), with no write bit for others.
@@ -1026,6 +1120,16 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
     `/var/lib/domovoi-packages`): owned by `domovoi-agent`, directories 0755, files 0644 (entry
     scripts 0755). The agent writes it; `domovoi-skill` can only read it. Owner-placed skills stay
     in the root-owned `skills_dir`.
+  - **Skill-runner status.** The agent probes the runner (RW-42 `skill_runner_status`):
+    - `absent`: socket path missing;
+    - `unsupported{reason}`: no systemd or required directives on this platform, detected at agent
+      start;
+    - `error{reason}`: connect fails, or a `health` request fails or returns an error;
+    - `ok{version}`: `health` succeeds.
+
+    The probe runs at start, every 60 s and after any execution transport error. Changes are sent
+    with `agent_status`. Anything other than `ok` makes every skill `Unavailable(skill_runner_*)`;
+    an execution already in flight when the runner fails ends `OutcomeUnknown`.
   - **Helper-enforced constraints.** These do not depend on the caller being honest. They come from
     `/etc/domovoi/helper.toml` (root-owned) and local OS state:
     - enabled operation groups;
@@ -1061,12 +1165,12 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
     | `smart.read` | `smartctl -a` on allowlisted devices | raw disk access |
     | `kernel.read` | bounded kernel messages | `dmesg_restrict` |
     | `net.read` | listening sockets with owning process | other users' processes |
-    | `safety.read` | effective exclusion set summary and hash (RW-37) | lets the agent report exactly what the helper enforces |
+    | `safety.attest` | signed attestation of the effective safety set for a hub nonce (RW-37) | lets the hub verify what the helper enforces without trusting the agent |
 
     `docker.pause`/`unpause` and unit stop are **not** v1 operations. They belong to the deferred
     `container.pause` / `unit.stop_temporary` candidates (D-17, `04` §9.3). There is no emergency
     variant either: an owner who needs to pause a container does so directly on the host.
-  - **Fresh-install default.** Only the read groups and `safety.read` are enabled, with no write
+  - **Fresh-install default.** Only the read groups and `safety.attest` are enabled, with no write
     targets. `docker.write`, `systemd.write` and `nft` stay unavailable until the owner enables the
     group and its allowlist in `helper.toml` **and** the corresponding milestone prerequisites (M8,
     M9) are met. Examples: `04` §8.3.
@@ -1095,6 +1199,11 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
     concludes, those platforms run without skills, or keep the legacy root agent with the boundary
     labelled absent.
 - **Tests.**
+  - `skill_cannot_list_or_read_etc_domovoi`
+  - `skill_cannot_read_agent_or_helper_state`
+  - `skill_cannot_see_run_sockets`
+  - `skill_runner_status_absent_ok_error_unsupported`
+  - `skill_runner_status_change_reported`
   - `skill_user_cannot_connect_to_helper_socket`
   - `skill_user_cannot_read_agent_state`
   - `skill_user_cannot_write_package_files`
@@ -1160,9 +1269,10 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
     - `journal_epoch`;
     - `catalog_hash`;
     - `ceiling_hash` + `ceiling_summary`;
-    - `exclusions_hash` + `exclusions_summary` (as returned by the helper's `safety.read`, RW-37);
+    - `skill_runner_status` (`absent | unsupported{reason} | error{reason} | ok{version}`, RW-39);
     - `helper_status` (`absent | ok{ops} | error{reason}`);
     - `runs_as_root`;
+    - `helper_key_id` (informational; the hub pins keys only through owner enrollment, RW-37);
     - `boot_id` (already reported in facts today).
   - `run_capability{execution_id, contract, version, target, args, plan_hash, authorization_kind,
     expires_at}` and its result.
@@ -1171,6 +1281,10 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
   - `get_catalog{page, page_size}`.
   - `transfer_begin{transfer_id, kind, size, sha256}`, `transfer_chunk{transfer_id, seq, bytes}`,
     `transfer_end{transfer_id}`, a generic chunked byte stream used by package installation (P1).
+  - `agent_status{helper_status, skill_runner_status, runs_as_root, ceiling_hash, ceiling_summary}`
+    for runtime changes (agent → hub, sent on change).
+  - `attest_safety{nonce}` (hub → agent) and `safety_attestation{report, signature}` (agent → hub,
+    report and signature produced by the helper, RW-37).
   - `unsupported{type}` reply.
   - `ping` from the hub.
 - **Later milestones use only capabilities over this wire:**

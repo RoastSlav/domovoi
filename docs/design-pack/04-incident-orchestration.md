@@ -50,7 +50,7 @@ A phase may return `complete`, `needs_evidence`, `waiting`, `failed`, `not_appli
 - **NotRun:** only with positive evidence that it never started, or when its authorization or approval expired before dispatch.
 - **Unavailable:** the work could not be attempted (host absent past the wait limit, host `Incompatible`, capability not implemented or disabled, evidence source down).
 - **OutcomeUnknown:** it may have run and the result cannot be established.
-- **Refused:** rejected before running by validation, policy (`Deny`), the agent (ceiling, `allow_risk`, rate limit, exclusion) or a human.
+- **Refused:** rejected before running by validation, policy (`Deny`), the agent (ceiling, `allow_risk`, rate limit), the helper (management-path exclusions, containment limits) or a human.
 
 A step is never shown as `NotRun` or `Failed` when `OutcomeUnknown` is the honest answer.
 

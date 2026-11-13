@@ -9,7 +9,7 @@ The current `web/DESIGN.md` and `src/styles/tokens.css` establish a deliberate i
 - Warm charcoal/sand dark theme and paper/ink light theme.
 - Moss green as the action/accent color.
 - Walnut as a restrained brand marker.
-- Distinct semantic status tones: danger, warning, success, pending, progress, info and neutral. New statuses (the `Incompatible` host state, the root-agent warning, "skill runner missing", "helper unavailable", the v1 versus v2 approval-binding label, the locked-Deny treatment, and the `Refused`, `NotRun`, `Unavailable` and `OutcomeUnknown` outcomes) each get a label, tone, hint and icon through the shared status vocabulary (see the planned section of `web/DESIGN.md`).
+- Distinct semantic status tones: danger, warning, success, pending, progress, info and neutral. New statuses (the `Incompatible` host state, the root-agent warning, "skill runner unavailable" (`absent`, `unsupported`, `error`), "helper unavailable", the v1 versus v2 approval-binding label, the locked-Deny treatment, and the `Refused`, `NotRun`, `Unavailable` and `OutcomeUnknown` outcomes) each get a label, tone, hint and icon through the shared status vocabulary (see the planned section of `web/DESIGN.md`).
 - Color-coded messages/statuses with text labels/icons; never rely on color alone.
 - Inter Variable/system sans typography and monospace for technical values, code, IDs, arguments and logs.
 - A 4 px spacing rhythm, consistent control geometry, semantic tokens and a controlled z-layer model.

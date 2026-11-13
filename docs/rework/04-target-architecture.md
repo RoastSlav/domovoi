@@ -365,11 +365,17 @@ Two rules **overlap** iff their scopes intersect on every dimension. Two overlap
      disputed → `RequireApproval`;
    - outcome `Allow` and the last reported host ceiling does not cover contract + target + args +
      rate + TTL → `RequireApproval`;
-   - effect `Contain` and the host's management paths are not confirmed and current (D-28) →
-     `RequireApproval` for unattended; human approval is still possible unless the next limit
-     applies;
-   - containment target matches a mandatory exclusion → `Deny`. This holds for humans as well, and
-     the agent enforces it independently;
+   - effect `Contain` and **no verified, fresh helper attestation** (missing, invalid, stale, key
+     not pinned; RW-37) → `RequireApproval` + typed confirmation, with a warning that the helper's
+     safety set is unverified;
+   - effect `Contain` and any discovered management path is **uncovered** by the verified set, or a
+     confirmation is stale (D-28) → `RequireApproval` + typed confirmation, with the uncovered paths
+     listed as not protected;
+   - containment target overlaps the **verified effective set** → `Deny`. This holds for humans as
+     well. Independently of this decision, the helper refuses any target overlapping its *actual*
+     set at apply time;
+   - helper reports `incomplete` (cannot compute its set) → `Unavailable(safety_unknown)`, and the
+     helper refuses every containment;
    - autonomy paused, or the rule is circuit-broken → `RequireApproval`.
    - outcome `Allow` and the host's agent runs as root (`hello.runs_as_root`, D-29 not in effect) →
      `RequireApproval`.
@@ -404,7 +410,10 @@ Request unless stated: host = `media`, contract = `container.restart` (category
 | 13 | #3, target postgres | Deny | exception doesn't match; broad Deny applies |
 | 13b | media / container.restart / Any → Allow; target postgres not pinned | RequireApproval | hard limit D-07 |
 | 14 | media / Effect(Contain) / Any → Allow; `firewall.block_source` target in exclusions | Deny | mandatory exclusion |
-| 14b | as 14, target allowed, management paths stale | RequireApproval | hard limit D-28 |
+| 14b | as 14, target allowed, management paths stale | RequireApproval + typed confirmation | hard limit D-28 |
+| 14c | as 14, target allowed, discovered path `10.0.0.0/24` not in the verified set | RequireApproval + typed confirmation, path listed "not protected" | uncovered path (RW-37) |
+| 14d | as 14, no verified attestation (key not pinned or report stale) | RequireApproval + typed confirmation | unverified safety set |
+| 14e | helper attestation `incomplete` | Unavailable(safety_unknown) | helper fails closed |
 | 15 | media / container.restart / {plex} → Allow with RequiresFact(not_in_maintenance); fact unknown | rule doesn't match → broader rules or default | unknown ≠ true |
 | 16 | All / container.restart / Any → **locked** Deny; media / container.restart / {plex} → Allow | Deny (LockedDeny) | locked Deny beats specificity (D-26) |
 | 17 | two locked Denies match | Deny with both reasons | one result, several reasons |
@@ -540,7 +549,7 @@ Configuration lives in two places, with distinct owners and purposes:
 | File | Owner and mode | Read by | Holds |
 |---|---|---|---|
 | `/etc/domovoi/agent.toml` | root, 0644 | agent; the helper only for `hub.url` | `[unattended]` ceiling (D-03, D-18) and `[mutation_limits]` (D-27), plus existing agent settings |
-| `/etc/domovoi/helper.toml` | root, 0600 | helper only; the agent sees the effective safety set via `safety.read` | enabled operation groups and allowlists (D-29), `[safety]` exclusions and containment limits (RW-37, the single authoritative source), helper limits |
+| `/etc/domovoi/helper.toml` | root, 0600 | helper only; the hub sees the effective safety set only through signed attestations (`safety.attest`, RW-37) | enabled operation groups and allowlists (D-29), `[safety]` exclusions and containment limits (RW-37, the single authoritative source), helper limits |
 
 **Agent ceiling and limiter (`agent.toml`).**
 
@@ -571,7 +580,7 @@ privileged write is possible.
 
 ```toml
 # /etc/domovoi/helper.toml (fresh install)
-groups = ["docker.read", "smart.read", "kernel.read", "net.read", "safety.read"]
+groups = ["docker.read", "smart.read", "kernel.read", "net.read", "safety.attest"]
 
 [smart]
 devices = ["/dev/sd[a-z]", "/dev/nvme[0-9]n1"]
@@ -596,7 +605,7 @@ allow the operation.
 
 ```toml
 # /etc/domovoi/helper.toml (owner-configured example)
-groups = ["docker.read", "docker.write", "systemd.write", "nft", "smart.read", "kernel.read", "net.read", "safety.read"]
+groups = ["docker.read", "docker.write", "systemd.write", "nft", "smart.read", "kernel.read", "net.read", "safety.attest"]
 
 [docker]
 write_containers = ["plex"]           # resolved to container ids by the helper
@@ -646,8 +655,14 @@ does not see or verify approval or policy (RW-39).
 
 **Config errors.** Unknown keys are startup errors, as are Contain entries without the required caps.
 
-**Reporting.** The agent sends `ceiling_hash` and a summary, plus `exclusions_hash` and
-`exclusions_summary` as returned by `safety.read`, in `hello` and again on any change.
+**Reporting.** The agent sends `ceiling_hash` and a summary, `helper_status`, `skill_runner_status`
+and `runs_as_root` in `hello`, and again in `agent_status` on any change. The effective safety set
+reaches the hub only as a helper-signed attestation, relayed unchanged (`attest_safety` /
+`safety_attestation`, RW-37). The agent never summarises it itself.
+
+**Attestation key.** `/var/lib/domovoi-helper/attest.key` (root 0600, directory root 0700). Masked in
+the agent and skill-runner units. Pinned by the hub only after the owner compares fingerprints
+(RW-37).
 
 **Refusals.** The agent journals them locally and returns `refused{code}`; the helper's refusals carry
 their own codes.
@@ -676,7 +691,7 @@ Assumes D-29 is in effect: control agent as `domovoi-agent`, skills as `domovoi-
 | Threat | brute force or scanning from an external source |
 | Target | `ipnet:{canonical}` from a detector signal's structured field; prefix ≥ ceiling minimum; equals the pinned subject |
 | Privileges | root-owned helper `nft` group (RW-39), limited to set elements in table `inet domovoi`; no other table touched; exclusions re-checked in the helper |
-| Management protection | D-28 facts confirmed and current and covered by the helper's effective safety set (RW-37: `[safety]` CIDRs, hub address resolved from root-owned config, kernel-observed link peer, loopback, link-local); the helper refuses any overlapping target and refuses everything if a safety element cannot be established |
+| Management protection | D-28: paths confirmed and current, covered by a **verified, fresh helper attestation** (≤ 5 min, same `generation`) of the effective set (RW-37: `[safety]` CIDRs, hub address from root-owned config, kernel-observed link peer, loopback, link-local); immediately before apply the helper recomputes its actual set, refuses any overlapping target, and refuses everything if a safety element cannot be established |
 | Expiry | nftables set element `timeout` = TTL (≤ `max_ttl`). Kernel-enforced, so it does not depend on the agent, the hub or the helper process |
 | Watchdog (D-22) | built into the two-step apply below: the first element carries a 30 s kernel timeout, so if the hub never confirms reachability the block disappears by itself, whether or not the agent, helper or hub survives |
 | Apply semantics | step 1: element added with a 30 s timeout; step 2: on hub confirmation, `replace_ttl` = `delete element` + `add element … timeout <TTL>` in **one** `nft -f` transaction (atomic netlink batch, so the element is never absent); if the element already expired, the transaction fails and the helper reports `expired` (no silent re-add). `add element` on an existing element is not relied on to refresh its timeout. Exact behaviour per supported nftables version is verified in R-2 |
@@ -947,6 +962,20 @@ only on change and rate-limits its logs.
 2. upgrade each agent through the supported install path;
 3. watch the Hosts page until no host is `Incompatible`.
 
+**Host status fields (wire 1.2).** `hello` and `agent_status` carry:
+- `helper_status`: `absent | error{reason} | ok{ops}`;
+- `skill_runner_status`: `absent | unsupported{reason} | error{reason} | ok{version}`;
+- `runs_as_root`;
+- `ceiling_hash` and `ceiling_summary`.
+
+The agent probes the helper and runner at start, every 60 s and after any transport error, and sends
+`agent_status` when a value changes. The registry derives availability from these fields:
+- `helper_missing|helper_error` for privileged capabilities;
+- `skill_runner_missing|skill_runner_unsupported|skill_runner_error` for all skills;
+- root-install labelling.
+
+The safety set is not a status field: it arrives only as a signed attestation.
+
 **Wire versions (RW-42).**
 - **1.1:** current, unchanged through F1–F4.
 - **1.2:** introduced in M1, freezing the v1 wire contract (complete list in RW-42).
@@ -964,6 +993,9 @@ only on change and rate-limits its logs.
 - `unauthenticated_hello_does_not_persist_incompatibility`
 - `incompatible_state_survives_hub_restart`
 - `incompatible_agent_idles_without_reconnecting`
+- `skill_runner_status_absent_ok_error_unsupported`
+- `agent_status_change_updates_availability`
+- `attestation_roundtrip_over_wire`
 - `release_floor_no_longer_rejects`
 - `unknown_enum_value_preserved`
 - `unsupported_message_does_not_end_session`

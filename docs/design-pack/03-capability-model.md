@@ -30,7 +30,7 @@ The eventual schema should contain:
 | `effect` | Read, mutate, contain, verify or other explicitly named operation class. |
 | `risk` | Impact classification independent of whether it is a script or native tool. |
 | `preconditions` | Conditions that must be established before execution. |
-| `constraints` | Resource limits, allowed targets, rate limits, TTL, management-path exclusions. |
+| `constraints` | Resource limits, allowed targets, rate limits, TTL. Management-path exclusions and containment limits are not contract fields: the root-owned helper holds and enforces them (RW-37). |
 | `reversible` / `rollback` | Whether and how the effect can be undone. |
 | `verification` | Postconditions and how to test them. |
 | `availability` | Host/platform prerequisites, connectivity and provider state. |

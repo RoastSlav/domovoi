@@ -62,8 +62,9 @@ recorded 1.3 coordinated upgrade; none is planned.
 - F1 → anything that writes state.
 - F4 (hash v1 binding) → M1 (hash v2) → M3 (step approvals).
 - M1 → M2, M3, P1.
-- M1 → H1: H1 needs the 1.2 `hello` fields `helper_status`, `runs_as_root`, `exclusions_hash` and
-  `exclusions_summary` (RW-42). No extra protocol bump.
+- M1 → H1: H1 needs the 1.2 fields `helper_status`, `skill_runner_status`, `runs_as_root`, the
+  `agent_status` message and the `attest_safety` / `safety_attestation` messages (RW-42). No extra
+  protocol bump.
 - H1 → M8 privileged contracts and M9.
 - M8 → M9.
 
@@ -175,7 +176,8 @@ recorded 1.3 coordinated upgrade; none is planned.
   - Journal with epoch; fsynced `accepted` / `started{pid,start_time}` / `finished`.
   - Deduplication; `action_status`; orphan handling (04 §15.2).
   - `authorization_kind`; mutation rate limiter with boot-id ages (RW-38).
-  - `hello` extensions.
+  - `hello` extensions incl. `helper_status`, `skill_runner_status`, `runs_as_root`; `agent_status`;
+    `attest_safety` / `safety_attestation` relay (handlers present; the helper arrives in H1).
 - **Backend.**
   - `OutcomeUnknown`; reconcile on `hello`.
   - **Plan hash v2** for new actions (script bytes, target identity, `execution_id`) plus approval
@@ -297,16 +299,23 @@ recorded 1.3 coordinated upgrade; none is planned.
 
 - **Prereqs.**
   - M1, for the wire 1.2 `hello` fields.
-  - Research R-3 (helper delivery) and R-9 (skill-runner isolation).
+  - Research R-3 (helper delivery), R-9 (skill-runner isolation, including the effective
+    filesystem view) and R-10 (attestation).
   - The helper and skill-runner ADR (RW-39, D-29).
   - Owner decision O-30.
   - Not dependent on P1: the helper and runner are installed by the OS install path, not by packages.
 - **Work.**
   - `domovoi helper serve`: socket activation, peer-uid layer, typed operation groups (no pause or
-    unpause), `[safety]` and `safety.read` (RW-37), helper limits.
+    unpause), `[safety]`, attestation key generation, `safety.attest` with signed reports (RW-37),
+    helper limits.
   - `domovoi skill-runner` as `domovoi-skill`: socket-activated instance per execution;
     `impl_hash` check; read-only package and skill roots; cancellation on EOF.
-  - Agent: skills only via the runner, privileged operations only via the helper, `hello` reporting.
+  - Agent: skills only via the runner, privileged operations only via the helper, status probes
+    with `hello` / `agent_status` reporting, attestation relay.
+  - Hub: helper key enrollment by owner fingerprint comparison, attestation verification, covered
+    and uncovered path view, confirmation only of covered paths.
+  - Skill-runner unit with masked `/etc/domovoi`, `/var/lib` and `/run`, and read-only binds of the
+    skill roots (RW-39).
   - Installer migration: users, `state_dir` 0700, `packages_dir`, units, fresh-install
     `helper.toml` with read groups only, `User=domovoi-agent`.
   - Monitoring checks via helper reads.
@@ -319,8 +328,10 @@ recorded 1.3 coordinated upgrade; none is planned.
   - `checks_report_helper_unavailable_not_failure`
 - **Acceptance.**
   - On a fresh install the control agent runs as `domovoi-agent` and skills as `domovoi-skill`.
-  - A skill process cannot open the helper socket or read `state_dir`; tested on each supported
-    platform.
+  - On each supported platform, a skill process cannot open the helper socket, list or read
+    `/etc/domovoi/*` (except `skills/`), `/var/lib/domovoi-agent` or `/var/lib/domovoi-helper`, or
+    write to package and skill sources.
+  - The hub accepts a safety set only from a verified attestation.
   - No privileged write group is enabled.
   - No package can write helper or runner paths.
 
@@ -342,8 +353,9 @@ recorded 1.3 coordinated upgrade; none is planned.
 
 ## M9 — L3 containment: `firewall.block_source` (A)
 
-- **Prereqs.** M8, M5 (management-path facts, D-28), H1 (helper `nft` group), R-2. Includes the
-  RW-37 coverage invariant (hub-confirmed paths ⊆ agent-reported exclusions) and its tests.
+- **Prereqs.** M8, M5 (management-path facts, D-28), H1 (helper `nft` group and attestation), R-2,
+  R-10. Includes the RW-37 invariant: a confirmed path must be covered by a verified, fresh helper
+  attestation. The RW-37 tests are included.
 - Capability per 04 §9.1: kernel timeout, a two-step apply with a 30 s confirmation window,
   detector-only triggering, reconciliation.
 - **Not enabled** for unattended use until all 04 §9.1 drills pass (D-22).
@@ -387,7 +399,7 @@ Columns:
 | F3 | yes | yes (D-20) | — | none | **yes** |
 | F2 | yes | yes | R-4 wording only | F1 | after F1 merges |
 | F4 | yes | yes | R-5 for the cap value | F1 | after F1 merges |
-| H1 | yes (ADR pending) | **O-30 open** | **R-3, R-9 open** | M1 | no: needs M1, R-3, R-9, the ADR and O-30 |
+| H1 | yes (ADR pending) | **O-30 open** | **R-3, R-9, R-10 open** | M1 | no: needs M1, R-3, R-9, R-10, the ADR and O-30 |
 | M1 | yes | yes | R-6 | F2, F3, F4 | after those merge |
 | M2 | yes | yes | — | M1 | after M1 |
 | M3 | yes | yes | — | M1, M2 | after M1 and M2 |
@@ -395,7 +407,7 @@ Columns:
 | M7 | yes | yes | — | M2, M3 | after M3 |
 | P1 (backend) | yes | yes (D-16) | — | M1, M2 | after M2 |
 | M8 | yes | yes | **R-8** (and R-3 via H1) | M4, M7, H1 | no |
-| M9 | yes | yes | **R-2** | M8, M5, H1 | no |
+| M9 | yes | yes | **R-2, R-10** | M8, M5, H1 | no |
 | U1 | yes | yes | — | M3 | after M3 |
 | U2 | yes | yes | **R-1** | U1 | spike prompt only |
 | U3 | yes | yes | — | U1 | after U1 |

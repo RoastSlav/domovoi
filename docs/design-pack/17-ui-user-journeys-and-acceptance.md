@@ -16,7 +16,7 @@ This document cross-checks pages as workflows. The UI should be designed as one 
 - Critical attention is distinguishable from informational activity.
 - The overview shows active operations, not only incidents and approvals.
 - A host whose agent is `Incompatible` (or "expected incompatible" after a hub upgrade) appears in the attention queue and in environment health as upgrade required, distinct from offline.
-- A host whose agent runs as root appears with a warning that the privilege boundary is not in effect and that it gets no unattended execution; a missing skill runner or helper is shown on the host too.
+- A host whose agent runs as root appears with a warning that the privilege boundary is not in effect and that it gets no unattended execution; the skill runner's status and a missing or failing helper are shown on the host too.
 - In the default layout no counter is duplicated across tile, heading and filter (user-rearranged layouts are exempt).
 - Clicking a metric opens the relevant filtered list.
 - Returning preserves the useful context; live changes are reflected without a full-page reset.
@@ -186,8 +186,8 @@ This document cross-checks pages as workflows. The UI should be designed as one 
 - Global search can reach these canonical objects when implemented; search results are scoped to the sources it covers and say so. No permission filtering in v1 (single owner); the search layer keeps one filter point as a hook for future roles.
 - An approval has one canonical home (operation detail); other surfaces embed or link the same card.
 - An `Incompatible` host shows the same upgrade-required banner and explanation on its host page, in the attention center and in environment health, also after a hub restart; its history stays readable and it is never shown as offline (owner decision D-20).
-- A host page shows management paths with provenance, freshness and which containment is blocked, beside the helper's effective exclusion set (hash and summary, read-only) with each path marked covered or uncovered, and the owner can confirm or correct the paths (owner decision D-28, RW-37).
-- A host page warns when its agent runs as root, marks skills unavailable where the skill runner is missing, and marks checks and capabilities "helper unavailable" where the helper is absent or in error (owner decision D-29).
+- A host page shows management paths with provenance, freshness and which containment is blocked, beside the helper's verified effective set (read-only, from a signed attestation relayed by the agent, never an agent-reported summary) with each discovered path marked covered or uncovered; the owner can confirm only covered paths, an uncovered path shows the instruction to edit `helper.toml` on the host, an unverified or stale attestation is shown as such with containment blocked, and the owner can enroll the helper key by comparing its fingerprint with the one printed on the host (owner decision D-28, RW-37).
+- A host page warns when its agent runs as root, marks skills unavailable, with the reason, where `skill_runner_status` is `absent`, `unsupported` or `error`, and marks checks and capabilities "helper unavailable" where the helper is absent or in error (owner decision D-29).
 - The audit page reports legacy unchained history and chained history separately (owner decision D-14).
 
 ## 11. Backend contracts the UI depends on, and build order
@@ -201,8 +201,8 @@ The UI is built against contracts, not against the live engine. These must exist
 - **Policy decisions** stored with the context snapshot and policy version used, so the simulator can reproduce a historical decision.
 - **Attention feed**, **audit API with chain verification reporting legacy and chained history separately**, **retention settings**, **resolution summaries and similar-operation search**, **capability deployment state per host**.
 - **Host protocol state:** `Incompatible` or "expected incompatible" with the required and reported protocol and the agent's version, read from the persisted agent record so the banner and host page render from data (owner decision D-20).
-- **Host privilege state:** whether the agent runs as root, the skill runner's availability and the helper's status (`absent`, `ok`, `error`), so the root warning and the "skill runner missing" and "helper unavailable" markers render from data (owner decision D-29).
-- **Management-path facts** with source, confirmation, freshness and the containment they block, the helper's effective exclusion set as reported by the agent (hash and summary) with per-path coverage, plus the host's read-only ceiling summary (owner decisions D-28, D-18).
+- **Host privilege state:** whether the agent runs as root, the skill runner's status (`absent`, `unsupported{reason}`, `error{reason}`, `ok{version}`) and the helper's status (`absent`, `ok`, `error`), so the root warning and the skill runner and "helper unavailable" markers render from data (owner decision D-29, RW-42).
+- **Management-path facts** with source, confirmation, freshness and the containment they block, the helper's verified effective set from its signed attestation (with generation, freshness and verification state) with per-path coverage, plus the host's read-only ceiling summary (owner decisions D-28, D-18).
 - **Policy publication validation report** (equal-scope and incomparable conflicts, overrides of a broader Deny, locked rules) and the locked flag on rules in the trace (owner decisions D-19, D-26).
 - **Agent refusal reasons**, including rate-limit refusals (owner decision D-27), and the shared outcome vocabulary (`docs/rework/04 §3.2`).
 - **Presentation profile and dashboard preferences:** where they are stored (hub or browser) is a backend decision; the UI reads them through one provider.
