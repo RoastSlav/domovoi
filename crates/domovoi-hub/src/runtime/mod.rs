@@ -24,8 +24,8 @@ use domovoi_core::ports::{
 };
 use domovoi_engine::triage::{TriageDeps, TriageHandle, TriageService};
 use domovoi_engine::{
-    ActionDeps, ActionService, DomainEvent, IncidentManager, ManagerDeps, ManagerHandle,
-    PatternRedactor,
+    ActionDeps, ActionHandle, ActionService, DomainEvent, IncidentManager, ManagerDeps,
+    ManagerHandle, PatternRedactor,
 };
 use domovoi_llm::LlmBuildError;
 use domovoi_store::{Store, StoreOpenError};
@@ -219,6 +219,21 @@ impl HubRuntime {
             SkillPolicy::load(store.clone(), &HostRepo::list_hosts(&*store).await?).await?,
         );
         let policy_link = Arc::new(PolicyLink::wrap(server.link(), skill_policy.clone()));
+        let (actions_service, actions_task) = ActionService::spawn(
+            ActionDeps {
+                actions: store.clone(),
+                incidents: store.clone(),
+                audit: store.clone(),
+                uow: store.clone(),
+                link: policy_link.clone(),
+                redactor: redactor.clone(),
+                clock: clock.clone(),
+                manager: manager.clone(),
+                bus: bus.clone(),
+                shutdown: worker_shutdown.clone(),
+            },
+            settings::actions(),
+        );
         let triage = build_triage(TriageBuild {
             config: &config,
             store: &store,
@@ -230,22 +245,9 @@ impl HubRuntime {
             executor: deps.process_executor,
             shutdown: &worker_shutdown,
             overrides: &overrides,
+            actions_service: actions_service.clone(),
         })
         .await?;
-        let (actions_service, actions_task) = ActionService::spawn(
-            ActionDeps {
-                actions: store.clone(),
-                incidents: store.clone(),
-                audit: store.clone(),
-                link: policy_link.clone(),
-                redactor: redactor.clone(),
-                clock: clock.clone(),
-                manager: manager.clone(),
-                bus: bus.clone(),
-                shutdown: worker_shutdown.clone(),
-            },
-            settings::actions(),
-        );
         let public_url = support::public_url(&config)?;
         let (gateways, notifiers) = adapters::build_chat(&config, &clock, &public_url, &overrides)?;
         let auth = Arc::new(AuthState::new(
@@ -410,6 +412,7 @@ struct TriageBuild<'a> {
     executor: Option<Arc<dyn ProcessExecutor>>,
     shutdown: &'a CancellationToken,
     overrides: &'a AdapterOverrides,
+    actions_service: ActionHandle,
 }
 
 async fn build_triage(
@@ -426,6 +429,7 @@ async fn build_triage(
         executor,
         shutdown,
         overrides,
+        actions_service,
     } = input;
     if !config.triage.enabled {
         return Ok((None, None));
@@ -472,7 +476,7 @@ async fn build_triage(
             signals: store.clone(),
             notes: store.clone(),
             actions: store.clone(),
-            audit: store.clone(),
+            actions_service,
             cache: store.clone(),
             usage: store.clone(),
             advisories: store.clone(),
