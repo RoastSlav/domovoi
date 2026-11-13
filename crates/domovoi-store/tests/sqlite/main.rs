@@ -6,11 +6,17 @@ mod actions;
 #[cfg(test)]
 mod audit;
 #[cfg(test)]
+mod commit_cost;
+#[cfg(test)]
 mod common;
+#[cfg(test)]
+mod compat;
 #[cfg(test)]
 mod concurrency;
 #[cfg(test)]
 mod contracts;
+#[cfg(test)]
+mod durability;
 #[cfg(test)]
 mod migrations;
 #[cfg(test)]
@@ -19,3 +25,7 @@ mod paging;
 mod purge;
 #[cfg(test)]
 mod search;
+#[cfg(test)]
+mod uow;
+#[cfg(test)]
+mod upgrade;
