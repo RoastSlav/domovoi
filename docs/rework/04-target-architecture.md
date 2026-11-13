@@ -41,10 +41,10 @@ flowchart LR
 | `domovoi-engine` | pure `decide` functions, plan validator, policy evaluator, context selection; writers and effect runner behind ports | depend on hub; mint `HumanApproval`/`PolicyPermit` |
 | `domovoi-store` | `UnitOfWork` SQLite implementation, seq and hash-chain assignment, migrations, FTS | decide transitions |
 | `domovoi-proto` | `features`, `run_capability`, `action_status`, `get_catalog`, `install_package`, tolerant decoding | — |
-| `domovoi-agent` | journal with epoch, ceiling and mutation limiter, package verification and installation, containment reconciliation; invokes privileged helpers (RW-39) through the runner | accept keys or ceiling from hub; hold Docker socket write access |
+| `domovoi-agent` | journal with epoch, ceiling and mutation limiter, package verification and installation, containment reconciliation; starts skills only through the skill runner and privileged operations only through the helper (RW-39) | accept keys or ceiling from hub; spawn skills itself; hold Docker socket write access |
 | `domovoi-runner` | unchanged (only process spawner) | — |
 | `domovoi-hub` | transports, use-case services, `auth/` (HumanApproval), `policy/` (PermitIssuer impl), install relay | bypass use-case services |
-| `domovoi` (binary) | `domovoi helper serve` root-only subcommand (RW-39; ADR decides if it needs its own crate); spawns only via `domovoi-runner` | accept requests from any uid but `domovoi-agent`; free-form commands |
+| `domovoi` (binary) | `domovoi helper serve` (root) and `domovoi skill-runner` (as `domovoi-skill`) subcommands (RW-39; ADR decides whether either needs its own crate); spawn only via `domovoi-runner` | helper: accept other uids, run commands, offer `run_as`; skill runner: accept paths, run as anything but `domovoi-skill` |
 
 No new crates. Dependency edges stay as in ARCHITECTURE.md §4 (FACT: enforced by arch-check).
 
@@ -533,10 +533,18 @@ run_capability {
 `authorization_kind` and `expires_at` are labels from the hub. The agent applies its own rules to
 them; they prove nothing.
 
-### 8.3 Host-local ceiling (D-03, D-18) and mutation limiter (D-27)
+### 8.3 Host-local configuration: ceiling, limiter, helper allowlist and safety set
+
+Configuration lives in two places, with distinct owners and purposes:
+
+| File | Owner and mode | Read by | Holds |
+|---|---|---|---|
+| `/etc/domovoi/agent.toml` | root, 0644 | agent; the helper only for `hub.url` | `[unattended]` ceiling (D-03, D-18) and `[mutation_limits]` (D-27), plus existing agent settings |
+| `/etc/domovoi/helper.toml` | root, 0600 | helper only; the agent sees the effective safety set via `safety.read` | enabled operation groups and allowlists (D-29), `[safety]` exclusions and containment limits (RW-37, the single authoritative source), helper limits |
+
+**Agent ceiling and limiter (`agent.toml`).**
 
 ```toml
-# agent config, owner-edited on the host
 [unattended]
 enabled = true
 
@@ -549,71 +557,104 @@ max_per_hour = 3
 capability = "firewall.block_source"
 targets = ["*"]                       # source addresses come from detector signals
 max_per_hour = 20
-max_active = 50                       # required for Contain
-max_ttl = "1h"                        # required for Contain
+max_active = 50                       # may be narrower than the helper's [safety] limit, never wider in effect
+max_ttl = "1h"
 args = { min_prefix_len_v4 = 24, min_prefix_len_v6 = 64 }   # only keys the contract declares constrainable
-
-[unattended.exclusions]               # mandatory for any Contain entry; cannot be emptied by the hub
-management_cidrs = ["192.168.1.0/24", "100.64.0.0/10"]
-protected_units  = ["sshd", "domovoi-agent", "systemd-networkd", "NetworkManager", "nftables"]
 
 [mutation_limits]                     # D-27, all mutating executions
 per_hour = 30
 per_capability = { "container.restart" = 6 }
 ```
 
-**Helper allowlist (D-29, RW-39).** Root-owned, owner-edited, read only by the helper:
+**Helper allowlist: fresh-install default.** Written by the installer. Only reads are enabled; no
+privileged write is possible.
 
 ```toml
-# /etc/domovoi/helper.toml
-groups = ["docker.read", "smart.read", "kernel.read", "net.read", "systemd.write", "nft"]
-
-[docker]
-write_containers = []                 # ids or names resolved at helper start; empty = docker.write off
-
-[systemd]
-restart_units = ["plex.service"]
-protected_units = ["sshd.service", "domovoi-agent.service", "domovoi-helper.socket"]
-
-[nft]
-table = "domovoi"
-max_elements = 1000
-max_timeout = "24h"
-management_cidrs = ["192.168.1.0/24"]  # helper re-checks exclusions independently of the agent
+# /etc/domovoi/helper.toml (fresh install)
+groups = ["docker.read", "smart.read", "kernel.read", "net.read", "safety.read"]
 
 [smart]
 devices = ["/dev/sd[a-z]", "/dev/nvme[0-9]n1"]
 
+[safety]
+management_cidrs = []                 # empty: containment refused until the owner fills this (D-28)
+protected_units = ["sshd.service", "domovoi-agent.service", "domovoi-helper.socket", "domovoi-skill-runner.socket"]
+protected_containers = []
+
+[safety.containment]
+max_ttl = "1h"
+max_active = 0                        # 0: no containment possible
+
 [limits]
 timeout = "30s"
+mutations_per_hour = 0
 ```
+
+**Helper allowlist: owner-configured host.** The owner edits this file. The write groups take effect
+only once their milestone prerequisites are met (M8 and M9) and the agent-side ceiling and policy also
+allow the operation.
+
+```toml
+# /etc/domovoi/helper.toml (owner-configured example)
+groups = ["docker.read", "docker.write", "systemd.write", "nft", "smart.read", "kernel.read", "net.read", "safety.read"]
+
+[docker]
+write_containers = ["plex"]           # resolved to container ids by the helper
+
+[systemd]
+restart_units = ["plex.service"]
+
+[nft]
+table = "domovoi"
+max_elements = 1000
+
+[smart]
+devices = ["/dev/sd[a-z]", "/dev/nvme[0-9]n1"]
+
+[safety]
+management_cidrs = ["192.168.1.0/24", "100.64.0.0/10"]
+protected_units = ["sshd.service", "domovoi-agent.service", "domovoi-helper.socket", "domovoi-skill-runner.socket", "systemd-networkd.service", "nftables.service"]
+protected_containers = []
+
+[safety.containment]
+max_ttl = "24h"
+max_active = 50
+
+[limits]
+timeout = "30s"
+mutations_per_hour = 30
+```
+
+The helper never allows a protected unit or container as a write target, whatever the allowlist
+says. The installer's defaults for `protected_units` cannot be removed: the helper unions them with
+the file.
 
 **`policy`-labelled requests.** The agent checks, in order:
 1. `[unattended].enabled`;
 2. an entry for the exact contract exists;
 3. the target is in `targets`;
-4. each constrained arg is in bounds;
-5. the entry's `max_per_hour` (journal-derived);
-6. for Contain: `max_active`, `max_ttl`, exclusions, plus always-excluded addresses (hub address,
-   current link peer, loopback, link-local);
-7. then the common checks below.
+4. each constrained argument is in bounds;
+5. the entry's `max_per_hour`, counted from the journal;
+6. the common checks below.
 
-**Every mutating request (either label).**
-- local catalogue, manifest and plan hash;
-- args;
-- `allow_risk`;
-- `[mutation_limits]`.
+**Every mutating request (either label).** The agent checks the local catalogue, manifest and plan
+hash, the arguments, `allow_risk` and `[mutation_limits]`.
 
-**Config handling.**
-- Unknown keys, or Contain entries missing the required caps, are a startup error.
-- The ceiling hash and a summary go in `hello` and are re-sent on change (SIGHUP or restart).
-- Refusals are journaled locally and returned as `refused{reason}`.
+**Privileged operations.** After the agent's checks, every privileged operation is checked again by
+the helper against `helper.toml`, the effective safety set (RW-37) and the helper limits. The helper
+does not see or verify approval or policy (RW-39).
+
+**Config errors.** Unknown keys are startup errors, as are Contain entries without the required caps.
+
+**Reporting.** The agent sends `ceiling_hash` and a summary, plus `exclusions_hash` and
+`exclusions_summary` as returned by `safety.read`, in `hello` and again on any change.
+
+**Refusals.** The agent journals them locally and returns `refused{code}`; the helper's refusals carry
+their own codes.
 
 ### 8.4 Threat model by attacker capability
 
-Assumes D-29 is in effect (agent unprivileged, helper installed). On installs where the agent still runs
-as root, the helper is not a boundary and "run code as the agent user" equals root; the UI labels such
-hosts.
+Assumes D-29 is in effect: control agent as `domovoi-agent`, skills as `domovoi-skill` via the skill runner, root helper installed (RW-39). On installs where the agent still runs as root, none of the process boundaries apply and the UI labels such hosts.
 
 | Attacker can | They can then | Limited by (guarantee) | Not limited by |
 |---|---|---|---|
@@ -622,7 +663,8 @@ hosts.
 | Misconfigure policy (owner error) | allow more than intended | hard limits; host ceiling; shadow first; circuit breaker; pause; publish validation | — |
 | Write to `hub.db` | forge approvals or permits, edit audit | agent ceiling for `policy` runs; agent `allow_risk`, catalogue and rate limiter for all runs; audit chain detects edits that don't recompute it | forged `human` approvals within `allow_risk` and rate limits |
 | Run code as the hub process | send any request with any label | agent catalogue, manifest, args, `allow_risk`, mutation rate limiter (all runs); ceiling (`policy` runs only); trusted package keys (installs); agent runs unprivileged and privileged operations are bounded by the root-owned helper allowlist (D-29) | labelling a request `human` to bypass the ceiling — **accepted v1 limitation**; owner-signed approvals are deferred (`06`) |
-| Run code as the agent user (malicious package, compromised agent) | anything `domovoi-agent` can do; any helper operation within the helper allowlist | helper allowlist and peer-uid check; root-owned helper and config; other hosts unaffected | agent-user actions on that host |
+| Run code as a skill (malicious or compromised package) | anything `domovoi-skill` can do: outbound network, world-readable files | no access to the helper socket, the skill-runner socket, agent state, agent key or `/etc/domovoi/*`; package files read-only; no supplementary groups, no new privileges (RW-39) | `domovoi-skill`'s own reach on that host |
+| Run code as the control agent (`domovoi-agent`) | call the helper directly; dispatch skills; read agent state | helper allowlist, protected targets, effective safety set, containment and mutation limits (helper-enforced); other hosts unaffected | approval and policy: the helper cannot verify them, so a compromised control agent can perform any allowlisted privileged operation within helper limits (**residual risk**; verifiable owner-signed approvals DEFERRED) |
 | Gain root on a host | everything on that host | nothing in Domovoi | — |
 
 ## 9. Containment (M9)
@@ -634,7 +676,7 @@ hosts.
 | Threat | brute force or scanning from an external source |
 | Target | `ipnet:{canonical}` from a detector signal's structured field; prefix ≥ ceiling minimum; equals the pinned subject |
 | Privileges | root-owned helper `nft` group (RW-39), limited to set elements in table `inet domovoi`; no other table touched; exclusions re-checked in the helper |
-| Management protection | D-28 facts confirmed and current; agent exclusions: `management_cidrs`, hub address, current link peer, loopback, link-local; refused if the target overlaps any |
+| Management protection | D-28 facts confirmed and current and covered by the helper's effective safety set (RW-37: `[safety]` CIDRs, hub address resolved from root-owned config, kernel-observed link peer, loopback, link-local); the helper refuses any overlapping target and refuses everything if a safety element cannot be established |
 | Expiry | nftables set element `timeout` = TTL (≤ `max_ttl`). Kernel-enforced, so it does not depend on the agent, the hub or the helper process |
 | Watchdog (D-22) | built into the two-step apply below: the first element carries a 30 s kernel timeout, so if the hub never confirms reachability the block disappears by itself, whether or not the agent, helper or hub survives |
 | Apply semantics | step 1: element added with a 30 s timeout; step 2: on hub confirmation, `replace_ttl` = `delete element` + `add element … timeout <TTL>` in **one** `nft -f` transaction (atomic netlink batch, so the element is never absent); if the element already expired, the transaction fails and the helper reports `expired` (no silent re-add). `add element` on an existing element is not relied on to refresh its timeout. Exact behaviour per supported nftables version is verified in R-2 |
@@ -668,9 +710,10 @@ only expiry today would be an agent timer re-armed after agent restart. That tim
 automatic expiry: if the agent is down, the container stays paused or the unit stays stopped.
 
 Each may be reconsidered (earliest v1.x) only when all of the following hold:
-1. Expiry is independent of the main agent, e.g. a transient systemd timer
-   (`systemd-run --on-active=<ttl> docker unpause <id>` via the helper) or an equivalent OS
-   facility, proven on every supported platform.
+1. Expiry is independent of the main agent: a fixed, typed helper operation whose only effect is
+   to reverse that specific containment at expiry (for example a helper-owned timer persisted in
+   root-owned helper state), designed in a new helper ADR, proven on every supported platform. The
+   helper never offers generic `systemd-run`, `run_as` or command execution.
 2. Recovery after a hub crash.
 3. Recovery after an agent crash or host reboot (a paused container after reboot; unit state after
    reboot).
@@ -735,7 +778,7 @@ stateDiagram-v2
   Verifying --> Rejected: limits, unknown/revoked key, bad signature, digest/identity/compat mismatch
   Verifying --> Extracting: all checks passed
   Extracting --> Rejected: link, traversal, absolute path, duplicate path, limit exceeded
-  Extracting --> Installed: atomic rename staging → skills_dir/<pkg>/<version>; record signer key_id
+  Extracting --> Installed: atomic rename staging → packages_dir/<pkg>/<version>; record signer key_id
   Installed --> Enabled: owner enables in hub (separate action, step-up)
   Enabled --> Installed: disabled
   Installed --> Uninstalling
@@ -789,13 +832,13 @@ There is no other discovery in v1.
 5. Archive SHA-256 equals `archive_sha256`.
 6. `package.toml` (read by streaming the tar entry, nothing written) matches the signed
    `package` and `version`; compatibility (agent protocol, platform, contract versions).
-7. Extraction into a staging directory owned by `domovoi-agent`, with all limits enforced. Reject:
+7. Extraction into a staging directory under `packages_dir`, owned by `domovoi-agent`, with all limits enforced. Reject:
    - absolute paths, `..` components, and duplicate paths;
    - symlinks, hardlinks and device or FIFO entries (any link type is rejected; v1 packages
      contain only regular files and directories);
    - anything outside `<pkg>/`.
 8. Atomic rename.
-9. Record `key_id`, archive digest and install time in `skills_dir/.packages.toml` (agent) and in
+9. Record `key_id`, archive digest and install time in `packages_dir/.packages.toml` (agent) and in
    the hub's install record.
 
 **Local keys.** Agent config, owner-edited; this example validates as TOML:
@@ -829,11 +872,13 @@ label = "Owner"
 - Any install, including a rollback, passes full verification against the keys trusted now.
 - Having been installed before grants nothing.
 
-**Privileges (D-29).**
-- Packages are written only under the agent-owned `skills_dir/<pkg>/` and run as `domovoi-agent`.
-- The helper binary, its units and `/etc/domovoi/helper.toml` are root-owned, so the agent user
-  cannot write them. The installer also refuses targets outside `skills_dir`.
-- Signing grants execution as the agent user, never root.
+**Privileges (D-29, RW-39).**
+- Packages are written only under `packages_dir/<pkg>/` (default `/var/lib/domovoi-packages`), owned by
+  `domovoi-agent` and read-only to `domovoi-skill`.
+- They execute only through the skill runner as `domovoi-skill`.
+- The helper binary, the helper and skill-runner units and `/etc/domovoi/*` are root-owned, so neither
+  user can write them. The installer also refuses targets outside `packages_dir`.
+- Signing grants execution as `domovoi-skill`, never root and never the control agent.
 
 **Hub role.**
 - Store, relay over `transfer_*` (wire 1.2), track install jobs.
@@ -845,8 +890,8 @@ uninstalled, key-untrusted detected.
 **Threat model.**
 - A malicious hub can offer packages or withhold installs; it cannot install unsigned or
   foreign-signed code.
-- An owner-signed package is as trusted as files the owner places in `skills_dir`, and it runs with
-  agent-user rights.
+- An owner-signed package is as trusted as files the owner places on the host, and it runs as
+  `domovoi-skill` without access to the helper or agent state.
 - A first-party key compromise affects hosts that trust that key; revocation is a local edit per host.
 
 **Tests:**
@@ -1005,7 +1050,10 @@ steps become `Unavailable`. `Dispatched` executions stay "awaiting host" and are
 | 8 | agent restarts with active containment | containment records | agent lists nft elements, reconciles, reports active set | hub updates containment state; kernel timeouts unaffected |
 | — | request never reached agent | no record, epoch matches | `not_found` | NotRun |
 
-`running` is returned only by the agent instance that spawned the child and still holds its handle.
+`running` is returned only by the agent instance that started the execution and still holds its
+connection to the skill runner or helper. When the agent restarts, the skill runner sees EOF and kills
+the skill's process group (RW-39), so under D-29 the orphan case in row 3 cannot occur for skills;
+the pid check remains for legacy root installs.
 
 Tests exercise each boundary with a fault-injecting journal and a fake runner that can crash between
 steps:
@@ -1063,7 +1111,7 @@ writer stall.
 | containment | §9.1 drills; `block_expires_with_agent_stopped`, `unconfirmed_block_expires_in_30s`, `containment_requires_confirmed_management_paths` (nftables integration on Linux CI) |
 | packages | §11.2 tests |
 | effects | `claimed_effect_reclaimed_after_lease_expiry`, `dead_effect_raises_advisory`, `notification_state_written_only_after_success` |
-| privileged helpers | `docker_helper_refuses_exec`, `docker_helper_refuses_unlisted_container`, `nft_helper_refuses_foreign_table` |
+| process isolation and helper | RW-39 and RW-37 test lists |
 | protocol | golden frames for the current protocol; `older_minor_agent_rejected_with_reason`, `newer_minor_agent_rejected_with_reason`, `same_protocol_different_patch_releases_communicate`, `unknown_enum_value_preserved`, `unsupported_message_does_not_end_session` |
 | migrations | N-1 upgrade test per release; `older_binary_refuses_incompatible_schema` |
 | audit chain | `audit_chain_detects_edit`, `audit_checkpoint_survives_pruning` |

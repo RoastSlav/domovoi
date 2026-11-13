@@ -228,7 +228,7 @@ This is the one list of data states. Other documents refer to it instead of keep
 | Stale | Data older than its freshness window, or live updates paused | Freshness label with age; never presented as current | yes |
 | Offline / unavailable | A host or agent cannot be reached, or a provider is not configured | Says which source is unavailable; distinct from "no data" and from "not configured" | last known, marked |
 | Incompatible | A host's agent speaks another protocol minor than the hub (owner decision D-20), or has not reconnected since a hub upgrade changed the protocol ("expected incompatible") | Upgrade-required banner naming the required protocol and the agent's version; history stays readable; never presented as offline | last known, marked |
-| Helper unavailable | The privileged helper is absent or in error on a host (owner decision D-29, RW-39) | The affected check or capability says "helper unavailable" with the reason; distinct from failed and from offline | last known, marked |
+| Helper unavailable (and skill runner missing) | The privileged helper is absent or in error, or the skill runner is missing, on a host (owner decision D-29, RW-39) | The affected check or capability says "helper unavailable" with the reason; distinct from failed and from offline | last known, marked |
 | Partial | Some sources of a page loaded and others did not | Each section shows its own state; a failed source is named, never silently omitted | per section |
 | Unknown value | A status or schema value this UI does not know (newer hub, agent or provider) | Neutral pill with the raw value; never crashes | n/a |
 

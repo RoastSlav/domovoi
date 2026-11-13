@@ -437,9 +437,11 @@ history readable. It is read from the persisted agent record, so it survives a h
 after a hub upgrade a host that has not reconnected reads "expected incompatible" (RW-17). The
 privilege states (D-29, RW-39) are statuses too: a **root-agent warning** (the agent runs as root,
 the privilege boundary is not in effect, no unattended execution; shown as a banner and on the host
-page) and **helper unavailable** (the root-owned helper is absent or in error; shown on each
+page), **skill runner missing** (skills are unavailable; they never fall back to the control agent)
+and **helper unavailable** (the root-owned helper is absent or in error; shown on each
 affected check and capability, never as a failure or as offline).
-The host page shows the agent-reported exclusions (hash and summary) read-only beside the
+The host page shows the helper's effective exclusion set (hash and summary, as reported by the agent;
+the UI has no second editable list) read-only beside the
 confirmed management paths, each path marked covered or uncovered (RW-37), and the Capability
 Center gets an owner package import (upload of an owner-signed archive and its signature, RW-26)
 before the install wizard, which is built after the visibility infrastructure. The **locked rule** treatment (D-26) makes a locked Deny read differently from

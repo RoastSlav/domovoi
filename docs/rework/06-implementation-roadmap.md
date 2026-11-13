@@ -13,7 +13,8 @@ flowchart LR
   F3[F3 Exact protocol rule, durable Incompatible, no wire change] --> M1
   F2 --> M1[M1 Execution journal + hash v2 + wire 1.2 bump]
   F4 --> M1
-  F1 --> H1[H1 Unprivileged agent + root helper]
+  M1 --> H1[H1 Three identities: agent, skill runner, root helper]
+  R3[R-3 / R-9 research + helper ADR] -.-> H1
   M1 --> M2[M2 Capability contracts + registry]
   M1 --> M3[M3 Operation aggregate + journal SSE + step approvals]
   M2 --> M3
@@ -50,7 +51,7 @@ recorded 1.3 coordinated upgrade; none is planned.
 
 **Parallel after prerequisites.**
 - F1 ∥ F3.
-- F2 ∥ F4 ∥ H1 (after F1).
+- F2 ∥ F4 (after F1). R-3, R-9 and the helper ADR can run any time before H1.
 - M2 starts after M1, because it needs `get_catalog` from wire 1.2.
 - M4 ∥ M5 ∥ M6.
 - The M7 evaluator can start once M2's contract types land.
@@ -61,6 +62,8 @@ recorded 1.3 coordinated upgrade; none is planned.
 - F1 → anything that writes state.
 - F4 (hash v1 binding) → M1 (hash v2) → M3 (step approvals).
 - M1 → M2, M3, P1.
+- M1 → H1: H1 needs the 1.2 `hello` fields `helper_status`, `runs_as_root`, `exclusions_hash` and
+  `exclusions_summary` (RW-42). No extra protocol bump.
 - H1 → M8 privileged contracts and M9.
 - M8 → M9.
 
@@ -290,26 +293,36 @@ recorded 1.3 coordinated upgrade; none is planned.
 - **No wizard UI here.** The wizard is part of U4, after U3.
 - **Tests.** All of 04 §11.2.
 
-## H1 — Unprivileged agent and root-owned helper (F/A)
+## H1 — Three identities: control agent, isolated skill runner, root helper (F/A)
 
-- **Prereqs.** F1; research R-3; the helper ADR (RW-39, D-29). Not dependent on P1: the helper is
-  installed by the OS install path, not by packages.
+- **Prereqs.**
+  - M1, for the wire 1.2 `hello` fields.
+  - Research R-3 (helper delivery) and R-9 (skill-runner isolation).
+  - The helper and skill-runner ADR (RW-39, D-29).
+  - Owner decision O-30.
+  - Not dependent on P1: the helper and runner are installed by the OS install path, not by packages.
 - **Work.**
-  - `domovoi helper serve`; socket activation; peer-uid check; typed operations and allowlist.
-  - Installer changes: user, group, state ownership, helper units, default allowlist with read groups
-    only, `User=domovoi-agent`.
-  - Monitoring checks moved to helper reads (SMART, kernel, listeners, Docker reads).
-  - Selftest report of lost access.
-  - Root-install warning in the UI.
-  - Skills with `run_as` handled per O-30.
+  - `domovoi helper serve`: socket activation, peer-uid layer, typed operation groups (no pause or
+    unpause), `[safety]` and `safety.read` (RW-37), helper limits.
+  - `domovoi skill-runner` as `domovoi-skill`: socket-activated instance per execution;
+    `impl_hash` check; read-only package and skill roots; cancellation on EOF.
+  - Agent: skills only via the runner, privileged operations only via the helper, `hello` reporting.
+  - Installer migration: users, `state_dir` 0700, `packages_dir`, units, fresh-install
+    `helper.toml` with read groups only, `User=domovoi-agent`.
+  - Monitoring checks via helper reads.
+  - Selftest report.
+  - Root-install warning.
+  - O-30 behaviour.
 - **Tests.**
-  - All RW-39 tests.
+  - All RW-39 and RW-37 tests.
   - `agent_runs_unprivileged_after_install`
   - `checks_report_helper_unavailable_not_failure`
 - **Acceptance.**
-  - On a fresh install the agent runs as `domovoi-agent`.
-  - Every existing check either works through the helper or reports "helper unavailable".
-  - No package can write helper paths.
+  - On a fresh install the control agent runs as `domovoi-agent` and skills as `domovoi-skill`.
+  - A skill process cannot open the helper socket or read `state_dir`; tested on each supported
+    platform.
+  - No privileged write group is enabled.
+  - No package can write helper or runner paths.
 
 ## M8 — L2 bounded autonomy (A)
 
@@ -374,7 +387,7 @@ Columns:
 | F3 | yes | yes (D-20) | — | none | **yes** |
 | F2 | yes | yes | R-4 wording only | F1 | after F1 merges |
 | F4 | yes | yes | R-5 for the cap value | F1 | after F1 merges |
-| H1 | yes (ADR pending) | O-30 open (skills `run_as`) | **R-3 open** | F1 | no: needs R-3, the ADR and O-30 |
+| H1 | yes (ADR pending) | **O-30 open** | **R-3, R-9 open** | M1 | no: needs M1, R-3, R-9, the ADR and O-30 |
 | M1 | yes | yes | R-6 | F2, F3, F4 | after those merge |
 | M2 | yes | yes | — | M1 | after M1 |
 | M3 | yes | yes | — | M1, M2 | after M1 and M2 |
@@ -401,9 +414,9 @@ migrations, protocol, UI and retention.
 |---|---|---|---|---|---|
 | Owner-signed approvals and policy bundles (D-03) | needs owner key custody, device signing, rotation and recovery UX; v1 ceiling is a label-based limit | v1.x | owner key management design; agent verifies signatures on `run_capability`; ADR | leaves room: `authorization_kind` and `PolicyPermit` fields exist; a signature field needs a protocol minor bump | protocol, agent config, UI |
 | Offline emergency permits (D-04) | clock, replay, revocation and lockout risks; needs signed bundles first | after signed bundles | monotonic budgets, persisted nonces, revocation list, hash-chained local log, drills | needs ADR and redesign of agent authority | protocol, agent storage |
-| Arbitrary third-party package registries (D-16) | anyone publishing a package could run code as the agent user after one click | v2 at earliest | registry trust model, per-registry keys, review/reputation, sandboxing | leaves room: index + detached signatures; multiple keys already supported locally | UI, agent config |
+| Arbitrary third-party package registries (D-16) | anyone publishing a package could run code as the skill user after one click | v2 at earliest | registry trust model, per-registry keys, review/reputation, sandboxing | leaves room: index + detached signatures; multiple keys already supported locally | UI, agent config |
 | Agent self-update (D-20, INV-3) | violates INV-3; upgrade path is the install procedure | not planned | a separate ADR changing INV-3 | not supported; packages cannot install agent binaries | — |
-| `container.pause` and `unit.stop_temporary` unattended containment (D-17) | expiry would depend on the agent | v1.x | the 04 §9.3 checklist | `Contain` class and helpers support them; needs proof only | none beyond helper allowlists |
+| `container.pause` and `unit.stop_temporary` unattended containment (D-17) | expiry would depend on the agent | v1.x | the 04 §9.3 checklist | `Contain` class leaves room; the v1 helper deliberately has **no** pause/unpause or stop operation, so a helper ADR adding a typed operation with independent expiry is required | helper interface, helper ADR |
 | Other containment candidates (network isolation, SSH session kill, account lock) | weaker recovery or lockout stories | v1.x+ | 04 §9.3 checklist, plus a lockout analysis per candidate | `Contain` class supports them | helpers, UI |
 | Historical graph playback (D-25) | not deferred past v1; ships last in U2 | U2 end | live graph and timeline stable | trace contract suffices | UI only |
 | Protocol support for older agent generations (D-20) | owner decision: exact match only | not planned | would need a new decision | not supported | — |

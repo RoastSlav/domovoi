@@ -46,9 +46,9 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
 | 34 | Stable target identity | PROPOSAL |
 | 35 | Effect delivery semantics, lease fencing | PROPOSAL |
 | 36 | Execution identity across Action → Step | PROPOSAL |
-| 37 | Management-path confirmation for containment | DECISION D-28 / PROPOSAL (procedure) |
+| 37 | Management paths and one authoritative exclusion set | DECISION D-28 / PROPOSAL (design) |
 | 38 | Agent-side mutation rate limiter | DECISION D-27 / PROPOSAL (format) |
-| 39 | Unprivileged agent and root-owned helper | DECISION D-24, D-29 / PROPOSAL (design) |
+| 39 | Three identities: control agent, isolated skill runner, root helper | DECISION D-24, D-29 / PROPOSAL (design) |
 | 40 | Step graph: parentage plus typed edges | PROPOSAL |
 | 41 | Resolution summary provenance; operation writer owns it | PROPOSAL |
 | 42 | Protocol bump schedule: one coordinated v1 wire bump in M1 | PROPOSAL |
@@ -336,26 +336,29 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
 ## RW-12 Host-local unattended ceiling (D-03, D-18)
 
 - **DECISIONS.** D-03 and D-18 as recorded in `99`. Format: `04` §8.3.
+- **Where each part lives.** The mandatory management-path exclusions D-18 lists belong to the same
+  host-local, owner-controlled safety configuration. They are stored in the root-owned helper
+  `[safety]` section and enforced by the helper (RW-37). The agent `[unattended]` table holds the
+  rest of the ceiling.
 - **What the agent receives.** `authorization_kind = human | policy`, a hub-set label, not proof.
 
   | Check | `policy` | `human` |
   |---|---|---|
   | complete unattended ceiling | yes | no |
-  | agent-local exclusions (Contain) | yes | yes |
+  | helper-enforced exclusions and containment limits (RW-37) | yes | yes |
   | mutation rate limiter (RW-38) | yes | yes |
   | local catalogue, manifest, args, `allow_risk` | yes | yes |
   | helper allowlist, for privileged operations (RW-39) | yes | yes |
 
-- **Process privileges (D-29).** The agent runs as the unprivileged user `domovoi-agent`, so skills
-  and packages run with that user's rights. Privileged operations exist only through the root-owned
-  helper and its owner-edited allowlist.
+- **Process privileges (D-29, RW-39).** The control agent runs as `domovoi-agent`. Skills and packages
+  run through the skill runner as `domovoi-skill`, which cannot reach the helper or agent state.
+  Privileged operations exist only through the root-owned helper and its owner-edited allowlist.
 - **Accepted v1 limitation.** A compromised hub can label a request `human` and bypass the ceiling.
   It is still limited by:
   - the catalogue and manifest checks;
   - `allow_risk`;
   - the rate limiter;
-  - the agent user's OS permissions;
-  - the helper allowlist.
+  - the helper allowlist and helper-enforced safety constraints (RW-39).
 
   The ceiling is not cryptographic proof of owner authorization. Owner-signed approvals and bundles
   are DEFERRED (`06`).
@@ -638,12 +641,14 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
   - the signer `key_id` persisted per installed package, so revocation finds affected packages;
   - rollback requires a currently trusted key.
 - **Privileges.**
-  - Packages install into the agent-owned `skills_dir`.
-  - They run as `domovoi-agent` (D-29), never as root.
-  - They cannot write the root-owned helper path or `/etc/domovoi/helper.toml`: the OS permissions
-    enforce this, and the installer refuses any path outside `skills_dir/<pkg>/`.
-  - Signing grants execution as the agent user only.
-  - Helper installation is a separate, owner-controlled OS install step (RW-39).
+  - Packages install into `packages_dir` (default `/var/lib/domovoi-packages`), written by the agent
+    and read-only to `domovoi-skill`.
+  - They execute only through the skill runner as `domovoi-skill` (RW-39): never as root and never
+    as `domovoi-agent`.
+  - They cannot write the helper, the skill-runner units or `/etc/domovoi/*`, because those paths
+    are root-owned and the installer only writes `packages_dir/<pkg>/`.
+  - Signing grants execution as `domovoi-skill` only.
+  - Helper installation is a separate, owner-controlled OS install step.
 - **Install never enables or authorizes.**
 
 ## RW-27 Audit hash chain (D-14)
@@ -839,36 +844,65 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
 - **Why.** M1 can ship idempotency and reconciliation using objects that exist then, and M3 does not
   have to touch the agent contract.
 
-## RW-37 Management-path confirmation and agent exclusions (D-28)
+## RW-37 Management-path confirmation and one authoritative exclusion set (D-28)
 
 - **DECISION D-28** as recorded in `99`.
-- **Invariant (PROPOSAL).** Unattended containment on a host is enabled only while **every
-  hub-confirmed management path is covered by the agent's locally enforced exclusions**.
-  - **Hub-confirmed** (owner, `user`-sourced facts, current): trusted CIDRs, protected services.
-  - **Agent-reported:** `exclusions_hash` + `exclusions_summary` in `hello` and on config reload. It
-    contains:
-    - `management_cidrs` and `protected_units` from agent config;
-    - the always-excluded set, computed by the agent: hub address, current link peer, loopback,
-      link-local.
-  - **Coverage check (hub, pure).**
-    - Each confirmed CIDR ⊆ the union of agent `management_cidrs` ∪ the always-excluded set.
-    - Each confirmed protected service ∈ `protected_units`.
-    - Any gap means containment is `RequireApproval` for unattended use. The UI shows each
-      uncovered item.
-  - **Invalidation.** Confirmation becomes stale, and unattended containment is blocked, when any of
-    these happen:
-    - the agent reports an interface, address or default-route change;
-    - the hub sees the agent from a new address;
-    - the agent's `exclusions_hash` changes;
-    - the confirmation is older than the freshness period (default 30 d).
-  - **Authority.** The hub cannot remove or weaken agent exclusions: they live in the agent config
-    and the helper re-checks them (RW-39).
-  - **Scope.** Monitoring and other human-approved capabilities are unaffected.
+- **Single source (PROPOSAL).**
+  - Mandatory exclusions live only in the root-owned, owner-edited `[safety]` section of
+    `/etc/domovoi/helper.toml`: `management_cidrs`, `protected_units`, `protected_containers`,
+    `containment.max_ttl` and `containment.max_active`.
+  - The agent config no longer has an exclusions section. The previous `[unattended.exclusions]`
+    is superseded.
+  - The helper reads `[safety]` and enforces it on every applicable operation.
+  - The agent obtains the effective set **from the helper** (`safety.read`), never by parsing the
+    file itself. A non-compromised agent therefore cannot report anything other than what the
+    helper enforces.
+- **Effective set** (computed by the helper at every containment request and every `safety.read`):
+
+  | Element | Source | Trusted because |
+  |---|---|---|
+  | configured management CIDRs, protected units and containers | `[safety]` | root-owned, owner-edited |
+  | loopback (`127.0.0.0/8`, `::1`) and link-local (`169.254.0.0/16`, `fe80::/10`) | constants | definition |
+  | hub address(es) | the helper resolves `hub.url` from the root-owned `/etc/domovoi/agent.toml` | root-owned config, not agent-supplied |
+  | current link peer | the helper reads established TCP sockets owned by uid `domovoi-agent` toward the hub port, from the kernel (netlink or `/proc/net/tcp*`) | kernel state |
+  | local interface addresses and default gateways | netlink | kernel state |
+
+  - Agent-supplied addresses are never inputs.
+  - If the helper cannot establish an element (config unreadable, DNS resolution of the hub fails,
+    socket table unreadable), it refuses every containment operation (`refused{safety_unknown}`).
+- **Hash.** `exclusions_hash` = SHA-256 over the canonical serialization of the configured part,
+  plus the dynamic part's sorted values. The agent reports `exclusions_hash` + `exclusions_summary`
+  (wire 1.2) as returned by `safety.read`.
+- **Invariant.** Unattended containment on a host is enabled only while every hub-confirmed
+  management path is covered by the reported effective set.
+  - **Hub-confirmed paths:** `user`-sourced, current facts (trusted CIDRs, protected services).
+  - **Coverage check (pure, hub):**
+    - each confirmed CIDR ⊆ the effective set's CIDRs;
+    - each confirmed protected service ∈ protected units or containers.
+
+    Any gap means unattended containment becomes `RequireApproval`, and the UI lists each uncovered
+    item.
+- **Invalidation.** Confirmation becomes stale, and unattended containment is blocked, when any of
+  these happen:
+  - the agent reports an interface, address or route change;
+  - the hub sees the agent from a new address;
+  - `exclusions_hash` changes;
+  - `helper.toml` fails to load;
+  - the confirmation is older than the freshness period (default 30 d).
+- **Authority.** Neither the hub nor any package can change `[safety]`, which is root-owned. The
+  helper refuses a target overlapping the effective set even when the hub requests it.
+- **Scope.** Monitoring and unrelated human-approved capabilities are unaffected.
+- **Residual risk.** A compromised control agent can misreport the summary to the hub. It still
+  cannot make the helper apply a target inside the effective set.
 - **Tests.**
-  - `containment_blocked_when_confirmed_path_not_in_agent_exclusions`
-  - `agent_exclusion_change_invalidates_confirmation`
+  - `agent_reports_exactly_the_helper_effective_set`
+  - `inconsistent_or_stale_safety_config_blocks_containment`
+  - `helper_refuses_target_overlapping_exclusion_even_if_hub_requests`
+  - `changed_effective_set_invalidates_confirmation`
+  - `unreadable_safety_config_fails_closed`
+  - `unknown_link_peer_refuses_containment`
+  - `containment_blocked_when_confirmed_path_not_covered`
   - `network_change_marks_management_paths_stale`
-  - `hub_cannot_weaken_agent_exclusions`
   - `monitoring_unaffected_by_missing_management_paths`
 
 ## RW-38 Agent-side mutation rate limiter (D-27)
@@ -906,83 +940,177 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
   - `corrupt_journal_refuses_mutations`
   - `torn_tail_record_is_discarded_safely`
 
-## RW-39 Unprivileged agent and root-owned helper (D-24, D-29)
+## RW-39 Three identities: control agent, isolated skill runner, root helper (D-24, D-29)
 
-- **FACT.** `install.sh` installs the agent unit running as root ("SMART needs the disks, the journal
-  checks read every unit's log, and skills run as the user their manifest names",
-  `install.sh:97-106`). Skill manifests may set `run_as` (`core/src/skill/manifest.rs:124-126`).
-- **DECISIONS.**
+- **FACT** (baseline source).
+  - `install.sh` installs the agent unit running as root (`install.sh:97-106`).
+  - Skill manifests may set `run_as` (`core/src/skill/manifest.rs:124-126`). The documented example
+    is already `run_as = "domovoi-skills"` (`manifest.rs:79`).
+  - The runner switches the child to that uid and primary gid, clearing supplementary groups. This
+    works only when the agent is root (`runner/src/exec/mod.rs:40-43`, `exec/spawn.rs:19-34,63-64`).
+  - `skills_dir` defaults to the root-owned `/etc/domovoi/skills` (`config/src/agent.rs:51,264`).
+  - The agent key and spool live in `state_dir` (`/var/lib/domovoi-agent`, `agent.rs:48`).
+- **Problem with the previous revision.** Skills and packages were to run as `domovoi-agent`, the
+  same uid the helper accepts by `SO_PEERCRED`. A malicious package could connect to the helper
+  directly, skipping plan-hash, approval, ceiling and rate-limit checks. A peer-uid check
+  distinguishes users, not processes. **Superseded.**
+- **Decisions.**
   - D-24: no general Docker socket write.
-  - D-29: the main agent runs as an unprivileged user, and privileged operations go through one
-    narrow root-owned helper.
-- **Design (PROPOSAL).**
-  - **Agent.** Runs as system user `domovoi-agent`:
-    - member of `systemd-journal`, for journal reads;
-    - not in `docker`, `disk` or `adm`.
+  - D-29: the agent runs unprivileged, and privileged operations go only through one narrow
+    root-owned helper.
+- **Design (PROPOSAL).** Three OS identities:
+
+  | Component | User | Groups | Can reach |
+  |---|---|---|---|
+  | control agent (`domovoi agent run`) | `domovoi-agent` | `domovoi-agent`, `systemd-journal` | hub link; helper socket; skill-runner socket; its `state_dir` (0700) |
+  | skill runner (`domovoi skill-runner`) | `domovoi-skill` | `domovoi-skill` only | read-only package and skill files; its own private tmp; nothing else Domovoi owns |
+  | helper (`domovoi helper serve`) | root | — | the allowlisted privileged operations |
+
+  - **Skill runner service.** It is how an unprivileged agent starts skills under another identity.
+    - **Socket.** `domovoi-skill-runner.socket` listens on `/run/domovoi-skill-runner.sock`
+      (`SocketUser=root`, `SocketGroup=domovoi-agent`, `SocketMode=0660`) with `Accept=yes`.
+    - **Service.** Each connection starts one `domovoi-skill-runner@.service` instance with:
+      - `User=domovoi-skill`, `Group=domovoi-skill`, `SupplementaryGroups=` empty;
+      - `NoNewPrivileges=yes`, `ProtectSystem=strict`, `ProtectHome=yes`, `PrivateTmp=yes`,
+        `PrivateDevices=yes`;
+      - `ReadOnlyPaths=/etc/domovoi/skills /var/lib/domovoi-packages`;
+      - `InaccessiblePaths=/var/lib/domovoi-agent /run/domovoi-helper.sock /etc/domovoi/helper.toml
+        /etc/domovoi/agent.toml`;
+      - `RestrictSUIDSGID=yes`, `CapabilityBoundingSet=` empty, `RuntimeMaxSec=` = the agent's
+        maximum skill timeout + margin.
+    - **Not root.** The runner itself runs as `domovoi-skill` and never as root, so it cannot raise
+      privileges for a skill.
+    - **Request.** The agent sends one typed request per connection: `{execution_id, source:
+      skills_dir | package{name, version}, skill, impl_hash, args (validated, canonical),
+      env (allowlisted names only), timeout, max_output_bytes}`.
+    - **Validation by the runner.**
+      1. It resolves the skill only inside `skills_dir` or `packages_dir/<name>/<version>/`. There
+         are no paths in the request.
+      2. It parses the manifest and recomputes `impl_hash` (manifest + entry-script bytes). It
+         refuses on mismatch, which closes the gap between the agent's check and execution.
+      3. It re-validates the args against the manifest.
+      4. It refuses any manifest whose `run_as` names a user other than `domovoi-skill` (O-30).
+      5. It builds the argv through `domovoi-runner`. There is no shell (R3/R4) and no executable
+         path from the request.
+    - **Output.** Stdout and stderr are streamed back over the connection with the existing caps and
+      redaction. The result frame carries the exit status and the truncation flag.
+    - **Cancellation and timeout.**
+      - The runner enforces the timeout with the existing group kill.
+      - The agent cancels by closing the connection. On EOF the runner kills the process group and
+        exits.
+      - `RuntimeMaxSec` is the systemd backstop.
+    - **Agent restart.** The connection drops, the runner kills the child, and systemd stops the
+      instance. No orphan survives. That gives the "process killed, result unknown" outcome of
+      crash window 3 in `04` §15.2.
+    - **What a compromised skill cannot reach.**
+      - The helper socket: wrong group, and the socket path is inaccessible.
+      - The skill-runner socket: wrong group.
+      - The agent's key, spool, journal, config and credentials: `state_dir` is 0700 and
+        inaccessible.
+      - The helper config: inaccessible.
+      - The package and skill content: read-only to it.
+      - It also cannot replace the executable being run: the files are owned by root (skills) or
+        `domovoi-agent` (packages), with no write bit for others.
+    - **What a compromised skill can still do.** Anything the `domovoi-skill` user can do on the
+      host: outbound network, reading world-readable files. It could also reach the hub's network
+      port, but it holds no agent key, so it cannot authenticate as the agent.
   - **Helper.**
-    - `domovoi helper serve`: a root-only subcommand of the same root-owned binary
-      (`/usr/local/bin/domovoi`, mode 0755, owner root). An ADR decides whether it needs its own
-      crate.
-    - Started by `domovoi-helper.socket` (unix socket `/run/domovoi-helper.sock`, mode 0660, group
-      `domovoi-agent`) and a socket-activated, sandboxed `domovoi-helper@.service`.
-    - It checks `SO_PEERCRED` uid == `domovoi-agent`.
-    - Requests are typed JSON lines. There is no shell, no free-form flags and no executable
-      paths. Every process it spawns goes through `domovoi-runner` (R3).
-  - **Allowlist.** `/etc/domovoi/helper.toml`, root-owned and owner-edited. It lists the enabled
-    operation groups, allowed containers and units, the nft table name, SMART device patterns and
-    timeouts. The helper validates every request against it, independently of the agent and hub.
+    - `domovoi helper serve` runs as root, started by `domovoi-helper.socket` at
+      `/run/domovoi-helper.sock` (`SocketGroup=domovoi-agent`, 0660) and a sandboxed
+      `domovoi-helper@.service`.
+    - It checks `SO_PEERCRED` uid == `domovoi-agent` as **one layer only**. The real isolation is
+      that skills never run as that uid.
+    - Requests are typed. Every spawn goes through `domovoi-runner`.
+    - It never offers `run_as`, `sudo`, `systemd-run` or any command execution.
+  - **Packages directory.** Installed packages live in `packages_dir` (default
+    `/var/lib/domovoi-packages`): owned by `domovoi-agent`, directories 0755, files 0644 (entry
+    scripts 0755). The agent writes it; `domovoi-skill` can only read it. Owner-placed skills stay
+    in the root-owned `skills_dir`.
+  - **Helper-enforced constraints.** These do not depend on the caller being honest. They come from
+    `/etc/domovoi/helper.toml` (root-owned) and local OS state:
+    - enabled operation groups;
+    - allowed targets by canonical identity (container id, canonical unit id + config hash);
+    - protected units and containers;
+    - mandatory management-path exclusions and the dynamic set (RW-37);
+    - containment `max_ttl` and `max_active`;
+    - per-operation argument validation;
+    - timeouts and output caps;
+    - a helper-side mutation rate limit per group (`[limits] mutations_per_hour`), persisted in a
+      root-owned state file under `/var/lib/domovoi-helper/`.
+  - **Not helper-enforced.** The helper does **not** verify human approval or policy authorization.
+    It has no verifiable authorization input in v1. Those checks happen in the agent (plan hash,
+    `allow_risk`, ceiling, rate limiter) and the hub.
+  - **Layers, kept distinct:**
+    1. **Package isolation:** skills run as `domovoi-skill`, with no route to the helper or to agent
+       state.
+    2. **Root-operation allowlisting:** the helper allowlist bounds which privileged operations and
+       targets exist at all.
+    3. **Agent-side authorization:** plan hash, `allow_risk`, ceiling and rate limiter.
+    4. **Helper-enforced safety:** the list above.
+    5. **Residual risk:** a compromised control agent (`domovoi-agent`) can call the helper directly.
+       It is then bounded only by layers 2 and 4, not by approval or policy. Owner-signed
+       approvals the helper could verify are DEFERRED (`06`).
   - **Operation groups (v1):**
 
     | Group | Operations | Why privileged |
     |---|---|---|
     | `docker.read` | list, inspect, logs (bounded), stats, resolve name → id | socket access is root-equivalent |
-    | `docker.write` | restart, pause, unpause by container id, allowlisted ids only | D-24 |
-    | `systemd.write` | restart by canonical unit id, allowlisted units only, never protected units | unit control needs root |
-    | `nft` | `add`, `replace_ttl` (atomic delete + add in one transaction), `del`, `list` on `inet domovoi` sets only, with exclusions re-checked (RW-37) | CAP_NET_ADMIN |
-    | `smart.read` | `smartctl -a` on devices matching the allowlist | raw disk access |
+    | `docker.write` | `restart` by allowlisted container id only | D-24 |
+    | `systemd.write` | `restart` by canonical unit id + config hash, allowlisted, never protected | unit control needs root |
+    | `nft` | `add`, `replace_ttl` (atomic delete + add in one transaction), `del`, `list` on `inet domovoi` sets only; exclusions and limits enforced | CAP_NET_ADMIN |
+    | `smart.read` | `smartctl -a` on allowlisted devices | raw disk access |
     | `kernel.read` | bounded kernel messages | `dmesg_restrict` |
     | `net.read` | listening sockets with owning process | other users' processes |
+    | `safety.read` | effective exclusion set summary and hash (RW-37) | lets the agent report exactly what the helper enforces |
 
-  - **Unprivileged reads** (journal via group, `systemctl show` and `is-active` over D-Bus, `/proc`
-    host metrics) stay in the agent.
-  - **Install and update.** Only through the owner-controlled OS path (`install.sh`, `domovoi
-    upgrade` run as root, the distro package or the image). Capability packages and skills can never
-    install, replace or modify the helper or its config: the paths are root-owned, and the package
-    installer only writes `skills_dir/<pkg>/`.
-  - **Failure modes.** The agent reports `helper_status`:
-    - `absent`: capabilities needing the helper are `Unavailable(helper_missing)`;
-    - `error{reason}` (bad permissions, config parse error): `Unavailable(helper_error)`, plus a
-      host advisory;
-    - operation not in the allowlist: `refused{helper_not_allowed}`.
-
-    Monitoring degrades only for the privileged reads, and each affected check reports "helper
-    unavailable" instead of failing silently.
-  - **Skills.** They run as `domovoi-agent`. A manifest whose `run_as` names a different user cannot
-    run after the migration and is reported `Unavailable(run_as_unsupported)`; see O-30 in `99`.
+    `docker.pause`/`unpause` and unit stop are **not** v1 operations. They belong to the deferred
+    `container.pause` / `unit.stop_temporary` candidates (D-17, `04` §9.3). There is no emergency
+    variant either: an owner who needs to pause a container does so directly on the host.
+  - **Fresh-install default.** Only the read groups and `safety.read` are enabled, with no write
+    targets. `docker.write`, `systemd.write` and `nft` stay unavailable until the owner enables the
+    group and its allowlist in `helper.toml` **and** the corresponding milestone prerequisites (M8,
+    M9) are met. Examples: `04` §8.3.
+  - **Install and update.** Only through the owner-controlled OS path (`install.sh`, root-run
+    `domovoi upgrade`, distro package, image). Packages and skills can never install or modify the
+    helper, the skill-runner units or `/etc/domovoi/*`: those paths are root-owned, and the package
+    installer only writes `packages_dir/<pkg>/`.
+  - **Failure modes.**
+    - Helper `absent` or `error` → helper capabilities are `Unavailable(helper_missing|helper_error)`;
+      privileged checks report "helper unavailable".
+    - Skill runner absent → all skills are `Unavailable(skill_runner_missing)`. They do **not** fall
+      back to running as `domovoi-agent`, because that would reopen the helper and the agent state
+      to package code.
   - **Migration (workstream H1).**
-    1. The installer creates the user and group.
-    2. It moves state ownership of `/var/lib/domovoi-agent`.
-    3. It installs the helper units and a default allowlist that enables only the read groups.
-    4. It switches the unit to `User=domovoi-agent`.
-    5. `domovoi agent selftest` reports which checks and skills lost access.
+    1. The installer creates `domovoi-agent` and `domovoi-skill` and moves `state_dir` ownership
+       (0700).
+    2. It creates `packages_dir`.
+    3. It installs the helper and skill-runner units and a fresh-install `helper.toml`.
+    4. It switches the agent unit to `User=domovoi-agent`.
+    5. `domovoi agent selftest` reports lost access and skills affected by O-30.
 
-    Existing root installs keep working until the owner reruns the installer. The UI shows "agent
-    running as root: privilege boundary not in effect".
-  - **Honesty.** While an agent still runs as root, the helper is not a privilege boundary. The
-    threat model in `04` §8.4 assumes D-29 is in effect, and it labels root installs.
-- **Platforms.** Research item R-2 (nft) and R-3 (helper on supported distros, containers and
-  Unraid).
-  - Container deployments get the helper only if it is installed on the host and its socket is
-    mounted.
-  - Platforms without systemd need an equivalent supervisor, or they run without helper
-    capabilities.
+    Root installs keep working until the owner reruns the installer. The UI labels them
+    "privilege boundary not in effect", and they get no unattended execution (hard limit, `04` §7.3).
+  - **Platforms.** systemd with socket activation is required for the skill runner and the helper.
+    Container deployments, Unraid and hosts without systemd are research item R-9; until it
+    concludes, those platforms run without skills, or keep the legacy root agent with the boundary
+    labelled absent.
 - **Tests.**
+  - `skill_user_cannot_connect_to_helper_socket`
+  - `skill_user_cannot_read_agent_state`
+  - `skill_user_cannot_write_package_files`
+  - `skill_runner_refuses_impl_hash_mismatch`
+  - `skill_runner_refuses_path_outside_skill_roots`
+  - `skill_runner_kills_child_on_agent_disconnect`
+  - `skills_unavailable_without_skill_runner`
   - `helper_rejects_wrong_peer_uid`
   - `helper_refuses_unlisted_container`
   - `helper_refuses_unlisted_unit`
   - `helper_refuses_protected_unit`
   - `helper_refuses_foreign_nft_table`
   - `helper_refuses_unknown_operation`
+  - `helper_has_no_pause_operation`
+  - `fresh_install_enables_read_groups_only`
+  - `helper_mutation_limit_enforced`
   - `package_install_cannot_write_helper_paths`
   - `missing_helper_reports_unavailable`
 
@@ -1032,7 +1160,7 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
     - `journal_epoch`;
     - `catalog_hash`;
     - `ceiling_hash` + `ceiling_summary`;
-    - `exclusions_hash` + `exclusions_summary`;
+    - `exclusions_hash` + `exclusions_summary` (as returned by the helper's `safety.read`, RW-37);
     - `helper_status` (`absent | ok{ops} | error{reason}`);
     - `runs_as_root`;
     - `boot_id` (already reported in facts today).

@@ -85,20 +85,24 @@ Restoring a pre-migration backup is never presented as a routine rollback.
   when the upgraded agent connects with a new journal epoch.
 - Patch releases with the same protocol interoperate. Agent self-update is not provided (INV-3).
 
-## 4a. Agent privilege migration (D-29, RW-39, workstream H1)
+## 4a. Agent privilege migration (D-29, RW-39, workstream H1, after M1)
 
-- FACT: `install.sh` installs the agent unit running as root; skills may declare `run_as`.
-- The installer (rerun by the owner as root) creates `domovoi-agent`, moves ownership of
-  `/var/lib/domovoi-agent`, installs the helper binary path (root-owned), `domovoi-helper.socket` and
-  service, a default `/etc/domovoi/helper.toml` with read groups only, and switches the agent unit to
-  `User=domovoi-agent` with group `systemd-journal`.
-- `domovoi agent selftest` lists checks that now go through the helper and skills that can no longer
-  run (`run_as` other users, O-30).
-- Until the owner reruns the installer, existing root installs keep working; the UI labels them
-  "agent running as root: privilege boundary not in effect" and L2/L3 unattended execution is refused
-  on such hosts (the threat model assumes D-29).
-- Rollback: rerunning the previous installer restores the root unit; the helper units can stay
-  inert.
+- FACT: `install.sh` installs the agent unit running as root; the runner switches skills to their
+  `run_as` user only because the agent is root.
+- The installer (rerun by the owner as root) creates `domovoi-agent` and `domovoi-skill`, sets
+  `/var/lib/domovoi-agent` to `domovoi-agent` 0700, creates `/var/lib/domovoi-packages`
+  (`domovoi-agent`, 0755), installs the helper and skill-runner units and a fresh-install
+  `/etc/domovoi/helper.toml` with read groups only, and switches the agent unit to
+  `User=domovoi-agent`.
+- Existing owner-placed skills in `/etc/domovoi/skills` run as `domovoi-skill`; manifests whose
+  `run_as` names another user follow O-30. `domovoi agent selftest` lists affected checks and skills.
+- Any `[unattended.exclusions]` in agent config from a pre-release build is ignored with a warning;
+  exclusions are configured only in `helper.toml` `[safety]` (RW-37).
+- Until the owner reruns the installer, root installs keep working, labelled "privilege boundary not
+  in effect", with no unattended execution.
+- Platforms without the skill runner (R-9) run without skills rather than running skills as the
+  control agent.
+- Rollback: rerunning the previous installer restores the root unit; the new units stay inert.
 
 ## 4b. Approval migration stages (RW-11)
 

@@ -44,10 +44,10 @@ names the `ARCHITECTURE.md` sections it updates (D-15).
 | 41 | `packages-agent` | P1 | 20, 25 | 26+ | verification before extraction, limits, link rejection, local keys/revocation, signer `key_id` record, `agent.package.*` capabilities over `transfer_*` | §7.2, §8 |
 | 42 | `packages-hub` | P1 | 41 | — | first-party index, owner import (upload + CLI), package store, relay, jobs, audit (wizard is in 43) | §8, §10 |
 | 43 | `policy-knowledge-capability-pages` | U4 | 37, 35, 40, 42 | — | split per page when written; includes install wizard (needs 42 + 37) | §10 |
-| 44 | `helper-adrs` | H1 | 08 | any | helper ADR (privilege model, socket activation, allowlist, install/update path, platforms) after R-3; resolves whether the helper is its own crate | §15 (ADR reference) |
+| 44 | `helper-adrs` | H1 | — | any | ADR for the helper and skill runner (three identities, socket activation, allowlist, `[safety]`, install/update path, platforms) after R-3 and R-9; may be written before M1 | §15 (ADR reference) |
 | 45 | `policy-permit-autonomy` | M8 | 32, 40, 47 | — | PermitIssuer, full ceiling enforcement, guardrails, pause, circuit breaker, `unit.restart` (helper `systemd.write`, R-8) and `container.restart` (helper `docker.write`) | §12, §15 (INV-1 wording) |
 | 46 | `containment` | M9 | 45, 34, 47 | — | `firewall.block_source` via helper `nft` (atomic replace, R-2), detector-only trigger, RW-37 coverage invariant and tests, reconciliation, drills | §12, §15 |
-| 47 | `unprivileged-agent-and-helper` | H1 | 44 | 14–19 | `domovoi helper serve`, typed ops and allowlist, installer migration to `domovoi-agent` user, checks via helper, root-install warning, O-30 handling | §7.2, §15 |
+| 47 | `three-identities-helper-and-skill-runner` | H1 | 20, 22, 44 | 24–30 | `domovoi helper serve` (no pause/unpause), `[safety]` + `safety.read`, `domovoi skill-runner` as `domovoi-skill`, installer migration, fresh-install read-only `helper.toml`, checks via helper, O-30 behaviour; needs wire 1.2 (M1) and O-30 answered | §7.2, §15 |
 
 Section numbers are `ARCHITECTURE.md` headings at baseline 64117f0 (4 layout, 5 domain, 6 ports, 7 runtime, 8 protocol, 9 persistence, 10 API/web, 11 LLM, 12 skills/actions, 13 chat, 14 config, 15 security invariants, 16 observability, 17 testing); re-check when writing each prompt.
 
@@ -55,6 +55,7 @@ Section numbers are `ARCHITECTURE.md` headings at baseline 64117f0 (4 layout, 5 
 
 - 08 freezes `Transaction`, `CommitError`, `CommitReceipt`.
 - 13 changes no wire format. 20 is the only protocol bump before v1 (1.1 → 1.2, RW-42) and freezes the complete v1 wire contract in its first commit; every later prompt uses that wire through capabilities.
+- 47 cannot start before 20 (wire 1.2 `hello` fields), R-3, R-9, ADR 44 and O-30.
 - 18 binds approvals to the v1 hash only; 22 introduces v2; 27 moves approvals to steps. A prompt must not implement a later stage's guarantee early.
 - 24 freezes contract type shapes used by 25, 31, 39.
 - 26 freezes the trace schema (Rust + `web/src/test/fixtures`) used by 28, 30, 38.

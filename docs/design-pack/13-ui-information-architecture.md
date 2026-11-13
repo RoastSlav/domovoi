@@ -36,7 +36,7 @@ Do not force the final sidebar to contain every possible subpage. Important deta
 | Attention center | P0 | Compact | The one durable list of approvals, questions, manual interventions, failures and completed operations, with unread state; never rely only on toasts. Control Room "Waiting for you" and the Approvals page are views over this same list. |
 | Autonomy state | P0 | Compact | Shows when autonomy is paused or any rule is suspended by its circuit breaker; links to Policies & Autonomy. The pause switch is human-only. |
 | Incompatible-agent banner | P0 | Compact | Appears while any host is `Incompatible` or "expected incompatible" after a hub upgrade (owner decision D-20, RW-17): names the host(s), the exact required protocol and the agent's version, and says to upgrade the hub first and then each agent through the install procedure. Links to the host; history stays readable and the host is never shown as merely offline. |
-| Root-agent warning banner | P1 | Compact | Appears while any host's agent runs as root (owner decision D-29, RW-39): the privilege boundary is not in effect, unattended execution is off on that host, and the owner can rerun the installer. Links to the host. |
+| Root-agent warning banner | P1 | Compact | Appears while any host's agent runs as root (owner decision D-29, RW-39): the privilege boundary is not in effect, unattended execution is off on that host, and the owner can rerun the installer. Links to the host, where a missing skill runner or helper is shown too. |
 | Account/user menu | P2 | Compact | Profile, preferences, theme and sign out. |
 
 The shell may evolve from the current sidebar/topbar layout. Do not assume all actions must live in the top bar or that the current sidebar groups must remain.
