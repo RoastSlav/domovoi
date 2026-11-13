@@ -5,7 +5,17 @@ use domovoi_core::ports::{ActionFilter, ActionRepo, Page, Paged, RAN_STATUSES, S
 use domovoi_core::{ActionId, ActionRequest, HostId, SkillName};
 use jiff::Timestamp;
 
-use super::{InMemoryStore, conflict, paginate};
+use super::{InMemoryStore, State, conflict, paginate};
+
+/// Whether another stored action already uses `action`'s chat token hash.
+pub(super) fn token_taken(state: &State, action: &ActionRequest) -> bool {
+    action.chat_token_hash().is_some_and(|hash| {
+        state
+            .actions
+            .values()
+            .any(|other| other.id() != action.id() && other.chat_token_hash() == Some(hash))
+    })
+}
 
 #[async_trait]
 impl ActionRepo for InMemoryStore {
@@ -14,12 +24,7 @@ impl ActionRepo for InMemoryStore {
         if state.actions.contains_key(&action.id()) {
             return Err(conflict("action id exists"));
         }
-        if let Some(hash) = action.chat_token_hash()
-            && state
-                .actions
-                .values()
-                .any(|a| a.chat_token_hash() == Some(hash))
-        {
+        if token_taken(&state, action) {
             return Err(conflict("chat token hash exists"));
         }
         state.actions.insert(action.id(), action.clone());
