@@ -6,8 +6,10 @@
 
 pub mod ack;
 pub mod action;
+pub mod actor;
 pub mod addr;
 pub mod advisory;
+pub mod audit_chain;
 pub mod baseline;
 pub mod card;
 pub mod digest;
@@ -34,6 +36,7 @@ pub use action::{
     ActionChange, ActionError, ActionRequest, ActionStatus, ApprovalChannel, HumanApproval,
     PlanHash, Principal, StoredAction,
 };
+pub use actor::{Actor, ActorParseError, SYSTEM_ACTIONS, SYSTEM_AUDIT, SYSTEM_INCIDENTS};
 pub use addr::{in_cidr, valid_cidr};
 pub use advisory::{Advisory, AdvisoryKind};
 pub use baseline::{BaselineEntry, BaselineKind, Criticality};

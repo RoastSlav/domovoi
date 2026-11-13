@@ -50,6 +50,9 @@ pub(crate) use schedulers::Schedulers;
 pub(crate) use support::FanOut;
 pub(crate) use support::public_url as support_public_url;
 
+/// How many of the newest chained audit rows the hub checks at start.
+pub const STARTUP_AUDIT_VERIFY_ROWS: u64 = 10_000;
+
 /// External capabilities supplied by the binary. The hub never creates a process executor.
 pub struct HubDeps {
     /// Time used by every runtime service and scheduler.
@@ -157,6 +160,7 @@ impl HubRuntime {
     ) -> Result<Self, RuntimeError> {
         let lock = HubLock::acquire(&config.hub.data_dir)?;
         let store = Arc::new(adapters::open_store(&config, &*deps.clock).await?);
+        adapters::verify_audit_on_start(&store, &*deps.clock).await;
         let opened = start::Opened {
             lock,
             store,

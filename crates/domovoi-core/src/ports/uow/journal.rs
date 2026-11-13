@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use jiff::Timestamp;
 use serde_json::Value;
 
+use crate::actor::{Actor, SYSTEM_INCIDENTS};
 use crate::ports::repos::{AuditEvent, IncidentTimelineEntry, StoreError};
 
 use super::AggregateRef;
@@ -50,8 +51,8 @@ pub struct JournalDraft {
     pub payload_v: u32,
     /// Structured detail.
     pub payload: Value,
-    /// Today's actor string (`user:<id>` or `system:<component>`).
-    pub actor: String,
+    /// Who did it.
+    pub actor: Actor,
     /// When it happened.
     pub occurred_at: Timestamp,
 }
@@ -78,15 +79,41 @@ pub struct JournalEntry {
 /// An audit entry to append in the same transaction.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AuditDraft {
-    /// The event to append.
-    pub event: AuditEvent,
+    /// Who did it.
+    pub actor: Actor,
+    /// When it happened.
+    pub at: Timestamp,
+    /// Dotted kind, for example `action.approved`.
+    pub kind: String,
+    /// What it was done to, for example `action:<id>`.
+    pub subject: String,
+    /// Structured detail; `Value::Null` when there is none.
+    pub detail: Value,
 }
 
 impl AuditDraft {
-    /// Wraps an audit event for a transaction.
+    /// Builds an audit entry for a transaction.
     #[must_use]
-    pub fn new(event: AuditEvent) -> Self {
-        Self { event }
+    pub fn new(actor: Actor, at: Timestamp, kind: String, subject: String, detail: Value) -> Self {
+        Self {
+            actor,
+            at,
+            kind,
+            subject,
+            detail,
+        }
+    }
+
+    /// The event to store, with the actor in its string form.
+    #[must_use]
+    pub fn into_event(self) -> AuditEvent {
+        AuditEvent {
+            at: self.at,
+            actor: self.actor.to_string(),
+            kind: self.kind,
+            subject: self.subject,
+            detail: self.detail,
+        }
     }
 }
 
@@ -106,7 +133,7 @@ pub fn timeline_journal(entry: &IncidentTimelineEntry) -> JournalDraft {
             "summary": entry.summary,
             "detail": entry.detail,
         }),
-        actor: "system:incidents".to_owned(),
+        actor: Actor::System(SYSTEM_INCIDENTS.to_owned()),
         occurred_at: entry.at,
     }
 }
@@ -162,7 +189,7 @@ mod tests {
         assert_eq!(draft.aggregate, AggregateRef::incident(entry.incident));
         assert_eq!(draft.kind, JournalKind::IncidentTimeline);
         assert_eq!(draft.payload_v, 1);
-        assert_eq!(draft.actor, "system:incidents");
+        assert_eq!(draft.actor, Actor::System(SYSTEM_INCIDENTS.to_owned()));
         assert_eq!(draft.occurred_at, entry.at);
         assert_eq!(
             draft.payload,

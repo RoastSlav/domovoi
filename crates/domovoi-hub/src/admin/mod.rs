@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use domovoi_config::hub::HubConfig;
+use domovoi_core::audit_chain::{Hash, VerifyReport, VerifyScope};
 use domovoi_core::ports::{
     Clock, HostRepo, IngestError, OutboundMessage, SignalSink, StoreError, UserRepo,
 };
@@ -243,6 +244,16 @@ impl OfflineAdmin {
             .await
             .map_err(|err| AdminError::Delivery(format!("sending failed: {err}")))?;
         Ok(digest.date)
+    }
+
+    /// Verifies the audit history with the hub stopped.
+    pub async fn verify_audit(&self, scope: VerifyScope) -> Result<VerifyReport, AdminError> {
+        Ok(self.store.verify_audit(scope).await?)
+    }
+
+    /// The newest chained audit row's sequence number and hash, or `None`.
+    pub async fn audit_head(&self) -> Result<Option<(u64, Hash)>, AdminError> {
+        Ok(self.store.audit_head().await?)
     }
 
     /// Closes the store cleanly, then releases the lock.

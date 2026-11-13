@@ -24,7 +24,7 @@ The hub keeps its state in one SQLite database in WAL mode, under `[hub] data_di
 | `incidents_fts` | Full-text index of incident titles, kept in step by triggers. |
 | `incident_events` | Each incident's timeline (status changes, triage reports, actions), in the order it happened. |
 | `actions` | Proposed and approved actions: skill, arguments, plan hash, status, proposer, approval and the chat button token hash. |
-| `audit_log` | Who did what, when: approvals, dispatches, results, logins. Append-only: triggers reject every update, delete and replace. |
+| `audit_log` | Who did what, when: approvals, dispatches, results, logins. Append-only: triggers reject every update, delete and replace. Rows written since the hash chain was introduced also carry `prev_hash` and `hash`. |
 | `ack_rules` | Standing acknowledgements: check, optional host and target pattern, evidence predicates, note, expiry, and who created the rule and when. |
 | `maintenance_windows` | Planned windows per host when incidents are held back. |
 | `baselines` | What each host is expected to run: containers, units and listening ports, with criticality and when they were last seen. |
@@ -41,6 +41,19 @@ The hub keeps its state in one SQLite database in WAL mode, under `[hub] data_di
 | `journal` | The operational record: typed events in commit order, with a global sequence number, the aggregate they belong to and when they happened. |
 | `effects` | The work outbox: pending side effects with their kind, payload, attempts, claim token and lease. |
 | `schema_compat` | One row naming the lowest Domovoi version that can read this schema. |
+| `audit_anchor` | One row committing to the audit history written before the hash chain existed: an install id, the highest legacy sequence number, the row count and a SHA-256 digest. It is append-only too. |
+
+### Legacy and chained audit history
+
+Rows written before the hash chain have no `prev_hash` or `hash`; they are the *legacy* history. The
+anchor commits to them once, when the database is first opened by a version that has the chain. Every
+row written afterwards is *chained*: its `prev_hash` is the previous chained row's hash (or the
+anchor's own hash for the first one) and its `hash` covers the row's sequence number, its fields and
+its detail. Legacy rows are never rewritten.
+
+`domovoi audit verify` reports the two parts separately, because they can fail differently: a legacy
+row edit or deletion changes the digest but not any chain, while an edit, deletion or unchained insert
+after the anchor breaks the chain.
 
 ## Search
 

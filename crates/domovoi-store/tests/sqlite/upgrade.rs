@@ -7,7 +7,10 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use domovoi_core::ports::{AdvisoryRepo, HostRepo, IncidentRepo, NoteRepo};
+use domovoi_core::audit_chain::{ChainStatus, LegacyDigest, LegacyStatus, VerifyScope, entry_hash};
+use domovoi_core::ports::{
+    AdvisoryRepo, AuditFilter, AuditLog, HostRepo, IncidentRepo, NoteRepo, Page,
+};
 use domovoi_core::{Incident, IncidentId};
 use domovoi_store::{MIGRATOR, MIN_READER, Store, StoreOptions};
 use domovoi_testkit::build::at;
@@ -271,4 +274,57 @@ async fn advisory_with_unknown_kind_is_a_store_error() {
     .await
     .unwrap();
     assert!(fresh.store.list_open().await.is_err());
+}
+
+#[tokio::test]
+async fn upgrade_writes_an_anchor_over_legacy_audit_rows() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = copy_fixture(dir.path());
+    let store = Store::open(&path, StoreOptions::beside(&path, at(1000)))
+        .await
+        .unwrap();
+
+    let anchor = store.audit_anchor().await.unwrap().unwrap();
+    assert_eq!(anchor.legacy_last_id, 5);
+    assert_eq!(anchor.legacy_count, 5);
+
+    let mut digest = LegacyDigest::new();
+    let mut events = AuditLog::list(&store, &AuditFilter::default(), &Page::first(100))
+        .await
+        .unwrap()
+        .items;
+    events.reverse();
+    for (index, event) in events.iter().enumerate() {
+        digest.update(u64::try_from(index + 1).unwrap(), event);
+    }
+    let (count, computed) = digest.finish();
+    assert_eq!(count, 5);
+    assert_eq!(computed, anchor.legacy_digest);
+
+    let report = store.verify_audit(VerifyScope::Full).await.unwrap();
+    assert!(matches!(report.legacy, LegacyStatus::Verified { count: 5 }));
+    assert_eq!(report.chained, ChainStatus::Empty);
+
+    let event = domovoi_core::ports::AuditEvent {
+        at: at(2000),
+        actor: "system:test".to_owned(),
+        kind: "test.after".to_owned(),
+        subject: "subject".to_owned(),
+        detail: serde_json::Value::Null,
+    };
+    assert_eq!(store.append(&event).await.unwrap(), 6);
+    let (prev, hash): (Vec<u8>, Vec<u8>) =
+        sqlx::query_as("SELECT prev_hash, hash FROM audit_log WHERE seq = 6")
+            .fetch_one(store.pool_for_tests())
+            .await
+            .unwrap();
+    assert_eq!(prev, anchor.hash().to_vec());
+    assert_eq!(hash, entry_hash(6, &anchor.hash(), &event).to_vec());
+
+    let report = store.verify_audit(VerifyScope::Full).await.unwrap();
+    assert!(matches!(report.legacy, LegacyStatus::Verified { count: 5 }));
+    assert!(matches!(
+        report.chained,
+        ChainStatus::Intact { checked: 1, .. }
+    ));
 }

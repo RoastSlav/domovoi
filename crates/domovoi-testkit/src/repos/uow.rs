@@ -24,7 +24,7 @@ fn push_journal(state: &mut State, draft: &JournalDraft) -> u64 {
         kind: draft.kind.as_str().to_owned(),
         payload_v: draft.payload_v,
         payload: draft.payload.clone(),
-        actor: draft.actor.clone(),
+        actor: draft.actor.to_string(),
         occurred_at: draft.occurred_at,
     });
     seq
@@ -138,7 +138,7 @@ impl UnitOfWork for InMemoryStore {
             receipt.journal_seqs.push(push_journal(&mut draft, journal));
         }
         for audit in &tx.audit {
-            draft.audit.push(audit.event.clone());
+            draft.audit.push(audit.clone().into_event());
             receipt.audit_seqs.push(draft.audit.len() as u64);
         }
         for effect in &tx.new_effects {

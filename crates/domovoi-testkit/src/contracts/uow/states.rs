@@ -1,9 +1,10 @@
 //! Unit-of-work contracts about state writes and conflicts.
 
+use domovoi_core::Actor;
 use domovoi_core::ports::{
-    ActionGuard, AggregateRef, AuditDraft, AuditEvent, AuditFilter, CommitError, EffectDraft,
-    EffectKind, Expectation, Expected, IncidentTimelineEntry, JournalDraft, JournalKind, Observed,
-    Page, StateWrite, Transaction,
+    ActionGuard, AggregateRef, AuditDraft, AuditFilter, CommitError, EffectDraft, EffectKind,
+    Expectation, Expected, IncidentTimelineEntry, JournalDraft, JournalKind, Observed, Page,
+    StateWrite, Transaction,
 };
 use domovoi_core::{EffectId, IncidentId, Note, NoteId, Risk, UserId};
 use serde_json::json;
@@ -13,13 +14,13 @@ use super::UowSubject;
 use crate::build::{T0, action, at, host, incident, open_incident, signal};
 
 fn audit(at_secs: i64, subject: String) -> AuditDraft {
-    AuditDraft::new(AuditEvent {
-        at: at(at_secs),
-        actor: "system:test".to_owned(),
-        kind: "test.write".to_owned(),
+    AuditDraft::new(
+        Actor::System("test".to_owned()),
+        at(at_secs),
+        "test.write".to_owned(),
         subject,
-        detail: serde_json::Value::Null,
-    })
+        serde_json::Value::Null,
+    )
 }
 
 fn journal(aggregate: &AggregateRef, at_secs: i64) -> JournalDraft {
@@ -28,7 +29,7 @@ fn journal(aggregate: &AggregateRef, at_secs: i64) -> JournalDraft {
         kind: JournalKind::ActionTransition,
         payload_v: 1,
         payload: json!({"to": "approved"}),
-        actor: "user:1".to_owned(),
+        actor: Actor::System("test".to_owned()),
         occurred_at: at(at_secs),
     }
 }

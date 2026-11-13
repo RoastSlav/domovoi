@@ -1,5 +1,6 @@
 //! Unit-of-work contracts about the journal, timeline mirroring and audit sequence.
 
+use domovoi_core::Actor;
 use domovoi_core::IncidentId;
 use domovoi_core::ports::{
     AggregateRef, AuditDraft, AuditEvent, CommitError, IncidentTimelineEntry, JournalDraft,
@@ -17,7 +18,7 @@ fn journal(aggregate: AggregateRef, at_secs: i64) -> JournalDraft {
         kind: JournalKind::ActionTransition,
         payload_v: 1,
         payload: json!({"to": "approved"}),
-        actor: "user:1".to_owned(),
+        actor: Actor::System("test".to_owned()),
         occurred_at: at(at_secs),
     }
 }
@@ -179,13 +180,13 @@ pub async fn audit_draft_is_appended_with_the_next_sequence_number(
         .await?;
     let receipt = subject
         .uow()
-        .commit(Transaction::new().audit(AuditDraft::new(AuditEvent {
-            at: at(1),
-            actor: "system:test".to_owned(),
-            kind: "test.commit".to_owned(),
-            subject: "second".to_owned(),
-            detail: serde_json::Value::Null,
-        })))
+        .commit(Transaction::new().audit(AuditDraft::new(
+            Actor::System("test".to_owned()),
+            at(1),
+            "test.commit".to_owned(),
+            "second".to_owned(),
+            serde_json::Value::Null,
+        )))
         .await?;
     assert_eq!(receipt.audit_seqs, vec![before + 1]);
     Ok(())

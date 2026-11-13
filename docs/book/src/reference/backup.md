@@ -9,6 +9,8 @@ The hub keeps everything in its data directory (`/var/lib/domovoi` by default):
 | `secret.key` | The key that encrypts secrets entered in the web UI: bot tokens, API keys, webhook secrets and heartbeat URLs. |
 | `tls/` | The agent server's certificate, which every enrolled agent pins. |
 
+A restored database verifies as it was at backup time: `domovoi audit verify` checks the hash chain in the copy exactly as it stood when the backup was taken.
+
 ## Keep `secret.key` with your backups, but apart from them
 
 Secrets saved in the web UI are stored in `hub.db` only in encrypted form, so a database backup copied off the machine carries no usable tokens. That only holds if the key does not travel with it.
