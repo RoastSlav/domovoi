@@ -47,8 +47,30 @@ pub(crate) struct Live {
 struct Entry {
     live: Option<Live>,
     last_seen: Option<Timestamp>,
+    /// When this hub session last saw a live session end, if it ever had one.
+    absent_since: Option<Timestamp>,
     remote_ip: Option<IpAddr>,
     raised: Option<Liveness>,
+}
+
+/// What this hub run knows about one host's session, as the action executor needs it.
+///
+/// `last_seen` is not enough here: it is carried over between frames and set by tracking a
+/// host, so it cannot say whether a session ever existed or when it ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SessionState {
+    /// A session is live, started at `since`.
+    Live {
+        /// When the live session started.
+        since: Timestamp,
+    },
+    /// A session existed in this hub run and ended at `at`.
+    Lost {
+        /// When the last session ended.
+        at: Timestamp,
+    },
+    /// No session has existed in this hub run.
+    Never,
 }
 
 /// One host as the presence check sees it.
@@ -93,6 +115,7 @@ impl Registry {
             old.cancel.cancel();
         }
         entry.last_seen = Some(live.since);
+        entry.absent_since = None;
         if remote_ip.is_some() {
             entry.remote_ip = remote_ip;
         }
@@ -100,24 +123,32 @@ impl Registry {
         Self::report(&hosts);
     }
 
-    /// Ends `session` if it is still the host's session. Waiting requests fail.
-    pub fn end(&self, host: HostId, session: SessionId) {
+    /// Ends `session` if it is still the host's session, at `at`. Waiting requests fail.
+    pub fn end(&self, host: HostId, session: SessionId, at: Timestamp) {
         let mut hosts = self.lock();
         if let Some(entry) = hosts.get_mut(&host)
             && entry.live.as_ref().is_some_and(|l| l.session == session)
         {
             entry.live = None;
+            entry.absent_since = Some(at);
         }
         Self::report(&hosts);
     }
 
-    /// Closes the host's live session, if any.
-    pub fn close(&self, host: HostId) {
+    /// Closes the host's live session, if any, at `at`.
+    pub fn close(&self, host: HostId, at: Timestamp) {
         let mut hosts = self.lock();
-        if let Some(live) = hosts.get_mut(&host).and_then(|e| e.live.take()) {
+        let mut closed = false;
+        if let Some(entry) = hosts.get_mut(&host)
+            && let Some(live) = entry.live.take()
+        {
             live.cancel.cancel();
+            entry.absent_since = Some(at);
+            closed = true;
         }
-        Self::report(&hosts);
+        if closed {
+            Self::report(&hosts);
+        }
     }
 
     /// Records a frame from the host at `at`.
@@ -176,6 +207,22 @@ impl Registry {
             .filter(|l| l.session == session)
             .and_then(|l| l.pending.remove(&reply_to));
         waiting.is_some_and(|tx| tx.send(message).is_ok())
+    }
+
+    /// What this hub run knows about the host's session: live, ended, or never started.
+    /// Unlike [`Registry::presence`] it never looks at `last_seen`, which tracking and
+    /// every frame also set.
+    pub fn session_state(&self, host: HostId) -> SessionState {
+        match self.lock().get(&host) {
+            Some(Entry {
+                live: Some(live), ..
+            }) => SessionState::Live { since: live.since },
+            Some(Entry {
+                absent_since: Some(at),
+                ..
+            }) => SessionState::Lost { at: *at },
+            _ => SessionState::Never,
+        }
     }
 
     /// Whether the host has a live session, and since when.

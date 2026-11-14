@@ -242,7 +242,7 @@ impl AgentServer {
             }
             None => false,
         };
-        inner.registry.close(host);
+        inner.registry.close(host, inner.deps.clock.now());
         Ok(revoked)
     }
 
