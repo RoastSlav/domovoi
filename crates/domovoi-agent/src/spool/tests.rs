@@ -2,11 +2,13 @@
 //! spool file back the way it was, and never leaves a batch the caller was told had failed.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use domovoi_core::{CheckKey, HostId, Severity, Signal, SourceKind, TargetKey};
 use domovoi_testkit::build::T0;
 
-use super::{MAX_BYTES, SPOOL_FILE, Spool, Stage};
+use super::{MAX_BYTES, SPOOL_FILE, SPOOL_META_FILE, Spool, Stage};
 
 fn signal(name: &str) -> Signal {
     Signal::firing(
@@ -242,5 +244,119 @@ fn a_failed_undo_keeps_the_batch_out_of_memory_and_reports_uncertainty() {
         reopened.push(vec![signal("c")]).unwrap(),
         2,
         "the number after the resent batch"
+    );
+}
+
+#[test]
+fn a_snapshot_read_failure_aborts_before_rewriting() {
+    let dir = tempfile::tempdir().unwrap();
+    // One batch fits, so the next push shrinks and has to rewrite the whole file.
+    let mut spool = Spool::open(dir.path()).unwrap().with_limits(1, MAX_BYTES);
+    assert_eq!(spool.push(vec![signal("a")]).unwrap(), 0);
+    assert_eq!(spool.push(vec![signal("b")]).unwrap(), 1);
+    let file_before = contents(dir.path());
+    let meta_before = std::fs::read(dir.path().join(SPOOL_META_FILE)).unwrap();
+    let bytes_before = spool.bytes;
+    let dropped_before = spool.dropped();
+    assert!(bytes_before > 0, "b is pending before the failed push");
+
+    // Without a valid snapshot of the file there is no way back, so the push must not rewrite it.
+    spool.inject(&[Stage::Snapshot]);
+    assert!(spool.push(vec![signal("c")]).is_err());
+
+    assert_eq!(
+        contents(dir.path()),
+        file_before,
+        "the file is not rewritten without a snapshot"
+    );
+    assert_eq!(
+        std::fs::read(dir.path().join(SPOOL_META_FILE)).unwrap(),
+        meta_before,
+        "the metadata is not touched"
+    );
+    // `shrink` dropped b on the way in, which is its documented effect on any over-limit push;
+    // the failed batch itself is gone and its bytes are not counted.
+    assert!(spool.pending_after(None).is_empty());
+    assert_eq!(spool.dropped(), dropped_before + 1);
+    assert_eq!(spool.bytes, 0);
+
+    // A restart reads the file exactly as it was before the failed push.
+    let mut reopened = Spool::open(dir.path()).unwrap().with_limits(1, MAX_BYTES);
+    assert_eq!(targets(&reopened), [one("b")]);
+    assert_eq!(seqs(&reopened), [1]);
+    assert_eq!(
+        reopened.push(vec![signal("d")]).unwrap(),
+        2,
+        "the failed batch's number is reused"
+    );
+}
+
+/// Records that an error-level event was emitted on the thread it is set on.
+struct LogProbe(Arc<AtomicBool>);
+
+impl tracing::Subscriber for LogProbe {
+    fn enabled(&self, _metadata: &tracing::Metadata<'_>) -> bool {
+        true
+    }
+
+    fn new_span(&self, _span: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+        tracing::span::Id::from_u64(1)
+    }
+
+    fn record(&self, _span: &tracing::span::Id, _values: &tracing::span::Record<'_>) {}
+
+    fn record_follows_from(&self, _span: &tracing::span::Id, _follows: &tracing::span::Id) {}
+
+    fn event(&self, event: &tracing::Event<'_>) {
+        if *event.metadata().level() == tracing::Level::ERROR {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+
+    fn enter(&self, _span: &tracing::span::Id) {}
+
+    fn exit(&self, _span: &tracing::span::Id) {}
+}
+
+#[test]
+fn a_failed_restore_after_rewrite_keeps_the_batch_out_of_memory() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut spool = Spool::open(dir.path()).unwrap().with_limits(1, MAX_BYTES);
+    assert_eq!(spool.push(vec![signal("a")]).unwrap(), 0);
+    assert_eq!(spool.push(vec![signal("b")]).unwrap(), 1);
+
+    // The rewrite lands, the metadata fails, and putting the file back fails too.
+    let logged = Arc::new(AtomicBool::new(false));
+    let probe = tracing::Dispatch::new(LogProbe(logged.clone()));
+    spool.inject(&[Stage::SaveMeta, Stage::Restore]);
+    let pushed = {
+        let _default = tracing::dispatcher::set_default(&probe);
+        spool.push(vec![signal("c")])
+    };
+    assert!(pushed.is_err());
+    assert!(
+        logged.load(Ordering::SeqCst),
+        "the failed restore is logged at error"
+    );
+
+    // The live spool never sends a batch whose commit status is uncertain, and its number is
+    // free again for the next push.
+    assert!(spool.pending_after(None).is_empty());
+    assert_eq!(spool.meta.next_seq, 2, "the failed number is restored");
+    assert_eq!(
+        spool.dropped(),
+        2,
+        "both batches shrink dropped are counted"
+    );
+
+    // The rewrite reached the disk and could not be undone there: a restart reads the batch once
+    // and resends it. This is the documented uncertain-compensation outcome, not a rollback.
+    let reopened = Spool::open(dir.path()).unwrap();
+    assert_eq!(targets(&reopened), [one("c")]);
+    assert_eq!(seqs(&reopened), [2]);
+    assert_eq!(
+        reopened.dropped(),
+        1,
+        "the drop that never reached the metadata"
     );
 }

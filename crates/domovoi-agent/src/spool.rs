@@ -44,6 +44,8 @@ enum Stage {
     Sync,
     /// Saving `spool.json`.
     SaveMeta,
+    /// Reading the spool file before rewriting it.
+    Snapshot,
     /// Undoing a failed write, by truncation or by putting the previous file back.
     Restore,
 }
@@ -334,19 +336,20 @@ impl Spool {
         file.sync_data().map_err(|e| StateError::new(path, e))
     }
 
-    /// Replaces the whole file with the batches in memory, then saves the metadata. A metadata
-    /// failure puts the previous file back, including batches `shrink` dropped, so a failed push
-    /// leaves nothing new behind.
+    /// Replaces the whole file with the batches in memory, then saves the metadata.
+    ///
+    /// The file's current bytes are read first, because they are the only way back when the
+    /// metadata cannot be saved. An unreadable file aborts the push before anything is rewritten:
+    /// the rewrite never starts without a valid snapshot.
     fn write_rewritten(&self, path: &Path) -> Result<(), StateError> {
-        let existed = path.exists();
-        let previous = if existed {
-            std::fs::read(path).ok()
+        let previous = if self.fail_here(Stage::Snapshot) {
+            Err(StateError::new(path, FAULT))
         } else {
-            None
-        };
+            read_optional(path)
+        }?;
         self.rewrite()?;
         if let Err(err) = self.save_meta() {
-            self.restore(path, previous.as_deref(), existed);
+            self.restore(path, previous.as_deref());
             return Err(err);
         }
         Ok(())
@@ -374,23 +377,21 @@ impl Spool {
     }
 
     /// Puts `previous` back after a rewrite whose metadata could not be saved, or removes the
-    /// file when the push created it. A failure is logged for the same reason as in
-    /// [`Self::truncate_to`].
-    fn restore(&self, path: &Path, previous: Option<&[u8]>, existed: bool) {
+    /// file when the push created it. `None` means the file did not exist when the rewrite
+    /// started, so removing it undoes the push exactly. A failure is logged for the same reason
+    /// as in [`Self::truncate_to`].
+    fn restore(&self, path: &Path, previous: Option<&[u8]>) {
         let restored = if self.fail_here(Stage::Restore) {
             Err(StateError::new(path, FAULT))
         } else {
-            match (previous, existed) {
-                (Some(bytes), _) => write_atomic(path, bytes, MODE),
-                (None, false) => match std::fs::remove_file(path) {
+            match previous {
+                Some(bytes) => write_atomic(path, bytes, MODE),
+                None => match std::fs::remove_file(path) {
                     Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
                         Err(StateError::new(path, e))
                     }
                     _ => Ok(()),
                 },
-                // The file was there but could not be read back, so there is nothing to put
-                // back; the new batch stays on disk and is sent once more after a restart.
-                (None, true) => Err(StateError::new(path, "could not be read back")),
             }
         };
         if let Err(err) = restored {
