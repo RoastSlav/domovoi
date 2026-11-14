@@ -43,18 +43,28 @@ pub(super) fn triage(config: &HubConfig) -> TriageSettings {
             (budget.is_finite() && budget >= 0.0).then_some((budget * 1_000_000.0).round() as u64)
         }),
         cache_days: config.triage.cache_days,
-        budget: domovoi_core::TriageBudget {
-            max_tool_calls: config.triage.per_run.tool_calls,
-            max_seconds: config.triage.per_run.seconds,
-            max_output_tokens: config.triage.per_run.output_tokens,
-            max_total_output_tokens: config.triage.per_run.total_tokens.unwrap_or_else(|| {
-                config
-                    .triage
-                    .per_run
-                    .output_tokens
-                    .saturating_mul(u32::from(config.triage.per_run.tool_calls).saturating_add(1))
-            }),
-        },
+        budget: triage_budget(config),
+    }
+}
+
+/// The triage budget: the configured per-turn allowance clamped to the engine's supported
+/// maximum, and the cumulative budget, which defaults to every normal turn plus one
+/// full-ceiling turn for a growth retry or the report repair.
+fn triage_budget(config: &HubConfig) -> domovoi_core::TriageBudget {
+    let per_run = &config.triage.per_run;
+    let per_turn = per_run
+        .output_tokens
+        .min(domovoi_engine::triage::MAX_OUTPUT_ALLOWANCE);
+    let total = per_run.total_tokens.unwrap_or_else(|| {
+        per_turn
+            .saturating_mul(u32::from(per_run.tool_calls).saturating_add(1))
+            .saturating_add(domovoi_engine::triage::MAX_OUTPUT_ALLOWANCE)
+    });
+    domovoi_core::TriageBudget {
+        max_tool_calls: per_run.tool_calls,
+        max_seconds: per_run.seconds,
+        max_output_tokens: per_turn,
+        max_total_output_tokens: total,
     }
 }
 
@@ -142,4 +152,38 @@ pub(crate) fn fallback_models_for(
         }
     }
     Ok(chain)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::triage_budget;
+
+    fn budget(toml: &str) -> domovoi_core::TriageBudget {
+        let config: domovoi_config::hub::HubConfig = toml::from_str(toml).expect("a config");
+        triage_budget(&config)
+    }
+
+    #[test]
+    fn the_default_run_budget_covers_normal_turns_and_one_full_ceiling_turn() {
+        let budget = budget("");
+        assert_eq!(budget.max_output_tokens, 2000);
+        assert_eq!(
+            budget.max_total_output_tokens,
+            2000 * 16 + 16_000,
+            "15 tool calls plus the opening turn, plus one full-ceiling turn for a retry or repair"
+        );
+    }
+
+    #[test]
+    fn an_output_allowance_above_the_maximum_is_clamped() {
+        let budget = budget("[triage.per_run]\noutput_tokens = 32000\n");
+        assert_eq!(budget.max_output_tokens, 16_000);
+        assert_eq!(budget.max_total_output_tokens, 16_000 * 16 + 16_000);
+    }
+
+    #[test]
+    fn an_explicit_total_is_kept() {
+        let budget = budget("[triage.per_run]\ntotal_tokens = 5000\n");
+        assert_eq!(budget.max_total_output_tokens, 5000);
+    }
 }
