@@ -119,6 +119,30 @@ pub struct LlmResponse {
     pub usage: Usage,
 }
 
+/// A provider feature one request can leave out.
+///
+/// An adapter reports one through [`LlmError::CapabilityRejected`] when a provider refuses
+/// it, so the caller can rebuild its request and prompt without it. Only capabilities whose
+/// absence the caller can compensate for are listed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum LlmCapability {
+    /// The `tools` field: the model calls read tools itself. Without it the caller gathers
+    /// the tool output and puts it in the prompt.
+    Tools,
+    /// Usage totals inside a streamed answer (`stream_options`). Without it the answer still
+    /// arrives, but its cost is unknown.
+    StreamUsage,
+}
+
+impl std::fmt::Display for LlmCapability {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Tools => "tool calling",
+            Self::StreamUsage => "streamed usage totals",
+        })
+    }
+}
+
 /// Why a turn failed.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum LlmError {
@@ -137,6 +161,16 @@ pub enum LlmError {
     /// The provider answered with something that could not be parsed.
     #[error("invalid response: {0}")]
     InvalidResponse(String),
+    /// The provider refused a capability this request used. The same request without it may
+    /// work, so the caller rebuilds what it sends and tries again. This is not an
+    /// authentication or rate-limit failure.
+    #[error("the provider refused {capability}: {detail}")]
+    CapabilityRejected {
+        /// What the provider refused.
+        capability: LlmCapability,
+        /// The provider's message, already redacted.
+        detail: String,
+    },
     /// The provider is not usable (disabled, missing binary, exhausted budget).
     #[error("unavailable: {0}")]
     Unavailable(String),

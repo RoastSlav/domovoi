@@ -129,8 +129,12 @@ pub struct TriageBudget {
     pub max_tool_calls: u16,
     /// Wall-clock limit in seconds.
     pub max_seconds: u32,
-    /// Most output tokens across the run.
+    /// Most output tokens one model turn may ask for. A reasoning model counts its
+    /// reasoning against this, so a turn that runs out is retried with more.
     pub max_output_tokens: u32,
+    /// Most output tokens the whole run may ask for, across its turns and their retries.
+    /// Retries are charged here too, so growing an allowance cannot run without bound.
+    pub max_total_output_tokens: u32,
 }
 
 /// How a triage run ended.
