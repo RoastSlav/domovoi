@@ -19,7 +19,7 @@ stateDiagram-v2
 ```
 
 - **Proposed:** triage suggested it. The card shows Approve and Deny buttons. Proposals stay open for one hour.
-- **Approved:** a person said yes, and the action is run straight away.
+- **Approved:** a person said yes. It runs once its host's agent is reachable, and only if the approval and the incident still stand, so an approval made just before a restart waits for the host instead of failing.
 - **Rejected:** something changed between approval and running, the approval expired, the incident was resolved or deleted, the agent never came back, or the loop guard stopped it. The thread says why.
 - **Dispatched:** it was sent to the agent.
 - **Succeeded or Failed:** what the skill's run reported. Failures are posted in the incident's thread.

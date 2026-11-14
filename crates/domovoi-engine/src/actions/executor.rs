@@ -99,11 +99,10 @@ pub(crate) async fn serve(shared: Arc<Shared>, mut events: broadcast::Receiver<D
     running.shutdown().await;
 }
 
-/// How many actions the service starts from the store at once when it is catching up.
-/// A hub that restarted could have any number of approvals waiting; running them all at
-/// once would flood the agent, so the pool stays this big and each further action waits
-/// for one run to finish. Approvals that come in as events are not held to this: they are
-/// what the hub is doing now.
+/// The most catch-up runs allowed past the host wait to run at the same time. Every
+/// approval the store lists is still started, but each waits for its host before taking
+/// one of these slots, so a restart with many approvals does not flood an agent that has
+/// just come back. Approvals that arrive as events are not held to this.
 pub(crate) const MAX_CATCH_UP_RUNS: usize = 8;
 
 /// Starts what the store still says is approved, after start-up or after the event bus
