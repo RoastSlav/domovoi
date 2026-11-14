@@ -16,6 +16,7 @@ use jiff::SignedDuration;
 use serde_json::Value;
 
 use crate::error::{LlmBuildError, excerpt};
+use crate::settings::Price;
 
 /// The cap on captured stdout and stderr.
 pub const MAX_OUTPUT_BYTES: u32 = 1 << 20;
@@ -127,6 +128,7 @@ pub struct Cli {
     executor: Arc<dyn ProcessExecutor>,
     preset: CliPreset,
     timeout: SignedDuration,
+    price: Option<Price>,
 }
 
 impl std::fmt::Debug for Cli {
@@ -140,11 +142,13 @@ impl std::fmt::Debug for Cli {
 }
 
 impl Cli {
-    /// A provider running `preset` through `executor`, killed after `timeout`.
+    /// A provider running `preset` through `executor`, killed after `timeout`. `price` is
+    /// what the CLI's turns cost when it reports no usage of its own.
     pub fn new(
         executor: Arc<dyn ProcessExecutor>,
         preset: CliPreset,
         timeout: SignedDuration,
+        price: Option<Price>,
     ) -> Result<Self, LlmBuildError> {
         if !is_absolute(&preset.program) {
             return Err(LlmBuildError::RelativeProgram(preset.program));
@@ -153,6 +157,7 @@ impl Cli {
             executor,
             preset,
             timeout,
+            price,
         })
     }
 
@@ -193,6 +198,10 @@ impl LlmProvider for Cli {
         false
     }
 
+    fn prices_usage(&self) -> bool {
+        self.price.is_some()
+    }
+
     async fn complete(&self, req: LlmRequest) -> Result<LlmResponse, LlmError> {
         let prompt = render_prompt(&req);
         let spec = self.spec(prompt.clone());
@@ -217,7 +226,12 @@ impl LlmProvider for Cli {
                 excerpt(&output.stderr, None)
             )));
         }
-        let (text, usage) = read_output(&self.preset.output, &output.stdout, &prompt)?;
+        let (text, usage) = read_output(
+            &self.preset.output,
+            &output.stdout,
+            &prompt,
+            self.price.as_ref(),
+        )?;
         Ok(LlmResponse {
             parts: vec![Part::Text(text)],
             stop: StopReason::EndTurn,
@@ -267,14 +281,18 @@ fn read_output(
     output: &CliOutput,
     stdout: &str,
     prompt: &str,
+    price: Option<&Price>,
 ) -> Result<(String, Usage), LlmError> {
     let field = match output {
         CliOutput::Text => {
             let text = stdout.trim().to_owned();
-            let usage = crate::usage::estimated(
+            let usage = crate::usage::estimated_answer(
                 crate::usage::text_tokens(prompt),
-                crate::usage::answer_tokens(&[Part::Text(text.clone())]),
-                None,
+                &[Part::Text(text.clone())],
+                "",
+                &StopReason::EndTurn,
+                0,
+                price,
             );
             return Ok((text, usage));
         }
@@ -303,12 +321,15 @@ fn read_output(
             .unwrap_or(0)
     };
     let usage = if value.get("usage").is_some() {
-        crate::usage::reported(tokens("input_tokens"), tokens("output_tokens"), None)
+        crate::usage::reported(tokens("input_tokens"), tokens("output_tokens"), price)
     } else {
-        crate::usage::estimated(
+        crate::usage::estimated_answer(
             crate::usage::text_tokens(prompt),
-            crate::usage::answer_tokens(&[Part::Text(text.trim().to_owned())]),
-            None,
+            &[Part::Text(text.trim().to_owned())],
+            "",
+            &StopReason::EndTurn,
+            0,
+            price,
         )
     };
     Ok((text.trim().to_owned(), usage))

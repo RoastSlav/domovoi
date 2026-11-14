@@ -67,6 +67,10 @@ impl LlmProvider for Anthropic {
         true
     }
 
+    fn prices_usage(&self) -> bool {
+        self.price.is_some()
+    }
+
     async fn complete(&self, req: LlmRequest) -> Result<LlmResponse, LlmError> {
         let mut body = request_body(&self.model, &req);
         body["stream"] = Value::Bool(true);
@@ -227,9 +231,12 @@ fn into_response(response: WireResponse, req: &LlmRequest, price: Option<&Price>
         Some(reported) => {
             crate::usage::reported(reported.input_tokens, reported.output_tokens, price)
         }
-        None => crate::usage::estimated(
+        None => crate::usage::estimated_answer(
             crate::usage::request_tokens(req),
-            crate::usage::answer_tokens(&parts),
+            &parts,
+            "",
+            &stop,
+            req.max_output_tokens,
             price,
         ),
     };

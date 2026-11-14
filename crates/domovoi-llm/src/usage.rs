@@ -1,7 +1,7 @@
 //! Usage totals when a provider does not report them: the same shape as a reported total,
 //! marked as estimated and priced when the provider has a price.
 
-use domovoi_core::ports::{LlmRequest, Part, Usage, UsageSource};
+use domovoi_core::ports::{LlmRequest, Part, StopReason, Usage, UsageSource};
 
 use crate::settings::{Price, cost_micros};
 
@@ -60,6 +60,36 @@ pub(crate) fn estimated(input_tokens: u32, output_tokens: u32, price: Option<&Pr
     };
     usage.cost_micros = cost_micros(price, &usage);
     usage
+}
+
+/// The usage of an answer whose provider reported none.
+///
+/// The visible text, the tool calls and the reasoning a provider exposed are counted. A turn
+/// that ended at its output allowance used the whole allowance, and hidden reasoning may
+/// account for all of it, so the allowance is the only safe number. When there is nothing at
+/// all to count, the total is [`UsageSource::Unknown`] rather than a misleading zero.
+pub(crate) fn estimated_answer(
+    input_tokens: u32,
+    parts: &[Part],
+    reasoning: &str,
+    stop: &StopReason,
+    allowance: u32,
+    price: Option<&Price>,
+) -> Usage {
+    let output = if *stop == StopReason::MaxTokens {
+        allowance
+    } else {
+        answer_tokens(parts).saturating_add(text_tokens(reasoning))
+    };
+    if output == 0 {
+        return Usage {
+            input_tokens,
+            output_tokens: 0,
+            cost_micros: None,
+            source: UsageSource::Unknown,
+        };
+    }
+    estimated(input_tokens, output, price)
 }
 
 /// A usage total the provider reported, priced when `price` is known.

@@ -161,6 +161,10 @@ impl LlmProvider for OpenAiCompatible {
         self.tools.load(Ordering::Relaxed)
     }
 
+    fn prices_usage(&self) -> bool {
+        self.price.is_some()
+    }
+
     async fn complete(&self, req: LlmRequest) -> Result<LlmResponse, LlmError> {
         tracing::debug!(model = %self.model, messages = req.messages.len(), "openai turn");
         let secret = self.api_key.as_ref();
@@ -325,6 +329,9 @@ pub(crate) struct WireResponse {
     pub(crate) choices: Vec<WireChoice>,
     #[serde(default)]
     pub(crate) usage: Option<WireUsage>,
+    /// Reasoning streamed beside the answer, when the provider exposes it.
+    #[serde(skip)]
+    pub(crate) reasoning: String,
 }
 
 #[derive(Deserialize)]
@@ -339,6 +346,12 @@ pub(crate) struct WireMessage {
     pub(crate) content: Option<String>,
     #[serde(default)]
     pub(crate) tool_calls: Vec<WireToolCall>,
+    /// Reasoning a whole answer exposes beside its content.
+    #[serde(default)]
+    pub(crate) reasoning: Option<String>,
+    /// The same field under the name some servers use.
+    #[serde(default)]
+    pub(crate) reasoning_content: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -402,15 +415,28 @@ fn into_response(
         Some("length") => StopReason::MaxTokens,
         Some(other) => StopReason::Other(other.to_owned()),
     };
-    // A server that reports no usage must not look free: infer the tokens from the request
-    // and the answer, and price the estimate when the provider has a price.
+    // Reasoning a model spent but did not show is still output. The stream gathers it in
+    // `response.reasoning`; a whole answer carries it on the message.
+    let mut reasoning = response.reasoning;
+    if let Some(text) = choice.message.reasoning {
+        reasoning.push_str(&text);
+    }
+    if let Some(text) = choice.message.reasoning_content {
+        reasoning.push_str(&text);
+    }
+    // A server that reports no usage must not look free: infer the tokens from the request,
+    // the visible answer and the reasoning, and price the estimate when the provider has a
+    // price. A reported total already includes reasoning tokens and takes precedence.
     let usage = match response.usage {
         Some(reported) => {
             usage::reported(reported.prompt_tokens, reported.completion_tokens, price)
         }
-        None => usage::estimated(
+        None => usage::estimated_answer(
             usage::request_tokens(req),
-            usage::answer_tokens(&parts),
+            &parts,
+            &reasoning,
+            &stop,
+            req.max_output_tokens,
             price,
         ),
     };

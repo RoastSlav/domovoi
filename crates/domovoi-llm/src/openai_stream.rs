@@ -35,6 +35,12 @@ struct Delta {
     content: Option<String>,
     #[serde(default)]
     tool_calls: Vec<DeltaCall>,
+    /// Reasoning tokens a reasoning model streams beside (or instead of) the answer.
+    #[serde(default)]
+    reasoning: Option<String>,
+    /// The same field under the name some servers use.
+    #[serde(default)]
+    reasoning_content: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -70,6 +76,7 @@ pub(crate) async fn assemble(
     secret: Option<&SecretString>,
 ) -> Result<WireResponse, LlmError> {
     let mut content = String::new();
+    let mut reasoning = String::new();
     let mut calls: BTreeMap<usize, Partial> = BTreeMap::new();
     let mut finish_reason = None;
     let mut usage = None;
@@ -93,6 +100,12 @@ pub(crate) async fn assemble(
         for choice in chunk.choices {
             if let Some(text) = choice.delta.content {
                 content.push_str(&text);
+            }
+            if let Some(text) = choice.delta.reasoning {
+                reasoning.push_str(&text);
+            }
+            if let Some(text) = choice.delta.reasoning_content {
+                reasoning.push_str(&text);
             }
             for call in choice.delta.tool_calls {
                 add_call(&mut calls, call);
@@ -122,10 +135,13 @@ pub(crate) async fn assemble(
                         },
                     })
                     .collect(),
+                reasoning: None,
+                reasoning_content: None,
             },
             finish_reason,
         }],
         usage,
+        reasoning,
     })
 }
 

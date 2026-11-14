@@ -442,3 +442,177 @@ const PRICE: Price = Price {
     input_per_mtok_usd: 3.0,
     output_per_mtok_usd: 15.0,
 };
+
+fn stream(body: &str) -> ResponseTemplate {
+    ResponseTemplate::new(200).set_body_raw(body.to_owned(), "text/event-stream")
+}
+
+/// A reasoning model that streams only reasoning and reports no usage must still be
+/// estimated, never recorded as free.
+#[tokio::test]
+async fn a_reasoning_only_stream_without_usage_is_estimated_and_priced() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(stream(
+            "data: {\"choices\":[{\"delta\":{\"reasoning\":\"weighing the disk evidence\"},\"finish_reason\":null}]}\n\n\
+             data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n\
+             data: [DONE]\n\n",
+        ))
+        .mount(&server)
+        .await;
+    let mut settings = openai(&server.uri(), false);
+    settings.price = Some(PRICE);
+    let provider = build(&settings, None).unwrap();
+
+    let response = provider.complete(ask("Status?")).await.unwrap();
+    assert!(response.parts.is_empty(), "no visible answer was returned");
+    assert_eq!(response.usage.source, UsageSource::Estimated);
+    assert!(
+        response.usage.output_tokens > 0,
+        "the reasoning is output: {:?}",
+        response.usage
+    );
+    assert!(response.usage.cost_micros.is_some_and(|cost| cost > 0));
+}
+
+/// A reasoning-only turn that ran out of room used its whole allowance; the estimate says so
+/// even though the answer is empty.
+#[tokio::test]
+async fn a_reasoning_only_stream_at_the_allowance_estimates_the_allowance() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(stream(
+            "data: {\"choices\":[{\"delta\":{\"reasoning\":\"thinking until the budget ends\"},\"finish_reason\":null}]}\n\n\
+             data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"length\"}]}\n\n\
+             data: [DONE]\n\n",
+        ))
+        .mount(&server)
+        .await;
+    let mut settings = openai(&server.uri(), false);
+    settings.price = Some(PRICE);
+    let provider = build(&settings, None).unwrap();
+    let mut req = ask("Status?");
+    req.max_output_tokens = 2000;
+
+    let response = provider.complete(req).await.unwrap();
+    assert_eq!(response.stop, StopReason::MaxTokens);
+    assert_eq!(response.usage.output_tokens, 2000);
+    assert_eq!(response.usage.source, UsageSource::Estimated);
+    assert!(response.usage.cost_micros.is_some_and(|cost| cost > 0));
+}
+
+/// Visible content and reasoning are both output, and both are counted when usage is missing.
+#[tokio::test]
+async fn content_and_reasoning_are_both_estimated() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(stream(&format!(
+            "data: {{\"choices\":[{{\"delta\":{{\"reasoning\":\"{}\"}},\"finish_reason\":null}}]}}\n\n\
+             data: {{\"choices\":[{{\"delta\":{{\"content\":\"All good.\"}},\"finish_reason\":\"stop\"}}]}}\n\n\
+             data: [DONE]\n\n",
+            "reason ".repeat(80)
+        )))
+        .mount(&server)
+        .await;
+    let provider = build(&openai(&server.uri(), false), None).unwrap();
+
+    let response = provider.complete(ask("Status?")).await.unwrap();
+    assert_eq!(response.usage.source, UsageSource::Estimated);
+    assert!(
+        response.usage.output_tokens >= 100,
+        "350 characters of reasoning plus the answer: {:?}",
+        response.usage
+    );
+    assert_eq!(response.usage.cost_micros, None, "no price, no known cost");
+}
+
+/// A reported total already includes reasoning tokens: it is used as reported, not added to
+/// the reasoning text a second time.
+#[tokio::test]
+async fn reported_usage_wins_over_reasoning_content() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(stream(
+            "data: {\"choices\":[{\"delta\":{\"reasoning\":\"a long stretch of thinking\"},\"finish_reason\":null}]}\n\n\
+             data: {\"choices\":[{\"delta\":{\"content\":\"All good.\"},\"finish_reason\":null}]}\n\n\
+             data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n\
+             data: {\"choices\":[],\"usage\":{\"prompt_tokens\":100,\"completion_tokens\":20}}\n\n\
+             data: [DONE]\n\n",
+        ))
+        .mount(&server)
+        .await;
+    let mut settings = openai(&server.uri(), false);
+    settings.price = Some(PRICE);
+    let provider = build(&settings, None).unwrap();
+
+    let response = provider.complete(ask("Status?")).await.unwrap();
+    assert_eq!(response.usage.source, UsageSource::Reported);
+    assert_eq!(response.usage.input_tokens, 100);
+    assert_eq!(response.usage.output_tokens, 20, "not doubled by reasoning");
+    assert_eq!(response.usage.cost_micros, Some(100 * 3 + 20 * 15));
+}
+
+/// The GLM-style case from the field: a long reasoning stream ending at the allowance with
+/// no usage chunk. The estimate is the allowance, priced, not zero.
+#[tokio::test]
+async fn a_glm_style_reasoning_stream_is_not_recorded_as_free() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(stream(&format!(
+            "data: {{\"choices\":[{{\"delta\":{{\"reasoning\":\"{}\"}},\"finish_reason\":null}}]}}\n\n\
+             data: {{\"choices\":[{{\"delta\":{{\"reasoning\":null,\"content\":\"\"}},\"finish_reason\":\"length\"}}]}}\n\n\
+             data: [DONE]\n\n",
+            "step ".repeat(400)
+        )))
+        .mount(&server)
+        .await;
+    let mut settings = openai(&server.uri(), false);
+    settings.price = Some(PRICE);
+    let provider = build(&settings, None).unwrap();
+    let mut req = ask("Triage this incident.");
+    req.max_output_tokens = 2000;
+
+    let response = provider.complete(req).await.unwrap();
+    assert_eq!(response.stop, StopReason::MaxTokens);
+    assert_eq!(response.usage.source, UsageSource::Estimated);
+    assert_eq!(response.usage.output_tokens, 2000);
+    assert!(
+        response.usage.cost_micros.is_some_and(|cost| cost > 0),
+        "a hidden reasoning budget is not free: {:?}",
+        response.usage
+    );
+}
+
+/// A provider configured as explicitly free has a price — zero — so a monthly budget can
+/// count it.
+#[tokio::test]
+async fn an_explicitly_free_provider_is_priced_at_zero() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "choices": [{
+                "message": {"role": "assistant", "content": "All good."},
+                "finish_reason": "stop"
+            }],
+            "usage": {"prompt_tokens": 100, "completion_tokens": 20}
+        })))
+        .mount(&server)
+        .await;
+    let mut settings = openai(&server.uri(), false);
+    settings.price = Some(Price {
+        input_per_mtok_usd: 0.0,
+        output_per_mtok_usd: 0.0,
+    });
+    let provider = build(&settings, None).unwrap();
+    assert!(provider.prices_usage());
+
+    let response = provider.complete(ask("Status?")).await.unwrap();
+    assert_eq!(response.usage.cost_micros, Some(0));
+}
+
+/// Without a price the adapter says so, instead of pretending turns are free.
+#[tokio::test]
+async fn an_unpriced_provider_reports_that_it_cannot_be_priced() {
+    let provider = build(&openai("http://localhost:1", false), None).unwrap();
+    assert!(!provider.prices_usage());
+}

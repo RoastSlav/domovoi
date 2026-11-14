@@ -42,6 +42,7 @@ pub fn build(
             executor.ok_or(LlmBuildError::MissingExecutor)?,
             settings.cli.clone().ok_or(LlmBuildError::MissingCli)?,
             settings.timeout,
+            settings.price,
         )?),
     };
     Ok(provider)
