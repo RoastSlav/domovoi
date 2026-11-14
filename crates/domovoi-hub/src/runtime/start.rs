@@ -12,17 +12,15 @@ use super::{
 use crate::agent_server::ServerSettings;
 use crate::settings::{ConfigSources, LoadError, SecretKey};
 
-/// Pre-migration backups kept when the file and the environment set no value. The values
-/// saved in the web UI live in the database being opened, so they cannot be read before
-/// the pre-migration backup is taken.
-const FALLBACK_KEEP_PRE_MIGRATE: usize = 3;
-
 /// The pre-migration backups to keep, from the layers readable before the store opens.
-/// A value in `hub.toml` or the environment is the effective one; the UI layer is not
-/// available here and falls back to [`FALLBACK_KEEP_PRE_MIGRATE`].
+/// A value in `hub.toml` or the environment is the effective one; a value saved in the
+/// web UI lives in the database being opened, so that case falls back to the documented
+/// default.
 fn startup_keep_pre_migrate(sources: &ConfigSources) -> usize {
     domovoi_config::bootstrap_keep_pre_migrate(sources.file.as_deref(), &*sources.env)
-        .map_or(FALLBACK_KEEP_PRE_MIGRATE, |days| days as usize)
+        .map_or(domovoi_config::FALLBACK_KEEP_PRE_MIGRATE as usize, |days| {
+            days as usize
+        })
 }
 
 /// The data directory, locked and opened.
@@ -93,7 +91,7 @@ mod tests {
 
     use domovoi_config::MapEnv;
 
-    use super::{FALLBACK_KEEP_PRE_MIGRATE, startup_keep_pre_migrate};
+    use super::startup_keep_pre_migrate;
     use crate::settings::ConfigSources;
 
     fn sources(file: Option<&Path>, env: MapEnv) -> ConfigSources {
@@ -130,10 +128,10 @@ mod tests {
 
     #[test]
     fn startup_falls_back_to_three_without_a_file_or_environment_value() {
-        assert_eq!(FALLBACK_KEEP_PRE_MIGRATE, 3);
+        assert_eq!(domovoi_config::FALLBACK_KEEP_PRE_MIGRATE, 3);
         assert_eq!(
             startup_keep_pre_migrate(&sources(None, MapEnv::new())),
-            FALLBACK_KEEP_PRE_MIGRATE,
+            3,
             "a value saved in the UI lives in the database being opened"
         );
     }

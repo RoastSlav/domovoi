@@ -23,6 +23,11 @@ pub use llm::{
 pub use retention::{Applies, RETENTION_KEYS, RetentionKey, RetentionSection};
 pub use updates::UpdatesSection;
 
+/// Pre-migration backups kept when only the UI layer sets `backup.keep_pre_migrate`: that
+/// value lives in the database being opened, so it cannot govern the backup taken before
+/// the database opens. This is also the key's default.
+pub const FALLBACK_KEEP_PRE_MIGRATE: u32 = 3;
+
 /// The whole of `hub.toml`. Every section is optional; omitted keys take the defaults
 /// documented on each field.
 #[derive(Debug, Clone, PartialEq, Deserialize, JsonSchema)]
@@ -466,7 +471,7 @@ fn default_keep() -> u32 {
     7
 }
 fn default_keep_pre_migrate() -> u32 {
-    3
+    FALLBACK_KEEP_PRE_MIGRATE
 }
 fn default_true() -> bool {
     true
