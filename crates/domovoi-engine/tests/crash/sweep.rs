@@ -84,6 +84,23 @@ pub async fn sweep<S: SweepStore>(
         "scenario {}: one snapshot per commit, plus the state before the first",
         scenario.name,
     );
+    // The snapshot after commit `k` must be the state of exactly the first `k` commits: the
+    // journal and audit rows it holds are the ones those commits wrote.
+    let mut journal = 0;
+    let mut audit = 0;
+    for (index, summary) in dry.iter().enumerate() {
+        journal += summary.journal.len();
+        audit += summary.audit.len();
+        let snapshot = &snapshots[index + 1];
+        assert_eq!(
+            (snapshot.journal_kinds.len(), snapshot.audit_kinds.len()),
+            (journal, audit),
+            "scenario {}: the snapshot after commit {} is not the state of the first {} commits",
+            scenario.name,
+            index + 1,
+            index + 1,
+        );
+    }
 
     for at in 1..=commits {
         for point in [CrashPoint::BeforeCommit, CrashPoint::AfterCommit] {
