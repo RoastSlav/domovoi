@@ -52,5 +52,9 @@ path = "tests/notify/main.rs"
 name = "services"
 path = "tests/services/main.rs"
 
+[[test]]
+name = "crash"
+path = "tests/crash/main.rs"
+
 [lints]
 workspace = true

@@ -58,7 +58,7 @@ flowchart LR
 | `domovoi-runner` | The only crate that spawns processes: skill manifests, argument validation, sandboxed execution | core |
 | `domovoi-agent` | Agent runtime: hub link, check scheduler, request handling, spool | core, config, proto, checks, runner |
 | `domovoi-hub` | Hub runtime: HTTP API, auth, SPA serving, webhook ingest, agent server, wiring of engine with adapters | core, config, proto, engine, store, llm, chat, checks |
-| `domovoi-testkit` | Fakes for every port, fake clock, fixtures. **Dev-dependency only.** | core, proto |
+| `domovoi-testkit` | Fakes for every port, a fake clock, fixtures, the crash-injecting store, snapshots and invariants. **Dev-dependency only.** | core, proto |
 | `domovoi` | The binary and CLI. Composition root: selects mode, wires hub and agent, injects the process executor | core, config, hub, agent, runner |
 | `xtask` | Developer tasks: `arch-check`, `openapi`, `ci` | none (not part of the product) |
 
@@ -350,6 +350,8 @@ flowchart LR
 | Snapshot | Cards, digests, protocol JSON, OpenAPI document | `insta` |
 | Integration | Store against temp SQLite; HTTP API via `tower::ServiceExt::oneshot`; agent ↔ hub over a real TLS WebSocket on localhost; webhook fixtures | `tests/` of each crate, cross-role tests in `crates/domovoi/tests` |
 | Gates | Invariants INV-1…INV-12 as named tests that must never be deleted | `tests/gates.rs` per crate |
+| Crash sweep | Every incident and action write, crashed before and after every commit, on the in-memory store and on SQLite: the surviving state is the committed prefix, the journal, audit and timeline invariants hold before and after recovery, and the services work again (`CrashingStore` in `domovoi-testkit::crash`) | `crates/domovoi-engine/tests/crash`; the hub runs the same files on SQLite |
+| Upgrade flow | The committed N-1 database opens at the current schema, the services operate on it, new writes are chained and journaled, audit verification passes and the invariants hold after a restart | `crates/domovoi-hub/tests/hub/upgrade_flow.rs` |
 | Drills | Scripted incidents with a recorded model run; scored on detection, discrimination, action choice and restraint | `crates/domovoi-engine/tests/drills` (v0.1 minimal) |
 | Web | Components and hooks with Vitest and Testing Library | `web/src/**/*.test.tsx` |
 | End to end | `domovoi selftest` pushes a fake critical through triage and a recording gateway | CLI test |
