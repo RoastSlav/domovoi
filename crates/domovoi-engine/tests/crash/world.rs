@@ -316,6 +316,21 @@ impl<S: SweepStore> World<S> {
         }
     }
 
+    /// Lets the services run, then waits until both have applied everything queued before the
+    /// call: a round-trip through the manager's queue and one through the writer's.
+    ///
+    /// Polling the store cannot stand in for this. A commit against SQLite on a loaded machine
+    /// lasts far longer than any loop of polls does, so a poll budget expires while the service
+    /// is still writing; a round-trip simply takes as long as the commit takes. The expiry sweep
+    /// is the one writer command with no arguments and does nothing while no proposal is due.
+    pub async fn let_services_work(&self) {
+        for _ in 0..20 {
+            tokio::task::yield_now().await;
+        }
+        let _ = self.manager.tick().await;
+        let _ = self.service.expire_due().await;
+    }
+
     /// Waits until no action is in a status the services will still change and both service
     /// queues have drained, so a read of the store is not torn by a commit landing between
     /// two of its queries.
@@ -434,29 +449,34 @@ impl<S: SweepStore> World<S> {
     }
 
     /// Waits, moving the clock a second at a time, until the stored action satisfies `done`.
-    /// Fails at once when the process is down: nothing will change any more.
+    /// Fails at once when the process is down: nothing will change any more. Each round waits
+    /// for the services to apply what they were given, so a slow commit is waited out instead
+    /// of exhausting a poll budget. The timeout error carries the last status seen.
     pub async fn wait_for(
         &self,
         id: ActionId,
         done: impl Fn(&ActionStatus) -> bool,
     ) -> Result<ActionRequest, String> {
-        for _ in 0..2000 {
+        let mut last: Option<ActionStatus> = None;
+        for _ in 0..600 {
             if self.crashing.crashed() {
                 return Err(format!("the process is down before action {id} finished"));
             }
-            for _ in 0..20 {
-                tokio::task::yield_now().await;
-            }
-            if let Some(action) = self.action(id).await
-                && done(action.status())
-            {
-                // The writer may still be recording the outcome of a verification.
-                self.settle().await;
-                return Ok(action);
+            self.let_services_work().await;
+            if let Some(action) = self.action(id).await {
+                if done(action.status()) {
+                    // The writer may still be recording the outcome of a verification.
+                    self.settle().await;
+                    return Ok(action);
+                }
+                last = Some(action.status().clone());
             }
             self.advance(1);
         }
-        Err(format!("action {id} never reached the expected status"))
+        let last = last.map_or_else(|| "gone".to_owned(), |status| format!("{status:?}"));
+        Err(format!(
+            "action {id} never reached the expected status; it is {last}"
+        ))
     }
 
     /// Waits until `incident`'s verdict is `verdict`, so the write a successful run makes
@@ -466,13 +486,11 @@ impl<S: SweepStore> World<S> {
         incident: IncidentId,
         verdict: Verdict,
     ) -> Result<(), String> {
-        for _ in 0..2000 {
+        for _ in 0..600 {
             if self.crashing.crashed() {
                 return Err("the process is down before the verdict was stored".to_owned());
             }
-            for _ in 0..20 {
-                tokio::task::yield_now().await;
-            }
+            self.let_services_work().await;
             let found = IncidentRepo::get(&*self.store, incident)
                 .await
                 .expect("the incident is readable");

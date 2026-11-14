@@ -20,13 +20,12 @@ use super::world::World;
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 /// Waits until the wrapper holds one snapshot per counted commit, twice in a row: no commit
-/// is still applying or capturing.
+/// is still applying or capturing. Each round waits for the services, so a slow commit is
+/// waited out rather than counted against a poll budget.
 async fn idle<S: SweepStore>(world: &World<S>) {
     let mut before = u64::MAX;
-    for _ in 0..1_000 {
-        for _ in 0..20 {
-            tokio::task::yield_now().await;
-        }
+    for _ in 0..200 {
+        world.let_services_work().await;
         let commits = world.crashing.commits();
         if world.crashing.snapshots().len() as u64 == commits + 1 && commits == before {
             return;
