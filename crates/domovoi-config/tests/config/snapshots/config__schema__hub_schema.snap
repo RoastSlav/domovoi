@@ -383,6 +383,17 @@ expression: "HubConfig::json_schema()"
           "format": "uri",
           "default": null
         },
+        "call_deadline": {
+          "description": "The longest one model call may take in total, such as `5m`, even while it keeps\nstreaming. Default `5m`.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Duration"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "cli": {
           "description": "How to run a local CLI. Required for `cli`.",
           "anyOf": [
@@ -741,6 +752,13 @@ expression: "HubConfig::json_schema()"
           "type": "integer",
           "format": "uint32",
           "default": 2000,
+          "minimum": 0
+        },
+        "prompt_bytes": {
+          "description": "Largest prompt sent in one model call, in bytes. Old tool results are shortened\nfirst to fit. Default 131072 (128 KiB).",
+          "type": "integer",
+          "format": "uint32",
+          "default": 131072,
           "minimum": 0
         },
         "seconds": {

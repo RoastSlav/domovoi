@@ -50,6 +50,10 @@ pub struct LlmProvider {
     /// `cli` it is the whole run. Default `2m`.
     #[serde(default)]
     pub timeout: Option<Duration>,
+    /// The longest one model call may take in total, such as `5m`, even while it keeps
+    /// streaming. Default `5m`.
+    #[serde(default)]
+    pub call_deadline: Option<Duration>,
 }
 
 /// The kind of language model adapter.
@@ -175,6 +179,10 @@ pub struct TriageLimits {
     /// before it is sent, including each retry, so the run cannot exceed it.
     #[serde(default)]
     pub total_tokens: Option<u32>,
+    /// Largest prompt sent in one model call, in bytes. Old tool results are shortened
+    /// first to fit. Default 131072 (128 KiB).
+    #[serde(default = "default_prompt_bytes")]
+    pub prompt_bytes: u32,
 }
 
 impl Default for TriageLimits {
@@ -184,6 +192,7 @@ impl Default for TriageLimits {
             seconds: default_run_seconds(),
             output_tokens: default_output_tokens(),
             total_tokens: None,
+            prompt_bytes: default_prompt_bytes(),
         }
     }
 }
@@ -208,4 +217,7 @@ fn default_run_seconds() -> u32 {
 }
 fn default_output_tokens() -> u32 {
     2000
+}
+fn default_prompt_bytes() -> u32 {
+    131_072
 }
