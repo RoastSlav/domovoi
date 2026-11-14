@@ -113,3 +113,51 @@ fn secrets_do_not_appear_in_debug_output() {
     }
     assert!(debug.contains("BOT"));
 }
+
+#[test]
+fn metrics_section_parses_and_resolves_its_token() {
+    const ENV: &str = "[metrics]\ntoken = { env = \"DOMOVOI_METRICS_TOKEN\" }\n";
+    let (config, _) =
+        hub_with(ENV, &MapEnv::new().with("DOMOVOI_METRICS_TOKEN", "scrape")).unwrap();
+    let token = config.metrics.token.as_ref().unwrap();
+    assert_eq!(token.value().expose_secret(), "scrape");
+    assert_eq!(
+        token.source(),
+        &SecretSource::Env("DOMOVOI_METRICS_TOKEN".to_owned())
+    );
+
+    let mut file = tempfile::NamedTempFile::new().unwrap();
+    writeln!(file, "scrape-from-file").unwrap();
+    let path = file.path().to_string_lossy().replace('\\', "/");
+    let text = format!("[metrics]\ntoken = {{ file = \"{path}\" }}\n");
+    let (config, _) = hub_with(&text, &MapEnv::new()).unwrap();
+    assert_eq!(
+        config.metrics.token.unwrap().value().expose_secret(),
+        "scrape-from-file"
+    );
+
+    let (empty, _) = hub_with("", &MapEnv::new()).unwrap();
+    assert!(empty.metrics.token.is_none(), "no token by default");
+}
+
+#[test]
+fn metrics_token_is_visited_as_a_secret() {
+    use domovoi_config::Secrets;
+    let (mut config, _) = hub_with(
+        "[metrics]\ntoken = { env = \"T\" }\n",
+        &MapEnv::new().with("T", "v"),
+    )
+    .unwrap();
+    let mut seen = Vec::new();
+    config.secrets_mut(&mut |path, _| seen.push(path.to_owned()));
+    assert!(seen.contains(&"metrics.token".to_owned()), "{seen:?}");
+}
+
+#[test]
+fn metrics_is_a_known_override_section() {
+    // `token` names its source, so a scalar override cannot set it; what matters here is
+    // that `metrics` is a hub section, so `DOMOVOI_METRICS__*` is read rather than
+    // reported as a typo.
+    use domovoi_config::env::HUB_SECTIONS;
+    assert!(HUB_SECTIONS.contains(&"metrics"));
+}

@@ -152,6 +152,14 @@ Prices used for the monthly budget. Optional.
 | `input_per_mtok_usd` | number | Dollars per million input tokens. |
 | `output_per_mtok_usd` | number | Dollars per million output tokens. |
 
+### `[metrics]`
+
+Who may read `/metrics`.
+
+| Key | Type | Meaning |
+| --- | --- | --- |
+| `token` | secret | Bearer token a Prometheus scraper sends as `Authorization: Bearer <token>`. Without it, only a logged-in web session can read `/metrics`. |
+
 ### `[notify]`
 
 When people are notified.

@@ -7,7 +7,9 @@ use domovoi_config::HubConfig;
 use domovoi_core::ports::{AdvisoryRepo, BaselineRepo, Clock, HostRepo, SettingsRepo};
 use domovoi_core::{AdvisoryKind, DigestFact};
 use domovoi_engine::ActionHandle;
-use domovoi_engine::advisories::{AdvisoryInputs, AgentVersion, HeartbeatStatus, evaluate};
+use domovoi_engine::advisories::{
+    AdvisoryInputs, AgentVersion, HeartbeatStatus, advisory_id, evaluate,
+};
 use domovoi_engine::digest::DigestService;
 use domovoi_store::Store;
 use jiff::civil::Time;
@@ -241,6 +243,7 @@ impl Schedulers {
                             | AdvisoryKind::DeliveryFailed
                             | AdvisoryKind::StoredSecretUnreadable
                             | AdvisoryKind::SettingsApplyFailed
+                            | AdvisoryKind::BackupFailed
                     )
                 })
         });
@@ -295,6 +298,46 @@ impl Schedulers {
             }
         }
         self.advisories().await;
+    }
+}
+
+/// The id of the nightly backup advisory, the one place it is raised and cleared.
+fn backup_advisory_id() -> domovoi_core::AdvisoryId {
+    advisory_id(AdvisoryKind::BackupFailed, None, "nightly")
+}
+
+/// Records the outcome of the nightly backup: a failure raises `backup_failed` and says
+/// the newest earlier copy is still there; a success clears it and sets the "last good
+/// backup" gauge.
+pub(crate) async fn record_backup_result(
+    store: &dyn AdvisoryRepo,
+    now: Timestamp,
+    result: Result<std::path::PathBuf, domovoi_store::StoreOpenError>,
+) {
+    match result {
+        Ok(_) => {
+            metrics::gauge!("domovoi_backup_last_success_timestamp_seconds")
+                .set(now.as_second() as f64);
+            match store.resolve(backup_advisory_id(), now).await {
+                Ok(()) | Err(domovoi_core::ports::StoreError::NotFound) => {}
+                Err(err) => tracing::warn!(%err, "could not clear the backup advisory"),
+            }
+        }
+        Err(err) => {
+            tracing::warn!(%err, "nightly backup failed");
+            let advisory = domovoi_core::Advisory {
+                id: backup_advisory_id(),
+                kind: AdvisoryKind::BackupFailed,
+                host: None,
+                title: "The nightly backup failed".to_owned(),
+                detail: format!("{err}. The newest earlier backup is still in the backups folder."),
+                created_at: now,
+                resolved_at: None,
+            };
+            if let Err(err) = store.upsert(&advisory).await {
+                tracing::warn!(%err, "could not record the backup advisory");
+            }
+        }
     }
 }
 
@@ -362,9 +405,12 @@ fn spawn_daily(
                         .dir
                         .clone()
                         .unwrap_or_else(|| runtime.config.hub.data_dir.join("backups"));
-                    if let Err(err) = runtime.store.backup_to(&dir, now).await {
-                        tracing::warn!(%err, "nightly backup failed");
-                    }
+                    record_backup_result(
+                        &*runtime.store,
+                        now,
+                        runtime.store.backup_to(&dir, now).await,
+                    )
+                    .await;
                 }
             }
         }

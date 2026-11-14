@@ -770,3 +770,57 @@ fn chain_for_builds_one_provider_per_fallback_model() {
         "the chain keeps the slot's model and each fallback model in order",
     );
 }
+
+#[tokio::test]
+async fn nightly_backup_failure_raises_and_success_clears_the_advisory() {
+    use domovoi_core::ports::AdvisoryRepo;
+    use domovoi_engine::advisories::advisory_id;
+    use domovoi_store::StoreOpenError;
+    use domovoi_testkit::InMemoryStore;
+
+    let store = Arc::new(InMemoryStore::new());
+    let now = at("2026-10-31T04:00:00Z");
+    let id = advisory_id(AdvisoryKind::BackupFailed, None, "nightly");
+
+    super::schedulers::record_backup_result(
+        &*store,
+        now,
+        Err(StoreOpenError::Io {
+            path: "/srv/backups/domovoi-20261031T040000Z.db".into(),
+            reason: "no space left on device".to_owned(),
+        }),
+    )
+    .await;
+    let open = store.list_open().await.unwrap();
+    let advisory = open
+        .iter()
+        .find(|advisory| advisory.id == id)
+        .expect("the failure is recorded");
+    assert_eq!(advisory.kind, AdvisoryKind::BackupFailed);
+    assert_eq!(advisory.title, "The nightly backup failed");
+    assert!(
+        advisory.detail.contains("no space left on device"),
+        "{}",
+        advisory.detail
+    );
+    assert!(
+        advisory
+            .detail
+            .contains("The newest earlier backup is still in the backups folder."),
+        "{}",
+        advisory.detail
+    );
+
+    let later = at("2026-11-01T04:00:00Z");
+    super::schedulers::record_backup_result(&*store, later, Ok("/srv/backups/domovoi.db".into()))
+        .await;
+    let open = store.list_open().await.unwrap();
+    assert!(
+        !open.iter().any(|advisory| advisory.id == id),
+        "the next good backup clears it"
+    );
+
+    // Clearing again is harmless: there is nothing open to resolve.
+    super::schedulers::record_backup_result(&*store, later, Ok("/srv/backups/domovoi.db".into()))
+        .await;
+}

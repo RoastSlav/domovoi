@@ -328,3 +328,56 @@ async fn upgrade_writes_an_anchor_over_legacy_audit_rows() {
         ChainStatus::Intact { checked: 1, .. }
     ));
 }
+
+/// The previous schema keeps its open advisory, and `backup_failed` — a kind added
+/// after the kind CHECK was dropped — round-trips through the repository.
+#[tokio::test]
+async fn previous_schema_keeps_an_advisory_and_accepts_backup_failed() {
+    use domovoi_core::ports::AdvisoryRepo;
+    use domovoi_core::{Advisory, AdvisoryId, AdvisoryKind};
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = copy_fixture(dir.path());
+    let mut conn = raw(&path).await;
+    sqlx::query(
+        "INSERT INTO advisories (id, kind, host_id, title, detail, created_at, resolved_at) \
+         VALUES (?, 'triage_degraded', NULL, 'Triage is degraded', 'it is', ?, NULL)",
+    )
+    .bind("0190a0a0-0000-7000-8000-000000000911")
+    .bind(at(0).as_millisecond())
+    .execute(&mut conn)
+    .await
+    .unwrap();
+    sqlx::Connection::close(conn).await.unwrap();
+
+    let store = Store::open(&path, StoreOptions::beside(&path, at(1000)))
+        .await
+        .unwrap();
+    let open = store.list_open().await.unwrap();
+    let kept = open
+        .iter()
+        .find(|advisory| advisory.id.to_string() == "0190a0a0-0000-7000-8000-000000000911")
+        .expect("the row survives the upgrade");
+    assert_eq!(kept.kind, AdvisoryKind::TriageDegraded);
+    assert_eq!(kept.title, "Triage is degraded");
+    assert_eq!(kept.detail, "it is");
+    assert_eq!(kept.created_at, at(0));
+    assert_eq!(kept.resolved_at, None);
+
+    let fresh = Advisory {
+        id: AdvisoryId::new(),
+        kind: AdvisoryKind::BackupFailed,
+        host: None,
+        title: "The nightly backup failed".to_owned(),
+        detail: "disk full".to_owned(),
+        created_at: at(2000),
+        resolved_at: None,
+    };
+    AdvisoryRepo::upsert(&store, &fresh).await.unwrap();
+    let open = store.list_open().await.unwrap();
+    let stored = open
+        .iter()
+        .find(|advisory| advisory.id == fresh.id)
+        .expect("backup_failed round-trips");
+    assert_eq!(stored.kind, AdvisoryKind::BackupFailed);
+}

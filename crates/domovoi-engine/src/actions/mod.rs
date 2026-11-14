@@ -301,6 +301,13 @@ impl ActionService {
 }
 
 impl ActionHandle {
+    /// Whether the action service's writer is still taking decisions. A closed queue
+    /// means the service ended, so approvals queued now would be refused.
+    #[must_use]
+    pub fn is_alive(&self) -> bool {
+        !self.writer.tx.is_closed()
+    }
+
     /// Approves action `id` on behalf of the human in `approval`. A chat approval needs
     /// `chat_token`, which works once. `binding` must name the action's stored v1 plan hash,
     /// so an approval covers the plan the card showed. This is the only way to reach

@@ -23,6 +23,7 @@ mod logs;
 mod notes;
 mod overview;
 pub(crate) mod profile;
+pub mod readiness;
 mod rules;
 pub(crate) mod settings;
 mod settings_write;
@@ -129,6 +130,7 @@ impl AgentAdmin for AgentServer {
 pub type MetricsRender = Arc<dyn Fn() -> String + Send + Sync>;
 
 /// Everything the API reads and drives.
+#[derive(Clone)]
 pub struct ApiDeps {
     /// Incidents and timelines, read only; changes go through `manager`.
     pub incidents: Arc<dyn IncidentRepo>,
@@ -171,6 +173,8 @@ pub struct ApiDeps {
     pub notifier: Option<Arc<dyn Notifier>>,
     /// Renders `/metrics`; `None` serves an empty page.
     pub metrics: Option<MetricsRender>,
+    /// What `/readyz` asks the store.
+    pub store_health: Arc<dyn domovoi_core::ports::StoreHealth>,
     /// Settings managed from the UI; `None` when the hub was built from a fixed
     /// configuration, where the settings page is read-only.
     pub settings: Option<crate::settings::SettingsService>,
@@ -367,6 +371,7 @@ pub fn routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(overview::show))
         .routes(routes!(events::stream))
         .routes(routes!(system::healthz))
+        .routes(routes!(readiness::readyz))
         .routes(routes!(system::metrics))
         .routes(routes!(logs::list))
         .merge(

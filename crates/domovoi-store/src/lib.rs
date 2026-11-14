@@ -17,14 +17,20 @@ mod compat;
 mod db;
 mod error;
 mod fts;
+mod health;
 mod integrity;
 mod purge;
 mod repos;
+mod restore;
 mod uow;
 
-pub use backup::{BACKUP_PREFIX, pre_migrate_name};
+pub use backup::{
+    BACKUP_PREFIX, BackupError, BackupReport, Depth, PRE_MIGRATE_PREFIX, pre_migrate_name,
+    prune_pre_migrate_for_tests, verify_backup,
+};
 pub use compat::MIN_READER;
 pub use db::{BUSY_TIMEOUT, MIGRATOR, READ_CONNECTIONS, Store, StoreOptions, needs_backup};
 pub use error::StoreOpenError;
 pub use purge::{FTS_CLEANUP, PURGED_TABLES, PurgeReport, RetentionPolicy};
 pub use repos::SNIPPET_CHARS;
+pub use restore::{RestoreError, RestoreReport, restore_from_backup};

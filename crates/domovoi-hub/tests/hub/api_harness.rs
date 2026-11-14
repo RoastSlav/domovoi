@@ -13,7 +13,7 @@ use axum::http::{HeaderMap, Method, Request, StatusCode, header};
 use domovoi_config::{HubConfig, MapEnv};
 use domovoi_core::ports::{
     ActionRepo, AuditEvent, AuditFilter, AuditLog, HostRepo, IncidentRepo, LinkError, LlmProvider,
-    LogLine, LogSource, Notifier, Page, Presence,
+    LogLine, LogSource, Notifier, Page, Presence, StoreHealth,
 };
 use domovoi_core::{ActionRequest, HostId, HostName, Incident, Principal, Risk, SkillSummary};
 use domovoi_engine::{
@@ -189,6 +189,10 @@ pub struct Api {
     pub nas: domovoi_core::Host,
     pub shutdown: CancellationToken,
     pub dir: TempDir,
+    /// The incident manager's task, so a test can stop it as a crash would.
+    pub manager_task: tokio::task::JoinHandle<()>,
+    /// The action service's task, for the same reason.
+    pub action_task: tokio::task::JoinHandle<()>,
 }
 
 /// The variable that locks `triage.concurrency` in the settings tests.
@@ -283,7 +287,7 @@ async fn build(
 
     let (bus, _) = broadcast::channel(256);
     let shutdown = CancellationToken::new();
-    let (manager, _task) = IncidentManager::spawn(ManagerDeps {
+    let (manager, manager_task) = IncidentManager::spawn(ManagerDeps {
         incidents: store.clone(),
         uow: store.clone(),
         versions: store.clone(),
@@ -294,7 +298,7 @@ async fn build(
         bus: bus.clone(),
         shutdown: shutdown.clone(),
     });
-    let (actions_service, _task) = ActionService::spawn(
+    let (actions_service, action_task) = ActionService::spawn(
         ActionDeps {
             actions: store.clone(),
             incidents: store.clone(),
@@ -423,6 +427,7 @@ async fn build(
         config: Arc::new(config),
         notifier,
         metrics: Some(Arc::new(|| "domovoi_up 1\n".to_owned())),
+        store_health: store.clone(),
         settings: Some(settings),
         audit: store.clone(),
         update,
@@ -444,6 +449,24 @@ async fn build(
         nas,
         shutdown,
         dir,
+        manager_task,
+        action_task,
+    }
+}
+
+/// Reads a response into a [`Reply`].
+async fn reply_of(response: axum::response::Response) -> Reply {
+    let status = response.status();
+    let headers = response.headers().clone();
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let text = String::from_utf8_lossy(&bytes).into_owned();
+    Reply {
+        status,
+        headers,
+        body: serde_json::from_str(&text).unwrap_or(Value::Null),
+        text,
     }
 }
 
@@ -487,20 +510,33 @@ impl Api {
         self.raw(req.unwrap()).await
     }
 
-    pub async fn raw(&self, req: Request<Body>) -> Reply {
-        let response = self.app.clone().oneshot(req).await.unwrap();
-        let status = response.status();
-        let headers = response.headers().clone();
-        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        let text = String::from_utf8_lossy(&bytes).into_owned();
-        Reply {
-            status,
-            headers,
-            body: serde_json::from_str(&text).unwrap_or(Value::Null),
-            text,
+    /// Sends a request through `app` instead of the harness's own router.
+    pub async fn send_to(
+        &self,
+        app: Router,
+        method: Method,
+        uri: &str,
+        login: Option<&Login>,
+        body: Option<Value>,
+    ) -> Reply {
+        let mut req = Request::builder().method(method).uri(uri);
+        if let Some(login) = login {
+            req = req
+                .header(header::COOKIE, &login.cookie)
+                .header("x-csrf-token", &login.csrf);
         }
+        let req = match body {
+            Some(body) => req
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(body.to_string())),
+            None => req.body(Body::empty()),
+        };
+        let response = app.oneshot(req.unwrap()).await.unwrap();
+        reply_of(response).await
+    }
+
+    pub async fn raw(&self, req: Request<Body>) -> Reply {
+        reply_of(self.app.clone().oneshot(req).await.unwrap()).await
     }
 
     /// Proposes `restart_container` (no parameters) with `risk`, open for an hour.
@@ -526,6 +562,29 @@ impl Api {
 
     pub async fn post(&self, uri: &str, login: &Login, body: Value) -> Reply {
         self.send(Method::POST, uri, Some(login), Some(body)).await
+    }
+
+    /// The app over the same state with `health` answering `/readyz`.
+    pub fn with_store_health(&self, health: Arc<dyn StoreHealth>) -> Router {
+        let mut deps: ApiDeps = (**self.state.deps()).clone();
+        deps.store_health = health;
+        let state =
+            ApiState::new(deps, self.state.auth().clone()).with_shutdown(self.shutdown.clone());
+        router(state, None).layer(MockConnectInfo(peer()))
+    }
+
+    /// Stops the incident manager and waits for its task to end, as a crashed service
+    /// would: its queue closes, so `ManagerHandle::is_alive` is false.
+    pub async fn stop_manager(&self) {
+        self.manager_task.abort();
+        let _ = self.manager_task.is_finished();
+        tokio::task::yield_now().await;
+    }
+
+    /// The same for the action service.
+    pub async fn stop_action_service(&self) {
+        self.action_task.abort();
+        tokio::task::yield_now().await;
     }
 
     /// The audit events of `kind`, newest first: what a write recorded.

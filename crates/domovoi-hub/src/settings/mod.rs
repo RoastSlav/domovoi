@@ -25,6 +25,7 @@ pub mod crypto;
 pub mod host_docker;
 pub mod patch;
 pub mod service;
+pub mod step_up;
 pub mod stored;
 
 pub use apply::{ApplyRequest, ConfigSources, LoadError, load_effective, rollback};

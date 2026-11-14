@@ -893,6 +893,7 @@ dependencies = [
  "domovoi-hub",
  "domovoi-proto",
  "domovoi-runner",
+ "domovoi-store",
  "domovoi-testkit",
  "flate2",
  "hex",

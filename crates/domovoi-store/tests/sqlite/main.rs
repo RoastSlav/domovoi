@@ -8,6 +8,8 @@ mod audit;
 #[cfg(test)]
 mod audit_chain;
 #[cfg(test)]
+mod backup;
+#[cfg(test)]
 mod commit_cost;
 #[cfg(test)]
 mod common;
@@ -25,6 +27,8 @@ mod migrations;
 mod paging;
 #[cfg(test)]
 mod purge;
+#[cfg(test)]
+mod restore;
 #[cfg(test)]
 mod search;
 #[cfg(test)]

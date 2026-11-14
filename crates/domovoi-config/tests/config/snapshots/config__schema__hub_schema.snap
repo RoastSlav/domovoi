@@ -1,5 +1,6 @@
 ---
 source: crates/domovoi-config/tests/config/schema.rs
+assertion_line: 5
 expression: "HubConfig::json_schema()"
 ---
 {
@@ -49,6 +50,10 @@ expression: "HubConfig::json_schema()"
     "llm": {
       "description": "Language model providers used by triage.",
       "$ref": "#/$defs/LlmSection"
+    },
+    "metrics": {
+      "description": "Who may read `/metrics`.",
+      "$ref": "#/$defs/MetricsSection"
     },
     "notify": {
       "description": "When people are notified.",
@@ -486,6 +491,24 @@ expression: "HubConfig::json_schema()"
       "description": "A 24-hour time of day such as \"09:00\".",
       "type": "string",
       "pattern": "^[0-2][0-9]:[0-5][0-9]$"
+    },
+    "MetricsSection": {
+      "description": "`[metrics]`.",
+      "type": "object",
+      "properties": {
+        "token": {
+          "description": "Bearer token a Prometheus scraper sends as `Authorization: Bearer <token>`.\nWithout it, only a logged-in web session can read `/metrics`.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Secret"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
     },
     "NotifySection": {
       "description": "`[notify]`.",

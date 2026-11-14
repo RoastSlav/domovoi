@@ -305,6 +305,7 @@ impl HubRuntime {
                 config: Arc::new(config.clone()),
                 notifier: FanOut::over(&notifiers),
                 metrics: deps.metrics,
+                store_health: store.clone(),
                 settings,
                 audit: store.clone(),
                 logs: deps.logs,

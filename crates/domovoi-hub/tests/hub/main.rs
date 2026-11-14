@@ -45,6 +45,8 @@ mod presence;
 #[cfg(test)]
 mod profile;
 #[cfg(test)]
+mod readiness;
+#[cfg(test)]
 mod rules;
 #[cfg(test)]
 mod sessions;

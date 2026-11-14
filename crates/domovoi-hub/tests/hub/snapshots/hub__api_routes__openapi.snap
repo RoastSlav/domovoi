@@ -1,5 +1,6 @@
 ---
 source: crates/domovoi-hub/tests/hub/api_routes.rs
+assertion_line: 531
 expression: spec
 ---
 {
@@ -1797,6 +1798,27 @@ expression: spec
           "skill",
           "args",
           "reason"
+        ],
+        "type": "object"
+      },
+      "ReadyzBody": {
+        "description": "The body of `/readyz`.",
+        "properties": {
+          "failing": {
+            "description": "The names of the checks that failed, in a fixed order; empty when ready.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "ready": {
+            "description": "True when no check failed.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ready",
+          "failing"
         ],
         "type": "object"
       },
@@ -5850,9 +5872,50 @@ expression: spec
               }
             },
             "description": "Prometheus text format"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No session and no valid bearer token"
           }
         },
-        "summary": "Prometheus metrics.",
+        "summary": "Prometheus metrics: readable by a logged-in session, or by a scraper holding the\nconfigured bearer token. Without either, 401.",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/readyz": {
+      "get": {
+        "operationId": "readyz",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadyzBody"
+                }
+              }
+            },
+            "description": "Ready"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadyzBody"
+                }
+              }
+            },
+            "description": "Not ready; the body names the failing checks"
+          }
+        },
+        "summary": "Readiness: 200 when the hub can do its job, 503 naming what it cannot.",
         "tags": [
           "system"
         ]

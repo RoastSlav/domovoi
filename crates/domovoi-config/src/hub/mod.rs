@@ -72,6 +72,9 @@ pub struct HubConfig {
     /// How long each kind of raw data is kept.
     #[serde(default)]
     pub retention: RetentionSection,
+    /// Who may read `/metrics`.
+    #[serde(default)]
+    pub metrics: MetricsSection,
     /// Secret hygiene.
     #[serde(default)]
     pub secrets: SecretsSection,
@@ -386,6 +389,16 @@ impl Default for BackupSection {
     }
 }
 
+/// `[metrics]`.
+#[derive(Debug, Clone, PartialEq, Default, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MetricsSection {
+    /// Bearer token a Prometheus scraper sends as `Authorization: Bearer <token>`.
+    /// Without it, only a logged-in web session can read `/metrics`.
+    #[serde(default)]
+    pub token: Option<Secret>,
+}
+
 /// `[secrets]`.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -424,6 +437,9 @@ impl Secrets for HubConfig {
         }
         if let Some(heartbeat) = self.heartbeat.as_mut() {
             visit("heartbeat.url", &mut heartbeat.url);
+        }
+        if let Some(token) = self.metrics.token.as_mut() {
+            visit("metrics.token", token);
         }
     }
 }

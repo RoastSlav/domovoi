@@ -178,6 +178,33 @@ domovoi audit verify --config /etc/domovoi/hub.toml
 domovoi audit verify --last 1000
 ```
 
+### `domovoi restore <backup>`
+
+Installs a backup as the hub's database. It needs the hub stopped: the command takes the data directory's lock and refuses with `a hub is running on <dir>; stop it before restoring` while one holds it. It is an offline command; the web UI cannot restore.
+
+```sh
+domovoi restore /var/lib/domovoi/backups/domovoi-20261114T040000Z.db          # describe only
+domovoi restore /var/lib/domovoi/backups/domovoi-20261114T040000Z.db --yes    # do it
+```
+
+Without `--yes` it verifies the file in full and prints what would happen, then exits with code 2: nothing changes. With `--yes` it moves the current `hub.db` (and its `-wal` and `-shm`) to `hub.db.before-restore-<time>`, copies the backup into place, migrates it forward if it is older than this release, and prints the report. The previous database is never deleted, and a failure part-way through moves it back.
+
+| Argument | Meaning |
+| --- | --- |
+| `<BACKUP>` | The backup file to install. |
+| `--config <path>` | The hub's `hub.toml`; only its data directory is used. It defaults like every other command. |
+| `--yes` | Restore without asking. |
+
+It refuses a file that is damaged, is not a Domovoi database, or was written by a newer release, and changes nothing in that case.
+
+| Exit code | Meaning |
+| --- | --- |
+| 0 | Restored. |
+| 1 | Refused or failed; nothing changed, or the previous database was put back. |
+| 2 | Not confirmed: run again with `--yes`. |
+
+Afterwards, restore `secret.key` and `tls/` from the same time if they were lost, start the hub, and run `domovoi audit verify`.
+
 ### `domovoi audit head`
 
 Prints the newest chained audit row's sequence number and hash, or `no chained rows yet` when the chain has not started.
@@ -205,7 +232,25 @@ Builds from a source archive without `.git` print `unknown` as the commit, unles
 
 ## Metrics
 
-`GET /metrics` on the hub's web listener serves Prometheus text, with no login needed:
+`GET /metrics` on the hub's web listener serves Prometheus text. It needs a logged-in web session, or a bearer token configured in `hub.toml`:
+
+```toml
+[metrics]
+token = { env = "DOMOVOI_METRICS_TOKEN" }
+```
+
+The token is a secret like any other, so it comes from the environment or a file, never inline, and changing it in the web UI needs the admin's password again. Without a token, only a session reads the page; with one, a scraper sends it as `Authorization: Bearer <token>`. Anything else gets `401` with no metrics text.
+
+```yaml
+scrape_configs:
+  - job_name: domovoi
+    scheme: https
+    static_configs:
+      - targets: ["domovoi.example.net:7420"]
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/domovoi-metrics-token
+```
 
 | Metric | Labels | Meaning |
 | --- | --- | --- |
@@ -220,3 +265,4 @@ Builds from a source archive without `.git` print `unknown` as the commit, unles
 | `domovoi_notify_state_errors_total` | `op` | Notification state reads and writes that failed (`read`, `write`) |
 | `domovoi_event_bus_lagged_total` | `consumer` | Times a consumer fell behind the event bus |
 | `domovoi_incident_flaps_total` | | Incidents that resolved and fired again quickly |
+| `domovoi_backup_last_success_timestamp_seconds` | | When the nightly backup last succeeded |
