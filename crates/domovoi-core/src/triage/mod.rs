@@ -17,3 +17,10 @@ pub use tool_call::{
     MAX_SINCE_MINUTES, MAX_SKILL_ARGS, ReadToolCall, ToolArgError,
 };
 pub use tools::ReadTool;
+
+/// The timeline kind a follow-up question and its answer are recorded under.
+pub const FOLLOW_UP_KIND: &str = "triage.followup";
+
+/// The timeline kind that cuts earlier questions and answers out of the conversation the
+/// model sees.
+pub const CLEAR_KIND: &str = "followup.cleared";
