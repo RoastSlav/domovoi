@@ -42,7 +42,7 @@ enum Event {
 #[derive(Deserialize)]
 struct StartMessage {
     #[serde(default)]
-    usage: WireUsage,
+    usage: Option<WireUsage>,
 }
 
 #[derive(Deserialize)]
@@ -112,12 +112,18 @@ pub(crate) async fn assemble(
     let mut blocks: BTreeMap<usize, Block> = BTreeMap::new();
     let mut stop_reason = None;
     let mut usage = WireUsage::default();
+    let mut reported_usage = false;
     let mut complete = false;
     while let Some(data) = events.next_data(secret).await? {
         let event: Event = serde_json::from_str(&data)
             .map_err(|e| LlmError::InvalidResponse(format!("{e}: {}", excerpt(&data, secret))))?;
         match event {
-            Event::MessageStart { message } => usage = message.usage,
+            Event::MessageStart { message } => {
+                if let Some(start) = message.usage {
+                    usage = start;
+                    reported_usage = true;
+                }
+            }
             Event::ContentBlockStart {
                 index,
                 content_block,
@@ -151,6 +157,7 @@ pub(crate) async fn assemble(
                 }
                 if let Some(delta_usage) = delta_usage {
                     usage.output_tokens = delta_usage.output_tokens;
+                    reported_usage = true;
                 }
             }
             Event::MessageStop => {
@@ -173,7 +180,7 @@ pub(crate) async fn assemble(
     Ok(WireResponse {
         content,
         stop_reason,
-        usage,
+        usage: reported_usage.then_some(usage),
     })
 }
 

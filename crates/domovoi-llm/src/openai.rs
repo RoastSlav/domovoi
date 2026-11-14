@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use async_trait::async_trait;
 use domovoi_core::ports::{
     LlmCapability, LlmError, LlmMessage, LlmProvider, LlmRequest, LlmResponse, Part, Role,
-    StopReason, Usage,
+    StopReason,
 };
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
@@ -15,7 +15,8 @@ use url::Url;
 use crate::error::{LlmBuildError, excerpt};
 use crate::http::{self, Reply};
 use crate::openai_stream;
-use crate::settings::{Price, cost_micros};
+use crate::settings::Price;
+use crate::usage;
 
 /// A provider speaking the Chat Completions API. Local servers may need no key.
 #[derive(Debug)]
@@ -26,11 +27,24 @@ pub struct OpenAiCompatible {
     api_key: Option<SecretString>,
     price: Option<Price>,
     /// Whether the server accepts `stream_options`. Some compatible servers reject it with
-    /// a 400; once one does, it is no longer sent.
+    /// a 400; once one does, streaming is dropped as well, because a streamed answer then
+    /// arrives without usage totals. Non-streamed answers usually carry them.
     stream_options: AtomicBool,
+    /// Whether answers are requested as a stream. Turned off with `stream_options`, so a
+    /// server that cannot report usage in a stream is asked for a whole answer instead.
+    streaming: AtomicBool,
     /// Whether the server accepts `tools`. Cleared when one rejects them, so the caller
     /// stops offering tools and gathers their output itself.
     tools: AtomicBool,
+}
+
+/// What one outgoing request actually carried, decided when its body was built. A rejection
+/// is reported only when this request asked for the refused capability, even if another
+/// request already withdrew it from the shared state.
+#[derive(Debug, Clone, Copy)]
+struct Included {
+    tools: bool,
+    stream_usage: bool,
 }
 
 impl OpenAiCompatible {
@@ -49,17 +63,17 @@ impl OpenAiCompatible {
             api_key,
             price,
             stream_options: AtomicBool::new(true),
+            streaming: AtomicBool::new(true),
             tools: AtomicBool::new(true),
         })
     }
 
-    /// Sends one request and assembles its answer, preferring the event stream.
-    async fn ask(
+    /// Sends one prepared body and assembles its answer, streamed or whole.
+    async fn send(
         &self,
-        req: &LlmRequest,
+        body: Value,
         secret: Option<&SecretString>,
     ) -> Result<WireResponse, LlmError> {
-        let body = self.body(req);
         let mut request = self.client.post(&self.url).json(&body);
         if let Some(key) = secret {
             request = request.bearer_auth(key.expose_secret());
@@ -73,8 +87,9 @@ impl OpenAiCompatible {
     /// The request body, with the optional fields this server has not refused.
     fn body(&self, req: &LlmRequest) -> Value {
         let mut body = request_body(&self.model, req);
-        body["stream"] = Value::Bool(true);
-        if self.stream_options.load(Ordering::Relaxed) {
+        let streaming = self.streaming.load(Ordering::Relaxed);
+        body["stream"] = Value::Bool(streaming);
+        if streaming && self.stream_options.load(Ordering::Relaxed) {
             body["stream_options"] = json!({ "include_usage": true });
         }
         if (req.tools.is_empty() || !self.tools.load(Ordering::Relaxed))
@@ -85,20 +100,41 @@ impl OpenAiCompatible {
         body
     }
 
+    /// What `body` actually carries, for telling whether a refusal is about this request.
+    fn included(body: &Value) -> Included {
+        Included {
+            tools: body.get("tools").is_some(),
+            stream_usage: body.get("stream_options").is_some(),
+        }
+    }
+
     /// Turns a specific capability refusal into the typed signal the engine acts on, after
-    /// latching the capability off. Anything else is returned unchanged: an invalid model,
-    /// a context window overflow or a bad tool schema is a plain error.
-    fn refuse(&self, err: LlmError) -> LlmError {
+    /// latching the capability off. The evidence is the request's own body, not the atomic
+    /// transition: concurrent requests that both sent the field both report the refusal.
+    /// Anything else is returned unchanged: an invalid model, a context window overflow or
+    /// a bad tool schema is a plain error.
+    fn refuse(&self, err: LlmError, included: Included) -> LlmError {
         let Some(capability) = refused_capability(&err) else {
             return err;
         };
-        let withdrawn = match capability {
-            LlmCapability::Tools => self.tools.swap(false, Ordering::Relaxed),
-            LlmCapability::StreamUsage => self.stream_options.swap(false, Ordering::Relaxed),
+        let carried = match capability {
+            LlmCapability::Tools => included.tools,
+            LlmCapability::StreamUsage => included.stream_usage,
         };
-        if !withdrawn {
-            // A refusal of a field that is no longer sent is not about that field.
+        if !carried {
+            // This request already left the field out: the error is about something else.
             return err;
+        }
+        match capability {
+            LlmCapability::Tools => {
+                self.tools.store(false, Ordering::Relaxed);
+            }
+            LlmCapability::StreamUsage => {
+                // Without streamed usage totals, ask for a whole answer: those usually
+                // carry usage, so missing metadata does not hide what the turn cost.
+                self.stream_options.store(false, Ordering::Relaxed);
+                self.streaming.store(false, Ordering::Relaxed);
+            }
         }
         tracing::warn!(
             capability = %capability,
@@ -128,11 +164,13 @@ impl LlmProvider for OpenAiCompatible {
     async fn complete(&self, req: LlmRequest) -> Result<LlmResponse, LlmError> {
         tracing::debug!(model = %self.model, messages = req.messages.len(), "openai turn");
         let secret = self.api_key.as_ref();
-        let response = match self.ask(&req, secret).await {
+        let body = self.body(&req);
+        let included = Self::included(&body);
+        let response = match self.send(body, secret).await {
             Ok(response) => response,
-            Err(err) => return Err(self.refuse(err)),
+            Err(err) => return Err(self.refuse(err, included)),
         };
-        into_response(response, self.price.as_ref(), self.api_key.as_ref())
+        into_response(response, &req, self.price.as_ref(), self.api_key.as_ref())
     }
 }
 
@@ -326,6 +364,7 @@ pub(crate) struct WireUsage {
 
 fn into_response(
     response: WireResponse,
+    req: &LlmRequest,
     price: Option<&Price>,
     secret: Option<&SecretString>,
 ) -> Result<LlmResponse, LlmError> {
@@ -363,11 +402,17 @@ fn into_response(
         Some("length") => StopReason::MaxTokens,
         Some(other) => StopReason::Other(other.to_owned()),
     };
-    let mut usage = response.usage.map_or_else(Usage::default, |u| Usage {
-        input_tokens: u.prompt_tokens,
-        output_tokens: u.completion_tokens,
-        cost_micros: None,
-    });
-    usage.cost_micros = cost_micros(price, &usage);
+    // A server that reports no usage must not look free: infer the tokens from the request
+    // and the answer, and price the estimate when the provider has a price.
+    let usage = match response.usage {
+        Some(reported) => {
+            usage::reported(reported.prompt_tokens, reported.completion_tokens, price)
+        }
+        None => usage::estimated(
+            usage::request_tokens(req),
+            usage::answer_tokens(&parts),
+            price,
+        ),
+    };
     Ok(LlmResponse { parts, stop, usage })
 }

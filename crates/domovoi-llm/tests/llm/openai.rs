@@ -1,5 +1,7 @@
-use domovoi_core::ports::{LlmCapability, LlmError, LlmMessage, Part, Role, StopReason, ToolSpec};
-use domovoi_llm::build;
+use domovoi_core::ports::{
+    LlmCapability, LlmError, LlmMessage, Part, Role, StopReason, ToolSpec, UsageSource,
+};
+use domovoi_llm::{Price, build};
 use serde_json::{Value, json};
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, Request, ResponseTemplate};
@@ -112,7 +114,11 @@ async fn openai_works_without_api_key() {
     let response = provider.complete(ask("Status?")).await.unwrap();
     assert_eq!(response.parts, vec![Part::Text("All good.".to_owned())]);
     assert_eq!(response.stop, StopReason::MaxTokens);
-    assert_eq!(response.usage.input_tokens, 0, "usage is optional");
+    assert_eq!(
+        response.usage.source,
+        UsageSource::Estimated,
+        "a response without usage is estimated, not counted as free"
+    );
 
     let received = server.received_requests().await.unwrap();
     assert!(received[0].headers.get("authorization").is_none());
@@ -194,7 +200,10 @@ async fn a_refused_stream_usage_capability_is_reported_and_dropped() {
         bodies[1].get("stream_options").is_none(),
         "the refused field is not sent again"
     );
-    assert_eq!(bodies[1]["stream"], true, "the answer is still streamed");
+    assert_eq!(
+        bodies[1]["stream"], false,
+        "a whole answer is requested instead, which carries usage"
+    );
 }
 
 /// A server that refuses tools: the adapter reports it and `supports_tools` turns false, so
@@ -294,3 +303,142 @@ async fn unrelated_400_errors_do_not_drop_capabilities() {
         );
     }
 }
+
+/// Two requests that both carried tools both report the refusal, even though the first one
+/// already withdrew the capability from the shared state. A later request leaves the field
+/// out and is not told again.
+#[tokio::test]
+async fn concurrent_capability_rejections_are_all_reported() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(|request: &Request| {
+            if body_of(request).get("tools").is_some() {
+                ResponseTemplate::new(400).set_body_string("tools are not supported by this model")
+            } else {
+                answer("All good.")
+            }
+        })
+        .mount(&server)
+        .await;
+    let provider = build(&openai(&server.uri(), false), None).unwrap();
+
+    let (first, second) = tokio::join!(
+        provider.complete(tools_request("First?")),
+        provider.complete(tools_request("Second?")),
+    );
+    for (label, result) in [("first", first), ("second", second)] {
+        assert!(
+            matches!(
+                &result,
+                Err(LlmError::CapabilityRejected {
+                    capability: LlmCapability::Tools,
+                    ..
+                })
+            ),
+            "{label}: {result:?}"
+        );
+    }
+    assert!(!provider.supports_tools());
+
+    let response = provider.complete(tools_request("Third?")).await.unwrap();
+    assert_eq!(response.parts, vec![Part::Text("All good.".to_owned())]);
+
+    let bodies = bodies(&server).await;
+    assert_eq!(bodies.len(), 3);
+    assert!(
+        bodies[0].get("tools").is_some() && bodies[1].get("tools").is_some(),
+        "both concurrent requests actually carried tools"
+    );
+    assert!(
+        bodies[2].get("tools").is_none(),
+        "a request built after the withdrawal stops offering tools"
+    );
+}
+
+/// A streamed answer without usage totals is estimated and priced, never recorded as free.
+#[tokio::test]
+async fn a_stream_without_usage_is_estimated_and_priced() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(
+            "data: {\"choices\":[{\"delta\":{\"content\":\"All good.\"},\"finish_reason\":\"stop\"}]}\n\n\
+             data: [DONE]\n\n",
+            "text/event-stream",
+        ))
+        .mount(&server)
+        .await;
+    let mut settings = openai(&server.uri(), false);
+    settings.price = Some(PRICE);
+    let provider = build(&settings, None).unwrap();
+
+    let response = provider.complete(ask("Status?")).await.unwrap();
+    assert_eq!(response.usage.source, UsageSource::Estimated);
+    assert!(
+        response.usage.input_tokens > 0,
+        "the prompt is estimated: {:?}",
+        response.usage
+    );
+    assert!(response.usage.output_tokens > 0);
+    assert!(
+        response.usage.cost_micros.is_some_and(|cost| cost > 0),
+        "the estimate is priced: {:?}",
+        response.usage
+    );
+}
+
+/// A whole answer without a usage object is estimated the same way.
+#[tokio::test]
+async fn a_whole_answer_without_usage_is_estimated_and_priced() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "choices": [{
+                "message": {"role": "assistant", "content": "All good."},
+                "finish_reason": "stop"
+            }]
+        })))
+        .mount(&server)
+        .await;
+    let mut settings = openai(&server.uri(), false);
+    settings.price = Some(PRICE);
+    let provider = build(&settings, None).unwrap();
+
+    let response = provider.complete(ask("Status?")).await.unwrap();
+    assert_eq!(response.usage.source, UsageSource::Estimated);
+    assert!(response.usage.output_tokens > 0);
+    assert!(response.usage.cost_micros.is_some_and(|cost| cost > 0));
+}
+
+/// Usage the provider reports is marked as reported and priced, not replaced by an estimate.
+#[tokio::test]
+async fn reported_usage_is_marked_and_priced() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "choices": [{
+                "message": {"role": "assistant", "content": "All good."},
+                "finish_reason": "stop"
+            }],
+            "usage": {"prompt_tokens": 100, "completion_tokens": 20}
+        })))
+        .mount(&server)
+        .await;
+    let mut settings = openai(&server.uri(), false);
+    settings.price = Some(PRICE);
+    let provider = build(&settings, None).unwrap();
+
+    let response = provider.complete(ask("Status?")).await.unwrap();
+    assert_eq!(response.usage.source, UsageSource::Reported);
+    assert_eq!(response.usage.input_tokens, 100);
+    assert_eq!(response.usage.output_tokens, 20);
+    assert_eq!(
+        response.usage.cost_micros,
+        Some(100 * 3 + 20 * 15),
+        "a dollar per million tokens is one micro-dollar per token"
+    );
+}
+
+const PRICE: Price = Price {
+    input_per_mtok_usd: 3.0,
+    output_per_mtok_usd: 15.0,
+};

@@ -194,7 +194,8 @@ impl LlmProvider for Cli {
     }
 
     async fn complete(&self, req: LlmRequest) -> Result<LlmResponse, LlmError> {
-        let spec = self.spec(render_prompt(&req));
+        let prompt = render_prompt(&req);
+        let spec = self.spec(prompt.clone());
         tracing::debug!(program = %spec.program, "cli turn");
         let output = self
             .executor
@@ -216,7 +217,7 @@ impl LlmProvider for Cli {
                 excerpt(&output.stderr, None)
             )));
         }
-        let (text, usage) = read_output(&self.preset.output, &output.stdout)?;
+        let (text, usage) = read_output(&self.preset.output, &output.stdout, &prompt)?;
         Ok(LlmResponse {
             parts: vec![Part::Text(text)],
             stop: StopReason::EndTurn,
@@ -260,10 +261,23 @@ pub fn render_prompt(req: &LlmRequest) -> String {
     out
 }
 
-/// The answer and, when the CLI reports it, token usage.
-fn read_output(output: &CliOutput, stdout: &str) -> Result<(String, Usage), LlmError> {
+/// The answer and, when the CLI reports it, token usage. A CLI that reports none gets an
+/// estimate from the prompt and the answer, so the turn is not recorded as free.
+fn read_output(
+    output: &CliOutput,
+    stdout: &str,
+    prompt: &str,
+) -> Result<(String, Usage), LlmError> {
     let field = match output {
-        CliOutput::Text => return Ok((stdout.trim().to_owned(), Usage::default())),
+        CliOutput::Text => {
+            let text = stdout.trim().to_owned();
+            let usage = crate::usage::estimated(
+                crate::usage::text_tokens(prompt),
+                crate::usage::answer_tokens(&[Part::Text(text.clone())]),
+                None,
+            );
+            return Ok((text, usage));
+        }
         CliOutput::Json { field } => field,
     };
     let value: Value = serde_json::from_str(stdout.trim()).map_err(|e| {
@@ -288,10 +302,14 @@ fn read_output(output: &CliOutput, stdout: &str) -> Result<(String, Usage), LlmE
             .and_then(|n| u32::try_from(n).ok())
             .unwrap_or(0)
     };
-    let usage = Usage {
-        input_tokens: tokens("input_tokens"),
-        output_tokens: tokens("output_tokens"),
-        cost_micros: None,
+    let usage = if value.get("usage").is_some() {
+        crate::usage::reported(tokens("input_tokens"), tokens("output_tokens"), None)
+    } else {
+        crate::usage::estimated(
+            crate::usage::text_tokens(prompt),
+            crate::usage::answer_tokens(&[Part::Text(text.trim().to_owned())]),
+            None,
+        )
     };
     Ok((text.trim().to_owned(), usage))
 }
