@@ -4,6 +4,6 @@ mod approval;
 mod request;
 mod transition;
 
-pub use approval::{ApprovalChannel, HumanApproval, PlanHash};
+pub use approval::{ApprovalChannel, HumanApproval, PlanBinding, PlanHash};
 pub use request::{ActionRequest, ActionStatus, Principal, StoredAction};
 pub use transition::{ActionChange, ActionError};

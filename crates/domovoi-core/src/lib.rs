@@ -34,13 +34,13 @@ pub mod verdict;
 pub use ack::{AckRule, EvidencePredicate, MaintenanceWindow, TargetPattern};
 pub use action::{
     ActionChange, ActionError, ActionRequest, ActionStatus, ApprovalChannel, HumanApproval,
-    PlanHash, Principal, StoredAction,
+    PlanBinding, PlanHash, Principal, StoredAction,
 };
 pub use actor::{Actor, ActorParseError, SYSTEM_ACTIONS, SYSTEM_AUDIT, SYSTEM_INCIDENTS};
 pub use addr::{in_cidr, valid_cidr};
 pub use advisory::{Advisory, AdvisoryKind};
 pub use baseline::{BaselineEntry, BaselineKind, Criticality};
-pub use card::{Card, CardBadge, CardButton};
+pub use card::{Card, CardBadge, CardButton, CardPlan};
 pub use digest::{Digest, DigestFact, FactValue, HostDigest, Trend};
 pub use error::{TransitionError, ValidationError};
 pub use fingerprint::Fingerprint;
