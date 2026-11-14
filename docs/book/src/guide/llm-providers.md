@@ -79,7 +79,7 @@ base_url = "http://localhost:11434/v1"
 model = "qwen3:14b"
 ```
 
-Choose a model that supports tool calling. Triage works with tools; without them, answers are much less specific. If a server refuses the optional `stream_options` or `tools` fields, Domovoi asks again without the refused field and remembers it, so a plain Chat Completions server needs no extra configuration.
+Choose a model that supports tool calling. Triage works with tools; without them, answers are much less specific. If a server refuses the optional `stream_options` or `tools` fields, Domovoi recognises the refusal, stops sending that field, and rebuilds the run: without tools it puts the host's tool output in front of the question and tells the model to answer from it, in the same run. A plain Chat Completions server therefore needs no extra configuration.
 
 ## Coding-agent CLIs
 

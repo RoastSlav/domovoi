@@ -47,6 +47,13 @@ pub(super) fn triage(config: &HubConfig) -> TriageSettings {
             max_tool_calls: config.triage.per_run.tool_calls,
             max_seconds: config.triage.per_run.seconds,
             max_output_tokens: config.triage.per_run.output_tokens,
+            max_total_output_tokens: config.triage.per_run.total_tokens.unwrap_or_else(|| {
+                config
+                    .triage
+                    .per_run
+                    .output_tokens
+                    .saturating_mul(u32::from(config.triage.per_run.tool_calls).saturating_add(1))
+            }),
         },
     }
 }
