@@ -95,6 +95,25 @@ fn finish(shared: &Shared, text: &str, is_error: bool) -> ToolResult {
     }
 }
 
+/// The error every tool path returns when the run ran out of time around it.
+const TIMEOUT_TEXT: &str = "the tool did not finish before the run deadline";
+
+/// Runs `work` under `deadline`, dropping it when the deadline passes so nothing keeps
+/// running after the run is over. Every tool path uses this: a slow repository and a slow
+/// agent are bounded the same way.
+async fn bounded<F>(shared: &Shared, deadline: Timestamp, work: F) -> Result<F::Output, String>
+where
+    F: std::future::Future,
+{
+    let left = deadline.duration_since(shared.deps.clock.now());
+    if left <= SignedDuration::ZERO {
+        return Err(TIMEOUT_TEXT.to_owned());
+    }
+    tokio::time::timeout(left.unsigned_abs(), work)
+        .await
+        .map_err(|_| TIMEOUT_TEXT.to_owned())
+}
+
 async fn execute(
     shared: &Shared,
     scope: Scope,
@@ -109,11 +128,13 @@ async fn execute(
                 host: Some(scope.host),
                 ..IncidentFilter::default()
             };
-            let page = deps
-                .incidents
-                .list(&filter, &Page::first(*limit))
-                .await
-                .map_err(|e| e.to_string())?;
+            let page = bounded(
+                shared,
+                run_deadline,
+                deps.incidents.list(&filter, &Page::first(*limit)),
+            )
+            .await?
+            .map_err(|e| e.to_string())?;
             let lines: Vec<String> = page
                 .items
                 .iter()
@@ -136,11 +157,13 @@ async fn execute(
             })
         }
         ReadToolCall::NotesSearch { query, limit } => {
-            let hits = deps
-                .notes
-                .search(query, Some(scope.host), *limit)
-                .await
-                .map_err(|e| e.to_string())?;
+            let hits = bounded(
+                shared,
+                run_deadline,
+                deps.notes.search(query, Some(scope.host), *limit),
+            )
+            .await?
+            .map_err(|e| e.to_string())?;
             Ok(if hits.is_empty() {
                 "No matching notes.".to_owned()
             } else {
@@ -176,20 +199,13 @@ async fn agent(
     let per_tool = now.checked_add(TOOL_DEADLINE).unwrap_or(now);
     // The per-tool limit is an extra safety net; the run's deadline always wins.
     let deadline = std::cmp::min(per_tool, run_deadline);
-    let left = deadline.duration_since(now);
-    if left <= SignedDuration::ZERO {
-        return Err("the run deadline passed before the tool could run".to_owned());
-    }
-    let out = match tokio::time::timeout(
-        left.unsigned_abs(),
+    let out = bounded(
+        shared,
+        deadline,
         deps.link.run_tool(scope.host, call, deadline),
     )
-    .await
-    {
-        Ok(Ok(out)) => out,
-        Ok(Err(err)) => return Err(err.to_string()),
-        Err(_) => return Err("the tool call ran past the run deadline".to_owned()),
-    };
+    .await?
+    .map_err(|err| err.to_string())?;
     Ok(if out.truncated {
         format!("{}\n[the agent cut this output]", out.text)
     } else {

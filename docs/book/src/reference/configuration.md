@@ -222,7 +222,7 @@ Limits for a single run.
 | `output_tokens` | integer | Output tokens per model turn. Default 2000, clamped to the supported maximum of 16000. It also caps a reasoning model's reasoning, so a turn that runs out of room before finishing its answer is retried with four times as much, up to the maximum. |
 | `seconds` | integer | Wall-clock seconds per run. Default 90. |
 | `tool_calls` | integer | Tool calls per run. Default 15. |
-| `total_tokens` | integer | Output tokens one run may ask for in total, across its turns, their growth retries and the report repair. Optional. Defaults to `tool_calls + 1` times the clamped `output_tokens`, plus 16000: every normal turn and one full-ceiling turn. |
+| `total_tokens` | integer | Output tokens one run may ask for in total: every normal turn (`tool_calls + 1`), one turn retried all the way to the supported maximum, and the report repair retried the same way. Optional; that sum is the default. Every request is charged before it is sent, including each retry, so the run cannot exceed it. |
 
 ### `[updates]`
 

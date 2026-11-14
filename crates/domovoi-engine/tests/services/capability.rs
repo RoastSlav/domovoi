@@ -3,8 +3,9 @@
 
 use std::sync::{Arc, OnceLock};
 
-use domovoi_core::TriageOutcome;
 use domovoi_core::ports::LlmProvider;
+use domovoi_core::{TriageBudget, TriageOutcome};
+use domovoi_engine::triage::TriageSettings;
 use domovoi_llm::{ProviderKind, ProviderSettings, build};
 use serde_json::{Value, json};
 use url::Url;
@@ -280,5 +281,59 @@ async fn a_tool_calling_provider_still_runs_its_call_and_answers() {
     assert!(
         messages.iter().any(|m| m["role"] == "tool"),
         "the tool result goes back to the model"
+    );
+}
+
+/// A tools rejection is definite and generated nothing, so the rebuild in the same run gets
+/// the run's whole budget back: a tight cumulative budget still allows the no-tools answer.
+#[tokio::test]
+async fn a_refused_tools_rejection_refunds_the_run_budget() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(|request: &Request| {
+            if body_of(request).get("tools").is_some() {
+                ResponseTemplate::new(400).set_body_string("tools are not supported by this model")
+            } else {
+                ResponseTemplate::new(200).set_body_json(json!({
+                    "choices": [{
+                        "message": {"role": "assistant", "content": report()},
+                        "finish_reason": "stop"
+                    }],
+                    "usage": {"prompt_tokens": 100, "completion_tokens": 50}
+                }))
+            }
+        })
+        .mount(&server)
+        .await;
+
+    let settings = TriageSettings {
+        budget: TriageBudget {
+            max_tool_calls: 15,
+            max_seconds: 90,
+            max_output_tokens: 2000,
+            max_total_output_tokens: 2000,
+        },
+        ..TriageSettings::default()
+    };
+    let w = world(Setup {
+        settings,
+        provider: Some(provider(&server.uri())),
+        ..Setup::default()
+    })
+    .await;
+    let outcome = w.run().await;
+    assert!(
+        matches!(outcome, TriageOutcome::Report(_)),
+        "the refund lets the rebuilt attempt use the allowance: {outcome:?}"
+    );
+
+    let requests = server.received_requests().await.unwrap();
+    assert_eq!(requests.len(), 2);
+    let rebuilt = body_of(&requests[1]);
+    assert!(rebuilt.get("tools").is_none());
+    assert_eq!(
+        rebuilt["max_tokens"], 2000,
+        "the rejected request's allowance was refunded exactly once"
     );
 }

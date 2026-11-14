@@ -169,9 +169,10 @@ pub struct TriageLimits {
     /// before finishing its answer is retried with four times as much, up to the maximum.
     #[serde(default = "default_output_tokens")]
     pub output_tokens: u32,
-    /// Output tokens one run may ask for in total, across its turns, their growth retries
-    /// and the report repair. Optional. Defaults to `tool_calls + 1` times the clamped
-    /// `output_tokens`, plus 16000: every normal turn and one full-ceiling turn.
+    /// Output tokens one run may ask for in total: every normal turn (`tool_calls + 1`),
+    /// one turn retried all the way to the supported maximum, and the report repair
+    /// retried the same way. Optional; that sum is the default. Every request is charged
+    /// before it is sent, including each retry, so the run cannot exceed it.
     #[serde(default)]
     pub total_tokens: Option<u32>,
 }

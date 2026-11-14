@@ -40,6 +40,8 @@ pub struct Setup {
     pub evidence: Evidence,
     /// A real provider to use as the primary instead of the scripted one.
     pub provider: Option<Arc<dyn LlmProvider>>,
+    /// How long incident listings and note searches take, for deadline tests.
+    pub store_delay: Option<std::time::Duration>,
 }
 
 impl Default for Setup {
@@ -51,6 +53,7 @@ impl Default for Setup {
             cli: false,
             evidence: disk(92.4),
             provider: None,
+            store_delay: None,
         }
     }
 }
@@ -119,7 +122,10 @@ pub async fn add_signal(
 }
 
 pub async fn world(setup: Setup) -> World {
-    let store = Arc::new(InMemoryStore::new());
+    let store = Arc::new(match setup.store_delay {
+        Some(delay) => InMemoryStore::new().with_delay(delay),
+        None => InMemoryStore::new(),
+    });
     let clock = Arc::new(FakeClock::new(T0));
     let link = Arc::new(FakeAgentLink::new());
     link.set_presence(

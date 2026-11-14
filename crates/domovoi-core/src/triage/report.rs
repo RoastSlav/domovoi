@@ -132,8 +132,9 @@ pub struct TriageBudget {
     /// Most output tokens one model turn may ask for. A reasoning model counts its
     /// reasoning against this, so a turn that runs out is retried with more.
     pub max_output_tokens: u32,
-    /// Most output tokens the whole run may ask for, across its turns and their retries.
-    /// Retries are charged here too, so growing an allowance cannot run without bound.
+    /// Most output tokens the whole run may ask for. Every request is charged before it is
+    /// sent, including each growth retry and the report repair, so growing an allowance
+    /// cannot run without bound.
     pub max_total_output_tokens: u32,
 }
 

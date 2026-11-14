@@ -36,6 +36,47 @@ pub(crate) fn grown_allowance(current: u32) -> Option<u32> {
     (next > current).then_some(next)
 }
 
+/// Every request one turn makes if it grows all the way to the ceiling: the first attempt
+/// and each retry.
+#[derive(Debug, Clone, Copy)]
+struct Ladder {
+    /// All requests of the sequence, first attempt included.
+    total: u32,
+    /// Only the retries, which are charged on top of a normal turn.
+    retries: u32,
+}
+
+/// The growth ladder of one turn that keeps running out of room.
+fn growth_ladder(per_turn: u32) -> Ladder {
+    let mut ladder = Ladder {
+        total: per_turn,
+        retries: 0,
+    };
+    let mut current = per_turn;
+    while let Some(next) = grown_allowance(current) {
+        ladder.total = ladder.total.saturating_add(next);
+        ladder.retries = ladder.retries.saturating_add(next);
+        current = next;
+    }
+    ladder
+}
+
+/// The output tokens a run needs to do everything it may legitimately do: every normal turn
+/// (`tool_calls + 1` requests), one turn's complete growth ladder, and the report repair
+/// with its own complete ladder. This is the default `[triage] per_run.total_tokens`.
+///
+/// A ladder is charged as its first attempt plus each retry, so a complete 2,000 → 8,000 →
+/// 16,000 sequence costs 26,000, not 16,000.
+#[must_use]
+pub fn default_total_output_tokens(per_turn: u32, tool_calls: u16) -> u32 {
+    let per_turn = per_turn.min(MAX_OUTPUT_ALLOWANCE);
+    let normal = per_turn.saturating_mul(u32::from(tool_calls).saturating_add(1));
+    let ladder = growth_ladder(per_turn);
+    normal
+        .saturating_add(ladder.retries)
+        .saturating_add(ladder.total)
+}
+
 /// The fixed context of one conversation: its system prompt, the tools' scope and the
 /// skills offered.
 pub(crate) struct Brief<'a> {
@@ -224,28 +265,39 @@ pub(crate) async fn complete(
         usage.output_tokens,
         usage.cost_micros,
     );
-    if let Err(err) = shared
-        .deps
-        .usage
-        .record(
-            provider.id(),
-            u64::from(usage.input_tokens),
-            u64::from(usage.output_tokens),
-            usage.cost_micros.unwrap_or(0),
-            shared.deps.clock.now(),
-        )
-        .await
-    {
-        tracing::warn!(%err, "could not record model usage");
-    }
-    // A monthly budget in dollars cannot count a turn whose price is unknown. Refusing it
-    // is the conservative choice: no run silently spends without being measurable.
-    if usage.cost_micros.is_none() && shared.settings.monthly_budget_micros.is_some() {
-        return Err(LlmError::Unavailable(
-            "the provider did not price this turn, so the monthly model budget cannot count it; \
-             set a price on the provider (0 for a free model) or remove the monthly budget"
-                .to_owned(),
-        ));
+    // A monthly budget in dollars cannot count a turn whose price is unknown, and an
+    // unpriced turn must never be written down as free. Admission stops an unpriced
+    // provider before its request; reaching this is an adapter that contradicted itself.
+    match usage.cost_micros {
+        Some(cost) => {
+            if let Err(err) = shared
+                .deps
+                .usage
+                .record(
+                    provider.id(),
+                    u64::from(usage.input_tokens),
+                    u64::from(usage.output_tokens),
+                    cost,
+                    shared.deps.clock.now(),
+                )
+                .await
+            {
+                tracing::warn!(%err, "could not record model usage");
+            }
+        }
+        None if shared.settings.monthly_budget_micros.is_some() => {
+            return Err(LlmError::Unavailable(format!(
+                "{} did not price this turn, so the monthly model budget cannot count it; \
+                 set a price for it (0 for a free model) or remove the monthly budget",
+                super::run::provider_name(provider),
+            )));
+        }
+        None => {
+            tracing::debug!(
+                provider = provider.id(),
+                "usage without a price is not recorded",
+            );
+        }
     }
     Ok(response)
 }
@@ -319,6 +371,17 @@ pub(crate) async fn ask(
                 usage_retried = true;
                 run.refund(allowance);
                 continue;
+            }
+            Err(
+                err @ LlmError::CapabilityRejected {
+                    capability: LlmCapability::Tools,
+                    ..
+                },
+            ) => {
+                // A definite refusal before anything was generated. The caller rebuilds the
+                // attempt without tools, and that rebuild must have the allowance back.
+                run.refund(allowance);
+                return Err(err);
             }
             Err(err) => return Err(err),
         }

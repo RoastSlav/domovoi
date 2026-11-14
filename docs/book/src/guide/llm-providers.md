@@ -79,7 +79,9 @@ base_url = "http://localhost:11434/v1"
 model = "qwen3:14b"
 ```
 
-Choose a model that supports tool calling. Triage works with tools; without them, answers are much less specific. If a server refuses the optional `stream_options` field, Domovoi asks for a whole answer instead, which carries the usage totals the monthly budget needs. If it refuses `tools`, Domovoi stops offering them and rebuilds the run: it puts the host's tool output in front of the question and tells the model to answer from it, in the same run. A plain Chat Completions server therefore needs no extra configuration. When a monthly budget is set, every provider needs a price (0 for a free local model) so its turns can be counted.
+Choose a model that supports tool calling. Triage works with tools; without them, answers are much less specific. If a server refuses the optional `stream_options` field, Domovoi asks for a whole answer instead, which carries the usage totals the monthly budget needs. If it refuses `tools`, Domovoi stops offering them and rebuilds the run: it puts the host's tool output in front of the question and tells the model to answer from it, in the same run. A plain Chat Completions server therefore needs no extra configuration.
+
+When a monthly budget is set, every provider in the chain — the primary, its fallbacks and its fallback models — must have a price before any request is made, because a turn that cannot be priced cannot be counted. A local model that costs nothing is configured with a zero price. A provider with no price is refused with a message naming it, and nothing is sent to it.
 
 ## Coding-agent CLIs
 

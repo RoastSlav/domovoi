@@ -1,10 +1,14 @@
+use std::sync::Arc;
 use std::time::Duration;
 
 use domovoi_core::ports::{
-    IncidentRepo, LlmResponse, Part, StopReason, ToolOutput, Usage, UsageRepo,
+    IncidentRepo, LlmError, LlmResponse, Part, StopReason, ToolOutput, Usage, UsageRepo,
 };
 use domovoi_core::{ReadToolCall, TriageBudget, TriageOutcome};
-use domovoi_engine::triage::{BUDGET_EXHAUSTED, MAX_RESULT_BYTES, TriageSettings};
+use domovoi_engine::triage::{
+    BUDGET_EXHAUSTED, MAX_RESULT_BYTES, TriageSettings, default_total_output_tokens,
+};
+use domovoi_testkit::ScriptedLlm;
 use domovoi_testkit::link::LinkRequest;
 use jiff::SignedDuration;
 use jiff::tz::TimeZone;
@@ -440,7 +444,7 @@ async fn every_retry_is_recorded_as_usage() {
         usage: Usage {
             input_tokens: 10,
             output_tokens: 30,
-            cost_micros: None,
+            cost_micros: Some(0),
             source: domovoi_core::ports::UsageSource::Reported,
         },
     });
@@ -450,7 +454,7 @@ async fn every_retry_is_recorded_as_usage() {
         usage: Usage {
             input_tokens: 20,
             output_tokens: 70,
-            cost_micros: None,
+            cost_micros: Some(0),
             source: domovoi_core::ports::UsageSource::Reported,
         },
     });
@@ -666,37 +670,109 @@ async fn prefetch_past_the_deadline_never_calls_the_model() {
 }
 
 #[tokio::test]
-async fn an_unpriced_turn_is_refused_under_a_monthly_budget() {
+async fn an_unpriced_provider_is_refused_before_any_request() {
     let settings = TriageSettings {
         monthly_budget_micros: Some(1_000_000),
         ..TriageSettings::default()
     };
     let w = world(Setup {
         settings,
+        provider: Some(Arc::new(ScriptedLlm::new().without_price())),
         ..Setup::default()
     })
     .await;
-    w.primary.push_ok(LlmResponse {
-        parts: vec![Part::Text(report())],
-        stop: StopReason::EndTurn,
-        usage: Usage {
-            input_tokens: 100,
-            output_tokens: 50,
-            cost_micros: None,
-            source: domovoi_core::ports::UsageSource::Estimated,
-        },
-    });
 
     let outcome = w.run().await;
     assert!(
-        matches!(&outcome, TriageOutcome::Failed { reason } if reason.contains("did not price this turn")),
+        matches!(
+            &outcome,
+            TriageOutcome::Skipped { reason }
+                if reason.contains("scripted") && reason.contains("has no price")
+        ),
         "{outcome:?}"
+    );
+    assert_eq!(
+        w.primary.requests().len(),
+        0,
+        "no model request is made for an unpriced provider"
     );
     let month = w.now().to_zoned(TimeZone::UTC).date();
     let total = w.store.month_total(month).await.expect("usage");
     assert_eq!(
-        total.tokens_out, 50,
-        "the turn is still recorded, so the tokens are not lost"
+        total.tokens_out, 0,
+        "nothing is written down as a free turn"
+    );
+}
+
+#[tokio::test]
+async fn an_unpriced_primary_stops_the_priced_fallback_too() {
+    let settings = TriageSettings {
+        monthly_budget_micros: Some(1_000_000),
+        ..TriageSettings::default()
+    };
+    let w = world(Setup {
+        settings,
+        secondary: true,
+        provider: Some(Arc::new(ScriptedLlm::new().without_price())),
+        ..Setup::default()
+    })
+    .await;
+
+    let outcome = w.run().await;
+    assert!(
+        matches!(&outcome, TriageOutcome::Skipped { reason } if reason.contains("has no price")),
+        "{outcome:?}"
+    );
+    assert_eq!(
+        w.secondary.requests().len(),
+        0,
+        "the fallback is not called"
+    );
+}
+
+#[tokio::test]
+async fn a_fully_priced_chain_runs_under_a_monthly_budget() {
+    let settings = TriageSettings {
+        monthly_budget_micros: Some(1_000_000),
+        ..TriageSettings::default()
+    };
+    let w = world(Setup {
+        settings,
+        secondary: true,
+        ..Setup::default()
+    })
+    .await;
+    w.primary.push_text(report());
+
+    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+    assert_eq!(w.primary.requests().len(), 1);
+}
+
+#[tokio::test]
+async fn an_unpriced_provider_without_a_budget_runs_and_records_no_cost() {
+    let provider = Arc::new(ScriptedLlm::new().without_price());
+    provider.push_ok(LlmResponse {
+        parts: vec![Part::Text(report())],
+        stop: StopReason::EndTurn,
+        usage: Usage {
+            input_tokens: 10,
+            output_tokens: 5,
+            cost_micros: None,
+            source: domovoi_core::ports::UsageSource::Estimated,
+        },
+    });
+    let w = world(Setup {
+        provider: Some(provider),
+        ..Setup::default()
+    })
+    .await;
+
+    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+    let month = w.now().to_zoned(TimeZone::UTC).date();
+    let total = w.store.month_total(month).await.expect("usage");
+    assert_eq!(
+        total.tokens_out, 0,
+        "an unknown cost is not recorded as a free turn"
     );
 }
 
@@ -807,4 +883,159 @@ async fn tool_work_past_the_deadline_ends_the_run() {
         2,
         "no further request after the run's time is gone"
     );
+}
+
+#[test]
+fn the_default_budget_is_exact_at_the_boundaries() {
+    // Defaults: 15 tool calls, 2000 per turn, ladders 2000 -> 8000 -> 16000.
+    assert_eq!(default_total_output_tokens(2000, 15), 82_000);
+    assert_eq!(
+        default_total_output_tokens(2000, 0),
+        2000 + (8000 + 16_000) + (2000 + 8000 + 16_000),
+        "one normal turn, one full ladder and a repair ladder"
+    );
+    assert_eq!(
+        default_total_output_tokens(16_000, 0),
+        32_000,
+        "a ladder at the ceiling is its first request"
+    );
+    assert_eq!(default_total_output_tokens(0, 0), 0);
+    assert_eq!(
+        default_total_output_tokens(u32::MAX, u16::MAX),
+        16_000 * 65_536 + 16_000,
+        "the clamp bounds the arithmetic and nothing overflows"
+    );
+}
+
+#[tokio::test]
+async fn the_default_budget_grants_the_whole_ladder_and_the_repair() {
+    let w = world(Setup::default()).await;
+    // Every tool call the run may make, one per turn.
+    for _ in 0..15 {
+        w.primary
+            .push_ok(calls(&[("c1", "host_overview", json!({}))]));
+    }
+    // A complete ladder: truncated at 2000 and 8000, answered at 16000.
+    w.primary.push_ok(reasoning_only());
+    w.primary.push_ok(reasoning_only());
+    w.primary.push_text("The disk is full, I think.");
+    // The 16000-token answer was unusable, so the repair runs at the configured allowance.
+    w.primary.push_text(report());
+
+    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+
+    let requests = w.primary.requests();
+    assert_eq!(
+        requests.len(),
+        19,
+        "15 tool turns, 3 ladder turns, a repair"
+    );
+    assert_eq!(requests[15].max_output_tokens, 2000);
+    assert_eq!(requests[16].max_output_tokens, 8000);
+    assert_eq!(
+        requests[17].max_output_tokens, 16_000,
+        "the final ladder request is granted in full, not clipped"
+    );
+    assert_eq!(
+        requests[18].max_output_tokens, 2000,
+        "the repair still has the configured allowance"
+    );
+}
+
+#[tokio::test]
+async fn an_ambiguous_failure_spends_the_allowance_without_a_refund() {
+    let settings = TriageSettings {
+        budget: TriageBudget {
+            max_tool_calls: 15,
+            max_seconds: 90,
+            max_output_tokens: 2000,
+            max_total_output_tokens: 2000,
+        },
+        ..TriageSettings::default()
+    };
+    let w = world(Setup {
+        settings,
+        secondary: true,
+        ..Setup::default()
+    })
+    .await;
+    w.primary
+        .push_err(LlmError::Unavailable("the network went away".to_owned()));
+
+    let outcome = w.run().await;
+    assert!(
+        matches!(&outcome, TriageOutcome::Failed { reason } if reason.contains("output token budget")),
+        "{outcome:?}"
+    );
+    assert_eq!(
+        w.secondary.requests().len(),
+        0,
+        "an ambiguous failure is not refunded, so the fallback has nothing left"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_slow_incident_history_ends_the_run() {
+    let w = world(Setup {
+        store_delay: Some(Duration::from_secs(100)),
+        ..Setup::default()
+    })
+    .await;
+    w.primary
+        .push_ok(calls(&[("c1", "incident_history", json!({}))]));
+
+    let advance = async {
+        w.primary.wait_for_request().await;
+        w.clock.advance(SignedDuration::from_secs(91));
+        tokio::time::advance(Duration::from_secs(91)).await;
+    };
+    let (outcome, ()) = tokio::join!(w.run(), advance);
+    assert!(
+        matches!(&outcome, TriageOutcome::Failed { reason } if reason.contains("run deadline")),
+        "{outcome:?}"
+    );
+    assert_eq!(w.primary.requests().len(), 1);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_slow_notes_search_ends_the_run() {
+    let w = world(Setup {
+        store_delay: Some(Duration::from_secs(100)),
+        ..Setup::default()
+    })
+    .await;
+    w.primary
+        .push_ok(calls(&[("c1", "notes_search", json!({"query": "disk"}))]));
+
+    let advance = async {
+        w.primary.wait_for_request().await;
+        w.clock.advance(SignedDuration::from_secs(91));
+        tokio::time::advance(Duration::from_secs(91)).await;
+    };
+    let (outcome, ()) = tokio::join!(w.run(), advance);
+    assert!(
+        matches!(&outcome, TriageOutcome::Failed { reason } if reason.contains("run deadline")),
+        "{outcome:?}"
+    );
+    assert_eq!(w.primary.requests().len(), 1);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_store_tool_that_finishes_in_time_is_used() {
+    let w = world(Setup {
+        store_delay: Some(Duration::from_secs(10)),
+        ..Setup::default()
+    })
+    .await;
+    w.primary
+        .push_ok(calls(&[("c1", "incident_history", json!({}))]));
+    w.primary.push_text(report());
+
+    let advance = async {
+        w.primary.wait_for_request().await;
+        tokio::time::advance(Duration::from_secs(11)).await;
+    };
+    let (outcome, ()) = tokio::join!(w.run(), advance);
+    assert!(matches!(outcome, TriageOutcome::Report(_)), "{outcome:?}");
+    assert_eq!(w.primary.requests().len(), 2);
 }

@@ -8,7 +8,7 @@
 use std::collections::VecDeque;
 
 use crate::triage::Shared;
-use crate::triage::run::limits;
+use crate::triage::run::{limits, provider_name};
 
 use jiff::{SignedDuration, Timestamp, tz::TimeZone};
 
@@ -20,14 +20,37 @@ pub(crate) enum Purpose {
 }
 
 /// Why admission refused a task, and when a retry could fit.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Refusal {
     /// The monthly model budget is spent; nothing retries it before the next month.
     BudgetSpent,
+    /// A provider in the chain has no price while a monthly budget is set, so its turns
+    /// could not be counted. `provider` names it.
+    Unpriced { provider: String },
     /// The hourly run limit is reached. `retry_at` is when an admissible slot frees, or
     /// `None` when the limit cannot admit this task at all (a zero hour, or a hour whose
     /// whole capacity is reserved for triage).
     Hourly { retry_at: Option<Timestamp> },
+}
+
+/// The sentence a task shows when a provider cannot be priced under a monthly budget.
+pub(crate) fn unpriced_text(provider: &str) -> String {
+    format!(
+        "the monthly model budget is set but {provider} has no price, so spending cannot be \
+         measured; set a price for it (0 for a free model) or remove the monthly budget"
+    )
+}
+
+/// The first provider in the chain that cannot price its turns while a monthly budget is
+/// set. Checked before any request, so an unpriced provider is never called and its usage
+/// is never written down as free.
+fn unpriced(shared: &Shared) -> Option<String> {
+    shared.settings.monthly_budget_micros?;
+    shared
+        .chain()
+        .into_iter()
+        .find(|provider| !provider.prices_usage())
+        .map(|provider| provider_name(&provider))
 }
 
 /// The start of the rolling hour the hourly run limit counts.
@@ -70,6 +93,9 @@ fn expired_runs(starts: &VecDeque<Timestamp>, since: Timestamp) -> usize {
 pub(crate) async fn admit(shared: &Shared, purpose: Purpose) -> Result<(), Refusal> {
     if budget_spent(shared).await {
         return Err(Refusal::BudgetSpent);
+    }
+    if let Some(provider) = unpriced(shared) {
+        return Err(Refusal::Unpriced { provider });
     }
     let now = shared.deps.clock.now();
     let since = hour_ago(now);

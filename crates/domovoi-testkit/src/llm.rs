@@ -21,6 +21,7 @@ use crate::lock;
 pub struct ScriptedLlm {
     id: String,
     supports_tools: bool,
+    prices: bool,
     script: Mutex<VecDeque<Result<LlmResponse, LlmError>>>,
     requests: Mutex<Vec<LlmRequest>>,
     /// Permits a [`complete`] must hold before taking its scripted response.
@@ -36,6 +37,7 @@ impl ScriptedLlm {
         Self {
             id: "scripted".to_owned(),
             supports_tools: true,
+            prices: true,
             script: Mutex::new(VecDeque::new()),
             requests: Mutex::new(Vec::new()),
             gate: Semaphore::new(1024),
@@ -47,6 +49,14 @@ impl ScriptedLlm {
     #[must_use]
     pub fn without_tools(mut self) -> Self {
         self.supports_tools = false;
+        self
+    }
+
+    /// Makes the provider report that it cannot price its turns, as an adapter without a
+    /// configured price does.
+    #[must_use]
+    pub fn without_price(mut self) -> Self {
+        self.prices = false;
         self
     }
 
@@ -122,6 +132,10 @@ impl LlmProvider for ScriptedLlm {
 
     fn supports_tools(&self) -> bool {
         self.supports_tools
+    }
+
+    fn prices_usage(&self) -> bool {
+        self.prices
     }
 
     async fn complete(&self, req: LlmRequest) -> Result<LlmResponse, LlmError> {

@@ -5,7 +5,7 @@ use domovoi_core::ports::{LlmCapability, LlmError, LlmMessage, Part, Redactor, R
 use domovoi_core::triage::MAX_PROPOSALS;
 use domovoi_core::{ActionProposal, ActionStatus, IncidentId, UserId};
 
-use super::admission::{Purpose, Refusal, admit};
+use super::admission::{Purpose, Refusal, admit, unpriced_text};
 use super::history::{Turn, count_clear, since_clear};
 use super::incident_context::about;
 use super::{Shared, TriageError, agent, context, proposals, tools};
@@ -166,6 +166,7 @@ pub(crate) async fn answer(
     if let Err(refusal) = admit(shared, Purpose::Question).await {
         return Err(match refusal {
             Refusal::BudgetSpent => TriageError::BudgetSpent,
+            Refusal::Unpriced { provider } => TriageError::Provider(unpriced_text(&provider)),
             Refusal::Hourly { retry_at } => TriageError::Busy { retry_at },
         });
     }

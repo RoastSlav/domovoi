@@ -10,7 +10,7 @@ use domovoi_core::{
 };
 use jiff::{SignedDuration, Timestamp};
 
-use super::admission::{Purpose, Refusal, admit};
+use super::admission::{Purpose, Refusal, admit, unpriced_text};
 use super::agent::{self, ToolUse, text_of};
 use super::cache::evidence_digest;
 use super::report::{parse_report, redact_report};
@@ -59,6 +59,7 @@ async fn outcome(
     if let Err(refusal) = admit(shared, Purpose::Triage).await {
         let reason = match refusal {
             Refusal::BudgetSpent => "the monthly triage budget is spent".to_owned(),
+            Refusal::Unpriced { provider } => unpriced_text(&provider),
             Refusal::Hourly { retry_at } => {
                 if let Some(at) = retry_at {
                     shared.defer(incident.id(), at, RetryReason::Cap);

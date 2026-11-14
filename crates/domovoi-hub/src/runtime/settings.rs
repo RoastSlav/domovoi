@@ -56,9 +56,7 @@ fn triage_budget(config: &HubConfig) -> domovoi_core::TriageBudget {
         .output_tokens
         .min(domovoi_engine::triage::MAX_OUTPUT_ALLOWANCE);
     let total = per_run.total_tokens.unwrap_or_else(|| {
-        per_turn
-            .saturating_mul(u32::from(per_run.tool_calls).saturating_add(1))
-            .saturating_add(domovoi_engine::triage::MAX_OUTPUT_ALLOWANCE)
+        domovoi_engine::triage::default_total_output_tokens(per_turn, per_run.tool_calls)
     });
     domovoi_core::TriageBudget {
         max_tool_calls: per_run.tool_calls,
@@ -164,13 +162,13 @@ mod tests {
     }
 
     #[test]
-    fn the_default_run_budget_covers_normal_turns_and_one_full_ceiling_turn() {
+    fn the_default_run_budget_covers_every_turn_a_ladder_and_the_repair() {
         let budget = budget("");
         assert_eq!(budget.max_output_tokens, 2000);
         assert_eq!(
             budget.max_total_output_tokens,
-            2000 * 16 + 16_000,
-            "15 tool calls plus the opening turn, plus one full-ceiling turn for a retry or repair"
+            2000 * 16 + (8000 + 16_000) + (2000 + 8000 + 16_000),
+            "16 normal turns, one turn retried to the ceiling, and a repair retried to the ceiling"
         );
     }
 
@@ -178,7 +176,11 @@ mod tests {
     fn an_output_allowance_above_the_maximum_is_clamped() {
         let budget = budget("[triage.per_run]\noutput_tokens = 32000\n");
         assert_eq!(budget.max_output_tokens, 16_000);
-        assert_eq!(budget.max_total_output_tokens, 16_000 * 16 + 16_000);
+        assert_eq!(
+            budget.max_total_output_tokens,
+            16_000 * 16 + 16_000,
+            "a full ladder at the ceiling is its first request, with no retries"
+        );
     }
 
     #[test]

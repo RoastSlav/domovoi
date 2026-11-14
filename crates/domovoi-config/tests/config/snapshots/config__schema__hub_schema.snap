@@ -678,7 +678,7 @@ expression: "HubConfig::json_schema()"
           "minimum": 0
         },
         "total_tokens": {
-          "description": "Output tokens one run may ask for in total, across its turns, their growth retries\nand the report repair. Optional. Defaults to `tool_calls + 1` times the clamped\n`output_tokens`, plus 16000: every normal turn and one full-ceiling turn.",
+          "description": "Output tokens one run may ask for in total: every normal turn (`tool_calls + 1`),\none turn retried all the way to the supported maximum, and the report repair\nretried the same way. Optional; that sum is the default. Every request is charged\nbefore it is sent, including each retry, so the run cannot exceed it.",
           "type": [
             "integer",
             "null"

@@ -5,7 +5,7 @@ use domovoi_core::ports::{LlmCapability, LlmError, LlmMessage, Part, Redactor, R
 use domovoi_core::{HostId, ReadToolCall, Risk, SkillSummary};
 use jiff::Timestamp;
 
-use super::admission::{Purpose, Refusal, admit};
+use super::admission::{Purpose, Refusal, admit, unpriced_text};
 use super::followup::{MAX_ANSWER_CHARS, clip, provider_failure};
 use super::run::provider_name;
 use super::tools::{Scope, cut, run};
@@ -160,6 +160,7 @@ pub(crate) async fn answer(
     if let Err(refusal) = admit(shared, Purpose::Question).await {
         return Err(match refusal {
             Refusal::BudgetSpent => TriageError::BudgetSpent,
+            Refusal::Unpriced { provider } => TriageError::Provider(unpriced_text(&provider)),
             Refusal::Hourly { retry_at } => TriageError::Busy { retry_at },
         });
     }
