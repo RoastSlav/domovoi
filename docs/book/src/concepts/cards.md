@@ -45,6 +45,10 @@ While you were away: 2 alerts
 
 Alerts still open also get their cards, so they have buttons and reminders. Alerts that resolved while held are listed as resolved instead of being posted, unless that message cannot be delivered, in which case they get cards too. An alert that escalates to critical during quiet hours goes out at once. Quiet hours use `[hub] timezone`, may span midnight, and follow daylight-saving changes.
 
+## Delivery guarantees
+
+Delivery is at least once. The hub records that a card was sent only after the chat platform confirmed it, so a card that could not be delivered is planned again the next time the incident changes, and a reminder or a held alert the next time that minute's tick runs. The same holds for the "while you were away" message: an alert stays held until its card or the summary reached you. A message that a platform accepted but the hub could not record is sent again, so a duplicate is possible after a crash. Discord deduplicates a retried message only if the hub sends a nonce; it does not yet, so a duplicate card is possible after a crash.
+
 ## Not notified
 
 Incidents in a maintenance window, or matched by an ack rule, still change and are still stored, but nothing is posted about them.

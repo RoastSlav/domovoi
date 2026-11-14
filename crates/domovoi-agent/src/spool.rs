@@ -6,6 +6,9 @@
 //! - When the spool is full ([`MAX_BATCHES`] or [`MAX_BYTES`]), the oldest firing signals
 //!   with info severity go first, then whole oldest batches. Resolved signals are kept
 //!   ahead of whole batches, since losing one would leave an incident open.
+//! - A push that fails leaves no trace of its batch: the file is put back the way it was and
+//!   the batch's sequence number is reused. If the file cannot be put back, the failure is
+//!   logged; that batch may then be sent once after a restart, never by this process.
 
 use std::collections::VecDeque;
 use std::io::Write;
@@ -27,6 +30,55 @@ pub const MAX_BATCHES: usize = 10_000;
 /// Most bytes the spool keeps.
 pub const MAX_BYTES: usize = 8 * 1024 * 1024;
 const MODE: u32 = 0o600;
+/// The reason a test-injected write failure reports. It is never raised in a normal build.
+const FAULT: &str = "injected write failure";
+
+/// The stages of a spool write a test can make fail.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Stage {
+    /// Opening the spool file for append.
+    Open,
+    /// After part of the batch line reached the file.
+    Append,
+    /// After the whole batch line reached the file, before it was flushed.
+    Sync,
+    /// Saving `spool.json`.
+    SaveMeta,
+    /// Reading the spool file before rewriting it.
+    Snapshot,
+    /// Undoing a failed write, by truncation or by putting the previous file back.
+    Restore,
+}
+
+/// Stages a test wants to fail. They are consumed as they are reached, so the next write works.
+#[cfg(test)]
+#[derive(Debug, Default)]
+struct Faults {
+    queued: std::cell::Cell<[Option<Stage>; 2]>,
+}
+
+#[cfg(test)]
+impl Faults {
+    /// Fails `stages`, at most two, in the order they are reached.
+    fn set(&self, stages: &[Stage]) {
+        let mut queued = [None; 2];
+        for (slot, stage) in queued.iter_mut().zip(stages) {
+            *slot = Some(*stage);
+        }
+        self.queued.set(queued);
+    }
+
+    /// Whether `stage` is queued, forgetting it so it fails only once.
+    fn take(&self, stage: Stage) -> bool {
+        let mut queued = self.queued.get();
+        let Some(index) = queued.iter().position(|queued| *queued == Some(stage)) else {
+            return false;
+        };
+        queued[index] = None;
+        self.queued.set(queued);
+        true
+    }
+}
 
 /// One batch of signals as sent in `signals`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -52,6 +104,9 @@ pub struct Spool {
     meta: Meta,
     max_batches: usize,
     max_bytes: usize,
+    /// Write stages a test injects failures into; never set in a normal build.
+    #[cfg(test)]
+    faults: Faults,
 }
 
 fn line(batch: &Batch, path: &Path) -> Result<String, StateError> {
@@ -95,6 +150,8 @@ impl Spool {
             meta,
             max_batches: MAX_BATCHES,
             max_bytes: MAX_BYTES,
+            #[cfg(test)]
+            faults: Faults::default(),
         })
     }
 
@@ -112,8 +169,29 @@ impl Spool {
 
     fn save_meta(&self) -> Result<(), StateError> {
         let path = self.dir.join(SPOOL_META_FILE);
+        if self.fail_here(Stage::SaveMeta) {
+            return Err(StateError::new(&path, FAULT));
+        }
         let bytes = serde_json::to_vec(&self.meta).map_err(|e| StateError::new(&path, e))?;
         write_atomic(&path, &bytes, MODE)
+    }
+
+    /// Whether a test asked `stage` to fail, consuming it so the next write succeeds.
+    #[cfg(test)]
+    fn fail_here(&self, stage: Stage) -> bool {
+        self.faults.take(stage)
+    }
+
+    /// Failures are only injected in tests.
+    #[cfg(not(test))]
+    fn fail_here(&self, _stage: Stage) -> bool {
+        false
+    }
+
+    /// Fails `stages` on the next writes. Only built for tests.
+    #[cfg(test)]
+    fn inject(&self, stages: &[Stage]) {
+        self.faults.set(stages);
     }
 
     fn rewrite(&self) -> Result<(), StateError> {
@@ -165,32 +243,164 @@ impl Spool {
         Ok(changed)
     }
 
-    /// Adds a batch of `signals` and returns its sequence number. It is on disk on return.
+    /// Adds a batch of `signals` and returns its sequence number.
+    ///
+    /// A successful push leaves the batch on disk. A failed one leaves no batch in memory, gives
+    /// its sequence number back for the next push, and puts the spool file back the way it was,
+    /// so a reopening never sees it. When that undo itself fails, the failure is logged: the
+    /// live spool still never sends the batch, but a restart may read it and send it once.
     pub fn push(&mut self, signals: Vec<Signal>) -> Result<u64, StateError> {
         let path = self.path();
+        let seq = self.meta.next_seq;
         let batch = Batch {
-            batch_seq: self.meta.next_seq,
+            batch_seq: seq,
             signals,
         };
-        self.meta.next_seq += 1;
         let text = line(&batch, &path)?;
+        self.meta.next_seq += 1;
         self.bytes += text.len();
-        self.batches.push_back((batch.clone(), text.len()));
-        // A fresh file is created through `rewrite`, so it gets the spool's mode.
-        if self.shrink()? || !path.exists() {
-            self.rewrite()?;
-        } else {
-            let mut file = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&path)
-                .map_err(|e| StateError::new(&path, e))?;
-            file.write_all(text.as_bytes())
-                .and_then(|()| file.sync_data())
-                .map_err(|e| StateError::new(&path, e))?;
+        self.batches.push_back((batch, text.len()));
+        if let Err(err) = self.write(&path, &text) {
+            self.rollback(seq);
+            return Err(err);
         }
-        self.save_meta()?;
-        Ok(batch.batch_seq)
+        Ok(seq)
+    }
+
+    /// Forgets the batch a failed push added and gives its sequence number back. Batches
+    /// `shrink` dropped during the same push are not restored in memory: they are still on disk,
+    /// or were lost with a rewrite the failed push could not undo, and a restart decides.
+    fn rollback(&mut self, seq: u64) {
+        if self
+            .batches
+            .back()
+            .is_some_and(|(last, _)| last.batch_seq == seq)
+            && let Some((_, size)) = self.batches.pop_back()
+        {
+            self.bytes -= size;
+        }
+        self.meta.next_seq = seq;
+    }
+
+    /// Writes the batch just added and its metadata, or puts the file back when that fails.
+    fn write(&mut self, path: &Path, text: &str) -> Result<(), StateError> {
+        // Over its limits `shrink` changes the batches, and a new file has to be created whole,
+        // so both go through `write_rewritten`; everything else appends one line.
+        if self.shrink()? || !path.exists() {
+            self.write_rewritten(path)
+        } else {
+            self.write_appended(path, text)
+        }
+    }
+
+    /// Appends one line, then saves the metadata. Once anything may have reached the file, every
+    /// failure truncates it back to its length before the append.
+    fn write_appended(&self, path: &Path, text: &str) -> Result<(), StateError> {
+        let before = std::fs::metadata(path)
+            .map_err(|e| StateError::new(path, e))?
+            .len();
+        // Opening the file writes nothing, so a failure up to here needs no undo.
+        if self.fail_here(Stage::Open) {
+            return Err(StateError::new(path, FAULT));
+        }
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .map_err(|e| StateError::new(path, e))?;
+        let filled = self.fill(&mut file, path, text);
+        drop(file);
+        if let Err(err) = filled {
+            self.truncate_to(path, before);
+            return Err(err);
+        }
+        if let Err(err) = self.save_meta() {
+            self.truncate_to(path, before);
+            return Err(err);
+        }
+        Ok(())
+    }
+
+    /// Writes the batch line and flushes it. A failure may leave part of the line in the file.
+    fn fill(&self, file: &mut std::fs::File, path: &Path, text: &str) -> Result<(), StateError> {
+        if self.fail_here(Stage::Append) {
+            let half = text.len() / 2;
+            let _ = file.write_all(&text.as_bytes()[..half]);
+            return Err(StateError::new(path, FAULT));
+        }
+        file.write_all(text.as_bytes())
+            .map_err(|e| StateError::new(path, e))?;
+        if self.fail_here(Stage::Sync) {
+            return Err(StateError::new(path, FAULT));
+        }
+        file.sync_data().map_err(|e| StateError::new(path, e))
+    }
+
+    /// Replaces the whole file with the batches in memory, then saves the metadata.
+    ///
+    /// The file's current bytes are read first, because they are the only way back when the
+    /// metadata cannot be saved. An unreadable file aborts the push before anything is rewritten:
+    /// the rewrite never starts without a valid snapshot.
+    fn write_rewritten(&self, path: &Path) -> Result<(), StateError> {
+        let previous = if self.fail_here(Stage::Snapshot) {
+            Err(StateError::new(path, FAULT))
+        } else {
+            read_optional(path)
+        }?;
+        self.rewrite()?;
+        if let Err(err) = self.save_meta() {
+            self.restore(path, previous.as_deref());
+            return Err(err);
+        }
+        Ok(())
+    }
+
+    /// Truncates the spool file back to `len`. A failure is logged: the batch is no longer in
+    /// memory, but a restart may read it from disk and send it once.
+    fn truncate_to(&self, path: &Path, len: u64) {
+        let undone = if self.fail_here(Stage::Restore) {
+            Err(StateError::new(path, FAULT))
+        } else {
+            std::fs::OpenOptions::new()
+                .write(true)
+                .open(path)
+                .and_then(|file| file.set_len(len).and_then(|()| file.sync_data()))
+                .map_err(|e| StateError::new(path, e))
+        };
+        if let Err(err) = undone {
+            tracing::error!(
+                %err,
+                path = %path.display(),
+                "could not undo a failed spool write; its batch may be resent after a restart"
+            );
+        }
+    }
+
+    /// Puts `previous` back after a rewrite whose metadata could not be saved, or removes the
+    /// file when the push created it. `None` means the file did not exist when the rewrite
+    /// started, so removing it undoes the push exactly. A failure is logged for the same reason
+    /// as in [`Self::truncate_to`].
+    fn restore(&self, path: &Path, previous: Option<&[u8]>) {
+        let restored = if self.fail_here(Stage::Restore) {
+            Err(StateError::new(path, FAULT))
+        } else {
+            match previous {
+                Some(bytes) => write_atomic(path, bytes, MODE),
+                None => match std::fs::remove_file(path) {
+                    Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                        Err(StateError::new(path, e))
+                    }
+                    _ => Ok(()),
+                },
+            }
+        };
+        if let Err(err) = restored {
+            tracing::error!(
+                %err,
+                path = %path.display(),
+                "could not restore the spool file after a failed write; its batch may be resent after a restart"
+            );
+        }
     }
 
     /// Forgets every batch up to and including `up_to`.
@@ -274,3 +484,6 @@ impl SharedSpool {
         self.notify.notified().await;
     }
 }
+
+#[cfg(test)]
+mod tests;

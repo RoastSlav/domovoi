@@ -18,6 +18,16 @@ use tokio_util::sync::CancellationToken;
 
 use super::delivery::Delivery;
 
+/// The incident an action belongs to.
+fn incident_of(action: &NotifyAction) -> IncidentId {
+    match action {
+        NotifyAction::PostCard { incident }
+        | NotifyAction::UpdateCard { incident }
+        | NotifyAction::ThreadReply { incident, .. }
+        | NotifyAction::Hold { incident, .. } => *incident,
+    }
+}
+
 /// Runs each incident's deliveries one after another, in the order they were submitted,
 /// while different incidents proceed in parallel.
 #[derive(Default)]
@@ -192,39 +202,57 @@ impl Dispatcher {
     pub(crate) async fn tick(&self) {
         let items = self.notification_items().await;
         let plan = notify::tick(&items, &self.settings, self.clock.now());
+        let before: BTreeMap<IncidentId, NotifyState> = items
+            .iter()
+            .map(|(incident, state)| (incident.id(), state.clone()))
+            .collect();
+        let after: BTreeMap<IncidentId, NotifyState> = plan.states.iter().cloned().collect();
         let released: Vec<IncidentId> = plan
             .states
             .iter()
             .filter(|(id, state)| {
-                !state.is_held()
-                    && items
-                        .iter()
-                        .any(|(incident, before)| incident.id() == *id && before.is_held())
+                !state.is_held() && before.get(id).is_some_and(NotifyState::is_held)
             })
             .map(|(id, _)| *id)
             .collect();
-        for (incident, state) in &plan.states {
-            if let Err(err) =
-                NotifyStateRepo::put(&*self.store, *incident, state, self.clock.now()).await
-            {
-                tracing::warn!(%err, %incident, "could not save a notification tick");
+
+        // Reminders come first. One that is not delivered leaves `last_reminder_at` where it
+        // was, so the next tick plans it again instead of losing it.
+        for (id, state) in &after {
+            if released.contains(id) {
+                continue;
             }
-        }
-        for action in plan.actions {
-            let id = match &action {
-                NotifyAction::PostCard { incident }
-                | NotifyAction::UpdateCard { incident }
-                | NotifyAction::ThreadReply { incident, .. }
-                | NotifyAction::Hold { incident, .. } => *incident,
-            };
-            let Some((incident, _)) = items.iter().find(|(incident, _)| incident.id() == id) else {
+            let Some((incident, _)) = items.iter().find(|(incident, _)| incident.id() == *id)
+            else {
                 continue;
             };
-            let incident = incident.clone();
-            self.in_order(id, self.delivery.tick_actions(incident, vec![action]))
-                .await;
+            let Some(old) = before.get(id) else { continue };
+            let actions: Vec<NotifyAction> = plan
+                .actions
+                .iter()
+                .filter(|action| incident_of(action) == *id)
+                .cloned()
+                .collect();
+            if actions.is_empty() {
+                self.delivery.save_state(*id, state).await;
+                continue;
+            }
+            self.in_order(*id, async {
+                self.delivery
+                    .tick_actions(incident.clone(), old.clone(), state.clone(), actions)
+                    .await;
+            })
+            .await;
         }
+
         let Some(text) = plan.release else {
+            // Nothing was released, so nothing leaves the held queue this tick. Should a
+            // state do so anyway, it is kept as it is: there is nothing to confirm.
+            for id in released {
+                if let Some(state) = after.get(&id) {
+                    self.delivery.save_state(id, state).await;
+                }
+            }
             return;
         };
         let summary_due = self.delivery.can_replace_held_cards();
@@ -246,14 +274,21 @@ impl Dispatcher {
             let Some((incident, _)) = items.iter().find(|(incident, _)| incident.id() == id) else {
                 continue;
             };
+            let (Some(old), Some(state)) = (before.get(&id), after.get(&id)) else {
+                continue;
+            };
             if incident.resolved_at().is_some() && !summary_failed {
+                self.delivery.save_state(id, state).await;
                 continue;
             }
+            // A card or summary that is not delivered leaves the incident held, so the next
+            // tick releases it again rather than losing it.
             let action = NotifyAction::PostCard { incident: id };
-            self.in_order(
-                id,
-                self.delivery.tick_actions(incident.clone(), vec![action]),
-            )
+            self.in_order(id, async {
+                self.delivery
+                    .tick_actions(incident.clone(), old.clone(), state.clone(), vec![action])
+                    .await;
+            })
             .await;
         }
     }
@@ -292,8 +327,21 @@ impl Dispatcher {
                 }
             };
             for incident in got.items {
-                if let Ok(Some(state)) = NotifyStateRepo::get(&*self.store, incident.id()).await {
-                    items.insert(incident.id(), (incident, state));
+                // An unreadable row for one incident must not be replaced by a default: it
+                // would plan the alert as if nothing had been said yet.
+                match NotifyStateRepo::get(&*self.store, incident.id()).await {
+                    Ok(Some(state)) => {
+                        items.insert(incident.id(), (incident, state));
+                    }
+                    Ok(None) => {}
+                    Err(err) => {
+                        tracing::error!(
+                            %err,
+                            incident = %incident.id(),
+                            "could not read notification state; skipping this incident"
+                        );
+                        super::delivery::state_error("read");
+                    }
                 }
             }
             match got.next_cursor {
@@ -301,11 +349,17 @@ impl Dispatcher {
                 None => break,
             }
         }
-        if let Ok(held) = NotifyStateRepo::list_held(&*self.store).await {
-            for (id, state) in held {
-                if let Ok(Some(incident)) = IncidentRepo::get(&*self.store, id).await {
-                    items.insert(id, (incident, state));
+        match NotifyStateRepo::list_held(&*self.store).await {
+            Ok(held) => {
+                for (id, state) in held {
+                    if let Ok(Some(incident)) = IncidentRepo::get(&*self.store, id).await {
+                        items.insert(id, (incident, state));
+                    }
                 }
+            }
+            Err(err) => {
+                tracing::error!(%err, "could not read held notification states");
+                super::delivery::state_error("read");
             }
         }
         items.into_values().collect()

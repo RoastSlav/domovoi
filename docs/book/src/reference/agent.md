@@ -45,6 +45,8 @@ Everything lives under `[agent] state_dir` (default `/var/lib/domovoi-agent`). E
 
 Every batch of signals is written to the spool before it is sent. The hub acknowledges batches with `signals_ack`, and acknowledged batches are removed. After a reconnect, every unacknowledged batch is sent again, oldest first. Batch numbers keep rising across restarts.
 
+Check state and the memory of what was firing are saved only once the run's signals are on disk in the spool. If the spool cannot be written, nothing from that run is remembered: an error is logged and the run repeats at the next interval, producing the same signals again instead of losing them.
+
 The spool holds at most 10 000 batches or 8 MiB. When it is full:
 
 1. The oldest firing signals with `info` severity are dropped first.
