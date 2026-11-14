@@ -164,7 +164,9 @@ pub struct TriageLimits {
     /// Wall-clock seconds per run. Default 90.
     #[serde(default = "default_run_seconds")]
     pub seconds: u32,
-    /// Output tokens per run. Default 2000.
+    /// Output tokens per run. Default 2000. It also caps a reasoning model's reasoning,
+    /// so a turn that spends the whole allowance without answering is retried once with
+    /// four times as much, up to 16000.
     #[serde(default = "default_output_tokens")]
     pub output_tokens: u32,
 }
