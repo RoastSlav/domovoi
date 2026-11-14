@@ -11,7 +11,7 @@ mod triage;
 mod uow;
 mod uow_apply;
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::{Mutex, MutexGuard};
 
 use domovoi_core::ports::{
@@ -73,6 +73,8 @@ struct State {
 pub struct InMemoryStore {
     state: Mutex<State>,
     failures: Mutex<VecDeque<StoreError>>,
+    /// How long an incident listing or note search takes before it answers.
+    delay: Mutex<Option<std::time::Duration>>,
 }
 
 impl InMemoryStore {
@@ -80,6 +82,22 @@ impl InMemoryStore {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Makes incident listings and note searches take `delay` before answering, so a test
+    /// can put them past a run deadline without a real sleep.
+    #[must_use]
+    pub fn with_delay(self, delay: std::time::Duration) -> Self {
+        *lock(&self.delay) = Some(delay);
+        self
+    }
+
+    /// Waits the configured delay, if any. The guard is dropped before the wait.
+    async fn pause(&self) {
+        let delay = *lock(&self.delay);
+        if let Some(delay) = delay {
+            tokio::time::sleep(delay).await;
+        }
     }
 
     /// Makes the next repository call, whatever it is, fail with `error` without changing
@@ -94,6 +112,46 @@ impl InMemoryStore {
             return Err(error);
         }
         Ok(lock(&self.state))
+    }
+
+    /// The incident each stored reference names: timeline entries per incident, signal links per
+    /// incident, and the incidents that exist.
+    ///
+    /// Test-only support for the crash invariants. The repository ports read a timeline and its
+    /// signal links only for an incident that exists, so a reference left behind by a vanished
+    /// incident is invisible through them and has to be read here.
+    pub(crate) fn integrity_refs(
+        &self,
+    ) -> (
+        BTreeMap<IncidentId, usize>,
+        BTreeMap<IncidentId, usize>,
+        BTreeSet<IncidentId>,
+    ) {
+        let state = lock(&self.state);
+        let timeline = state
+            .timeline
+            .iter()
+            .filter(|(_, entries)| !entries.is_empty())
+            .map(|(incident, entries)| (*incident, entries.len()))
+            .collect();
+        let mut links = BTreeMap::new();
+        for (_, incident) in state.signals.values() {
+            if let Some(incident) = incident {
+                *links.entry(*incident).or_insert(0) += 1;
+            }
+        }
+        (timeline, links, state.incidents.keys().copied().collect())
+    }
+
+    /// Appends a timeline entry for an incident that may not exist, so the crash invariants'
+    /// orphan check can be exercised. [`IncidentRepo::append_event`] refuses this.
+    #[cfg(test)]
+    pub(crate) fn insert_dangling_timeline(&self, entry: &IncidentTimelineEntry) {
+        lock(&self.state)
+            .timeline
+            .entry(entry.incident)
+            .or_default()
+            .push(entry.clone());
     }
 }
 

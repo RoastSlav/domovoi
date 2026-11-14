@@ -2,7 +2,7 @@ use domovoi_chat::discord::DiscordSettings;
 use domovoi_chat::discord::components::card_buttons;
 use domovoi_chat::discord::embed::card_embed;
 use domovoi_core::{
-    ActionId, Card, CardBadge, CardButton, HostName, IncidentId, Severity, Verdict,
+    ActionId, Card, CardBadge, CardButton, CardPlan, HostName, IncidentId, Risk, Severity, Verdict,
 };
 use serde_json::{Value, json};
 use url::Url;
@@ -36,6 +36,7 @@ fn card(badge: CardBadge, buttons: Vec<CardButton>) -> Card {
         ],
         next_step: Some("Prune old snapshots".to_owned()),
         buttons,
+        plans: Vec::new(),
         details: Some("The nightly job kept every snapshot.".to_owned()),
         resolved: false,
     }
@@ -97,6 +98,7 @@ fn approval_buttons_for_read_and_write_actions() {
         CardButton::Approve {
             action: action(1),
             token: token('a'),
+            plan_prefix: None,
         },
         CardButton::Deny {
             action: action(1),
@@ -105,6 +107,7 @@ fn approval_buttons_for_read_and_write_actions() {
         CardButton::Approve {
             action: action(2),
             token: token('b'),
+            plan_prefix: None,
         },
         CardButton::Deny {
             action: action(2),
@@ -148,4 +151,58 @@ fn no_buttons_and_long_titles() {
     );
     assert_eq!(value["components"], json!([]));
     insta::assert_json_snapshot!("no_buttons_long_title", value);
+}
+
+fn plan(action: ActionId) -> CardPlan {
+    CardPlan {
+        action,
+        skill: "restart_container".to_owned(),
+        host: HostName::parse("nas").unwrap(),
+        risk: Risk::Write,
+        args: vec![("container".to_owned(), "plex".to_owned())],
+        plan_short: "0123abcd".to_owned(),
+        expires_at: "2026-10-31T13:00:00Z".parse().unwrap(),
+    }
+}
+
+#[test]
+fn discord_card_names_target_and_args() {
+    let mut buttons = basic();
+    buttons.extend([
+        CardButton::Approve {
+            action: action(1),
+            token: token('a'),
+            plan_prefix: Some("0123ab".to_owned()),
+        },
+        CardButton::Deny {
+            action: action(1),
+            token: token('a'),
+        },
+    ]);
+    let mut card = card(CardBadge::Verdict(Verdict::ActionNeeded), buttons);
+    card.plans = vec![plan(action(1))];
+    let value = rendered(&card);
+
+    let description = value["embed"]["description"].as_str().unwrap();
+    assert!(description.contains("restart_container"), "{description}");
+    assert!(description.contains("nas"), "{description}");
+    assert!(description.contains("container=plex"), "{description}");
+    assert!(description.contains("0123abcd"), "{description}");
+    let heading = description.find("**Waiting for approval**").unwrap();
+    let next = description.find("**Next:**").unwrap();
+    assert!(heading < next, "the plan comes before the next step");
+
+    let row = &value["components"][0]["components"];
+    assert_eq!(row[3]["label"], "Approve restart_container on nas");
+    assert_eq!(row[4]["label"], "Deny restart_container on nas");
+    insta::assert_json_snapshot!("plan_and_approvals", value);
+
+    // Discord allows 80 characters per label, so a long skill is cut and marked.
+    card.plans[0].skill = "x".repeat(100);
+    let value = rendered(&card);
+    let label = value["components"][0]["components"][3]["label"]
+        .as_str()
+        .unwrap();
+    assert_eq!(label.chars().count(), 80);
+    assert!(label.ends_with('…'), "{label}");
 }

@@ -295,6 +295,9 @@ pub struct ActionDto {
     pub args: BTreeMap<String, String>,
     /// The status name, for example `proposed` or `verified`.
     pub status: String,
+    /// The v1 plan hash: what an approval covers (skill, manifest version, host,
+    /// arguments).
+    pub plan_hash: String,
     /// Why it was rejected or failed.
     pub reason: Option<String>,
     /// Who proposed it, for example `system:triage`.
@@ -329,6 +332,7 @@ impl From<&ActionRequest> for ActionDto {
             risk,
             args: a.args().clone(),
             status: a.status().name().to_owned(),
+            plan_hash: a.plan_hash().to_string(),
             reason,
             proposed_by: match a.proposed_by() {
                 Principal::Human(user) => format!("user:{user}"),
@@ -354,6 +358,16 @@ pub struct ActionPage {
 /// Approving an action.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, ToSchema)]
 pub struct ApproveRequest {
+    /// Required. The plan hash shown on the card, 64 hex characters.
+    #[schema(
+        value_type = String,
+        required = true,
+        nullable = false,
+        min_length = 64,
+        max_length = 64,
+        pattern = "^[0-9a-f]{64}$"
+    )]
+    pub plan_hash: Option<String>,
     /// For destructive skills: the skill's name typed exactly, as confirmation.
     pub confirm_text: Option<String>,
 }
@@ -436,6 +450,7 @@ mod tests {
             next_step: None,
             details: None,
             buttons: Vec::new(),
+            plans: Vec::new(),
             resolved: false,
         };
         let verdict = CardDto::from(&card(CardBadge::Verdict(Verdict::Monitor)));

@@ -8,8 +8,8 @@ use async_trait::async_trait;
 
 use domovoi_core::ports::{ActionFilter, ActionRepo, Clock, Page, Paged, StoreError};
 use domovoi_core::{
-    ActionError, ActionId, ActionRequest, ActionStatus, HostId, IncidentId, Principal, SkillName,
-    UserId,
+    ActionError, ActionId, ActionRequest, ActionStatus, HostId, IncidentId, PlanBinding, Principal,
+    SkillName, UserId,
 };
 use domovoi_engine::actions::audit;
 use domovoi_engine::{
@@ -96,7 +96,8 @@ async fn swept(settings: ActionSettings, lists: Arc<Mutex<Vec<ActionFilter>>>) -
     let shutdown = CancellationToken::new();
     let (manager, _manager_task) = IncidentManager::spawn(ManagerDeps {
         incidents: store.clone(),
-        signals: store.clone(),
+        uow: store.clone(),
+        versions: store.clone(),
         acks: store.clone(),
         clock: clock.clone(),
         redactor: Arc::new(PatternRedactor::default()),
@@ -151,7 +152,7 @@ async fn approve_and_deny_at_once_leave_exactly_one_outcome() {
     let (action, _) = a.propose().await;
     let id = action.id();
 
-    let approved = tokio::spawn(approve(a.service.clone(), id));
+    let approved = tokio::spawn(approve(a.service.clone(), id, action.plan_hash()));
     let denied = tokio::spawn(deny(a.service.clone(), id));
     let approved = approved.await.unwrap();
     let denied = denied.await.unwrap();
@@ -197,7 +198,12 @@ async fn expiry_never_overwrites_an_approval() {
 
     let approved = a
         .service
-        .approve(id, human(UserId::new()), None)
+        .approve(
+            id,
+            human(UserId::new()),
+            None,
+            PlanBinding::Full(action.plan_hash()),
+        )
         .await
         .unwrap();
     assert!(matches!(approved.status(), ActionStatus::Approved));
@@ -334,9 +340,13 @@ async fn expire_due_reads_only_due_proposals() {
     assert_eq!(a.get(decided_id).await.status(), &ActionStatus::Denied);
 }
 
-async fn approve(handle: ActionHandle, id: ActionId) -> Result<ActionStatus, ApprovalError> {
+async fn approve(
+    handle: ActionHandle,
+    id: ActionId,
+    plan: domovoi_core::PlanHash,
+) -> Result<ActionStatus, ApprovalError> {
     handle
-        .approve(id, human(UserId::new()), None)
+        .approve(id, human(UserId::new()), None, PlanBinding::Full(plan))
         .await
         .map(|action| action.status().clone())
 }

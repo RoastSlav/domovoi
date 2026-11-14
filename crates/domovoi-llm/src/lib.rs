@@ -21,6 +21,7 @@ pub mod openai;
 mod openai_stream;
 mod settings;
 mod sse;
+mod usage;
 
 pub use cli::{CliOutput, CliPreset, PromptVia};
 pub use error::{EXCERPT_CHARS, LlmBuildError, excerpt};

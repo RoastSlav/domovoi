@@ -2,9 +2,9 @@
 
 use domovoi_core::{
     ActionId, ActionProposal, Advisory, AdvisoryId, AdvisoryKind, Card, CardBadge, CardButton,
-    CheckKey, Digest, Evidence, EvidenceRef, EvidenceValue, HostDigest, HostId, HostName, Incident,
-    IncidentEvent, IncidentId, IncidentPolicy, ReadTool, Severity, Signal, SignalClass, SignalId,
-    SkillName, SourceKind, TargetKey, Trend, TriageReport, Verdict, apply,
+    CardPlan, CheckKey, Digest, Evidence, EvidenceRef, EvidenceValue, HostDigest, HostId, HostName,
+    Incident, IncidentEvent, IncidentId, IncidentPolicy, ReadTool, Risk, Severity, Signal,
+    SignalClass, SignalId, SkillName, SourceKind, TargetKey, Trend, TriageReport, Verdict, apply,
 };
 use jiff::{SignedDuration, Timestamp, civil::date};
 use uuid::Uuid;
@@ -135,6 +135,7 @@ fn card_json_snapshot() {
             CardButton::Approve {
                 action,
                 token: "tok_test".to_owned(),
+                plan_prefix: None,
             },
             CardButton::Deny {
                 action,
@@ -142,6 +143,15 @@ fn card_json_snapshot() {
             },
             CardButton::OpenInWeb { action },
         ],
+        plans: vec![CardPlan {
+            action,
+            skill: "restart_container".to_owned(),
+            host: HostName::parse("nas").unwrap(),
+            risk: Risk::Write,
+            args: vec![("container".to_owned(), "plex".to_owned())],
+            plan_short: "a1b2c3d4".to_owned(),
+            expires_at: ts(3600),
+        }],
         details: Some("Full reasoning goes here.".to_owned()),
         resolved: false,
     };

@@ -10,8 +10,11 @@
 mod approvals;
 pub mod audit;
 mod executor;
+mod freshness;
+mod host_wait;
 mod recheck;
 mod recover;
+mod reject;
 mod writer;
 mod writer_propose;
 
@@ -22,7 +25,7 @@ use domovoi_core::ports::{
     ActionGuard, ActionRepo, AgentLink, AggregateRef, AuditDraft, AuditLog, Clock, CommitError,
     IncidentRepo, JournalDraft, JournalKind, Redactor, StateWrite, Transaction, UnitOfWork,
 };
-use domovoi_core::{ActionError, ActionId, ActionRequest, HostId, HumanApproval};
+use domovoi_core::{ActionError, ActionId, ActionRequest, HostId, HumanApproval, PlanBinding};
 use jiff::{SignedDuration, Timestamp};
 use serde_json::{Value, json};
 use tokio::sync::{broadcast, oneshot};
@@ -37,7 +40,7 @@ use crate::manager::ManagerHandle;
 pub struct ActionSettings {
     /// Dispatches of one skill on one host per rolling hour; more are blocked.
     pub loop_guard_per_hour: u32,
-    /// How long to wait for an offline agent before failing.
+    /// The longest an approved action waits for its host's agent before it is rejected.
     pub offline_wait: SignedDuration,
     /// How often to look for the agent while waiting.
     pub presence_poll: SignedDuration,
@@ -51,7 +54,7 @@ impl Default for ActionSettings {
     fn default() -> Self {
         Self {
             loop_guard_per_hour: 3,
-            offline_wait: SignedDuration::from_mins(5),
+            offline_wait: SignedDuration::from_mins(30),
             presence_poll: SignedDuration::from_secs(5),
             verify_default_delay: SignedDuration::from_secs(30),
             dispatch_grace: SignedDuration::from_secs(30),
@@ -94,6 +97,10 @@ pub enum ApprovalError {
     /// used.
     #[error("the approval link is not valid")]
     BadToken,
+    /// The plan hash in the approve request is not the action's plan hash: the card the
+    /// approver saw is stale or does not describe this action. Nothing changed.
+    #[error("the plan changed since it was shown; reload and review it again")]
+    PlanChanged,
     /// The action cannot make that change: wrong status, expired, or destructive without
     /// a typed confirmation on the web.
     #[error("{0}")]
@@ -131,6 +138,12 @@ pub(crate) struct Shared {
     /// The queue into the writer task. The executor hands every transition to that
     /// one writer (ADR 0019) rather than writing action state itself.
     pub(crate) writer: writer::WriterHandle,
+    /// Set once the writer has failed what the previous session left running, so the
+    /// executor's catch-up starts only over a recovered store.
+    pub(crate) recovered: tokio::sync::watch::Sender<bool>,
+    /// Limits the runs started from the store at once. Shared across catch-ups, so a
+    /// reload after the event bus fell behind does not open a second set of runs.
+    pub(crate) catch_up_slots: Arc<tokio::sync::Semaphore>,
 }
 
 impl Shared {
@@ -240,12 +253,15 @@ impl ActionService {
     pub fn spawn(deps: ActionDeps, settings: ActionSettings) -> (ActionHandle, JoinHandle<()>) {
         let events = deps.bus.subscribe();
         let (writer, incoming) = writer::queue();
+        let (recovered, _recovered_rx) = tokio::sync::watch::channel(false);
         let shared = Arc::new(Shared {
             deps,
             settings,
             dispatches: Mutex::new(BTreeMap::new()),
             running: Mutex::new(BTreeSet::new()),
             writer: writer.clone(),
+            recovered,
+            catch_up_slots: Arc::new(tokio::sync::Semaphore::new(executor::MAX_CATCH_UP_RUNS)),
         });
         let writer_shared = shared.clone();
         let executor_shared = shared.clone();
@@ -270,6 +286,11 @@ impl ActionService {
                     "the loop guard reloaded dispatches the previous hub session made",
                 );
             }
+            // Startup order: the writer fails the runs a previous session left
+            // dispatched and then signals `recovered`; the executor waits for that
+            // signal before it reads the store for approvals. The hub starts its agent
+            // server before this service, so each host's availability is already
+            // answerable when the executor asks.
             let _ = tokio::join!(
                 writer::run(writer_shared, incoming),
                 executor::serve(executor_shared, events),
@@ -281,19 +302,23 @@ impl ActionService {
 
 impl ActionHandle {
     /// Approves action `id` on behalf of the human in `approval`. A chat approval needs
-    /// `chat_token`, which works once. This is the only way to reach `Approved`; the
-    /// decision is queued for the writer task, so it cannot race another one.
+    /// `chat_token`, which works once. `binding` must name the action's stored v1 plan hash,
+    /// so an approval covers the plan the card showed. This is the only way to reach
+    /// `Approved`; the decision is queued for the writer task, so it cannot race another
+    /// one.
     pub async fn approve(
         &self,
         id: ActionId,
         approval: HumanApproval,
         chat_token: Option<&str>,
+        binding: PlanBinding,
     ) -> Result<ActionRequest, ApprovalError> {
         let (reply, answer) = oneshot::channel();
         let command = writer::WriteCommand::Approve {
             id,
             approval,
             chat_token: chat_token.map(str::to_owned),
+            binding,
             reply,
         };
         if self.writer.tx.send(command).await.is_err() {

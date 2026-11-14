@@ -81,7 +81,10 @@ test("destructive_approval_asks_first_and_requires_the_exact_skill_name", async 
   expect(approvals()).toEqual([
     {
       route: "POST /api/v1/actions/{id}/approve",
-      init: { params: { path: { id: "act-9" } }, body: { confirm_text: "delete_volume" } },
+      init: {
+        params: { path: { id: "act-9" } },
+        body: { plan_hash: action().plan_hash, confirm_text: "delete_volume" },
+      },
     },
   ]);
   expect(await screen.findByText("Approved delete_volume. It runs now.")).toBeVisible();
@@ -106,7 +109,7 @@ test("write_approval_uses_simple_confirm", async () => {
   expect(approvals()).toEqual([
     {
       route: "POST /api/v1/actions/{id}/approve",
-      init: { params: { path: { id: "act-1" } }, body: {} },
+      init: { params: { path: { id: "act-1" } }, body: { plan_hash: action().plan_hash } },
     },
   ]);
 });
@@ -286,8 +289,96 @@ test("action_card_shows_what_would_run_and_why", () => {
   expect(item.getByText("name = web").tagName, "arguments are key = value lines").toBe("LI");
   expect(item.getByText("path = /srv/a/very/long/path/that/needs/to/wrap")).toBeVisible();
   expect(item.getByText("The container stopped answering.")).toBeVisible();
-  expect(item.getByText("Why:")).toBeVisible();
+  expect(item.getByText("Model's reason (not checked):")).toBeVisible();
   expect(item.getByText(/^Suggested by triage/)).toBeVisible();
+});
+
+test("approve_request_carries_the_plan_hash", async () => {
+  const user = userEvent.setup();
+  const write = action({ id: "act-w" });
+  const wipe = action({ id: "act-d", skill: "delete_volume", risk: "destructive" });
+  routeActions([write, wipe]);
+  open();
+
+  await user.click(
+    within(await card("restart_container")).getByRole("button", { name: "Approve" }),
+  );
+  await user.click(
+    within(screen.getByRole("dialog", { name: "Run restart_container?" })).getByRole("button", {
+      name: "Approve",
+    }),
+  );
+
+  await user.click(within(await card("delete_volume")).getByRole("button", { name: "Approve" }));
+  const dialog = within(screen.getByRole("dialog"));
+  await user.type(dialog.getByLabelText("Type delete_volume to confirm"), "delete_volume");
+  await user.click(dialog.getByRole("button", { name: "Approve" }));
+
+  expect(approvals()).toEqual([
+    {
+      route: "POST /api/v1/actions/{id}/approve",
+      init: { params: { path: { id: "act-w" } }, body: { plan_hash: write.plan_hash } },
+    },
+    {
+      route: "POST /api/v1/actions/{id}/approve",
+      init: {
+        params: { path: { id: "act-d" } },
+        body: { plan_hash: wipe.plan_hash, confirm_text: "delete_volume" },
+      },
+    },
+  ]);
+});
+
+test("waiting_action_card_shows_the_plan_block", async () => {
+  const user = userEvent.setup();
+  const shown = action({ args: { name: "web", path: "/srv" } });
+  show(shown);
+
+  const item = within(screen.getByRole("group", { name: "Action restart_container" }));
+  expect(item.getByText("on nas")).toBeVisible();
+  expect(item.getByText("name = web")).toBeVisible();
+  expect(item.getByText("path = /srv"), "every argument is shown").toBeVisible();
+  expect(item.getByText("Write")).toBeVisible();
+  expect(item.getByText(/^Expires in/)).toBeVisible();
+  expect(item.getByText(`Plan ${shown.plan_hash.slice(0, 8)}`)).toBeVisible();
+
+  await user.click(item.getByRole("button", { name: "About Plan hash" }));
+  expect(
+    screen.getByText(
+      "This code identifies what you approve: the skill, its version, the host and the arguments shown here. If any of them changed, the approval is refused. It does not cover the skill's script contents.",
+    ),
+  ).toBeVisible();
+});
+
+test("model_reason_is_labelled_as_the_models", () => {
+  show(action(), "The container stopped answering.");
+
+  const item = within(screen.getByRole("group", { name: "Action restart_container" }));
+  expect(item.getByText("Model's reason (not checked):")).toBeVisible();
+  expect(item.queryByText("Why:")).toBeNull();
+});
+
+test("stale_plan_refusal_is_explained_in_the_dialog", async () => {
+  const user = userEvent.setup();
+  routeActions([action()]);
+  route("POST /api/v1/actions/{id}/approve", () =>
+    failure(
+      409,
+      "conflict",
+      "the plan changed since you opened it; reload the page and review it again",
+    ),
+  );
+  open();
+
+  await user.click(
+    within(await card("restart_container")).getByRole("button", { name: "Approve" }),
+  );
+  const dialog = within(screen.getByRole("dialog"));
+  await user.click(dialog.getByRole("button", { name: "Approve" }));
+  expect(await dialog.findByText("Could not approve the action")).toBeVisible();
+  expect(
+    dialog.getByText("The plan changed since you opened it; reload the page and review it again."),
+  ).toBeVisible();
 });
 
 test("risk_is_explained_on_demand", async () => {

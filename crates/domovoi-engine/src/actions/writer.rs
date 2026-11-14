@@ -12,13 +12,15 @@ use std::sync::Arc;
 use domovoi_core::ports::{ActionFilter, ActionGuard, AuditDraft, CommitError, Observed, Page};
 use domovoi_core::{
     ActionChange, ActionError, ActionId, ActionRequest, ActionStatus, ApprovalChannel,
-    HumanApproval, PlanHash,
+    HumanApproval, PlanBinding, PlanHash,
 };
 use jiff::Timestamp;
 
 use super::approvals::{chat_token_ok, load, store};
 use super::audit::{self, RunRecord};
+use super::freshness;
 use super::recover;
+use super::reject;
 use super::{ApprovalError, Publish, Shared};
 use crate::events::EventKind;
 
@@ -38,6 +40,7 @@ pub(crate) enum WriteCommand {
         id: ActionId,
         approval: HumanApproval,
         chat_token: Option<String>,
+        binding: PlanBinding,
         reply: oneshot::Sender<Decision>,
     },
     Deny {
@@ -122,6 +125,10 @@ pub(crate) async fn run(shared: Arc<Shared>, mut rx: mpsc::Receiver<WriteCommand
             "actions left running by the hub session that just stopped were failed",
         );
     }
+    // The executor's catch-up waits for this, so it starts only over a recovered store,
+    // whether or not the scan above found anything or could finish. `send_replace` stores
+    // the value even if the executor has not subscribed yet.
+    shared.recovered.send_replace(true);
     let shutdown = shared.deps.shutdown.clone();
     loop {
         let command = tokio::select! {
@@ -145,9 +152,10 @@ async fn process(shared: &Shared, command: WriteCommand) {
             id,
             approval,
             chat_token,
+            binding,
             reply,
         } => {
-            let result = approve(shared, id, approval, chat_token.as_deref()).await;
+            let result = approve(shared, id, approval, chat_token.as_deref(), binding).await;
             if let Err(err) = &result {
                 refused(err, "an approval");
             }
@@ -202,7 +210,7 @@ async fn process(shared: &Shared, command: WriteCommand) {
             blocked,
             reply,
         } => {
-            let result = reject(shared, id, reason, blocked).await;
+            let result = reject::reject(shared, id, reason, blocked).await;
             if let Err(err) = &result {
                 refused(err, "a rejection");
             }
@@ -247,6 +255,7 @@ fn refused(err: &ApprovalError, what: &str) {
             tracing::debug!(%id, "{what} asked for an action that is not there")
         }
         ApprovalError::BadToken => tracing::debug!("{what} had no working chat token"),
+        ApprovalError::PlanChanged => tracing::debug!("{what} named a different plan"),
         ApprovalError::Refused(reason) => {
             tracing::debug!(%reason, "the action could not take {what}")
         }
@@ -256,18 +265,23 @@ fn refused(err: &ApprovalError, what: &str) {
 
 /// Approves `id`; the only path that reaches `Approved`. A chat approval must
 /// carry the action's own token, checked here so the answer cannot race with
-/// another decision that is already queued.
+/// another decision that is already queued. The binding must name the plan the
+/// approver was shown; a mismatch changes nothing.
 async fn approve(
     shared: &Shared,
     id: ActionId,
     approval: HumanApproval,
     chat_token: Option<&str>,
+    binding: PlanBinding,
 ) -> Result<ActionRequest, ApprovalError> {
     let mut action = load(shared, id).await?;
     if matches!(approval.channel(), ApprovalChannel::Chat { .. })
         && !chat_token_ok(chat_token, &action)
     {
         return Err(ApprovalError::BadToken);
+    }
+    if !binding.matches(&action.plan_hash()) {
+        return Err(ApprovalError::PlanChanged);
     }
     let now = shared.deps.clock.now();
     let entry_approval = approval.clone();
@@ -319,6 +333,17 @@ async fn deny(
 async fn dispatch(shared: &Shared, id: ActionId, plan: PlanHash) -> Decision {
     let mut action = load(shared, id).await?;
     let now = shared.deps.clock.now();
+    // The executor asked before sending this, but the writer is the one that decides: an
+    // approval that expired, or an incident that was deleted or resolved while the
+    // request waited in the queue, must not be dispatched either. A store that cannot
+    // answer leaves the action approved rather than guessing.
+    let old = freshness::check(shared, &action, now)
+        .await
+        .map_err(|err| ApprovalError::Store(err.to_string()))?;
+    if let Some(old) = old {
+        let reason = old.reason().to_owned();
+        return reject::stop(shared, id, &mut action, reason, false, now).await;
+    }
     let ActionChange { from, .. } = action.dispatch(plan, now).map_err(ApprovalError::Refused)?;
     let entry = match action.status().clone() {
         ActionStatus::Rejected { reason } => audit::rejected(&action, &reason, now),
@@ -327,31 +352,6 @@ async fn dispatch(shared: &Shared, id: ActionId, plan: PlanHash) -> Decision {
     transition(shared, &action, &from, entry, now)
         .await
         .map_err(|err| stale(err, id))?;
-    Ok(action)
-}
-
-/// Stops `id` before it runs, for a reason the executor checked at dispatch: a loop
-/// guard, a skill that is gone or changed risk, arguments no longer valid. `blocked`
-/// is the loop guard, which also publishes `ActionBlocked` so the person sees why.
-async fn reject(shared: &Shared, id: ActionId, reason: String, blocked: bool) -> Decision {
-    let mut action = load(shared, id).await?;
-    let now = shared.deps.clock.now();
-    let ActionChange { from, .. } = action
-        .reject(reason.clone(), now)
-        .map_err(ApprovalError::Refused)?;
-    let entry = if blocked {
-        audit::blocked(&action, &reason, now)
-    } else {
-        audit::rejected(&action, &reason, now)
-    };
-    transition(shared, &action, &from, entry, now)
-        .await
-        .map_err(|err| stale(err, id))?;
-    if blocked {
-        shared
-            .publish(&action, EventKind::ActionBlocked { action: id, reason })
-            .await;
-    }
     Ok(action)
 }
 
@@ -453,7 +453,7 @@ async fn expire_due(shared: &Shared) -> Result<usize, ApprovalError> {
 }
 
 /// The guarded write of one transition out of `from`, with its audit and journal entries.
-async fn transition(
+pub(crate) async fn transition(
     shared: &Shared,
     action: &ActionRequest,
     from: &ActionStatus,

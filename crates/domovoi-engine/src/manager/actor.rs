@@ -5,16 +5,17 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use domovoi_core::ports::{
-    AckRepo, Clock, IncidentFilter, IncidentRepo, IncidentTimelineEntry, Page, Redactor,
-    SignalRepo, StoreError,
+    AckRepo, Clock, CommitError, IncidentRepo, IncidentTimelineEntry, Redactor, StoreError,
+    UnitOfWork, VersionedRead,
 };
-use domovoi_core::{HostId, Incident, IncidentStatus};
+use domovoi_core::{Fingerprint, HostId, Incident, IncidentId, IncidentStatus};
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use super::command::{Command, CommandError};
-use super::decide::{State, Write, decide};
+use super::commit::{Versions, WRITE_CONFLICTS_METRIC, build_transaction, record_versions};
+use super::decide::{Decision, State, Write, decide};
 use super::handle::{COMMAND_QUEUE, Envelope, ManagerHandle};
 use super::redact::redact_command;
 use crate::events::{DomainEvent, EventKind};
@@ -29,8 +30,10 @@ pub const FLAPS_METRIC: &str = "domovoi_incident_flaps_total";
 pub struct ManagerDeps {
     /// Incidents and their timelines; only the manager writes them.
     pub incidents: Arc<dyn IncidentRepo>,
-    /// Signals.
-    pub signals: Arc<dyn SignalRepo>,
+    /// Commits one command's writes as one transaction.
+    pub uow: Arc<dyn UnitOfWork>,
+    /// Reads an incident and the version its next write must name.
+    pub versions: Arc<dyn VersionedRead>,
     /// Ack rules and maintenance windows.
     pub acks: Arc<dyn AckRepo>,
     /// Time.
@@ -49,7 +52,9 @@ pub struct ManagerDeps {
 pub struct IncidentManager {
     deps: ManagerDeps,
     active: Vec<Incident>,
+    versions: Versions,
     flaps: Arc<AtomicU64>,
+    write_conflicts: Arc<AtomicU64>,
 }
 
 fn store(err: StoreError) -> CommandError {
@@ -63,9 +68,11 @@ impl IncidentManager {
     pub fn spawn(deps: ManagerDeps) -> (ManagerHandle, JoinHandle<()>) {
         let (tx, rx) = mpsc::channel(COMMAND_QUEUE);
         let flaps = Arc::new(AtomicU64::new(0));
+        let write_conflicts = Arc::new(AtomicU64::new(0));
         let handle = ManagerHandle {
             tx: tx.clone(),
             flaps: flaps.clone(),
+            write_conflicts: write_conflicts.clone(),
         };
         tokio::spawn(ticker(
             tx.downgrade(),
@@ -77,7 +84,9 @@ impl IncidentManager {
         let manager = Self {
             deps,
             active: Vec::new(),
+            versions: Versions::default(),
             flaps,
+            write_conflicts,
         };
         let task = tokio::spawn(manager.run(rx));
         (handle, task)
@@ -115,42 +124,87 @@ impl IncidentManager {
         }
     }
 
-    /// Replaces the cache of active incidents with what the store holds.
+    /// Replaces the cache of active incidents and their versions with what the store holds.
     async fn reload(&mut self) -> Result<(), StoreError> {
-        let filter = IncidentFilter {
-            active: Some(true),
-            ..IncidentFilter::default()
-        };
-        let mut page = Page::first(Page::MAX_LIMIT);
-        let mut active = Vec::new();
-        loop {
-            let got = self.deps.incidents.list(&filter, &page).await?;
-            active.extend(got.items);
-            match got.next_cursor {
-                Some(cursor) => page.cursor = Some(cursor),
-                None => break,
-            }
+        let loaded = self.deps.versions.active_incidents().await?;
+        self.active = Vec::with_capacity(loaded.len());
+        self.versions.clear();
+        for incident in loaded {
+            self.versions.set(incident.value.id(), incident.version);
+            self.active.push(incident.value);
         }
-        self.active = active;
         Ok(())
     }
 
     async fn handle(&mut self, command: &Command) -> Result<(), CommandError> {
         let now = self.deps.clock.now();
-        let state = self.state_for(command, now).await.map_err(store)?;
-        let decision = decide(&state, command, &self.deps.policy, now)?;
-        for write in &decision.writes {
-            if let Err(err) = self.write(write).await {
-                tracing::error!(%err, "an incident write failed; nothing is published");
-                if let Err(err) = self.reload().await {
-                    tracing::error!(%err, "could not reload active incidents");
+        let mut attempt = 0_u8;
+        loop {
+            attempt += 1;
+            let (state, loaded) = self.state_for(command, now).await.map_err(store)?;
+            let decision = decide(&state, command, &self.deps.policy, now)?;
+            let transaction = match build_transaction(&decision.writes, &self.versions, &loaded) {
+                Ok(transaction) => transaction,
+                Err(err) => {
+                    tracing::warn!(
+                        %err,
+                        "an incident write had no known version; reloading and deciding again",
+                    );
+                    self.count_conflict();
+                    self.reload_or_log().await;
+                    if attempt == 1 {
+                        continue;
+                    }
+                    return Err(err);
                 }
-                return Err(store(err));
+            };
+            match self.deps.uow.commit(transaction).await {
+                Ok(receipt) => {
+                    for write in &decision.writes {
+                        self.remember(write);
+                    }
+                    record_versions(&mut self.versions, &self.active, &decision.writes, &receipt);
+                    self.finish(command, decision);
+                    return Ok(());
+                }
+                Err(CommitError::Conflict { aggregate, .. }) => {
+                    tracing::warn!(
+                        %aggregate,
+                        "an incident write conflicted; reloading and deciding again",
+                    );
+                    self.count_conflict();
+                    self.reload_or_log().await;
+                    if attempt == 1 {
+                        continue;
+                    }
+                    return Err(CommandError::Store(
+                        "the incident changed twice while it was being updated".to_owned(),
+                    ));
+                }
+                Err(err) => {
+                    tracing::error!(%err, "an incident write failed; nothing is published");
+                    self.reload_or_log().await;
+                    return Err(CommandError::Store(err.to_string()));
+                }
             }
         }
-        for write in &decision.writes {
-            self.remember(write);
+    }
+
+    /// Counts one version conflict in the metric and in the handle.
+    fn count_conflict(&self) {
+        self.write_conflicts.fetch_add(1, Ordering::Relaxed);
+        metrics::counter!(WRITE_CONFLICTS_METRIC).increment(1);
+    }
+
+    /// Reloads after a failed command, logging rather than replacing its error.
+    async fn reload_or_log(&mut self) {
+        if let Err(err) = self.reload().await {
+            tracing::error!(%err, "could not reload active incidents");
         }
+    }
+
+    /// Counts the flapping, metrics and events of a decision that was committed.
+    fn finish(&mut self, command: &Command, decision: Decision) {
         if decision.flaps > 0 {
             self.flaps
                 .fetch_add(u64::from(decision.flaps), Ordering::Relaxed);
@@ -171,20 +225,21 @@ impl IncidentManager {
             // No subscribers is fine: the event is already stored.
             let _ = self.deps.bus.send(event);
         }
-        Ok(())
     }
 
-    /// Loads what deciding `command` needs beyond the cache.
+    /// Loads what deciding `command` needs beyond the cache, plus the versions of incidents it
+    /// may write that are not already in the version cache.
     async fn state_for(
         &mut self,
         command: &Command,
         now: jiff::Timestamp,
-    ) -> Result<State, StoreError> {
+    ) -> Result<(State, BTreeMap<IncidentId, u64>), StoreError> {
         let mut hosts: BTreeSet<HostId> = BTreeSet::new();
         let mut resolved = BTreeMap::new();
         let mut acks = Vec::new();
         let mut triaged = None;
         let mut timeline: Vec<IncidentTimelineEntry> = Vec::new();
+        let mut loaded: BTreeMap<IncidentId, u64> = BTreeMap::new();
         match command {
             Command::Ingest(signals) => {
                 let since = now
@@ -196,14 +251,23 @@ impl IncidentManager {
                     if self.active.iter().any(|i| i.is_member(&fingerprint)) {
                         continue;
                     }
-                    // A cache miss: the store may know an incident the cache does not.
+                    // A cache miss: the store may know an incident the cache does not. The
+                    // finder only names a candidate; the versioned read decides which
+                    // collection it belongs in, because it may have changed status since.
                     if let Some(found) = self
                         .deps
                         .incidents
                         .find_active_by_fingerprint(&fingerprint)
                         .await?
                     {
-                        self.active.push(found);
+                        self.record_miss(
+                            found.id(),
+                            fingerprint,
+                            Some(since),
+                            &mut resolved,
+                            &mut loaded,
+                        )
+                        .await?;
                         continue;
                     }
                     if let Some(found) = self
@@ -212,7 +276,8 @@ impl IncidentManager {
                         .find_recent_resolved_by_fingerprint(&fingerprint, since)
                         .await?
                     {
-                        resolved.insert(fingerprint, found);
+                        self.record_miss(found.id(), fingerprint, None, &mut resolved, &mut loaded)
+                            .await?;
                     }
                 }
                 acks = self.deps.acks.list_rules().await?;
@@ -230,8 +295,11 @@ impl IncidentManager {
                 timeline = self.deps.incidents.timeline(*incident).await?;
             }
             Command::AttachTriage { incident, .. } | Command::SetVerdict { incident, .. } => {
-                if !self.active.iter().any(|i| i.id() == *incident) {
-                    triaged = self.deps.incidents.get(*incident).await?;
+                if !self.active.iter().any(|i| i.id() == *incident)
+                    && let Some(read) = self.deps.versions.incident(*incident).await?
+                {
+                    loaded.insert(read.value.id(), read.version);
+                    triaged = Some(read.value);
                 }
             }
         }
@@ -239,27 +307,50 @@ impl IncidentManager {
         for host in hosts {
             windows.extend(self.deps.acks.windows_for(host).await?);
         }
-        Ok(State {
+        let state = State {
             active: self.active.clone(),
             resolved,
             acks,
             windows,
             triaged,
             timeline,
-        })
+        };
+        Ok((state, loaded))
     }
 
-    async fn write(&self, write: &Write) -> Result<(), StoreError> {
-        let incidents = &self.deps.incidents;
-        match write {
-            Write::InsertSignal(signal, incident) => {
-                self.deps.signals.insert(signal, *incident).await
+    /// Records an incident a cache-miss lookup found, using the versioned read as authoritative.
+    ///
+    /// The finder only names a candidate: the incident may have changed status between that
+    /// lookup and this read. An incident that is active now joins the cache; one that is
+    /// resolved now joins the reopen map, when `since` is given and it resolved inside the
+    /// window. A candidate that no longer exists is dropped rather than reused from its old
+    /// body or status.
+    async fn record_miss(
+        &mut self,
+        id: IncidentId,
+        fingerprint: Fingerprint,
+        since: Option<jiff::Timestamp>,
+        resolved: &mut BTreeMap<Fingerprint, Incident>,
+        loaded: &mut BTreeMap<IncidentId, u64>,
+    ) -> Result<(), StoreError> {
+        let Some(read) = self.deps.versions.incident(id).await? else {
+            return Ok(());
+        };
+        let incident = read.value;
+        if incident.status() == IncidentStatus::Resolved {
+            let in_window =
+                since.is_none_or(|since| incident.resolved_at().is_some_and(|at| at >= since));
+            if in_window {
+                loaded.insert(incident.id(), read.version);
+                resolved.insert(fingerprint, incident);
             }
-            Write::InsertIncident(incident) => incidents.insert(incident).await,
-            Write::UpdateIncident(incident) => incidents.update(incident).await,
-            Write::Timeline(entry) => incidents.append_event(entry).await,
-            Write::DiscardPending(id) => incidents.discard_pending(*id).await,
+            return Ok(());
         }
+        self.versions.set(incident.id(), read.version);
+        if !self.active.iter().any(|i| i.id() == incident.id()) {
+            self.active.push(incident);
+        }
+        Ok(())
     }
 
     /// Updates the cache after a write was stored.

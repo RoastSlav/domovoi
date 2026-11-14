@@ -5,7 +5,8 @@
 //! - A firing observation becomes a `firing` signal on every run; the hub folds repeats.
 //! - A target that was firing and is now fine, or no longer reported, gets one `resolved`
 //!   signal. A check that errors changes nothing, so its incidents stay as they were.
-//! - Each run's signals are one spool batch; check state is saved after each run.
+//! - Each run's signals are one spool batch, and check state is saved only once that batch
+//!   is on disk.
 //! - Digest facts (latest per key) go to the hub once an hour.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -13,7 +14,8 @@ use std::sync::Arc;
 
 use domovoi_checks::commands::Commands;
 use domovoi_checks::framework::{
-    Check, CheckContext, CheckReport, CheckSettings, number_fact, run_bounded,
+    Check, CheckContext, CheckError, CheckReport, CheckSettings, CheckState, number_fact,
+    run_bounded,
 };
 use domovoi_core::ports::{Clock, HostFs, ProcessExecutor};
 use domovoi_core::{CheckKey, DigestFact, HostId, Signal, SourceKind, TargetKey};
@@ -59,12 +61,14 @@ impl CheckEnv {
         self.settings.borrow().get(key).cloned().unwrap_or_default()
     }
 
-    /// Runs `check` once on its stored state and stores the state it leaves.
-    pub async fn run(
+    /// Runs `check` on a copy of its stored state and returns the report with the state it
+    /// left, without storing it. The scheduler stores it only once the run's signals are
+    /// spooled.
+    pub async fn run_staged(
         &self,
         check: &dyn Check,
         store: &CheckStore,
-    ) -> Result<CheckReport, domovoi_checks::framework::CheckError> {
+    ) -> (Result<CheckReport, CheckError>, CheckState) {
         let key = check.key();
         let settings = self.settings_for(&key);
         let mut state = store.state(&key);
@@ -78,7 +82,18 @@ impl CheckEnv {
             state: &mut state,
         };
         let report = run_bounded(check, &mut ctx).await;
-        store.put_state(&key, state);
+        (report, state)
+    }
+
+    /// Runs `check` once on its stored state and stores the state it leaves, for on-demand
+    /// runs that have no spool batch of their own.
+    pub async fn run(
+        &self,
+        check: &dyn Check,
+        store: &CheckStore,
+    ) -> Result<CheckReport, CheckError> {
+        let (report, state) = self.run_staged(check, store).await;
+        store.put_state(&check.key(), state);
         report
     }
 }
@@ -150,11 +165,20 @@ async fn run_one<'a>(
     env: &'a CheckEnv,
     store: &'a CheckStore,
     check: &'a dyn Check,
-) -> (
-    &'a dyn Check,
-    Result<CheckReport, domovoi_checks::framework::CheckError>,
-) {
-    (check, env.run(check, store).await)
+) -> (&'a dyn Check, (Result<CheckReport, CheckError>, CheckState)) {
+    (check, env.run_staged(check, store).await)
+}
+
+/// One run's result, held until its signals are on disk in the spool.
+struct Staged {
+    /// Which check ran.
+    key: CheckKey,
+    /// The state it left behind.
+    state: CheckState,
+    /// The targets firing now, for a run that produced a report.
+    firing: Option<BTreeSet<String>>,
+    /// The digest facts its report carried.
+    facts: Vec<DigestFact>,
 }
 
 /// Runs checks until shutdown.
@@ -314,32 +338,62 @@ impl Scheduler {
         }
         drop(running);
         let now = self.env.clock.now();
+        let mut staged: Vec<Staged> = Vec::new();
         let mut batch = Vec::new();
-        for (check, report) in reports {
+        for (check, (report, state)) in reports {
             let key = check.key();
             let report = match report {
                 Ok(report) => report,
                 Err(err) if err.is_unavailable() => {
                     tracing::debug!(check = %key, %err, "check unavailable on this host");
+                    staged.push(Staged {
+                        key,
+                        state,
+                        firing: None,
+                        facts: Vec::new(),
+                    });
                     continue;
                 }
                 Err(err) => {
                     tracing::warn!(check = %key, %err, "check failed");
+                    staged.push(Staged {
+                        key,
+                        state,
+                        firing: None,
+                        facts: Vec::new(),
+                    });
                     continue;
                 }
             };
             let previous = self.store.firing(&key);
             let (signals, firing) = signals_for(self.env.host, check, &report, &previous, now);
-            self.store.set_firing(&key, firing);
             batch.extend(signals);
-            for fact in report.facts {
-                self.facts.insert(fact.key.clone(), fact);
-            }
+            staged.push(Staged {
+                key,
+                state,
+                firing: Some(firing),
+                facts: report.facts,
+            });
         }
+        // Nothing is remembered from a run whose signals could not be spooled: the next run
+        // repeats them instead of losing a firing or resolved signal.
         if !batch.is_empty()
             && let Err(err) = self.spool.push(batch).await
         {
-            tracing::error!(%err, "could not spool signals");
+            tracing::error!(
+                %err,
+                "could not spool signals; this run's state is discarded and the run repeats"
+            );
+            return;
+        }
+        for staged in staged {
+            self.store.put_state(&staged.key, staged.state);
+            if let Some(firing) = staged.firing {
+                self.store.set_firing(&staged.key, firing);
+            }
+            for fact in staged.facts {
+                self.facts.insert(fact.key.clone(), fact);
+            }
         }
         if let Err(err) = self.store.save() {
             tracing::error!(%err, "could not save check state");

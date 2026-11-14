@@ -13,6 +13,7 @@ pub mod build;
 pub mod chat;
 pub mod clock;
 pub mod contracts;
+pub mod crash;
 pub mod fs;
 pub mod link;
 pub mod llm;

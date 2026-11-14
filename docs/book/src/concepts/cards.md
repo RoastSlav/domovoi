@@ -19,10 +19,11 @@ Next: Pin the previous image tag and restart.
 - **Up to three bullets:** evidence from triage, or from the latest signal when there is no triage yet.
 - **One next step,** when triage suggests one.
 - **Buttons:** Ack and Mute 1 h while the incident is active, Details for the full reasoning, and Approve and Deny for each proposed action.
+- **A plan block for each waiting action,** written from the stored action rather than the model's text: the skill, the host, the arguments, the risk, the short plan hash and when the approval window closes. It comes before any model prose, so you read what will run first.
 
 Alerts never wait for triage: a card without triage shows the severity, the incident title and the signal's evidence, and is updated when triage finishes.
 
-Destructive actions never get an approve button. Their card links to the web UI, where they need a typed confirmation. An action without a chat approval token also gets the link instead of buttons.
+Destructive actions never get an approve button. Their card links to the web UI, where they need a typed confirmation. An action without a chat approval token also gets the link instead of buttons. An action whose arguments are too long to show in the card gets only the link too.
 
 ## The thread
 
@@ -44,6 +45,10 @@ While you were away: 2 alerts
 ```
 
 Alerts still open also get their cards, so they have buttons and reminders. Alerts that resolved while held are listed as resolved instead of being posted, unless that message cannot be delivered, in which case they get cards too. An alert that escalates to critical during quiet hours goes out at once. Quiet hours use `[hub] timezone`, may span midnight, and follow daylight-saving changes.
+
+## Delivery guarantees
+
+Delivery is at least once. The hub records that a card was sent only after the chat platform confirmed it, so a card that could not be delivered is planned again the next time the incident changes, and a reminder or a held alert the next time that minute's tick runs. The same holds for the "while you were away" message: an alert stays held until its card or the summary reached you. A message that a platform accepted but the hub could not record is sent again, so a duplicate is possible after a crash. Discord deduplicates a retried message only if the hub sends a nonce; it does not yet, so a duplicate card is possible after a crash.
 
 ## Not notified
 

@@ -20,9 +20,9 @@ The hub keeps its state in one SQLite database in WAL mode, under `[hub] data_di
 | `enrollment_tokens` | Hashes of single-use enrollment tokens with their host and expiry. Consuming one is a single atomic update. |
 | `signals` | Raw signals from checks, probes and webhooks, kept as JSON with indexed host, check, status and time. |
 | `incident_signals` | Which signals belong to which incident. |
-| `incidents` | Incident state as JSON, with indexed fingerprint, host, status, severity and times. At most one active incident per fingerprint. |
+| `incidents` | Incident state as JSON, with indexed fingerprint, host, status, severity and times, and a `version` column that every writer names and the store increments. At most one active incident per fingerprint. |
 | `incidents_fts` | Full-text index of incident titles, kept in step by triggers. |
-| `incident_events` | Each incident's timeline (status changes, triage reports, actions), in the order it happened. |
+| `incident_events` | Each incident's timeline (status changes, triage reports, actions), in the order it happened. Each new entry is also recorded in `journal` in the same transaction, until the old table is retired. |
 | `actions` | Proposed and approved actions: skill, arguments, plan hash, status, proposer, approval and the chat button token hash. |
 | `audit_log` | Who did what, when: approvals, dispatches, results, logins. Append-only: triggers reject every update, delete and replace. Rows written since the hash chain was introduced also carry `prev_hash` and `hash`. An action transition is recorded in the same transaction as the change. |
 | `ack_rules` | Standing acknowledgements: check, optional host and target pattern, evidence predicates, note, expiry, and who created the rule and when. |

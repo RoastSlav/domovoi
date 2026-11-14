@@ -104,6 +104,21 @@ pub fn key(name: &str) -> CheckKey {
     CheckKey::parse(name).unwrap()
 }
 
+/// Makes every spool push fail: a directory where the spool file belongs, so it cannot be
+/// opened for append or renamed over.
+pub fn block_spool(dir: &std::path::Path) {
+    let path = dir.join(domovoi_agent::spool::SPOOL_FILE);
+    if path.is_file() {
+        std::fs::remove_file(&path).unwrap();
+    }
+    std::fs::create_dir(&path).unwrap();
+}
+
+/// Undoes [`block_spool`].
+pub fn unblock_spool(dir: &std::path::Path) {
+    std::fs::remove_dir(dir.join(domovoi_agent::spool::SPOOL_FILE)).unwrap();
+}
+
 pub fn target(name: &str) -> Option<TargetKey> {
     Some(TargetKey::parse(name).unwrap())
 }

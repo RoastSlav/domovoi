@@ -1,10 +1,11 @@
 //! A general chat about the operator's hosts: one host's read tools when a host is chosen,
 //! a summary of every host when "All hosts" is asked, and never an action (INV-9).
 
-use domovoi_core::ports::{LlmError, LlmMessage, LlmRequest, Part, Redactor, Role};
+use domovoi_core::ports::{LlmCapability, LlmError, LlmMessage, Part, Redactor, Role};
 use domovoi_core::{HostId, ReadToolCall, Risk, SkillSummary};
+use jiff::Timestamp;
 
-use super::admission::{Purpose, Refusal, admit};
+use super::admission::{Purpose, Refusal, admit, unpriced_text};
 use super::followup::{MAX_ANSWER_CHARS, clip, provider_failure};
 use super::run::provider_name;
 use super::tools::{Scope, cut, run};
@@ -110,15 +111,23 @@ fn host_read_calls() -> Vec<ReadToolCall> {
 /// cannot call tools, the way incident triage handles such providers: without it the
 /// model would answer about the host without ever consulting it. [`tools::run`] has
 /// already redacted and cut what [`run`] returns.
-async fn host_output(shared: &Shared, host: HostId, skills: &[SkillSummary]) -> String {
+pub(crate) async fn host_output(
+    shared: &Shared,
+    host: HostId,
+    skills: &[SkillSummary],
+    deadline: Timestamp,
+) -> String {
     let scope = Scope {
         host,
         incident: None,
     };
     let mut text = "## Tool output gathered for you\n".to_owned();
     for call in host_read_calls() {
+        if shared.deps.clock.now() >= deadline {
+            break;
+        }
         let name = call.tool().name();
-        let result = run(shared, scope, skills, call).await;
+        let result = run(shared, scope, skills, call, deadline).await;
         text.push_str(format!("\n### {name}\n\n{}\n", result.content).as_str());
     }
     format!("{text}\nYou cannot call tools. Answer from the output above.")
@@ -151,6 +160,7 @@ pub(crate) async fn answer(
     if let Err(refusal) = admit(shared, Purpose::Question).await {
         return Err(match refusal {
             Refusal::BudgetSpent => TriageError::BudgetSpent,
+            Refusal::Unpriced { provider } => TriageError::Provider(unpriced_text(&provider)),
             Refusal::Hourly { retry_at } => TriageError::Busy { retry_at },
         });
     }
@@ -178,58 +188,88 @@ pub(crate) async fn answer(
     // The calls the model makes are not recorded: a general chat has no incident whose
     // timeline they could go on.
     let mut tool_use: Vec<agent::ToolUse> = Vec::new();
+    let mut run = agent::RunBudget::for_run(shared);
     for provider in shared.chain().iter() {
-        let mut messages = vec![LlmMessage {
-            role: Role::User,
-            parts: vec![Part::Text(opening.clone())],
-        }];
-        messages.extend(chat_turns.iter().cloned());
-        // With a chosen host and a provider that cannot call tools, put that host's read
-        // output in front of the question: incident triage does the same for its
-        // fallback, and without it the model would never consult the host.
-        let gathered: String = match (host, provider.supports_tools()) {
-            (Some(host), false) => host_output(shared, host, &skills).await,
-            _ => String::new(),
-        };
-        if !gathered.is_empty() {
+        let used_before = tool_use.len();
+        let mut handled: Vec<LlmCapability> = Vec::new();
+        let outcome = loop {
+            let mut messages = vec![LlmMessage {
+                role: Role::User,
+                parts: vec![Part::Text(opening.clone())],
+            }];
+            messages.extend(chat_turns.iter().cloned());
+            // With a chosen host and a provider that cannot call tools, put that host's read
+            // output in front of the question: incident triage does the same for its
+            // fallback, and without it the model would never consult the host.
+            let gathered: String = match (host, provider.supports_tools()) {
+                (Some(host), false) => host_output(shared, host, &skills, run.deadline()).await,
+                _ => String::new(),
+            };
+            if !gathered.is_empty() {
+                messages.push(LlmMessage {
+                    role: Role::User,
+                    parts: vec![Part::Text(gathered)],
+                });
+            }
             messages.push(LlmMessage {
                 role: Role::User,
-                parts: vec![Part::Text(gathered)],
+                parts: vec![Part::Text(asked.clone())],
             });
-        }
-        messages.push(LlmMessage {
-            role: Role::User,
-            parts: vec![Part::Text(asked.clone())],
-        });
-        let attempt: Result<String, LlmError> = match (host, provider.supports_tools()) {
-            (Some(host), true) => {
-                agent::converse(
-                    shared,
-                    provider,
-                    Scope {
-                        host,
-                        incident: None,
-                    },
-                    &skills,
-                    CHAT_PROMPT,
-                    &mut messages,
-                    &mut tool_use,
-                )
-                .await
-            }
-            _ => {
-                let req = LlmRequest {
-                    system: CHAT_PROMPT.to_owned(),
-                    messages,
-                    tools: Vec::new(),
-                    max_output_tokens: shared.settings.budget.max_output_tokens,
-                };
-                agent::complete(shared, provider, req)
+            let attempt: Result<String, LlmError> = match (host, provider.supports_tools()) {
+                (Some(host), true) => {
+                    agent::converse(
+                        shared,
+                        provider,
+                        agent::Brief {
+                            system: CHAT_PROMPT,
+                            scope: Scope {
+                                host,
+                                incident: None,
+                            },
+                            skills: &skills,
+                        },
+                        &mut messages,
+                        &mut tool_use,
+                        &mut run,
+                    )
+                    .await
+                }
+                _ => {
+                    // A chat with no tools is still one model turn that must end in a
+                    // complete answer: `ask` grows the allowance and never accepts a
+                    // cut-off one.
+                    agent::ask(
+                        shared,
+                        provider,
+                        CHAT_PROMPT,
+                        &messages,
+                        Vec::new(),
+                        &mut run,
+                    )
                     .await
                     .map(|response| agent::text_of(&response.parts))
+                }
+            };
+            match attempt {
+                Ok(answer) => break Ok(answer),
+                Err(LlmError::CapabilityRejected { capability, .. })
+                    if !handled.contains(&capability) =>
+                {
+                    // The question was put together for a provider that had the capability;
+                    // build it again now that the provider reports it gone. Each distinct
+                    // capability is handled once, so a refusal cannot loop.
+                    handled.push(capability);
+                    tool_use.truncate(used_before);
+                    tracing::info!(
+                        provider = provider.id(),
+                        %capability,
+                        "the provider refused a capability; asking again without it",
+                    );
+                }
+                Err(err) => break Err(err),
             }
         };
-        match attempt {
+        match outcome {
             Ok(answer) => {
                 text = Some(answer);
                 break;

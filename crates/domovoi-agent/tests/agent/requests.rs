@@ -102,6 +102,30 @@ async fn request_deadline_times_out() {
 }
 
 #[tokio::test]
+async fn on_demand_run_check_still_stores_state() {
+    let fixture = Fixture::new();
+    let check = ScriptedCheck::new(
+        "test.check",
+        vec![report(vec![firing("a", Severity::Warning)])],
+    );
+    let ctx = fixture.ctx(vec![Risk::Read], None, vec![Box::new(check)]);
+    let store = ctx.store.clone();
+    let request = RequestKind::Check(RunCheck {
+        check: key("test.check"),
+        target: None,
+        deadline: T0 + SignedDuration::from_mins(1),
+    });
+    let Message::CheckResult(_) = handle(&ctx, &request).await else {
+        panic!("expected check_result");
+    };
+    assert_eq!(
+        store.state(&key("test.check")).get("runs"),
+        Some("1"),
+        "an on-demand run stores its state at once"
+    );
+}
+
+#[tokio::test]
 async fn run_check_returns_observations_for_the_target() {
     let fixture = Fixture::new();
     let check = ScriptedCheck::new(

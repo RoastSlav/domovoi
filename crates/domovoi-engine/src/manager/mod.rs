@@ -1,13 +1,14 @@
 //! The single-writer incident manager (ADR 0011).
 //!
 //! One task owns every incident change. Commands arrive on a bounded channel; for each the
-//! manager loads what it needs, calls the pure [`decide`], applies the writes through the
-//! repositories in order and only then publishes the events. A failed write publishes
-//! nothing and fails the command.
+//! manager loads what it needs, calls the pure [`decide`], commits every write as one
+//! transaction and only then publishes the events. A failed commit publishes nothing and
+//! fails the command; a version conflict reloads and decides once more.
 
 mod actor;
 mod annotate;
 mod command;
+mod commit;
 mod decide;
 mod dismiss;
 mod handle;

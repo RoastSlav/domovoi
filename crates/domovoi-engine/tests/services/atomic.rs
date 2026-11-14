@@ -9,7 +9,8 @@ use domovoi_core::ports::{
     StateWrite, Transaction,
 };
 use domovoi_core::{
-    ActionError, ActionRequest, ActionStatus, PlanHash, Principal, SignalStatus, UserId,
+    ActionError, ActionRequest, ActionStatus, PlanBinding, PlanHash, Principal, SignalStatus,
+    UserId,
 };
 use domovoi_engine::actions::audit;
 use domovoi_engine::triage::{mint_token, token_hash};
@@ -91,7 +92,15 @@ async fn audit_failure_rolls_back_transition() {
         Arc::new(RefusingAuditUow::new(store)),
     );
 
-    let refused = a.service.approve(id, human(UserId::new()), None).await;
+    let refused = a
+        .service
+        .approve(
+            id,
+            human(UserId::new()),
+            None,
+            PlanBinding::Full(action.plan_hash()),
+        )
+        .await;
     assert!(
         matches!(refused, Err(ApprovalError::Store(_))),
         "an audit failure fails the transition: {refused:?}",
@@ -136,7 +145,12 @@ async fn every_action_transition_commits_state_audit_and_journal_together() {
         .await
         .unwrap();
     a.service
-        .approve(action.id(), human(UserId::new()), None)
+        .approve(
+            action.id(),
+            human(UserId::new()),
+            None,
+            PlanBinding::Full(action.plan_hash()),
+        )
         .await
         .unwrap();
     a.until(action.id(), |status| status == &ActionStatus::Verified)
@@ -226,7 +240,12 @@ async fn denied_and_expired_and_rejected_and_blocked_and_failed_transitions_are_
     changed.manifest_hash = "cd".repeat(32).parse().unwrap();
     a.link.set_skills(host_id(), vec![changed]);
     a.service
-        .approve(action.id(), human(UserId::new()), None)
+        .approve(
+            action.id(),
+            human(UserId::new()),
+            None,
+            PlanBinding::Full(action.plan_hash()),
+        )
         .await
         .unwrap();
     a.until(action.id(), |status| {
@@ -252,7 +271,12 @@ async fn denied_and_expired_and_rejected_and_blocked_and_failed_transitions_are_
             .await
             .unwrap();
         a.service
-            .approve(action.id(), human(UserId::new()), None)
+            .approve(
+                action.id(),
+                human(UserId::new()),
+                None,
+                PlanBinding::Full(action.plan_hash()),
+            )
             .await
             .unwrap();
         a.until(action.id(), |status| status == &ActionStatus::Verified)
@@ -267,7 +291,12 @@ async fn denied_and_expired_and_rejected_and_blocked_and_failed_transitions_are_
         .await
         .unwrap();
     a.service
-        .approve(fourth.id(), human(UserId::new()), None)
+        .approve(
+            fourth.id(),
+            human(UserId::new()),
+            None,
+            PlanBinding::Full(fourth.plan_hash()),
+        )
         .await
         .unwrap();
     a.until(fourth.id(), |status| {
@@ -298,7 +327,12 @@ async fn denied_and_expired_and_rejected_and_blocked_and_failed_transitions_are_
         .await
         .unwrap();
     a.service
-        .approve(action.id(), human(UserId::new()), None)
+        .approve(
+            action.id(),
+            human(UserId::new()),
+            None,
+            PlanBinding::Full(action.plan_hash()),
+        )
         .await
         .unwrap();
     a.until(action.id(), |status| {
@@ -324,7 +358,12 @@ async fn denied_and_expired_and_rejected_and_blocked_and_failed_transitions_are_
         .await
         .unwrap();
     a.service
-        .approve(action.id(), human(UserId::new()), None)
+        .approve(
+            action.id(),
+            human(UserId::new()),
+            None,
+            PlanBinding::Full(action.plan_hash()),
+        )
         .await
         .unwrap();
     a.until(action.id(), |status| status == &ActionStatus::VerifyFailed)
@@ -378,7 +417,12 @@ async fn stale_decision_is_refused_and_writes_nothing() {
 
     let refused = a
         .service
-        .approve(action.id(), human(UserId::new()), None)
+        .approve(
+            action.id(),
+            human(UserId::new()),
+            None,
+            PlanBinding::Full(action.plan_hash()),
+        )
         .await;
     assert_eq!(
         refused.err(),
@@ -408,7 +452,12 @@ async fn chat_approval_audit_actor_is_the_user_with_the_channel_in_the_detail() 
     let (action, token) = a.propose().await;
     let user = UserId::new();
     a.service
-        .approve(action.id(), chat(user, "discord", "42"), Some(&token))
+        .approve(
+            action.id(),
+            chat(user, "discord", "42"),
+            Some(&token),
+            PlanBinding::Full(action.plan_hash()),
+        )
         .await
         .unwrap();
 
@@ -524,7 +573,8 @@ async fn token_rotation_goes_through_the_writer() {
             .approve(
                 action.id(),
                 chat(UserId::new(), "discord", "1"),
-                Some(&old_token)
+                Some(&old_token),
+                PlanBinding::Full(action.plan_hash()),
             )
             .await
             .err(),

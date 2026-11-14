@@ -38,7 +38,7 @@ pub struct Harness {
     pub runtime: Option<HubRuntime>,
     config: HubConfig,
     primary: Arc<dyn LlmProvider>,
-    gateways: Vec<Arc<RecordingGateway>>,
+    gateways: Vec<Arc<dyn ChatGateway>>,
     bus_capacity: usize,
     /// Whether the webhook notifier is configured; without it, only chat cards go out.
     notifier_on: bool,
@@ -90,8 +90,30 @@ impl Harness {
             extra,
             start,
             primary,
-            gateways,
+            gateways
+                .into_iter()
+                .map(|gateway| gateway as Arc<dyn ChatGateway>)
+                .collect(),
             bus_capacity,
+            MapEnv::new(),
+            Some(RecordingNotifier::new("webhook")),
+        )
+        .await
+    }
+
+    /// A hub whose chat gateways are `gateways`, whatever their type.
+    pub async fn with_gateways(
+        extra: &str,
+        start: Timestamp,
+        gateways: Vec<Arc<dyn ChatGateway>>,
+    ) -> Self {
+        let llm = Arc::new(ScriptedLlm::new());
+        Self::with_all(
+            extra,
+            start,
+            llm,
+            gateways,
+            4096,
             MapEnv::new(),
             Some(RecordingNotifier::new("webhook")),
         )
@@ -102,7 +124,7 @@ impl Harness {
         extra: &str,
         start: Timestamp,
         primary: Arc<dyn LlmProvider>,
-        gateways: Vec<Arc<RecordingGateway>>,
+        gateways: Vec<Arc<dyn ChatGateway>>,
         bus_capacity: usize,
         env: MapEnv,
         notifier: Option<RecordingNotifier>,
@@ -111,13 +133,12 @@ impl Harness {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let _ = tracing_subscriber::fmt().with_test_writer().try_init();
         let dir = tempfile::tempdir().unwrap();
-        let gateway = gateways
-            .first()
-            .cloned()
-            .unwrap_or_else(|| Arc::new(RecordingGateway::new("discord")));
+        // The gateway a test reaches for directly. It is the hub's only one unless the test
+        // passed its own, in which case callers use those.
+        let gateway = Arc::new(RecordingGateway::new("discord"));
         let mut gateways = gateways;
         if gateways.is_empty() {
-            gateways.push(gateway.clone());
+            gateways.push(gateway.clone() as Arc<dyn ChatGateway>);
         }
         let config_text = format!(
             r#"
@@ -172,11 +193,7 @@ secret = {{ env = "TEST_SECRET" }}
     }
 
     async fn assemble(&mut self) {
-        let gateways = self
-            .gateways
-            .iter()
-            .map(|gateway| gateway.clone() as Arc<dyn ChatGateway>)
-            .collect();
+        let gateways = self.gateways.clone();
         let runtime = HubRuntime::build_with(
             self.config.clone(),
             HubDeps {

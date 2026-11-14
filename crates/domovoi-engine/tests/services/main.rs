@@ -14,11 +14,15 @@ mod atomic;
 #[cfg(test)]
 mod attach;
 #[cfg(test)]
+mod capability;
+#[cfg(test)]
 mod chat;
 #[cfg(test)]
 mod conversation;
 #[cfg(test)]
 mod execute;
+#[cfg(test)]
+mod freshness;
 #[cfg(test)]
 #[path = "../gates.rs"]
 mod gates;
@@ -26,6 +30,8 @@ mod gates;
 mod harness;
 #[cfg(test)]
 mod limits;
+#[cfg(test)]
+mod plan_binding;
 #[cfg(test)]
 mod profile;
 #[cfg(test)]

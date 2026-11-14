@@ -217,5 +217,6 @@ Builds from a source archive without `.git` print `unknown` as the commit, unles
 | `domovoi_actions_total` | `status` | Action status changes |
 | `domovoi_agents_connected` | | Agents with a live session |
 | `domovoi_delivery_failures_total` | `gateway` | Chat deliveries that failed after retries |
+| `domovoi_notify_state_errors_total` | `op` | Notification state reads and writes that failed (`read`, `write`) |
 | `domovoi_event_bus_lagged_total` | `consumer` | Times a consumer fell behind the event bus |
 | `domovoi_incident_flaps_total` | | Incidents that resolved and fired again quickly |

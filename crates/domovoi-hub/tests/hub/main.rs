@@ -22,6 +22,12 @@ mod api_updates;
 #[cfg(test)]
 mod atomic_actions;
 #[cfg(test)]
+mod atomic_incidents;
+#[cfg(test)]
+mod availability;
+#[cfg(test)]
+mod crash_sqlite;
+#[cfg(test)]
 mod csp;
 #[cfg(test)]
 mod dismiss;
@@ -48,3 +54,7 @@ mod settings;
 mod skills;
 #[cfg(test)]
 mod spa;
+#[cfg(test)]
+mod sqlite;
+#[cfg(test)]
+mod upgrade_flow;

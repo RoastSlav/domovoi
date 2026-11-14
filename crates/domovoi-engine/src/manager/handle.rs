@@ -29,6 +29,7 @@ pub(crate) struct Envelope {
 pub struct ManagerHandle {
     pub(crate) tx: mpsc::Sender<Envelope>,
     pub(crate) flaps: Arc<AtomicU64>,
+    pub(crate) write_conflicts: Arc<AtomicU64>,
 }
 
 impl std::fmt::Debug for Envelope {
@@ -181,6 +182,12 @@ impl ManagerHandle {
     #[must_use]
     pub fn flaps(&self) -> u64 {
         self.flaps.load(Ordering::Relaxed)
+    }
+
+    /// Version conflicts the manager retried since it started.
+    #[must_use]
+    pub fn write_conflicts(&self) -> u64 {
+        self.write_conflicts.load(Ordering::Relaxed)
     }
 }
 

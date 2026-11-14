@@ -50,7 +50,7 @@ curl -b cookies.txt -X POST https://domovoi.example.net/api/v1/incidents/$ID/ack
 
 ## Approving actions
 
-`POST /api/v1/actions/{id}/approve` approves a proposed action as the logged-in user. Destructive skills also need `{"confirm_text": "<skill name>"}` with the skill's name typed exactly. Chat buttons can never approve them.
+`POST /api/v1/actions/{id}/approve` approves a proposed action as the logged-in user. It requires `{"plan_hash": "<64 hex characters>"}`: the plan hash shown on the card, also returned as `plan_hash` by the action endpoints. Without a valid hash the request gets a 400; with a hash that differs from the stored one it gets a 409, and the action stays proposed. Destructive skills also need `{"confirm_text": "<skill name>"}` with the skill's name typed exactly. Chat buttons can never approve them.
 
 ## Errors and paging
 

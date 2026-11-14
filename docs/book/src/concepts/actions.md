@@ -10,28 +10,36 @@ stateDiagram-v2
     Proposed --> Approved: a person approves
     Proposed --> Denied: a person denies
     Proposed --> Expired: the approval window closes
-    Approved --> Dispatched: re-checked, still the same plan
-    Approved --> Rejected: re-check failed or loop guard
+    Approved --> Dispatched: host reachable, still the same plan
+    Approved --> Rejected: expired, incident closed, re-check failed, agent offline or loop guard
     Dispatched --> Succeeded: exit code 0
-    Dispatched --> Failed: non-zero exit, agent offline or error
+    Dispatched --> Failed: non-zero exit or error
     Succeeded --> Verified: the original check passes again
     Succeeded --> VerifyFailed: the original check still fails
 ```
 
 - **Proposed:** triage suggested it. The card shows Approve and Deny buttons. Proposals stay open for one hour.
-- **Approved:** a person said yes, and the action is run straight away.
-- **Rejected:** something changed between approval and running, or the loop guard stopped it. The thread says why.
+- **Approved:** a person said yes. It runs once its host's agent is reachable, and only if the approval and the incident still stand, so an approval made just before a restart waits for the host instead of failing.
+- **Rejected:** something changed between approval and running, the approval expired, the incident was resolved or deleted, the agent never came back, or the loop guard stopped it. The thread says why.
 - **Dispatched:** it was sent to the agent.
 - **Succeeded or Failed:** what the skill's run reported. Failures are posted in the incident's thread.
 - **Verified or VerifyFailed:** whether the check that raised the incident passes again afterwards. A verified action marks the incident as fixed. A failed verification is posted in the thread.
 
-Restarting the hub loses nothing that a person already decided, and invents nothing: when Domovoi starts it reads the store and runs what is still marked **Approved**, so an approval made a moment before the restart still runs. An action that was **Dispatched** when the hub stopped is marked **Failed** with the reason that the hub restarted while it ran and the host must be checked before running it again. Its answer went to the session that is gone, so nothing knows whether the skill ran, and starting it again could be the dangerous thing. The loop guard keeps working across the restart: before the new session starts anything it reads back the dispatches the previous session wrote in the audit log, so runs that happened in the hour it is still in count against it, and a fourth approval of the same skill on the same host is stopped the way it would have been stopped without the restart.
+Restarting the hub loses nothing that a person already decided, and invents nothing: when Domovoi starts it reads the store and runs what is still marked **Approved**, so an approval made a moment before the restart still runs. An action that was **Dispatched** when the hub stopped is marked **Failed** with the reason that the hub restarted while it ran and the host must be checked before running it again. Its answer went to the session that is gone, so nothing knows whether the skill ran, and starting it again could be the dangerous thing. The loop guard keeps working across the restart: before the new session starts anything it reads back the dispatches the previous session wrote in the audit log, so runs that happened in the hour it is still in count against it, and a fourth approval of the same skill on the same host is stopped the way it would have been stopped without the restart. An approval whose host has not reconnected yet waits for it instead of being failed, up to thirty minutes, and is checked again just before dispatch: an approval whose window closed, or an incident that was deleted or resolved while Domovoi was down, is rejected rather than run.
 
 ## In the web UI
 
-An action looks the same on the incident's page and on the **Approvals** page: the skill, its risk (the info button beside it says what that risk level allows), its state, the host, the arguments it would run with, who suggested it, and, while it waits, the time left to decide. The countdown turns to a warning in the last ten minutes. On the incident's page the card also shows why triage proposed it.
+An action looks the same on the incident's page and on the **Approvals** page: the skill, its risk (the info button beside it says what that risk level allows), its state, the host, the arguments it would run with, the plan code it will run (the info button beside it explains what that code covers), who suggested it, and, while it waits, the time left to decide. The countdown turns to a warning in the last ten minutes. On the incident's page the card also shows why triage proposed it, labelled as the model's reason: that sentence is not what you approve.
 
 **Approve** always asks first, naming the skill, its arguments and the host; a destructive skill also needs its name typed. **Deny** is one click: nothing runs, and triage can propose the action again. After you approve, the card shows the action being sent and running, and a short message tells you how it ended, wherever on the page you are. An action that failed shows the reason; one that expired says that nobody decided in time and that nothing ran.
+
+## What an approval covers
+
+Each proposed action has a **plan hash**: a code shown on the card as `Plan a1b2c3d4`. It is computed from the skill's name, the version of its manifest, the host and the exact arguments. The approval request carries the code the card showed; if it no longer matches what is stored for the action, the approval is refused and nothing changes. A stale or substituted card therefore cannot approve a different plan.
+
+The code does **not** cover the contents of the skill's entry script, and it does not name a resolved target on the host: it binds the host, not what the skill will find there. Stronger binding is planned. The runtime limits stay what they were: Domovoi recomputes the plan from the agent's current manifest just before running, the agent applies its own checks, and the audit log records what ran.
+
+A Discord button has no room for the whole code, so it carries a short prefix of it. The button's single-use token is still what authenticates the press; the prefix only catches a card that has gone stale. A card too old to carry the prefix is refused and asks you to approve in the web UI. If an action's arguments are too long to show in chat, that action gets no Approve or Deny button there, only the link, because you must be able to read every argument before approving.
 
 The **Approvals** page lists what is **Waiting for you**, the soonest to expire first, and, in a section that starts closed, what was **Recently decided** in the last 24 hours. It follows the host chosen in the top bar.
 
@@ -44,7 +52,7 @@ The **Approvals** page lists what is **Waiting for you**, the soonest to expire 
 - **The plan is checked again before it runs.** The approval covers one plan: the skill, the exact manifest, the host and the arguments. Just before running, Domovoi fetches the skill from the agent again. If the skill is gone, its risk changed, its manifest changed or the arguments no longer fit its parameters, the action is rejected instead of run.
 - **Nothing retries on its own.** A rejected or failed action stays that way. To try again, triage or a person proposes a new action, and someone approves it.
 - **The loop guard limits repeat runs.** The same skill runs at most three times per host in any hour. A fourth approval is blocked, and the thread says so.
-- **An offline agent fails the action.** If the agent is not connected, Domovoi waits up to five minutes before marking the action failed.
+- **An offline agent holds the action.** If the host's agent is not reachable, Domovoi waits for it for up to thirty minutes before rejecting the action with "agent offline"; an agent this hub rejected as incompatible is rejected at once. Waiting happens before the action takes a place in the catch-up pool, so one missing host does not keep another host's runs from starting.
 - **Runs are bounded.** The agent runs the skill directly, with no shell, as the skill's user and within the skill's timeout.
 - **Results are verified.** A skill with a `verify` section is checked again after its delay. A write skill that applies to the incident's check is checked after 30 seconds.
 

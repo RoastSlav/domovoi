@@ -147,11 +147,14 @@ recorded 1.3 coordinated upgrade; none is planned.
 
 ## F4 — LLM, approval cards (hash v1) and ops reliability (H)
 
-- **Prereqs.** F1.
+- **Prereqs.** F1. Provider capability negotiation, output growth, in-memory usage estimation and
+  the shared run budget are already integrated; 17 does not reimplement them.
 - **Backend.**
-  - Persisted admission with fail-closed behaviour; cache hits use no slot.
+  - Persisted admission with fail-closed behaviour; cache hits use no slot; keep the unpriced-provider
+    preflight.
   - Per-call deadline; total prompt cap (value from R-5).
-  - Attribution on success and failure; usage recorded for failed calls.
+  - Attribution on success and failure, including model, outcome, latency, optional cost and usage
+    source; failed calls record no fabricated tokens or cost.
   - Redaction of replayed history and provider errors.
   - Host-scoped `similar()`.
   - Step-up list including `llm.cli.*`.
@@ -163,7 +166,7 @@ recorded 1.3 coordinated upgrade; none is planned.
     belong to M1 and M3.
 - **Tests.**
   - `admission_survives_restart`, `cache_hit_uses_no_slot`, `call_deadline_enforced`
-  - `failed_call_records_usage`, `provider_error_redacted`
+  - `failed_call_records_usage`, `unknown_cost_is_recorded_as_unknown_not_free`, `provider_error_redacted`
   - `llm_cli_change_requires_step_up`, `discord_card_names_target_and_args`
   - `approve_with_stale_v1_plan_hash_refused`
 

@@ -132,6 +132,17 @@ cargo xtask docs-config             # writes the configuration reference in the 
 
 To look at every page at 375, 768, 1280 and 1920 px in light and dark, start the dev hub and `npm run dev`, then run `node scripts/screens.mjs` in `web/` (it drives an installed Chrome through Playwright, writes pictures to `web/screens-out`, and lists pages that scroll sideways; the header of the script lists its settings). It is not part of CI.
 
+### Crash sweep
+
+A crash can hit any commit: before it becomes durable, or after it is durable but before the caller sees the receipt. The sweep proves that neither leaves a state without its journal and audit rows. For each of two lifecycles (one incident's, one action's) it runs the scenario fault-free to learn its commit sequence, then re-runs it once per commit and per crash point, restarts the services over what survived, and checks three things: the durable state is exactly the committed prefix, the cross-table invariants hold before and after recovery, and the services still work. `CrashingStore` in `domovoi-testkit::crash` makes the chosen commit fail; the scenarios live in `crates/domovoi-engine/tests/crash/` and the hub runs the same files against real SQLite, reopening the database file as the restart.
+
+```sh
+cargo nextest run -p domovoi-engine -E 'binary(crash)'       # in-memory sweep and its gates
+cargo nextest run -p domovoi-hub -E 'test(crash_sqlite)'     # the same sweep on SQLite
+```
+
+Failures name the scenario, the commit index, the crash point and both snapshots or every invariant violation, so the first line usually says which write broke. To add a scenario for a new writer: write it in `crates/domovoi-engine/tests/crash/scenarios.rs` against `World`, add a test that runs it to `memory.rs` and to the hub's `crash_sqlite.rs` with a `min_commits` floor, and add the file of the new commit site to `COMMIT_SITES` in `coverage.rs` — `commit_sites_are_the_ones_the_sweep_exercises` fails until you do, and `sweep_covers_every_kind_of_write` names any write kind, status, journal kind or audit kind no scenario produces.
+
 ### Triage drills
 
 The drills replay incidents through the triage engine. They run with a scripted model as part of the normal tests. To score a real model, as the "Drills (live model)" workflow does:

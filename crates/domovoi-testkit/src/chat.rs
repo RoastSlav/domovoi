@@ -243,6 +243,7 @@ mod tests {
             bullets: Vec::new(),
             next_step: None,
             buttons: Vec::new(),
+            plans: Vec::new(),
             details: None,
             resolved: false,
         };

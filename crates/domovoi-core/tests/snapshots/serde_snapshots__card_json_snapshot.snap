@@ -39,6 +39,22 @@ expression: card
       "action": "01900000-0000-7000-8000-000000000004"
     }
   ],
+  "plans": [
+    {
+      "action": "01900000-0000-7000-8000-000000000004",
+      "skill": "restart_container",
+      "host": "nas",
+      "risk": "write",
+      "args": [
+        [
+          "container",
+          "plex"
+        ]
+      ],
+      "plan_short": "a1b2c3d4",
+      "expires_at": "2023-11-14T23:13:20Z"
+    }
+  ],
   "details": "Full reasoning goes here.",
   "resolved": false
 }

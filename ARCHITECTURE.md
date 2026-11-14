@@ -58,7 +58,7 @@ flowchart LR
 | `domovoi-runner` | The only crate that spawns processes: skill manifests, argument validation, sandboxed execution | core |
 | `domovoi-agent` | Agent runtime: hub link, check scheduler, request handling, spool | core, config, proto, checks, runner |
 | `domovoi-hub` | Hub runtime: HTTP API, auth, SPA serving, webhook ingest, agent server, wiring of engine with adapters | core, config, proto, engine, store, llm, chat, checks |
-| `domovoi-testkit` | Fakes for every port, fake clock, fixtures. **Dev-dependency only.** | core, proto |
+| `domovoi-testkit` | Fakes for every port, a fake clock, fixtures, the crash-injecting store, snapshots and invariants. **Dev-dependency only.** | core, proto |
 | `domovoi` | The binary and CLI. Composition root: selects mode, wires hub and agent, injects the process executor | core, config, hub, agent, runner |
 | `xtask` | Developer tasks: `arch-check`, `openapi`, `ci` | none (not part of the product) |
 
@@ -209,7 +209,7 @@ The hub is a set of tokio tasks connected by channels:
 
 - **Web server** (`axum`): REST API, SSE, SPA, webhook ingest.
 - **Agent server**: TLS WebSocket listener, enrollment, handshake, one task per connected agent.
-- **Incident manager**: the **single writer** for incident state. Everything that changes an incident (signals, acks, triage results, action results, timers) is a command on its `mpsc` channel. It persists, then publishes a `DomainEvent` on a `broadcast` bus.
+- **Incident manager**: the **single writer** for incident state. Everything that changes an incident (signals, acks, triage results, action results, timers) is a command on its `mpsc` channel. Each command is one atomic commit through the unit of work: the signal, the incident row, its timeline entries and the mirrored journal rows land together or not at all. Every incident write names the version it read; a version conflict reloads the incident and decides once more, and a second conflict fails the command. It publishes events on a `broadcast` bus only after the commit succeeded. Until the old table is retired, timeline entries are written to `incident_events` and mirrored into the `journal` by the store, inside the same commit.
 - **Triage workers**: a bounded pool (default 2) that takes triage jobs, enforces budgets and rate caps, and sends the `TriageReport` back to the incident manager.
 - **Dispatcher**: subscribes to domain events and delivers cards, thread replies and resolutions to chat gateways and notifiers, applying quiet hours and re-notify rules.
 - **Scheduler**: digest, quiet-hours release, re-notify, TTL resolution, approval expiry, heartbeat ping, retention, backup.
@@ -269,6 +269,7 @@ flowchart LR
 - Timestamps are stored as `INTEGER` unix milliseconds UTC; IDs as `TEXT`.
 - Tables (v0.1): `hosts`, `agents`, `enrollment_tokens`, `signals`, `incidents`, `incident_signals`, `incident_events` (timeline), `actions`, `audit_log`, `ack_rules`, `maintenance_windows`, `baselines`, `notes` + `notes_fts` (FTS5), `incidents_fts`, `triage_cache`, `llm_usage`, `digests`, `advisories`, `users`, `sessions`, `settings`, `journal`, `effects`, `schema_compat`, `audit_anchor`.
 - `incidents` and `notes` carry an optimistic `version` column: a write names the version it read, and a mismatch rolls the whole transaction back.
+- `incident_events` is still the timeline every reader uses, and the store also writes a mirrored `journal` row (`incident.timeline`) for each new entry in the same commit; rows written before that dual-write are not mirrored yet.
 - `journal` is the operational record in commit order, `effects` is the work outbox and `schema_compat` records the lowest binary version that can read the schema.
 - Every commit is flushed to disk (`synchronous=FULL`), one write connection serialises writers, and start-up runs `PRAGMA quick_check`; a failed check refuses to open the database.
 - `audit_log` is append-only: a trigger rejects `UPDATE` and `DELETE`. From this release its rows also carry `prev_hash` and `hash`: the store hashes each event (canonical JSON, SHA-256) inside the transaction that inserts it, and the first chained row links to one `audit_anchor` row that commits to the legacy history. `domovoi audit verify` checks both parts, and `domovoi audit head` prints the newest hash to keep elsewhere. The chain detects edits, mid-chain deletions and rows inserted by tools that do not compute the chain; it cannot detect a full rewrite of the database that recomputes every hash, or deletion of the newest rows unless the head hash was recorded elsewhere.
@@ -349,6 +350,8 @@ flowchart LR
 | Snapshot | Cards, digests, protocol JSON, OpenAPI document | `insta` |
 | Integration | Store against temp SQLite; HTTP API via `tower::ServiceExt::oneshot`; agent ↔ hub over a real TLS WebSocket on localhost; webhook fixtures | `tests/` of each crate, cross-role tests in `crates/domovoi/tests` |
 | Gates | Invariants INV-1…INV-12 as named tests that must never be deleted | `tests/gates.rs` per crate |
+| Crash sweep | Every incident and action write, crashed before and after every commit, on the in-memory store and on SQLite: the surviving state is the committed prefix, the journal, audit and timeline invariants hold before and after recovery, and the services work again (`CrashingStore` in `domovoi-testkit::crash`) | `crates/domovoi-engine/tests/crash`; the hub runs the same files on SQLite |
+| Upgrade flow | The committed N-1 database opens at the current schema, the services operate on it, new writes are chained and journaled, audit verification passes and the invariants hold after a restart | `crates/domovoi-hub/tests/hub/upgrade_flow.rs` |
 | Drills | Scripted incidents with a recorded model run; scored on detection, discrimination, action choice and restraint | `crates/domovoi-engine/tests/drills` (v0.1 minimal) |
 | Web | Components and hooks with Vitest and Testing Library | `web/src/**/*.test.tsx` |
 | End to end | `domovoi selftest` pushes a fake critical through triage and a recording gateway | CLI test |

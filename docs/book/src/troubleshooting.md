@@ -56,6 +56,10 @@ The host named after the hub is its own machine, shown as "Hub only, no agent" w
 
 **The bot ignores questions in threads.** Turn on **Message Content Intent** for the bot in the Discord developer portal.
 
+## Cards
+
+**Cards stopped appearing for one incident.** The hub could not read that incident's notification state, so it stopped delivering for that incident rather than posting a duplicate card. The log says `could not read notification state`, and `domovoi_notify_state_errors_total{op="read"}` rises. Its `notify_state` row is corrupt: with the hub stopped, restore it from a backup or delete the row.
+
 ## Triage
 
 **Cards have no verdict.** Triage failed or is off. The card still goes out, so you never miss an alert. Use **Test** on **Settings → Models and triage**, and look in the hub's log for the provider's error.

@@ -17,6 +17,7 @@ import {
 import { actionStatusMeta, riskMeta } from "../../design/tone";
 import { ActionArgs } from "./ActionArgs";
 import { ApproveControl } from "./ApproveControl";
+import { PlanTag } from "./PlanTag";
 
 /** Under this much time left, the countdown of a waiting action turns to a warning. */
 export const EXPIRY_WARNING_MS = 15 * 60 * 1000;
@@ -83,9 +84,9 @@ function StateNote({ action, host }: { action: Action; host: string | undefined 
 
 /**
  * One action, the same on the incident page, the Approvals page and in a chat: the skill,
- * where it runs, its risk, its arguments, why the model wants it, who suggested it and the
- * time left; while it waits, Approve and Deny. A waiting action's status is the section it
- * sits in, so only a decided or running one draws a status pill.
+ * where it runs, its risk, its arguments, the plan it will run, why the model wants it, who
+ * suggested it and the time left; while it waits, Approve and Deny. A waiting action's
+ * status is the section it sits in, so only a decided or running one draws a status pill.
  */
 export function ActionCard({
   action,
@@ -141,7 +142,7 @@ export function ActionCard({
         <ActionArgs args={action.args} />
         {why && (
           <Text block>
-            <Text muted>Why: </Text>
+            <Text muted>Model's reason (not checked): </Text>
             {why}
           </Text>
         )}
@@ -151,6 +152,7 @@ export function ActionCard({
             {suggestedBy(action.proposed_by)} <RelativeTime at={action.created_at} />
           </Text>
           {waiting && <Expiry until={action.expires_at} />}
+          {waiting && <PlanTag planHash={action.plan_hash} />}
           {showIncident && (
             <Link to={`/incidents/${action.incident_id}`}>{incidentTitle ?? "View incident"}</Link>
           )}

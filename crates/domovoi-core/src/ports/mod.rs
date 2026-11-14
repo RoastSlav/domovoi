@@ -16,8 +16,8 @@ pub mod repos;
 pub mod uow;
 
 pub use agent_link::{
-    AgentLink, CheckRecheck, IngestError, LinkError, Presence, SignalSink, SkillDispatch,
-    SkillOutput, ToolOutput,
+    AgentLink, CheckRecheck, HostAvailability, IngestError, LinkError, Presence, SignalSink,
+    SkillDispatch, SkillOutput, ToolOutput,
 };
 pub use chat::{
     ChatError, ChatGateway, InteractionSink, MessageRef, Notifier, OutboundMessage, ThreadRef,
@@ -25,8 +25,8 @@ pub use chat::{
 pub use clock::Clock;
 pub use hostfs::{FsError, HostFs};
 pub use llm::{
-    LlmError, LlmMessage, LlmProvider, LlmRequest, LlmResponse, Part, Role, StopReason, ToolSpec,
-    Usage,
+    LlmCapability, LlmError, LlmMessage, LlmProvider, LlmRequest, LlmResponse, Part, Role,
+    StopReason, ToolSpec, Usage, UsageSource,
 };
 pub use logs::{LogLine, LogSource};
 pub use process::{ProcessError, ProcessExecutor, ProcessOutput, ProcessSpec};

@@ -21,3 +21,8 @@ Signals, triage results, acks, button presses, action results and timers all cha
 ## Alternatives considered
 
 - Database row locking per incident: harder to test, spreads logic across handlers.
+
+## Update
+
+- A command's writes are now one `UnitOfWork` commit rather than a sequence of repository calls, so a signal, an incident row, its timeline entries and the mirrored journal rows land together or not at all.
+- Each incident the manager may write is read through `VersionedRead`, which returns body and version together. An incident write names the version it read; a conflict reloads the aggregate and decides once more, and a second conflict fails the command without publishing anything.

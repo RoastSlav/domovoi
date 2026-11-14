@@ -19,7 +19,16 @@ use domovoi_engine::notify::{self, NotifyAction, NotifySettings};
 use domovoi_store::Store;
 use jiff::SignedDuration;
 
+mod state;
+
+use state::{Delivered, Working};
+
 const BACKOFF: [i64; 5] = [1, 2, 4, 8, 16];
+
+/// Counts a notification state read or write that failed, by `op`.
+pub(super) fn state_error(op: &'static str) {
+    metrics::counter!("domovoi_notify_state_errors_total", "op" => op).increment(1);
+}
 
 #[derive(Clone)]
 pub(super) struct Delivery {
@@ -54,55 +63,112 @@ impl Delivery {
 
     pub(super) async fn event(&self, event: DomainEvent) {
         let id = event.incident.id();
-        let state = self.state(id).await;
-        let plan = notify::plan(&event, &state, &self.settings, self.clock.now());
-        if let Err(err) =
-            NotifyStateRepo::put(&*self.store, id, &plan.state, self.clock.now()).await
-        {
-            tracing::warn!(%err, %id, "could not save notification policy state");
-        }
+        // A state that cannot be read is not the same as one that was never written: a
+        // default state has no card reference, so planning from it would post a second card.
+        let base = match self.state(id).await {
+            Ok(state) => state,
+            Err(err) => {
+                tracing::error!(
+                    %err,
+                    %id,
+                    "could not read notification state; this event is not delivered"
+                );
+                state_error("read");
+                return;
+            }
+        };
+        let plan = notify::plan(&event, &base, &self.settings, self.clock.now());
         let tokens = match event.kind {
             EventKind::TriageCompleted { tokens, .. } => tokens,
             _ => BTreeMap::new(),
         };
-        self.actions(event.incident, plan.actions, plan.state, tokens)
+        let delivered = self
+            .actions(
+                event.incident,
+                plan.actions,
+                Working {
+                    base: base.clone(),
+                    current: plan.state,
+                },
+                tokens,
+            )
             .await;
+        self.save_after(id, &base, delivered).await;
     }
 
-    pub(super) async fn tick_actions(&self, incident: Incident, actions: Vec<NotifyAction>) {
+    /// Delivers a tick's actions for one incident and saves the planned state only when every
+    /// one of them was confirmed; otherwise only the references that were. Returns whether
+    /// they all were.
+    pub(super) async fn tick_actions(
+        &self,
+        incident: Incident,
+        before: NotifyState,
+        after: NotifyState,
+        actions: Vec<NotifyAction>,
+    ) -> bool {
         let id = incident.id();
-        let state = self.state(id).await;
-        self.actions(incident, actions, state, BTreeMap::new())
+        let delivered = self
+            .actions(
+                incident,
+                actions,
+                Working {
+                    base: before.clone(),
+                    current: after,
+                },
+                BTreeMap::new(),
+            )
             .await;
+        let ok = delivered.ok;
+        self.save_after(id, &before, delivered).await;
+        ok
     }
 
     async fn actions(
         &self,
         incident: Incident,
         actions: Vec<NotifyAction>,
-        state: NotifyState,
+        working: Working,
         tokens: BTreeMap<domovoi_core::ActionId, String>,
-    ) {
+    ) -> Delivered {
         if actions.is_empty() || self.gateways.is_empty() {
-            return;
+            // Nothing to confirm: the plan's state is the truth, as with no chat configured.
+            return Delivered {
+                ok: true,
+                state: working.current,
+            };
         }
         let Some(card) = self.card(&incident, tokens).await else {
-            return;
+            return Delivered {
+                ok: false,
+                state: working.base,
+            };
         };
-        let state = Arc::new(tokio::sync::Mutex::new(state));
+        let working = Arc::new(tokio::sync::Mutex::new(working));
         let jobs = self.gateways.iter().map(|gateway| {
-            let state = state.clone();
+            let working = working.clone();
             let actions = actions.clone();
             let card = card.clone();
             let incident = incident.clone();
             async move {
+                let mut ok = true;
                 for action in actions {
-                    self.perform(gateway, &incident, &card, &state, action)
+                    // Every action still runs; one failure only marks the pass unconfirmed.
+                    ok &= self
+                        .perform(gateway, &incident, &card, &working, action)
                         .await;
                 }
+                ok
             }
         });
-        futures::future::join_all(jobs).await;
+        let confirmed = futures::future::join_all(jobs)
+            .await
+            .into_iter()
+            .all(|ok| ok);
+        let state = working.lock().await.current.clone();
+        Delivered {
+            ok: confirmed,
+            state,
+        }
     }
 
     async fn perform(
@@ -110,9 +176,9 @@ impl Delivery {
         gateway: &Arc<dyn ChatGateway>,
         incident: &Incident,
         card: &Card,
-        state: &Arc<tokio::sync::Mutex<NotifyState>>,
+        state: &Arc<tokio::sync::Mutex<Working>>,
         action: NotifyAction,
-    ) {
+    ) -> bool {
         let platform = gateway.platform().to_owned();
         let result = match action {
             NotifyAction::PostCard { .. } => {
@@ -125,10 +191,14 @@ impl Delivery {
             NotifyAction::Hold { .. } => Ok(()),
         };
         match result {
-            Ok(()) => self.succeeded(&platform).await,
+            Ok(()) => {
+                self.succeeded(&platform).await;
+                true
+            }
             Err(err) => {
                 tracing::warn!(%err, gateway = %platform, incident = %incident.id(), "delivery failed after retries");
                 self.failed(&platform).await;
+                false
             }
         }
     }
@@ -138,7 +208,7 @@ impl Delivery {
         gateway: &Arc<dyn ChatGateway>,
         incident: &Incident,
         card: &Card,
-        state: &Arc<tokio::sync::Mutex<NotifyState>>,
+        state: &Arc<tokio::sync::Mutex<Working>>,
     ) -> Result<MessageRef, ChatError> {
         if let Some(message) = self.message(state, gateway.platform()).await {
             return Ok(message);
@@ -146,23 +216,23 @@ impl Delivery {
         let message = self.retry(|| gateway.post_card(card)).await?;
         {
             let mut current = state.lock().await;
-            current.messages.insert(
+            current.current.messages.insert(
                 gateway.platform().to_owned(),
                 ChatRefs {
                     message: message.clone(),
                     thread: None,
                 },
             );
-            self.save(incident.id(), &current).await;
+            self.save_refs(incident.id(), &current).await;
         }
         let thread = self
             .retry(|| gateway.open_thread(&message, incident.title()))
             .await?;
         let mut current = state.lock().await;
-        if let Some(refs) = current.messages.get_mut(gateway.platform()) {
+        if let Some(refs) = current.current.messages.get_mut(gateway.platform()) {
             refs.thread = Some(thread);
         }
-        self.save(incident.id(), &current).await;
+        self.save_refs(incident.id(), &current).await;
         Ok(message)
     }
 
@@ -171,7 +241,7 @@ impl Delivery {
         gateway: &Arc<dyn ChatGateway>,
         incident: &Incident,
         card: &Card,
-        state: &Arc<tokio::sync::Mutex<NotifyState>>,
+        state: &Arc<tokio::sync::Mutex<Working>>,
     ) -> Result<(), ChatError> {
         let Some(message) = self.message(state, gateway.platform()).await else {
             return self.post(gateway, incident, card, state).await.map(|_| ());
@@ -179,7 +249,12 @@ impl Delivery {
         match self.retry(|| gateway.update_card(&message, card)).await {
             Ok(()) => Ok(()),
             Err(ChatError::NotFound) => {
-                state.lock().await.messages.remove(gateway.platform());
+                state
+                    .lock()
+                    .await
+                    .current
+                    .messages
+                    .remove(gateway.platform());
                 self.post(gateway, incident, card, state).await.map(|_| ())
             }
             Err(err) => Err(err),
@@ -191,13 +266,14 @@ impl Delivery {
         gateway: &Arc<dyn ChatGateway>,
         incident: &Incident,
         card: &Card,
-        state: &Arc<tokio::sync::Mutex<NotifyState>>,
+        state: &Arc<tokio::sync::Mutex<Working>>,
         text: &str,
     ) -> Result<(), ChatError> {
         let message = self.post(gateway, incident, card, state).await?;
         let existing = state
             .lock()
             .await
+            .current
             .messages
             .get(gateway.platform())
             .and_then(|refs| refs.thread.clone());
@@ -208,43 +284,14 @@ impl Delivery {
                     .retry(|| gateway.open_thread(&message, incident.title()))
                     .await?;
                 let mut current = state.lock().await;
-                if let Some(refs) = current.messages.get_mut(gateway.platform()) {
+                if let Some(refs) = current.current.messages.get_mut(gateway.platform()) {
                     refs.thread = Some(thread.clone());
                 }
-                self.save(incident.id(), &current).await;
+                self.save_refs(incident.id(), &current).await;
                 thread
             }
         };
         self.retry(|| gateway.reply(&thread, text)).await
-    }
-
-    async fn message(
-        &self,
-        state: &Arc<tokio::sync::Mutex<NotifyState>>,
-        platform: &str,
-    ) -> Option<MessageRef> {
-        state
-            .lock()
-            .await
-            .messages
-            .get(platform)
-            .map(|refs| refs.message.clone())
-    }
-
-    async fn save(&self, incident: IncidentId, state: &NotifyState) {
-        if let Err(err) =
-            NotifyStateRepo::put(&*self.store, incident, state, self.clock.now()).await
-        {
-            tracing::warn!(%err, %incident, "could not save chat message references");
-        }
-    }
-
-    async fn state(&self, incident: IncidentId) -> NotifyState {
-        NotifyStateRepo::get(&*self.store, incident)
-            .await
-            .ok()
-            .flatten()
-            .unwrap_or_default()
     }
 
     async fn card(
@@ -324,8 +371,20 @@ impl Delivery {
             }
         };
         let actions = notify::card_changed(&incident, &state);
-        self.actions(incident, actions, state, BTreeMap::new())
+        let id = incident.id();
+        let delivered = self
+            .actions(
+                incident,
+                actions,
+                Working {
+                    base: state.clone(),
+                    current: state.clone(),
+                },
+                BTreeMap::new(),
+            )
             .await;
+        // Recovery never advances the policy fields: only the references it confirmed change.
+        self.save_after(id, &state, delivered).await;
     }
 
     /// Whether any one-way notifier is configured.

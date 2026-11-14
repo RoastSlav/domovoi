@@ -27,12 +27,24 @@ expression: card
     {
       "type": "approve",
       "action": "01900000-0000-7000-8000-000000002001",
-      "token": "tok_write"
+      "token": "tok_write",
+      "plan_prefix": "ebf4c7"
     },
     {
       "type": "deny",
       "action": "01900000-0000-7000-8000-000000002001",
       "token": "tok_write"
+    }
+  ],
+  "plans": [
+    {
+      "action": "01900000-0000-7000-8000-000000002001",
+      "skill": "restart_container",
+      "host": "nas",
+      "risk": "write",
+      "args": [],
+      "plan_short": "ebf4c79d",
+      "expires_at": "2023-11-14T23:13:20Z"
     }
   ],
   "details": "The container exits during startup.\n\nDatabase migration 42 fails on the new image.",
