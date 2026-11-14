@@ -62,6 +62,21 @@ pub(crate) fn estimated(input_tokens: u32, output_tokens: u32, price: Option<&Pr
     usage
 }
 
+/// What an answer contains, for estimating its usage when the provider reported none.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Answer<'a> {
+    /// Visible text and tool calls.
+    pub(crate) parts: &'a [Part],
+    /// Reasoning the provider exposed; redacted reasoning has no text.
+    pub(crate) reasoning: &'a str,
+    /// Why the model stopped.
+    pub(crate) stop: &'a StopReason,
+    /// The output allowance the request authorised.
+    pub(crate) allowance: u32,
+    /// Whether some reasoning was redacted, so visible text is not the whole output.
+    pub(crate) redacted_thinking: bool,
+}
+
 /// The usage of an answer whose provider reported none.
 ///
 /// The visible text, the tool calls and the reasoning a provider exposed are counted. A turn
@@ -74,22 +89,18 @@ pub(crate) fn estimated(input_tokens: u32, output_tokens: u32, price: Option<&Pr
 /// free turn.
 pub(crate) fn estimated_answer(
     input_tokens: u32,
-    parts: &[Part],
-    reasoning: &str,
-    stop: &StopReason,
-    allowance: u32,
-    redacted_thinking: bool,
+    answer: &Answer<'_>,
     price: Option<&Price>,
 ) -> Usage {
-    let output = if redacted_thinking || *stop == StopReason::MaxTokens {
-        allowance
+    let output = if answer.redacted_thinking || *answer.stop == StopReason::MaxTokens {
+        answer.allowance
     } else {
-        answer_tokens(parts).saturating_add(text_tokens(reasoning))
+        answer_tokens(answer.parts).saturating_add(text_tokens(answer.reasoning))
     };
     if output == 0 {
         let mut usage = Usage {
             input_tokens,
-            output_tokens: allowance,
+            output_tokens: answer.allowance,
             cost_micros: None,
             source: UsageSource::Unknown,
         };
@@ -97,6 +108,24 @@ pub(crate) fn estimated_answer(
         return usage;
     }
     estimated(input_tokens, output, price)
+}
+
+/// The usage of a response that reported only part of its totals, or none at all.
+///
+/// A reported half is kept — including an explicit zero — and only the missing half is
+/// estimated. Both present is a complete report and belongs to [`reported`] instead.
+pub(crate) fn partial_or_estimated(
+    reported_input: Option<u32>,
+    reported_output: Option<u32>,
+    request_input: u32,
+    answer: &Answer<'_>,
+    price: Option<&Price>,
+) -> Usage {
+    let input = reported_input.unwrap_or(request_input);
+    match reported_output {
+        Some(output) => estimated(input, output, price),
+        None => estimated_answer(input, answer, price),
+    }
 }
 
 /// A usage total the provider reported, priced when `price` is known.

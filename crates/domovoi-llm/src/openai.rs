@@ -367,12 +367,14 @@ pub(crate) struct WireFunction {
     pub(crate) arguments: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 pub(crate) struct WireUsage {
+    /// Present when the server reported the prompt total; an explicit zero is reported.
     #[serde(default)]
-    pub(crate) prompt_tokens: u32,
+    pub(crate) prompt_tokens: Option<u32>,
+    /// Present when the server reported the generated total; an explicit zero is reported.
     #[serde(default)]
-    pub(crate) completion_tokens: u32,
+    pub(crate) completion_tokens: Option<u32>,
 }
 
 fn into_response(
@@ -426,20 +428,27 @@ fn into_response(
     }
     // A server that reports no usage must not look free: infer the tokens from the request,
     // the visible answer and the reasoning, and price the estimate when the provider has a
-    // price. A reported total already includes reasoning tokens and takes precedence.
+    // price. A complete reported total already includes reasoning tokens and takes
+    // precedence; a partial one keeps the reported half and estimates only the other.
+    let answer = usage::Answer {
+        parts: &parts,
+        reasoning: &reasoning,
+        stop: &stop,
+        allowance: req.max_output_tokens,
+        redacted_thinking: false,
+    };
     let usage = match response.usage {
-        Some(reported) => {
-            usage::reported(reported.prompt_tokens, reported.completion_tokens, price)
-        }
-        None => usage::estimated_answer(
-            usage::request_tokens(req),
-            &parts,
-            &reasoning,
-            &stop,
-            req.max_output_tokens,
-            false,
-            price,
-        ),
+        Some(reported) => match (reported.prompt_tokens, reported.completion_tokens) {
+            (Some(input), Some(output)) => usage::reported(input, output, price),
+            (input, output) => usage::partial_or_estimated(
+                input,
+                output,
+                usage::request_tokens(req),
+                &answer,
+                price,
+            ),
+        },
+        None => usage::estimated_answer(usage::request_tokens(req), &answer, price),
     };
     Ok(LlmResponse { parts, stop, usage })
 }

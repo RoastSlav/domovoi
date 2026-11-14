@@ -14,9 +14,20 @@ const ANTHROPIC_PRICE: Price = Price {
     output_per_mtok_usd: 10.0,
 };
 
+const OPENAI_PRICE: Price = Price {
+    input_per_mtok_usd: 3.0,
+    output_per_mtok_usd: 15.0,
+};
+
 fn priced_anthropic(base: &str) -> domovoi_llm::ProviderSettings {
     let mut settings = anthropic(base);
     settings.price = Some(ANTHROPIC_PRICE);
+    settings
+}
+
+fn priced_openai(base: &str) -> domovoi_llm::ProviderSettings {
+    let mut settings = openai(base, false);
+    settings.price = Some(OPENAI_PRICE);
     settings
 }
 
@@ -432,4 +443,117 @@ async fn anthropic_stream_complete_usage_with_redacted_wins() {
         "not replaced by the allowance"
     );
     assert_eq!(response.usage.cost_micros, Some(25 * 2 + 42 * 10));
+}
+
+/// A stream that reports only the prompt total keeps it and estimates the output.
+#[tokio::test]
+async fn openai_stream_input_only_usage_estimates_the_output() {
+    let server = serve(
+        "/v1/chat/completions",
+        events(
+            "data: {\"choices\":[{\"delta\":{\"content\":\"All good.\"}}]}\n\n\
+             data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n\
+             data: {\"choices\":[],\"usage\":{\"prompt_tokens\":100}}\n\n\
+             data: [DONE]\n\n",
+        ),
+    )
+    .await;
+    let provider = build(&priced_openai(&server.uri()), None).unwrap();
+    let response = provider.complete(ask("Status?")).await.unwrap();
+    assert_eq!(response.usage.source, UsageSource::Estimated);
+    assert_eq!(response.usage.input_tokens, 100);
+    assert!(response.usage.output_tokens > 0);
+    assert_eq!(
+        response.usage.cost_micros,
+        Some(100 * 3 + u64::from(response.usage.output_tokens) * 15)
+    );
+}
+
+/// A stream that reports only the completion total keeps it and estimates the input.
+#[tokio::test]
+async fn openai_stream_output_only_usage_estimates_the_input() {
+    let server = serve(
+        "/v1/chat/completions",
+        events(
+            "data: {\"choices\":[{\"delta\":{\"content\":\"All good.\"}}]}\n\n\
+             data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n\
+             data: {\"choices\":[],\"usage\":{\"completion_tokens\":20}}\n\n\
+             data: [DONE]\n\n",
+        ),
+    )
+    .await;
+    let provider = build(&priced_openai(&server.uri()), None).unwrap();
+    let response = provider.complete(ask("Status?")).await.unwrap();
+    assert_eq!(response.usage.source, UsageSource::Estimated);
+    assert_eq!(response.usage.output_tokens, 20);
+    assert!(response.usage.input_tokens > 0);
+    assert_eq!(
+        response.usage.cost_micros,
+        Some(u64::from(response.usage.input_tokens) * 3 + 20 * 15)
+    );
+}
+
+/// An empty usage object in a stream is not a reported zero: both totals are estimated.
+#[tokio::test]
+async fn openai_stream_empty_usage_estimates_both_totals() {
+    let server = serve(
+        "/v1/chat/completions",
+        events(
+            "data: {\"choices\":[{\"delta\":{\"content\":\"All good.\"}}]}\n\n\
+             data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n\
+             data: {\"choices\":[],\"usage\":{}}\n\n\
+             data: [DONE]\n\n",
+        ),
+    )
+    .await;
+    let provider = build(&priced_openai(&server.uri()), None).unwrap();
+    let response = provider.complete(ask("Status?")).await.unwrap();
+    assert_eq!(response.usage.source, UsageSource::Estimated);
+    assert!(response.usage.input_tokens > 0);
+    assert!(response.usage.output_tokens > 0);
+    assert!(response.usage.cost_micros.is_some_and(|cost| cost > 0));
+}
+
+/// Usage arriving in several chunks is merged: a later chunk carrying one field does not
+/// discard an earlier one.
+#[tokio::test]
+async fn openai_stream_merges_partial_usage_chunks() {
+    let server = serve(
+        "/v1/chat/completions",
+        events(
+            "data: {\"choices\":[{\"delta\":{\"content\":\"All good.\"}}]}\n\n\
+             data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n\
+             data: {\"choices\":[],\"usage\":{\"prompt_tokens\":100}}\n\n\
+             data: {\"choices\":[],\"usage\":{\"completion_tokens\":20}}\n\n\
+             data: [DONE]\n\n",
+        ),
+    )
+    .await;
+    let provider = build(&priced_openai(&server.uri()), None).unwrap();
+    let response = provider.complete(ask("Status?")).await.unwrap();
+    assert_eq!(response.usage.source, UsageSource::Reported);
+    assert_eq!(response.usage.input_tokens, 100);
+    assert_eq!(response.usage.output_tokens, 20);
+    assert_eq!(response.usage.cost_micros, Some(100 * 3 + 20 * 15));
+}
+
+/// Two explicit zeros are a reported total, not a missing one.
+#[tokio::test]
+async fn openai_stream_reported_zero_is_not_missing() {
+    let server = serve(
+        "/v1/chat/completions",
+        events(
+            "data: {\"choices\":[{\"delta\":{\"content\":\"All good.\"}}]}\n\n\
+             data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n\
+             data: {\"choices\":[],\"usage\":{\"prompt_tokens\":0,\"completion_tokens\":0}}\n\n\
+             data: [DONE]\n\n",
+        ),
+    )
+    .await;
+    let provider = build(&priced_openai(&server.uri()), None).unwrap();
+    let response = provider.complete(ask("Status?")).await.unwrap();
+    assert_eq!(response.usage.source, UsageSource::Reported);
+    assert_eq!(response.usage.input_tokens, 0);
+    assert_eq!(response.usage.output_tokens, 0);
+    assert_eq!(response.usage.cost_micros, Some(0));
 }

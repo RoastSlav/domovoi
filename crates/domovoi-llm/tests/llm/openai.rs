@@ -648,3 +648,106 @@ async fn an_unpriced_provider_reports_that_it_cannot_be_priced() {
     let provider = build(&openai("http://localhost:1", false), None).unwrap();
     assert!(!provider.prices_usage());
 }
+
+fn priced_openai(base: &str) -> domovoi_llm::ProviderSettings {
+    let mut settings = openai(base, false);
+    settings.price = Some(PRICE);
+    settings
+}
+
+async fn whole_with_usage(usage: Value) -> domovoi_core::ports::LlmResponse {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "choices": [{
+                "message": {"role": "assistant", "content": "All good."},
+                "finish_reason": "stop"
+            }],
+            "usage": usage
+        })))
+        .mount(&server)
+        .await;
+    let provider = build(&priced_openai(&server.uri()), None).unwrap();
+    provider.complete(ask("Status?")).await.unwrap()
+}
+
+/// Both fields present — including two explicit zeros — is a complete report.
+#[tokio::test]
+async fn complete_usage_with_zero_totals_is_reported() {
+    let response = whole_with_usage(json!({"prompt_tokens": 0, "completion_tokens": 0})).await;
+    assert_eq!(response.usage.source, UsageSource::Reported);
+    assert_eq!(response.usage.input_tokens, 0);
+    assert_eq!(response.usage.output_tokens, 0);
+    assert_eq!(response.usage.cost_micros, Some(0), "known to be free");
+}
+
+/// Only the prompt total: keep it, estimate the output from the visible answer.
+#[tokio::test]
+async fn input_only_usage_estimates_the_output() {
+    let response = whole_with_usage(json!({"prompt_tokens": 100})).await;
+    assert_eq!(response.usage.source, UsageSource::Estimated);
+    assert_eq!(
+        response.usage.input_tokens, 100,
+        "the reported input is kept"
+    );
+    assert!(
+        response.usage.output_tokens > 0,
+        "the output is estimated: {:?}",
+        response.usage
+    );
+    assert_eq!(
+        response.usage.cost_micros,
+        Some(100 * 3 + u64::from(response.usage.output_tokens) * 15)
+    );
+}
+
+/// Only the completion total: keep it, estimate the input from the request.
+#[tokio::test]
+async fn output_only_usage_estimates_the_input() {
+    let response = whole_with_usage(json!({"completion_tokens": 20})).await;
+    assert_eq!(response.usage.source, UsageSource::Estimated);
+    assert_eq!(response.usage.output_tokens, 20);
+    assert!(
+        response.usage.input_tokens > 0,
+        "the input is estimated: {:?}",
+        response.usage
+    );
+    assert_eq!(
+        response.usage.cost_micros,
+        Some(u64::from(response.usage.input_tokens) * 3 + 20 * 15)
+    );
+}
+
+/// An empty usage object is not a reported zero: both totals are estimated.
+#[tokio::test]
+async fn an_empty_usage_object_estimates_both_totals() {
+    let response = whole_with_usage(json!({})).await;
+    assert_eq!(response.usage.source, UsageSource::Estimated);
+    assert!(response.usage.input_tokens > 0);
+    assert!(response.usage.output_tokens > 0);
+    assert!(response.usage.cost_micros.is_some_and(|cost| cost > 0));
+}
+
+/// A whole answer that ran out of room and reported no output total is charged the
+/// authorised allowance.
+#[tokio::test]
+async fn a_whole_answer_at_the_allowance_without_usage_uses_the_allowance() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "choices": [{
+                "message": {"role": "assistant", "content": "partial answer"},
+                "finish_reason": "length"
+            }]
+        })))
+        .mount(&server)
+        .await;
+    let provider = build(&priced_openai(&server.uri()), None).unwrap();
+    let mut req = ask("Status?");
+    req.max_output_tokens = 2000;
+
+    let response = provider.complete(req).await.unwrap();
+    assert_eq!(response.stop, StopReason::MaxTokens);
+    assert_eq!(response.usage.output_tokens, 2000);
+    assert_eq!(response.usage.source, UsageSource::Estimated);
+}

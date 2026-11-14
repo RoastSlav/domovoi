@@ -286,15 +286,16 @@ fn read_output(
     let field = match output {
         CliOutput::Text => {
             let text = stdout.trim().to_owned();
-            let usage = crate::usage::estimated_answer(
-                crate::usage::text_tokens(prompt),
-                &[Part::Text(text.clone())],
-                "",
-                &StopReason::EndTurn,
-                0,
-                false,
-                price,
-            );
+            let parts = [Part::Text(text.clone())];
+            let answer = crate::usage::Answer {
+                parts: &parts,
+                reasoning: "",
+                stop: &StopReason::EndTurn,
+                allowance: 0,
+                redacted_thinking: false,
+            };
+            let usage =
+                crate::usage::estimated_answer(crate::usage::text_tokens(prompt), &answer, price);
             return Ok((text, usage));
         }
         CliOutput::Json { field } => field,
@@ -314,27 +315,35 @@ fn read_output(
             excerpt(text, None)
         )));
     }
+    // A missing, null, empty or malformed usage object is not a reported zero: read each
+    // field on its own, so an explicit 0 is kept and anything unavailable is estimated.
     let tokens = |key: &str| {
         value
             .pointer(&format!("/usage/{key}"))
             .and_then(Value::as_u64)
             .and_then(|n| u32::try_from(n).ok())
-            .unwrap_or(0)
     };
-    let usage = if value.get("usage").is_some() {
-        crate::usage::reported(tokens("input_tokens"), tokens("output_tokens"), price)
-    } else {
-        crate::usage::estimated_answer(
+    let answer_text = text.trim().to_owned();
+    let answer_parts = [Part::Text(answer_text.clone())];
+    let answer = crate::usage::Answer {
+        parts: &answer_parts,
+        reasoning: "",
+        stop: &StopReason::EndTurn,
+        allowance: 0,
+        redacted_thinking: false,
+    };
+    let (input, output) = (tokens("input_tokens"), tokens("output_tokens"));
+    let usage = match (input, output) {
+        (Some(input), Some(output)) => crate::usage::reported(input, output, price),
+        _ => crate::usage::partial_or_estimated(
+            input,
+            output,
             crate::usage::text_tokens(prompt),
-            &[Part::Text(text.trim().to_owned())],
-            "",
-            &StopReason::EndTurn,
-            0,
-            false,
+            &answer,
             price,
-        )
+        ),
     };
-    Ok((text.trim().to_owned(), usage))
+    Ok((answer_text, usage))
 }
 
 /// Absolute on Unix (`/usr/bin/claude`) or Windows (`C:\…`), independent of the build host.

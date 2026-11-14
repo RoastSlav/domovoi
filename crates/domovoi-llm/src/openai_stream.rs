@@ -94,8 +94,17 @@ pub(crate) async fn assemble(
                 excerpt(&error.to_string(), secret)
             )));
         }
-        if chunk.usage.is_some() {
-            usage = chunk.usage;
+        // Usage may arrive in several chunks, each carrying different fields. Merge them:
+        // an earlier reported value is never discarded by a later partial one, and an
+        // explicit zero stays reported.
+        if let Some(chunk_usage) = chunk.usage {
+            let merged = usage.get_or_insert_with(WireUsage::default);
+            if chunk_usage.prompt_tokens.is_some() {
+                merged.prompt_tokens = chunk_usage.prompt_tokens;
+            }
+            if chunk_usage.completion_tokens.is_some() {
+                merged.completion_tokens = chunk_usage.completion_tokens;
+            }
         }
         for choice in chunk.choices {
             if let Some(text) = choice.delta.content {

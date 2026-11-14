@@ -83,7 +83,7 @@ Choose a model that supports tool calling. Triage works with tools; without them
 
 When a monthly budget is set, every provider in the chain — the primary, its fallbacks and its fallback models — must have a price before any request is made, because a turn that cannot be priced cannot be counted. A local model that costs nothing is configured with a zero price. A provider with no price is refused with a message naming it, and nothing is sent to it.
 
-A provider that reports no usage still has its turn counted: Domovoi estimates the request, answer and any reasoning it exposed, and prices the estimate. An answer whose tokens cannot be counted at all — or whose reasoning the provider redacted — is charged at its authorised output allowance, so a missing total never makes a billable request look free.
+A provider that reports no usage still has its turn counted: Domovoi estimates the request, answer and any reasoning it exposed, and prices the estimate. A report with only one half keeps that half and estimates the other. An answer whose tokens cannot be counted at all — or whose reasoning the provider redacted — is charged at its authorised output allowance, so a missing total never makes a billable request look free.
 
 ## Coding-agent CLIs
 
@@ -118,7 +118,7 @@ To track spending against `monthly_budget_usd`, give each paid provider its pric
 price = { input_per_mtok_usd = 3.0, output_per_mtok_usd = 15.0 }
 ```
 
-Domovoi has no built-in price list. Without `price`, the cost of a turn is unknown and does not count toward the budget. CLI turns never have a cost.
+Domovoi has no built-in price list. Without `price`, the cost of a turn is unknown and does not count toward the budget. A CLI provider with a `price` is billed from its estimated usage; when its JSON output reports complete totals, those are priced directly, and a partial report keeps the reported half and estimates the other.
 
 ## Runs per hour
 

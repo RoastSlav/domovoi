@@ -257,44 +257,29 @@ fn into_response(response: WireResponse, req: &LlmRequest, price: Option<&Price>
     // keeps it and has the other estimated; a response with no totals at all is estimated
     // from what it contains â€” or, with redacted reasoning, from the whole authorised
     // allowance.
-    let usage = match response.usage {
-        Some(reported) => match (reported.input_tokens, reported.output_tokens) {
-            (Some(input), Some(output)) => crate::usage::reported(input, output, price),
-            (input, output) => {
-                let input = input
-                    .or(response.input_tokens)
-                    .unwrap_or_else(|| crate::usage::request_tokens(req));
-                match output.or(response.output_tokens) {
-                    Some(output) => crate::usage::estimated(input, output, price),
-                    None => crate::usage::estimated_answer(
-                        input,
-                        &parts,
-                        &reasoning,
-                        &stop,
-                        req.max_output_tokens,
-                        redacted_thinking,
-                        price,
-                    ),
-                }
-            }
-        },
-        None => {
-            let input = response
-                .input_tokens
-                .unwrap_or_else(|| crate::usage::request_tokens(req));
-            match response.output_tokens {
-                Some(output) => crate::usage::estimated(input, output, price),
-                None => crate::usage::estimated_answer(
-                    input,
-                    &parts,
-                    &reasoning,
-                    &stop,
-                    req.max_output_tokens,
-                    redacted_thinking,
-                    price,
-                ),
-            }
-        }
+    let answer = crate::usage::Answer {
+        parts: &parts,
+        reasoning: &reasoning,
+        stop: &stop,
+        allowance: req.max_output_tokens,
+        redacted_thinking,
+    };
+    let (input, output) = match response.usage {
+        Some(reported) => (
+            reported.input_tokens.or(response.input_tokens),
+            reported.output_tokens.or(response.output_tokens),
+        ),
+        None => (response.input_tokens, response.output_tokens),
+    };
+    let usage = match (input, output) {
+        (Some(input), Some(output)) => crate::usage::reported(input, output, price),
+        _ => crate::usage::partial_or_estimated(
+            input,
+            output,
+            crate::usage::request_tokens(req),
+            &answer,
+            price,
+        ),
     };
     LlmResponse { parts, stop, usage }
 }
