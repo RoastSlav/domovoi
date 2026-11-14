@@ -1,16 +1,16 @@
 //! One triage run: caps, the repeat cache, the provider chain, proposals, then the outcome
 //! attached through the incident manager. Also tracks consecutive failures.
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use domovoi_core::ports::{LlmCapability, LlmError, LlmMessage, LlmProvider, Part, Role};
 use domovoi_core::{
     ActionId, Incident, IncidentId, ReadToolCall, SkillSummary, TriageOutcome, TriageReport,
 };
-use jiff::{SignedDuration, Timestamp};
+use jiff::SignedDuration;
 
-use super::admission::{Purpose, Refusal, admit, unpriced_text};
+use super::admission::{ADMISSION_RETRY, Purpose, Refusal, admit, unpriced_text};
 use super::agent::{self, ToolUse, text_of};
 use super::cache::evidence_digest;
 use super::report::{parse_report, redact_report};
@@ -20,10 +20,9 @@ use super::{
 use crate::advisories::triage_degraded;
 use crate::events::{DomainEvent, EventKind};
 
-/// Run starts in the last hour and the failure streak.
+/// The failure streak and whether the degraded advisory was raised.
 #[derive(Debug, Default)]
 pub(crate) struct Limits {
-    pub(crate) starts: VecDeque<Timestamp>,
     pub(crate) failures: u32,
     pub(crate) degraded: bool,
 }
@@ -56,6 +55,23 @@ async fn outcome(
     incident: &Incident,
     fresh: bool,
 ) -> (TriageOutcome, BTreeMap<ActionId, String>) {
+    let deps = &shared.deps;
+    let latest = deps
+        .signals
+        .list_for_incident(incident.id(), 1)
+        .await
+        .ok()
+        .and_then(|s| s.into_iter().next());
+    let digest = evidence_digest(incident, latest.as_ref());
+    // The repeat cache is read before admission: an answer that costs no model call must
+    // not take a run of the hour or read the monthly budget.
+    if !fresh && let Some((mut report, from)) = cached(shared, incident, &digest).await {
+        // The repeat incident gets the same approve buttons a fresh triage would: the
+        // cached report's proposals are re-validated against the host's current skills.
+        let skills = deps.link.skills(incident.host());
+        let tokens = proposals::create(shared, incident, &skills, &mut report).await;
+        return (TriageOutcome::Cached { report, from }, tokens);
+    }
     if let Err(refusal) = admit(shared, Purpose::Triage).await {
         let reason = match refusal {
             Refusal::BudgetSpent => "the monthly triage budget is spent".to_owned(),
@@ -75,23 +91,18 @@ async fn outcome(
                     )
                 }
             }
+            Refusal::Unverifiable => {
+                // The alert is already out, so the run ends as skipped and is retried once
+                // the limits are readable again.
+                if let Ok(at) = deps.clock.now().checked_add(ADMISSION_RETRY) {
+                    shared.defer(incident.id(), at, RetryReason::Cap);
+                }
+                "the model limits could not be checked, so triage did not run; it tries \
+                 again shortly"
+                    .to_owned()
+            }
         };
         return (TriageOutcome::Skipped { reason }, BTreeMap::new());
-    }
-    let deps = &shared.deps;
-    let latest = deps
-        .signals
-        .list_for_incident(incident.id(), 1)
-        .await
-        .ok()
-        .and_then(|s| s.into_iter().next());
-    let digest = evidence_digest(incident, latest.as_ref());
-    if !fresh && let Some((mut report, from)) = cached(shared, incident, &digest).await {
-        // The repeat incident gets the same approve buttons a fresh triage would: the
-        // cached report's proposals are re-validated against the host's current skills.
-        let skills = deps.link.skills(incident.host());
-        let tokens = proposals::create(shared, incident, &skills, &mut report).await;
-        return (TriageOutcome::Cached { report, from }, tokens);
     }
     let skills = deps.link.skills(incident.host());
     let bundle = context::build(shared, incident, &skills).await;
@@ -201,10 +212,16 @@ async fn providers(
                     );
                 }
                 Err(Failure::Provider(err)) => {
-                    break format!("{} failed: {err}", provider_name(provider));
+                    break shared
+                        .deps
+                        .redactor
+                        .redact(&format!("{} failed: {err}", provider_name(provider)));
                 }
                 Err(Failure::Invalid(why)) => {
-                    break format!("{} failed: {why}", provider_name(provider));
+                    break shared
+                        .deps
+                        .redactor
+                        .redact(&format!("{} failed: {why}", provider_name(provider)));
                 }
             }
         };
@@ -297,7 +314,7 @@ async fn attempt(
     let answer = agent::converse(shared, provider, brief, &mut messages, used, run).await?;
     let error = match parse_report(&answer) {
         Ok(report) => return Ok(report),
-        Err(error) => error,
+        Err(error) => shared.deps.redactor.redact(&error),
     };
     messages.push(LlmMessage {
         role: Role::User,

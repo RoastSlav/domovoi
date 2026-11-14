@@ -65,6 +65,12 @@ impl Validate for HubConfig {
                 "must be zero or more; remove it for no budget",
             ));
         }
+        if self.triage.per_run.prompt_bytes < 32_768 {
+            issues.push(ConfigIssue::error(
+                "triage.per_run.prompt_bytes",
+                "must be at least 32768 (32 KiB); the opening context may not fit below it",
+            ));
+        }
         agent_server_rules(&self.agent_server, issues);
         if self.incidents.confirm_runs == 0 {
             issues.push(ConfigIssue::error(
@@ -201,6 +207,15 @@ fn provider_rules(path: &str, provider: &LlmProvider, issues: &mut Vec<ConfigIss
         issues.push(ConfigIssue::error(
             format!("{path}.fallback_models"),
             "fallback models need an anthropic or openai_compatible provider",
+        ));
+    }
+    if provider
+        .call_deadline
+        .is_some_and(|deadline| deadline.as_signed() < jiff::SignedDuration::from_secs(10))
+    {
+        issues.push(ConfigIssue::error(
+            format!("{path}.call_deadline"),
+            "must be at least 10s; a shorter hard deadline would refuse normal calls",
         ));
     }
 }

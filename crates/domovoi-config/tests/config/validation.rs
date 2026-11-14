@@ -268,3 +268,43 @@ fn local_webhooks_non_loopback_needs_flag() {
     assert!(agent(&allowed).is_ok());
     assert!(agent(&format!("{AGENT}[local_webhooks]\nbind = \"[::1]:7422\"\n")).is_ok());
 }
+
+#[test]
+fn call_deadline_parses_defaults_and_rejects_below_ten_seconds() {
+    let (config, issues) = hub("").expect("the default config loads");
+    assert!(issues.is_empty());
+    assert!(
+        config.llm.primary.is_none(),
+        "no provider, so no deadline is set"
+    );
+
+    let ok =
+        "[llm.primary]\nkind = \"cli\"\ncli = { preset = \"codex\" }\ncall_deadline = \"5m\"\n";
+    let (config, issues) = hub(ok).expect("a five minute deadline loads");
+    assert!(issues.is_empty());
+    assert_eq!(
+        config
+            .llm
+            .primary
+            .and_then(|provider| provider.call_deadline)
+            .map(domovoi_config::Duration::as_signed),
+        Some(jiff::SignedDuration::from_mins(5)),
+    );
+
+    let errors = hub_errors(
+        "[llm.primary]\nkind = \"cli\"\ncli = { preset = \"codex\" }\ncall_deadline = \"5s\"\n",
+    );
+    assert_issue(&errors, "llm.primary.call_deadline", "at least 10s");
+}
+
+#[test]
+fn prompt_bytes_defaults_to_128_kib_and_rejects_below_32_kib() {
+    let (config, _) = hub("").expect("the default config loads");
+    assert_eq!(config.triage.per_run.prompt_bytes, 131_072);
+
+    let (config, _) = hub("[triage.per_run]\nprompt_bytes = 32768\n").expect("the minimum loads");
+    assert_eq!(config.triage.per_run.prompt_bytes, 32_768);
+
+    let errors = hub_errors("[triage.per_run]\nprompt_bytes = 1024\n");
+    assert_issue(&errors, "triage.per_run.prompt_bytes", "at least 32768");
+}

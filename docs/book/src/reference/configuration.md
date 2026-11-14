@@ -94,6 +94,7 @@ The provider tried first. Required when triage is enabled.
 | --- | --- | --- |
 | `api_key` | secret | API key. Required for `anthropic`. |
 | `base_url` | URL | API base URL. Required for `openai_compatible`; optional for `anthropic`. |
+| `call_deadline` | duration | The longest one model call may take in total, such as `5m`, even while it keeps streaming. Default `5m`. |
 | `fallback_models` | list of string | Models of the same provider tried in order when `model` fails. Optional. |
 | `kind` | `"anthropic"` or `"openai_compatible"` or `"cli"` | Which adapter talks to the model. |
 | `model` | string | Model name. Required for `anthropic` and `openai_compatible`. |
@@ -126,6 +127,7 @@ A fallback used when the primary fails. Optional.
 | --- | --- | --- |
 | `api_key` | secret | API key. Required for `anthropic`. |
 | `base_url` | URL | API base URL. Required for `openai_compatible`; optional for `anthropic`. |
+| `call_deadline` | duration | The longest one model call may take in total, such as `5m`, even while it keeps streaming. Default `5m`. |
 | `fallback_models` | list of string | Models of the same provider tried in order when `model` fails. Optional. |
 | `kind` | `"anthropic"` or `"openai_compatible"` or `"cli"` | Which adapter talks to the model. |
 | `model` | string | Model name. Required for `anthropic` and `openai_compatible`. |
@@ -237,6 +239,7 @@ Limits for a single run.
 | Key | Type | Meaning |
 | --- | --- | --- |
 | `output_tokens` | integer | Output tokens per model turn. Default 2000, clamped to the supported maximum of 16000. It also caps a reasoning model's reasoning, so a turn that runs out of room before finishing its answer is retried with four times as much, up to the maximum. |
+| `prompt_bytes` | integer | Largest prompt sent in one model call, in bytes. Old tool results are shortened first to fit. Default 131072 (128 KiB). |
 | `seconds` | integer | Wall-clock seconds per run. Default 90. |
 | `tool_calls` | integer | Tool calls per run. Default 15. |
 | `total_tokens` | integer | Output tokens one run may ask for in total: every normal turn (`tool_calls + 1`), one turn retried all the way to the supported maximum, and the report repair retried the same way. Optional; that sum is the default. Every request is charged before it is sent, including each retry, so the run cannot exceed it. |

@@ -75,9 +75,9 @@ impl HubRuntime {
             let primary = config.llm.primary.as_ref().ok_or_else(|| {
                 RuntimeError::Chat("triage is enabled without a primary provider".to_owned())
             })?;
-            settings::chain_for(primary, executor.clone())?;
+            settings::chain_for(primary, executor.clone(), clock)?;
             if let Some(secondary) = &config.llm.secondary {
-                settings::chain_for(secondary, executor.clone())?;
+                settings::chain_for(secondary, executor.clone(), clock)?;
             }
         }
         Ok(())

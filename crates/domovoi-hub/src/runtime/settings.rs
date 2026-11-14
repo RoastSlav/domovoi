@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use domovoi_config::hub::{HubConfig, LlmKind, LlmProvider};
 use domovoi_core::IncidentPolicy;
+use domovoi_core::ports::Clock;
 use domovoi_engine::notify::{NotifySettings, QuietHours};
 use domovoi_engine::triage::TriageSettings;
 use domovoi_engine::{ActionSettings, EnginePolicy};
@@ -43,6 +44,7 @@ pub(super) fn triage(config: &HubConfig) -> TriageSettings {
             (budget.is_finite() && budget >= 0.0).then_some((budget * 1_000_000.0).round() as u64)
         }),
         cache_days: config.triage.cache_days,
+        max_prompt_bytes: config.triage.per_run.prompt_bytes as usize,
         budget: triage_budget(config),
     }
 }
@@ -121,11 +123,22 @@ pub(super) fn retention(config: &HubConfig) -> domovoi_store::RetentionPolicy {
     }
 }
 
+/// The hard per-call deadline for a configured provider.
+fn call_deadline(config: &LlmProvider) -> SignedDuration {
+    config
+        .call_deadline
+        .map_or(domovoi_llm::DEFAULT_CALL_DEADLINE, |deadline| {
+            deadline.as_signed()
+        })
+}
+
 /// The provider chain for one configured slot: the slot's own provider first, then one
-/// per fallback model. Built eagerly so a bad fallback model is a start-up error.
+/// per fallback model. Built eagerly so a bad fallback model is a start-up error, and every
+/// built provider carries the configured hard per-call deadline.
 pub(crate) fn chain_for(
     config: &LlmProvider,
     executor: Option<Arc<dyn domovoi_core::ports::ProcessExecutor>>,
+    clock: &Arc<dyn Clock>,
 ) -> Result<Vec<Arc<dyn domovoi_core::ports::LlmProvider>>, super::RuntimeError> {
     let base = provider(config);
     let all: Vec<ProviderSettings> = std::iter::chain(
@@ -140,7 +153,11 @@ pub(crate) fn chain_for(
     let mut chain: Vec<Arc<dyn domovoi_core::ports::LlmProvider>> = Vec::new();
     for settings in all.iter() {
         match domovoi_llm::build(settings, executor.clone()) {
-            Ok(provider) => chain.push(provider),
+            Ok(provider) => chain.push(domovoi_llm::with_deadline(
+                provider,
+                call_deadline(config),
+                clock.clone(),
+            )),
             Err(err) => return Err(super::RuntimeError::Llm(err)),
         }
     }
@@ -152,6 +169,7 @@ pub(crate) fn chain_for(
 pub(crate) fn fallback_models_for(
     config: &LlmProvider,
     executor: Option<Arc<dyn domovoi_core::ports::ProcessExecutor>>,
+    clock: &Arc<dyn Clock>,
 ) -> Result<Vec<Arc<dyn domovoi_core::ports::LlmProvider>>, super::RuntimeError> {
     let base = provider(config);
     let mut chain: Vec<Arc<dyn domovoi_core::ports::LlmProvider>> = Vec::new();
@@ -159,7 +177,11 @@ pub(crate) fn fallback_models_for(
         let mut settings = base.clone();
         settings.model = Some(model.clone());
         match domovoi_llm::build(&settings, executor.clone()) {
-            Ok(provider) => chain.push(provider),
+            Ok(provider) => chain.push(domovoi_llm::with_deadline(
+                provider,
+                call_deadline(config),
+                clock.clone(),
+            )),
             Err(err) => return Err(super::RuntimeError::Llm(err)),
         }
     }

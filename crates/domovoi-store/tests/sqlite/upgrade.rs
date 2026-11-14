@@ -161,7 +161,7 @@ async fn upgrade_from_previous_schema_keeps_every_row() {
 
     // 6. Full-text search still finds the titled rows.
     assert!(
-        !IncidentRepo::search(&store, "disk", 10)
+        !IncidentRepo::search(&store, "disk", None, 10)
             .await
             .unwrap()
             .is_empty()

@@ -122,3 +122,77 @@ async fn database_directory_is_private() {
         .mode();
     assert_eq!(mode & 0o777, 0o700);
 }
+
+#[tokio::test]
+async fn llm_admission_migration_keeps_existing_usage_rows() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("db").join("domovoi.db");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let connect = sqlx::sqlite::SqliteConnectOptions::new()
+        .filename(&path)
+        .create_if_missing(true);
+    let pool = sqlx::sqlite::SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(connect)
+        .await
+        .unwrap();
+    // A database written by the previous schema, before the attribution columns existed.
+    MIGRATOR.run_to(9, &pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO llm_usage (provider, tokens_in, tokens_out, cost_micros, at) \
+         VALUES ('legacy', 10, 2, 500, ?)",
+    )
+    .bind(at(5).as_millisecond())
+    .execute(&pool)
+    .await
+    .unwrap();
+    pool.close().await;
+
+    let options = StoreOptions::beside(&path, at(1000));
+    let backups = options.backup_dir.clone();
+    let store = Store::open(&path, options).await.unwrap();
+    assert!(
+        backups
+            .join(domovoi_store::pre_migrate_name(at(1000)))
+            .exists(),
+        "the database is backed up before the migration"
+    );
+
+    let row: (
+        String,
+        Option<String>,
+        String,
+        i64,
+        Option<String>,
+        Option<i64>,
+    ) = sqlx::query_as(
+        "SELECT provider, model, outcome, cost_micros, usage_source, latency_ms \
+         FROM llm_usage WHERE provider = 'legacy'",
+    )
+    .fetch_one(store.pool_for_tests())
+    .await
+    .unwrap();
+    assert_eq!(row.0, "legacy");
+    assert_eq!(row.1, None, "a historical row has no model");
+    assert_eq!(row.2, "ok");
+    assert_eq!(row.3, 500, "the historical cost is kept as it was");
+    assert_eq!(row.4, None, "a historical row has no usage source");
+    assert_eq!(row.5, None, "a historical row has no latency");
+
+    // An unknown price can now be stored as NULL instead of a false zero.
+    sqlx::query(
+        "INSERT INTO llm_usage (provider, outcome, tokens_in, tokens_out, cost_micros, \
+         usage_source, latency_ms, at) VALUES ('free', 'ok', 3, 4, NULL, 'unknown', 7, ?)",
+    )
+    .bind(at(6).as_millisecond())
+    .execute(store.pool_for_tests())
+    .await
+    .unwrap();
+
+    let admitted: (i64,) = sqlx::query_as("SELECT count(*) FROM llm_admission")
+        .fetch_one(store.pool_for_tests())
+        .await
+        .unwrap();
+    assert_eq!(admitted.0, 0, "the admission window starts empty");
+    store.close().await;
+}

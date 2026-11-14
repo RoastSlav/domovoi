@@ -446,6 +446,9 @@ pub(super) async fn ask(
             TriageError::Provider(err) => ApiError::Unavailable(err),
             TriageError::BudgetSpent => ApiError::BudgetSpent,
             TriageError::Busy { retry_at } => busy(state.deps.clock.now(), retry_at),
+            TriageError::AdmissionUnavailable => ApiError::Unavailable(
+                "the model limits could not be checked; try again shortly".to_owned(),
+            ),
             TriageError::Store(err) => ApiError::internal("follow-up failed", err),
         })?;
     Ok(Json(AskResponse { answer }))

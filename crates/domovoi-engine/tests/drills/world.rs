@@ -289,6 +289,7 @@ pub async fn run(drill: &Drill, model: Model) -> Outcome {
         actions_service,
         cache: store.clone(),
         usage: store.clone(),
+        admission: store.clone(),
         advisories: store.clone(),
         redactor,
         clock: clock.clone(),

@@ -438,11 +438,11 @@ async fn build_triage(
     let (primary, configured_fallbacks) = match (&overrides.primary, &config.llm.primary) {
         (Some(provider), Some(primary_config)) => (
             provider.clone(),
-            settings::fallback_models_for(primary_config, executor.clone())?,
+            settings::fallback_models_for(primary_config, executor.clone(), clock)?,
         ),
         (Some(provider), None) => (provider.clone(), Vec::new()),
         (None, Some(primary_config)) => {
-            let chain = settings::chain_for(primary_config, executor.clone())?;
+            let chain = settings::chain_for(primary_config, executor.clone(), clock)?;
             let head: Arc<dyn domovoi_core::ports::LlmProvider> =
                 chain.iter().map(Arc::clone).next().ok_or_else(|| {
                     RuntimeError::Chat("triage is enabled without a primary provider".to_owned())
@@ -459,12 +459,12 @@ async fn build_triage(
         (Some(provider), None) => vec![provider.clone()],
         (Some(provider), Some(secondary)) => std::iter::chain(
             std::iter::once(provider.clone()),
-            settings::fallback_models_for(secondary, executor.clone())?
+            settings::fallback_models_for(secondary, executor.clone(), clock)?
                 .iter()
                 .map(Arc::clone),
         )
         .collect(),
-        (None, Some(secondary)) => settings::chain_for(secondary, executor.clone())?,
+        (None, Some(secondary)) => settings::chain_for(secondary, executor.clone(), clock)?,
         (None, None) => Vec::new(),
     };
     let fallbacks = std::iter::chain(configured_fallbacks, tail).collect();
@@ -480,6 +480,7 @@ async fn build_triage(
             actions_service,
             cache: store.clone(),
             usage: store.clone(),
+            admission: store.clone(),
             advisories: store.clone(),
             redactor: redactor.clone(),
             clock: clock.clone(),

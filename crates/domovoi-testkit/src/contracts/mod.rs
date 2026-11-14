@@ -6,6 +6,7 @@
 
 mod accounts;
 mod actions;
+mod admission;
 mod hosts;
 mod incident_groups;
 mod incidents;
@@ -16,6 +17,7 @@ pub mod uow;
 
 pub use accounts::{session_repo_contract, settings_repo_contract, user_repo_contract};
 pub use actions::{action_repo_contract, audit_log_contract};
+pub use admission::admission_repo_contract;
 pub use hosts::{enrollment_token_is_single_use, expired_token_is_rejected, host_repo_contract};
 pub use incidents::{incident_repo_contract, signal_repo_contract};
 pub use knowledge::{
