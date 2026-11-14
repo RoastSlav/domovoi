@@ -66,8 +66,10 @@ pub(crate) fn estimated(input_tokens: u32, output_tokens: u32, price: Option<&Pr
 ///
 /// The visible text, the tool calls and the reasoning a provider exposed are counted. A turn
 /// that ended at its output allowance used the whole allowance, and hidden reasoning may
-/// account for all of it, so the allowance is the only safe number. When there is nothing at
-/// all to count, the total is [`UsageSource::Unknown`] rather than a misleading zero.
+/// account for all of it, so the allowance is the only safe number. When nothing at all can
+/// be counted, the request was still authorised and may have generated hidden output, so the
+/// allowance is charged as a conservative bound and the total stays
+/// [`UsageSource::Unknown`] — never a free turn.
 pub(crate) fn estimated_answer(
     input_tokens: u32,
     parts: &[Part],
@@ -82,12 +84,14 @@ pub(crate) fn estimated_answer(
         answer_tokens(parts).saturating_add(text_tokens(reasoning))
     };
     if output == 0 {
-        return Usage {
+        let mut usage = Usage {
             input_tokens,
-            output_tokens: 0,
+            output_tokens: allowance,
             cost_micros: None,
             source: UsageSource::Unknown,
         };
+        usage.cost_micros = cost_micros(price, &usage);
+        return usage;
     }
     estimated(input_tokens, output, price)
 }

@@ -583,6 +583,38 @@ async fn a_glm_style_reasoning_stream_is_not_recorded_as_free() {
     );
 }
 
+/// An empty answer with no usage is not free: the whole authorised allowance is charged as a
+/// conservative bound, with the source still marked unknown.
+#[tokio::test]
+async fn an_empty_answer_without_usage_is_billed_conservatively() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "choices": [{
+                "message": {"role": "assistant", "content": ""},
+                "finish_reason": "stop"
+            }]
+        })))
+        .mount(&server)
+        .await;
+    let mut settings = openai(&server.uri(), false);
+    settings.price = Some(PRICE);
+    let provider = build(&settings, None).unwrap();
+
+    let response = provider.complete(ask("Status?")).await.unwrap();
+    assert!(response.parts.is_empty());
+    assert_eq!(response.usage.source, UsageSource::Unknown);
+    assert_eq!(
+        response.usage.output_tokens, 512,
+        "nothing countable, so the whole allowance is the conservative bound"
+    );
+    assert!(response.usage.input_tokens > 0);
+    assert!(
+        response.usage.cost_micros.is_some_and(|cost| cost > 0),
+        "a billable request is not free: {:?}",
+        response.usage
+    );
+}
 /// A provider configured as explicitly free has a price — zero — so a monthly budget can
 /// count it.
 #[tokio::test]

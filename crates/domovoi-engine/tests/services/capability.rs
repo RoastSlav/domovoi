@@ -3,10 +3,11 @@
 
 use std::sync::{Arc, OnceLock};
 
-use domovoi_core::ports::LlmProvider;
+use domovoi_core::ports::{LlmProvider, UsageRepo};
 use domovoi_core::{TriageBudget, TriageOutcome};
 use domovoi_engine::triage::TriageSettings;
 use domovoi_llm::{ProviderKind, ProviderSettings, build};
+use jiff::tz::TimeZone;
 use serde_json::{Value, json};
 use url::Url;
 use wiremock::matchers::{method, path};
@@ -25,10 +26,26 @@ fn crypto() {
 /// A real OpenAI-compatible provider pointed at `base`, so the test covers the adapter and
 /// the engine together rather than a scripted port.
 fn provider(base: &str) -> Arc<dyn LlmProvider> {
+    provider_with_price(base, None)
+}
+
+/// The same provider with a configured price, so a monthly budget can count it.
+fn priced_provider(base: &str) -> Arc<dyn LlmProvider> {
+    provider_with_price(
+        base,
+        Some(domovoi_llm::Price {
+            input_per_mtok_usd: 1.0,
+            output_per_mtok_usd: 2.0,
+        }),
+    )
+}
+
+fn provider_with_price(base: &str, price: Option<domovoi_llm::Price>) -> Arc<dyn LlmProvider> {
     crypto();
     let mut settings = ProviderSettings::new(ProviderKind::OpenaiCompatible);
     settings.base_url = Some(Url::parse(&format!("{base}/v1")).unwrap());
     settings.model = Some("model-under-test".to_owned());
+    settings.price = price;
     build(&settings, None).unwrap()
 }
 
@@ -335,5 +352,62 @@ async fn a_refused_tools_rejection_refunds_the_run_budget() {
     assert_eq!(
         rebuilt["max_tokens"], 2000,
         "the rejected request's allowance was refunded exactly once"
+    );
+}
+
+/// An uncountable answer from a priced provider is still billed — input and a conservative
+/// output bound — and the fallback's answer is recorded too. The charge is visible to the
+/// monthly budget.
+#[tokio::test]
+async fn an_uncountable_answer_is_billed_and_the_fallback_is_recorded_once() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "choices": [{
+                "message": {"role": "assistant", "content": ""},
+                "finish_reason": "stop"
+            }]
+        })))
+        .mount(&server)
+        .await;
+
+    let settings = TriageSettings {
+        monthly_budget_micros: Some(1_000),
+        ..TriageSettings::default()
+    };
+    let w = world(Setup {
+        settings,
+        provider: Some(priced_provider(&server.uri())),
+        secondary: true,
+        ..Setup::default()
+    })
+    .await;
+    w.secondary.push_text(report());
+
+    let outcome = w.run().await;
+    assert!(
+        matches!(outcome, TriageOutcome::Report(_)),
+        "the priced fallback answers: {outcome:?}"
+    );
+    let requests = server.received_requests().await.unwrap();
+    assert_eq!(
+        requests.len(),
+        2,
+        "the unusable answer and its repair are both billed"
+    );
+    let month = w.now().to_zoned(TimeZone::UTC).date();
+    let total = w.store.month_total(month).await.expect("usage");
+    assert_eq!(
+        total.tokens_out, 4000,
+        "two 2000-token conservative bounds, not lost or doubled"
+    );
+    assert!(total.tokens_in > 0, "the input cost is retained");
+    assert!(total.cost_micros > 0, "the attempts are not free");
+
+    let again = w.run().await;
+    assert!(
+        matches!(&again, TriageOutcome::Skipped { reason } if reason.contains("monthly")),
+        "the conservative charge counts against the monthly budget: {again:?}"
     );
 }

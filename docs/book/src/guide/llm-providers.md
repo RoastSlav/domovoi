@@ -83,6 +83,8 @@ Choose a model that supports tool calling. Triage works with tools; without them
 
 When a monthly budget is set, every provider in the chain — the primary, its fallbacks and its fallback models — must have a price before any request is made, because a turn that cannot be priced cannot be counted. A local model that costs nothing is configured with a zero price. A provider with no price is refused with a message naming it, and nothing is sent to it.
 
+A provider that reports no usage still has its turn counted: Domovoi estimates the request, answer and any reasoning it exposed, and prices the estimate. An answer whose tokens cannot be counted at all is charged at its authorised output allowance, so a missing total never makes a billable request look free.
+
 ## Coding-agent CLIs
 
 The `cli` kind runs a program you already use, such as Claude Code or the Codex CLI, with its own login. Domovoi runs the program directly with an argument list and no shell. It sends one prompt with the incident context and reads the final answer. The CLI is given no tools.
