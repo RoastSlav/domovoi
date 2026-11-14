@@ -7,6 +7,8 @@ mod cli;
 #[cfg(test)]
 mod cost;
 #[cfg(test)]
+mod deadline;
+#[cfg(test)]
 mod errors;
 #[cfg(test)]
 mod models;

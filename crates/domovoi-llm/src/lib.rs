@@ -13,6 +13,7 @@
 pub mod anthropic;
 mod anthropic_stream;
 pub mod cli;
+mod deadline;
 mod error;
 mod factory;
 mod http;
@@ -24,6 +25,7 @@ mod sse;
 mod usage;
 
 pub use cli::{CliOutput, CliPreset, PromptVia};
+pub use deadline::{DEFAULT_CALL_DEADLINE, with_deadline};
 pub use error::{EXCERPT_CHARS, LlmBuildError, excerpt};
 pub use factory::build;
 pub use http::CONNECT_TIMEOUT;

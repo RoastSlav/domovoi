@@ -1135,6 +1135,7 @@ dependencies = [
  "async-trait",
  "domovoi-core",
  "domovoi-testkit",
+ "futures",
  "insta",
  "jiff",
  "reqwest",
