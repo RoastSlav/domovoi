@@ -11,10 +11,12 @@ mod admission;
 mod agent;
 mod cache;
 mod chat;
+mod complete;
 mod context;
 mod followup;
 mod history;
 mod incident_context;
+mod prompt;
 mod proposals;
 mod queue;
 mod report;
@@ -24,8 +26,8 @@ mod tools;
 use std::sync::Arc;
 
 use domovoi_core::ports::{
-    ActionRepo, AdvisoryRepo, AgentLink, Clock, IncidentRepo, LlmProvider, NoteRepo, Redactor,
-    SignalRepo, TriageCacheRepo, UsageRepo,
+    ActionRepo, AdmissionRepo, AdvisoryRepo, AgentLink, Clock, IncidentRepo, LlmProvider, NoteRepo,
+    Redactor, SignalRepo, TriageCacheRepo, UsageRepo,
 };
 use domovoi_core::{HostId, Incident, IncidentId, TriageBudget, TriageOutcome, UserId};
 use tokio::sync::broadcast;
@@ -83,6 +85,9 @@ pub struct TriageSettings {
     pub monthly_budget_micros: Option<u64>,
     /// Days a report is reused for the same incident and evidence.
     pub cache_days: u32,
+    /// Largest prompt sent in one model call, in bytes. Old tool results are shortened
+    /// first to fit.
+    pub max_prompt_bytes: usize,
     /// Limits for one run.
     pub budget: TriageBudget,
 }
@@ -96,6 +101,7 @@ impl Default for TriageSettings {
             reserved_for_incidents: 2,
             monthly_budget_micros: None,
             cache_days: 7,
+            max_prompt_bytes: 131_072,
             budget: TriageBudget {
                 max_tool_calls: 15,
                 max_seconds: 90,
@@ -143,6 +149,8 @@ pub struct TriageDeps {
     pub cache: Arc<dyn TriageCacheRepo>,
     /// Token use and cost per call.
     pub usage: Arc<dyn UsageRepo>,
+    /// The persisted hourly run window, shared by triage, questions and chat.
+    pub admission: Arc<dyn AdmissionRepo>,
     /// The `TriageDegraded` advisory.
     pub advisories: Arc<dyn AdvisoryRepo>,
     /// Runs on every tool output, context part and answer.
@@ -180,6 +188,9 @@ pub enum TriageError {
         /// question is being answered) or the hour can never admit a question.
         retry_at: Option<jiff::Timestamp>,
     },
+    /// The model limits could not be read, so no model call was made.
+    #[error("the model limits could not be checked; try again shortly")]
+    AdmissionUnavailable,
 }
 
 /// Why a triage run was deferred for a retry.

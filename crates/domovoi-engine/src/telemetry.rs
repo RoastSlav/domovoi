@@ -13,6 +13,15 @@ pub const TRIAGE_RUNS_TOTAL: &str = "domovoi_triage_runs_total";
 pub const LLM_TOKENS_TOTAL: &str = "domovoi_llm_tokens_total";
 /// Model cost in US dollars, as reported or implied by the provider.
 pub const LLM_COST_USD_TOTAL: &str = "domovoi_llm_cost_usd_total";
+/// Model calls, by provider, model and outcome (`ok`, `rate_limited`, `auth`, `timeout`,
+/// `transport`, `invalid_response`, `unavailable`, `capability_rejected`).
+pub const LLM_CALLS_TOTAL: &str = "domovoi_llm_calls_total";
+/// Prompt size in bytes, by provider.
+pub const LLM_PROMPT_BYTES: &str = "domovoi_llm_prompt_bytes";
+/// Prompts that had to be shortened to fit `triage.per_run.prompt_bytes`.
+pub const LLM_PROMPT_TRIMMED_TOTAL: &str = "domovoi_llm_prompt_trimmed_total";
+/// Admission refusals, by reason (`budget`, `unpriced`, `hourly`, `unverifiable`).
+pub const LLM_ADMISSION_REJECTIONS_TOTAL: &str = "domovoi_llm_admission_rejections_total";
 /// Action status changes, by the new status.
 pub const ACTIONS_TOTAL: &str = "domovoi_actions_total";
 
@@ -63,6 +72,33 @@ pub(crate) fn record_active(active: &[Incident]) {
 /// waiting action's chat token, must not call this.
 pub(crate) fn record_action(status: &ActionStatus) {
     metrics::counter!(ACTIONS_TOTAL, "status" => status.name()).increment(1);
+}
+
+/// Records one model call's outcome. Labels carry only configured identifiers: a model name
+/// or `unknown`, never text from an answer or an error.
+pub(crate) fn record_call(provider: &str, model: Option<&str>, outcome: &'static str) {
+    metrics::counter!(
+        LLM_CALLS_TOTAL,
+        "provider" => provider.to_owned(),
+        "model" => model.unwrap_or("unknown").to_owned(),
+        "outcome" => outcome,
+    )
+    .increment(1);
+}
+
+/// Records the size of one prompt in bytes.
+pub(crate) fn record_prompt_bytes(provider: &str, bytes: usize) {
+    metrics::histogram!(LLM_PROMPT_BYTES, "provider" => provider.to_owned()).record(bytes as f64);
+}
+
+/// Records that one prompt had to be shortened to fit the configured cap.
+pub(crate) fn record_prompt_trimmed() {
+    metrics::counter!(LLM_PROMPT_TRIMMED_TOTAL).increment(1);
+}
+
+/// Records an admission refusal by reason.
+pub(crate) fn record_admission_rejection(reason: &'static str) {
+    metrics::counter!(LLM_ADMISSION_REJECTIONS_TOTAL, "reason" => reason).increment(1);
 }
 
 /// Records one model turn's usage.

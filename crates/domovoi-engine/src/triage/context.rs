@@ -169,7 +169,12 @@ async fn similar(shared: &Shared, incident: &Incident) -> String {
     let query = incident
         .target()
         .map_or_else(|| incident.check().as_str(), |t| t.as_str());
-    let Ok(found) = shared.deps.incidents.search(query, 20).await else {
+    let Ok(found) = shared
+        .deps
+        .incidents
+        .search(query, Some(incident.host()), 20)
+        .await
+    else {
         return String::new();
     };
     found
@@ -178,6 +183,9 @@ async fn similar(shared: &Shared, incident: &Incident) -> String {
             i.id() != incident.id()
                 && i.status() == IncidentStatus::Resolved
                 && i.check() == incident.check()
+                // Defence in depth: a repository that ignores the host argument must not
+                // leak another host's incident into this prompt.
+                && i.host() == incident.host()
         })
         .take(SIMILAR)
         .map(|i| {

@@ -39,6 +39,8 @@ mod recovery;
 #[cfg(test)]
 mod redact;
 #[cfg(test)]
+mod reliability;
+#[cfg(test)]
 mod report;
 #[cfg(test)]
 mod turns;

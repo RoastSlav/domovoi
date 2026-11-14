@@ -14,7 +14,7 @@ use domovoi_core::{
 };
 use domovoi_engine::triage::{TriageDeps, TriageHandle, TriageService, TriageSettings};
 use domovoi_engine::{
-    ActionDeps, ActionService, ActionSettings, DomainEvent, EnginePolicy, EventKind,
+    ActionDeps, ActionHandle, ActionService, ActionSettings, DomainEvent, EnginePolicy, EventKind,
     IncidentManager, ManagerDeps,
 };
 use domovoi_engine::{ManagerHandle, PatternRedactor};
@@ -43,6 +43,8 @@ pub struct Setup {
     pub evidence: Evidence,
     /// A real provider to use as the primary instead of the scripted one.
     pub provider: Option<Arc<dyn LlmProvider>>,
+    /// A usage repository to use instead of the store's, for budget read failures.
+    pub usage: Option<Arc<dyn domovoi_core::ports::UsageRepo>>,
     /// How long incident listings and note searches take, for deadline tests.
     pub store_delay: Option<std::time::Duration>,
 }
@@ -56,6 +58,7 @@ impl Default for Setup {
             cli: false,
             evidence: disk(92.4),
             provider: None,
+            usage: None,
             store_delay: None,
         }
     }
@@ -84,6 +87,13 @@ pub struct World {
     pub bus: broadcast::Sender<DomainEvent>,
     pub incident: Incident,
     pub shutdown: CancellationToken,
+    /// What the running triage service was built from, so a restart can rebuild it.
+    primary_dyn: Arc<dyn LlmProvider>,
+    fallbacks: Vec<Arc<dyn LlmProvider>>,
+    settings: TriageSettings,
+    actions_service: ActionHandle,
+    redactor: Arc<PatternRedactor>,
+    usage: Arc<dyn domovoi_core::ports::UsageRepo>,
 }
 
 impl Drop for World {
@@ -206,8 +216,8 @@ pub async fn world_over(
         ActionSettings::default(),
     );
     let deps = TriageDeps {
-        primary: primary_dyn,
-        fallbacks,
+        primary: primary_dyn.clone(),
+        fallbacks: fallbacks.clone(),
         link: link.clone(),
         incidents: store.clone(),
         signals: store.clone(),
@@ -215,14 +225,16 @@ pub async fn world_over(
         actions: store.clone(),
         actions_service: actions_service.clone(),
         cache: store.clone(),
-        usage: store.clone(),
+        usage: setup.usage.clone().unwrap_or_else(|| store.clone()),
+        admission: store.clone(),
         advisories: store.clone(),
-        redactor,
+        redactor: redactor.clone(),
         clock: clock.clone(),
         manager: manager.clone(),
         bus: bus.clone(),
         shutdown: shutdown.clone(),
     };
+    let usage = deps.usage.clone();
     let (triage, _task) = TriageService::spawn(deps, setup.settings);
     World {
         store,
@@ -237,10 +249,42 @@ pub async fn world_over(
         bus,
         incident,
         shutdown,
+        primary_dyn,
+        fallbacks,
+        settings: setup.settings,
+        actions_service,
+        redactor,
+        usage,
     }
 }
 
 impl World {
+    /// A second triage service over the same store and clock, as a hub restart builds.
+    /// The old handle keeps running until the world is dropped.
+    pub fn restart_triage(&self) -> TriageHandle {
+        let deps = TriageDeps {
+            primary: self.primary_dyn.clone(),
+            fallbacks: self.fallbacks.clone(),
+            link: self.link.clone(),
+            incidents: self.store.clone(),
+            signals: self.store.clone(),
+            notes: self.store.clone(),
+            actions: self.store.clone(),
+            actions_service: self.actions_service.clone(),
+            cache: self.store.clone(),
+            usage: self.usage.clone(),
+            admission: self.store.clone(),
+            advisories: self.store.clone(),
+            redactor: self.redactor.clone(),
+            clock: self.clock.clone(),
+            manager: self.manager.clone(),
+            bus: self.bus.clone(),
+            shutdown: self.shutdown.clone(),
+        };
+        let (triage, _task) = TriageService::spawn(deps, self.settings);
+        triage
+    }
+
     /// Adds a newer signal with `evidence`, one second later.
     pub async fn signal(&self, evidence: Evidence) {
         self.clock.advance(jiff::SignedDuration::from_secs(1));

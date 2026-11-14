@@ -771,8 +771,13 @@ async fn an_unpriced_provider_without_a_budget_runs_and_records_no_cost() {
     let month = w.now().to_zoned(TimeZone::UTC).date();
     let total = w.store.month_total(month).await.expect("usage");
     assert_eq!(
-        total.tokens_out, 0,
-        "an unknown cost is not recorded as a free turn"
+        total.tokens_out, 5,
+        "a response with an unknown price is still recorded"
+    );
+    assert_eq!(total.cost_micros, 0, "an unknown cost is not a free cost");
+    assert_eq!(
+        total.unpriced_responses, 1,
+        "the unknown price is counted apart, so a monthly budget could refuse later"
     );
 }
 
