@@ -1,8 +1,11 @@
 //! OpenAI-compatible Chat Completions: OpenAI, Ollama, LM Studio, OpenRouter and others.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use async_trait::async_trait;
 use domovoi_core::ports::{
-    LlmError, LlmMessage, LlmProvider, LlmRequest, LlmResponse, Part, Role, StopReason, Usage,
+    LlmCapability, LlmError, LlmMessage, LlmProvider, LlmRequest, LlmResponse, Part, Role,
+    StopReason,
 };
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
@@ -12,7 +15,8 @@ use url::Url;
 use crate::error::{LlmBuildError, excerpt};
 use crate::http::{self, Reply};
 use crate::openai_stream;
-use crate::settings::{Price, cost_micros};
+use crate::settings::Price;
+use crate::usage;
 
 /// A provider speaking the Chat Completions API. Local servers may need no key.
 #[derive(Debug)]
@@ -22,6 +26,25 @@ pub struct OpenAiCompatible {
     model: String,
     api_key: Option<SecretString>,
     price: Option<Price>,
+    /// Whether the server accepts `stream_options`. Some compatible servers reject it with
+    /// a 400; once one does, streaming is dropped as well, because a streamed answer then
+    /// arrives without usage totals. Non-streamed answers usually carry them.
+    stream_options: AtomicBool,
+    /// Whether answers are requested as a stream. Turned off with `stream_options`, so a
+    /// server that cannot report usage in a stream is asked for a whole answer instead.
+    streaming: AtomicBool,
+    /// Whether the server accepts `tools`. Cleared when one rejects them, so the caller
+    /// stops offering tools and gathers their output itself.
+    tools: AtomicBool,
+}
+
+/// What one outgoing request actually carried, decided when its body was built. A rejection
+/// is reported only when this request asked for the refused capability, even if another
+/// request already withdrew it from the shared state.
+#[derive(Debug, Clone, Copy)]
+struct Included {
+    tools: bool,
+    stream_usage: bool,
 }
 
 impl OpenAiCompatible {
@@ -39,7 +62,88 @@ impl OpenAiCompatible {
             model,
             api_key,
             price,
+            stream_options: AtomicBool::new(true),
+            streaming: AtomicBool::new(true),
+            tools: AtomicBool::new(true),
         })
+    }
+
+    /// Sends one prepared body and assembles its answer, streamed or whole.
+    async fn send(
+        &self,
+        body: Value,
+        secret: Option<&SecretString>,
+    ) -> Result<WireResponse, LlmError> {
+        let mut request = self.client.post(&self.url).json(&body);
+        if let Some(key) = secret {
+            request = request.bearer_auth(key.expose_secret());
+        }
+        match http::send_streaming::<WireResponse>(request, secret).await? {
+            Reply::Whole(response) => Ok(response),
+            Reply::Stream(mut events) => openai_stream::assemble(&mut events, secret).await,
+        }
+    }
+
+    /// The request body, with the optional fields this server has not refused.
+    fn body(&self, req: &LlmRequest) -> Value {
+        let mut body = request_body(&self.model, req);
+        let streaming = self.streaming.load(Ordering::Relaxed);
+        body["stream"] = Value::Bool(streaming);
+        if streaming && self.stream_options.load(Ordering::Relaxed) {
+            body["stream_options"] = json!({ "include_usage": true });
+        }
+        if (req.tools.is_empty() || !self.tools.load(Ordering::Relaxed))
+            && let Some(fields) = body.as_object_mut()
+        {
+            fields.remove("tools");
+        }
+        body
+    }
+
+    /// What `body` actually carries, for telling whether a refusal is about this request.
+    fn included(body: &Value) -> Included {
+        Included {
+            tools: body.get("tools").is_some(),
+            stream_usage: body.get("stream_options").is_some(),
+        }
+    }
+
+    /// Turns a specific capability refusal into the typed signal the engine acts on, after
+    /// latching the capability off. The evidence is the request's own body, not the atomic
+    /// transition: concurrent requests that both sent the field both report the refusal.
+    /// Anything else is returned unchanged: an invalid model, a context window overflow or
+    /// a bad tool schema is a plain error.
+    fn refuse(&self, err: LlmError, included: Included) -> LlmError {
+        let Some(capability) = refused_capability(&err) else {
+            return err;
+        };
+        let carried = match capability {
+            LlmCapability::Tools => included.tools,
+            LlmCapability::StreamUsage => included.stream_usage,
+        };
+        if !carried {
+            // This request already left the field out: the error is about something else.
+            return err;
+        }
+        match capability {
+            LlmCapability::Tools => {
+                self.tools.store(false, Ordering::Relaxed);
+            }
+            LlmCapability::StreamUsage => {
+                // Without streamed usage totals, ask for a whole answer: those usually
+                // carry usage, so missing metadata does not hide what the turn cost.
+                self.stream_options.store(false, Ordering::Relaxed);
+                self.streaming.store(false, Ordering::Relaxed);
+            }
+        }
+        tracing::warn!(
+            capability = %capability,
+            "the provider refused a capability; requests will leave it out",
+        );
+        LlmError::CapabilityRejected {
+            capability,
+            detail: err.to_string(),
+        }
     }
 }
 
@@ -54,25 +158,81 @@ impl LlmProvider for OpenAiCompatible {
     }
 
     fn supports_tools(&self) -> bool {
-        true
+        self.tools.load(Ordering::Relaxed)
+    }
+
+    fn prices_usage(&self) -> bool {
+        self.price.is_some()
     }
 
     async fn complete(&self, req: LlmRequest) -> Result<LlmResponse, LlmError> {
-        let mut body = request_body(&self.model, &req);
-        body["stream"] = Value::Bool(true);
-        body["stream_options"] = json!({ "include_usage": true });
         tracing::debug!(model = %self.model, messages = req.messages.len(), "openai turn");
-        let mut request = self.client.post(&self.url).json(&body);
-        if let Some(key) = &self.api_key {
-            request = request.bearer_auth(key.expose_secret());
-        }
         let secret = self.api_key.as_ref();
-        let response = match http::send_streaming::<WireResponse>(request, secret).await? {
-            Reply::Whole(response) => response,
-            Reply::Stream(mut events) => openai_stream::assemble(&mut events, secret).await?,
+        let body = self.body(&req);
+        let included = Self::included(&body);
+        let response = match self.send(body, secret).await {
+            Ok(response) => response,
+            Err(err) => return Err(self.refuse(err, included)),
         };
-        into_response(response, self.price.as_ref(), self.api_key.as_ref())
+        into_response(response, &req, self.price.as_ref(), self.api_key.as_ref())
     }
+}
+
+/// Words a server uses when it does not know a request field, as opposed to rejecting a
+/// value of one. A capability is withdrawn only when one of these appears, so an invalid
+/// model, a context overflow or a bad tool schema stays an ordinary error.
+const REFUSAL_PHRASES: [&str; 10] = [
+    "not supported",
+    "unsupported",
+    "does not support",
+    "do not support",
+    "not allowed",
+    "not permitted",
+    "unknown field",
+    "unknown parameter",
+    "unexpected",
+    "unrecognized",
+];
+
+/// Words that name the tool capability itself, rather than a tool's schema or arguments.
+const TOOL_FIELD_PHRASES: [&str; 11] = [
+    "tool calling",
+    "tool calls",
+    "tool_calls",
+    "tools are",
+    "tools is",
+    "tools not",
+    "support tools",
+    "support tool",
+    "\"tools\"",
+    "'tools'",
+    "`tools`",
+];
+
+/// The capability a specific 4xx refusal is about, or `None` when the error is about
+/// anything else. Only a refusal phrase together with the capability's own field counts.
+fn refused_capability(err: &LlmError) -> Option<LlmCapability> {
+    let LlmError::InvalidResponse(detail) = err else {
+        return None;
+    };
+    // `Auth` covers 401 and 403, `RateLimited` covers 429; every other 4xx arrives here.
+    if !detail.starts_with("HTTP 4") {
+        return None;
+    }
+    let text = detail.to_ascii_lowercase();
+    if !REFUSAL_PHRASES.iter().any(|phrase| text.contains(phrase)) {
+        return None;
+    }
+    if text.contains("stream_options") || text.contains("include_usage") {
+        return Some(LlmCapability::StreamUsage);
+    }
+    if TOOL_FIELD_PHRASES
+        .iter()
+        .any(|phrase| text.contains(phrase))
+    {
+        return Some(LlmCapability::Tools);
+    }
+    None
 }
 
 /// The JSON body for `req`, exposed for request-shape tests.
@@ -169,6 +329,9 @@ pub(crate) struct WireResponse {
     pub(crate) choices: Vec<WireChoice>,
     #[serde(default)]
     pub(crate) usage: Option<WireUsage>,
+    /// Reasoning streamed beside the answer, when the provider exposes it.
+    #[serde(skip)]
+    pub(crate) reasoning: String,
 }
 
 #[derive(Deserialize)]
@@ -183,6 +346,12 @@ pub(crate) struct WireMessage {
     pub(crate) content: Option<String>,
     #[serde(default)]
     pub(crate) tool_calls: Vec<WireToolCall>,
+    /// Reasoning a whole answer exposes beside its content.
+    #[serde(default)]
+    pub(crate) reasoning: Option<String>,
+    /// The same field under the name some servers use.
+    #[serde(default)]
+    pub(crate) reasoning_content: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -198,16 +367,19 @@ pub(crate) struct WireFunction {
     pub(crate) arguments: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 pub(crate) struct WireUsage {
+    /// Present when the server reported the prompt total; an explicit zero is reported.
     #[serde(default)]
-    pub(crate) prompt_tokens: u32,
+    pub(crate) prompt_tokens: Option<u32>,
+    /// Present when the server reported the generated total; an explicit zero is reported.
     #[serde(default)]
-    pub(crate) completion_tokens: u32,
+    pub(crate) completion_tokens: Option<u32>,
 }
 
 fn into_response(
     response: WireResponse,
+    req: &LlmRequest,
     price: Option<&Price>,
     secret: Option<&SecretString>,
 ) -> Result<LlmResponse, LlmError> {
@@ -245,11 +417,38 @@ fn into_response(
         Some("length") => StopReason::MaxTokens,
         Some(other) => StopReason::Other(other.to_owned()),
     };
-    let mut usage = response.usage.map_or_else(Usage::default, |u| Usage {
-        input_tokens: u.prompt_tokens,
-        output_tokens: u.completion_tokens,
-        cost_micros: None,
-    });
-    usage.cost_micros = cost_micros(price, &usage);
+    // Reasoning a model spent but did not show is still output. The stream gathers it in
+    // `response.reasoning`; a whole answer carries it on the message.
+    let mut reasoning = response.reasoning;
+    if let Some(text) = choice.message.reasoning {
+        reasoning.push_str(&text);
+    }
+    if let Some(text) = choice.message.reasoning_content {
+        reasoning.push_str(&text);
+    }
+    // A server that reports no usage must not look free: infer the tokens from the request,
+    // the visible answer and the reasoning, and price the estimate when the provider has a
+    // price. A complete reported total already includes reasoning tokens and takes
+    // precedence; a partial one keeps the reported half and estimates only the other.
+    let answer = usage::Answer {
+        parts: &parts,
+        reasoning: &reasoning,
+        stop: &stop,
+        allowance: req.max_output_tokens,
+        redacted_thinking: false,
+    };
+    let usage = match response.usage {
+        Some(reported) => match (reported.prompt_tokens, reported.completion_tokens) {
+            (Some(input), Some(output)) => usage::reported(input, output, price),
+            (input, output) => usage::partial_or_estimated(
+                input,
+                output,
+                usage::request_tokens(req),
+                &answer,
+                price,
+            ),
+        },
+        None => usage::estimated_answer(usage::request_tokens(req), &answer, price),
+    };
     Ok(LlmResponse { parts, stop, usage })
 }

@@ -16,6 +16,7 @@ use jiff::SignedDuration;
 use serde_json::Value;
 
 use crate::error::{LlmBuildError, excerpt};
+use crate::settings::Price;
 
 /// The cap on captured stdout and stderr.
 pub const MAX_OUTPUT_BYTES: u32 = 1 << 20;
@@ -127,6 +128,7 @@ pub struct Cli {
     executor: Arc<dyn ProcessExecutor>,
     preset: CliPreset,
     timeout: SignedDuration,
+    price: Option<Price>,
 }
 
 impl std::fmt::Debug for Cli {
@@ -140,11 +142,13 @@ impl std::fmt::Debug for Cli {
 }
 
 impl Cli {
-    /// A provider running `preset` through `executor`, killed after `timeout`.
+    /// A provider running `preset` through `executor`, killed after `timeout`. `price` is
+    /// what the CLI's turns cost when it reports no usage of its own.
     pub fn new(
         executor: Arc<dyn ProcessExecutor>,
         preset: CliPreset,
         timeout: SignedDuration,
+        price: Option<Price>,
     ) -> Result<Self, LlmBuildError> {
         if !is_absolute(&preset.program) {
             return Err(LlmBuildError::RelativeProgram(preset.program));
@@ -153,6 +157,7 @@ impl Cli {
             executor,
             preset,
             timeout,
+            price,
         })
     }
 
@@ -193,8 +198,13 @@ impl LlmProvider for Cli {
         false
     }
 
+    fn prices_usage(&self) -> bool {
+        self.price.is_some()
+    }
+
     async fn complete(&self, req: LlmRequest) -> Result<LlmResponse, LlmError> {
-        let spec = self.spec(render_prompt(&req));
+        let prompt = render_prompt(&req);
+        let spec = self.spec(prompt.clone());
         tracing::debug!(program = %spec.program, "cli turn");
         let output = self
             .executor
@@ -216,7 +226,14 @@ impl LlmProvider for Cli {
                 excerpt(&output.stderr, None)
             )));
         }
-        let (text, usage) = read_output(&self.preset.output, &output.stdout)?;
+        let allowance = req.max_output_tokens;
+        let (text, usage) = read_output(
+            &self.preset.output,
+            &output.stdout,
+            &prompt,
+            allowance,
+            self.price.as_ref(),
+        )?;
         Ok(LlmResponse {
             parts: vec![Part::Text(text)],
             stop: StopReason::EndTurn,
@@ -260,10 +277,31 @@ pub fn render_prompt(req: &LlmRequest) -> String {
     out
 }
 
-/// The answer and, when the CLI reports it, token usage.
-fn read_output(output: &CliOutput, stdout: &str) -> Result<(String, Usage), LlmError> {
+/// The answer and, when the CLI reports it, token usage. A CLI that reports none gets an
+/// estimate from the prompt and the answer, so the turn is not recorded as free. An empty
+/// answer with no reported output charges `allowance`, the output the request authorised.
+fn read_output(
+    output: &CliOutput,
+    stdout: &str,
+    prompt: &str,
+    allowance: u32,
+    price: Option<&Price>,
+) -> Result<(String, Usage), LlmError> {
     let field = match output {
-        CliOutput::Text => return Ok((stdout.trim().to_owned(), Usage::default())),
+        CliOutput::Text => {
+            let text = stdout.trim().to_owned();
+            let parts = [Part::Text(text.clone())];
+            let answer = crate::usage::Answer {
+                parts: &parts,
+                reasoning: "",
+                stop: &StopReason::EndTurn,
+                allowance,
+                redacted_thinking: false,
+            };
+            let usage =
+                crate::usage::estimated_answer(crate::usage::text_tokens(prompt), &answer, price);
+            return Ok((text, usage));
+        }
         CliOutput::Json { field } => field,
     };
     let value: Value = serde_json::from_str(stdout.trim()).map_err(|e| {
@@ -281,19 +319,35 @@ fn read_output(output: &CliOutput, stdout: &str) -> Result<(String, Usage), LlmE
             excerpt(text, None)
         )));
     }
+    // A missing, null, empty or malformed usage object is not a reported zero: read each
+    // field on its own, so an explicit 0 is kept and anything unavailable is estimated.
     let tokens = |key: &str| {
         value
             .pointer(&format!("/usage/{key}"))
             .and_then(Value::as_u64)
             .and_then(|n| u32::try_from(n).ok())
-            .unwrap_or(0)
     };
-    let usage = Usage {
-        input_tokens: tokens("input_tokens"),
-        output_tokens: tokens("output_tokens"),
-        cost_micros: None,
+    let answer_text = text.trim().to_owned();
+    let answer_parts = [Part::Text(answer_text.clone())];
+    let answer = crate::usage::Answer {
+        parts: &answer_parts,
+        reasoning: "",
+        stop: &StopReason::EndTurn,
+        allowance,
+        redacted_thinking: false,
     };
-    Ok((text.trim().to_owned(), usage))
+    let (input, output) = (tokens("input_tokens"), tokens("output_tokens"));
+    let usage = match (input, output) {
+        (Some(input), Some(output)) => crate::usage::reported(input, output, price),
+        _ => crate::usage::partial_or_estimated(
+            input,
+            output,
+            crate::usage::text_tokens(prompt),
+            &answer,
+            price,
+        ),
+    };
+    Ok((answer_text, usage))
 }
 
 /// Absolute on Unix (`/usr/bin/claude`) or Windows (`C:\…`), independent of the build host.

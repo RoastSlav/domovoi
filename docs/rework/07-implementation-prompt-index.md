@@ -118,7 +118,7 @@ dependency forcing an order (§1): it is not permission to run them at the same 
 | 14 | `recovery-order` | F2 | HostAvailability, startup order, dispatch freshness checks | 10 | 16 | HostAvailability | — | M |
 | 15 | `durable-timers` | F2 | `Wake` effects, verification resume, effect lifecycle with lease fencing, triage reload | 08, 10, 14 | 16 | effect lifecycle | — | L |
 | 16 | `delivery-durability` | F2 | spool-before-state, notify-after-delivery, read errors | 08 | 14, 15 | — | — | M |
-| 17 | `llm-reliability` | F4 | admission persistence, deadlines, prompt cap, attribution, redaction, host-scoped similar | 08 | 18, 57 | — | — | M |
+| 17 | `llm-reliability` | F4 | admission persistence, per-call deadline, prompt cap, attribution with usage source and optional cost, redaction, host-scoped similar (capability negotiation and estimation already integrated) | 08 | 18, 57 | - | - | M |
 | 18 | `structured-approvals` | F4 | structured cards (web, Discord); approve binds the **v1** hash | 10 | 17, 19, 57 | — | — | M |
 | 19 | `ops-readiness` | F4 | step-up list, `/readyz`, metrics auth, backup verify, restore, pre-migrate pruning | 08 | 18, 57 | — | — | M |
 | 57 | `configurable-retention` | F4 | D-21 retention config and pruning for existing data | 08 | 17, 18, 19 | retention config | — | S |
@@ -265,7 +265,7 @@ row as pending or as still to be implemented.
 | 08 | `08-store-unit-of-work.md` | merged into `overhaul-investigation` (#114, `f562d06`) |
 | 13 | `13-exact-protocol-rule.md` | merged into `overhaul-investigation` (#116, `4edda64`; migration `0008`) |
 | 16 | `16-delivery-durability.md` | ready: 08 is merged |
-| 17 | `17-llm-reliability.md` | ready: 08 is merged; adds a migration, and 13 and 09 have merged, so it is next in the migration sequence (read the next free number, §7) |
+| 17 | `17-llm-reliability.md` | ready: 08 is merged; the provider compatibility and in-memory usage work is already integrated, so it only adds persistence, deadlines, the prompt cap, redaction and host scoping; it adds a migration (take the next free number after `0009`, §7) |
 | 19 | `19-ops-readiness.md` | ready: 08 is merged; adds a migration, so run it after 17 (§7) |
 | 57 | `57-configurable-retention.md` | ready: 08 is merged; no schema change |
 | 09 | `09-audit-hash-chain.md` | merged into `overhaul-investigation` (#117, `e3252aa`; migration `0009`) |

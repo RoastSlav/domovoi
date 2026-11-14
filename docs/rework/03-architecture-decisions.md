@@ -127,12 +127,21 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
 
 - **FACT.** Follow-up proposals use a `PROPOSALS:` text protocol (A §6). PR #110 had to re-validate
   cached proposals. Provider/model attribution is only in failure text, and failed calls record no
-  usage (G). The LLM client has only an idle read timeout (G).
+  usage (G). The LLM client has only an idle read timeout (G). The integrated compatibility work now
+  negotiates optional provider capabilities (`LlmCapability`, refused `tools`/`stream_options`
+  retried or rebuilt), estimates missing usage without adjusting reported values, keeps
+  `UsageSource::{Reported,Estimated,Unknown}` and an optional cost in the response, charges
+  uncountable or redacted-reasoning answers at their allowance, and bounds every attempt by a
+  cumulative run budget and one run deadline (G). Those are real fixes, but they do not replace
+  durable attribution or the independent per-call deadline: usage source and unknown cost are not
+  persisted, a failed call writes no row, and one provider call can still outlive the idle timeout.
 - **Decision.**
   - Model output is meta-tool calls with schema validation (RW-07). Deterministic code turns them
     into steps or `Refused` steps whose reasons are fed back to the model.
   - Each `ReasoningTurn` step persists its context references, model, provider, token usage,
-    latency and outcome, **for failed calls too**, before any effect it requests is created.
+    latency, outcome and, when a response exists, whether usage was reported, estimated or unknown
+    plus whether cost is known, **for failed calls too**, before any effect it requests is created.
+    A failed call with no response stores no token or cost total and is never labelled reported.
   - **Model-call retry is separate from execution retry.** A model call is read-only but not
     idempotent: a retry costs money and may give a different answer. Transport, timeout, 5xx and
     rate-limit errors are retried within the operation's turn budget (rate limits honour

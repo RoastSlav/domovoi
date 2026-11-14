@@ -34,7 +34,9 @@ toml = { workspace = true }
 url = { workspace = true }
 insta = { workspace = true }
 proptest = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
+rustls = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "test-util"] }
+wiremock = { workspace = true }
 
 [[test]]
 name = "engine"
