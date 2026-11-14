@@ -10,8 +10,8 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use async_trait::async_trait;
 use domovoi_core::ports::{
-    AgentLink, CheckRecheck, LinkError, Presence, SettingsRepo, SkillDispatch, SkillOutput,
-    StoreError, ToolOutput,
+    AgentLink, CheckRecheck, HostAvailability, LinkError, Presence, SettingsRepo, SkillDispatch,
+    SkillOutput, StoreError, ToolOutput,
 };
 use domovoi_core::skill::SkillName;
 use domovoi_core::{CheckKey, Host, HostId, ReadToolCall, SkillSummary, TargetKey};
@@ -196,6 +196,10 @@ impl AgentLink for PolicyLink {
 
     fn presence(&self, host: HostId) -> Presence {
         AgentLink::presence(&*self.inner, host)
+    }
+
+    async fn availability(&self, host: HostId) -> HostAvailability {
+        AgentLink::availability(&*self.inner, host).await
     }
 
     fn skills(&self, host: HostId) -> Vec<SkillSummary> {

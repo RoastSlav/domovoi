@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use domovoi_core::ports::{
-    AgentLink, CheckRecheck, Clock, HostRepo, LinkError, LogLine, Presence, SkillDispatch,
-    SkillOutput, ToolOutput,
+    AgentLink, CheckRecheck, Clock, HostAvailability, HostRepo, LinkError, LogLine, Presence,
+    SkillDispatch, SkillOutput, ToolOutput,
 };
 use domovoi_core::{CheckKey, HostId, ReadToolCall, SkillSummary, TargetKey};
 use domovoi_proto::messages::{
@@ -17,7 +17,7 @@ use jiff::SignedDuration;
 use jiff::Timestamp;
 
 use super::compat::{ProtocolState, protocol_state};
-use super::registry::Registry;
+use super::registry::{Registry, SessionState};
 
 /// Routes requests to the host's current session. Fails fast with
 /// [`LinkError::NotConnected`] when the host has none, and with [`LinkError::Timeout`]
@@ -63,6 +63,31 @@ impl WsAgentLink {
         match protocol_state(report.as_ref(), PROTOCOL_VERSION) {
             ProtocolState::Incompatible { .. } => LinkError::Incompatible,
             _ => LinkError::NotConnected,
+        }
+    }
+
+    /// The version the host's agent reported when this hub rejected it, or `None` when
+    /// the agent is not rejected. A report that merely predates this hub's protocol is a
+    /// prediction, not a finding, so it is `None` too.
+    async fn rejected_protocol(&self, host: HostId) -> Option<String> {
+        let agent = match self.hosts.live_agent(host).await {
+            Ok(Some(agent)) => agent,
+            Ok(None) => return None,
+            Err(err) => {
+                tracing::warn!(%err, %host, "could not read the host's agent");
+                return None;
+            }
+        };
+        let report = match self.hosts.agent_report(agent.agent).await {
+            Ok(report) => report,
+            Err(err) => {
+                tracing::warn!(%err, %host, "could not read the host's agent report");
+                return None;
+            }
+        };
+        match protocol_state(report.as_ref(), PROTOCOL_VERSION) {
+            ProtocolState::Incompatible { reported, .. } => Some(reported.to_string()),
+            _ => None,
         }
     }
 
@@ -221,6 +246,25 @@ impl AgentLink for WsAgentLink {
 
     fn presence(&self, host: HostId) -> Presence {
         self.registry.presence(host)
+    }
+
+    async fn availability(&self, host: HostId) -> HostAvailability {
+        // A live session is the answer whether or not an older report says otherwise.
+        let state = self.registry.session_state(host);
+        if let SessionState::Live { since } = state {
+            return HostAvailability::Known { since };
+        }
+        // A host this hub rejected is reported as incompatible even after its session
+        // ended, so an approval waits for an upgrade rather than for a reconnect.
+        if let Some(reported) = self.rejected_protocol(host).await {
+            return HostAvailability::Incompatible { reported };
+        }
+        match state {
+            SessionState::Lost { at } => HostAvailability::Absent { since: at },
+            // A live session was answered above; a host never seen in this hub run is
+            // unknown until it connects.
+            SessionState::Live { .. } | SessionState::Never => HostAvailability::Unknown,
+        }
     }
 
     fn skills(&self, host: HostId) -> Vec<SkillSummary> {

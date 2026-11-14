@@ -1,5 +1,6 @@
 use domovoi_core::ports::{AuditFilter, AuditLog, IncidentRepo, Page, Presence, SkillOutput};
 use domovoi_core::{ActionStatus, ManifestHash, Risk, SignalStatus, UserId, Verdict};
+use domovoi_engine::actions::audit;
 use domovoi_engine::notify::{NotifyAction, NotifySettings, plan};
 use domovoi_engine::{ActionSettings, EventKind};
 use domovoi_testkit::approvals::human;
@@ -244,7 +245,7 @@ async fn loop_guard_blocks_fourth_dispatch_in_an_hour() {
 }
 
 #[tokio::test]
-async fn offline_agent_waits_then_fails() {
+async fn offline_agent_waits_then_is_rejected() {
     let a = actions(ActionSettings::default()).await;
     a.link
         .set_presence(host_id(), Presence::Disconnected { last_seen: None });
@@ -252,16 +253,28 @@ async fn offline_agent_waits_then_fails() {
     let start = a.now();
     approve(&a, action.id()).await;
     let done = a
-        .until(action.id(), |s| matches!(s, ActionStatus::Failed { .. }))
+        .until(action.id(), |s| matches!(s, ActionStatus::Rejected { .. }))
         .await;
     assert_eq!(
         done.status(),
-        &ActionStatus::Failed {
+        &ActionStatus::Rejected {
             reason: "agent offline".to_owned()
         }
     );
-    assert!(a.now().duration_since(start) >= SignedDuration::from_mins(5));
+    assert!(
+        a.now().duration_since(start) >= SignedDuration::from_mins(30),
+        "the agent gets the whole thirty-minute wait",
+    );
     assert_eq!(a.runs(), 0);
+    let trail = a.trail(action.id()).await;
+    assert!(
+        trail.contains(&audit::REJECTED.to_owned()),
+        "the refusal is audited as a rejection",
+    );
+    assert!(
+        !trail.contains(&audit::DISPATCHED.to_owned()),
+        "nothing was dispatched to an agent that is not there",
+    );
 
     // An agent that comes back in time runs the action.
     let (action, _) = a.propose().await;

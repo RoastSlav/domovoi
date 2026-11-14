@@ -16,8 +16,8 @@ pub mod repos;
 pub mod uow;
 
 pub use agent_link::{
-    AgentLink, CheckRecheck, IngestError, LinkError, Presence, SignalSink, SkillDispatch,
-    SkillOutput, ToolOutput,
+    AgentLink, CheckRecheck, HostAvailability, IngestError, LinkError, Presence, SignalSink,
+    SkillDispatch, SkillOutput, ToolOutput,
 };
 pub use chat::{
     ChatError, ChatGateway, InteractionSink, MessageRef, Notifier, OutboundMessage, ThreadRef,
