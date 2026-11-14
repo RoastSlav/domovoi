@@ -12,7 +12,7 @@ Agents connect out to the hub over WebSocket and TLS, on port 7421. Nothing conn
 
 - When it enrolls, an agent pins the hub's certificate fingerprint and registers a key of its own. Every connection after that is mutually authenticated: the agent checks the certificate, and the hub challenges the agent to sign with its key.
 - An agent sends a heartbeat every 10 seconds. After three missed heartbeats the hub marks it silent, first checking its own network (`[agent_server] self_check`) so a hub-side outage is not blamed on every host.
-- While disconnected, an agent spools signals on disk and sends them when it is back.
+- While disconnected, an agent spools signals on disk and sends them when it is back. It saves what a check learned only after that run's signals are on disk, so a spool that cannot be written loses nothing: the run repeats at the next interval.
 
 The [agent protocol](../reference/protocol.md) has the details.
 
