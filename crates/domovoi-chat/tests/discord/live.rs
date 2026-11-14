@@ -41,6 +41,7 @@ async fn live_card_thread_and_reply() {
         bullets: vec!["Posted by the live test".to_owned()],
         next_step: Some("Nothing; delete this thread".to_owned()),
         buttons: vec![CardButton::Ack, CardButton::Mute1h, CardButton::Details],
+        plans: Vec::new(),
         details: None,
         resolved: false,
     };

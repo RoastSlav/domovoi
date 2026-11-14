@@ -1,4 +1,4 @@
-use domovoi_core::{ActionError, ActionStatus, UserId};
+use domovoi_core::{ActionError, ActionStatus, PlanBinding, UserId};
 use domovoi_engine::{ActionSettings, ApprovalError};
 use domovoi_testkit::approvals::{chat, human};
 use jiff::SignedDuration;
@@ -14,13 +14,26 @@ async fn chat_approval_requires_matching_single_use_token() {
 
     for wrong in [None, Some("not-the-token"), Some(&*token.to_uppercase())] {
         assert_eq!(
-            a.service.approve(first.id(), discord(), wrong).await.err(),
+            a.service
+                .approve(
+                    first.id(),
+                    discord(),
+                    wrong,
+                    PlanBinding::Full(first.plan_hash()),
+                )
+                .await
+                .err(),
             Some(ApprovalError::BadToken)
         );
     }
     assert_eq!(
         a.service
-            .approve(second.id(), discord(), Some(&token))
+            .approve(
+                second.id(),
+                discord(),
+                Some(&token),
+                PlanBinding::Full(second.plan_hash()),
+            )
             .await
             .err(),
         Some(ApprovalError::BadToken),
@@ -30,7 +43,12 @@ async fn chat_approval_requires_matching_single_use_token() {
 
     let approved = a
         .service
-        .approve(first.id(), discord(), Some(&token))
+        .approve(
+            first.id(),
+            discord(),
+            Some(&token),
+            PlanBinding::Full(first.plan_hash()),
+        )
         .await
         .unwrap();
     assert!(matches!(approved.status(), ActionStatus::Approved));
@@ -41,7 +59,12 @@ async fn chat_approval_requires_matching_single_use_token() {
     );
     assert_eq!(
         a.service
-            .approve(first.id(), discord(), Some(&token))
+            .approve(
+                first.id(),
+                discord(),
+                Some(&token),
+                PlanBinding::Full(first.plan_hash()),
+            )
             .await
             .err(),
         Some(ApprovalError::BadToken)
@@ -55,7 +78,12 @@ async fn expired_action_cannot_be_approved() {
     a.clock.advance(SignedDuration::from_mins(61));
     assert_eq!(
         a.service
-            .approve(action.id(), human(UserId::new()), None)
+            .approve(
+                action.id(),
+                human(UserId::new()),
+                None,
+                PlanBinding::Full(action.plan_hash()),
+            )
             .await
             .err(),
         Some(ApprovalError::Refused(ActionError::Expired))
@@ -99,7 +127,12 @@ async fn denied_action_is_audited_and_cannot_be_approved() {
     assert_eq!(denied.status(), &ActionStatus::Denied);
     assert!(matches!(
         a.service
-            .approve(action.id(), human(UserId::new()), None)
+            .approve(
+                action.id(),
+                human(UserId::new()),
+                None,
+                PlanBinding::Full(action.plan_hash()),
+            )
             .await,
         Err(ApprovalError::Refused(ActionError::NotAllowed { .. }))
     ));

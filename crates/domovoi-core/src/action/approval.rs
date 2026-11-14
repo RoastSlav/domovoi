@@ -14,6 +14,12 @@ sha256_newtype!(
 );
 
 impl PlanHash {
+    /// The first 8 hex digits, for cards and logs. Not a security value.
+    #[must_use]
+    pub fn short(&self) -> String {
+        hex::encode(&self.as_bytes()[..4])
+    }
+
     /// SHA-256 over `"plan:v1\n{skill}\n{manifest_hash}\n{host_id}\n{canonical args}"`.
     #[must_use]
     pub fn compute(
@@ -24,6 +30,35 @@ impl PlanHash {
     ) -> Self {
         let text = format!("plan:v1\n{skill}\n{manifest}\n{host}\n{}", args.canonical());
         Self::digest(text.as_bytes())
+    }
+}
+
+/// The plan hash an approval request says it is approving.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PlanBinding {
+    /// The whole hash (web).
+    Full(PlanHash),
+    /// The first 3 or more bytes of the hash (a chat button, whose custom ID has no room
+    /// for more).
+    Prefix(Vec<u8>),
+}
+
+impl PlanBinding {
+    /// Shortest prefix accepted, in bytes.
+    pub const MIN_PREFIX: usize = 3;
+
+    /// Whether this binding names `stored`. A prefix shorter than [`Self::MIN_PREFIX`] or
+    /// longer than 32 never matches.
+    #[must_use]
+    pub fn matches(&self, stored: &PlanHash) -> bool {
+        match self {
+            Self::Full(hash) => hash == stored,
+            Self::Prefix(prefix) => {
+                Self::MIN_PREFIX <= prefix.len()
+                    && prefix.len() <= stored.as_bytes().len()
+                    && stored.as_bytes().starts_with(prefix)
+            }
+        }
     }
 }
 
@@ -92,5 +127,39 @@ impl HumanApproval {
     #[must_use]
     pub fn at(&self) -> Timestamp {
         self.at
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn hash(byte: u8) -> PlanHash {
+        hex::encode([byte; 32]).parse().unwrap()
+    }
+
+    #[test]
+    fn plan_binding_full_matches_only_the_same_hash() {
+        let stored = hash(0xab);
+        assert!(PlanBinding::Full(stored).matches(&stored));
+        assert!(!PlanBinding::Full(hash(0xac)).matches(&stored));
+    }
+
+    #[test]
+    fn plan_binding_prefix_needs_at_least_three_bytes() {
+        let stored = hash(0xab);
+        let bytes = stored.as_bytes();
+        assert!(PlanBinding::Prefix(bytes[..3].to_vec()).matches(&stored));
+        assert!(PlanBinding::Prefix(bytes.to_vec()).matches(&stored));
+        assert!(!PlanBinding::Prefix(bytes[..2].to_vec()).matches(&stored));
+        assert!(!PlanBinding::Prefix([bytes.as_slice(), &[0u8]].concat()).matches(&stored));
+        assert!(!PlanBinding::Prefix(vec![0, 0, 0]).matches(&stored));
+    }
+
+    #[test]
+    fn plan_hash_short_is_the_first_eight_hex_digits() {
+        let hash = hash(0x0a);
+        assert_eq!(hash.short(), "0a0a0a0a");
+        assert_eq!(hash.short(), &hash.to_string()[..8]);
     }
 }

@@ -512,7 +512,7 @@ mod redaction {
 
 mod actions {
     use domovoi_core::ports::SkillOutput;
-    use domovoi_core::{ActionError, ActionStatus, UserId};
+    use domovoi_core::{ActionError, ActionStatus, PlanBinding, UserId};
     use domovoi_engine::{ActionSettings, ApprovalError, DomainEvent, EventKind};
     use domovoi_testkit::approvals::{chat, human, web_typed};
     use jiff::SignedDuration;
@@ -530,7 +530,8 @@ mod actions {
                 .approve(
                     action.id(),
                     chat(UserId::new(), "discord", "1234"),
-                    Some(&token)
+                    Some(&token),
+                    PlanBinding::Full(action.plan_hash()),
                 )
                 .await
                 .err(),
@@ -552,7 +553,12 @@ mod actions {
             .await;
         assert_eq!(
             a.service
-                .approve(action.id(), human(UserId::new()), None)
+                .approve(
+                    action.id(),
+                    human(UserId::new()),
+                    None,
+                    PlanBinding::Full(action.plan_hash()),
+                )
                 .await
                 .err(),
             Some(ApprovalError::Refused(
@@ -561,7 +567,12 @@ mod actions {
         );
         assert_eq!(a.runs(), 0);
         a.service
-            .approve(action.id(), web_typed(UserId::new()), None)
+            .approve(
+                action.id(),
+                web_typed(UserId::new()),
+                None,
+                PlanBinding::Full(action.plan_hash()),
+            )
             .await
             .unwrap();
         a.until(action.id(), |s| matches!(s, ActionStatus::Succeeded))
@@ -624,7 +635,12 @@ mod actions {
         });
         let (failed, _) = a.propose().await;
         a.service
-            .approve(failed.id(), human(UserId::new()), None)
+            .approve(
+                failed.id(),
+                human(UserId::new()),
+                None,
+                PlanBinding::Full(failed.plan_hash()),
+            )
             .await
             .unwrap();
         a.until(failed.id(), |s| matches!(s, ActionStatus::Failed { .. }))
@@ -634,7 +650,12 @@ mod actions {
         a.link.set_skills(a.incident.host(), Vec::new());
         let (rejected, _) = a.propose().await;
         a.service
-            .approve(rejected.id(), human(UserId::new()), None)
+            .approve(
+                rejected.id(),
+                human(UserId::new()),
+                None,
+                PlanBinding::Full(rejected.plan_hash()),
+            )
             .await
             .unwrap();
         a.until(rejected.id(), |s| {
@@ -669,7 +690,12 @@ mod actions {
         ));
         assert!(
             a.service
-                .approve(failed.id(), human(UserId::new()), None)
+                .approve(
+                    failed.id(),
+                    human(UserId::new()),
+                    None,
+                    PlanBinding::Full(failed.plan_hash()),
+                )
                 .await
                 .is_err(),
             "a failed action cannot be approved again"

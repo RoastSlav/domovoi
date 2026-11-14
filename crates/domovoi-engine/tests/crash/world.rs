@@ -570,6 +570,7 @@ impl<S: SweepStore> World<S> {
                 action.id(),
                 domovoi_testkit::approvals::human(UserId::new()),
                 None,
+                domovoi_core::PlanBinding::Full(action.plan_hash()),
             )
             .await
             .expect("the writer approves the action");

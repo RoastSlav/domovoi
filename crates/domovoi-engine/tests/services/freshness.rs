@@ -14,7 +14,7 @@ use domovoi_core::ports::{
 use domovoi_core::skill::{ParamKind, ParamName, ParamSpec};
 use domovoi_core::{
     ActionRequest, ActionStatus, CheckKey, HostId, IncidentEvent, IncidentId, IncidentPolicy,
-    Principal, ReadToolCall, Risk, SkillSummary, TargetKey, UserId, apply,
+    PlanBinding, Principal, ReadToolCall, Risk, SkillSummary, TargetKey, UserId, apply,
 };
 use domovoi_engine::actions::audit;
 use domovoi_engine::{ActionDeps, ActionService, ActionSettings, PatternRedactor};
@@ -274,7 +274,12 @@ async fn unknown_host_past_wait_limit_is_rejected_without_dispatch() {
     connect(&world, host_id(), &a.clock);
     let (fresh, _) = a.propose().await;
     a.service
-        .approve(fresh.id(), human(UserId::new()), None)
+        .approve(
+            fresh.id(),
+            human(UserId::new()),
+            None,
+            PlanBinding::Full(fresh.plan_hash()),
+        )
         .await
         .unwrap();
     a.until(fresh.id(), |s| s == &ActionStatus::Verified).await;
@@ -543,7 +548,12 @@ async fn approved_action_is_still_started_by_the_event_path_without_the_pool() {
     // it is not held to the catch-up pool.
     let (action, _) = a.propose().await;
     a.service
-        .approve(action.id(), human(UserId::new()), None)
+        .approve(
+            action.id(),
+            human(UserId::new()),
+            None,
+            PlanBinding::Full(action.plan_hash()),
+        )
         .await
         .unwrap();
     a.settle().await;

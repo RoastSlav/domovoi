@@ -12,7 +12,7 @@ use std::sync::Arc;
 use domovoi_core::ports::{ActionFilter, ActionGuard, AuditDraft, CommitError, Observed, Page};
 use domovoi_core::{
     ActionChange, ActionError, ActionId, ActionRequest, ActionStatus, ApprovalChannel,
-    HumanApproval, PlanHash,
+    HumanApproval, PlanBinding, PlanHash,
 };
 use jiff::Timestamp;
 
@@ -40,6 +40,7 @@ pub(crate) enum WriteCommand {
         id: ActionId,
         approval: HumanApproval,
         chat_token: Option<String>,
+        binding: PlanBinding,
         reply: oneshot::Sender<Decision>,
     },
     Deny {
@@ -151,9 +152,10 @@ async fn process(shared: &Shared, command: WriteCommand) {
             id,
             approval,
             chat_token,
+            binding,
             reply,
         } => {
-            let result = approve(shared, id, approval, chat_token.as_deref()).await;
+            let result = approve(shared, id, approval, chat_token.as_deref(), binding).await;
             if let Err(err) = &result {
                 refused(err, "an approval");
             }
@@ -253,6 +255,7 @@ fn refused(err: &ApprovalError, what: &str) {
             tracing::debug!(%id, "{what} asked for an action that is not there")
         }
         ApprovalError::BadToken => tracing::debug!("{what} had no working chat token"),
+        ApprovalError::PlanChanged => tracing::debug!("{what} named a different plan"),
         ApprovalError::Refused(reason) => {
             tracing::debug!(%reason, "the action could not take {what}")
         }
@@ -262,18 +265,23 @@ fn refused(err: &ApprovalError, what: &str) {
 
 /// Approves `id`; the only path that reaches `Approved`. A chat approval must
 /// carry the action's own token, checked here so the answer cannot race with
-/// another decision that is already queued.
+/// another decision that is already queued. The binding must name the plan the
+/// approver was shown; a mismatch changes nothing.
 async fn approve(
     shared: &Shared,
     id: ActionId,
     approval: HumanApproval,
     chat_token: Option<&str>,
+    binding: PlanBinding,
 ) -> Result<ActionRequest, ApprovalError> {
     let mut action = load(shared, id).await?;
     if matches!(approval.channel(), ApprovalChannel::Chat { .. })
         && !chat_token_ok(chat_token, &action)
     {
         return Err(ApprovalError::BadToken);
+    }
+    if !binding.matches(&action.plan_hash()) {
+        return Err(ApprovalError::PlanChanged);
     }
     let now = shared.deps.clock.now();
     let entry_approval = approval.clone();

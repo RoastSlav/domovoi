@@ -29,9 +29,17 @@ Restarting the hub loses nothing that a person already decided, and invents noth
 
 ## In the web UI
 
-An action looks the same on the incident's page and on the **Approvals** page: the skill, its risk (the info button beside it says what that risk level allows), its state, the host, the arguments it would run with, who suggested it, and, while it waits, the time left to decide. The countdown turns to a warning in the last ten minutes. On the incident's page the card also shows why triage proposed it.
+An action looks the same on the incident's page and on the **Approvals** page: the skill, its risk (the info button beside it says what that risk level allows), its state, the host, the arguments it would run with, the plan code it will run (the info button beside it explains what that code covers), who suggested it, and, while it waits, the time left to decide. The countdown turns to a warning in the last ten minutes. On the incident's page the card also shows why triage proposed it, labelled as the model's reason: that sentence is not what you approve.
 
 **Approve** always asks first, naming the skill, its arguments and the host; a destructive skill also needs its name typed. **Deny** is one click: nothing runs, and triage can propose the action again. After you approve, the card shows the action being sent and running, and a short message tells you how it ended, wherever on the page you are. An action that failed shows the reason; one that expired says that nobody decided in time and that nothing ran.
+
+## What an approval covers
+
+Each proposed action has a **plan hash**: a code shown on the card as `Plan a1b2c3d4`. It is computed from the skill's name, the version of its manifest, the host and the exact arguments. The approval request carries the code the card showed; if it no longer matches what is stored for the action, the approval is refused and nothing changes. A stale or substituted card therefore cannot approve a different plan.
+
+The code does **not** cover the contents of the skill's entry script, and it does not name a resolved target on the host: it binds the host, not what the skill will find there. Stronger binding is planned. The runtime limits stay what they were: Domovoi recomputes the plan from the agent's current manifest just before running, the agent applies its own checks, and the audit log records what ran.
+
+A Discord button has no room for the whole code, so it carries a short prefix of it. The button's single-use token is still what authenticates the press; the prefix only catches a card that has gone stale. A card too old to carry the prefix is refused and asks you to approve in the web UI. If an action's arguments are too long to show in chat, that action gets no Approve or Deny button there, only the link, because you must be able to read every argument before approving.
 
 The **Approvals** page lists what is **Waiting for you**, the soonest to expire first, and, in a section that starts closed, what was **Recently decided** in the last 24 hours. It follows the host chosen in the top bar.
 
