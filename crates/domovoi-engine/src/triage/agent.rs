@@ -4,7 +4,8 @@
 use std::sync::Arc;
 
 use domovoi_core::ports::{
-    LlmError, LlmMessage, LlmProvider, LlmRequest, LlmResponse, Part, Role, StopReason, ToolSpec,
+    LlmCapability, LlmError, LlmMessage, LlmProvider, LlmRequest, LlmResponse, Part, Role,
+    StopReason, ToolSpec,
 };
 use domovoi_core::{ReadTool, SkillSummary};
 use jiff::{SignedDuration, Timestamp};
@@ -22,9 +23,9 @@ pub const NO_CALLS_LEFT: &str = "error: the tool-call budget is spent; answer no
 /// configured size can be too small for it to say anything at all.
 const GROWN_OUTPUT_ALLOWANCE: u32 = 4;
 
-/// The most one turn may ask a provider for, whatever the run's total budget says. A model
-/// that needs more than this to answer needs a larger `[triage] per_run.output_tokens`.
-const MAX_OUTPUT_ALLOWANCE: u32 = 16_000;
+/// The most one turn may ask a provider for. Configuration above this is clamped to it, so
+/// the documented maximum holds on every path, the first request included.
+pub const MAX_OUTPUT_ALLOWANCE: u32 = 16_000;
 
 /// The allowance a retried turn asks for, or `None` when it is already at
 /// [`MAX_OUTPUT_ALLOWANCE`].
@@ -66,7 +67,11 @@ impl RunBudget {
             )))
             .unwrap_or(start);
         Self {
-            per_turn: shared.settings.budget.max_output_tokens,
+            per_turn: shared
+                .settings
+                .budget
+                .max_output_tokens
+                .min(MAX_OUTPUT_ALLOWANCE),
             remaining: shared.settings.budget.max_total_output_tokens,
             deadline,
         }
@@ -90,6 +95,12 @@ impl RunBudget {
             self.remaining -= granted;
             granted
         })
+    }
+
+    /// Gives back a grant for a request the provider refused outright, so a capability
+    /// retry does not spend the run's budget twice.
+    pub(crate) fn refund(&mut self, granted: u32) {
+        self.remaining = self.remaining.saturating_add(granted);
     }
 
     /// [`grant`](Self::grant), with the failure a model run ends with when the budget is
@@ -227,7 +238,91 @@ pub(crate) async fn complete(
     {
         tracing::warn!(%err, "could not record model usage");
     }
+    // A monthly budget in dollars cannot count a turn whose price is unknown. Refusing it
+    // is the conservative choice: no run silently spends without being measurable.
+    if usage.cost_micros.is_none() && shared.settings.monthly_budget_micros.is_some() {
+        return Err(LlmError::Unavailable(
+            "the provider did not price this turn, so the monthly model budget cannot count it; \
+             set a price on the provider (0 for a free model) or remove the monthly budget"
+                .to_owned(),
+        ));
+    }
     Ok(response)
+}
+
+/// The failure a run ends with when its time is gone.
+pub(crate) fn deadline_error() -> LlmError {
+    LlmError::Unavailable(
+        "the run deadline passed before the model finished; raise [triage] per_run.seconds"
+            .to_owned(),
+    )
+}
+
+/// The failure for a turn that ran out of output room. Reaching this always means the
+/// effective allowance hit the supported maximum, so raising the setting is not offered.
+fn exhausted() -> LlmError {
+    LlmError::Unavailable(format!(
+        "the model ran out of the supported maximum of {MAX_OUTPUT_ALLOWANCE} output tokens \
+         before finishing its answer; [triage] per_run.output_tokens cannot raise it further"
+    ))
+}
+
+/// One model request that must end in a complete answer.
+///
+/// This is the only place an answer is accepted. A turn that ends at its output allowance is
+/// incomplete whatever it holds: nothing generated is returned, no tool call in it runs and
+/// no message is added to `messages`. The turn is asked again with a larger allowance, within
+/// [`MAX_OUTPUT_ALLOWANCE`], the run's remaining budget and its deadline. A provider that
+/// refuses streamed usage is retried once, which the adapter answers as a whole response
+/// carrying usage.
+pub(crate) async fn ask(
+    shared: &Shared,
+    provider: &Arc<dyn LlmProvider>,
+    system: &str,
+    messages: &[LlmMessage],
+    tools: Vec<ToolSpec>,
+    run: &mut RunBudget,
+) -> Result<LlmResponse, LlmError> {
+    let mut wanted = run.per_turn();
+    let mut usage_retried = false;
+    loop {
+        let allowance = run.grant_or_fail(wanted)?;
+        let req = LlmRequest {
+            system: system.to_owned(),
+            messages: messages.to_vec(),
+            tools: tools.clone(),
+            max_output_tokens: allowance,
+        };
+        match complete(shared, provider, req, run.deadline()).await {
+            Ok(response) if response.stop == StopReason::MaxTokens => {
+                match grown_allowance(allowance) {
+                    Some(larger) => {
+                        tracing::info!(
+                            provider = provider.id(),
+                            from = allowance,
+                            to = larger,
+                            "the model ran out of output room; retrying the turn with more",
+                        );
+                        wanted = larger;
+                        continue;
+                    }
+                    None => return Err(exhausted()),
+                }
+            }
+            Ok(response) => return Ok(response),
+            Err(LlmError::CapabilityRejected {
+                capability: LlmCapability::StreamUsage,
+                ..
+            }) if !usage_retried => {
+                // The adapter has stopped asking for streamed usage and will answer with a
+                // whole response instead. Nothing was generated, so the grant goes back.
+                usage_retried = true;
+                run.refund(allowance);
+                continue;
+            }
+            Err(err) => return Err(err),
+        }
+    }
 }
 
 /// Continues `messages` with `provider` until the model answers without tool calls, and
@@ -236,10 +331,7 @@ pub(crate) async fn complete(
 /// run. Every call the model makes while it may still call tools is pushed onto `used`;
 /// calls in the response after it was told to answer are ignored.
 ///
-/// A turn that runs out of output room is incomplete: none of it is kept and none of its
-/// tool calls are run, whether it held text, a call, both or neither. It is asked again
-/// with a larger allowance, within [`MAX_OUTPUT_ALLOWANCE`], the run's remaining output
-/// budget and `deadline`.
+/// Answers come from [`ask`], so an incomplete turn is never accepted, kept or acted on.
 pub(crate) async fn converse(
     shared: &Shared,
     provider: &Arc<dyn LlmProvider>,
@@ -256,38 +348,8 @@ pub(crate) async fn converse(
     };
     let mut calls_used: u16 = 0;
     let mut told_to_answer = false;
-    let mut wanted = run.per_turn();
     loop {
-        let allowance = run.grant_or_fail(wanted)?;
-        let req = LlmRequest {
-            system: brief.system.to_owned(),
-            messages: messages.clone(),
-            tools: specs.clone(),
-            max_output_tokens: allowance,
-        };
-        let response = complete(shared, provider, req, run.deadline()).await?;
-        // Checked before anything in the turn is used: a cut-off tool call is as incomplete
-        // as cut-off text, and running it would act on half an answer.
-        if response.stop == StopReason::MaxTokens {
-            match grown_allowance(allowance) {
-                Some(larger) => {
-                    tracing::info!(
-                        provider = provider.id(),
-                        from = allowance,
-                        to = larger,
-                        "the model ran out of output room; retrying the turn with more",
-                    );
-                    wanted = larger;
-                    continue;
-                }
-                None => {
-                    return Err(LlmError::Unavailable(format!(
-                        "the model ran out of its {allowance}-token output allowance before \
-                         finishing its answer; raise [triage] per_run.output_tokens"
-                    )));
-                }
-            }
-        }
+        let response = ask(shared, provider, brief.system, messages, specs.clone(), run).await?;
         messages.push(LlmMessage {
             role: Role::Assistant,
             parts: response.parts.clone(),
@@ -307,6 +369,11 @@ pub(crate) async fn converse(
         }
         let mut results = Vec::with_capacity(calls.len() + 1);
         for (id, name, input) in calls {
+            // Tools stop at the run deadline, not only at their own timeout: a batch of
+            // individually quick calls must not run past the run's time.
+            if shared.deps.clock.now() >= run.deadline() {
+                return Err(deadline_error());
+            }
             let skill = read_skill_of(&name, &input);
             let refused = calls_used >= budget.max_tool_calls;
             let result = if refused {
@@ -316,7 +383,15 @@ pub(crate) async fn converse(
                 }
             } else {
                 calls_used += 1;
-                tools::call(shared, brief.scope, brief.skills, &name, input).await
+                tools::call(
+                    shared,
+                    brief.scope,
+                    brief.skills,
+                    &name,
+                    input,
+                    run.deadline(),
+                )
+                .await
             };
             let (tool, used_skill, raw) = target_of(&name, skill, brief.skills);
             used.push(ToolUse {
@@ -332,7 +407,10 @@ pub(crate) async fn converse(
                 is_error: result.is_error,
             });
         }
-        if calls_used >= budget.max_tool_calls || shared.deps.clock.now() >= run.deadline() {
+        if shared.deps.clock.now() >= run.deadline() {
+            return Err(deadline_error());
+        }
+        if calls_used >= budget.max_tool_calls {
             results.push(Part::Text(BUDGET_EXHAUSTED.to_owned()));
             told_to_answer = true;
         }

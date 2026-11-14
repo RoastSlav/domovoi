@@ -381,7 +381,7 @@ async fn a_model_that_never_answers_fails_with_the_output_allowance() {
         matches!(
             &outcome,
             TriageOutcome::Failed { reason }
-                if reason.contains("16000-token output allowance")
+                if reason.contains("supported maximum of 16000")
                     && reason.contains("per_run.output_tokens")
         ),
         "{outcome:?}"
@@ -441,6 +441,7 @@ async fn every_retry_is_recorded_as_usage() {
             input_tokens: 10,
             output_tokens: 30,
             cost_micros: None,
+            source: domovoi_core::ports::UsageSource::Reported,
         },
     });
     w.primary.push_ok(LlmResponse {
@@ -450,6 +451,7 @@ async fn every_retry_is_recorded_as_usage() {
             input_tokens: 20,
             output_tokens: 70,
             cost_micros: None,
+            source: domovoi_core::ports::UsageSource::Reported,
         },
     });
 
@@ -484,10 +486,19 @@ async fn an_allowance_at_the_ceiling_is_not_grown() {
 
     let outcome = w.run().await;
     assert!(
-        matches!(&outcome, TriageOutcome::Failed { reason } if reason.contains("16000-token output allowance")),
+        matches!(
+            &outcome,
+            TriageOutcome::Failed { reason }
+                if reason.contains("supported maximum of 16000") && reason.contains("cannot raise it further")
+        ),
         "{outcome:?}"
     );
     assert_eq!(w.primary.requests().len(), 1);
+    assert_eq!(
+        w.primary.requests()[0].max_output_tokens,
+        16_000,
+        "the configured excess is clamped to the supported maximum"
+    );
 }
 
 #[tokio::test(start_paused = true)]
@@ -570,6 +581,204 @@ async fn budget_exhaustion_forces_final_answer() {
         .filter(|r| matches!(r, LinkRequest::Tool { call, .. } if !matches!(call, ReadToolCall::DockerEvents { .. })))
         .count();
     assert_eq!(tools_run, 2, "the third call was not run");
+}
+
+#[tokio::test]
+async fn a_slow_tool_does_not_outlive_the_run() {
+    let w = world(Setup::default()).await;
+    let clock = w.clock.clone();
+    w.link.on_tool(move |_, _| {
+        clock.advance(SignedDuration::from_secs(100));
+        Ok(ToolOutput {
+            text: "ok".to_owned(),
+            truncated: false,
+        })
+    });
+    w.primary
+        .push_ok(calls(&[("c1", "host_overview", json!({}))]));
+
+    let outcome = w.run().await;
+    assert!(
+        matches!(&outcome, TriageOutcome::Failed { reason } if reason.contains("run deadline")),
+        "{outcome:?}"
+    );
+    assert_eq!(
+        w.primary.requests().len(),
+        1,
+        "no model request after the deadline"
+    );
+}
+
+#[tokio::test]
+async fn a_batch_of_tools_cannot_outlive_the_run() {
+    let w = world(Setup::default()).await;
+    let clock = w.clock.clone();
+    w.link.on_tool(move |_, _| {
+        clock.advance(SignedDuration::from_secs(50));
+        Ok(ToolOutput {
+            text: "ok".to_owned(),
+            truncated: false,
+        })
+    });
+    w.primary.push_ok(calls(&[
+        ("c1", "host_overview", json!({})),
+        ("c2", "docker_ps", json!({})),
+    ]));
+
+    let outcome = w.run().await;
+    assert!(
+        matches!(&outcome, TriageOutcome::Failed { reason } if reason.contains("run deadline")),
+        "{outcome:?}"
+    );
+    assert_eq!(
+        w.primary.requests().len(),
+        1,
+        "each call is quick but the batch passes the deadline"
+    );
+}
+
+#[tokio::test]
+async fn prefetch_past_the_deadline_never_calls_the_model() {
+    let w = world(Setup {
+        cli: true,
+        ..Setup::default()
+    })
+    .await;
+    let clock = w.clock.clone();
+    w.link.on_tool(move |_, _| {
+        clock.advance(SignedDuration::from_secs(100));
+        Ok(ToolOutput {
+            text: "ok".to_owned(),
+            truncated: false,
+        })
+    });
+
+    let outcome = w.run().await;
+    assert!(
+        matches!(&outcome, TriageOutcome::Failed { reason } if reason.contains("run deadline")),
+        "{outcome:?}"
+    );
+    assert_eq!(
+        w.primary.requests().len(),
+        0,
+        "prefetch that passes the deadline never asks the model"
+    );
+}
+
+#[tokio::test]
+async fn an_unpriced_turn_is_refused_under_a_monthly_budget() {
+    let settings = TriageSettings {
+        monthly_budget_micros: Some(1_000_000),
+        ..TriageSettings::default()
+    };
+    let w = world(Setup {
+        settings,
+        ..Setup::default()
+    })
+    .await;
+    w.primary.push_ok(LlmResponse {
+        parts: vec![Part::Text(report())],
+        stop: StopReason::EndTurn,
+        usage: Usage {
+            input_tokens: 100,
+            output_tokens: 50,
+            cost_micros: None,
+            source: domovoi_core::ports::UsageSource::Estimated,
+        },
+    });
+
+    let outcome = w.run().await;
+    assert!(
+        matches!(&outcome, TriageOutcome::Failed { reason } if reason.contains("did not price this turn")),
+        "{outcome:?}"
+    );
+    let month = w.now().to_zoned(TimeZone::UTC).date();
+    let total = w.store.month_total(month).await.expect("usage");
+    assert_eq!(
+        total.tokens_out, 50,
+        "the turn is still recorded, so the tokens are not lost"
+    );
+}
+
+#[tokio::test]
+async fn an_allowance_above_the_ceiling_is_clamped() {
+    let settings = TriageSettings {
+        budget: TriageBudget {
+            max_tool_calls: 15,
+            max_seconds: 90,
+            max_output_tokens: 32_000,
+            max_total_output_tokens: 64_000,
+        },
+        ..TriageSettings::default()
+    };
+    let w = world(Setup {
+        settings,
+        ..Setup::default()
+    })
+    .await;
+    w.primary.push_text(report());
+
+    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+    assert_eq!(
+        w.primary.requests()[0].max_output_tokens,
+        16_000,
+        "the first request is clamped too"
+    );
+}
+
+#[tokio::test]
+async fn a_repair_turn_draws_on_the_same_budget() {
+    let settings = TriageSettings {
+        budget: TriageBudget {
+            max_tool_calls: 15,
+            max_seconds: 90,
+            max_output_tokens: 2000,
+            max_total_output_tokens: 4000,
+        },
+        ..TriageSettings::default()
+    };
+    let w = world(Setup {
+        settings,
+        ..Setup::default()
+    })
+    .await;
+    w.primary.push_text("The disk is full, I think.");
+    w.primary.push_text(report());
+
+    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+    let requests = w.primary.requests();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[1].max_output_tokens, 2000);
+}
+
+#[tokio::test]
+async fn no_request_is_sent_once_the_run_budget_is_spent() {
+    let settings = TriageSettings {
+        budget: TriageBudget {
+            max_tool_calls: 15,
+            max_seconds: 90,
+            max_output_tokens: 2000,
+            max_total_output_tokens: 2000,
+        },
+        ..TriageSettings::default()
+    };
+    let w = world(Setup {
+        settings,
+        ..Setup::default()
+    })
+    .await;
+    w.primary.push_text("The disk is full, I think.");
+
+    let outcome = w.run().await;
+    assert!(
+        matches!(&outcome, TriageOutcome::Failed { reason } if reason.contains("output token budget")),
+        "{outcome:?}"
+    );
+    assert_eq!(
+        w.primary.requests().len(),
+        1,
+        "the repair turn is not sent when nothing is left"
+    );
 }
 
 #[tokio::test]

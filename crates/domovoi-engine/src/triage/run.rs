@@ -4,7 +4,7 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 
-use domovoi_core::ports::{LlmError, LlmMessage, LlmProvider, LlmRequest, Part, Role, StopReason};
+use domovoi_core::ports::{LlmCapability, LlmError, LlmMessage, LlmProvider, Part, Role};
 use domovoi_core::{
     ActionId, Incident, IncidentId, ReadToolCall, SkillSummary, TriageOutcome, TriageReport,
 };
@@ -181,16 +181,17 @@ async fn providers(
     for (i, provider) in chain.iter().enumerate() {
         // A provider that refuses a capability changes how the run is built (the opening
         // prompt gathers tool output itself when tools are gone), so the attempt is rebuilt
-        // once from the top instead of continuing with a prompt written for the old shape.
+        // once per distinct capability from the top instead of continuing with a prompt
+        // written for the old shape. Each capability may be handled once per provider.
         let used_before = used.len();
-        let mut rebuilt = false;
+        let mut handled: Vec<LlmCapability> = Vec::new();
         let why = loop {
             match attempt(shared, provider, incident, skills, bundle, used, run).await {
                 Ok(report) => return Ok(report),
                 Err(Failure::Provider(LlmError::CapabilityRejected { capability, .. }))
-                    if !rebuilt =>
+                    if !handled.contains(&capability) =>
                 {
-                    rebuilt = true;
+                    handled.push(capability);
                     used.truncate(used_before);
                     tracing::info!(
                         provider = provider.id(),
@@ -230,7 +231,8 @@ impl From<LlmError> for Failure {
 }
 
 /// The first user message: the bundle and, for providers without tools, the prefetched
-/// tool output. Every prefetched call is pushed onto `used`.
+/// tool output. Every prefetched call is pushed onto `used`. A prefetch stops at the run
+/// deadline instead of extending it.
 async fn opening(
     shared: &Shared,
     provider: &Arc<dyn LlmProvider>,
@@ -238,18 +240,22 @@ async fn opening(
     skills: &[SkillSummary],
     bundle: &str,
     used: &mut Vec<ToolUse>,
-) -> String {
+    run: &agent::RunBudget,
+) -> Result<String, LlmError> {
     let mut text = format!("Triage this incident.\n\n{bundle}");
     if !provider.supports_tools() {
         text.push_str("\n\n## Tool output gathered for you\n");
         let scope = tools::Scope::of(incident);
         for call in tools::prefetch(incident) {
+            if shared.deps.clock.now() >= run.deadline() {
+                return Err(agent::deadline_error());
+            }
             let name = call.tool().name();
             let skill = match &call {
                 ReadToolCall::RunReadSkill { skill, .. } => Some(skill.to_string()),
                 _ => None,
             };
-            let result = tools::run(shared, scope, skills, call).await;
+            let result = tools::run(shared, scope, skills, call, run.deadline()).await;
             used.push(ToolUse {
                 tool: name.to_owned(),
                 skill,
@@ -259,9 +265,12 @@ async fn opening(
             });
             text.push_str(&format!("\n### {name}\n\n{}\n", result.content));
         }
+        if shared.deps.clock.now() >= run.deadline() {
+            return Err(agent::deadline_error());
+        }
         text.push_str("\nYou cannot call tools. Reply with the JSON report only.");
     }
-    text
+    Ok(text)
 }
 
 /// One provider's run: the conversation, then the report, with one repair turn.
@@ -274,7 +283,7 @@ async fn attempt(
     used: &mut Vec<ToolUse>,
     run: &mut agent::RunBudget,
 ) -> Result<TriageReport, Failure> {
-    let first = opening(shared, provider, incident, skills, bundle, used).await;
+    let first = opening(shared, provider, incident, skills, bundle, used, run).await?;
     let mut messages = vec![LlmMessage {
         role: Role::User,
         parts: vec![Part::Text(first)],
@@ -295,39 +304,17 @@ async fn attempt(
             "Your answer could not be used: {error}. Reply with only the JSON object described in your instructions."
         ))],
     });
-    // The repair turn is bounded like every other: it draws on the same run budget, and a
-    // reasoning model that runs out of room gets the same larger allowance.
-    let mut wanted = run.per_turn();
-    loop {
-        let allowance = run.grant_or_fail(wanted)?;
-        let req = LlmRequest {
-            system: SYSTEM_PROMPT.to_owned(),
-            messages: messages.clone(),
-            tools: if provider.supports_tools() {
-                agent::read_tools()
-            } else {
-                Vec::new()
-            },
-            max_output_tokens: allowance,
-        };
-        let repaired = agent::complete(shared, provider, req, run.deadline()).await?;
-        if repaired.stop == StopReason::MaxTokens {
-            match agent::grown_allowance(allowance) {
-                Some(larger) => {
-                    wanted = larger;
-                    continue;
-                }
-                None => {
-                    return Err(Failure::Provider(LlmError::Unavailable(format!(
-                        "the model ran out of its {allowance}-token output allowance while \
-                         repairing its answer; raise [triage] per_run.output_tokens"
-                    ))));
-                }
-            }
-        }
-        return parse_report(&text_of(&repaired.parts))
-            .map_err(|e| Failure::Invalid(format!("the model gave no usable report: {e}")));
-    }
+    // The repair turn goes through the same request helper as every other: it draws on the
+    // shared run budget, respects the deadline, and an incomplete answer is never accepted
+    // or repaired again.
+    let tools = if provider.supports_tools() {
+        agent::read_tools()
+    } else {
+        Vec::new()
+    };
+    let repaired = agent::ask(shared, provider, SYSTEM_PROMPT, &messages, tools, run).await?;
+    parse_report(&text_of(&repaired.parts))
+        .map_err(|e| Failure::Invalid(format!("the model gave no usable report: {e}")))
 }
 
 async fn failed(shared: &Shared, incident: &Incident, reason: &str) {

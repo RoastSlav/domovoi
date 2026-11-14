@@ -5,7 +5,7 @@
 //! call tools gather that host's read output up front, secrets in earlier turns and
 //! oversized questions never reach the model, and both stay inside their size limits.
 
-use domovoi_core::ports::{LlmRequest, Part, Presence, UsageRepo};
+use domovoi_core::ports::{LlmRequest, LlmResponse, Part, Presence, StopReason, Usage, UsageRepo};
 use domovoi_core::{HostId, ReadToolCall};
 use domovoi_engine::redact::REDACTED;
 use domovoi_engine::triage::{ChatRole, ChatTurn, TriageError, TriageSettings};
@@ -324,5 +324,99 @@ async fn an_oversized_question_is_cut_before_the_model_sees_it() {
     assert!(
         shown[1].contains("[output cut]"),
         "the cut is noted where it happened: {shown:?}",
+    );
+}
+
+/// A chat with no chosen host uses one turn with no tools; a cut-off answer there is not an
+/// answer, so it is retried with more room like any other.
+#[tokio::test]
+async fn a_cut_off_chat_answer_is_retried_with_more_room() {
+    let w = world(Setup::default()).await;
+    w.primary.push_ok(LlmResponse {
+        parts: vec![Part::Text("The NAS has tw".to_owned())],
+        stop: StopReason::MaxTokens,
+        usage: Usage::default(),
+    });
+    w.primary.push_text("The NAS has two disks.");
+
+    let answer = w
+        .triage
+        .chat(None, "Two hosts.", &Vec::new(), "How many disks?")
+        .await
+        .unwrap();
+    assert_eq!(answer, "The NAS has two disks.");
+
+    let requests = w.primary.requests();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[1].max_output_tokens, 8000);
+    assert_eq!(
+        requests[1].messages.len(),
+        requests[0].messages.len(),
+        "the cut-off turn is not kept"
+    );
+}
+
+/// A provider without tool support takes the same one-turn path, and the same retry.
+#[tokio::test]
+async fn a_provider_without_tools_retries_a_cut_off_answer() {
+    let w = world(Setup {
+        cli: true,
+        ..Setup::default()
+    })
+    .await;
+    w.primary.push_ok(LlmResponse {
+        parts: vec![Part::Text("The disk is fi".to_owned())],
+        stop: StopReason::MaxTokens,
+        usage: Usage::default(),
+    });
+    w.primary.push_text("The disk is fine.");
+
+    let answer = w
+        .triage
+        .chat(
+            Some(host_id()),
+            "The NAS.",
+            &Vec::new(),
+            "Is the disk fine?",
+        )
+        .await
+        .unwrap();
+    assert_eq!(answer, "The disk is fine.");
+
+    let requests = w.primary.requests();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[1].max_output_tokens, 8000);
+    assert!(
+        requests[1].messages.iter().any(|message| {
+            message
+                .parts
+                .iter()
+                .any(|part| matches!(part, Part::Text(text) if text.contains("## Tool output gathered for you")))
+        }),
+        "the gathered output is still in front of the question"
+    );
+}
+
+/// A chat that never answers within the supported maximum fails instead of returning a
+/// cut-off answer.
+#[tokio::test]
+async fn a_chat_that_never_answers_fails_at_the_ceiling() {
+    let w = world(Setup::default()).await;
+    for _ in 0..3 {
+        w.primary.push_ok(LlmResponse {
+            parts: Vec::new(),
+            stop: StopReason::MaxTokens,
+            usage: Usage::default(),
+        });
+    }
+
+    let err = w
+        .triage
+        .chat(None, "Two hosts.", &Vec::new(), "How many disks?")
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(&err, TriageError::Provider(reason) if reason.contains("supported maximum of 16000")),
+        "{err:?}"
     );
 }

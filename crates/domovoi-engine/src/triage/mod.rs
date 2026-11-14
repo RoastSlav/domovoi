@@ -35,7 +35,7 @@ use tokio_util::sync::CancellationToken;
 use crate::events::DomainEvent;
 use crate::manager::ManagerHandle;
 
-pub use agent::{BUDGET_EXHAUSTED, NO_CALLS_LEFT, ToolUse, read_tools};
+pub use agent::{BUDGET_EXHAUSTED, MAX_OUTPUT_ALLOWANCE, NO_CALLS_LEFT, ToolUse, read_tools};
 pub use chat::{CHAT_PROMPT, ChatRole, ChatTurn};
 pub use followup::{FOLLOW_UP_PROMPT, MAX_ANSWER_CHARS};
 pub use history::{CLEAR_KIND, FOLLOW_UP_KIND, Turn, count_clear, since_clear};
@@ -96,8 +96,9 @@ impl Default for TriageSettings {
                 max_tool_calls: 15,
                 max_seconds: 90,
                 max_output_tokens: 2000,
-                // The most a run with 15 tool calls could ask for, one turn each.
-                max_total_output_tokens: 32_000,
+                // Every normal turn, plus one full-ceiling turn for a growth retry or the
+                // report repair.
+                max_total_output_tokens: 48_000,
             },
         }
     }

@@ -49,6 +49,76 @@ fn streamed(body: String) -> ResponseTemplate {
     ResponseTemplate::new(200).set_body_raw(body, "text/event-stream")
 }
 
+/// A server can refuse two capabilities in a row: the engine retries the request without
+/// streamed usage, then rebuilds the run without tools and prefetches their output. Nothing
+/// is negotiated twice.
+#[tokio::test]
+async fn stream_usage_then_tools_are_both_handled_without_a_loop() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(|request: &Request| {
+            let body = body_of(request);
+            if body.get("stream_options").is_some() {
+                ResponseTemplate::new(400).set_body_string("unknown field: stream_options")
+            } else if body.get("tools").is_some() {
+                ResponseTemplate::new(400).set_body_string("tools are not supported by this model")
+            } else {
+                ResponseTemplate::new(200).set_body_json(json!({
+                    "choices": [{
+                        "message": {"role": "assistant", "content": report()},
+                        "finish_reason": "stop"
+                    }],
+                    "usage": {"prompt_tokens": 100, "completion_tokens": 50}
+                }))
+            }
+        })
+        .mount(&server)
+        .await;
+
+    let w = world(Setup {
+        provider: Some(provider(&server.uri())),
+        ..Setup::default()
+    })
+    .await;
+    let outcome = w.run().await;
+    assert!(matches!(outcome, TriageOutcome::Report(_)), "{outcome:?}");
+
+    let requests = server.received_requests().await.unwrap();
+    assert_eq!(
+        requests.len(),
+        3,
+        "one refusal per capability, then the answer, with no repeated negotiation"
+    );
+    let first = body_of(&requests[0]);
+    assert!(first.get("stream_options").is_some());
+    assert!(first.get("tools").is_some());
+    let second = body_of(&requests[1]);
+    assert!(
+        second.get("stream_options").is_none(),
+        "the refused usage option is gone"
+    );
+    assert_eq!(second["stream"], false, "the request is whole, for usage");
+    assert!(
+        second.get("tools").is_some(),
+        "the tool capability is still offered after the usage refusal"
+    );
+    let rebuilt = body_of(&requests[2]);
+    assert!(rebuilt.get("tools").is_none());
+    assert!(rebuilt.get("stream_options").is_none());
+    let opening = rebuilt["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| m["role"] == "user")
+        .and_then(|m| m["content"].as_str())
+        .unwrap_or_default();
+    assert!(
+        opening.contains("## Tool output gathered for you"),
+        "the rebuilt run carries the prefetched evidence: {opening}"
+    );
+}
+
 /// A provider that refuses tools is rebuilt within the same run, and the rebuilt prompt
 /// carries the tool output the model can no longer gather itself.
 #[tokio::test]

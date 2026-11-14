@@ -296,6 +296,7 @@ pub fn calls(list: &[(&str, &str, Value)]) -> LlmResponse {
             input_tokens: 100,
             output_tokens: 10,
             cost_micros: Some(50),
+            source: domovoi_core::ports::UsageSource::Reported,
         },
     }
 }
