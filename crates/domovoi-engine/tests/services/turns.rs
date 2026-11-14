@@ -1,4 +1,4 @@
-use domovoi_core::ports::{IncidentRepo, Part, ToolOutput};
+use domovoi_core::ports::{IncidentRepo, LlmResponse, Part, StopReason, ToolOutput, Usage};
 use domovoi_core::{ReadToolCall, TriageBudget, TriageOutcome};
 use domovoi_engine::triage::{BUDGET_EXHAUSTED, MAX_RESULT_BYTES, TriageSettings};
 use domovoi_testkit::link::LinkRequest;
@@ -6,6 +6,16 @@ use jiff::SignedDuration;
 use serde_json::json;
 
 use crate::harness::{SECRET, Setup, calls, host_id, report, restart_skill, results, world};
+
+/// A response that ended at the output limit without saying anything, as a reasoning model
+/// that spent the whole allowance thinking does.
+fn reasoning_only() -> LlmResponse {
+    LlmResponse {
+        parts: Vec::new(),
+        stop: StopReason::MaxTokens,
+        usage: Usage::default(),
+    }
+}
 
 #[tokio::test]
 async fn tool_use_is_recorded_on_the_timeline() {
@@ -252,6 +262,76 @@ async fn invalid_json_gets_one_repair_turn_then_fails() {
     w.primary
         .push_text(format!("Here you go:\n```json\n{}\n```", report()));
     assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+}
+
+#[tokio::test]
+async fn reasoning_only_answer_is_retried_with_a_larger_allowance() {
+    let w = world(Setup::default()).await;
+    w.primary.push_ok(reasoning_only());
+    w.primary.push_text(report());
+
+    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+
+    let requests = w.primary.requests();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[0].max_output_tokens, 2000);
+    assert_eq!(
+        requests[1].max_output_tokens, 8000,
+        "the turn gets four times the configured allowance"
+    );
+    assert_eq!(
+        requests[1].messages.len(),
+        1,
+        "the assistant turn that said nothing is not kept"
+    );
+}
+
+#[tokio::test]
+async fn a_model_that_never_answers_fails_with_the_output_allowance() {
+    let w = world(Setup::default()).await;
+    w.primary.push_ok(reasoning_only());
+    w.primary.push_ok(reasoning_only());
+
+    let outcome = w.run().await;
+    assert!(
+        matches!(
+            &outcome,
+            TriageOutcome::Failed { reason }
+                if reason.contains("8000-token output allowance")
+                    && reason.contains("per_run.output_tokens")
+        ),
+        "{outcome:?}"
+    );
+    assert_eq!(
+        w.primary.requests().len(),
+        2,
+        "the retry happens once, with no repair turn after it"
+    );
+}
+
+#[tokio::test]
+async fn an_allowance_at_the_ceiling_is_not_grown() {
+    let settings = TriageSettings {
+        budget: TriageBudget {
+            max_tool_calls: 15,
+            max_seconds: 90,
+            max_output_tokens: 16_000,
+        },
+        ..TriageSettings::default()
+    };
+    let w = world(Setup {
+        settings,
+        ..Setup::default()
+    })
+    .await;
+    w.primary.push_ok(reasoning_only());
+
+    let outcome = w.run().await;
+    assert!(
+        matches!(&outcome, TriageOutcome::Failed { reason } if reason.contains("16000-token output allowance")),
+        "{outcome:?}"
+    );
+    assert_eq!(w.primary.requests().len(), 1);
 }
 
 #[tokio::test]

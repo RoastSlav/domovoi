@@ -111,6 +111,7 @@ async fn outcome(
         }
         Err(reason) => {
             let reason = deps.redactor.redact(&reason);
+            tracing::warn!(incident = %incident.id(), reason = reason.as_str(), "triage failed");
             failed(shared, incident, &reason).await;
             if !limits(shared).degraded
                 && let Some(at) = deps.clock.now().checked_add(FAILED_RETRY).ok()
