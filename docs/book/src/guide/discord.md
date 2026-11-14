@@ -68,7 +68,7 @@ To create the webhook, open the channel's **Edit Channel → Integrations → We
 | **Ack** | Acknowledges the incident, so reminders stop |
 | **Mute 1h** | Mutes it for an hour |
 | **Details** | Posts the triage report in the thread |
-| **Approve** / **Deny** | Approves or denies a proposed read or write action. Each Approve button works once and expires with the action. |
+| **Approve** / **Deny** | Approves or denies a proposed read or write action. Each Approve button names the skill and host and works once, expires with the action, and carries a short prefix of the plan hash so a stale card cannot approve a different plan. |
 | **Approve in web UI** | Opens the incident in the web UI. Destructive actions can only be approved there, by typing the skill's name. |
 
 Every press and command is recorded in the audit log with your Discord user ID. Chat actions run as the hub's admin account, so the web UI must be set up first.

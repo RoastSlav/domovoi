@@ -19,10 +19,11 @@ Next: Pin the previous image tag and restart.
 - **Up to three bullets:** evidence from triage, or from the latest signal when there is no triage yet.
 - **One next step,** when triage suggests one.
 - **Buttons:** Ack and Mute 1 h while the incident is active, Details for the full reasoning, and Approve and Deny for each proposed action.
+- **A plan block for each waiting action,** written from the stored action rather than the model's text: the skill, the host, the arguments, the risk, the short plan hash and when the approval window closes. It comes before any model prose, so you read what will run first.
 
 Alerts never wait for triage: a card without triage shows the severity, the incident title and the signal's evidence, and is updated when triage finishes.
 
-Destructive actions never get an approve button. Their card links to the web UI, where they need a typed confirmation. An action without a chat approval token also gets the link instead of buttons.
+Destructive actions never get an approve button. Their card links to the web UI, where they need a typed confirmation. An action without a chat approval token also gets the link instead of buttons. An action whose arguments are too long to show in the card gets only the link too.
 
 ## The thread
 
