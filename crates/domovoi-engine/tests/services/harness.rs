@@ -45,6 +45,8 @@ pub struct Setup {
     pub provider: Option<Arc<dyn LlmProvider>>,
     /// A usage repository to use instead of the store's, for budget read failures.
     pub usage: Option<Arc<dyn domovoi_core::ports::UsageRepo>>,
+    /// An admission repository to use instead of the store's, for window read failures.
+    pub admission: Option<Arc<dyn domovoi_core::ports::AdmissionRepo>>,
     /// How long incident listings and note searches take, for deadline tests.
     pub store_delay: Option<std::time::Duration>,
 }
@@ -59,6 +61,7 @@ impl Default for Setup {
             evidence: disk(92.4),
             provider: None,
             usage: None,
+            admission: None,
             store_delay: None,
         }
     }
@@ -94,6 +97,7 @@ pub struct World {
     actions_service: ActionHandle,
     redactor: Arc<PatternRedactor>,
     usage: Arc<dyn domovoi_core::ports::UsageRepo>,
+    admission: Arc<dyn domovoi_core::ports::AdmissionRepo>,
 }
 
 impl Drop for World {
@@ -226,7 +230,7 @@ pub async fn world_over(
         actions_service: actions_service.clone(),
         cache: store.clone(),
         usage: setup.usage.clone().unwrap_or_else(|| store.clone()),
-        admission: store.clone(),
+        admission: setup.admission.clone().unwrap_or_else(|| store.clone()),
         advisories: store.clone(),
         redactor: redactor.clone(),
         clock: clock.clone(),
@@ -235,6 +239,7 @@ pub async fn world_over(
         shutdown: shutdown.clone(),
     };
     let usage = deps.usage.clone();
+    let admission = deps.admission.clone();
     let (triage, _task) = TriageService::spawn(deps, setup.settings);
     World {
         store,
@@ -255,6 +260,7 @@ pub async fn world_over(
         actions_service,
         redactor,
         usage,
+        admission,
     }
 }
 
@@ -273,7 +279,7 @@ impl World {
             actions_service: self.actions_service.clone(),
             cache: self.store.clone(),
             usage: self.usage.clone(),
-            admission: self.store.clone(),
+            admission: self.admission.clone(),
             advisories: self.store.clone(),
             redactor: self.redactor.clone(),
             clock: self.clock.clone(),

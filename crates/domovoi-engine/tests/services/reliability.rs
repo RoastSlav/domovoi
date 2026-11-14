@@ -1,13 +1,13 @@
 //! Model reliability: persisted admission, per-call attribution, prompt caps, redaction and
 //! host-scoped similar incidents.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use domovoi_core::ports::{
-    AdmissionRepo, IncidentRepo, LlmError, LlmProvider, LlmRequest, Part, Usage, UsageEntry,
-    UsageRepo, UsageSource, UsageTotal,
+    AdmissionOutcome, AdmissionPurpose, AdmissionRepo, IncidentRepo, LlmError, LlmProvider,
+    LlmRequest, Part, Usage, UsageEntry, UsageRepo, UsageSource, UsageTotal,
 };
 use domovoi_core::ports::{IncidentTimelineEntry, StoreError};
 use domovoi_core::{
@@ -58,6 +58,104 @@ impl UsageRepo for FlakyUsage {
             return Err(StoreError::Backend("disk full".to_owned()));
         }
         UsageRepo::month_total(&*self.inner, month).await
+    }
+}
+
+/// An admission repository whose `admit` and `starts_since` may fail independently.
+struct FlakyAdmission {
+    inner: Arc<InMemoryStore>,
+    fail_admit: AtomicBool,
+    fail_reads: AtomicBool,
+    reads: AtomicUsize,
+}
+
+impl FlakyAdmission {
+    fn new(inner: Arc<InMemoryStore>) -> Self {
+        Self {
+            inner,
+            fail_admit: AtomicBool::new(false),
+            fail_reads: AtomicBool::new(false),
+            reads: AtomicUsize::new(0),
+        }
+    }
+
+    fn store(&self) -> Arc<InMemoryStore> {
+        self.inner.clone()
+    }
+
+    fn fail_admit(&self) {
+        self.fail_admit.store(true, Ordering::SeqCst);
+    }
+
+    fn allow_admit(&self) {
+        self.fail_admit.store(false, Ordering::SeqCst);
+    }
+
+    fn fail_reads(&self) {
+        self.fail_reads.store(true, Ordering::SeqCst);
+    }
+
+    fn allow_reads(&self) {
+        self.fail_reads.store(false, Ordering::SeqCst);
+    }
+
+    fn reads(&self) -> usize {
+        self.reads.load(Ordering::SeqCst)
+    }
+}
+
+#[async_trait]
+impl AdmissionRepo for FlakyAdmission {
+    async fn admit(
+        &self,
+        purpose: AdmissionPurpose,
+        room: u32,
+        window: SignedDuration,
+        now: jiff::Timestamp,
+    ) -> Result<AdmissionOutcome, StoreError> {
+        if self.fail_admit.load(Ordering::SeqCst) {
+            return Err(StoreError::Backend(
+                "the admission transaction failed".to_owned(),
+            ));
+        }
+        AdmissionRepo::admit(&*self.inner, purpose, room, window, now).await
+    }
+
+    async fn starts_since(
+        &self,
+        since: jiff::Timestamp,
+    ) -> Result<Vec<jiff::Timestamp>, StoreError> {
+        self.reads.fetch_add(1, Ordering::SeqCst);
+        if self.fail_reads.load(Ordering::SeqCst) {
+            return Err(StoreError::Backend(
+                "the admission window is unreadable".to_owned(),
+            ));
+        }
+        AdmissionRepo::starts_since(&*self.inner, since).await
+    }
+}
+
+/// A world whose triage service uses `admission` instead of the store's own repository.
+async fn flaky_world(admission: Arc<FlakyAdmission>) -> World {
+    let store = admission.store();
+    world_over(
+        Setup {
+            admission: Some(admission),
+            ..Setup::default()
+        },
+        store.clone(),
+        store,
+    )
+    .await
+}
+
+/// Yields until the provider has received `wanted` requests, or the loop budget runs out.
+async fn until_requests(w: &World, wanted: usize) {
+    for _ in 0..500 {
+        if w.primary.requests().len() >= wanted {
+            return;
+        }
+        yield_now().await;
     }
 }
 
@@ -277,6 +375,114 @@ async fn unpriced_admission_still_refuses_before_the_request() {
         matches!(&outcome, TriageOutcome::Skipped { reason } if reason.contains("has no price")),
         "{outcome:?}"
     );
+}
+
+#[tokio::test]
+async fn admit_error_skips_triage_and_defers_the_retry() {
+    let admission = Arc::new(FlakyAdmission::new(Arc::new(InMemoryStore::new())));
+    admission.fail_admit();
+    let mut w = flaky_world(admission.clone()).await;
+    w.drain();
+
+    let outcome = w.run().await;
+    assert!(
+        matches!(&outcome, TriageOutcome::Skipped { reason } if reason.contains("could not be checked")),
+        "an unreadable admission window skips the run: {outcome:?}"
+    );
+    assert_eq!(w.primary.requests().len(), 0, "no model call was made");
+    assert!(
+        starts(&w).await.is_empty(),
+        "the failed admission inserted no start"
+    );
+    assert!(
+        w.drain().iter().any(|event| matches!(
+            event.kind,
+            domovoi_engine::EventKind::TriageCompleted { .. }
+        )),
+        "the card still receives a triage outcome"
+    );
+
+    // The service scheduled a retry in five minutes; it runs once admission works.
+    admission.allow_admit();
+    w.primary.push_text(report());
+    w.clock.advance(SignedDuration::from_mins(5));
+    until_requests(&w, 1).await;
+    assert_eq!(w.primary.requests().len(), 1, "the five-minute retry ran");
+    assert_eq!(starts(&w).await.len(), 1, "the retry recorded one start");
+}
+
+#[tokio::test]
+async fn admit_error_answers_questions_as_unavailable() {
+    let admission = Arc::new(FlakyAdmission::new(Arc::new(InMemoryStore::new())));
+    admission.fail_admit();
+    let w = flaky_world(admission).await;
+
+    let follow_up = w
+        .triage
+        .follow_up(w.incident.id(), "Why?", UserId::new())
+        .await;
+    assert_eq!(follow_up, Err(TriageError::AdmissionUnavailable));
+    let chat = w
+        .triage
+        .chat(Some(host_id()), "the host is healthy", &Vec::new(), "Why?")
+        .await;
+    assert_eq!(chat, Err(TriageError::AdmissionUnavailable));
+    assert_eq!(w.primary.requests().len(), 0, "no model call was made");
+    assert!(
+        starts(&w).await.is_empty(),
+        "neither question recorded a start"
+    );
+}
+
+#[tokio::test]
+async fn starts_since_error_defers_the_due_retry_by_five_minutes() {
+    let admission = Arc::new(FlakyAdmission::new(Arc::new(InMemoryStore::new())));
+    admission.fail_admit();
+    let w = flaky_world(admission.clone()).await;
+
+    let skipped = w.run().await;
+    assert!(
+        matches!(&skipped, TriageOutcome::Skipped { reason } if reason.contains("could not be checked")),
+        "{skipped:?}"
+    );
+    assert_eq!(w.primary.requests().len(), 0);
+
+    // Let the first deferral settle, then make the persisted window unreadable. From here
+    // the retry worker's `free_slots` read is the only admission read left.
+    admission.allow_admit();
+    settle().await;
+    admission.fail_reads();
+    let baseline = admission.reads();
+
+    // The retry is due now. Its unreadable window must not be read as free capacity.
+    w.clock.advance(SignedDuration::from_mins(5));
+    settle().await;
+    assert!(
+        admission.reads() > baseline,
+        "the retry worker read the failing window"
+    );
+    assert_eq!(
+        w.primary.requests().len(),
+        0,
+        "an unreadable window is not free capacity"
+    );
+
+    // The failed pass pushed the retry to five minutes from now, not to now.
+    w.clock.advance(SignedDuration::from_mins(4));
+    settle().await;
+    assert_eq!(w.primary.requests().len(), 0);
+
+    // Making the window readable frees the retry at its new five-minute time.
+    admission.allow_reads();
+    w.primary.push_text(report());
+    w.clock.advance(SignedDuration::from_mins(1));
+    until_requests(&w, 1).await;
+    assert_eq!(
+        w.primary.requests().len(),
+        1,
+        "the retry reached the provider once the window was readable"
+    );
+    assert_eq!(count(&w, w.incident.id(), "triage.report").await, 1);
 }
 #[tokio::test]
 async fn failed_call_records_usage() {
