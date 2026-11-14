@@ -116,15 +116,22 @@ pub async fn load_effective(
     Ok((layered.config, layered.issues))
 }
 
-async fn open_store(data_dir: &std::path::Path, clock: &dyn Clock) -> Result<Store, LoadError> {
-    // This helper restores a rollback and has no full config to read, so it uses the
-    // documented defaults.
-    let options = domovoi_store::StoreOptions {
+/// The rollback path has no full effective configuration to read, so it keeps the
+/// documented defaults for both backup counts.
+fn rollback_options(
+    data_dir: &std::path::Path,
+    now: jiff::Timestamp,
+) -> domovoi_store::StoreOptions {
+    domovoi_store::StoreOptions {
         backup_dir: data_dir.join("backups"),
         keep_backups: 7,
         keep_pre_migrate: 3,
-        now: clock.now(),
-    };
+        now,
+    }
+}
+
+async fn open_store(data_dir: &std::path::Path, clock: &dyn Clock) -> Result<Store, LoadError> {
+    let options = rollback_options(data_dir, clock.now());
     Store::open(&data_dir.join("hub.db"), options)
         .await
         .map_err(|err| LoadError::Damaged(err.to_string()))
@@ -241,5 +248,26 @@ async fn raise(
     };
     if let Err(err) = store.upsert(&advisory).await {
         tracing::warn!(%err, "could not record a settings advisory");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::rollback_options;
+
+    #[test]
+    fn rollback_keeps_the_documented_backup_defaults() {
+        let options = rollback_options(Path::new("/srv/domovoi"), jiff::Timestamp::UNIX_EPOCH);
+        assert_eq!(
+            options.backup_dir,
+            Path::new("/srv/domovoi").join("backups")
+        );
+        assert_eq!(options.keep_backups, 7);
+        assert_eq!(
+            options.keep_pre_migrate, 3,
+            "a rollback has no effective configuration to read"
+        );
     }
 }

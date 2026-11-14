@@ -12,6 +12,19 @@ use super::{
 use crate::agent_server::ServerSettings;
 use crate::settings::{ConfigSources, LoadError, SecretKey};
 
+/// Pre-migration backups kept when the file and the environment set no value. The values
+/// saved in the web UI live in the database being opened, so they cannot be read before
+/// the pre-migration backup is taken.
+const FALLBACK_KEEP_PRE_MIGRATE: usize = 3;
+
+/// The pre-migration backups to keep, from the layers readable before the store opens.
+/// A value in `hub.toml` or the environment is the effective one; the UI layer is not
+/// available here and falls back to [`FALLBACK_KEEP_PRE_MIGRATE`].
+fn startup_keep_pre_migrate(sources: &ConfigSources) -> usize {
+    domovoi_config::bootstrap_keep_pre_migrate(sources.file.as_deref(), &*sources.env)
+        .map_or(FALLBACK_KEEP_PRE_MIGRATE, |days| days as usize)
+}
+
 /// The data directory, locked and opened.
 pub(crate) struct Opened {
     pub(crate) lock: HubLock,
@@ -29,9 +42,13 @@ impl HubRuntime {
             .map_err(LoadError::Invalid)?;
         let lock = HubLock::acquire(&data_dir)?;
         let key = Arc::new(SecretKey::load_or_create(&data_dir).map_err(LoadError::Crypto)?);
-        // Backups before a migration go to the default directory: `[backup]` may only be
-        // known once the stored layer is read.
-        let store = Arc::new(adapters::open_store_at(&data_dir, None, 7, 3, &*deps.clock).await?);
+        // Backups before a migration go to the default directory: `[backup] dir` may only
+        // be known once the stored layer is read. The pre-migration count comes from the
+        // file and the environment, the only layers readable before this database opens.
+        let keep_pre_migrate = startup_keep_pre_migrate(&sources);
+        let store = Arc::new(
+            adapters::open_store_at(&data_dir, None, 7, keep_pre_migrate, &*deps.clock).await?,
+        );
         let (layered, _) =
             crate::settings::apply::load_layers(&store, &key, &sources, &*deps.clock).await?;
         for issue in &layered.issues {
@@ -66,5 +83,58 @@ impl HubRuntime {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+    use std::sync::Arc;
+
+    use domovoi_config::MapEnv;
+
+    use super::{FALLBACK_KEEP_PRE_MIGRATE, startup_keep_pre_migrate};
+    use crate::settings::ConfigSources;
+
+    fn sources(file: Option<&Path>, env: MapEnv) -> ConfigSources {
+        ConfigSources {
+            file: file.map(Path::to_path_buf),
+            env: Arc::new(env),
+        }
+    }
+
+    fn file_with(contents: &str) -> tempfile::NamedTempFile {
+        let file = tempfile::NamedTempFile::new().expect("a temp file");
+        std::fs::write(file.path(), contents).expect("write the file");
+        file
+    }
+
+    #[test]
+    fn startup_uses_the_file_keep_pre_migrate() {
+        let file = file_with("[backup]\nkeep_pre_migrate = 5\n");
+        let sources = sources(Some(file.path()), MapEnv::new());
+        assert_eq!(startup_keep_pre_migrate(&sources), 5);
+    }
+
+    #[test]
+    fn environment_overrides_the_file_for_startup() {
+        let file = file_with("[backup]\nkeep_pre_migrate = 5\n");
+        let env = MapEnv::new().with("DOMOVOI_BACKUP__KEEP_PRE_MIGRATE", "8");
+        let sources = sources(Some(file.path()), env);
+        assert_eq!(
+            startup_keep_pre_migrate(&sources),
+            8,
+            "the environment outranks the file, so the file value must not win"
+        );
+    }
+
+    #[test]
+    fn startup_falls_back_to_three_without_a_file_or_environment_value() {
+        assert_eq!(FALLBACK_KEEP_PRE_MIGRATE, 3);
+        assert_eq!(
+            startup_keep_pre_migrate(&sources(None, MapEnv::new())),
+            FALLBACK_KEEP_PRE_MIGRATE,
+            "a value saved in the UI lives in the database being opened"
+        );
     }
 }

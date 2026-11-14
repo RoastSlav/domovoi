@@ -28,7 +28,8 @@ pub use env::{EnvSource, MapEnv, OverrideScope, SystemEnv};
 pub use hub::HubConfig;
 pub use issue::{ConfigIssue, IssueSeverity};
 pub use layered::{
-    BOOTSTRAP_KEYS, Layered, LayeredError, LayeredResult, bootstrap_data_dir, load_hub_layered,
+    BOOTSTRAP_KEYS, Layered, LayeredError, LayeredResult, bootstrap_data_dir,
+    bootstrap_keep_pre_migrate, load_hub_layered,
 };
 pub use provenance::{Provenance, Source};
 pub use secret::{NoStoredSecrets, Secret, SecretSource, Secrets, StoredSecrets};

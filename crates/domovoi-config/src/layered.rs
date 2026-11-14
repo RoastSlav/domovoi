@@ -133,6 +133,30 @@ pub fn bootstrap_data_dir(
     }
 }
 
+/// `backup.keep_pre_migrate` from `file` and `env` only, for the backup taken before the
+/// store's migrations. `None` when neither layer sets a usable value, because the values
+/// saved in the web UI live in the database being opened. A file or environment value is
+/// the effective one: those layers outrank the UI.
+#[must_use]
+pub fn bootstrap_keep_pre_migrate(file: Option<&Path>, env: &dyn EnvSource) -> Option<u32> {
+    let mut table = match file {
+        Some(path) => read_file(path).ok()?,
+        None => Table::new(),
+    };
+    if env::apply_scoped(&mut table, env, &env::AGENT_SECTIONS)
+        .iter()
+        .any(ConfigIssue::is_error)
+    {
+        return None;
+    }
+    table
+        .get("backup")?
+        .get("keep_pre_migrate")?
+        .as_integer()
+        .and_then(|value| u32::try_from(value).ok())
+        .filter(|value| *value > 0)
+}
+
 fn read_file(path: &Path) -> Result<Table, ConfigIssue> {
     let text = std::fs::read_to_string(path)
         .map_err(|err| ConfigIssue::error("", format!("cannot read {}: {err}", path.display())))?;
@@ -241,6 +265,23 @@ mod tests {
         assert_eq!(low["t"]["x"], Value::Integer(1));
         assert_eq!(low["t"]["y"], Value::Integer(3));
         assert_eq!(low["s"]["k"], table("k = { env = \"K\" }")["k"]);
+    }
+
+    #[test]
+    fn bootstrap_keep_pre_migrate_reads_only_the_file_and_environment() {
+        assert_eq!(bootstrap_keep_pre_migrate(None, &env::MapEnv::new()), None);
+        let file = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(file.path(), "[backup]\nkeep_pre_migrate = 5\n").unwrap();
+        assert_eq!(
+            bootstrap_keep_pre_migrate(Some(file.path()), &env::MapEnv::new()),
+            Some(5)
+        );
+        let env = env::MapEnv::new().with("DOMOVOI_BACKUP__KEEP_PRE_MIGRATE", "8");
+        assert_eq!(
+            bootstrap_keep_pre_migrate(Some(file.path()), &env),
+            Some(8),
+            "the environment outranks the file"
+        );
     }
 
     #[test]
