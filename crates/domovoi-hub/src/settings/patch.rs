@@ -114,6 +114,8 @@ pub fn is_sensitive(change: &Change) -> bool {
         || path == "web.trusted_proxies"
         || path == "webhooks"
         || path.starts_with("webhooks.")
+        || path == "retention"
+        || path.starts_with("retention.")
 }
 
 fn join(prefix: &str, key: &str) -> String {

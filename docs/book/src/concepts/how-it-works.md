@@ -38,7 +38,7 @@ All schedules use the runtime clock and the hub's configured timezone:
 
 - once a minute, release notifications whose quiet hours have ended, expire old approvals and send the daily digest when due;
 - every five minutes, re-evaluate advisories;
-- at 03:30 local time, purge records beyond their retention period;
+- at 03:30 local time, purge records beyond their retention period (see [Retention](../guide/retention.md));
 - at 04:00 local time, back up SQLite;
 - at the configured interval, ping the external heartbeat URL.
 

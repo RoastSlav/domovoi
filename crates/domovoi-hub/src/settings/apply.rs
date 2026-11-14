@@ -109,19 +109,54 @@ pub async fn load_effective(
         return Ok((layered.config, layered.issues));
     }
     let key = SecretKey::load_or_create(&data_dir)?;
-    let store = open_store(&data_dir, clock).await?;
+    let options = effective_options(&data_dir, sources, clock.now());
+    let store = open_store(&data_dir, options).await?;
     let loaded = load_layers(&store, &key, sources, clock).await;
     store.close().await;
     let (layered, _) = loaded?;
     Ok((layered.config, layered.issues))
 }
 
-async fn open_store(data_dir: &std::path::Path, clock: &dyn Clock) -> Result<Store, LoadError> {
-    let options = domovoi_store::StoreOptions {
+/// The options for opening the database to read the effective settings. Only `hub.toml`
+/// and the environment can set `backup.keep_pre_migrate` here: the UI layer lives in this
+/// database and is read after the pre-migration backup. Everything else keeps the
+/// documented defaults.
+fn effective_options(
+    data_dir: &std::path::Path,
+    sources: &ConfigSources,
+    now: jiff::Timestamp,
+) -> domovoi_store::StoreOptions {
+    let keep_pre_migrate =
+        domovoi_config::bootstrap_keep_pre_migrate(sources.file.as_deref(), &*sources.env)
+            .map_or(domovoi_config::FALLBACK_KEEP_PRE_MIGRATE as usize, |days| {
+                days as usize
+            });
+    domovoi_store::StoreOptions {
         backup_dir: data_dir.join("backups"),
         keep_backups: 7,
-        now: clock.now(),
-    };
+        keep_pre_migrate,
+        now,
+    }
+}
+
+/// The rollback path has no effective configuration to read, so it keeps the documented
+/// defaults for both backup counts.
+fn rollback_options(
+    data_dir: &std::path::Path,
+    now: jiff::Timestamp,
+) -> domovoi_store::StoreOptions {
+    domovoi_store::StoreOptions {
+        backup_dir: data_dir.join("backups"),
+        keep_backups: 7,
+        keep_pre_migrate: domovoi_config::FALLBACK_KEEP_PRE_MIGRATE as usize,
+        now,
+    }
+}
+
+async fn open_store(
+    data_dir: &std::path::Path,
+    options: domovoi_store::StoreOptions,
+) -> Result<Store, LoadError> {
     Store::open(&data_dir.join("hub.db"), options)
         .await
         .map_err(|err| LoadError::Damaged(err.to_string()))
@@ -134,7 +169,8 @@ pub async fn rollback(
     clock: &dyn Clock,
     why: &str,
 ) -> Result<(), LoadError> {
-    let store = open_store(data_dir, clock).await?;
+    let options = rollback_options(data_dir, clock.now());
+    let store = open_store(data_dir, options).await?;
     let result = restore_previous(&store, clock, why).await;
     store.close().await;
     result
@@ -238,5 +274,84 @@ async fn raise(
     };
     if let Err(err) = store.upsert(&advisory).await {
         tracing::warn!(%err, "could not record a settings advisory");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+    use std::sync::Arc;
+
+    use domovoi_config::MapEnv;
+
+    use super::{effective_options, rollback_options};
+    use crate::settings::ConfigSources;
+
+    fn sources(file: Option<&Path>, env: MapEnv) -> ConfigSources {
+        ConfigSources {
+            file: file.map(Path::to_path_buf),
+            env: Arc::new(env),
+        }
+    }
+
+    fn file_with(contents: &str) -> tempfile::NamedTempFile {
+        let file = tempfile::NamedTempFile::new().expect("a temp file");
+        std::fs::write(file.path(), contents).expect("write the file");
+        file
+    }
+
+    #[test]
+    fn effective_open_uses_the_file_keep_pre_migrate() {
+        let file = file_with("[backup]\nkeep_pre_migrate = 5\n");
+        let options = effective_options(
+            Path::new("/srv/domovoi"),
+            &sources(Some(file.path()), MapEnv::new()),
+            jiff::Timestamp::UNIX_EPOCH,
+        );
+        assert_eq!(options.keep_pre_migrate, 5);
+        assert_eq!(options.keep_backups, 7);
+        assert_eq!(
+            options.backup_dir,
+            Path::new("/srv/domovoi").join("backups")
+        );
+    }
+
+    #[test]
+    fn effective_open_environment_overrides_the_file() {
+        let file = file_with("[backup]\nkeep_pre_migrate = 5\n");
+        let env = MapEnv::new().with("DOMOVOI_BACKUP__KEEP_PRE_MIGRATE", "8");
+        let options = effective_options(
+            Path::new("/srv/domovoi"),
+            &sources(Some(file.path()), env),
+            jiff::Timestamp::UNIX_EPOCH,
+        );
+        assert_eq!(options.keep_pre_migrate, 8);
+    }
+
+    #[test]
+    fn effective_open_falls_back_to_three() {
+        let options = effective_options(
+            Path::new("/srv/domovoi"),
+            &sources(None, MapEnv::new()),
+            jiff::Timestamp::UNIX_EPOCH,
+        );
+        assert_eq!(
+            options.keep_pre_migrate, 3,
+            "a UI-only value lives in the database being opened"
+        );
+    }
+
+    #[test]
+    fn rollback_keeps_the_documented_backup_defaults() {
+        let options = rollback_options(Path::new("/srv/domovoi"), jiff::Timestamp::UNIX_EPOCH);
+        assert_eq!(
+            options.backup_dir,
+            Path::new("/srv/domovoi").join("backups")
+        );
+        assert_eq!(options.keep_backups, 7);
+        assert_eq!(
+            options.keep_pre_migrate, 3,
+            "a rollback has no effective configuration to read"
+        );
     }
 }

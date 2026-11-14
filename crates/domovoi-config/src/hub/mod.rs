@@ -14,12 +14,19 @@ use crate::secret::{Secret, Secrets};
 use crate::time::{LocalTime, TimeZone};
 
 mod llm;
+mod retention;
 mod updates;
 
 pub use llm::{
     CliConfig, CliPreset, LlmKind, LlmProvider, LlmSection, Price, TriageLimits, TriageSection,
 };
+pub use retention::{Applies, RETENTION_KEYS, RetentionKey, RetentionSection};
 pub use updates::UpdatesSection;
+
+/// Pre-migration backups kept when only the UI layer sets `backup.keep_pre_migrate`: that
+/// value lives in the database being opened, so it cannot govern the backup taken before
+/// the database opens. This is also the key's default.
+pub const FALLBACK_KEEP_PRE_MIGRATE: u32 = 3;
 
 /// The whole of `hub.toml`. Every section is optional; omitted keys take the defaults
 /// documented on each field.
@@ -62,6 +69,9 @@ pub struct HubConfig {
     /// Local database backups.
     #[serde(default)]
     pub backup: BackupSection,
+    /// How long each kind of raw data is kept.
+    #[serde(default)]
+    pub retention: RetentionSection,
     /// Secret hygiene.
     #[serde(default)]
     pub secrets: SecretsSection,
@@ -361,6 +371,9 @@ pub struct BackupSection {
     /// Backups kept. Default 7.
     #[serde(default = "default_keep")]
     pub keep: u32,
+    /// Pre-migration backups kept. Default 3.
+    #[serde(default = "default_keep_pre_migrate")]
+    pub keep_pre_migrate: u32,
 }
 
 impl Default for BackupSection {
@@ -368,6 +381,7 @@ impl Default for BackupSection {
         Self {
             dir: None,
             keep: default_keep(),
+            keep_pre_migrate: default_keep_pre_migrate(),
         }
     }
 }
@@ -455,6 +469,9 @@ fn default_minute() -> Duration {
 }
 fn default_keep() -> u32 {
     7
+}
+fn default_keep_pre_migrate() -> u32 {
+    FALLBACK_KEEP_PRE_MIGRATE
 }
 fn default_true() -> bool {
     true

@@ -2,6 +2,20 @@ use crate::helpers::{AGENT, agent, agent_errors, assert_issue, hub, hub_errors, 
 use domovoi_config::MapEnv;
 
 #[test]
+fn retention_values_outside_one_to_3650_are_rejected_with_their_path() {
+    let errors = hub_errors("[retention]\nsignals_days = 0\n");
+    assert_issue(&errors, "retention.signals_days", "must be 1 to 3650 days");
+    let errors = hub_errors("[retention]\nsignals_days = 3651\n");
+    assert_issue(&errors, "retention.signals_days", "must be 1 to 3650 days");
+}
+
+#[test]
+fn backup_keep_pre_migrate_must_be_at_least_one() {
+    let errors = hub_errors("[backup]\nkeep_pre_migrate = 0\n");
+    assert_issue(&errors, "backup.keep_pre_migrate", "must be at least 1");
+}
+
+#[test]
 fn hub_url_must_use_wss() {
     let errors = agent_errors("[agent]\nhost_name = \"nas\"\nhub_url = \"ws://hub.lan:7421\"\n");
     assert_issue(&errors, "agent.hub_url", "must use wss://");

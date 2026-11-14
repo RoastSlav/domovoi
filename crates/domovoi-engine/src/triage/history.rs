@@ -5,12 +5,12 @@ use domovoi_core::ports::IncidentTimelineEntry;
 use jiff::Timestamp;
 
 /// The timeline kind a follow-up question and its answer are recorded under.
-pub const FOLLOW_UP_KIND: &str = "triage.followup";
+pub const FOLLOW_UP_KIND: &str = domovoi_core::triage::FOLLOW_UP_KIND;
 
 /// The timeline kind that cuts earlier questions and answers out of the conversation the
 /// model sees. It deliberately does not start with `triage.`, so the incident's latest
 /// triage report is still found after a clear.
-pub const CLEAR_KIND: &str = "followup.cleared";
+pub const CLEAR_KIND: &str = domovoi_core::triage::CLEAR_KIND;
 
 /// One question and its answer, as the timeline recorded them.
 #[derive(Debug, Clone, PartialEq)]

@@ -7,7 +7,7 @@ use domovoi_hub::settings::SecretKey;
 use domovoi_hub::settings::stored::StoredState;
 use serde_json::{Value, json};
 
-use crate::api_harness::{Api, LOCKING_VAR, Login, PASSWORD, Reply, api};
+use crate::api_harness::{Api, LOCKING_VAR, Login, PASSWORD, RETENTION_LOCKING_VAR, Reply, api};
 
 async fn patch(a: &Api, login: &Login, base: u64, changes: Value, password: Option<&str>) -> Reply {
     let mut body = json!({ "base_revision": base, "changes": changes });
@@ -438,4 +438,111 @@ async fn host_docker_choice_is_stored_and_reported_offline() {
         Value::Null,
         "back to the agent's decision"
     );
+}
+
+#[tokio::test]
+async fn retention_source_labels_are_reported() {
+    let a = api().await;
+    let login = a.admin().await;
+    let before = editable(&a, &login).await;
+    assert_eq!(
+        before["fields"]["retention.signals_days"],
+        format!("env:{RETENTION_LOCKING_VAR}")
+    );
+    assert_eq!(before["fields"]["retention.incident_timeline_days"], "file");
+    assert!(
+        before["fields"]
+            .get("retention.conversations_days")
+            .is_none(),
+        "a default field is absent from the map"
+    );
+
+    let saved = patch(
+        &a,
+        &login,
+        0,
+        json!({ "retention": { "conversations_days": 200 } }),
+        Some(PASSWORD),
+    )
+    .await;
+    assert_eq!(saved.status, StatusCode::OK, "{}", saved.text);
+    let after = editable(&a, &login).await;
+    assert_eq!(after["fields"]["retention.conversations_days"], "ui");
+
+    let file = patch(
+        &a,
+        &login,
+        1,
+        json!({ "retention": { "incident_timeline_days": 30 } }),
+        Some(PASSWORD),
+    )
+    .await;
+    assert_eq!(file.status, StatusCode::CONFLICT, "{}", file.text);
+    assert!(
+        file.body["message"]
+            .as_str()
+            .unwrap()
+            .contains("retention.incident_timeline_days is set by file"),
+        "{}",
+        file.text
+    );
+    let env = patch(
+        &a,
+        &login,
+        1,
+        json!({ "retention": { "signals_days": 30 } }),
+        Some(PASSWORD),
+    )
+    .await;
+    assert_eq!(env.status, StatusCode::CONFLICT, "{}", env.text);
+    assert!(
+        env.body["message"]
+            .as_str()
+            .unwrap()
+            .contains(RETENTION_LOCKING_VAR),
+        "{}",
+        env.text
+    );
+}
+
+#[tokio::test]
+async fn retention_change_requires_step_up() {
+    let a = api().await;
+    let login = a.admin().await;
+    let change = json!({ "retention": { "triage_cache_days": 60 } });
+    let missing = patch(&a, &login, 0, change.clone(), None).await;
+    assert_eq!(missing.status, StatusCode::FORBIDDEN, "{}", missing.text);
+    assert!(
+        missing.body["message"]
+            .as_str()
+            .unwrap()
+            .contains("password"),
+        "{}",
+        missing.text
+    );
+    assert_eq!(SettingsRepo::get(&*a.store, "config").await.unwrap(), None);
+
+    let ok = patch(&a, &login, 0, change, Some(PASSWORD)).await;
+    assert_eq!(ok.status, StatusCode::OK, "{}", ok.text);
+    let after = editable(&a, &login).await;
+    assert_eq!(after["values"]["retention"]["triage_cache_days"], 60);
+    assert_eq!(after["fields"]["retention.triage_cache_days"], "ui");
+}
+
+#[tokio::test]
+async fn declared_retention_keys_are_accepted_but_applied_to_nothing() {
+    let a = api().await;
+    let login = a.admin().await;
+    let reply = patch(
+        &a,
+        &login,
+        0,
+        json!({ "retention": { "operation_journal_days": 9 } }),
+        Some(PASSWORD),
+    )
+    .await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.text);
+    let after = editable(&a, &login).await;
+    assert_eq!(after["values"]["retention"]["operation_journal_days"], 9);
+    assert_eq!(after["fields"]["retention.operation_journal_days"], "ui");
 }

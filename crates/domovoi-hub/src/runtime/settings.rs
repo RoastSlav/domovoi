@@ -107,6 +107,20 @@ pub(super) fn actions() -> ActionSettings {
     ActionSettings::default()
 }
 
+/// The purge policy from `[retention]`. The three keys that cover data not built yet are
+/// not read.
+pub(super) fn retention(config: &HubConfig) -> domovoi_store::RetentionPolicy {
+    let days = |n: u32| SignedDuration::from_hours(24 * i64::from(n));
+    domovoi_store::RetentionPolicy {
+        signals: days(config.retention.signals_days),
+        timeline: days(config.retention.incident_timeline_days),
+        conversations: days(config.retention.conversations_days),
+        notifications: days(config.retention.notifications_days),
+        triage: days(config.retention.triage_cache_days),
+        resolved_advisories: days(config.retention.resolved_advisories_days),
+    }
+}
+
 /// The provider chain for one configured slot: the slot's own provider first, then one
 /// per fallback model. Built eagerly so a bad fallback model is a start-up error.
 pub(crate) fn chain_for(
@@ -154,11 +168,46 @@ pub(crate) fn fallback_models_for(
 
 #[cfg(test)]
 mod tests {
-    use super::triage_budget;
+    use domovoi_config::{HubConfig, MapEnv};
+    use jiff::SignedDuration;
+
+    use super::{retention, triage_budget};
+
+    fn config(text: &str) -> HubConfig {
+        domovoi_config::parse::<HubConfig>(text, &MapEnv::new())
+            .expect("valid test config")
+            .0
+    }
 
     fn budget(toml: &str) -> domovoi_core::TriageBudget {
-        let config: domovoi_config::hub::HubConfig = toml::from_str(toml).expect("a config");
+        let config: HubConfig = toml::from_str(toml).expect("a config");
         triage_budget(&config)
+    }
+
+    #[test]
+    fn retention_policy_comes_from_the_config() {
+        let policy = retention(&config(
+            "[triage]\nenabled = false\n[retention]\nsignals_days = 14\nconversations_days = 365\n",
+        ));
+        assert_eq!(policy.signals, SignedDuration::from_hours(24 * 14));
+        assert_eq!(policy.conversations, SignedDuration::from_hours(24 * 365));
+        assert_eq!(policy.timeline, SignedDuration::from_hours(24 * 90));
+        assert_eq!(policy.notifications, SignedDuration::from_hours(24 * 30));
+        assert_eq!(policy.triage, SignedDuration::from_hours(24 * 90));
+        assert_eq!(
+            policy.resolved_advisories,
+            SignedDuration::from_hours(24 * 30)
+        );
+    }
+
+    #[test]
+    fn declared_retention_keys_are_applied_to_nothing() {
+        let base = config("[triage]\nenabled = false\n");
+        let declared = config(
+            "[triage]\nenabled = false\n[retention]\noperation_journal_days = 1\n\
+             execution_outputs_days = 2\nretracted_facts_days = 3\n",
+        );
+        assert_eq!(retention(&base), retention(&declared));
     }
 
     #[test]

@@ -21,27 +21,38 @@ pub(crate) async fn open_store(
     config: &HubConfig,
     clock: &dyn Clock,
 ) -> Result<Store, RuntimeError> {
-    open_store_at(
-        &config.hub.data_dir,
-        config.backup.dir.as_deref(),
-        config.backup.keep as usize,
-        clock,
-    )
-    .await
+    let options = options_from_config(config, clock);
+    Ok(Store::open(&config.hub.data_dir.join("hub.db"), options).await?)
 }
 
-/// Opens (and migrates) `<data_dir>/hub.db`, keeping `keep` backups in `backup_dir`
-/// (default `<data_dir>/backups`).
+/// The store options of a complete effective configuration.
+fn options_from_config(config: &HubConfig, clock: &dyn Clock) -> StoreOptions {
+    StoreOptions {
+        backup_dir: config
+            .backup
+            .dir
+            .clone()
+            .unwrap_or_else(|| config.hub.data_dir.join("backups")),
+        keep_backups: config.backup.keep as usize,
+        keep_pre_migrate: config.backup.keep_pre_migrate as usize,
+        now: clock.now(),
+    }
+}
+
+/// Opens (and migrates) `<data_dir>/hub.db`, keeping `keep` nightly and
+/// `keep_pre_migrate` pre-migration backups in `backup_dir` (default `<data_dir>/backups`).
 pub(crate) async fn open_store_at(
     data_dir: &std::path::Path,
     backup_dir: Option<&std::path::Path>,
     keep: usize,
+    keep_pre_migrate: usize,
     clock: &dyn Clock,
 ) -> Result<Store, RuntimeError> {
     let options = StoreOptions {
         backup_dir: backup_dir
             .map_or_else(|| data_dir.join("backups"), std::path::Path::to_path_buf),
         keep_backups: keep,
+        keep_pre_migrate,
         now: clock.now(),
     };
     Ok(Store::open(&data_dir.join("hub.db"), options).await?)
@@ -240,7 +251,7 @@ mod tests {
     use domovoi_core::ports::{Clock, Notifier};
     use domovoi_testkit::FakeClock;
 
-    use super::{ChatAdapters, build_chat};
+    use super::{ChatAdapters, build_chat, options_from_config};
     use crate::runtime::AdapterOverrides;
 
     fn config(discord: &str) -> HubConfig {
@@ -301,5 +312,19 @@ allowed_user_ids = [5678]
         let (gateways, notifiers) = adapters("enabled = false");
         assert!(gateways.is_empty());
         assert!(notifiers.is_empty());
+    }
+
+    #[test]
+    fn opening_a_store_uses_the_configured_backup_counts() {
+        let text = "[hub]\ndata_dir = \"/srv/domovoi\"\n[backup]\n\
+            dir = \"/srv/backups\"\nkeep = 4\nkeep_pre_migrate = 9\n";
+        let config = domovoi_config::parse::<HubConfig>(text, &MapEnv::new())
+            .expect("a valid config")
+            .0;
+        let clock = FakeClock::new("2026-11-01T08:00:00Z".parse().unwrap());
+        let options = options_from_config(&config, &clock);
+        assert_eq!(options.backup_dir, std::path::PathBuf::from("/srv/backups"));
+        assert_eq!(options.keep_backups, 4);
+        assert_eq!(options.keep_pre_migrate, 9);
     }
 }

@@ -30,18 +30,22 @@ pub struct StoreOptions {
     pub backup_dir: PathBuf,
     /// How many nightly backups [`Store::backup_to`] keeps.
     pub keep_backups: usize,
+    /// How many pre-migration backups are kept.
+    pub keep_pre_migrate: usize,
     /// When the store is opened, which names the pre-migration backup.
     pub now: Timestamp,
 }
 
 impl StoreOptions {
-    /// Options with backups next to the database in `backups/`, keeping 7.
+    /// Options with backups next to the database in `backups/`, keeping 7 nightly and 3
+    /// pre-migration backups.
     #[must_use]
     pub fn beside(database: &Path, now: Timestamp) -> Self {
         let dir = database.parent().unwrap_or(Path::new("."));
         Self {
             backup_dir: dir.join("backups"),
             keep_backups: 7,
+            keep_pre_migrate: 3,
             now,
         }
     }

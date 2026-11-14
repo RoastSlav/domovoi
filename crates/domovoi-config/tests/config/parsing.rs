@@ -31,6 +31,25 @@ fn empty_hub_config_uses_defaults() {
 }
 
 #[test]
+fn retention_keys_load_from_file_and_environment() {
+    let (config, _) = hub_with(
+        "[retention]\nsignals_days = 30\nconversations_days = 200\n",
+        &MapEnv::new().with("DOMOVOI_RETENTION__SIGNALS_DAYS", "14"),
+    )
+    .unwrap();
+    assert_eq!(config.retention.signals_days, 14, "environment over file");
+    assert_eq!(config.retention.conversations_days, 200);
+    assert_eq!(config.retention.notifications_days, 30, "default");
+    assert_eq!(config.backup.keep_pre_migrate, 3, "default");
+}
+
+#[test]
+fn unknown_retention_key_is_an_error() {
+    let errors = hub_errors("[retention]\nsignal_days = 3\n");
+    assert_issue(&errors, "retention.signal_days", "unknown key");
+}
+
+#[test]
 fn unknown_key_is_rejected_with_path() {
     let errors = hub_errors("[web]\nbnd = \"127.0.0.1:1\"\n");
     assert_issue(

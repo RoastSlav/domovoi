@@ -194,18 +194,24 @@ pub struct Api {
 /// The variable that locks `triage.concurrency` in the settings tests.
 pub const LOCKING_VAR: &str = "DOMOVOI_TRIAGE__CONCURRENCY";
 
-/// The environment of the settings layers: the example's secrets plus one override.
+/// The variable that locks `retention.signals_days` in the settings tests.
+pub const RETENTION_LOCKING_VAR: &str = "DOMOVOI_RETENTION__SIGNALS_DAYS";
+
+/// The environment of the settings layers: the example's secrets plus overrides.
 pub fn settings_env() -> MapEnv {
-    let mut env = MapEnv::new().with(LOCKING_VAR, "3");
+    let mut env = MapEnv::new()
+        .with(LOCKING_VAR, "3")
+        .with(RETENTION_LOCKING_VAR, "14");
     for (name, value) in SECRETS {
         env = env.with(name, value);
     }
     env
 }
 
-/// The settings service's file layer: `hub.name` is locked by the file.
-pub const SETTINGS_FILE: &str =
-    "[hub]\nname = \"domovoi\"\n[web]\npublic_url = \"https://domovoi.example.net\"\n";
+/// The settings service's file layer: `hub.name` and one retention key are locked by the
+/// file.
+pub const SETTINGS_FILE: &str = "[hub]\nname = \"domovoi\"\n[web]\n\
+    public_url = \"https://domovoi.example.net\"\n[retention]\nincident_timeline_days = 45\n";
 
 impl Drop for Api {
     fn drop(&mut self) {
