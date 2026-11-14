@@ -10,15 +10,17 @@
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
 
-use domovoi_core::ports::{Presence, SkillDispatch, SkillOutput};
+use domovoi_core::ports::{SkillDispatch, SkillOutput};
 use domovoi_core::{ActionId, ActionRequest, ActionStatus, PlanHash, SkillSummary, ValidatedArgs};
 use jiff::{SignedDuration, Timestamp};
 use sha2::{Digest, Sha256};
-use tokio::sync::{broadcast, oneshot};
+use tokio::sync::{Semaphore, broadcast, oneshot};
 use tokio::task::JoinSet;
 
 use super::Shared;
 use super::audit::RunRecord;
+use super::freshness;
+use super::host_wait::{self, HostWait};
 use super::recheck::verify;
 use super::recover::approved;
 use super::writer::{Decision, WriteCommand};
@@ -28,14 +30,20 @@ use crate::triage::cut;
 /// The largest output excerpt stored, in bytes.
 pub const EXCERPT_BYTES: usize = 4 * 1024;
 
-/// Starts running `action` as a task in `running`, stopping it on shutdown.
-fn start(running: &mut JoinSet<()>, shared: &Arc<Shared>, action: ActionId) {
+/// Starts running `action` as a task in `running`, stopping it on shutdown. `pool` holds
+/// the catch-up runs to a limit; an approval that arrives as an event passes `None`.
+fn start(
+    running: &mut JoinSet<()>,
+    shared: &Arc<Shared>,
+    action: ActionId,
+    pool: Option<Arc<Semaphore>>,
+) {
     let shared = shared.clone();
     running.spawn(async move {
         let stop = shared.deps.shutdown.clone();
         tokio::select! {
             () = stop.cancelled() => {}
-            () = run(&shared, action) => {}
+            () = run(&shared, action, pool) => {}
         }
     });
 }
@@ -43,6 +51,23 @@ fn start(running: &mut JoinSet<()>, shared: &Arc<Shared>, action: ActionId) {
 pub(crate) async fn serve(shared: Arc<Shared>, mut events: broadcast::Receiver<DomainEvent>) {
     let shutdown = shared.deps.shutdown.clone();
     let mut running = JoinSet::new();
+    // The writer first fails what the previous session left running and then signals
+    // `recovered`; waiting for it keeps catch-up from starting a run the recovery is
+    // about to fail, or against a loop guard that has not finished reloading.
+    let mut recovered = shared.recovered.subscribe();
+    let stopping = tokio::select! {
+        () = shutdown.cancelled() => true,
+        result = recovered.wait_for(|done| *done) => {
+            if result.is_err() {
+                tracing::warn!("the recovery signal was lost before catch-up could start");
+            }
+            false
+        }
+    };
+    if stopping {
+        running.shutdown().await;
+        return;
+    }
     // Approvals made before this hub session started have no event left on the bus,
     // so the store is read once here for actions still waiting to run (ADR 0014).
     catch_up(&mut running, &shared).await;
@@ -57,7 +82,7 @@ pub(crate) async fn serve(shared: Arc<Shared>, mut events: broadcast::Receiver<D
             Ok(DomainEvent {
                 kind: EventKind::ActionApproved { action },
                 ..
-            }) => start(&mut running, &shared, action),
+            }) => start(&mut running, &shared, action, None),
             Ok(_) => {}
             Err(broadcast::error::RecvError::Lagged(missed)) => {
                 metrics::counter!("domovoi_event_bus_lagged_total", "consumer" => "actions")
@@ -79,7 +104,7 @@ pub(crate) async fn serve(shared: Arc<Shared>, mut events: broadcast::Receiver<D
 /// once would flood the agent, so the pool stays this big and each further action waits
 /// for one run to finish. Approvals that come in as events are not held to this: they are
 /// what the hub is doing now.
-const MAX_CATCH_UP_RUNS: usize = 8;
+pub(crate) const MAX_CATCH_UP_RUNS: usize = 8;
 
 /// Starts what the store still says is approved, after start-up or after the event bus
 /// fell behind. A listing the store could not finish starts nothing: the actions stay as
@@ -96,11 +121,12 @@ async fn catch_up(running: &mut JoinSet<()>, shared: &Arc<Shared>) {
             return;
         }
     };
+    // Every approval is started; the shared pool holds the runs themselves to eight at
+    // once, and only after each has waited for its host, so a waiting host never keeps
+    // another host's run out of the pool. The pool lives in `Shared`, so a reload after
+    // the event bus fell behind does not start a second set of eight beside the first.
     for action in ids {
-        while running.len() >= MAX_CATCH_UP_RUNS {
-            let _ = running.join_next().await;
-        }
-        start(running, shared, action);
+        start(running, shared, action, Some(shared.catch_up_slots.clone()));
     }
 }
 
@@ -213,10 +239,14 @@ async fn ask_complete(
     .await
 }
 
-/// Runs action `id` if it is still approved. The loop guard and the re-validation are
-/// checked here, but every change to the action goes through the writer task, which
-/// answers with the action as it left it.
-pub(crate) async fn run(shared: &Shared, id: ActionId) {
+/// Runs action `id` if it is still approved. The freshness check, the wait for the host,
+/// the loop guard and the re-validation are checked here, but every change to the action
+/// goes through the writer task, which answers with the action as it left it.
+///
+/// The order matters after a restart: nothing may be dispatched until the host's agent is
+/// known and the approval and incident still stand, and a catch-up run holds a pool permit
+/// only once it is actually ready to run.
+pub(crate) async fn run(shared: &Shared, id: ActionId, pool: Option<Arc<Semaphore>>) {
     let Some(_claim) = claim(&shared.running, id) else {
         tracing::debug!(action = %id, "already running");
         return;
@@ -230,6 +260,44 @@ pub(crate) async fn run(shared: &Shared, id: ActionId) {
             return;
         }
     };
+    // The wait starts here, not at the approval: the agent gets its whole `offline_wait`
+    // after the hub restarts, however old the approval is.
+    let started = deps.clock.now();
+    if !still_current(shared, id, &action, started).await {
+        return;
+    }
+    match host_wait::wait_for_host(shared, action.host(), started).await {
+        HostWait::Known => {}
+        HostWait::Incompatible => {
+            let _ = ask_reject(
+                shared,
+                id,
+                "agent upgrade required: the agent speaks another protocol version".to_owned(),
+                false,
+            )
+            .await;
+            return;
+        }
+        HostWait::TimedOut => {
+            let _ = ask_reject(shared, id, "agent offline".to_owned(), false).await;
+            return;
+        }
+    }
+    // Held until this run ends, so the catch-up pool limits runs that are ready to run
+    // rather than ones still waiting for a host. The event path passes no pool.
+    let _permit = match &pool {
+        Some(pool) => match pool.clone().acquire_owned().await {
+            Ok(permit) => Some(permit),
+            Err(_) => return,
+        },
+        None => None,
+    };
+    let now = deps.clock.now();
+    // Waiting may have taken an hour: the approval and the incident are asked again
+    // before anything is sent.
+    if !still_current(shared, id, &action, now).await {
+        return;
+    }
     let (skill, args) = match revalidate(shared, &action) {
         Ok(found) => found,
         Err(reason) => {
@@ -237,7 +305,6 @@ pub(crate) async fn run(shared: &Shared, id: ActionId) {
             return;
         }
     };
-    let now = deps.clock.now();
     // The slot is claimed here, before the plan is even recomputed, so two catch-up runs
     // of the same skill cannot both read the same count and both pass (ADR 0019's writer
     // answers the dispatch, but the guard is this task's own bookkeeping).
@@ -249,12 +316,8 @@ pub(crate) async fn run(shared: &Shared, id: ActionId) {
     let Some(action) = ask_dispatch(shared, id, plan).await else {
         return;
     };
-    if let ActionStatus::Rejected { reason } = action.status().clone() {
-        tracing::debug!(action = %id, %reason, "the plan the agent has now is not the approved one");
-        return;
-    }
-    if !wait_for_agent(shared, &action).await {
-        let _ = ask_complete(shared, id, Err("agent offline".to_owned()), None).await;
+    if action.status() != &ActionStatus::Dispatched {
+        tracing::debug!(action = %id, "the plan the agent has now is not the approved one");
         return;
     }
     let deadline = deps
@@ -340,29 +403,29 @@ fn revalidate(
     }
 }
 
-/// Waits up to `offline_wait` for the host's agent. Returns whether it is connected.
-async fn wait_for_agent(shared: &Shared, action: &ActionRequest) -> bool {
-    let deps = &shared.deps;
-    let start = deps.clock.now();
-    let give_up = start
-        .checked_add(shared.settings.offline_wait)
-        .unwrap_or(start);
-    loop {
-        if matches!(
-            deps.link.presence(action.host()),
-            Presence::Connected { .. }
-        ) {
-            return true;
+/// Whether `action` may still be dispatched at `now`, rejecting it with the reason when
+/// it may not. A store that cannot say leaves it approved: nothing is sent and the next
+/// attempt, or the next hub start, asks again.
+async fn still_current(
+    shared: &Shared,
+    id: ActionId,
+    action: &ActionRequest,
+    now: Timestamp,
+) -> bool {
+    match freshness::check(shared, action, now).await {
+        Ok(None) => true,
+        Ok(Some(old)) => {
+            let _ = ask_reject(shared, id, old.reason().to_owned(), false).await;
+            false
         }
-        let now = deps.clock.now();
-        if now >= give_up {
-            return false;
+        Err(err) => {
+            tracing::error!(
+                %err,
+                action = %id,
+                "could not check whether the approval is still current; it stays approved",
+            );
+            false
         }
-        let next = now
-            .checked_add(shared.settings.presence_poll)
-            .unwrap_or(give_up)
-            .min(give_up);
-        deps.clock.sleep_until(next).await;
     }
 }
 
