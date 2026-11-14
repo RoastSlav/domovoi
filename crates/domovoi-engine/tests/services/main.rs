@@ -20,6 +20,8 @@ mod conversation;
 #[cfg(test)]
 mod execute;
 #[cfg(test)]
+mod freshness;
+#[cfg(test)]
 #[path = "../gates.rs"]
 mod gates;
 #[cfg(test)]
