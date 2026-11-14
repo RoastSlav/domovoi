@@ -1,8 +1,8 @@
-use domovoi_core::ports::{LlmError, LlmMessage, Part, Role, StopReason};
+use domovoi_core::ports::{LlmError, LlmMessage, Part, Role, StopReason, ToolSpec};
 use domovoi_llm::build;
 use serde_json::{Value, json};
 use wiremock::matchers::{header, method, path};
-use wiremock::{Mock, MockServer, ResponseTemplate};
+use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 
 use crate::support::{KEY, ask, openai};
 
@@ -119,4 +119,110 @@ async fn openai_works_without_api_key() {
     let body: Value = serde_json::from_slice(&received[0].body).unwrap();
     assert_eq!(body["model"], "llama3");
     assert!(body.get("tools").is_none());
+}
+
+/// The body of every request `server` received, oldest first.
+async fn bodies(server: &MockServer) -> Vec<Value> {
+    server
+        .received_requests()
+        .await
+        .unwrap()
+        .iter()
+        .map(|r| serde_json::from_slice(&r.body).unwrap())
+        .collect()
+}
+
+fn body_of(request: &Request) -> Value {
+    serde_json::from_slice(&request.body).unwrap()
+}
+
+#[tokio::test]
+async fn a_server_that_refuses_stream_options_is_asked_again_without_it() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(|request: &Request| {
+            if body_of(request).get("stream_options").is_some() {
+                ResponseTemplate::new(400).set_body_string("unknown field: stream_options")
+            } else {
+                ResponseTemplate::new(200).set_body_json(json!({
+                    "choices": [{
+                        "message": {"role": "assistant", "content": "All good."},
+                        "finish_reason": "stop"
+                    }]
+                }))
+            }
+        })
+        .mount(&server)
+        .await;
+
+    let provider = build(&openai(&server.uri(), false), None).unwrap();
+    let response = provider.complete(ask("Status?")).await.unwrap();
+    assert_eq!(response.parts, vec![Part::Text("All good.".to_owned())]);
+
+    let bodies = bodies(&server).await;
+    assert_eq!(bodies.len(), 2);
+    assert_eq!(bodies[0]["stream_options"]["include_usage"], true);
+    assert!(
+        bodies[1].get("stream_options").is_none(),
+        "the refused field is not sent again"
+    );
+    assert_eq!(bodies[1]["stream"], true, "the answer is still streamed");
+}
+
+#[tokio::test]
+async fn a_server_that_refuses_tools_is_asked_again_without_them_and_keeps_them_off() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(|request: &Request| {
+            if body_of(request).get("tools").is_some() {
+                ResponseTemplate::new(400).set_body_string("tools are not supported")
+            } else {
+                ResponseTemplate::new(200).set_body_json(json!({
+                    "choices": [{
+                        "message": {"role": "assistant", "content": "All good."},
+                        "finish_reason": "stop"
+                    }]
+                }))
+            }
+        })
+        .mount(&server)
+        .await;
+
+    let mut req = ask("Status?");
+    req.tools = vec![ToolSpec {
+        name: "host_overview".to_owned(),
+        description: "Summarise the host.".to_owned(),
+        input_schema: json!({"type": "object", "properties": {}}),
+    }];
+
+    let provider = build(&openai(&server.uri(), false), None).unwrap();
+    assert!(provider.supports_tools());
+    let response = provider.complete(req).await.unwrap();
+    assert_eq!(response.parts, vec![Part::Text("All good.".to_owned())]);
+    assert!(
+        !provider.supports_tools(),
+        "the refusal is remembered for later runs"
+    );
+
+    let mut again = ask("Again?");
+    again.tools = vec![ToolSpec {
+        name: "host_overview".to_owned(),
+        description: "Summarise the host.".to_owned(),
+        input_schema: json!({"type": "object", "properties": {}}),
+    }];
+    provider.complete(again).await.unwrap();
+
+    let bodies = bodies(&server).await;
+    assert_eq!(bodies.len(), 4);
+    assert!(bodies[0].get("tools").is_some());
+    assert!(
+        bodies[1].get("tools").is_some(),
+        "only stream_options is dropped first"
+    );
+    assert!(bodies[1].get("stream_options").is_none());
+    assert!(bodies[2].get("tools").is_none(), "the retry drops tools");
+    assert!(
+        bodies[3].get("tools").is_none(),
+        "a later request does not offer tools the server refused"
+    );
 }

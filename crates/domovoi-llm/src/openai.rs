@@ -1,5 +1,7 @@
 //! OpenAI-compatible Chat Completions: OpenAI, Ollama, LM Studio, OpenRouter and others.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use async_trait::async_trait;
 use domovoi_core::ports::{
     LlmError, LlmMessage, LlmProvider, LlmRequest, LlmResponse, Part, Role, StopReason, Usage,
@@ -22,6 +24,12 @@ pub struct OpenAiCompatible {
     model: String,
     api_key: Option<SecretString>,
     price: Option<Price>,
+    /// Whether the server accepts `stream_options`. Some compatible servers reject it with
+    /// a 400; once one does, it is no longer sent.
+    stream_options: AtomicBool,
+    /// Whether the server accepts `tools`. Cleared when one rejects them, so the caller
+    /// stops offering tools and gathers their output itself.
+    tools: AtomicBool,
 }
 
 impl OpenAiCompatible {
@@ -39,7 +47,68 @@ impl OpenAiCompatible {
             model,
             api_key,
             price,
+            stream_options: AtomicBool::new(true),
+            tools: AtomicBool::new(true),
         })
+    }
+
+    /// Sends one request and assembles its answer, preferring the event stream.
+    async fn ask(
+        &self,
+        req: &LlmRequest,
+        secret: Option<&SecretString>,
+    ) -> Result<WireResponse, LlmError> {
+        let body = self.body(req);
+        let mut request = self.client.post(&self.url).json(&body);
+        if let Some(key) = secret {
+            request = request.bearer_auth(key.expose_secret());
+        }
+        match http::send_streaming::<WireResponse>(request, secret).await? {
+            Reply::Whole(response) => Ok(response),
+            Reply::Stream(mut events) => openai_stream::assemble(&mut events, secret).await,
+        }
+    }
+
+    /// The request body, with the optional fields this server has not refused.
+    fn body(&self, req: &LlmRequest) -> Value {
+        let mut body = request_body(&self.model, req);
+        body["stream"] = Value::Bool(true);
+        if self.stream_options.load(Ordering::Relaxed) {
+            body["stream_options"] = json!({ "include_usage": true });
+        }
+        if (req.tools.is_empty() || !self.tools.load(Ordering::Relaxed))
+            && let Some(fields) = body.as_object_mut()
+        {
+            fields.remove("tools");
+        }
+        body
+    }
+
+    /// A server refused the request: drop the optional fields it may not know, one at a
+    /// time, and remember which it refused. A server that only speaks plain Chat
+    /// Completions works this way with no configuration.
+    async fn ask_reduced(
+        &self,
+        req: &LlmRequest,
+        secret: Option<&SecretString>,
+        refused: LlmError,
+    ) -> Result<WireResponse, LlmError> {
+        let mut refused = refused;
+        if self.stream_options.swap(false, Ordering::Relaxed) {
+            tracing::warn!("the server refused stream_options; sending requests without it");
+            match self.ask(req, secret).await {
+                Ok(response) => return Ok(response),
+                Err(err) => refused = err,
+            }
+        }
+        if !req.tools.is_empty() && self.tools.swap(false, Ordering::Relaxed) {
+            tracing::warn!("the server refused tools; sending requests without them");
+            match self.ask(req, secret).await {
+                Ok(response) => return Ok(response),
+                Err(err) => refused = err,
+            }
+        }
+        Err(refused)
     }
 }
 
@@ -54,25 +123,28 @@ impl LlmProvider for OpenAiCompatible {
     }
 
     fn supports_tools(&self) -> bool {
-        true
+        self.tools.load(Ordering::Relaxed)
     }
 
     async fn complete(&self, req: LlmRequest) -> Result<LlmResponse, LlmError> {
-        let mut body = request_body(&self.model, &req);
-        body["stream"] = Value::Bool(true);
-        body["stream_options"] = json!({ "include_usage": true });
         tracing::debug!(model = %self.model, messages = req.messages.len(), "openai turn");
-        let mut request = self.client.post(&self.url).json(&body);
-        if let Some(key) = &self.api_key {
-            request = request.bearer_auth(key.expose_secret());
-        }
         let secret = self.api_key.as_ref();
-        let response = match http::send_streaming::<WireResponse>(request, secret).await? {
-            Reply::Whole(response) => response,
-            Reply::Stream(mut events) => openai_stream::assemble(&mut events, secret).await?,
+        let response = match self.ask(&req, secret).await {
+            Ok(response) => response,
+            Err(refused) if is_refused_request(&refused) => {
+                self.ask_reduced(&req, secret, refused).await?
+            }
+            Err(err) => return Err(err),
         };
         into_response(response, self.price.as_ref(), self.api_key.as_ref())
     }
+}
+
+/// Whether a server refused the request itself, as opposed to being unreachable, refusing
+/// the credentials or being rate limited. Status errors are formatted by
+/// [`http::status_error`]; a 4xx that is not auth or rate limiting lands here.
+fn is_refused_request(err: &LlmError) -> bool {
+    matches!(err, LlmError::InvalidResponse(detail) if detail.starts_with("HTTP 4"))
 }
 
 /// The JSON body for `req`, exposed for request-shape tests.
