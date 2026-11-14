@@ -221,6 +221,15 @@ pub trait LlmProvider: Send + Sync {
     /// tools and expects a final answer.
     fn supports_tools(&self) -> bool;
 
+    /// Whether this adapter can price a turn, so a monthly budget in dollars can count it.
+    ///
+    /// An adapter with no configured price returns `false`; a provider configured as
+    /// explicitly free returns `true`, because zero is a price. Adapters whose turns are
+    /// always free may keep the default.
+    fn prices_usage(&self) -> bool {
+        true
+    }
+
     /// Runs one turn. Does not retry; retries and budgets are the engine's job.
     async fn complete(&self, req: LlmRequest) -> Result<LlmResponse, LlmError>;
 }
