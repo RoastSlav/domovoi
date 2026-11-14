@@ -61,14 +61,21 @@ Notes and incident titles are searched with SQLite FTS5. Search text is split in
 
 ## Retention
 
-| Kept | For |
-| --- | --- |
-| Signals | 30 days |
-| Incident timeline entries | 90 days |
-| Cached triage reports | 90 days |
-| Resolved advisories | 30 days after resolving |
-| Maintenance windows, sessions | until they end or expire |
-| Incidents, audit log, digest facts | forever |
+Every period is a setting in `[retention]`; the [Retention guide](../guide/retention.md) explains what each one removes and what deletion guarantees about backups.
+
+| Data | Setting | Default |
+| --- | --- | --- |
+| Signals | `signals_days` | 30 days |
+| Incident timeline entries other than follow-up conversations | `incident_timeline_days` | 90 days |
+| Follow-up questions and answers | `conversations_days` | 180 days |
+| Notification state of resolved incidents | `notifications_days` | 30 days |
+| Cached triage reports | `triage_cache_days` | 90 days |
+| Resolved advisories | `resolved_advisories_days` | 30 days after resolving |
+| Operation journal (not built yet) | `operation_journal_days` | 180 days |
+| Raw execution outputs (not built yet) | `execution_outputs_days` | 30 days |
+| Retracted fact content (not built yet) | `retracted_facts_days` | 30 days |
+
+Maintenance windows and sessions are removed when they end or expire. Incidents, operations and resolution summaries, the audit log and digest facts are kept.
 
 ## Backups
 
@@ -76,7 +83,7 @@ Backups use `VACUUM INTO`, which writes a consistent copy while the hub keeps ru
 
 Backups go to `[backup] dir` (default `<data_dir>/backups`).
 
-- Before migrating an existing database, the hub writes `pre-migrate-<time>.db` there. If a migration fails, that file is the database as it was.
+- Before migrating an existing database, the hub writes `pre-migrate-<time>.db` there and keeps the newest `[backup] keep_pre_migrate` (default 3). If a migration fails, that file is the database as it was.
 - The nightly backup writes `domovoi-<time>.db` and keeps the newest `[backup] keep` (default 7).
 
 The database directory is created readable by its owner only.

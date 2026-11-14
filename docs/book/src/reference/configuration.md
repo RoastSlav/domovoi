@@ -38,6 +38,7 @@ Local database backups.
 | --- | --- | --- |
 | `dir` | string | Where backups are written. Default `<data_dir>/backups`. |
 | `keep` | integer | Backups kept. Default 7. |
+| `keep_pre_migrate` | integer | Pre-migration backups kept. Default 3. |
 
 ### `[discord]`
 
@@ -191,6 +192,22 @@ Network probes run from the hub.
 | `interval` | duration | How often it runs. Default `"1m"`. |
 | `kind` | `"tcp"` or `"http"` | What the probe does. |
 | `target` | string | `host:port` for `tcp`; an `http` or `https` URL for `http`. |
+
+### `[retention]`
+
+How long each kind of raw data is kept.
+
+| Key | Type | Meaning |
+| --- | --- | --- |
+| `conversations_days` | integer | Days a follow-up question and answer on an incident are kept. Default 180. |
+| `execution_outputs_days` | integer | Days raw execution output is kept. Not applied yet: applies once execution outputs are stored apart from the audit log. Default 30. |
+| `incident_timeline_days` | integer | Days an incident timeline entry other than a follow-up conversation is kept. Default 90. |
+| `notifications_days` | integer | Days the notification state of a resolved incident is kept. Default 30. |
+| `operation_journal_days` | integer | Days the operation journal is kept. Not applied yet: applies once operations exist. Default 180. |
+| `resolved_advisories_days` | integer | Days a resolved advisory is kept. Default 30. |
+| `retracted_facts_days` | integer | Days the content of a retracted fact is kept. Not applied yet: applies once knowledge facts exist. Default 30. |
+| `signals_days` | integer | Days a signal is kept. Default 30. |
+| `triage_cache_days` | integer | Days a cached triage report is kept. Default 90. |
 
 ### `[secrets]`
 

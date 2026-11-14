@@ -31,6 +31,7 @@
 - [Migrating from cron scripts](guide/migrating.md)
 - [Docker and Podman](guide/containers.md)
 - [Hardening](guide/hardening.md)
+- [Retention](guide/retention.md)
 
 # Reference
 
