@@ -316,3 +316,96 @@ async fn cli_text_output_is_estimated_and_priced() {
     assert!(response.usage.output_tokens > 0);
     assert!(response.usage.cost_micros.is_some_and(|cost| cost > 0));
 }
+
+/// One priced CLI turn whose stdout is exactly `stdout`.
+async fn run_stdout(stdout: &str) -> domovoi_core::ports::LlmResponse {
+    let fake = Arc::new(FakeProcessExecutor::new());
+    fake.expect(CLAUDE, &claude_args(), ok(stdout));
+    priced_provider(&fake, CliPreset::claude(CLAUDE))
+        .complete(ask("triage"))
+        .await
+        .unwrap()
+}
+
+/// An empty plain-text answer has no output to count, so it charges the authorised
+/// allowance instead of zero.
+#[tokio::test]
+async fn cli_empty_text_answer_charges_the_allowance() {
+    let custom = CliPreset {
+        program: "/opt/llm/run".to_owned(),
+        args: vec!["--ask".to_owned(), "{prompt}".to_owned()],
+        prompt_via: PromptVia::Arg,
+        output: CliOutput::Text,
+        env: Default::default(),
+    };
+    let fake = Arc::new(FakeProcessExecutor::new());
+    let prompt = "You triage incidents.\n\nUser:\ntriage";
+    fake.expect("/opt/llm/run", &["--ask", prompt], ok("\n"));
+    let response = priced_provider(&fake, custom)
+        .complete(ask("triage"))
+        .await
+        .unwrap();
+    assert_eq!(response.usage.source, UsageSource::Unknown);
+    assert!(response.usage.input_tokens > 0);
+    assert_eq!(
+        response.usage.output_tokens, 512,
+        "the request's allowance is charged, not zero"
+    );
+    assert_eq!(
+        response.usage.cost_micros,
+        Some(u64::from(response.usage.input_tokens) * 2 + 512 * 10)
+    );
+}
+
+/// The same holds for an empty JSON result with no usage metadata.
+#[tokio::test]
+async fn cli_empty_json_answer_charges_the_allowance() {
+    let response = run_stdout(r#"{"type":"result","result":""}"#).await;
+    assert_eq!(response.usage.source, UsageSource::Unknown);
+    assert!(response.usage.input_tokens > 0);
+    assert_eq!(response.usage.output_tokens, 512);
+    assert_eq!(
+        response.usage.cost_micros,
+        Some(u64::from(response.usage.input_tokens) * 2 + 512 * 10)
+    );
+}
+
+/// Input-only usage on an empty answer keeps the reported input and still charges the
+/// allowance for the unknown output.
+#[tokio::test]
+async fn cli_empty_json_with_input_usage_keeps_input() {
+    let response =
+        run_stdout(r#"{"type":"result","result":"","usage":{"input_tokens":100}}"#).await;
+    assert_eq!(response.usage.source, UsageSource::Unknown);
+    assert_eq!(response.usage.input_tokens, 100);
+    assert_eq!(response.usage.output_tokens, 512);
+    assert_eq!(response.usage.cost_micros, Some(100 * 2 + 512 * 10));
+}
+
+/// A reported output of zero is authoritative, even when the answer is empty.
+#[tokio::test]
+async fn cli_explicit_zero_output_is_authoritative() {
+    let response = run_stdout(
+        r#"{"type":"result","result":"","usage":{"input_tokens":100,"output_tokens":0}}"#,
+    )
+    .await;
+    assert_eq!(response.usage.source, UsageSource::Reported);
+    assert_eq!(response.usage.input_tokens, 100);
+    assert_eq!(response.usage.output_tokens, 0, "a reported zero is kept");
+    assert_eq!(response.usage.cost_micros, Some(100 * 2));
+}
+
+/// A non-empty answer with no usage is still estimated from the answer, not charged the
+/// allowance.
+#[tokio::test]
+async fn cli_non_empty_answer_without_usage_is_estimated() {
+    let response = run_stdout(r#"{"type":"result","result":"All good."}"#).await;
+    assert_eq!(response.usage.source, UsageSource::Estimated);
+    assert!(response.usage.input_tokens > 0);
+    assert!(
+        response.usage.output_tokens > 0 && response.usage.output_tokens < 512,
+        "the visible answer is estimated, not the allowance: {:?}",
+        response.usage
+    );
+    assert!(response.usage.cost_micros.is_some_and(|cost| cost > 0));
+}

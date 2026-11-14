@@ -226,10 +226,12 @@ impl LlmProvider for Cli {
                 excerpt(&output.stderr, None)
             )));
         }
+        let allowance = req.max_output_tokens;
         let (text, usage) = read_output(
             &self.preset.output,
             &output.stdout,
             &prompt,
+            allowance,
             self.price.as_ref(),
         )?;
         Ok(LlmResponse {
@@ -276,11 +278,13 @@ pub fn render_prompt(req: &LlmRequest) -> String {
 }
 
 /// The answer and, when the CLI reports it, token usage. A CLI that reports none gets an
-/// estimate from the prompt and the answer, so the turn is not recorded as free.
+/// estimate from the prompt and the answer, so the turn is not recorded as free. An empty
+/// answer with no reported output charges `allowance`, the output the request authorised.
 fn read_output(
     output: &CliOutput,
     stdout: &str,
     prompt: &str,
+    allowance: u32,
     price: Option<&Price>,
 ) -> Result<(String, Usage), LlmError> {
     let field = match output {
@@ -291,7 +295,7 @@ fn read_output(
                 parts: &parts,
                 reasoning: "",
                 stop: &StopReason::EndTurn,
-                allowance: 0,
+                allowance,
                 redacted_thinking: false,
             };
             let usage =
@@ -329,7 +333,7 @@ fn read_output(
         parts: &answer_parts,
         reasoning: "",
         stop: &StopReason::EndTurn,
-        allowance: 0,
+        allowance,
         redacted_thinking: false,
     };
     let (input, output) = (tokens("input_tokens"), tokens("output_tokens"));
