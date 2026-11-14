@@ -113,6 +113,20 @@ impl Validate for HubConfig {
         if self.backup.keep == 0 {
             issues.push(ConfigIssue::error("backup.keep", "must be at least 1"));
         }
+        if self.backup.keep_pre_migrate == 0 {
+            issues.push(ConfigIssue::error(
+                "backup.keep_pre_migrate",
+                "must be at least 1",
+            ));
+        }
+        for (key, days) in self.retention.days() {
+            if !(1..=3650).contains(&days) {
+                issues.push(ConfigIssue::error(
+                    format!("retention.{key}"),
+                    "must be 1 to 3650 days",
+                ));
+            }
+        }
     }
 }
 
