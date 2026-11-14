@@ -18,7 +18,9 @@ use domovoi_testkit::{FakeClock, FakeProcessExecutor};
 use jiff::SignedDuration;
 use tokio_util::sync::CancellationToken;
 
-use crate::harness::{ScriptedCheck, clock, empty_fs, firing, key, ok, report, settle};
+use crate::harness::{
+    ScriptedCheck, block_spool, clock, empty_fs, firing, key, ok, report, settle, unblock_spool,
+};
 use crate::hub::guard;
 
 struct Running {
@@ -374,4 +376,231 @@ async fn config_update_applies_check_overrides_live() {
     settle().await;
     assert_eq!(runs(&a), 2, "turned back on, a is overdue and runs at once");
     shutdown.cancel();
+}
+
+/// Waits until `counter` reaches `count`, so a test reads state only after the check ran.
+async fn wait_for_runs(counter: &AtomicUsize, count: usize) {
+    guard(async {
+        while counter.load(Ordering::SeqCst) < count {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+}
+
+/// Waits until the spool holds `count` batches.
+async fn wait_for_batches(run: &Running, count: usize) {
+    guard(async {
+        while run.spool.lock().await.len() < count {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+}
+
+/// Fires `a` on every run and counts its runs in its stored state, like a check that
+/// remembers a cursor.
+struct Counting {
+    runs: Arc<AtomicUsize>,
+}
+
+#[async_trait]
+impl Check for Counting {
+    fn key(&self) -> CheckKey {
+        key("test.counting")
+    }
+
+    fn default_cadence(&self) -> SignedDuration {
+        SignedDuration::from_secs(60)
+    }
+
+    fn class(&self) -> SignalClass {
+        SignalClass::Normal
+    }
+
+    async fn run(&self, ctx: &mut CheckContext<'_>) -> Result<CheckReport, CheckError> {
+        self.runs.fetch_add(1, Ordering::SeqCst);
+        let runs = ctx
+            .state
+            .get("runs")
+            .and_then(|value| value.parse::<u64>().ok())
+            .unwrap_or(0)
+            + 1;
+        ctx.state.set("runs", runs.to_string());
+        Ok(report(vec![firing("a", Severity::Warning)]))
+    }
+}
+
+#[tokio::test]
+async fn check_state_not_saved_when_spool_push_fails() {
+    let runs = Arc::new(AtomicUsize::new(0));
+    let run = start(vec![Box::new(Counting { runs: runs.clone() })]);
+    let dir = run._dir.path().to_owned();
+    block_spool(&dir);
+    wait_for_runs(&runs, 1).await;
+    settle().await;
+
+    assert!(run.spool.lock().await.is_empty(), "no batch was added");
+    assert_eq!(run.store.state(&key("test.counting")).get("runs"), None);
+    assert!(run.store.firing(&key("test.counting")).is_empty());
+    let reopened = CheckStore::open(&dir).unwrap();
+    assert_eq!(reopened.state(&key("test.counting")).get("runs"), None);
+    assert!(reopened.firing(&key("test.counting")).is_empty());
+
+    unblock_spool(&dir);
+    run.clock.advance(SignedDuration::from_secs(60));
+    wait_for_runs(&runs, 2).await;
+    wait_for_batches(&run, 1).await;
+
+    assert_eq!(
+        run.store.state(&key("test.counting")).get("runs"),
+        Some("1"),
+        "the run whose push failed was discarded, not remembered"
+    );
+    assert!(run.store.firing(&key("test.counting")).contains("a"));
+    {
+        let spool = run.spool.lock().await;
+        let pending = spool.pending_after(None);
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].signals.len(), 1);
+        assert_eq!(pending[0].signals[0].status(), SignalStatus::Firing);
+    }
+    let reopened = CheckStore::open(&dir).unwrap();
+    assert_eq!(reopened.state(&key("test.counting")).get("runs"), Some("1"));
+    assert!(reopened.firing(&key("test.counting")).contains("a"));
+    run.shutdown.cancel();
+}
+
+#[tokio::test]
+async fn firing_signal_is_not_lost_when_spool_push_fails() {
+    let runs = Arc::new(AtomicUsize::new(0));
+    let run = start(vec![Box::new(Counting { runs: runs.clone() })]);
+    let dir = run._dir.path().to_owned();
+    block_spool(&dir);
+    wait_for_runs(&runs, 1).await;
+    settle().await;
+    unblock_spool(&dir);
+    run.clock.advance(SignedDuration::from_secs(60));
+    wait_for_runs(&runs, 2).await;
+    wait_for_batches(&run, 1).await;
+    settle().await;
+
+    let spool = run.spool.lock().await;
+    let pending = spool.pending_after(None);
+    assert_eq!(pending.len(), 1, "exactly one batch, not two");
+    assert_eq!(pending[0].signals.len(), 1);
+    assert_eq!(pending[0].signals[0].target().unwrap().as_str(), "a");
+    assert_eq!(pending[0].signals[0].status(), SignalStatus::Firing);
+    run.shutdown.cancel();
+}
+
+#[tokio::test]
+async fn resolved_signal_is_not_lost_when_spool_push_fails() {
+    let check = Arc::new(ScriptedCheck::new(
+        "test.resolving",
+        vec![
+            report(vec![firing("a", Severity::Warning)]),
+            report(vec![ok("a")]),
+        ],
+    ));
+    let run = start(vec![Box::new(Shared(check.clone()))]);
+    run.batch().await;
+    settle().await;
+    assert!(run.store.firing(&key("test.resolving")).contains("a"));
+
+    let dir = run._dir.path().to_owned();
+    block_spool(&dir);
+    run.clock.advance(SignedDuration::from_secs(60));
+    wait_for_runs(&check.runs, 2).await;
+    settle().await;
+    assert_eq!(run.spool.lock().await.len(), 1, "the resolved batch is not");
+    assert!(
+        run.store.firing(&key("test.resolving")).contains("a"),
+        "the firing memory is not cleared by a run that could not be spooled"
+    );
+
+    unblock_spool(&dir);
+    run.clock.advance(SignedDuration::from_secs(60));
+    wait_for_runs(&check.runs, 3).await;
+    wait_for_batches(&run, 2).await;
+
+    let spool = run.spool.lock().await;
+    let pending = spool.pending_after(None);
+    assert_eq!(pending.len(), 2);
+    assert_eq!(pending[1].signals.len(), 1);
+    assert_eq!(pending[1].signals[0].status(), SignalStatus::Resolved);
+    assert_eq!(pending[1].signals[0].target().unwrap().as_str(), "a");
+    assert!(run.store.firing(&key("test.resolving")).is_empty());
+    run.shutdown.cancel();
+}
+
+#[tokio::test]
+async fn check_with_no_signals_still_saves_state() {
+    let check = Arc::new(ScriptedCheck::new(
+        "test.quiet",
+        vec![report(vec![ok("a")])],
+    ));
+    let run = start(vec![Box::new(Shared(check.clone()))]);
+    wait_for_runs(&check.runs, 1).await;
+    guard(async {
+        while run.store.state(&key("test.quiet")).get("runs").is_none() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+
+    assert!(run.spool.lock().await.is_empty(), "nothing to spool");
+    assert_eq!(run.store.state(&key("test.quiet")).get("runs"), Some("1"));
+    let reopened = CheckStore::open(run._dir.path()).unwrap();
+    assert_eq!(reopened.state(&key("test.quiet")).get("runs"), Some("1"));
+    run.shutdown.cancel();
+}
+
+/// Fails every run after writing to its state, as a check that hit a bad device does.
+struct Failing;
+
+#[async_trait]
+impl Check for Failing {
+    fn key(&self) -> CheckKey {
+        key("test.failing")
+    }
+
+    fn default_cadence(&self) -> SignedDuration {
+        SignedDuration::from_secs(60)
+    }
+
+    fn class(&self) -> SignalClass {
+        SignalClass::Normal
+    }
+
+    async fn run(&self, ctx: &mut CheckContext<'_>) -> Result<CheckReport, CheckError> {
+        ctx.state.set("attempts", "1");
+        Err(CheckError::Settings("no such device".to_owned()))
+    }
+}
+
+#[tokio::test]
+async fn failing_check_keeps_its_state_as_before() {
+    let run = start(vec![Box::new(Failing)]);
+    guard(async {
+        while run
+            .store
+            .state(&key("test.failing"))
+            .get("attempts")
+            .is_none()
+        {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+
+    assert_eq!(
+        run.store.state(&key("test.failing")).get("attempts"),
+        Some("1")
+    );
+    assert!(
+        run.spool.lock().await.is_empty(),
+        "a failing check says nothing"
+    );
+    run.shutdown.cancel();
 }

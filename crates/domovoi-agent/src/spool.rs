@@ -165,17 +165,41 @@ impl Spool {
         Ok(changed)
     }
 
-    /// Adds a batch of `signals` and returns its sequence number. It is on disk on return.
+    /// Adds a batch of `signals` and returns its sequence number. It is on disk on return, and
+    /// a failure leaves the spool as it was.
     pub fn push(&mut self, signals: Vec<Signal>) -> Result<u64, StateError> {
         let path = self.path();
+        let seq = self.meta.next_seq;
         let batch = Batch {
-            batch_seq: self.meta.next_seq,
+            batch_seq: seq,
             signals,
         };
-        self.meta.next_seq += 1;
         let text = line(&batch, &path)?;
+        self.meta.next_seq += 1;
         self.bytes += text.len();
         self.batches.push_back((batch.clone(), text.len()));
+        let written = self.write(&path, &text);
+        if let Err(err) = written {
+            // The batch never made it: forget it and give its sequence number back, so the
+            // caller can retry the same signals without a gap or a half-added batch. Batches
+            // `shrink` dropped are left out of memory on purpose: they are still on disk and
+            // are resent after a restart.
+            if self
+                .batches
+                .back()
+                .is_some_and(|(last, _)| last.batch_seq == seq)
+                && let Some((_, size)) = self.batches.pop_back()
+            {
+                self.bytes -= size;
+            }
+            self.meta.next_seq = seq;
+            return Err(err);
+        }
+        Ok(seq)
+    }
+
+    /// Writes the batch just added, and the metadata, to disk.
+    fn write(&mut self, path: &Path, text: &str) -> Result<(), StateError> {
         // A fresh file is created through `rewrite`, so it gets the spool's mode.
         if self.shrink()? || !path.exists() {
             self.rewrite()?;
@@ -183,14 +207,13 @@ impl Spool {
             let mut file = std::fs::OpenOptions::new()
                 .create(true)
                 .append(true)
-                .open(&path)
-                .map_err(|e| StateError::new(&path, e))?;
+                .open(path)
+                .map_err(|e| StateError::new(path, e))?;
             file.write_all(text.as_bytes())
                 .and_then(|()| file.sync_data())
-                .map_err(|e| StateError::new(&path, e))?;
+                .map_err(|e| StateError::new(path, e))?;
         }
-        self.save_meta()?;
-        Ok(batch.batch_seq)
+        self.save_meta()
     }
 
     /// Forgets every batch up to and including `up_to`.

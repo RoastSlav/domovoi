@@ -9,7 +9,7 @@ use domovoi_proto::messages::{Ping, SignalsAck};
 use domovoi_testkit::build::T0;
 use jiff::SignedDuration;
 
-use crate::harness::{clock, identity, key, start_link_with, target};
+use crate::harness::{block_spool, clock, identity, key, start_link_with, target, unblock_spool};
 use crate::hub::{TestHub, guard};
 use crate::link::advancing;
 
@@ -150,6 +150,30 @@ fn full_spool_drops_info_first() {
     assert_eq!(targets(&spool).concat(), ["gone", "crit", "crit-2"]);
     assert_eq!(spool.dropped(), 3);
     assert_eq!(Spool::open(dir.path()).unwrap().dropped(), 3);
+}
+
+#[test]
+fn push_failure_leaves_the_spool_unchanged() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut spool = Spool::open(dir.path()).unwrap();
+    let first = spool.push(vec![signal("a", Severity::Warning)]).unwrap();
+    block_spool(dir.path());
+    assert!(
+        spool.push(vec![signal("b", Severity::Warning)]).is_err(),
+        "the spool file cannot be written"
+    );
+    assert_eq!(spool.len(), 1);
+    let pending = spool.pending_after(None);
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].batch_seq, first);
+    assert_eq!(pending[0].signals[0].target().unwrap().as_str(), "a");
+
+    unblock_spool(dir.path());
+    assert_eq!(
+        spool.push(vec![signal("c", Severity::Warning)]).unwrap(),
+        first + 1,
+        "no sequence number is skipped"
+    );
 }
 
 #[test]
