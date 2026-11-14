@@ -97,8 +97,21 @@ pub enum StopReason {
     Other(String),
 }
 
-/// Tokens used by one turn.
+/// Whether a turn's usage totals are real or inferred.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum UsageSource {
+    /// The provider reported the totals.
+    #[default]
+    Reported,
+    /// The provider reported nothing; the engine inferred the tokens from the request and
+    /// the answer. Cost is only known when the provider has a price.
+    Estimated,
+    /// Nothing is known: neither the provider nor an inference produced totals.
+    Unknown,
+}
+
+/// Tokens used by one turn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Usage {
     /// Prompt tokens.
     pub input_tokens: u32,
@@ -106,6 +119,22 @@ pub struct Usage {
     pub output_tokens: u32,
     /// Cost in millionths of a US dollar, when the provider reports or implies it.
     pub cost_micros: Option<u64>,
+    /// Whether the totals were reported, inferred or are unknown.
+    pub source: UsageSource,
+}
+
+impl Default for Usage {
+    /// No tokens at a known zero cost: a caller that does not track usage, such as a fake
+    /// or a provider that charges nothing, says so explicitly rather than leaving the cost
+    /// unknown.
+    fn default() -> Self {
+        Self {
+            input_tokens: 0,
+            output_tokens: 0,
+            cost_micros: Some(0),
+            source: UsageSource::Reported,
+        }
+    }
 }
 
 /// The model's answer to one turn.

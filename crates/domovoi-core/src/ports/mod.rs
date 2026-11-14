@@ -25,7 +25,7 @@ pub use clock::Clock;
 pub use hostfs::{FsError, HostFs};
 pub use llm::{
     LlmCapability, LlmError, LlmMessage, LlmProvider, LlmRequest, LlmResponse, Part, Role,
-    StopReason, ToolSpec, Usage,
+    StopReason, ToolSpec, Usage, UsageSource,
 };
 pub use logs::{LogLine, LogSource};
 pub use process::{ProcessError, ProcessExecutor, ProcessOutput, ProcessSpec};
