@@ -4,7 +4,7 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 
-use domovoi_core::ports::{LlmError, LlmMessage, LlmProvider, LlmRequest, Part, Role};
+use domovoi_core::ports::{LlmError, LlmMessage, LlmProvider, LlmRequest, Part, Role, StopReason};
 use domovoi_core::{
     ActionId, Incident, IncidentId, ReadToolCall, SkillSummary, TriageOutcome, TriageReport,
 };
@@ -95,7 +95,9 @@ async fn outcome(
     let skills = deps.link.skills(incident.host());
     let bundle = context::build(shared, incident, &skills).await;
     let mut tool_use: Vec<ToolUse> = Vec::new();
-    let outcome = match providers(shared, incident, &skills, &bundle, &mut tool_use).await {
+    let mut run = agent::RunBudget::for_run(shared);
+    let outcome = match providers(shared, incident, &skills, &bundle, &mut tool_use, &mut run).await
+    {
         Ok(mut report) => {
             redact_report(deps.redactor.as_ref(), &mut report);
             let tokens = proposals::create(shared, incident, &skills, &mut report).await;
@@ -172,14 +174,37 @@ async fn providers(
     skills: &[SkillSummary],
     bundle: &str,
     used: &mut Vec<ToolUse>,
+    run: &mut agent::RunBudget,
 ) -> Result<TriageReport, String> {
     let chain = shared.chain();
     let mut reasons: Vec<String> = Vec::new();
     for (i, provider) in chain.iter().enumerate() {
-        let why = match attempt(shared, provider, incident, skills, bundle, used).await {
-            Ok(report) => return Ok(report),
-            Err(Failure::Provider(err)) => format!("{} failed: {err}", provider_name(provider)),
-            Err(Failure::Invalid(why)) => format!("{} failed: {why}", provider_name(provider)),
+        // A provider that refuses a capability changes how the run is built (the opening
+        // prompt gathers tool output itself when tools are gone), so the attempt is rebuilt
+        // once from the top instead of continuing with a prompt written for the old shape.
+        let used_before = used.len();
+        let mut rebuilt = false;
+        let why = loop {
+            match attempt(shared, provider, incident, skills, bundle, used, run).await {
+                Ok(report) => return Ok(report),
+                Err(Failure::Provider(LlmError::CapabilityRejected { capability, .. }))
+                    if !rebuilt =>
+                {
+                    rebuilt = true;
+                    used.truncate(used_before);
+                    tracing::info!(
+                        provider = provider.id(),
+                        %capability,
+                        "the provider refused a capability; rebuilding the run without it",
+                    );
+                }
+                Err(Failure::Provider(err)) => {
+                    break format!("{} failed: {err}", provider_name(provider));
+                }
+                Err(Failure::Invalid(why)) => {
+                    break format!("{} failed: {why}", provider_name(provider));
+                }
+            }
         };
         if i + 1 < chain.len() {
             tracing::info!(
@@ -247,22 +272,19 @@ async fn attempt(
     skills: &[SkillSummary],
     bundle: &str,
     used: &mut Vec<ToolUse>,
+    run: &mut agent::RunBudget,
 ) -> Result<TriageReport, Failure> {
     let first = opening(shared, provider, incident, skills, bundle, used).await;
     let mut messages = vec![LlmMessage {
         role: Role::User,
         parts: vec![Part::Text(first)],
     }];
-    let answer = agent::converse(
-        shared,
-        provider,
-        tools::Scope::of(incident),
+    let brief = agent::Brief {
+        system: SYSTEM_PROMPT,
+        scope: tools::Scope::of(incident),
         skills,
-        SYSTEM_PROMPT,
-        &mut messages,
-        used,
-    )
-    .await?;
+    };
+    let answer = agent::converse(shared, provider, brief, &mut messages, used, run).await?;
     let error = match parse_report(&answer) {
         Ok(report) => return Ok(report),
         Err(error) => error,
@@ -273,19 +295,39 @@ async fn attempt(
             "Your answer could not be used: {error}. Reply with only the JSON object described in your instructions."
         ))],
     });
-    let req = LlmRequest {
-        system: SYSTEM_PROMPT.to_owned(),
-        messages,
-        tools: if provider.supports_tools() {
-            agent::read_tools()
-        } else {
-            Vec::new()
-        },
-        max_output_tokens: shared.settings.budget.max_output_tokens,
-    };
-    let repaired = agent::complete(shared, provider, req).await?;
-    parse_report(&text_of(&repaired.parts))
-        .map_err(|e| Failure::Invalid(format!("the model gave no usable report: {e}")))
+    // The repair turn is bounded like every other: it draws on the same run budget, and a
+    // reasoning model that runs out of room gets the same larger allowance.
+    let mut wanted = run.per_turn();
+    loop {
+        let allowance = run.grant_or_fail(wanted)?;
+        let req = LlmRequest {
+            system: SYSTEM_PROMPT.to_owned(),
+            messages: messages.clone(),
+            tools: if provider.supports_tools() {
+                agent::read_tools()
+            } else {
+                Vec::new()
+            },
+            max_output_tokens: allowance,
+        };
+        let repaired = agent::complete(shared, provider, req, run.deadline()).await?;
+        if repaired.stop == StopReason::MaxTokens {
+            match agent::grown_allowance(allowance) {
+                Some(larger) => {
+                    wanted = larger;
+                    continue;
+                }
+                None => {
+                    return Err(Failure::Provider(LlmError::Unavailable(format!(
+                        "the model ran out of its {allowance}-token output allowance while \
+                         repairing its answer; raise [triage] per_run.output_tokens"
+                    ))));
+                }
+            }
+        }
+        return parse_report(&text_of(&repaired.parts))
+            .map_err(|e| Failure::Invalid(format!("the model gave no usable report: {e}")));
+    }
 }
 
 async fn failed(shared: &Shared, incident: &Incident, reason: &str) {

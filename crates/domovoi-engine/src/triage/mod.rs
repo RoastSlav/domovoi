@@ -96,6 +96,8 @@ impl Default for TriageSettings {
                 max_tool_calls: 15,
                 max_seconds: 90,
                 max_output_tokens: 2000,
+                // The most a run with 15 tool calls could ask for, one turn each.
+                max_total_output_tokens: 32_000,
             },
         }
     }

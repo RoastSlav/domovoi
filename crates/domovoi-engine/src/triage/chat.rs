@@ -178,58 +178,85 @@ pub(crate) async fn answer(
     // The calls the model makes are not recorded: a general chat has no incident whose
     // timeline they could go on.
     let mut tool_use: Vec<agent::ToolUse> = Vec::new();
+    let mut run = agent::RunBudget::for_run(shared);
     for provider in shared.chain().iter() {
-        let mut messages = vec![LlmMessage {
-            role: Role::User,
-            parts: vec![Part::Text(opening.clone())],
-        }];
-        messages.extend(chat_turns.iter().cloned());
-        // With a chosen host and a provider that cannot call tools, put that host's read
-        // output in front of the question: incident triage does the same for its
-        // fallback, and without it the model would never consult the host.
-        let gathered: String = match (host, provider.supports_tools()) {
-            (Some(host), false) => host_output(shared, host, &skills).await,
-            _ => String::new(),
-        };
-        if !gathered.is_empty() {
+        let used_before = tool_use.len();
+        let mut rebuilt = false;
+        let outcome = loop {
+            let mut messages = vec![LlmMessage {
+                role: Role::User,
+                parts: vec![Part::Text(opening.clone())],
+            }];
+            messages.extend(chat_turns.iter().cloned());
+            // With a chosen host and a provider that cannot call tools, put that host's read
+            // output in front of the question: incident triage does the same for its
+            // fallback, and without it the model would never consult the host.
+            let gathered: String = match (host, provider.supports_tools()) {
+                (Some(host), false) => host_output(shared, host, &skills).await,
+                _ => String::new(),
+            };
+            if !gathered.is_empty() {
+                messages.push(LlmMessage {
+                    role: Role::User,
+                    parts: vec![Part::Text(gathered)],
+                });
+            }
             messages.push(LlmMessage {
                 role: Role::User,
-                parts: vec![Part::Text(gathered)],
+                parts: vec![Part::Text(asked.clone())],
             });
-        }
-        messages.push(LlmMessage {
-            role: Role::User,
-            parts: vec![Part::Text(asked.clone())],
-        });
-        let attempt: Result<String, LlmError> = match (host, provider.supports_tools()) {
-            (Some(host), true) => {
-                agent::converse(
-                    shared,
-                    provider,
-                    Scope {
-                        host,
-                        incident: None,
-                    },
-                    &skills,
-                    CHAT_PROMPT,
-                    &mut messages,
-                    &mut tool_use,
-                )
-                .await
-            }
-            _ => {
-                let req = LlmRequest {
-                    system: CHAT_PROMPT.to_owned(),
-                    messages,
-                    tools: Vec::new(),
-                    max_output_tokens: shared.settings.budget.max_output_tokens,
-                };
-                agent::complete(shared, provider, req)
+            let attempt: Result<String, LlmError> = match (host, provider.supports_tools()) {
+                (Some(host), true) => {
+                    agent::converse(
+                        shared,
+                        provider,
+                        agent::Brief {
+                            system: CHAT_PROMPT,
+                            scope: Scope {
+                                host,
+                                incident: None,
+                            },
+                            skills: &skills,
+                        },
+                        &mut messages,
+                        &mut tool_use,
+                        &mut run,
+                    )
                     .await
-                    .map(|response| agent::text_of(&response.parts))
+                }
+                _ => {
+                    let max_output_tokens = match run.grant_or_fail(run.per_turn()) {
+                        Ok(tokens) => tokens,
+                        Err(err) => break Err(err),
+                    };
+                    let req = LlmRequest {
+                        system: CHAT_PROMPT.to_owned(),
+                        messages,
+                        tools: Vec::new(),
+                        max_output_tokens,
+                    };
+                    agent::complete(shared, provider, req, run.deadline())
+                        .await
+                        .map(|response| agent::text_of(&response.parts))
+                }
+            };
+            match attempt {
+                Ok(answer) => break Ok(answer),
+                Err(LlmError::CapabilityRejected { capability, .. }) if !rebuilt => {
+                    // The question was put together for a provider that had the capability;
+                    // build it again now that the provider reports it gone.
+                    rebuilt = true;
+                    tool_use.truncate(used_before);
+                    tracing::info!(
+                        provider = provider.id(),
+                        %capability,
+                        "the provider refused a capability; asking again without it",
+                    );
+                }
+                Err(err) => break Err(err),
             }
         };
-        match attempt {
+        match outcome {
             Ok(answer) => {
                 text = Some(answer);
                 break;

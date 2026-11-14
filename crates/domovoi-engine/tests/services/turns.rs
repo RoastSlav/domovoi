@@ -1,8 +1,13 @@
-use domovoi_core::ports::{IncidentRepo, LlmResponse, Part, StopReason, ToolOutput, Usage};
+use std::time::Duration;
+
+use domovoi_core::ports::{
+    IncidentRepo, LlmResponse, Part, StopReason, ToolOutput, Usage, UsageRepo,
+};
 use domovoi_core::{ReadToolCall, TriageBudget, TriageOutcome};
 use domovoi_engine::triage::{BUDGET_EXHAUSTED, MAX_RESULT_BYTES, TriageSettings};
 use domovoi_testkit::link::LinkRequest;
 use jiff::SignedDuration;
+use jiff::tz::TimeZone;
 use serde_json::json;
 
 use crate::harness::{SECRET, Setup, calls, host_id, report, restart_skill, results, world};
@@ -10,8 +15,13 @@ use crate::harness::{SECRET, Setup, calls, host_id, report, restart_skill, resul
 /// A response that ended at the output limit without saying anything, as a reasoning model
 /// that spent the whole allowance thinking does.
 fn reasoning_only() -> LlmResponse {
+    truncated(Vec::new())
+}
+
+/// A turn cut off at the output limit, carrying whatever it had produced so far.
+fn truncated(parts: Vec<Part>) -> LlmResponse {
     LlmResponse {
-        parts: Vec::new(),
+        parts,
         stop: StopReason::MaxTokens,
         usage: Usage::default(),
     }
@@ -123,6 +133,7 @@ async fn budget_refused_calls_are_recorded_as_not_run() {
             max_tool_calls: 1,
             max_seconds: 90,
             max_output_tokens: 2000,
+            max_total_output_tokens: 32_000,
         },
         ..TriageSettings::default()
     };
@@ -287,6 +298,78 @@ async fn reasoning_only_answer_is_retried_with_a_larger_allowance() {
 }
 
 #[tokio::test]
+async fn a_truncated_answer_is_retried_with_more_room() {
+    let w = world(Setup::default()).await;
+    w.primary.push_ok(truncated(vec![Part::Text(
+        "{\"headline\": \"Disk is".to_owned(),
+    )]));
+    w.primary.push_text(report());
+
+    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+
+    let requests = w.primary.requests();
+    assert_eq!(requests.len(), 2, "the cut-off answer is not repaired");
+    assert_eq!(requests[1].max_output_tokens, 8000);
+    assert_eq!(
+        requests[1].messages.len(),
+        1,
+        "the cut-off answer is not kept in the conversation"
+    );
+}
+
+#[tokio::test]
+async fn a_truncated_tool_call_is_never_run() {
+    let w = world(Setup::default()).await;
+    w.primary.push_ok(truncated(vec![Part::ToolCall {
+        id: "call_cut".to_owned(),
+        name: "journal".to_owned(),
+        input: json!({"unit": "nginx"}),
+    }]));
+    w.primary.push_text(report());
+
+    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+
+    let requests = w.primary.requests();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[1].max_output_tokens, 8000);
+    assert_eq!(
+        requests[1].messages.len(),
+        1,
+        "the incomplete turn is not kept"
+    );
+    let entries = w.store.timeline(w.incident.id()).await.expect("timeline");
+    assert!(
+        !entries.iter().any(|e| e.kind == "triage.tools"),
+        "a call that was not run is not recorded"
+    );
+}
+
+#[tokio::test]
+async fn a_truncated_text_and_tool_call_is_never_run() {
+    let w = world(Setup::default()).await;
+    w.primary.push_ok(truncated(vec![
+        Part::Text("I will check the journal.".to_owned()),
+        Part::ToolCall {
+            id: "call_cut".to_owned(),
+            name: "journal".to_owned(),
+            input: json!({"unit": "nginx"}),
+        },
+    ]));
+    w.primary.push_text(report());
+
+    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+
+    let requests = w.primary.requests();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[1].max_output_tokens, 8000);
+    assert_eq!(
+        requests[1].messages.len(),
+        1,
+        "neither the text nor the call of the incomplete turn is kept"
+    );
+}
+
+#[tokio::test]
 async fn a_model_that_never_answers_fails_with_the_output_allowance() {
     let w = world(Setup::default()).await;
     w.primary.push_ok(reasoning_only());
@@ -311,25 +394,74 @@ async fn a_model_that_never_answers_fails_with_the_output_allowance() {
 }
 
 #[tokio::test]
-async fn a_truncated_answer_is_retried_with_more_room() {
+async fn a_run_that_spends_its_output_budget_stops() {
+    let settings = TriageSettings {
+        budget: TriageBudget {
+            max_tool_calls: 15,
+            max_seconds: 90,
+            max_output_tokens: 2000,
+            max_total_output_tokens: 2500,
+        },
+        ..TriageSettings::default()
+    };
+    let w = world(Setup {
+        settings,
+        ..Setup::default()
+    })
+    .await;
+    // The first turn asks for 2000; the retry is clipped to the 500 left.
+    w.primary.push_ok(reasoning_only());
+    w.primary.push_ok(reasoning_only());
+
+    let outcome = w.run().await;
+    assert!(
+        matches!(
+            &outcome,
+            TriageOutcome::Failed { reason }
+                if reason.contains("total_tokens") && reason.contains("output token budget")
+        ),
+        "{outcome:?}"
+    );
+    let requests = w.primary.requests();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[0].max_output_tokens, 2000);
+    assert_eq!(
+        requests[1].max_output_tokens, 500,
+        "a retry never asks for more than the run has left"
+    );
+}
+
+#[tokio::test]
+async fn every_retry_is_recorded_as_usage() {
     let w = world(Setup::default()).await;
     w.primary.push_ok(LlmResponse {
-        parts: vec![Part::Text("{\"headline\": \"Disk is".to_owned())],
+        parts: Vec::new(),
         stop: StopReason::MaxTokens,
-        usage: Usage::default(),
+        usage: Usage {
+            input_tokens: 10,
+            output_tokens: 30,
+            cost_micros: None,
+        },
     });
-    w.primary.push_text(report());
+    w.primary.push_ok(LlmResponse {
+        parts: vec![Part::Text(report())],
+        stop: StopReason::EndTurn,
+        usage: Usage {
+            input_tokens: 20,
+            output_tokens: 70,
+            cost_micros: None,
+        },
+    });
 
     assert!(matches!(w.run().await, TriageOutcome::Report(_)));
 
-    let requests = w.primary.requests();
-    assert_eq!(requests.len(), 2, "the cut-off answer is not repaired");
-    assert_eq!(requests[1].max_output_tokens, 8000);
+    let month = w.now().to_zoned(TimeZone::UTC).date();
+    let total = w.store.month_total(month).await.expect("usage");
     assert_eq!(
-        requests[1].messages.len(),
-        1,
-        "the cut-off answer is not kept in the conversation"
+        total.tokens_out, 100,
+        "the cut-off retry and the answer both count"
     );
+    assert_eq!(total.tokens_in, 30);
 }
 
 #[tokio::test]
@@ -339,6 +471,7 @@ async fn an_allowance_at_the_ceiling_is_not_grown() {
             max_tool_calls: 15,
             max_seconds: 90,
             max_output_tokens: 16_000,
+            max_total_output_tokens: 32_000,
         },
         ..TriageSettings::default()
     };
@@ -357,6 +490,46 @@ async fn an_allowance_at_the_ceiling_is_not_grown() {
     assert_eq!(w.primary.requests().len(), 1);
 }
 
+#[tokio::test(start_paused = true)]
+async fn a_slow_model_is_cut_off_at_the_run_deadline() {
+    let w = world(Setup::default()).await;
+    // The provider never answers: the request must still end when the run's time is up.
+    w.primary.hold();
+    let advance = async {
+        tokio::time::advance(Duration::from_secs(91)).await;
+    };
+    let (outcome, ()) = tokio::join!(w.run(), advance);
+    assert!(
+        matches!(&outcome, TriageOutcome::Failed { reason } if reason.contains("run deadline")),
+        "{outcome:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_deadline_that_has_passed_sends_no_request() {
+    let settings = TriageSettings {
+        budget: TriageBudget {
+            max_tool_calls: 15,
+            max_seconds: 0,
+            max_output_tokens: 2000,
+            max_total_output_tokens: 32_000,
+        },
+        ..TriageSettings::default()
+    };
+    let w = world(Setup {
+        settings,
+        ..Setup::default()
+    })
+    .await;
+
+    let outcome = w.run().await;
+    assert!(
+        matches!(&outcome, TriageOutcome::Failed { reason } if reason.contains("run deadline")),
+        "{outcome:?}"
+    );
+    assert_eq!(w.primary.requests().len(), 0);
+}
+
 #[tokio::test]
 async fn budget_exhaustion_forces_final_answer() {
     let settings = TriageSettings {
@@ -364,6 +537,7 @@ async fn budget_exhaustion_forces_final_answer() {
             max_tool_calls: 2,
             max_seconds: 90,
             max_output_tokens: 500,
+            max_total_output_tokens: 8000,
         },
         ..TriageSettings::default()
     };
@@ -396,9 +570,10 @@ async fn budget_exhaustion_forces_final_answer() {
         .filter(|r| matches!(r, LinkRequest::Tool { call, .. } if !matches!(call, ReadToolCall::DockerEvents { .. })))
         .count();
     assert_eq!(tools_run, 2, "the third call was not run");
+}
 
-    // Time runs out too: each tool call takes 60 s of a 90 s budget, so the second call
-    // ends it.
+#[tokio::test]
+async fn tool_work_past_the_deadline_ends_the_run() {
     let w = world(Setup::default()).await;
     let clock = w.clock.clone();
     w.link.on_tool(move |_, _| {
@@ -412,10 +587,15 @@ async fn budget_exhaustion_forces_final_answer() {
         .push_ok(calls(&[("c1", "host_overview", json!({}))]));
     w.primary
         .push_ok(calls(&[("c2", "host_overview", json!({}))]));
-    w.primary.push_text(report());
-    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
-    let requests = w.primary.requests();
-    assert_eq!(requests.len(), 3);
-    let last = requests[2].messages.last().unwrap();
-    assert!(matches!(last.parts.last(), Some(Part::Text(t)) if t == BUDGET_EXHAUSTED));
+
+    let outcome = w.run().await;
+    assert!(
+        matches!(&outcome, TriageOutcome::Failed { reason } if reason.contains("run deadline")),
+        "{outcome:?}"
+    );
+    assert_eq!(
+        w.primary.requests().len(),
+        2,
+        "no further request after the run's time is gone"
+    );
 }

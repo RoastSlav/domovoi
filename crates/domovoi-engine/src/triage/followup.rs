@@ -1,7 +1,7 @@
 //! Follow-up questions in an incident's thread: the same read tools and budget, a plain
 //! text answer, and action proposals that stay data until a human approves them (INV-9).
 
-use domovoi_core::ports::{LlmMessage, Part, Redactor, Role};
+use domovoi_core::ports::{LlmError, LlmMessage, Part, Redactor, Role};
 use domovoi_core::triage::MAX_PROPOSALS;
 use domovoi_core::{ActionProposal, ActionStatus, IncidentId, UserId};
 
@@ -199,29 +199,50 @@ pub(crate) async fn answer(
     let mut text = None;
     let mut reasons: Vec<String> = Vec::new();
     let mut tool_use: Vec<agent::ToolUse> = Vec::new();
+    let mut run = agent::RunBudget::for_run(shared);
     for provider in chain.iter() {
-        let mut messages = vec![LlmMessage {
-            role: Role::User,
-            parts: vec![Part::Text(opening.clone())],
-        }];
-        for message in chat_turns.iter() {
-            messages.push(message.clone());
-        }
-        messages.push(LlmMessage {
-            role: Role::User,
-            parts: vec![Part::Text(question.clone())],
-        });
-        match agent::converse(
-            shared,
-            provider,
-            scope,
-            &skills,
-            FOLLOW_UP_PROMPT,
-            &mut messages,
-            &mut tool_use,
-        )
-        .await
-        {
+        let used_before = tool_use.len();
+        let mut rebuilt = false;
+        let outcome = loop {
+            let mut messages = vec![LlmMessage {
+                role: Role::User,
+                parts: vec![Part::Text(opening.clone())],
+            }];
+            for message in chat_turns.iter() {
+                messages.push(message.clone());
+            }
+            messages.push(LlmMessage {
+                role: Role::User,
+                parts: vec![Part::Text(question.clone())],
+            });
+            match agent::converse(
+                shared,
+                provider,
+                agent::Brief {
+                    system: FOLLOW_UP_PROMPT,
+                    scope,
+                    skills: &skills,
+                },
+                &mut messages,
+                &mut tool_use,
+                &mut run,
+            )
+            .await
+            {
+                Ok(answer) => break Ok(answer),
+                Err(LlmError::CapabilityRejected { capability, .. }) if !rebuilt => {
+                    rebuilt = true;
+                    tool_use.truncate(used_before);
+                    tracing::info!(
+                        provider = provider.id(),
+                        %capability,
+                        "the provider refused a capability; asking again without it",
+                    );
+                }
+                Err(err) => break Err(err),
+            }
+        };
+        match outcome {
             Ok(answer) => {
                 text = Some(answer);
                 break;

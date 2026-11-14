@@ -38,6 +38,8 @@ pub struct Setup {
     pub third: bool,
     pub cli: bool,
     pub evidence: Evidence,
+    /// A real provider to use as the primary instead of the scripted one.
+    pub provider: Option<Arc<dyn LlmProvider>>,
 }
 
 impl Default for Setup {
@@ -48,6 +50,7 @@ impl Default for Setup {
             third: false,
             cli: false,
             evidence: disk(92.4),
+            provider: None,
         }
     }
 }
@@ -155,7 +158,10 @@ pub async fn world(setup: Setup) -> World {
     });
     let secondary = Arc::new(ScriptedLlm::new());
     let third = Arc::new(ScriptedLlm::new());
-    let primary_dyn: Arc<dyn LlmProvider> = primary.clone();
+    let primary_dyn: Arc<dyn LlmProvider> = match setup.provider.clone() {
+        Some(provider) => provider,
+        None => primary.clone(),
+    };
     let secondary_dyn: Arc<dyn LlmProvider> = secondary.clone();
     let third_dyn: Arc<dyn LlmProvider> = third.clone();
     let fallbacks: Vec<Arc<dyn LlmProvider>> = match (setup.secondary, setup.third) {
