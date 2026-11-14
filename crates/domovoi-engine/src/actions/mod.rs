@@ -25,7 +25,7 @@ use domovoi_core::ports::{
     ActionGuard, ActionRepo, AgentLink, AggregateRef, AuditDraft, AuditLog, Clock, CommitError,
     IncidentRepo, JournalDraft, JournalKind, Redactor, StateWrite, Transaction, UnitOfWork,
 };
-use domovoi_core::{ActionError, ActionId, ActionRequest, HostId, HumanApproval};
+use domovoi_core::{ActionError, ActionId, ActionRequest, HostId, HumanApproval, PlanBinding};
 use jiff::{SignedDuration, Timestamp};
 use serde_json::{Value, json};
 use tokio::sync::{broadcast, oneshot};
@@ -97,6 +97,10 @@ pub enum ApprovalError {
     /// used.
     #[error("the approval link is not valid")]
     BadToken,
+    /// The plan hash in the approve request is not the action's plan hash: the card the
+    /// approver saw is stale or does not describe this action. Nothing changed.
+    #[error("the plan changed since it was shown; reload and review it again")]
+    PlanChanged,
     /// The action cannot make that change: wrong status, expired, or destructive without
     /// a typed confirmation on the web.
     #[error("{0}")]
@@ -298,19 +302,23 @@ impl ActionService {
 
 impl ActionHandle {
     /// Approves action `id` on behalf of the human in `approval`. A chat approval needs
-    /// `chat_token`, which works once. This is the only way to reach `Approved`; the
-    /// decision is queued for the writer task, so it cannot race another one.
+    /// `chat_token`, which works once. `binding` must name the action's stored v1 plan hash,
+    /// so an approval covers the plan the card showed. This is the only way to reach
+    /// `Approved`; the decision is queued for the writer task, so it cannot race another
+    /// one.
     pub async fn approve(
         &self,
         id: ActionId,
         approval: HumanApproval,
         chat_token: Option<&str>,
+        binding: PlanBinding,
     ) -> Result<ActionRequest, ApprovalError> {
         let (reply, answer) = oneshot::channel();
         let command = writer::WriteCommand::Approve {
             id,
             approval,
             chat_token: chat_token.map(str::to_owned),
+            binding,
             reply,
         };
         if self.writer.tx.send(command).await.is_err() {

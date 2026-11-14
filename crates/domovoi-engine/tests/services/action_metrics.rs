@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 use domovoi_core::ports::ActionRepo;
-use domovoi_core::{ActionError, ActionRequest, Risk, UserId};
+use domovoi_core::{ActionError, ActionRequest, PlanBinding, Risk, UserId};
 use domovoi_engine::triage::{mint_token, token_hash};
 use domovoi_engine::{ActionSettings, ApprovalError};
 use domovoi_testkit::approvals::human;
@@ -136,7 +136,12 @@ async fn a_status_transition_increments_the_destination_counter() {
     let (action, _) = a.propose().await;
 
     a.service
-        .approve(action.id(), human(UserId::new()), None)
+        .approve(
+            action.id(),
+            human(UserId::new()),
+            None,
+            PlanBinding::Full(action.plan_hash()),
+        )
         .await
         .unwrap();
 
@@ -195,7 +200,15 @@ async fn a_failed_commit_does_not_increment_the_counter() {
         Arc::new(RefusingAuditUow::new(store)),
     );
 
-    let refused = a.service.approve(id, human(UserId::new()), None).await;
+    let refused = a
+        .service
+        .approve(
+            id,
+            human(UserId::new()),
+            None,
+            PlanBinding::Full(action.plan_hash()),
+        )
+        .await;
 
     assert!(
         matches!(refused, Err(ApprovalError::Store(_))),
@@ -220,7 +233,12 @@ async fn a_conflicted_commit_does_not_increment_the_counter() {
 
     let refused = a
         .service
-        .approve(action.id(), human(UserId::new()), None)
+        .approve(
+            action.id(),
+            human(UserId::new()),
+            None,
+            PlanBinding::Full(action.plan_hash()),
+        )
         .await;
 
     assert_eq!(

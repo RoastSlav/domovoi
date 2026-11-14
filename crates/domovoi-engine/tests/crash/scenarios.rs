@@ -9,7 +9,8 @@ use std::collections::BTreeMap;
 
 use domovoi_core::ports::Presence;
 use domovoi_core::{
-    ActionStatus, Incident, ManifestHash, SignalClass, SkillSummary, TriageOutcome, UserId, Verdict,
+    ActionStatus, Incident, ManifestHash, PlanBinding, SignalClass, SkillSummary, TriageOutcome,
+    UserId, Verdict,
 };
 use domovoi_engine::triage::{mint_token, token_hash};
 use domovoi_testkit::approvals::{chat, human};
@@ -220,9 +221,12 @@ pub fn action_lifecycle<S: SweepStore>(world: &mut World<S>) -> BoxFuture<'_, ()
         step!(
             world,
             NAME,
-            world
-                .service
-                .approve(p1.id(), chat(user, "discord", "raiko"), Some(&rotated))
+            world.service.approve(
+                p1.id(),
+                chat(user, "discord", "raiko"),
+                Some(&rotated),
+                PlanBinding::Full(p1.plan_hash()),
+            )
         );
         step!(
             world,
@@ -267,7 +271,12 @@ pub fn action_lifecycle<S: SweepStore>(world: &mut World<S>) -> BoxFuture<'_, ()
         step!(
             world,
             NAME,
-            world.service.approve(p4.id(), human(user), None)
+            world.service.approve(
+                p4.id(),
+                human(user),
+                None,
+                PlanBinding::Full(p4.plan_hash()),
+            )
         );
         step!(
             world,
@@ -290,7 +299,12 @@ pub fn action_lifecycle<S: SweepStore>(world: &mut World<S>) -> BoxFuture<'_, ()
         step!(
             world,
             NAME,
-            world.service.approve(p5.id(), human(user), None)
+            world.service.approve(
+                p5.id(),
+                human(user),
+                None,
+                PlanBinding::Full(p5.plan_hash()),
+            )
         );
         step!(
             world,
@@ -317,7 +331,12 @@ pub fn action_lifecycle<S: SweepStore>(world: &mut World<S>) -> BoxFuture<'_, ()
         step!(
             world,
             NAME,
-            world.service.approve(p6.id(), human(user), None)
+            world.service.approve(
+                p6.id(),
+                human(user),
+                None,
+                PlanBinding::Full(p6.plan_hash()),
+            )
         );
         step!(
             world,
@@ -339,7 +358,12 @@ pub fn action_lifecycle<S: SweepStore>(world: &mut World<S>) -> BoxFuture<'_, ()
             step!(
                 world,
                 NAME,
-                world.service.approve(action.id(), human(user), None)
+                world.service.approve(
+                    action.id(),
+                    human(user),
+                    None,
+                    PlanBinding::Full(action.plan_hash()),
+                )
             );
             step!(
                 world,
@@ -358,7 +382,12 @@ pub fn action_lifecycle<S: SweepStore>(world: &mut World<S>) -> BoxFuture<'_, ()
         step!(
             world,
             NAME,
-            world.service.approve(blocked.id(), human(user), None)
+            world.service.approve(
+                blocked.id(),
+                human(user),
+                None,
+                PlanBinding::Full(blocked.plan_hash()),
+            )
         );
         step!(
             world,
@@ -384,7 +413,12 @@ pub fn action_lifecycle<S: SweepStore>(world: &mut World<S>) -> BoxFuture<'_, ()
         step!(
             world,
             NAME,
-            world.service.approve(p10.id(), human(user), None)
+            world.service.approve(
+                p10.id(),
+                human(user),
+                None,
+                PlanBinding::Full(p10.plan_hash()),
+            )
         );
         step!(
             world,

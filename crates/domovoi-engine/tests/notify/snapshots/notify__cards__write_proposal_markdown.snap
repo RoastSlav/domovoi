@@ -7,3 +7,4 @@ plex is crash-looping after the 1.41 image update
 - restarts: 7 in 10 minutes
 - last error: migration 42 failed
 Next: Pin the previous image tag and restart.
+Waiting: restart_container on nas (write), no arguments · plan ebf4c79d

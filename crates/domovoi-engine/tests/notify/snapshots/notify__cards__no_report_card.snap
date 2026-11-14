@@ -25,6 +25,7 @@ expression: card
       "type": "details"
     }
   ],
+  "plans": [],
   "details": null,
   "resolved": false
 }

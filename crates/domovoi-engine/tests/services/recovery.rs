@@ -10,7 +10,7 @@ use domovoi_core::ports::{
     ActionRepo, AuditFilter, AuditLog, HostAvailability, IncidentRepo, Page, Presence,
 };
 use domovoi_core::{
-    ActionId, ActionRequest, ActionStatus, PlanHash, Principal, SignalStatus, UserId,
+    ActionId, ActionRequest, ActionStatus, PlanBinding, PlanHash, Principal, SignalStatus, UserId,
 };
 use domovoi_engine::actions::audit;
 use domovoi_engine::{
@@ -429,7 +429,12 @@ async fn loop_guard_reloads_dispatches_that_were_committed_with_their_audit_rows
             .unwrap();
         first
             .service
-            .approve(action.id(), human(UserId::new()), None)
+            .approve(
+                action.id(),
+                human(UserId::new()),
+                None,
+                PlanBinding::Full(action.plan_hash()),
+            )
             .await
             .unwrap();
         first
@@ -451,7 +456,12 @@ async fn loop_guard_reloads_dispatches_that_were_committed_with_their_audit_rows
         .unwrap();
     second
         .service
-        .approve(fourth.id(), human(UserId::new()), None)
+        .approve(
+            fourth.id(),
+            human(UserId::new()),
+            None,
+            PlanBinding::Full(fourth.plan_hash()),
+        )
         .await
         .unwrap();
     let done = second
