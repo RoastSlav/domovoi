@@ -5,8 +5,8 @@ use std::sync::Mutex;
 
 use async_trait::async_trait;
 use domovoi_core::ports::{
-    AgentLink, CheckRecheck, IngestError, LinkError, Presence, SignalSink, SkillDispatch,
-    SkillOutput, ToolOutput,
+    AgentLink, CheckRecheck, HostAvailability, IngestError, LinkError, Presence, SignalSink,
+    SkillDispatch, SkillOutput, ToolOutput,
 };
 use domovoi_core::{CheckKey, HostId, ReadToolCall, Signal, SkillSummary, TargetKey};
 use domovoi_proto::messages::{CheckInfo, HostFacts};
@@ -70,6 +70,7 @@ struct Handlers {
 /// [`LinkError::Rejected`]. Deadlines are recorded but never enforced.
 pub struct FakeAgentLink {
     presence: Mutex<BTreeMap<HostId, Presence>>,
+    availability: Mutex<BTreeMap<HostId, HostAvailability>>,
     skills: Mutex<BTreeMap<HostId, Vec<SkillSummary>>>,
     facts: Mutex<BTreeMap<HostId, HostFacts>>,
     checks: Mutex<BTreeMap<HostId, Vec<CheckInfo>>>,
@@ -83,6 +84,7 @@ impl FakeAgentLink {
     pub fn new() -> Self {
         Self {
             presence: Mutex::new(BTreeMap::new()),
+            availability: Mutex::new(BTreeMap::new()),
             skills: Mutex::new(BTreeMap::new()),
             facts: Mutex::new(BTreeMap::new()),
             checks: Mutex::new(BTreeMap::new()),
@@ -94,6 +96,17 @@ impl FakeAgentLink {
     /// Sets a host's presence.
     pub fn set_presence(&self, host: HostId, presence: Presence) {
         lock(&self.presence).insert(host, presence);
+    }
+
+    /// Sets what `availability` reports for a host, separate from its presence. A test uses
+    /// this to say a host is unknown even though the fake knows when it was last seen.
+    pub fn set_availability(&self, host: HostId, availability: HostAvailability) {
+        lock(&self.availability).insert(host, availability);
+    }
+
+    /// Drops a scripted availability, so the host's presence decides again.
+    pub fn clear_availability(&self, host: HostId) {
+        lock(&self.availability).remove(&host);
     }
 
     /// Sets the skills a host announces.
@@ -237,6 +250,20 @@ impl AgentLink for FakeAgentLink {
             .get(&host)
             .cloned()
             .unwrap_or(Presence::Disconnected { last_seen: None })
+    }
+
+    async fn availability(&self, host: HostId) -> HostAvailability {
+        if let Some(scripted) = lock(&self.availability).get(&host).cloned() {
+            return scripted;
+        }
+        // The trait's default, spelled out because calling it here would recurse.
+        match self.presence(host) {
+            Presence::Connected { since, .. } => HostAvailability::Known { since },
+            Presence::Disconnected {
+                last_seen: Some(since),
+            } => HostAvailability::Absent { since },
+            Presence::Disconnected { last_seen: None } => HostAvailability::Unknown,
+        }
     }
 
     fn skills(&self, host: HostId) -> Vec<SkillSummary> {
