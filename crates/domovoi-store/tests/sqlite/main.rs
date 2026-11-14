@@ -10,6 +10,8 @@ mod audit_chain;
 #[cfg(test)]
 mod backup;
 #[cfg(test)]
+mod backup_logging;
+#[cfg(test)]
 mod commit_cost;
 #[cfg(test)]
 mod common;

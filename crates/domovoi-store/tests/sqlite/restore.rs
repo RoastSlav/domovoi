@@ -80,6 +80,226 @@ async fn restore_into_an_empty_directory_creates_the_database() {
         theme_of(&live).await,
         Some(serde_json::json!("from-backup"))
     );
+    let listed = names(live.parent().unwrap());
+    assert!(
+        !listed.iter().any(|name| name.contains(".before-restore-")),
+        "no empty placeholder is left for a database that never existed: {listed:?}"
+    );
+    assert!(
+        !listed.iter().any(|name| name.contains(".failed-restore-")),
+        "nothing failed: {listed:?}"
+    );
+}
+
+#[tokio::test]
+async fn restore_keeps_orphaned_sidecars_beside_the_new_database() {
+    let dir = tempfile::tempdir().unwrap();
+    let backup_store = Fresh::in_dir(dir.path().join("backup"));
+    let backup_path = backup_store.write("from-backup").await;
+    let live = dir.path().join("orphans").join("hub.db");
+    std::fs::create_dir_all(live.parent().unwrap()).unwrap();
+    // No `hub.db`, but SQLite sidecars an interrupted copy left behind.
+    std::fs::write(dir.path().join("orphans").join("hub.db-wal"), b"orphan-wal").unwrap();
+    std::fs::write(dir.path().join("orphans").join("hub.db-shm"), b"orphan-shm").unwrap();
+
+    let report = restore_from_backup(&live, &backup_path, at(60))
+        .await
+        .unwrap();
+    // There was no database to preserve, so the report says so and reserves no name for
+    // one; only the sidecars moved aside, keeping the same prefix.
+    assert!(report.previous.is_none());
+    let listed = names(live.parent().unwrap());
+    assert!(
+        !listed.iter().any(|name| name.contains(".before-restore-")
+            && !name.ends_with("-wal")
+            && !name.ends_with("-shm")),
+        "no empty placeholder database: {listed:?}"
+    );
+    // The new database opens and holds the backup's contents; the sidecars are preserved
+    // beside it, not silently discarded.
+    assert_eq!(
+        theme_of(&live).await,
+        Some(serde_json::json!("from-backup"))
+    );
+    assert!(
+        listed
+            .iter()
+            .any(|name| name.contains(".before-restore-") && name.ends_with("-wal")),
+        "the orphaned WAL is preserved: {listed:?}"
+    );
+    assert!(
+        listed
+            .iter()
+            .any(|name| name.contains(".before-restore-") && name.ends_with("-shm")),
+        "the orphaned SHM is preserved: {listed:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_rollback_that_cannot_finish_is_reported_as_incomplete() {
+    let dir = tempfile::tempdir().unwrap();
+    let backup_store = Fresh::in_dir(dir.path().join("backup"));
+    let backup_path = backup_store.write("from-backup").await;
+    let live = database_with(dir.path(), "live-theme").await;
+    let before = std::fs::read(&live).unwrap();
+
+    let err = restore_from_backup_failing_at(&live, &backup_path, at(60), "undo-database")
+        .await
+        .unwrap_err();
+    match &err {
+        RestoreError::RecoveryIncomplete { reason, recovery } => {
+            assert!(
+                !reason.is_empty(),
+                "the original failure is named: {reason}"
+            );
+            assert!(
+                recovery.contains("before-restore"),
+                "the misplaced file is named: {recovery}"
+            );
+        }
+        other => panic!("expected RecoveryIncomplete, got {other:?}"),
+    }
+
+    // Nothing was deleted. The moved database is still readable where the report says.
+    let listed = names(dir.path());
+    let misplaced: Vec<std::path::PathBuf> = listed
+        .iter()
+        .filter(|name| name.contains(".before-restore-"))
+        .map(|name| dir.path().join(name))
+        .collect();
+    assert_eq!(misplaced.len(), 1, "{listed:?}");
+    assert_eq!(
+        std::fs::read(&misplaced[0]).unwrap(),
+        before,
+        "the moved database is intact where it remains"
+    );
+    let RestoreError::RecoveryIncomplete { recovery, .. } = &err else {
+        unreachable!()
+    };
+    assert!(
+        recovery.contains(&misplaced[0].display().to_string()),
+        "the message names where the file remains: {recovery}"
+    );
+}
+
+#[tokio::test]
+async fn a_partial_sidecar_move_while_keeping_the_failed_copy_is_undone() {
+    let dir = tempfile::tempdir().unwrap();
+    let backup_store = Fresh::in_dir(dir.path().join("backup"));
+    let live = database_with(dir.path(), "live-theme").await;
+    let _ = backup_store;
+
+    // A backup that verifies but will not migrate, whose opened copy leaves sidecars.
+    let broken_dir = dir.path().join("broken");
+    std::fs::create_dir_all(&broken_dir).unwrap();
+    let broken = broken_dir.join("backup.db");
+    let connect = sqlx::sqlite::SqliteConnectOptions::new()
+        .filename(&broken)
+        .create_if_missing(true);
+    let pool = sqlx::sqlite::SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(connect)
+        .await
+        .unwrap();
+    MIGRATOR.run_to(5, &pool).await.unwrap();
+    sqlx::query("CREATE TABLE journal (seq INTEGER PRIMARY KEY, wrong TEXT)")
+        .execute(&pool)
+        .await
+        .unwrap();
+    pool.close().await;
+    let before = std::fs::read(&live).unwrap();
+
+    // The sidecars move first, then moving the database fails, so the rollback has
+    // something to put back.
+    let err = restore_from_backup_failing_at(&live, &broken, at(60), "failed-database")
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(err, RestoreError::Open(_)),
+        "the open error stays the reported failure: {err}"
+    );
+
+    // The live database never moved and holds the same bytes.
+    assert_eq!(std::fs::read(&live).unwrap(), before);
+    assert_eq!(theme_of(&live).await, Some(serde_json::json!("live-theme")));
+
+    let listed = names(dir.path());
+    // The temporary copy and every sidecar are together again at the temporary name: no
+    // file was left split at the `.failed-restore-*` name.
+    let temporary: Vec<&String> = listed
+        .iter()
+        .filter(|name| name.starts_with("hub.db.restore-tmp"))
+        .collect();
+    assert!(
+        temporary.iter().any(|name| name.ends_with(".restore-tmp")),
+        "the temporary database is still there: {listed:?}"
+    );
+    assert!(
+        !listed.iter().any(|name| name.contains(".failed-restore-")
+            && !name.ends_with("-wal")
+            && !name.ends_with("-shm")),
+        "no data file is left at the failed name: {listed:?}"
+    );
+    // No sidecar was deleted, and none was left orphaned under the failed name.
+    let failed_sidecars: Vec<&String> = listed
+        .iter()
+        .filter(|name| {
+            name.contains(".failed-restore-") && (name.ends_with("-wal") || name.ends_with("-shm"))
+        })
+        .collect();
+    assert!(
+        failed_sidecars.is_empty(),
+        "no sidecar is left split at the failed name: {listed:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_failed_copy_that_cannot_be_kept_still_reports_the_open_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let backup_store = Fresh::in_dir(dir.path().join("backup"));
+    let live = database_with(dir.path(), "live-theme").await;
+
+    // A backup that verifies but cannot be migrated, so the prepared copy will not open.
+    let broken_dir = dir.path().join("broken");
+    std::fs::create_dir_all(&broken_dir).unwrap();
+    let broken = broken_dir.join("backup.db");
+    let connect = sqlx::sqlite::SqliteConnectOptions::new()
+        .filename(&broken)
+        .create_if_missing(true);
+    let pool = sqlx::sqlite::SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(connect)
+        .await
+        .unwrap();
+    MIGRATOR.run_to(5, &pool).await.unwrap();
+    sqlx::query("CREATE TABLE journal (seq INTEGER PRIMARY KEY, wrong TEXT)")
+        .execute(&pool)
+        .await
+        .unwrap();
+    pool.close().await;
+    let _ = backup_store;
+
+    let err = restore_from_backup(&live, &broken, at(60))
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(err, RestoreError::Open(_)),
+        "the open error stays the reported failure: {err}"
+    );
+    // The failed copy is kept for inspection under its own name, or at its temporary name
+    // where a failed open still holds it (Windows). Either way it is not removed.
+    let listed = names(dir.path());
+    assert!(
+        listed
+            .iter()
+            .any(|name| name.contains(".failed-restore-") || name.contains(".restore-tmp")),
+        "the failed copy is kept: {listed:?}"
+    );
+    assert_eq!(
+        theme_of(&live).await,
+        Some(serde_json::json!("live-theme")),
+        "the live database is untouched"
+    );
 }
 
 #[tokio::test]

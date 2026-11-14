@@ -244,14 +244,23 @@ impl Store {
 }
 
 /// Verifies a new backup, removing it and failing when it does not hold.
+///
+/// Nothing is logged here: the error carries the path and the check's text, and the
+/// caller is the one place that redacts before it logs or stores it. Logging the path or
+/// the error at this level would bypass the configured-secret redactor.
 async fn verify_or_track(target: &Path) -> Result<(), StoreOpenError> {
     match verify_backup(target, Depth::Quick).await {
         Ok(_) => Ok(()),
-        Err(err) => {
-            tracing::warn!(backup = %target.display(), %err, "a new backup did not verify");
-            verify_or_tracked(target, &err.to_string()).await
-        }
+        Err(err) => verify_or_tracked(target, &err.to_string()).await,
     }
+}
+
+/// [`verify_or_track`] by name, so a test can prove this exact path logs nothing before
+/// the caller redacts. It verifies and, when that fails, removes the copy as `backup_to`
+/// does.
+#[doc(hidden)]
+pub async fn verify_or_track_for_tests(target: &Path) -> Result<(), StoreOpenError> {
+    verify_or_track(target).await
 }
 
 /// The verification failure path of [`Store::backup_to`], over the same helper.

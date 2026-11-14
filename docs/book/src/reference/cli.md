@@ -187,7 +187,20 @@ domovoi restore /var/lib/domovoi/backups/domovoi-20261114T040000Z.db          # 
 domovoi restore /var/lib/domovoi/backups/domovoi-20261114T040000Z.db --yes    # do it
 ```
 
-Without `--yes` it verifies the file in full and prints what would happen, then exits with code 2: nothing changes. With `--yes` it moves the current `hub.db` (and its `-wal` and `-shm`) to `hub.db.before-restore-<time>`, copies the backup into place, migrates it forward if it is older than this release, and prints the report. The previous database is never deleted, and a failure part-way through moves it back.
+Without `--yes` it verifies the file in full and prints what would happen, then exits with code 2: nothing changes.
+
+With `--yes` it prepares the backup before touching the live database, and only then installs it:
+
+1. verifies the backup in full;
+2. copies it beside the database as `hub.db.restore-tmp`;
+3. makes the copy owner-only on Unix, and syncs the file and, on Unix, its directory;
+4. opens the copy and runs any pending migrations on it, so a backup older than this release is brought up to date before it becomes live;
+5. moves the current `hub.db` and its `-wal` and `-shm` to `hub.db.before-restore-<time>`;
+6. renames the prepared copy into place.
+
+A backup that cannot be opened or migrated therefore leaves the live database untouched. The previous database is never deleted. If installing the prepared copy fails, every move is reversed; if that reversal cannot finish, the command fails with an error naming each file that is still out of place.
+
+On Unix the prepared copy's data and directory entry are synced before the swap. On Windows there is no portable directory fsync, so the final rename is not durable against a power loss; the preserved `hub.db.before-restore-<time>` is what to fall back to. A database that will not open is kept as `hub.db.failed-restore-<time>`, or at `hub.db.restore-tmp` on Windows where the failed open still holds it.
 
 | Argument | Meaning |
 | --- | --- |
@@ -195,7 +208,7 @@ Without `--yes` it verifies the file in full and prints what would happen, then 
 | `--config <path>` | The hub's `hub.toml`; only its data directory is used. It defaults like every other command. |
 | `--yes` | Restore without asking. |
 
-It refuses a file that is damaged, is not a Domovoi database, or was written by a newer release, and changes nothing in that case.
+It refuses a file that is damaged, is not a Domovoi database, has a migration that did not finish, was written by a newer release, or records a schema version newer than this binary can read. It changes nothing in that case.
 
 | Exit code | Meaning |
 | --- | --- |

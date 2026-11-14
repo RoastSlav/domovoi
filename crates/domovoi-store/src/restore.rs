@@ -16,8 +16,11 @@ use crate::backup::{BackupError, BackupReport, Depth, verify_backup};
 use crate::db::{Store, StoreOptions};
 use crate::error::StoreOpenError;
 
-/// How many collision suffixes an artifact name tries before the restore gives up.
-const NAMES_TRIED: u32 = 16;
+mod files;
+
+use self::files::{
+    Moves, companions, remove_if_empty, reserve, same_file, sidecars_present, suffix,
+};
 
 /// What a restore did.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,114 +71,6 @@ fn io_err(path: &Path, err: impl std::fmt::Display) -> RestoreError {
     }
 }
 
-fn suffix(path: &Path, tail: &str) -> PathBuf {
-    let mut name = path.as_os_str().to_owned();
-    name.push(tail);
-    PathBuf::from(name)
-}
-
-/// Every path SQLite keeps for `database`: the file, its write-ahead log and its shared
-/// memory index.
-fn companions(database: &Path) -> [(PathBuf, &'static str); 3] {
-    [
-        (database.to_path_buf(), ""),
-        (suffix(database, "-wal"), "-wal"),
-        (suffix(database, "-shm"), "-shm"),
-    ]
-}
-
-/// The same file, judged by canonical path where both exist.
-fn same_file(a: &Path, b: &Path) -> bool {
-    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
-        (Ok(a), Ok(b)) => a == b,
-        _ => a == b,
-    }
-}
-
-/// `base`, then `base-2`, `base-3`, ... for each attempt.
-fn numbered(base: &Path, attempt: u32) -> PathBuf {
-    if attempt == 0 {
-        base.to_path_buf()
-    } else {
-        suffix(base, &format!("-{}", attempt + 1))
-    }
-}
-
-/// Claims a fresh name, never one that already exists.
-///
-/// The placeholder is created atomically with `create_new`, so two runs given the same
-/// timestamp cannot take the same name and an earlier artifact is never replaced. A name
-/// whose `-wal` or `-shm` is already there is skipped too: an interrupted restore may have
-/// left those behind. The caller holds the data-directory lock, so nothing competes for
-/// the name afterwards, and the rename that fills it replaces only this run's empty
-/// placeholder.
-fn reserve(base: &Path) -> Result<PathBuf, RestoreError> {
-    for attempt in 0..NAMES_TRIED {
-        let candidate = numbered(base, attempt);
-        match std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&candidate)
-        {
-            Ok(_) => {
-                if suffix(&candidate, "-wal").exists() || suffix(&candidate, "-shm").exists() {
-                    let _ = std::fs::remove_file(&candidate);
-                    continue;
-                }
-                return Ok(candidate);
-            }
-            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(err) => return Err(io_err(&candidate, err)),
-        }
-    }
-    Err(RestoreError::Io {
-        path: base.to_owned(),
-        reason: format!("no free name after {NAMES_TRIED} attempts; move the old ones away"),
-    })
-}
-
-/// Files moved during a restore, so a failure can put each one back exactly.
-#[derive(Default)]
-struct Moves {
-    /// `(from, to)` for every move that succeeded, oldest first.
-    done: Vec<(PathBuf, PathBuf)>,
-}
-
-impl Moves {
-    /// Moves `from` to `to` and records it.
-    fn perform(&mut self, from: &Path, to: &Path) -> Result<(), RestoreError> {
-        std::fs::rename(from, to).map_err(|err| io_err(from, err))?;
-        self.done.push((from.to_owned(), to.to_owned()));
-        Ok(())
-    }
-
-    /// Moves the SQLite sidecars of `from` to those of `to`, where they exist.
-    fn perform_sidecars(&mut self, from: &Path, to: &Path) -> Result<(), RestoreError> {
-        for tail in ["-wal", "-shm"] {
-            let source = suffix(from, tail);
-            if source.exists() {
-                self.perform(&source, &suffix(to, tail))?;
-            }
-        }
-        Ok(())
-    }
-
-    /// Reverses every move, newest first. Returns one line per move it could not undo.
-    fn undo(&mut self) -> Vec<String> {
-        let mut stuck = Vec::new();
-        while let Some((from, to)) = self.done.pop() {
-            if let Err(err) = std::fs::rename(&to, &from) {
-                stuck.push(format!(
-                    "{} back to {}: {err}",
-                    to.display(),
-                    from.display()
-                ));
-            }
-        }
-        stuck
-    }
-}
-
 /// The migration count of an open store.
 async fn applied_count(store: &Store) -> Result<usize, StoreOpenError> {
     sqlx::query_as::<_, (i64,)>("SELECT version FROM _sqlx_migrations WHERE success = 1")
@@ -196,7 +91,9 @@ pub async fn restore_from_backup(
 
 /// The same restore with one file-system step forced to fail, so tests can drive the
 /// recovery paths without depending on permissions an elevated run ignores. `step` is one
-/// of `aside-wal`, `aside-shm`, `swap-wal`, `swap-shm` or `swap-database`.
+/// of `aside-wal`, `aside-shm`, `swap-wal`, `swap-shm`, `swap-database` (a step that
+/// fails, leaving its moves to be undone) or `undo-database` (the install fails and the
+/// rollback of the moved database fails too).
 #[doc(hidden)]
 pub async fn restore_from_backup_failing_at(
     database: &Path,
@@ -240,32 +137,63 @@ async fn restore(
                 &temporary,
                 database,
                 &format!("{name}.failed-restore-{stamp}"),
+                fail_at,
+                undo_fails(fail_at),
             );
             return Err(err);
         }
     };
 
-    let had_database = database.exists();
-    let before = reserve(&database.with_file_name(format!("{name}.before-restore-{stamp}")))?;
+    // A database that exists is moved aside. So are sidecars without one: SQLite would
+    // drop them on the next open, and they may be the only copy of a write in flight. A
+    // name is reserved for neither without something to put in it, which would leave an
+    // empty `.before-restore-*` file looking like a preserved database.
+    let moving_aside = database.exists() || sidecars_present(database);
+    let before = moving_aside
+        .then(|| database.with_file_name(format!("{name}.before-restore-{stamp}")))
+        .map(|base| reserve(&base))
+        .transpose()?
+        .unwrap_or_default();
     let mut aside = Moves::default();
     if let Err(err) = move_aside(&mut aside, database, &before, fail_at) {
-        let stuck = aside.undo();
-        if !had_database {
-            let _ = std::fs::remove_file(&before);
+        let stuck = aside.undo(undo_fails(fail_at));
+        if moving_aside {
+            remove_if_empty(&before);
         }
         return Err(recover(err, stuck));
     }
+    // Without a database, only its sidecars moved: the reserved name holds nothing and
+    // would read as a preserved database, so it goes. The sidecars keep the same prefix,
+    // which the log names, so the operator can find what was set aside.
+    if moving_aside {
+        remove_if_empty(&before);
+        if !database.exists() {
+            tracing::info!(
+                preserved = %before.display(),
+                "no database to replace; its SQLite sidecars were moved aside too",
+            );
+        }
+    }
     let mut swap = Moves::default();
     if let Err(err) = swap_in(&mut swap, &temporary, database, fail_at) {
-        let mut stuck = swap.undo();
-        stuck.extend(aside.undo());
+        let mut stuck = swap.undo(undo_fails(fail_at));
+        stuck.extend(aside.undo(undo_fails(fail_at)));
         return Err(recover(err, stuck));
     }
+    let previous = aside.moved_to(&before).then_some(before);
     Ok(RestoreReport {
         backup: report,
-        previous: had_database.then_some(before),
+        previous,
         migrations_applied_after: applied,
     })
+}
+
+/// Whether the file that first moves aside should fail to move back.
+///
+/// `undo-database` makes the install fail and then the rollback fail too, which is how a
+/// test reaches [`RestoreError::RecoveryIncomplete`] without depending on permissions.
+fn undo_fails(fail_at: Option<&str>) -> bool {
+    fail_at == Some("undo-database")
 }
 
 fn stamp(at: Timestamp) -> String {
@@ -274,9 +202,16 @@ fn stamp(at: Timestamp) -> String {
 
 /// Moves the copy that would not open to a name that says so, so it can be inspected.
 ///
-/// This is best effort on purpose: the live database has not been touched at this point,
-/// so a failure here keeps the copy at its temporary name and the original error stands.
-fn keep_failed(temporary: &Path, database: &Path, wanted: &str) {
+/// The live database has not been touched at this point, so this never hides the original
+/// error: it is best effort. A move that fails is undone, so the database and its sidecars
+/// stay together at the temporary name rather than being split across two names.
+fn keep_failed(
+    temporary: &Path,
+    database: &Path,
+    wanted: &str,
+    fail_at: Option<&str>,
+    undo_fails: bool,
+) {
     let failed = match reserve(&database.with_file_name(wanted)) {
         Ok(path) => path,
         Err(err) => {
@@ -289,19 +224,40 @@ fn keep_failed(temporary: &Path, database: &Path, wanted: &str) {
         }
     };
     let mut moves = Moves::default();
-    let moved = moves
-        .perform_sidecars(temporary, &failed)
-        .and_then(|()| moves.perform(temporary, &failed));
+    let moved = moves.perform_sidecars(temporary, &failed).and_then(|()| {
+        if fail_at == Some("failed-database") {
+            return Err(RestoreError::Io {
+                path: temporary.to_owned(),
+                reason: "kept for inspection: simulated failure".to_owned(),
+            });
+        }
+        moves.perform(temporary, &failed)
+    });
     match moved {
         Ok(()) => tracing::warn!(
             failed = %failed.display(),
             "the restored database did not open; it is kept for inspection",
         ),
-        Err(err) => tracing::warn!(
-            kept = %temporary.display(),
-            %err,
-            "the restored database did not open; its copy stays where it was",
-        ),
+        Err(err) => {
+            // Put back whatever moved, so no file is left split from the database. The
+            // placeholder is still empty: the database only moves last.
+            let stuck = moves.undo(undo_fails);
+            remove_if_empty(&failed);
+            if stuck.is_empty() {
+                tracing::warn!(
+                    kept = %temporary.display(),
+                    %err,
+                    "the restored database did not open; its copy stays where it was",
+                );
+            } else {
+                tracing::warn!(
+                    kept = %temporary.display(),
+                    misplaced = %stuck.join("; "),
+                    %err,
+                    "the restored database did not open; some of its files could not be put back",
+                );
+            }
+        }
     }
 }
 
@@ -410,7 +366,10 @@ fn forced(fail_at: Option<&str>, phase: &str, tail: &str) -> bool {
         ("aside", "-shm") => "aside-shm",
         ("swap", "-wal") => "swap-wal",
         ("swap", "-shm") => "swap-shm",
-        ("swap", "") => "swap-database",
+        ("swap", "") => {
+            // The rollback-failure step installs nothing either.
+            return matches!(fail_at, Some("swap-database" | "undo-database"));
+        }
         _ => return false,
     };
     fail_at == Some(wanted)

@@ -50,10 +50,31 @@ Restoring is an offline operator action. It never runs inside a running hub, and
    domovoi restore /var/lib/domovoi/backups/domovoi-20261114T040000Z.db --yes
    ```
 
-   The current `hub.db` (with its `-wal` and `-shm`) is moved to `hub.db.before-restore-<time>`, the backup is copied into place with owner-only permissions and synced, then opened so any pending migrations run.
+   The backup is first prepared beside the live database, and only then installed:
+
+   1. the backup is verified in full;
+   2. it is copied to `hub.db.restore-tmp`;
+   3. the copy is made owner-only (on Unix) and synced;
+   4. the copy's directory entry is synced (on Unix);
+   5. the copy is opened and migrated forward, so pending migrations run on the copy;
+   6. only now is the current `hub.db`, with its `-wal` and `-shm`, moved to `hub.db.before-restore-<time>`;
+   7. the prepared copy is renamed into place.
+
+   Because the copy is migrated before the live database is touched, a backup that cannot be opened or migrated leaves the live database and every sidecar exactly where they were. That matters when the file is damaged in a way the full check still tolerates.
 4. Start the hub again, then check the audit log with `domovoi audit verify`.
 
-The previous database is never deleted by the command. If anything fails after it was moved aside, it is moved back and the failed file is kept as `hub.db.failed-restore-<time>`.
+The previous database is never deleted by the command, on any path including a failed install. If installing the prepared copy fails, everything already moved is moved back, and the report says so. If that rollback itself cannot finish, the command fails with an error naming every file that is still out of place rather than reporting a clean failure.
+
+A database that will not open is kept for inspection as `hub.db.failed-restore-<time>`. On Windows the failed open may still hold the file, so it stays at `hub.db.restore-tmp` instead; the log names whichever path applies.
+
+Names never collide: a preserved database takes a numbered suffix (`hub.db.before-restore-<time>-2`) rather than replacing an earlier one.
+
+### What durability the install has
+
+- **Unix:** the prepared copy's data and its directory entry are synced before the live database is moved, so a crash after the swap leaves the restored database in place. Errors from either sync stop the restore before anything moves.
+- **Windows:** there is no portable directory fsync, so the final rename is not made durable against a power loss between it and the next start. The file's own data is synced and the renames are ordered, and the preserved `hub.db.before-restore-<time>` is what to fall back to.
+
+Restoring a directory that holds only `hub.db-wal` or `hub.db-shm`, without `hub.db`, moves those sidecars aside too rather than discarding them: they keep the `.before-restore-<time>` prefix and the log names it. A restore with nothing to preserve leaves no empty `.before-restore-*` file.
 
 Restore `secret.key` and `tls/` from the same time if they were lost. Without `secret.key` the secrets entered in the web UI cannot be read (see below); without `tls/` the hub creates a new certificate no enrolled agent accepts.
 
