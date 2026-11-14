@@ -26,5 +26,5 @@ pub use backup::{BACKUP_PREFIX, pre_migrate_name};
 pub use compat::MIN_READER;
 pub use db::{BUSY_TIMEOUT, MIGRATOR, READ_CONNECTIONS, Store, StoreOptions, needs_backup};
 pub use error::StoreOpenError;
-pub use purge::{PurgeReport, RetentionPolicy};
+pub use purge::{FTS_CLEANUP, PURGED_TABLES, PurgeReport, RetentionPolicy};
 pub use repos::SNIPPET_CHARS;
