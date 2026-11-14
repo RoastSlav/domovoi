@@ -82,6 +82,33 @@ pub enum Presence {
     },
 }
 
+/// Where a host's agent stands, as the action executor needs to know before it dispatches.
+///
+/// Unlike [`Presence`], this separates a host that has never been seen (**Unknown**) from
+/// one whose agent connected and then went away (**Absent**), and reports a host whose
+/// agent speaks another protocol version (**Incompatible**) instead of treating it as
+/// merely offline.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HostAvailability {
+    /// The agent is connected now, since `since`.
+    Known {
+        /// When this session started.
+        since: Timestamp,
+    },
+    /// The host has no agent session and never had one in this hub run.
+    Unknown,
+    /// The host's agent was connected and has been gone since `since`.
+    Absent {
+        /// When the last session ended.
+        since: Timestamp,
+    },
+    /// The hub rejected the host's agent because it speaks another protocol version.
+    Incompatible {
+        /// The version the agent reported.
+        reported: String,
+    },
+}
+
 /// Why a request to an agent failed.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum LinkError {
@@ -137,6 +164,19 @@ pub trait AgentLink: Send + Sync {
     /// Current connection state of `host`'s agent.
     fn presence(&self, host: HostId) -> Presence;
 
+    /// Whether the host's agent is reachable, was reachable and left, was never seen, or
+    /// was rejected. Links that only know [`Presence`] get this default, which cannot
+    /// tell a host that never connected from one that disconnected.
+    async fn availability(&self, host: HostId) -> HostAvailability {
+        match self.presence(host) {
+            Presence::Connected { since, .. } => HostAvailability::Known { since },
+            Presence::Disconnected {
+                last_seen: Some(since),
+            } => HostAvailability::Absent { since },
+            Presence::Disconnected { last_seen: None } => HostAvailability::Unknown,
+        }
+    }
+
     /// Skills the agent announced on its last handshake; empty when never connected.
     fn skills(&self, host: HostId) -> Vec<SkillSummary>;
 }
@@ -157,4 +197,79 @@ pub enum IngestError {
 pub trait SignalSink: Send + Sync {
     /// Accepts a batch, in order. Either the whole batch is accepted or none of it.
     async fn submit(&self, signals: Vec<Signal>) -> Result<(), IngestError>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A link that only knows presence, so it exercises the default `availability`.
+    struct PresenceOnly(Presence);
+
+    #[async_trait]
+    impl AgentLink for PresenceOnly {
+        async fn run_tool(
+            &self,
+            _host: HostId,
+            _call: ReadToolCall,
+            _deadline: Timestamp,
+        ) -> Result<ToolOutput, LinkError> {
+            Err(LinkError::NotConnected)
+        }
+
+        async fn run_skill(
+            &self,
+            _host: HostId,
+            _req: SkillDispatch,
+            _deadline: Timestamp,
+        ) -> Result<SkillOutput, LinkError> {
+            Err(LinkError::NotConnected)
+        }
+
+        async fn run_check(
+            &self,
+            _host: HostId,
+            _check: CheckKey,
+            _target: Option<TargetKey>,
+            _deadline: Timestamp,
+        ) -> Result<CheckRecheck, LinkError> {
+            Err(LinkError::NotConnected)
+        }
+
+        fn presence(&self, _host: HostId) -> Presence {
+            self.0.clone()
+        }
+
+        fn skills(&self, _host: HostId) -> Vec<SkillSummary> {
+            Vec::new()
+        }
+    }
+
+    #[test]
+    fn availability_default_follows_presence() {
+        futures::executor::block_on(async {
+            let host = HostId::new();
+            let since = Timestamp::constant(1_700_000_000, 0);
+
+            let connected = PresenceOnly(Presence::Connected {
+                since,
+                version: "0.1.0".to_owned(),
+            });
+            assert_eq!(
+                connected.availability(host).await,
+                HostAvailability::Known { since },
+            );
+
+            let left = PresenceOnly(Presence::Disconnected {
+                last_seen: Some(since),
+            });
+            assert_eq!(
+                left.availability(host).await,
+                HostAvailability::Absent { since },
+            );
+
+            let never = PresenceOnly(Presence::Disconnected { last_seen: None });
+            assert_eq!(never.availability(host).await, HostAvailability::Unknown);
+        });
+    }
 }

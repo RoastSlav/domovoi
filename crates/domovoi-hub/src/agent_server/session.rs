@@ -64,7 +64,7 @@ pub(crate) async fn run_session(
         }
     }
     .await;
-    inner.registry.end(host, session);
+    inner.registry.end(host, session, inner.deps.clock.now());
     result
 }
 

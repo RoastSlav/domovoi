@@ -1031,6 +1031,7 @@ name = "domovoi-core"
 version = "0.0.10"
 dependencies = [
  "async-trait",
+ "futures",
  "hex",
  "insta",
  "jiff",

@@ -391,7 +391,7 @@ pub fn action_lifecycle<S: SweepStore>(world: &mut World<S>) -> BoxFuture<'_, ()
             NAME,
             world.wait_for(p10.id(), |status| matches!(
                 status,
-                ActionStatus::Failed { .. }
+                ActionStatus::Rejected { .. }
             ))
         );
     })

@@ -109,7 +109,7 @@ async fn enroll_agent(
     // host's agent, as after a reinstall.
     if let Some(old) = hosts.live_agent(host).await? {
         hosts.revoke_agent(old.agent, now).await?;
-        inner.registry.close(host);
+        inner.registry.close(host, now);
         tracing::info!(%host, agent = %old.agent, "re-enrolled; the previous agent is revoked");
     }
     let agent = AgentIdentity {

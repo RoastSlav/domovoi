@@ -6,7 +6,9 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use domovoi_core::ports::{ActionRepo, AuditLog, IncidentRepo, Presence};
+use domovoi_core::ports::{
+    ActionRepo, AuditFilter, AuditLog, HostAvailability, IncidentRepo, Page, Presence,
+};
 use domovoi_core::{
     ActionId, ActionRequest, ActionStatus, PlanHash, Principal, SignalStatus, UserId,
 };
@@ -56,6 +58,16 @@ fn restart_params() -> BTreeMap<String, String> {
 /// new session is in. The service starts only after the seeding, the way the next hub
 /// session finds the store on disk.
 async fn restarted(states: Vec<LeftBehind>) -> (Actions, Vec<ActionId>) {
+    restarted_with(states, |_, _| {}).await
+}
+
+/// Like [`restarted`], but `set_up` runs after the host and its agent are scripted and
+/// before the service starts, so a test can leave the host unreachable, scripted as
+/// incompatible, or with the clock already past an approval's window.
+async fn restarted_with(
+    states: Vec<LeftBehind>,
+    set_up: impl FnOnce(&Arc<FakeClock>, &Arc<FakeAgentLink>),
+) -> (Actions, Vec<ActionId>) {
     let store = Arc::new(InMemoryStore::new());
     let clock = Arc::new(FakeClock::new(T0));
     let link = Arc::new(FakeAgentLink::new());
@@ -69,6 +81,7 @@ async fn restarted(states: Vec<LeftBehind>) -> (Actions, Vec<ActionId>) {
     link.set_skills(host_id(), vec![verified_restart()]);
     link.on_skill(|_, _| Ok(ok_output("restarted nginx")));
     link.on_check(|_, _, _| Ok(check(SignalStatus::Resolved)));
+    set_up(&clock, &link);
     let incident = open_incident(host_id(), "docker.container", Some("nginx")).unwrap();
     IncidentRepo::insert(&*store, &incident).await.unwrap();
 
@@ -188,6 +201,35 @@ async fn an_action_approved_before_a_restart_runs_after_it() {
             .count(),
         1,
         "the dispatch is recorded once",
+    );
+}
+
+#[tokio::test]
+async fn startup_recovery_runs_before_catch_up() {
+    // One action is left running and one is still approved. The new session must fail the
+    // running one before it dispatches the waiting one, or a look at the audit log could
+    // show a dispatch that the recovery then contradicts.
+    let (a, ids) = restarted(vec![LeftBehind::Dispatched, LeftBehind::Approved]).await;
+    a.until(ids[1], |status| status == &ActionStatus::Verified)
+        .await;
+
+    let mut entries = AuditLog::list(&*a.store, &AuditFilter::default(), &Page::first(100))
+        .await
+        .unwrap()
+        .items;
+    entries.reverse();
+    let position = |id: ActionId, kind: &str| {
+        let subject = format!("action:{id}");
+        entries
+            .iter()
+            .position(|entry| entry.subject == subject && entry.kind == kind)
+    };
+    let failed = position(ids[0], audit::FAILED).expect("the leftover run was failed");
+    let dispatched =
+        position(ids[1], audit::DISPATCHED).expect("the waiting approval was dispatched");
+    assert!(
+        failed < dispatched,
+        "recovery failed the leftover run before catch-up dispatched the waiting one",
     );
 }
 
@@ -315,6 +357,57 @@ async fn approvals_caught_up_at_once_share_one_loop_guard() {
     assert_eq!(
         guarded, 1,
         "one of the approvals caught up at once is stopped, and its reason is the guard",
+    );
+}
+
+#[tokio::test]
+async fn catch_up_waits_for_unknown_host() {
+    // The hub just restarted and its agent server has not heard from this host yet, so
+    // the host is unknown rather than absent: the approval waits for it instead of
+    // failing, however long the agent takes to reconnect.
+    let (a, ids) = restarted_with(vec![LeftBehind::Approved], |_, link| {
+        link.set_presence(host_id(), Presence::Disconnected { last_seen: None });
+        link.set_availability(host_id(), HostAvailability::Unknown);
+    })
+    .await;
+    let id = ids[0];
+    // Well inside the 30-minute wait, so the point is that it is still waiting rather
+    // than that the wait has a limit.
+    for _ in 0..4 {
+        a.clock.advance(SignedDuration::from_mins(5));
+        a.settle().await;
+    }
+    let action = a.get(id).await;
+    assert!(
+        action.status() == &ActionStatus::Approved,
+        "an approval whose host has not reconnected yet is still waiting, not failed: {:?}",
+        action.status(),
+    );
+    assert_eq!(a.runs(), 0, "nothing reached an agent that is not there",);
+}
+
+#[tokio::test]
+async fn stale_approval_not_dispatched_after_restart() {
+    // The approval's window closed while the hub was down: the new session may not run it.
+    let (a, ids) = restarted_with(vec![LeftBehind::Approved], |clock, _| {
+        clock.advance(SignedDuration::from_hours(2));
+    })
+    .await;
+    let id = ids[0];
+    let action = a
+        .until(id, |status| matches!(status, ActionStatus::Rejected { .. }))
+        .await;
+    assert_eq!(
+        action.status(),
+        &ActionStatus::Rejected {
+            reason: "the approval expired before the action was dispatched".to_owned(),
+        },
+        "the action whose approval expired is refused with the reason the person can act on",
+    );
+    assert_eq!(
+        a.runs(),
+        0,
+        "an approval that expired while the hub was down never reaches the agent",
     );
 }
 
