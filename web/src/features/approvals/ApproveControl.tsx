@@ -63,9 +63,12 @@ export function ApproveControl({
   };
 
   const onConfirm = () =>
-    approve.mutate(destructive ? { id: action.id, confirmText: typed } : { id: action.id }, {
-      onSuccess: close,
-    });
+    approve.mutate(
+      destructive
+        ? { id: action.id, planHash: action.plan_hash, confirmText: typed }
+        : { id: action.id, planHash: action.plan_hash },
+      { onSuccess: close },
+    );
 
   return (
     <Cluster>
