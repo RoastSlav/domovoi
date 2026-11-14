@@ -17,17 +17,18 @@ pub const BUDGET_EXHAUSTED: &str = "Budget exhausted. Reply now with the JSON re
 /// What a tool call gets once no calls are left.
 pub const NO_CALLS_LEFT: &str = "error: the tool-call budget is spent; answer now";
 
-/// How much a turn's output allowance grows when a model spends all of it thinking and
-/// produces no answer. A reasoning model counts its reasoning against the allowance, so
-/// the configured size can be too small for it to say anything at all.
+/// How much a turn's output allowance grows when a model runs out of room before it
+/// answers. A reasoning model counts its reasoning against the allowance, so the
+/// configured size can be too small for it to say anything at all.
 const GROWN_OUTPUT_ALLOWANCE: u32 = 4;
 
 /// The most one turn may ask a provider for, so a runaway reasoning model cannot spend
-/// without bound.
+/// without bound. It is also where the growth stops: a model that needs more than this to
+/// answer needs a larger `[triage] per_run.output_tokens`, and the failure says so.
 const MAX_OUTPUT_ALLOWANCE: u32 = 16_000;
 
-/// The allowance for a turn retried after it ended at the limit with no answer, or `None`
-/// when it is already at [`MAX_OUTPUT_ALLOWANCE`].
+/// The allowance for a turn retried after it ran out of room, or `None` when it is
+/// already at [`MAX_OUTPUT_ALLOWANCE`].
 fn grown_allowance(current: u32) -> Option<u32> {
     let next = current
         .saturating_mul(GROWN_OUTPUT_ALLOWANCE)
@@ -144,9 +145,9 @@ pub(crate) async fn complete(
 /// returns that answer's text. Tool calls are answered through [`tools::call`] within the
 /// run budget; once it is spent the model is told to answer and further calls are not
 /// run. Every call the model makes while it may still call tools is pushed onto `used`;
-/// calls in the response after it was told to answer are ignored. A turn that ends at its
-/// output allowance with no answer, as a reasoning model that spent everything thinking
-/// does, is tried once more with a larger allowance.
+/// calls in the response after it was told to answer are ignored. A turn that runs out of
+/// output room, as a reasoning model that spent the allowance thinking does, is tried
+/// again with a larger allowance until [`MAX_OUTPUT_ALLOWANCE`] or the run's deadline.
 pub(crate) async fn converse(
     shared: &Shared,
     provider: &Arc<dyn LlmProvider>,
@@ -169,7 +170,6 @@ pub(crate) async fn converse(
     let mut calls_used: u16 = 0;
     let mut told_to_answer = false;
     let mut allowance = budget.max_output_tokens;
-    let mut grown = false;
     loop {
         let req = LlmRequest {
             system: system.to_owned(),
@@ -193,27 +193,29 @@ pub(crate) async fn converse(
             })
             .collect();
         if calls.is_empty() || told_to_answer || specs.is_empty() {
-            let answer = text_of(&response.parts);
-            if answer.is_empty() && response.stop == StopReason::MaxTokens {
-                if !grown && let Some(larger) = grown_allowance(allowance) {
+            // A turn that ran out of room did not finish, whether it said nothing at all
+            // (a reasoning model) or stopped mid-answer. Asking again with more room is
+            // the only way it can; the partial turn is not kept.
+            if response.stop == StopReason::MaxTokens {
+                if shared.deps.clock.now() < deadline
+                    && let Some(larger) = grown_allowance(allowance)
+                {
                     tracing::info!(
                         provider = provider.id(),
                         from = allowance,
                         to = larger,
-                        "the model spent its whole output allowance on reasoning; retrying the turn",
+                        "the model ran out of output room; retrying the turn with more",
                     );
-                    // The assistant turn that said nothing is not worth keeping.
                     messages.pop();
                     allowance = larger;
-                    grown = true;
                     continue;
                 }
                 return Err(LlmError::Unavailable(format!(
-                    "the model spent its whole {allowance}-token output allowance without answering; \
-                     raise [triage] per_run.output_tokens"
+                    "the model ran out of its {allowance}-token output allowance before finishing \
+                     its answer; raise [triage] per_run.output_tokens"
                 )));
             }
-            return Ok(answer);
+            return Ok(text_of(&response.parts));
         }
         let mut results = Vec::with_capacity(calls.len() + 1);
         for (id, name, input) in calls {

@@ -656,7 +656,7 @@ expression: "HubConfig::json_schema()"
       "type": "object",
       "properties": {
         "output_tokens": {
-          "description": "Output tokens per run. Default 2000. It also caps a reasoning model's reasoning,\nso a turn that spends the whole allowance without answering is retried once with\nfour times as much, up to 16000.",
+          "description": "Output tokens per run. Default 2000. It also caps a reasoning model's reasoning,\nso a model that runs out of room before finishing its answer is asked again with a\nlarger allowance, up to 16000.",
           "type": "integer",
           "format": "uint32",
           "default": 2000,

@@ -219,7 +219,7 @@ Limits for a single run.
 
 | Key | Type | Meaning |
 | --- | --- | --- |
-| `output_tokens` | integer | Output tokens per run. Default 2000. It also caps a reasoning model's reasoning, so a turn that spends the whole allowance without answering is retried once with four times as much, up to 16000. |
+| `output_tokens` | integer | Output tokens per run. Default 2000. It also caps a reasoning model's reasoning, so a model that runs out of room before finishing its answer is asked again with a larger allowance, up to 16000. |
 | `seconds` | integer | Wall-clock seconds per run. Default 90. |
 | `tool_calls` | integer | Tool calls per run. Default 15. |
 

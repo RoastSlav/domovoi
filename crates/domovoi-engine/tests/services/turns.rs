@@ -291,21 +291,44 @@ async fn a_model_that_never_answers_fails_with_the_output_allowance() {
     let w = world(Setup::default()).await;
     w.primary.push_ok(reasoning_only());
     w.primary.push_ok(reasoning_only());
+    w.primary.push_ok(reasoning_only());
 
     let outcome = w.run().await;
     assert!(
         matches!(
             &outcome,
             TriageOutcome::Failed { reason }
-                if reason.contains("8000-token output allowance")
+                if reason.contains("16000-token output allowance")
                     && reason.contains("per_run.output_tokens")
         ),
         "{outcome:?}"
     );
     assert_eq!(
         w.primary.requests().len(),
-        2,
-        "the retry happens once, with no repair turn after it"
+        3,
+        "the allowance grows to the ceiling, then the run fails"
+    );
+}
+
+#[tokio::test]
+async fn a_truncated_answer_is_retried_with_more_room() {
+    let w = world(Setup::default()).await;
+    w.primary.push_ok(LlmResponse {
+        parts: vec![Part::Text("{\"headline\": \"Disk is".to_owned())],
+        stop: StopReason::MaxTokens,
+        usage: Usage::default(),
+    });
+    w.primary.push_text(report());
+
+    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+
+    let requests = w.primary.requests();
+    assert_eq!(requests.len(), 2, "the cut-off answer is not repaired");
+    assert_eq!(requests[1].max_output_tokens, 8000);
+    assert_eq!(
+        requests[1].messages.len(),
+        1,
+        "the cut-off answer is not kept in the conversation"
     );
 }
 
