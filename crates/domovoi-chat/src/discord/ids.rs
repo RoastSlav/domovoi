@@ -1,9 +1,10 @@
 //! Button custom IDs and short incident IDs.
 //!
-//! A custom ID is `dv1:{kind}:{incident}[:{action}:{token}]`, with UUIDs and the hex chat
-//! token in unpadded base64url so the longest one, an approval, is 95 characters (Discord
-//! allows 100). The hub never sees these strings: the gateway turns them back into a
-//! [`CardButton`] before anything is delivered.
+//! A custom ID is `dv1:{kind}:{incident}[:{action}:{token}[:{prefix}]]`, with UUIDs, the hex
+//! chat token and the plan hash prefix in unpadded base64url. An approval that names its
+//! plan is exactly 100 characters with a 32-byte token, which is the most Discord allows.
+//! The hub never sees these strings: the gateway turns them back into a [`CardButton`]
+//! before anything is delivered.
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -15,6 +16,12 @@ pub const MAX_CUSTOM_ID: usize = 100;
 
 /// The version prefix of every custom ID.
 const PREFIX: &str = "dv1";
+
+/// How many hex characters of the plan hash a button carries.
+const PREFIX_HEX_LEN: usize = 6;
+
+/// How many bytes [`PREFIX_HEX_LEN`] hex characters decode to.
+const PREFIX_BYTES: usize = PREFIX_HEX_LEN / 2;
 
 fn uuid_text(uuid: Uuid) -> String {
     URL_SAFE_NO_PAD.encode(uuid.as_bytes())
@@ -34,8 +41,25 @@ fn token_of(text: &str) -> Option<String> {
     URL_SAFE_NO_PAD.decode(text).ok().map(hex::encode)
 }
 
-/// The custom ID of `button` on `incident`'s card, or `None` for link buttons and for
-/// buttons whose ID would not fit.
+/// The plan hash prefix as base64url, or `None` unless it is exactly 6 lowercase hex
+/// characters.
+fn prefix_text(prefix: &str) -> Option<String> {
+    let bytes = hex::decode(prefix).ok()?;
+    (prefix.len() == PREFIX_HEX_LEN && bytes.len() == PREFIX_BYTES && hex::encode(&bytes) == prefix)
+        .then(|| URL_SAFE_NO_PAD.encode(bytes))
+}
+
+/// The 6 lowercase hex characters a plan hash prefix segment stands for, or `None` unless
+/// the segment is the canonical base64url encoding of 3 bytes.
+fn prefix_of(text: &str) -> Option<String> {
+    let bytes = URL_SAFE_NO_PAD.decode(text).ok()?;
+    (bytes.len() == PREFIX_BYTES && URL_SAFE_NO_PAD.encode(&bytes) == text)
+        .then(|| hex::encode(bytes))
+}
+
+/// The custom ID of `button` on `incident`'s card, or `None` for link buttons, for
+/// approvals whose plan prefix is not 6 hex characters, and for buttons whose ID would not
+/// fit.
 #[must_use]
 pub fn custom_id(incident: IncidentId, button: &CardButton) -> Option<String> {
     let inc = uuid_text(incident.as_uuid());
@@ -43,11 +67,22 @@ pub fn custom_id(incident: IncidentId, button: &CardButton) -> Option<String> {
         CardButton::Ack => format!("{PREFIX}:k:{inc}"),
         CardButton::Mute1h => format!("{PREFIX}:m:{inc}"),
         CardButton::Details => format!("{PREFIX}:d:{inc}"),
-        CardButton::Approve { action, token } => format!(
-            "{PREFIX}:a:{inc}:{}:{}",
-            uuid_text(action.as_uuid()),
-            token_text(token)?
-        ),
+        CardButton::Approve {
+            action,
+            token,
+            plan_prefix,
+        } => {
+            let base = format!(
+                "{PREFIX}:a:{inc}:{}:{}",
+                uuid_text(action.as_uuid()),
+                token_text(token)?
+            );
+            match plan_prefix {
+                // A card from before structured approvals keeps the 5-segment form.
+                None => base,
+                Some(prefix) => format!("{base}:{}", prefix_text(prefix)?),
+            }
+        }
         CardButton::Deny { action, token } => format!(
             "{PREFIX}:n:{inc}:{}:{}",
             uuid_text(action.as_uuid()),
@@ -78,7 +113,15 @@ pub fn parse_custom_id(id: &str) -> Option<(IncidentId, CardButton)> {
         "d" => CardButton::Details,
         "a" => {
             let (action, token) = action_and_token(&mut parts)?;
-            CardButton::Approve { action, token }
+            let plan_prefix = match parts.next() {
+                Some(text) => Some(prefix_of(text)?),
+                None => None,
+            };
+            CardButton::Approve {
+                action,
+                token,
+                plan_prefix,
+            }
         }
         "n" => {
             let (action, token) = action_and_token(&mut parts)?;
@@ -105,6 +148,14 @@ mod tests {
         "ab".repeat(32)
     }
 
+    fn approve(action: ActionId, plan_prefix: Option<&str>) -> CardButton {
+        CardButton::Approve {
+            action,
+            token: token(),
+            plan_prefix: plan_prefix.map(str::to_owned),
+        }
+    }
+
     #[test]
     fn custom_id_round_trip_and_length_limit() {
         let incident = IncidentId::new();
@@ -113,10 +164,8 @@ mod tests {
             CardButton::Ack,
             CardButton::Mute1h,
             CardButton::Details,
-            CardButton::Approve {
-                action,
-                token: token(),
-            },
+            approve(action, None),
+            approve(action, Some("01ffab")),
             CardButton::Deny {
                 action,
                 token: token(),
@@ -128,27 +177,48 @@ mod tests {
             assert!(id.starts_with("dv1:"));
             assert_eq!(parse_custom_id(&id), Some((incident, button)));
         }
-        let approve = custom_id(
-            incident,
-            &CardButton::Approve {
-                action,
-                token: token(),
-            },
-        )
-        .unwrap();
-        assert_eq!(approve.len(), 95, "the longest id has room to spare");
 
         assert_eq!(custom_id(incident, &CardButton::OpenInWeb { action }), None);
         let not_hex = CardButton::Approve {
             action,
             token: "not hex".to_owned(),
+            plan_prefix: None,
         };
         assert_eq!(custom_id(incident, &not_hex), None);
         let huge = CardButton::Approve {
             action,
             token: "ab".repeat(64),
+            plan_prefix: None,
         };
         assert_eq!(custom_id(incident, &huge), None, "too long for Discord");
+    }
+
+    #[test]
+    fn approval_custom_id_carries_the_plan_prefix_and_fits_discord() {
+        let incident = IncidentId::new();
+        let action = ActionId::new();
+        let button = approve(action, Some("0123ab"));
+        let id = custom_id(incident, &button).unwrap();
+        assert_eq!(id.len(), MAX_CUSTOM_ID, "a 32-byte token fills the budget");
+        assert_eq!(id.split(':').count(), 6);
+        assert_eq!(id.rsplit(':').next(), Some("ASOr"), "the 3 hash bytes");
+        assert_eq!(parse_custom_id(&id), Some((incident, button)));
+
+        // A card from before structured approvals still round-trips, without a prefix.
+        let legacy = approve(action, None);
+        let old_id = custom_id(incident, &legacy).unwrap();
+        assert_eq!(old_id.split(':').count(), 5);
+        assert_eq!(parse_custom_id(&old_id), Some((incident, legacy)));
+
+        for bad in ["0123abff", "0123a", "zzzzzz", "", "0123AB"] {
+            let button = approve(action, Some(bad));
+            assert_eq!(custom_id(incident, &button), None, "{bad:?}");
+        }
+
+        let base = id.rsplit_once(':').unwrap().0;
+        for bad in ["", "ASO", "ASOrr", "!!!!"] {
+            assert_eq!(parse_custom_id(&format!("{base}:{bad}")), None, "{bad:?}");
+        }
     }
 
     #[test]

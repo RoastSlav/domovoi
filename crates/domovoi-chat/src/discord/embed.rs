@@ -1,7 +1,7 @@
 //! A [`Card`] as a Discord embed.
 
 use domovoi_core::ports::OutboundMessage;
-use domovoi_core::{Card, CardBadge, Severity, Verdict};
+use domovoi_core::{Card, CardBadge, CardPlan, Risk, Severity, Verdict};
 use twilight_model::channel::message::Embed;
 use twilight_util::builder::embed::{EmbedBuilder, EmbedFooterBuilder};
 
@@ -41,7 +41,7 @@ pub fn badge_text(badge: CardBadge) -> String {
 }
 
 /// `text` cut to at most `max` characters, ending in "…" when cut.
-fn clip(text: &str, max: usize) -> String {
+pub(crate) fn clip(text: &str, max: usize) -> String {
     if text.chars().count() <= max {
         return text.to_owned();
     }
@@ -66,15 +66,50 @@ pub fn title(card: &Card) -> String {
     clip(&text, MAX_TITLE)
 }
 
-/// The embed body: the bullets, then the next step in bold.
+/// The three lines of one waiting plan: what it is, where and with which arguments, and
+/// which plan hash it is bound to.
+fn plan_lines(plan: &CardPlan) -> [String; 3] {
+    let risk = match plan.risk {
+        Risk::Read => "read",
+        Risk::Write => "write",
+        Risk::Destructive => "destructive",
+    };
+    let args = plan.args_text().map_or_else(
+        || "arguments too long to show here; review in the web UI".to_owned(),
+        |text| format!("`{text}`"),
+    );
+    [
+        "**Waiting for approval**".to_owned(),
+        format!("`{}` on **{}** · {risk} · {args}", plan.skill, plan.host),
+        format!(
+            "Plan `{}` · expires <t:{}:R>",
+            plan.plan_short,
+            plan.expires_at.as_second()
+        ),
+    ]
+}
+
+/// The embed body: each waiting plan, then the bullets, then the next step in bold.
 #[must_use]
 pub fn description(card: &Card) -> String {
-    let mut lines: Vec<String> = card
-        .bullets
-        .iter()
-        .take(domovoi_core::card::MAX_BULLETS)
-        .map(|b| format!("• {b}"))
-        .collect();
+    let mut lines: Vec<String> = Vec::new();
+    for plan in card.plans.iter().take(domovoi_core::card::MAX_PLANS) {
+        if !lines.is_empty() {
+            lines.push(String::new());
+        }
+        lines.extend(plan_lines(plan));
+    }
+    if !card.bullets.is_empty() {
+        if !lines.is_empty() {
+            lines.push(String::new());
+        }
+        lines.extend(
+            card.bullets
+                .iter()
+                .take(domovoi_core::card::MAX_BULLETS)
+                .map(|b| format!("• {b}")),
+        );
+    }
     if let Some(next) = &card.next_step {
         if !lines.is_empty() {
             lines.push(String::new());
