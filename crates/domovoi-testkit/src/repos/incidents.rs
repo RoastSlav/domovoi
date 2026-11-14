@@ -3,7 +3,7 @@ use domovoi_core::ports::{
     AggregateRef, IncidentFilter, IncidentRepo, IncidentTimelineEntry, Page, Paged, SignalRepo,
     StoreError,
 };
-use domovoi_core::{Fingerprint, Incident, IncidentId, IncidentStatus, Signal};
+use domovoi_core::{Fingerprint, HostId, Incident, IncidentId, IncidentStatus, Signal};
 use jiff::Timestamp;
 
 use super::{
@@ -210,12 +210,18 @@ impl IncidentRepo for InMemoryStore {
         Ok(self.begin()?.timeline.get(&id).cloned().unwrap_or_default())
     }
 
-    async fn search(&self, text: &str, max: u16) -> Result<Vec<Incident>, StoreError> {
+    async fn search(
+        &self,
+        text: &str,
+        host: Option<HostId>,
+        max: u16,
+    ) -> Result<Vec<Incident>, StoreError> {
         let query = words(text);
         let state = self.begin()?;
         let mut hits: Vec<Incident> = state
             .incidents
             .values()
+            .filter(|i| host.is_none_or(|h| i.host() == h))
             .filter(|i| word_score(&query, &words(i.title())).is_some())
             .cloned()
             .collect();

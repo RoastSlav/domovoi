@@ -32,7 +32,7 @@ pub use llm::ScriptedLlm;
 pub use logs::CannedLogSource;
 pub use process::FakeProcessExecutor;
 pub use redact::ListRedactor;
-pub use repos::InMemoryStore;
+pub use repos::{InMemoryStore, UsageRow};
 
 use std::sync::{Mutex, MutexGuard, PoisonError};
 

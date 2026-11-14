@@ -1,7 +1,7 @@
 //! The triage cache and LLM usage totals.
 
 use async_trait::async_trait;
-use domovoi_core::ports::{StoreError, TriageCacheRepo, UsageRepo, UsageTotal};
+use domovoi_core::ports::{StoreError, TriageCacheRepo, UsageEntry, UsageRepo, UsageTotal};
 use domovoi_core::{Fingerprint, TriageReport};
 use jiff::Timestamp;
 use jiff::civil::Date;
@@ -68,22 +68,24 @@ fn month_bounds(day: Date) -> Result<(Timestamp, Timestamp), StoreError> {
 
 #[async_trait]
 impl UsageRepo for Store {
-    async fn record(
-        &self,
-        provider: &str,
-        tokens_in: u64,
-        tokens_out: u64,
-        cost_micros: u64,
-        at: Timestamp,
-    ) -> Result<(), StoreError> {
-        const SQL: &str = "INSERT INTO llm_usage (provider, tokens_in, tokens_out, cost_micros, \
-            at) VALUES (?, ?, ?, ?, ?)";
+    async fn record_call(&self, entry: &UsageEntry<'_>) -> Result<(), StoreError> {
+        const SQL: &str = "INSERT INTO llm_usage (provider, model, outcome, tokens_in, \
+            tokens_out, cost_micros, usage_source, latency_ms, at) \
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
         sqlx::query(SQL)
-            .bind(provider)
-            .bind(int(tokens_in))
-            .bind(int(tokens_out))
-            .bind(int(cost_micros))
-            .bind(ms(at))
+            .bind(entry.provider)
+            .bind(entry.model)
+            .bind(entry.outcome.as_str())
+            .bind(int(entry.tokens_in))
+            .bind(int(entry.tokens_out))
+            .bind(entry.cost_micros.map(int))
+            .bind(
+                entry
+                    .usage_source
+                    .map(domovoi_core::ports::UsageSource::as_str),
+            )
+            .bind(int(entry.latency_ms))
+            .bind(ms(entry.at))
             .execute(&self.write)
             .await
             .map_err(db)?;
@@ -92,9 +94,12 @@ impl UsageRepo for Store {
 
     async fn month_total(&self, month: Date) -> Result<UsageTotal, StoreError> {
         const SQL: &str = "SELECT coalesce(sum(tokens_in), 0), coalesce(sum(tokens_out), 0), \
-            coalesce(sum(cost_micros), 0) FROM llm_usage WHERE at >= ? AND at < ?";
+            coalesce(sum(cost_micros), 0), \
+            coalesce(sum(CASE WHEN usage_source IS NOT NULL AND cost_micros IS NULL \
+                THEN 1 ELSE 0 END), 0) \
+            FROM llm_usage WHERE at >= ? AND at < ?";
         let (start, end) = month_bounds(month)?;
-        let (tokens_in, tokens_out, cost): (i64, i64, i64) = sqlx::query_as(SQL)
+        let (tokens_in, tokens_out, cost, unpriced): (i64, i64, i64, i64) = sqlx::query_as(SQL)
             .bind(ms(start))
             .bind(ms(end))
             .fetch_one(&self.read)
@@ -104,6 +109,7 @@ impl UsageRepo for Store {
             tokens_in: uint(tokens_in),
             tokens_out: uint(tokens_out),
             cost_micros: uint(cost),
+            unpriced_responses: uint(unpriced),
         })
     }
 }

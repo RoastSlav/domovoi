@@ -13,6 +13,7 @@
 
 mod accounts;
 mod actions;
+mod admission;
 mod audit;
 mod hosts;
 mod incidents;
@@ -22,12 +23,13 @@ mod triage;
 
 pub use accounts::{SessionRepo, SettingsRepo, UserRepo};
 pub use actions::{ActionFilter, ActionRepo, RAN_STATUSES};
+pub use admission::{AdmissionOutcome, AdmissionPurpose, AdmissionRepo};
 pub use audit::{AuditEvent, AuditFilter, AuditLog};
 pub use hosts::{EnrollmentToken, HostRepo};
 pub use incidents::{IncidentFilter, IncidentRepo, IncidentTimelineEntry, SignalRepo};
 pub use knowledge::{AckRepo, AdvisoryRepo, BaselineRepo, FactRepo, NoteHit, NoteRepo};
 pub use notify::NotifyStateRepo;
-pub use triage::{TriageCacheRepo, UsageRepo, UsageTotal};
+pub use triage::{CallOutcome, TriageCacheRepo, UsageEntry, UsageRepo, UsageTotal};
 
 /// Why a repository call failed.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]

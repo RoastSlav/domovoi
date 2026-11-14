@@ -1,6 +1,8 @@
 //! Contracts for [`TriageCacheRepo`] and [`UsageRepo`].
 
-use domovoi_core::ports::{TriageCacheRepo, UsageRepo, UsageTotal};
+use domovoi_core::ports::{
+    CallOutcome, TriageCacheRepo, UsageEntry, UsageRepo, UsageSource, UsageTotal,
+};
 use domovoi_core::{HostId, TriageReport, Verdict};
 use jiff::Timestamp;
 use jiff::civil::date;
@@ -83,6 +85,7 @@ pub async fn usage_repo_contract(repo: &dyn UsageRepo) -> ContractResult {
         tokens_in: 300,
         tokens_out: 30,
         cost_micros: 3_000,
+        unpriced_responses: 0,
     };
     assert_eq!(
         repo.month_total(date(2026, 3, 1)).await?,
@@ -98,6 +101,73 @@ pub async fn usage_repo_contract(repo: &dyn UsageRepo) -> ContractResult {
         repo.month_total(date(2025, 3, 17)).await?,
         UsageTotal::default(),
         "year matters"
+    );
+
+    // Per-call attribution: every outcome is a row, a failed call has no usage source and
+    // no cost, and an unknown price is not a free call.
+    let may = utc(2026, 5, 2, 0)?;
+    let entry = |provider: &'static str,
+                 outcome: CallOutcome,
+                 tokens_in: u64,
+                 tokens_out: u64,
+                 cost_micros: Option<u64>,
+                 usage_source: Option<UsageSource>| UsageEntry {
+        provider,
+        model: Some("test-model"),
+        outcome,
+        tokens_in,
+        tokens_out,
+        cost_micros,
+        usage_source,
+        latency_ms: 12,
+        at: may,
+    };
+    for row in [
+        entry(
+            "anthropic",
+            CallOutcome::Ok,
+            10,
+            5,
+            Some(1_000),
+            Some(UsageSource::Reported),
+        ),
+        entry(
+            "anthropic",
+            CallOutcome::Ok,
+            20,
+            7,
+            Some(2_000),
+            Some(UsageSource::Estimated),
+        ),
+        entry(
+            "openai",
+            CallOutcome::Ok,
+            30,
+            9,
+            None,
+            Some(UsageSource::Unknown),
+        ),
+        entry("openai", CallOutcome::Timeout, 0, 0, None, None),
+        entry(
+            "openai",
+            CallOutcome::Ok,
+            1,
+            1,
+            Some(0),
+            Some(UsageSource::Reported),
+        ),
+    ] {
+        repo.record_call(&row).await?;
+    }
+    assert_eq!(
+        repo.month_total(date(2026, 5, 1)).await?,
+        UsageTotal {
+            tokens_in: 61,
+            tokens_out: 22,
+            cost_micros: 3_000,
+            unpriced_responses: 1,
+        },
+        "known costs add up, the unknown price is counted apart, and the failed row adds nothing"
     );
     Ok(())
 }

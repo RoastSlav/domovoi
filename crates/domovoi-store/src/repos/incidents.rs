@@ -8,7 +8,7 @@ use domovoi_core::ports::{
     IncidentFilter, IncidentRepo, IncidentTimelineEntry, Page, Paged, SignalRepo, StoreError,
 };
 use domovoi_core::{
-    Fingerprint, Incident, IncidentGroup, IncidentId, IncidentStatus, Signal, SignalStatus,
+    Fingerprint, HostId, Incident, IncidentGroup, IncidentId, IncidentStatus, Signal, SignalStatus,
 };
 use jiff::Timestamp;
 use sqlx::{Executor, Sqlite, SqliteConnection};
@@ -425,19 +425,41 @@ impl IncidentRepo for Store {
             .collect()
     }
 
-    async fn search(&self, text: &str, limit: u16) -> Result<Vec<Incident>, StoreError> {
+    async fn search(
+        &self,
+        text: &str,
+        host: Option<HostId>,
+        limit: u16,
+    ) -> Result<Vec<Incident>, StoreError> {
         const SQL: &str = "SELECT i.body FROM incidents_fts \
             JOIN incidents i ON i.rowid = incidents_fts.rowid \
             WHERE incidents_fts MATCH ? ORDER BY i.opened_at DESC, i.id DESC LIMIT ?";
+        const SQL_HOST: &str = "SELECT i.body FROM incidents_fts \
+            JOIN incidents i ON i.rowid = incidents_fts.rowid \
+            WHERE incidents_fts MATCH ? AND i.host_id = ? \
+            ORDER BY i.opened_at DESC, i.id DESC LIMIT ?";
         let Some(query) = match_all_in("title", text) else {
             return Ok(Vec::new());
         };
-        let rows: Vec<(String,)> = sqlx::query_as(SQL)
-            .bind(query)
-            .bind(i64::from(limit.clamp(1, Page::MAX_LIMIT)))
-            .fetch_all(&self.read)
-            .await
-            .map_err(db)?;
+        let limit = i64::from(limit.clamp(1, Page::MAX_LIMIT));
+        let rows: Vec<(String,)> = match host {
+            Some(host) => {
+                sqlx::query_as(SQL_HOST)
+                    .bind(query)
+                    .bind(host.to_string())
+                    .bind(limit)
+                    .fetch_all(&self.read)
+                    .await
+            }
+            None => {
+                sqlx::query_as(SQL)
+                    .bind(query)
+                    .bind(limit)
+                    .fetch_all(&self.read)
+                    .await
+            }
+        }
+        .map_err(db)?;
         decode_all(rows)
     }
 }

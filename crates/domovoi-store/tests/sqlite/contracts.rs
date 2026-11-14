@@ -30,6 +30,7 @@ contract_tests! {
     sqlite_fact_repo_satisfies_contract => fact_repo_contract,
     sqlite_triage_cache_repo_satisfies_contract => triage_cache_repo_contract,
     sqlite_usage_repo_satisfies_contract => usage_repo_contract,
+    sqlite_admission_repo_satisfies_contract => admission_repo_contract,
     sqlite_settings_repo_satisfies_contract => settings_repo_contract,
     sqlite_user_repo_satisfies_contract => user_repo_contract,
     sqlite_session_repo_satisfies_contract => session_repo_contract,
