@@ -300,7 +300,31 @@ fn markdown_card_names_the_waiting_action() {
         "Waiting: restart_container on nas (write), no arguments · plan {}",
         write.plan_hash().short()
     );
-    assert!(rendered.lines().any(|line| line == expected), "{rendered}");
+    let lines: Vec<&str> = rendered.lines().collect();
+    let plan_at = lines
+        .iter()
+        .position(|line| *line == expected)
+        .expect("the plan line is rendered");
+    let first_bullet = lines
+        .iter()
+        .position(|line| line.starts_with("- "))
+        .expect("the report's bullets are rendered");
+    let next_at = lines
+        .iter()
+        .position(|line| line.starts_with("Next: "))
+        .expect("the next step is rendered");
+    assert!(
+        plan_at < first_bullet,
+        "the deterministic plan comes before the model's bullets:\n{rendered}"
+    );
+    assert!(
+        plan_at < next_at,
+        "the deterministic plan comes before the model's next step:\n{rendered}"
+    );
+    assert!(
+        first_bullet < next_at,
+        "bullets keep their order before the next step:\n{rendered}"
+    );
     assert!(card.validate().is_ok());
 }
 

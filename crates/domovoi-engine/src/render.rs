@@ -1,7 +1,7 @@
 //! Platform-neutral markdown: short enough to read on a phone. Pure.
 //!
-//! A card is at most 9 lines: header, headline, three bullets, the next step and three
-//! waiting actions. A thread reply is one line, a quiet host one line. Chat gateways turn
+//! A card is at most 9 lines: header, headline, three waiting actions, three bullets and
+//! the next step. A thread reply is one line, a quiet host one line. Chat gateways turn
 //! cards into their own formats; this text is for notifiers and fallbacks.
 
 use std::fmt::Write;
@@ -26,20 +26,14 @@ fn risk(risk: Risk) -> &'static str {
     }
 }
 
-/// A card as markdown: header, headline, up to three bullets, the next step and up to
-/// three waiting actions with what each will do.
+/// A card as markdown: header, headline, up to three waiting actions with what each will
+/// do, up to three bullets and the next step.
 #[must_use]
 pub fn card(card: &Card) -> String {
     let mut out = String::new();
     let status = if card.resolved { " · resolved" } else { "" };
     _ = writeln!(out, "**[{}] {}**{status}", badge(&card.badge), card.host);
     _ = writeln!(out, "{}", card.headline);
-    for bullet in &card.bullets {
-        _ = writeln!(out, "- {bullet}");
-    }
-    if let Some(next) = &card.next_step {
-        _ = writeln!(out, "Next: {next}");
-    }
     for plan in &card.plans {
         let args = plan
             .args_text()
@@ -52,6 +46,12 @@ pub fn card(card: &Card) -> String {
             risk(plan.risk),
             plan.plan_short
         );
+    }
+    for bullet in &card.bullets {
+        _ = writeln!(out, "- {bullet}");
+    }
+    if let Some(next) = &card.next_step {
+        _ = writeln!(out, "Next: {next}");
     }
     out
 }
