@@ -4,7 +4,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use async_trait::async_trait;
 use domovoi_core::ports::{
-    LlmError, LlmMessage, LlmProvider, LlmRequest, LlmResponse, Part, Role, StopReason, Usage,
+    LlmCapability, LlmError, LlmMessage, LlmProvider, LlmRequest, LlmResponse, Part, Role,
+    StopReason, Usage,
 };
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
@@ -84,31 +85,29 @@ impl OpenAiCompatible {
         body
     }
 
-    /// A server refused the request: drop the optional fields it may not know, one at a
-    /// time, and remember which it refused. A server that only speaks plain Chat
-    /// Completions works this way with no configuration.
-    async fn ask_reduced(
-        &self,
-        req: &LlmRequest,
-        secret: Option<&SecretString>,
-        refused: LlmError,
-    ) -> Result<WireResponse, LlmError> {
-        let mut refused = refused;
-        if self.stream_options.swap(false, Ordering::Relaxed) {
-            tracing::warn!("the server refused stream_options; sending requests without it");
-            match self.ask(req, secret).await {
-                Ok(response) => return Ok(response),
-                Err(err) => refused = err,
-            }
+    /// Turns a specific capability refusal into the typed signal the engine acts on, after
+    /// latching the capability off. Anything else is returned unchanged: an invalid model,
+    /// a context window overflow or a bad tool schema is a plain error.
+    fn refuse(&self, err: LlmError) -> LlmError {
+        let Some(capability) = refused_capability(&err) else {
+            return err;
+        };
+        let withdrawn = match capability {
+            LlmCapability::Tools => self.tools.swap(false, Ordering::Relaxed),
+            LlmCapability::StreamUsage => self.stream_options.swap(false, Ordering::Relaxed),
+        };
+        if !withdrawn {
+            // A refusal of a field that is no longer sent is not about that field.
+            return err;
         }
-        if !req.tools.is_empty() && self.tools.swap(false, Ordering::Relaxed) {
-            tracing::warn!("the server refused tools; sending requests without them");
-            match self.ask(req, secret).await {
-                Ok(response) => return Ok(response),
-                Err(err) => refused = err,
-            }
+        tracing::warn!(
+            capability = %capability,
+            "the provider refused a capability; requests will leave it out",
+        );
+        LlmError::CapabilityRejected {
+            capability,
+            detail: err.to_string(),
         }
-        Err(refused)
     }
 }
 
@@ -131,20 +130,67 @@ impl LlmProvider for OpenAiCompatible {
         let secret = self.api_key.as_ref();
         let response = match self.ask(&req, secret).await {
             Ok(response) => response,
-            Err(refused) if is_refused_request(&refused) => {
-                self.ask_reduced(&req, secret, refused).await?
-            }
-            Err(err) => return Err(err),
+            Err(err) => return Err(self.refuse(err)),
         };
         into_response(response, self.price.as_ref(), self.api_key.as_ref())
     }
 }
 
-/// Whether a server refused the request itself, as opposed to being unreachable, refusing
-/// the credentials or being rate limited. Status errors are formatted by
-/// [`http::status_error`]; a 4xx that is not auth or rate limiting lands here.
-fn is_refused_request(err: &LlmError) -> bool {
-    matches!(err, LlmError::InvalidResponse(detail) if detail.starts_with("HTTP 4"))
+/// Words a server uses when it does not know a request field, as opposed to rejecting a
+/// value of one. A capability is withdrawn only when one of these appears, so an invalid
+/// model, a context overflow or a bad tool schema stays an ordinary error.
+const REFUSAL_PHRASES: [&str; 10] = [
+    "not supported",
+    "unsupported",
+    "does not support",
+    "do not support",
+    "not allowed",
+    "not permitted",
+    "unknown field",
+    "unknown parameter",
+    "unexpected",
+    "unrecognized",
+];
+
+/// Words that name the tool capability itself, rather than a tool's schema or arguments.
+const TOOL_FIELD_PHRASES: [&str; 11] = [
+    "tool calling",
+    "tool calls",
+    "tool_calls",
+    "tools are",
+    "tools is",
+    "tools not",
+    "support tools",
+    "support tool",
+    "\"tools\"",
+    "'tools'",
+    "`tools`",
+];
+
+/// The capability a specific 4xx refusal is about, or `None` when the error is about
+/// anything else. Only a refusal phrase together with the capability's own field counts.
+fn refused_capability(err: &LlmError) -> Option<LlmCapability> {
+    let LlmError::InvalidResponse(detail) = err else {
+        return None;
+    };
+    // `Auth` covers 401 and 403, `RateLimited` covers 429; every other 4xx arrives here.
+    if !detail.starts_with("HTTP 4") {
+        return None;
+    }
+    let text = detail.to_ascii_lowercase();
+    if !REFUSAL_PHRASES.iter().any(|phrase| text.contains(phrase)) {
+        return None;
+    }
+    if text.contains("stream_options") || text.contains("include_usage") {
+        return Some(LlmCapability::StreamUsage);
+    }
+    if TOOL_FIELD_PHRASES
+        .iter()
+        .any(|phrase| text.contains(phrase))
+    {
+        return Some(LlmCapability::Tools);
+    }
+    None
 }
 
 /// The JSON body for `req`, exposed for request-shape tests.

@@ -1,4 +1,4 @@
-use domovoi_core::ports::{LlmError, LlmMessage, Part, Role, StopReason, ToolSpec};
+use domovoi_core::ports::{LlmCapability, LlmError, LlmMessage, Part, Role, StopReason, ToolSpec};
 use domovoi_llm::build;
 use serde_json::{Value, json};
 use wiremock::matchers::{header, method, path};
@@ -136,26 +136,54 @@ fn body_of(request: &Request) -> Value {
     serde_json::from_slice(&request.body).unwrap()
 }
 
+fn tools_request(text: &str) -> domovoi_core::ports::LlmRequest {
+    let mut req = ask(text);
+    req.tools = vec![ToolSpec {
+        name: "host_overview".to_owned(),
+        description: "Summarise the host.".to_owned(),
+        input_schema: json!({"type": "object", "properties": {}}),
+    }];
+    req
+}
+
+fn answer(content: &str) -> ResponseTemplate {
+    ResponseTemplate::new(200).set_body_json(json!({
+        "choices": [{
+            "message": {"role": "assistant", "content": content},
+            "finish_reason": "stop"
+        }]
+    }))
+}
+
+/// A server that refuses `stream_options`: the adapter reports the capability once, stops
+/// sending the field, and the next call works.
 #[tokio::test]
-async fn a_server_that_refuses_stream_options_is_asked_again_without_it() {
+async fn a_refused_stream_usage_capability_is_reported_and_dropped() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .respond_with(|request: &Request| {
             if body_of(request).get("stream_options").is_some() {
                 ResponseTemplate::new(400).set_body_string("unknown field: stream_options")
             } else {
-                ResponseTemplate::new(200).set_body_json(json!({
-                    "choices": [{
-                        "message": {"role": "assistant", "content": "All good."},
-                        "finish_reason": "stop"
-                    }]
-                }))
+                answer("All good.")
             }
         })
         .mount(&server)
         .await;
 
     let provider = build(&openai(&server.uri(), false), None).unwrap();
+    let err = provider.complete(ask("Status?")).await.unwrap_err();
+    assert!(
+        matches!(
+            &err,
+            LlmError::CapabilityRejected {
+                capability: LlmCapability::StreamUsage,
+                ..
+            }
+        ),
+        "{err:?}"
+    );
+
     let response = provider.complete(ask("Status?")).await.unwrap();
     assert_eq!(response.parts, vec![Part::Text("All good.".to_owned())]);
 
@@ -169,60 +197,100 @@ async fn a_server_that_refuses_stream_options_is_asked_again_without_it() {
     assert_eq!(bodies[1]["stream"], true, "the answer is still streamed");
 }
 
+/// A server that refuses tools: the adapter reports it and `supports_tools` turns false, so
+/// the caller builds the next request without tools.
 #[tokio::test]
-async fn a_server_that_refuses_tools_is_asked_again_without_them_and_keeps_them_off() {
+async fn a_refused_tool_capability_is_reported_and_kept_off() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .respond_with(|request: &Request| {
             if body_of(request).get("tools").is_some() {
-                ResponseTemplate::new(400).set_body_string("tools are not supported")
+                ResponseTemplate::new(400).set_body_string("tools are not supported by this model")
             } else {
-                ResponseTemplate::new(200).set_body_json(json!({
-                    "choices": [{
-                        "message": {"role": "assistant", "content": "All good."},
-                        "finish_reason": "stop"
-                    }]
-                }))
+                answer("All good.")
             }
         })
         .mount(&server)
         .await;
 
-    let mut req = ask("Status?");
-    req.tools = vec![ToolSpec {
-        name: "host_overview".to_owned(),
-        description: "Summarise the host.".to_owned(),
-        input_schema: json!({"type": "object", "properties": {}}),
-    }];
-
     let provider = build(&openai(&server.uri(), false), None).unwrap();
     assert!(provider.supports_tools());
-    let response = provider.complete(req).await.unwrap();
-    assert_eq!(response.parts, vec![Part::Text("All good.".to_owned())]);
+    let err = provider
+        .complete(tools_request("Status?"))
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(
+            &err,
+            LlmError::CapabilityRejected {
+                capability: LlmCapability::Tools,
+                ..
+            }
+        ),
+        "{err:?}"
+    );
     assert!(
         !provider.supports_tools(),
-        "the refusal is remembered for later runs"
+        "the refusal is remembered for later calls"
     );
 
-    let mut again = ask("Again?");
-    again.tools = vec![ToolSpec {
-        name: "host_overview".to_owned(),
-        description: "Summarise the host.".to_owned(),
-        input_schema: json!({"type": "object", "properties": {}}),
-    }];
-    provider.complete(again).await.unwrap();
+    let response = provider.complete(tools_request("Status?")).await.unwrap();
+    assert_eq!(response.parts, vec![Part::Text("All good.".to_owned())]);
 
     let bodies = bodies(&server).await;
-    assert_eq!(bodies.len(), 4);
+    assert_eq!(bodies.len(), 2);
     assert!(bodies[0].get("tools").is_some());
     assert!(
-        bodies[1].get("tools").is_some(),
-        "only stream_options is dropped first"
-    );
-    assert!(bodies[1].get("stream_options").is_none());
-    assert!(bodies[2].get("tools").is_none(), "the retry drops tools");
-    assert!(
-        bodies[3].get("tools").is_none(),
+        bodies[1].get("tools").is_none(),
         "a later request does not offer tools the server refused"
     );
+}
+
+/// A 400 about anything else stays an ordinary error and changes no capability. An invalid
+/// model, a context overflow, a bad tool schema, bad parameters and a bad history are not
+/// evidence that tools or streamed usage are unsupported.
+#[tokio::test]
+async fn unrelated_400_errors_do_not_drop_capabilities() {
+    for detail in [
+        "model gpt-nope does not exist",
+        "this model's maximum context length is 8192 tokens",
+        "tools[0].function.parameters is invalid",
+        "temperature must be between 0 and 2",
+        "messages[1] role is invalid",
+    ] {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(400).set_body_string(detail))
+            .mount(&server)
+            .await;
+        let provider = build(&openai(&server.uri(), false), None).unwrap();
+
+        let err = provider
+            .complete(tools_request("Status?"))
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(&err, LlmError::InvalidResponse(m) if m.contains("HTTP 400")),
+            "{detail}: {err:?}"
+        );
+        assert!(provider.supports_tools(), "{detail}: tools stay available");
+
+        let err = provider
+            .complete(tools_request("Again?"))
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, LlmError::InvalidResponse(_)),
+            "{detail}: {err:?}"
+        );
+        let bodies = bodies(&server).await;
+        assert!(
+            bodies[1].get("stream_options").is_some(),
+            "{detail}: streamed usage stays available"
+        );
+        assert!(
+            bodies[1].get("tools").is_some(),
+            "{detail}: tools stay in the request"
+        );
+    }
 }
