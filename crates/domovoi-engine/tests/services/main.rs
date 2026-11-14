@@ -14,6 +14,8 @@ mod atomic;
 #[cfg(test)]
 mod attach;
 #[cfg(test)]
+mod capability;
+#[cfg(test)]
 mod chat;
 #[cfg(test)]
 mod conversation;

@@ -42,7 +42,7 @@ enum Event {
 #[derive(Deserialize)]
 struct StartMessage {
     #[serde(default)]
-    usage: WireUsage,
+    usage: Option<WireUsage>,
 }
 
 #[derive(Deserialize)]
@@ -55,6 +55,16 @@ enum StartBlock {
     ToolUse {
         id: String,
         name: String,
+    },
+    /// A thinking block opens empty; its text arrives as `thinking_delta` events.
+    Thinking {
+        #[serde(default)]
+        thinking: String,
+    },
+    /// Reasoning the provider encrypted. Only its presence matters; the payload is skipped.
+    RedactedThinking {
+        #[serde(skip)]
+        _data: (),
     },
     #[serde(other)]
     Other,
@@ -69,6 +79,9 @@ enum BlockDelta {
     InputJsonDelta {
         partial_json: String,
     },
+    ThinkingDelta {
+        thinking: String,
+    },
     #[serde(other)]
     Other,
 }
@@ -81,8 +94,9 @@ struct MessageDelta {
 
 #[derive(Deserialize)]
 struct DeltaUsage {
+    /// Present when the provider reported the generated total for this delta.
     #[serde(default)]
-    output_tokens: u32,
+    output_tokens: Option<u32>,
 }
 
 #[derive(Deserialize)]
@@ -100,6 +114,10 @@ enum Block {
         name: String,
         json: String,
     },
+    /// Private reasoning, counted for usage and never returned as answer text.
+    Thinking(String),
+    /// Encrypted reasoning: its presence matters, its content is never read.
+    RedactedThinking,
     Other,
 }
 
@@ -111,13 +129,20 @@ pub(crate) async fn assemble(
 ) -> Result<WireResponse, LlmError> {
     let mut blocks: BTreeMap<usize, Block> = BTreeMap::new();
     let mut stop_reason = None;
-    let mut usage = WireUsage::default();
+    let mut input_tokens = None;
+    let mut output_tokens = None;
     let mut complete = false;
     while let Some(data) = events.next_data(secret).await? {
         let event: Event = serde_json::from_str(&data)
             .map_err(|e| LlmError::InvalidResponse(format!("{e}: {}", excerpt(&data, secret))))?;
         match event {
-            Event::MessageStart { message } => usage = message.usage,
+            Event::MessageStart { message } => {
+                // Input usage normally arrives here; output usage arrives later, in
+                // `message_delta`. Until it does, the totals are partial.
+                if let Some(start) = message.usage {
+                    input_tokens = start.input_tokens;
+                }
+            }
             Event::ContentBlockStart {
                 index,
                 content_block,
@@ -129,6 +154,8 @@ pub(crate) async fn assemble(
                         name,
                         json: String::new(),
                     },
+                    StartBlock::Thinking { thinking } => Block::Thinking(thinking),
+                    StartBlock::RedactedThinking { .. } => Block::RedactedThinking,
                     StartBlock::Other => Block::Other,
                 };
                 blocks.insert(index, block);
@@ -140,6 +167,9 @@ pub(crate) async fn assemble(
                 (Some(Block::Tool { json, .. }), BlockDelta::InputJsonDelta { partial_json }) => {
                     json.push_str(&partial_json);
                 }
+                (Some(Block::Thinking(text)), BlockDelta::ThinkingDelta { thinking }) => {
+                    text.push_str(&thinking);
+                }
                 _ => {}
             },
             Event::MessageDelta {
@@ -149,8 +179,10 @@ pub(crate) async fn assemble(
                 if delta.stop_reason.is_some() {
                     stop_reason = delta.stop_reason;
                 }
-                if let Some(delta_usage) = delta_usage {
-                    usage.output_tokens = delta_usage.output_tokens;
+                if let Some(delta_usage) = delta_usage
+                    && delta_usage.output_tokens.is_some()
+                {
+                    output_tokens = delta_usage.output_tokens;
                 }
             }
             Event::MessageStop => {
@@ -170,10 +202,21 @@ pub(crate) async fn assemble(
         .into_values()
         .filter_map(|block| block_content(block, secret).transpose())
         .collect::<Result<Vec<_>, _>>()?;
+    // Only both halves together are a complete report; a lone input total is kept for the
+    // estimator rather than passed off as complete usage.
+    let usage = match (input_tokens, output_tokens) {
+        (Some(input_tokens), Some(output_tokens)) => Some(WireUsage {
+            input_tokens: Some(input_tokens),
+            output_tokens: Some(output_tokens),
+        }),
+        _ => None,
+    };
     Ok(WireResponse {
         content,
         stop_reason,
         usage,
+        input_tokens,
+        output_tokens,
     })
 }
 
@@ -194,6 +237,8 @@ fn block_content(
             })?;
             Some(WireContent::ToolUse { id, name, input })
         }
+        Block::Thinking(thinking) => Some(WireContent::Thinking { thinking }),
+        Block::RedactedThinking => Some(WireContent::RedactedThinking { _data: () }),
         Block::Other => None,
     })
 }

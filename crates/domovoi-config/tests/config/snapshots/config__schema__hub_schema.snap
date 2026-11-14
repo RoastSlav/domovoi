@@ -656,7 +656,7 @@ expression: "HubConfig::json_schema()"
       "type": "object",
       "properties": {
         "output_tokens": {
-          "description": "Output tokens per run. Default 2000.",
+          "description": "Output tokens per model turn. Default 2000, clamped to the supported maximum of\n16000. It also caps a reasoning model's reasoning, so a turn that runs out of room\nbefore finishing its answer is retried with four times as much, up to the maximum.",
           "type": "integer",
           "format": "uint32",
           "default": 2000,
@@ -675,6 +675,16 @@ expression: "HubConfig::json_schema()"
           "format": "uint16",
           "default": 15,
           "maximum": 65535,
+          "minimum": 0
+        },
+        "total_tokens": {
+          "description": "Output tokens one run may ask for in total: every normal turn (`tool_calls + 1`),\none turn retried all the way to the supported maximum, and the report repair\nretried the same way. Optional; that sum is the default. Every request is charged\nbefore it is sent, including each retry, so the run cannot exceed it.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "default": null,
           "minimum": 0
         }
       },

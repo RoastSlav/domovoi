@@ -109,6 +109,7 @@ fn turn(turn: &Turn, index: usize) -> LlmResponse {
                 input_tokens: 500,
                 output_tokens: 50,
                 cost_micros: None,
+                source: domovoi_core::ports::UsageSource::Reported,
             },
         },
         Turn::Report { report } => LlmResponse {
@@ -118,6 +119,7 @@ fn turn(turn: &Turn, index: usize) -> LlmResponse {
                 input_tokens: 800,
                 output_tokens: 300,
                 cost_micros: None,
+                source: domovoi_core::ports::UsageSource::Reported,
             },
         },
     }

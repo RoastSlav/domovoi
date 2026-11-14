@@ -146,6 +146,7 @@ impl IncidentRepo for InMemoryStore {
         filter: &IncidentFilter,
         page: &Page,
     ) -> Result<Paged<Incident>, StoreError> {
+        self.pause().await;
         let state = self.begin()?;
         let items = state
             .incidents
