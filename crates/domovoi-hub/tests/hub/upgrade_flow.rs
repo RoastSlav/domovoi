@@ -55,8 +55,9 @@ async fn upgraded(dir: &Path) -> (Arc<Store>, PathBuf) {
 }
 
 /// The fixture's row counts, in the order the upgrade test checks them.
-const FIXTURE_ROWS: [(&str, i64); 9] = [
+const FIXTURE_ROWS: [(&str, i64); 10] = [
     ("hosts", 2),
+    ("agents", 1),
     ("incidents", 3),
     ("signals", 3),
     ("incident_signals", 3),

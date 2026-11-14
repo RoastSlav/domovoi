@@ -453,3 +453,211 @@ async fn missing_actions_are_reported_as_store_errors_not_consistent() {
     store.fail_next(StoreError::Backend("disk".to_owned()));
     assert!(check_invariants(&*store).await.is_err());
 }
+
+/// A second commit cannot reach the store while an earlier one is between its durable write
+/// and its snapshot. Without the gate that window let the next commit land, so the earlier
+/// commit's snapshot recorded a state past its own index.
+#[tokio::test]
+async fn a_commit_behind_an_in_flight_one_never_overtakes_it() {
+    let inner = Arc::new(InMemoryStore::new());
+    let crashing = Arc::new(CrashingStore::new(inner.clone()));
+    crashing.record_only();
+    crashing.record_snapshots().await.unwrap();
+    let first = pending_incident(host(), "disk.smart", None).unwrap();
+    let second = pending_incident(host(), "net.link", None).unwrap();
+
+    let hold = crashing.hold_next_snapshot();
+    let earlier = tokio::spawn({
+        let crashing = crashing.clone();
+        let tx = new_incident_tx(&first);
+        async move { crashing.commit(tx).await }
+    });
+    hold.entered().await;
+
+    let later = tokio::spawn({
+        let crashing = crashing.clone();
+        let tx = new_incident_tx(&second);
+        async move { crashing.commit(tx).await }
+    });
+    tokio::task::yield_now().await;
+    assert!(
+        !later.is_finished(),
+        "the later commit must wait for the one already in flight"
+    );
+
+    assert!(
+        !stored_incident(&inner, second.id()).await,
+        "the later commit reached the store while the earlier one was still open"
+    );
+
+    hold.release();
+    earlier.await.unwrap().unwrap();
+    later.await.unwrap().unwrap();
+
+    assert_eq!(crashing.commits(), 2);
+    assert_eq!(crashing.summaries().len(), 2);
+    let snapshots = crashing.snapshots();
+    assert_eq!(
+        snapshots.len(),
+        3,
+        "one before the first commit and one each"
+    );
+    assert_eq!(
+        snapshots[1].incidents,
+        vec![("disk.smart".to_owned(), "pending".to_owned())],
+        "the first snapshot holds only the first commit's write"
+    );
+    assert_eq!(
+        snapshots[2].incidents.len(),
+        2,
+        "the second snapshot holds both writes"
+    );
+}
+
+/// A commit that is counted but not yet applied keeps the next one out: once the first is the
+/// planned crash, the second is refused instead of applying its write.
+#[tokio::test]
+async fn a_commit_waiting_behind_the_crash_never_reaches_the_store() {
+    let inner = Arc::new(InMemoryStore::new());
+    let crashing = Arc::new(CrashingStore::new(inner.clone()));
+    // Arm before recording: arming resets the recording state, and the crash must land on
+    // the first counted commit.
+    crashing.arm(CrashPlan {
+        at_commit: 1,
+        point: CrashPoint::AfterCommit,
+    });
+    crashing.record_snapshots().await.unwrap();
+    let durable = pending_incident(host(), "disk.smart", None).unwrap();
+    let refused = pending_incident(host(), "net.link", None).unwrap();
+
+    let hold = crashing.hold_before_apply();
+    let crashing_commit = tokio::spawn({
+        let crashing = crashing.clone();
+        let tx = new_incident_tx(&durable);
+        async move { crashing.commit(tx).await }
+    });
+    hold.entered().await;
+
+    let waiting = tokio::spawn({
+        let crashing = crashing.clone();
+        let tx = new_incident_tx(&refused);
+        async move { crashing.commit(tx).await }
+    });
+    tokio::task::yield_now().await;
+    assert!(
+        !waiting.is_finished(),
+        "the waiting commit must queue behind the one that is mid-flight"
+    );
+
+    hold.release();
+    let crashed = crashing_commit.await.unwrap();
+    assert!(
+        matches!(&crashed, Err(domovoi_core::ports::CommitError::Backend(why))
+            if why == "simulated crash after commit"),
+        "{crashed:?}"
+    );
+    let behind = waiting.await.unwrap();
+    assert!(
+        matches!(&behind, Err(domovoi_core::ports::CommitError::Backend(why))
+            if why == "process is down"),
+        "{behind:?}"
+    );
+
+    assert!(crashing.crashed());
+    assert_eq!(crashing.commits(), 2, "the refused attempt is counted");
+    assert_eq!(crashing.summaries().len(), 2);
+    assert!(
+        stored_incident(&inner, durable.id()).await,
+        "the commit the process died after is durable"
+    );
+    assert!(
+        !stored_incident(&inner, refused.id()).await,
+        "the commit waiting behind the crash never reached the store"
+    );
+    assert_eq!(
+        crashing.snapshots().len(),
+        2,
+        "the initial snapshot and the durable commit's, and nothing for the refused one"
+    );
+}
+
+/// A snapshot that cannot be taken is reported, not swallowed, when it follows the injected
+/// crash: the write is durable and the caller must still learn that the harness failed.
+#[tokio::test]
+async fn a_snapshot_failure_after_the_crash_is_reported() {
+    let inner = Arc::new(InMemoryStore::new());
+    let crashing = CrashingStore::new(inner.clone());
+    crashing.arm(CrashPlan {
+        at_commit: 1,
+        point: CrashPoint::AfterCommit,
+    });
+    crashing.record_snapshots().await.unwrap();
+    let incident = pending_incident(host(), "disk.smart", None).unwrap();
+    crashing.fail_next_snapshot(StoreError::Backend("disk".to_owned()));
+
+    let result = crashing.commit(new_incident_tx(&incident)).await;
+    let Err(domovoi_core::ports::CommitError::Backend(why)) = result else {
+        panic!("a failed snapshot must be reported: {result:?}");
+    };
+    assert!(
+        why.contains("snapshot") && why.contains("disk"),
+        "the message must say the snapshot failed: {why}"
+    );
+    assert!(
+        stored_incident(&inner, incident.id()).await,
+        "the transaction itself is durable"
+    );
+    assert!(crashing.crashed(), "the process is still down");
+    assert_eq!(crashing.snapshots().len(), 1, "no snapshot was recorded");
+}
+
+/// A store failure at the injection point means nothing was stored; the caller must not be
+/// told the transaction was durable, and no snapshot is recorded for it.
+#[tokio::test]
+async fn a_store_failure_at_the_crash_is_not_reported_as_a_durable_commit() {
+    let inner = Arc::new(InMemoryStore::new());
+    let crashing = CrashingStore::new(inner.clone());
+    crashing.arm(CrashPlan {
+        at_commit: 1,
+        point: CrashPoint::AfterCommit,
+    });
+    crashing.record_snapshots().await.unwrap();
+    let incident = pending_incident(host(), "disk.smart", None).unwrap();
+    inner.fail_next(StoreError::Backend("disk".to_owned()));
+
+    let result = crashing.commit(new_incident_tx(&incident)).await;
+    let Err(domovoi_core::ports::CommitError::Backend(why)) = result else {
+        panic!("a failed commit must be reported: {result:?}");
+    };
+    assert!(
+        why.contains("inner store failed") && why.contains("disk"),
+        "the message must name the store failure: {why}"
+    );
+    assert!(
+        !why.contains("simulated crash after commit"),
+        "a failed commit must not be reported as a durable one: {why}"
+    );
+    assert!(!stored_incident(&inner, incident.id()).await);
+    assert!(crashing.crashed(), "the process is still down");
+    assert_eq!(crashing.snapshots().len(), 1, "no snapshot was recorded");
+}
+
+/// The same failure on an ordinary commit is reported too, and leaves the store usable.
+#[tokio::test]
+async fn a_snapshot_failure_on_a_normal_commit_is_reported() {
+    let inner = Arc::new(InMemoryStore::new());
+    let crashing = CrashingStore::new(inner.clone());
+    crashing.record_only();
+    crashing.record_snapshots().await.unwrap();
+    let incident = pending_incident(host(), "disk.smart", None).unwrap();
+    crashing.fail_next_snapshot(StoreError::Backend("disk".to_owned()));
+
+    let result = crashing.commit(new_incident_tx(&incident)).await;
+    let Err(domovoi_core::ports::CommitError::Backend(why)) = result else {
+        panic!("a failed snapshot must be reported: {result:?}");
+    };
+    assert!(why.contains("disk"), "{why}");
+    assert!(!crashing.crashed());
+    assert!(stored_incident(&inner, incident.id()).await);
+    assert_eq!(crashing.snapshots().len(), 1);
+}

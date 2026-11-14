@@ -10,9 +10,14 @@
 //! checked for the F1 cross-table invariants.
 
 mod invariants;
+#[cfg(test)]
+mod seams;
 mod snapshot;
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+use seams::Hold;
 
 pub use invariants::{Exempt, check_invariants, check_invariants_except};
 pub use snapshot::Snapshot;
@@ -159,6 +164,15 @@ pub struct CrashingStore<S: SweepStore> {
     inner: Arc<S>,
     state: Mutex<PlanState>,
     serial: tokio::sync::Mutex<()>,
+    /// Test-only hold between a durable write and its snapshot.
+    #[cfg(test)]
+    hold: Mutex<Option<Arc<Hold>>>,
+    /// Test-only hold after a transaction is counted and before it is applied.
+    #[cfg(test)]
+    apply_hold: Mutex<Option<Arc<Hold>>>,
+    /// Test-only failure returned by the next snapshot.
+    #[cfg(test)]
+    snapshot_failure: Mutex<Option<StoreError>>,
 }
 
 impl<S: SweepStore> CrashingStore<S> {
@@ -169,6 +183,12 @@ impl<S: SweepStore> CrashingStore<S> {
             inner,
             state: Mutex::new(PlanState::default()),
             serial: tokio::sync::Mutex::new(()),
+            #[cfg(test)]
+            hold: Mutex::new(None),
+            #[cfg(test)]
+            apply_hold: Mutex::new(None),
+            #[cfg(test)]
+            snapshot_failure: Mutex::new(None),
         }
     }
 
@@ -254,6 +274,18 @@ impl<S: SweepStore> CrashingStore<S> {
         if !lock(&self.state).recording {
             return Ok(());
         }
+        #[cfg(test)]
+        let hold = lock(&self.hold).take();
+        #[cfg(test)]
+        if let Some(hold) = hold {
+            hold.pause().await;
+        }
+        #[cfg(test)]
+        let snapshot_failure = lock(&self.snapshot_failure).take();
+        #[cfg(test)]
+        if let Some(error) = snapshot_failure {
+            return Err(error);
+        }
         let snapshot = Snapshot::capture(&*self.inner).await?;
         let mut state = lock(&self.state);
         if state.recording {
@@ -287,6 +319,13 @@ impl<S: SweepStore> UnitOfWork for CrashingStore<S> {
             (state.commits, state.plan, state.recording)
         };
 
+        #[cfg(test)]
+        let apply_hold = lock(&self.apply_hold).take();
+        #[cfg(test)]
+        if let Some(hold) = apply_hold {
+            hold.pause().await;
+        }
+
         if let Some(plan) = plan
             && plan.at_commit == nth
         {
@@ -299,9 +338,26 @@ impl<S: SweepStore> UnitOfWork for CrashingStore<S> {
                 }
                 CrashPoint::AfterCommit => {
                     let result = self.inner.commit(tx).await;
+                    // The process is down from here on, whatever the store did, so nothing
+                    // queued behind this commit may reach the store.
                     lock(&self.state).crashed = true;
-                    if result.is_ok() && recording {
-                        let _ = self.capture_after_commit().await;
+                    if result.is_ok()
+                        && recording
+                        && let Err(err) = self.capture_after_commit().await
+                    {
+                        // The write is durable and the receipt is lost either way; say that
+                        // the harness could not picture it rather than hide the failure.
+                        return Err(CommitError::Backend(format!(
+                            "the transaction is durable but its snapshot failed at the \
+                             simulated crash: {err}"
+                        )));
+                    }
+                    if let Err(err) = &result {
+                        // Nothing is durable: the store failed before the process died.
+                        return Err(CommitError::Backend(format!(
+                            "the inner store failed, so nothing was stored before the \
+                             simulated crash: {err}"
+                        )));
                     }
                     return Err(CommitError::Backend(
                         "simulated crash after commit".to_owned(),
