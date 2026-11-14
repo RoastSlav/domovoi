@@ -290,12 +290,15 @@ expression: spec
           },
           "plan_hash": {
             "description": "Required. The plan hash shown on the card, 64 hex characters.",
-            "type": [
-              "string",
-              "null"
-            ]
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
           }
         },
+        "required": [
+          "plan_hash"
+        ],
         "type": "object"
       },
       "AskRequest": {

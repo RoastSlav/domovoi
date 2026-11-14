@@ -3556,6 +3556,9 @@
       "ApproveRequest": {
         "type": "object",
         "description": "Approving an action.",
+        "required": [
+          "plan_hash"
+        ],
         "properties": {
           "confirm_text": {
             "type": [
@@ -3565,11 +3568,11 @@
             "description": "For destructive skills: the skill's name typed exactly, as confirmation."
           },
           "plan_hash": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Required. The plan hash shown on the card, 64 hex characters."
+            "type": "string",
+            "description": "Required. The plan hash shown on the card, 64 hex characters.",
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$"
           }
         }
       },

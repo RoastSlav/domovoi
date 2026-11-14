@@ -202,8 +202,10 @@ async fn approve_api_requires_the_plan_hash() {
 
     for body in [
         json!({}),
+        json!({ "plan_hash": null }),
         json!({ "plan_hash": "abc" }),
         json!({ "plan_hash": "zz".repeat(32) }),
+        json!({ "plan_hash": "a".repeat(63) }),
     ] {
         let reply = a
             .post(
@@ -525,6 +527,51 @@ fn openapi_snapshot() {
     let mut spec: Value = serde_json::from_str(&domovoi_hub::router::openapi_json()).unwrap();
     spec["info"]["version"] = json!("0.0.0");
     insta::assert_json_snapshot!("openapi", spec);
+}
+
+#[test]
+fn approve_request_schema_requires_a_non_null_plan_hash() {
+    let spec: Value = serde_json::from_str(&domovoi_hub::router::openapi_json()).unwrap();
+    let schema = &spec["components"]["schemas"]["ApproveRequest"];
+    assert_eq!(
+        schema["properties"]["plan_hash"]["type"],
+        json!("string"),
+        "a missing plan_hash is a 400, so the schema says string, never null"
+    );
+    assert_eq!(schema["properties"]["plan_hash"]["minLength"], json!(64));
+    assert_eq!(schema["properties"]["plan_hash"]["maxLength"], json!(64));
+    assert_eq!(
+        schema["properties"]["plan_hash"]["pattern"],
+        json!("^[0-9a-f]{64}$")
+    );
+    let required: Vec<&str> = schema["required"]
+        .as_array()
+        .expect("the schema lists its required fields")
+        .iter()
+        .filter_map(Value::as_str)
+        .collect();
+    assert!(required.contains(&"plan_hash"), "{required:?}");
+    assert!(
+        !required.contains(&"confirm_text"),
+        "the typed confirmation stays optional"
+    );
+    assert_eq!(
+        schema["properties"]["confirm_text"]["type"],
+        json!(["string", "null"])
+    );
+
+    let generated = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../web/src/api/schema.d.ts"
+    ))
+    .expect("the generated TypeScript types are checked in");
+    let start = generated
+        .find("ApproveRequest: {")
+        .expect("the generated types declare ApproveRequest");
+    let block = &generated[start..start + generated[start..].find("};").unwrap()];
+    assert!(block.contains("plan_hash: string;"), "{block}");
+    assert!(!block.contains("plan_hash?:"), "{block}");
+    assert!(block.contains("confirm_text?: string | null;"), "{block}");
 }
 
 #[tokio::test]

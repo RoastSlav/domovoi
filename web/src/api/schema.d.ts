@@ -1042,7 +1042,7 @@ export interface components {
             /** @description For destructive skills: the skill's name typed exactly, as confirmation. */
             confirm_text?: string | null;
             /** @description Required. The plan hash shown on the card, 64 hex characters. */
-            plan_hash?: string | null;
+            plan_hash: string;
         };
         /** @description A follow-up question. */
         AskRequest: {

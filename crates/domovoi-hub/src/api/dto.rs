@@ -359,6 +359,14 @@ pub struct ActionPage {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, ToSchema)]
 pub struct ApproveRequest {
     /// Required. The plan hash shown on the card, 64 hex characters.
+    #[schema(
+        value_type = String,
+        required = true,
+        nullable = false,
+        min_length = 64,
+        max_length = 64,
+        pattern = "^[0-9a-f]{64}$"
+    )]
     pub plan_hash: Option<String>,
     /// For destructive skills: the skill's name typed exactly, as confirmation.
     pub confirm_text: Option<String>,
