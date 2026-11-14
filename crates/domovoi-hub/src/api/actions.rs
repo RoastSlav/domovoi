@@ -4,7 +4,7 @@
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use domovoi_core::ports::ActionFilter;
-use domovoi_core::{ActionError, ActionId, ActionRequest, ActionStatus};
+use domovoi_core::{ActionError, ActionId, ActionRequest, ActionStatus, PlanBinding, PlanHash};
 use domovoi_engine::ApprovalError;
 
 use super::dto::{ActionDto, ActionPage, ActionQuery, ApproveRequest};
@@ -20,6 +20,9 @@ fn approval_error(err: ApprovalError) -> ApiError {
     match err {
         ApprovalError::NotFound(_) => ApiError::NotFound,
         ApprovalError::BadToken => ApiError::Forbidden(err.to_string()),
+        ApprovalError::PlanChanged => ApiError::Conflict(
+            "the plan changed since you opened it; reload the page and review it again".to_owned(),
+        ),
         ApprovalError::Refused(ActionError::DestructiveNeedsTypedConfirmation) => {
             ApiError::Forbidden("type the skill's name to approve a destructive action".to_owned())
         }
@@ -97,7 +100,7 @@ pub(super) async fn list(
         (status = 401, description = "Not logged in", body = ErrorBody),
         (status = 403, description = "Destructive without the typed confirmation", body = ErrorBody),
         (status = 404, description = "No such action", body = ErrorBody),
-        (status = 409, description = "Not proposed any more, or expired", body = ErrorBody),
+        (status = 409, description = "Not proposed any more, expired, or the plan hash does not match", body = ErrorBody),
         (status = 503, description = "The action service is shutting down", body = ErrorBody),
     )
 )]
@@ -107,7 +110,17 @@ pub(super) async fn approve(
     Path(id): Path<String>,
     Json(req): Json<ApproveRequest>,
 ) -> Result<Json<ActionDto>, ApiError> {
+    // The lookup comes first so an unknown id is a 404, not a missing-hash 400.
     let action = load(&state, parse_id(&id)?).await?;
+    let plan_hash = req
+        .plan_hash
+        .as_deref()
+        .and_then(|text| text.parse::<PlanHash>().ok())
+        .ok_or_else(|| {
+            ApiError::BadRequest(
+                "plan_hash is required: 64 hex characters, as shown on the action".to_owned(),
+            )
+        })?;
     let approval = web_approval(
         current.user.id,
         req.confirm_text.as_deref(),
@@ -117,7 +130,7 @@ pub(super) async fn approve(
     let approved = state
         .deps
         .actions_service
-        .approve(action.id(), approval, None)
+        .approve(action.id(), approval, None, PlanBinding::Full(plan_hash))
         .await
         .map_err(approval_error)?;
     Ok(Json(ActionDto::from(&approved)))

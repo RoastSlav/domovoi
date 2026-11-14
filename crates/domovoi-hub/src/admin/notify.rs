@@ -44,6 +44,7 @@ pub(crate) fn test_card(host: &HostName, headline: &str) -> Card {
         bullets: vec!["If you can read this, cards reach this channel.".to_owned()],
         next_step: None,
         buttons: Vec::new(),
+        plans: Vec::new(),
         details: None,
         resolved: true,
     }

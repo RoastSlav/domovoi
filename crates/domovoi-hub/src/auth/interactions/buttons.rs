@@ -2,7 +2,7 @@
 //! token. Destructive actions are refused here, before the approval service is asked.
 
 use domovoi_core::{
-    ActionError, ActionId, CardButton, IncidentId, Risk, TriageOutcome, TriageReport,
+    ActionError, ActionId, CardButton, IncidentId, PlanBinding, Risk, TriageOutcome, TriageReport,
 };
 use domovoi_engine::ApprovalError;
 use jiff::SignedDuration;
@@ -17,6 +17,9 @@ pub const MUTE_BUTTON: SignedDuration = SignedDuration::from_hours(1);
 
 /// What a destructive action's Approve says (INV-6).
 pub const WEB_ONLY: &str = "Approve this one in the web UI";
+
+/// What an approval button says when the card is older than the plan binding it needs.
+pub const STALE_CARD: &str = "This card is out of date; open the incident in the web UI to approve";
 
 /// The report as the Details button posts it.
 #[must_use]
@@ -46,6 +49,9 @@ pub fn approval_reason(err: &ApprovalError) -> String {
     match err {
         ApprovalError::NotFound(_) => "That action no longer exists".to_owned(),
         ApprovalError::BadToken => "This button no longer works".to_owned(),
+        ApprovalError::PlanChanged => {
+            "This card is out of date; open the incident to review it".to_owned()
+        }
         ApprovalError::Refused(ActionError::ChangedMeanwhile) => {
             "Someone already decided this action".to_owned()
         }
@@ -85,8 +91,13 @@ impl InteractionAuthorizer {
                     .with_detail(json!({ "minutes": 60 })))
             }
             CardButton::Details => self.details(incident, subject).await,
-            CardButton::Approve { action, token } => {
-                self.approve(actor, incident, *action, token).await
+            CardButton::Approve {
+                action,
+                token,
+                plan_prefix,
+            } => {
+                self.approve(actor, incident, *action, token, plan_prefix.as_deref())
+                    .await
             }
             CardButton::Deny { action, .. } => self.deny(actor, incident, *action).await,
             CardButton::OpenInWeb { .. } => Err(WEB_ONLY.to_owned()),
@@ -137,11 +148,17 @@ impl InteractionAuthorizer {
         incident: IncidentId,
         action: ActionId,
         token: &str,
+        plan_prefix: Option<&str>,
     ) -> Result<Accepted, String> {
         let found = self.load(incident, action).await?;
         if found.risk() == Risk::Destructive {
             return Err(WEB_ONLY.to_owned());
         }
+        let binding = plan_prefix
+            .and_then(|text| hex::decode(text).ok())
+            .filter(|bytes| bytes.len() == 3)
+            .map(PlanBinding::Prefix)
+            .ok_or_else(|| STALE_CARD.to_owned())?;
         let deps = self.api.deps();
         let approval = chat_approval(
             actor.admin.id,
@@ -151,7 +168,7 @@ impl InteractionAuthorizer {
         );
         let approved = deps
             .actions_service
-            .approve(action, approval, Some(token))
+            .approve(action, approval, Some(token), binding)
             .await
             .map_err(|e| approval_reason(&e))?;
         Ok(Accepted::new(

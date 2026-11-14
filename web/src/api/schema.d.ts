@@ -997,6 +997,11 @@ export interface components {
             id: string;
             /** @description The incident it is for. */
             incident_id: string;
+            /**
+             * @description The v1 plan hash: what an approval covers (skill, manifest version, host,
+             *     arguments).
+             */
+            plan_hash: string;
             /** @description Who proposed it, for example `system:triage`. */
             proposed_by: string;
             /** @description Why it was rejected or failed. */
@@ -1036,6 +1041,8 @@ export interface components {
         ApproveRequest: {
             /** @description For destructive skills: the skill's name typed exactly, as confirmation. */
             confirm_text?: string | null;
+            /** @description Required. The plan hash shown on the card, 64 hex characters. */
+            plan_hash?: string | null;
         };
         /** @description A follow-up question. */
         AskRequest: {
@@ -2180,7 +2187,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description Not proposed any more, or expired */
+            /** @description Not proposed any more, expired, or the plan hash does not match */
             409: {
                 headers: {
                     [name: string]: unknown;

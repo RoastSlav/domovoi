@@ -134,6 +134,7 @@ pub fn approve(action: &ActionRequest, token: &str) -> CardButton {
     CardButton::Approve {
         action: action.id(),
         token: token.to_owned(),
+        plan_prefix: Some(hex::encode(&action.plan_hash().as_bytes()[..3])),
     }
 }
 
@@ -321,6 +322,59 @@ async fn reused_token_is_rejected() {
     );
 }
 
+#[tokio::test]
+async fn chat_approve_with_old_button_without_prefix_is_refused() {
+    let a = api().await;
+    a.admin().await;
+    let c = chat(&a).await;
+    let (action, token) = proposed(&a, Risk::Write).await;
+    let old = CardButton::Approve {
+        action: action.id(),
+        token,
+        plan_prefix: None,
+    };
+
+    let reply = c.authorizer.deliver(press(&a, ALLOWED, old)).await;
+
+    assert_eq!(
+        rejected(&reply),
+        "This card is out of date; open the incident in the web UI to approve"
+    );
+    assert_eq!(status_of(&a, &action).await, ActionStatus::Proposed);
+}
+
+#[tokio::test]
+async fn chat_approve_with_wrong_prefix_is_refused_and_keeps_the_token() {
+    let a = api().await;
+    a.admin().await;
+    let c = chat(&a).await;
+    let (action, token) = proposed(&a, Risk::Write).await;
+    let mut wrong = action.plan_hash().as_bytes()[..3].to_vec();
+    wrong[0] ^= 0xff;
+    let stale = CardButton::Approve {
+        action: action.id(),
+        token: token.clone(),
+        plan_prefix: Some(hex::encode(wrong)),
+    };
+
+    let reply = c.authorizer.deliver(press(&a, ALLOWED, stale)).await;
+    assert_eq!(
+        rejected(&reply),
+        "This card is out of date; open the incident to review it"
+    );
+    assert_eq!(status_of(&a, &action).await, ActionStatus::Proposed);
+
+    let reply = c
+        .authorizer
+        .deliver(press(&a, ALLOWED, approve(&action, &token)))
+        .await;
+    assert_eq!(
+        accepted(&reply),
+        Some("Approved restart_container"),
+        "a wrong prefix did not consume the single-use token"
+    );
+}
+
 /// A decision another writer already made, and a service mid-restart, are both
 /// answered in chat with something a person can act on.
 #[test]
@@ -334,6 +388,14 @@ fn refused_chat_approval_explains_a_decision_already_made() {
         approval_reason(&ApprovalError::Unavailable),
         "The service that decides actions is restarting; try again",
         "a restart in progress reads as a restart, not a failure",
+    );
+}
+
+#[test]
+fn approval_reason_covers_plan_changed() {
+    assert_eq!(
+        approval_reason(&ApprovalError::PlanChanged),
+        "This card is out of date; open the incident to review it",
     );
 }
 

@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 
 use domovoi_core::ports::ActionRepo;
-use domovoi_core::{ActionRequest, ActionStatus, Principal, Risk, UserId};
+use domovoi_core::{ActionRequest, ActionStatus, PlanBinding, Principal, Risk, UserId};
 use domovoi_engine::ApprovalError;
 use domovoi_testkit::approvals::human;
 use jiff::SignedDuration;
@@ -69,7 +69,12 @@ async fn audit_failure_rolls_back_transition_on_sqlite() {
 
     let refused = a
         .actions_service
-        .approve(id, human(UserId::new()), None)
+        .approve(
+            id,
+            human(UserId::new()),
+            None,
+            PlanBinding::Full(action.plan_hash()),
+        )
         .await;
     assert!(
         matches!(refused, Err(ApprovalError::Store(_))),
@@ -92,7 +97,12 @@ async fn audit_failure_rolls_back_transition_on_sqlite() {
 
     let approved = a
         .actions_service
-        .approve(id, human(UserId::new()), None)
+        .approve(
+            id,
+            human(UserId::new()),
+            None,
+            PlanBinding::Full(action.plan_hash()),
+        )
         .await
         .unwrap();
     assert_eq!(approved.status(), &ActionStatus::Approved);

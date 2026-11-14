@@ -167,6 +167,10 @@ expression: spec
             "description": "The incident it is for.",
             "type": "string"
           },
+          "plan_hash": {
+            "description": "The v1 plan hash: what an approval covers (skill, manifest version, host,\narguments).",
+            "type": "string"
+          },
           "proposed_by": {
             "description": "Who proposed it, for example `system:triage`.",
             "type": "string"
@@ -203,6 +207,7 @@ expression: spec
           "risk",
           "args",
           "status",
+          "plan_hash",
           "proposed_by",
           "expires_at",
           "created_at",
@@ -278,6 +283,13 @@ expression: spec
         "properties": {
           "confirm_text": {
             "description": "For destructive skills: the skill's name typed exactly, as confirmation.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "plan_hash": {
+            "description": "Required. The plan hash shown on the card, 64 hex characters.",
             "type": [
               "string",
               "null"
@@ -2886,7 +2898,7 @@ expression: spec
                 }
               }
             },
-            "description": "Not proposed any more, or expired"
+            "description": "Not proposed any more, expired, or the plan hash does not match"
           },
           "503": {
             "content": {

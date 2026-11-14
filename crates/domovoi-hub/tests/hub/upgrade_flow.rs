@@ -14,8 +14,8 @@ use domovoi_core::ports::{
     JournalEntry, JournalRead, Page, VersionedRead,
 };
 use domovoi_core::{
-    ActionId, ActionRequest, ActionStatus, CheckKey, HostId, IncidentId, Severity, Signal,
-    SignalClass, SourceKind, UserId,
+    ActionId, ActionRequest, ActionStatus, CheckKey, HostId, IncidentId, PlanBinding, Severity,
+    Signal, SignalClass, SourceKind, UserId,
 };
 use domovoi_engine::{
     ActionDeps, ActionHandle, ActionService, ActionSettings, EnginePolicy, IncidentManager,
@@ -205,7 +205,12 @@ async fn legacy_action_can_be_approved_after_upgrade() {
     let harness = Harness::start(store.clone());
     let approved = harness
         .actions
-        .approve(proposed.id(), human(UserId::new()), None)
+        .approve(
+            proposed.id(),
+            human(UserId::new()),
+            None,
+            PlanBinding::Full(proposed.plan_hash()),
+        )
         .await
         .expect("a proposal stored before the rework can be approved");
     assert_eq!(approved.status(), &ActionStatus::Approved);
@@ -270,7 +275,12 @@ async fn audit_verifies_after_upgrade() {
         .expect("the fixture has a proposal");
     harness
         .actions
-        .approve(proposed.id(), human(UserId::new()), None)
+        .approve(
+            proposed.id(),
+            human(UserId::new()),
+            None,
+            PlanBinding::Full(proposed.plan_hash()),
+        )
         .await
         .expect("the approval is stored");
     harness.stop().await;

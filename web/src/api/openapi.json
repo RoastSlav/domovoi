@@ -317,7 +317,7 @@
             }
           },
           "409": {
-            "description": "Not proposed any more, or expired",
+            "description": "Not proposed any more, expired, or the plan hash does not match",
             "content": {
               "application/json": {
                 "schema": {
@@ -3413,6 +3413,7 @@
           "risk",
           "args",
           "status",
+          "plan_hash",
           "proposed_by",
           "expires_at",
           "created_at",
@@ -3455,6 +3456,10 @@
           "incident_id": {
             "type": "string",
             "description": "The incident it is for."
+          },
+          "plan_hash": {
+            "type": "string",
+            "description": "The v1 plan hash: what an approval covers (skill, manifest version, host,\narguments)."
           },
           "proposed_by": {
             "type": "string",
@@ -3558,6 +3563,13 @@
               "null"
             ],
             "description": "For destructive skills: the skill's name typed exactly, as confirmation."
+          },
+          "plan_hash": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Required. The plan hash shown on the card, 64 hex characters."
           }
         }
       },
