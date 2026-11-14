@@ -185,6 +185,12 @@ pub(crate) struct WireResponse {
     pub(crate) stop_reason: Option<String>,
     #[serde(default)]
     pub(crate) usage: Option<WireUsage>,
+    /// Input tokens a stream reported before output usage arrived, if any.
+    #[serde(skip)]
+    pub(crate) input_tokens: Option<u32>,
+    /// Output tokens a stream reported even when the input total never arrived.
+    #[serde(skip)]
+    pub(crate) output_tokens: Option<u32>,
 }
 
 #[derive(Deserialize)]
@@ -197,6 +203,11 @@ pub(crate) enum WireContent {
         id: String,
         name: String,
         input: Value,
+    },
+    /// Private reasoning. Used for usage estimation only, never returned as answer text.
+    Thinking {
+        #[serde(default)]
+        thinking: String,
     },
     #[serde(other)]
     Other,
@@ -211,34 +222,48 @@ pub(crate) struct WireUsage {
 }
 
 fn into_response(response: WireResponse, req: &LlmRequest, price: Option<&Price>) -> LlmResponse {
-    let parts = response
-        .content
-        .into_iter()
-        .filter_map(|block| match block {
-            WireContent::Text { text } => Some(Part::Text(text)),
-            WireContent::ToolUse { id, name, input } => Some(Part::ToolCall { id, name, input }),
-            WireContent::Other => None,
-        })
-        .collect::<Vec<_>>();
+    let mut parts = Vec::new();
+    let mut reasoning = String::new();
+    for block in response.content {
+        match block {
+            WireContent::Text { text } => parts.push(Part::Text(text)),
+            WireContent::ToolUse { id, name, input } => {
+                parts.push(Part::ToolCall { id, name, input });
+            }
+            // Thinking is billed output, but it is private reasoning: count it, never show it.
+            WireContent::Thinking { thinking } => reasoning.push_str(&thinking),
+            WireContent::Other => {}
+        }
+    }
     let stop = match response.stop_reason.as_deref() {
         Some("end_turn" | "stop_sequence") | None => StopReason::EndTurn,
         Some("tool_use") => StopReason::ToolUse,
         Some("max_tokens") => StopReason::MaxTokens,
         Some(other) => StopReason::Other(other.to_owned()),
     };
-    // A response without totals is inferred and marked as such, never recorded as free.
+    // Complete reported totals are authoritative. A stream that reported only its input (or
+    // only its output) keeps that half and has the other half estimated; a response with no
+    // totals at all is estimated from what it contains.
     let usage = match response.usage {
         Some(reported) => {
             crate::usage::reported(reported.input_tokens, reported.output_tokens, price)
         }
-        None => crate::usage::estimated_answer(
-            crate::usage::request_tokens(req),
-            &parts,
-            "",
-            &stop,
-            req.max_output_tokens,
-            price,
-        ),
+        None => {
+            let input = response
+                .input_tokens
+                .unwrap_or_else(|| crate::usage::request_tokens(req));
+            match response.output_tokens {
+                Some(output) => crate::usage::estimated(input, output, price),
+                None => crate::usage::estimated_answer(
+                    input,
+                    &parts,
+                    &reasoning,
+                    &stop,
+                    req.max_output_tokens,
+                    price,
+                ),
+            }
+        }
     };
     LlmResponse { parts, stop, usage }
 }

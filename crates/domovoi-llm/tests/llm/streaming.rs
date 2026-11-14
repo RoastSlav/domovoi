@@ -1,13 +1,24 @@
 use std::time::Duration;
 
-use domovoi_core::ports::{LlmError, Part, StopReason};
-use domovoi_llm::build;
+use domovoi_core::ports::{LlmError, Part, StopReason, UsageSource};
+use domovoi_llm::{Price, build};
 use jiff::SignedDuration;
 use serde_json::{Value, json};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use crate::support::{anthropic, ask, openai};
+
+const ANTHROPIC_PRICE: Price = Price {
+    input_per_mtok_usd: 2.0,
+    output_per_mtok_usd: 10.0,
+};
+
+fn priced_anthropic(base: &str) -> domovoi_llm::ProviderSettings {
+    let mut settings = anthropic(base);
+    settings.price = Some(ANTHROPIC_PRICE);
+    settings
+}
 
 fn events(body: &str) -> ResponseTemplate {
     ResponseTemplate::new(200).set_body_raw(body.to_owned(), "text/event-stream")
@@ -145,6 +156,126 @@ async fn anthropic_stream_assembles_text_tool_use_and_usage() {
     let received = server.received_requests().await.unwrap();
     let body: Value = serde_json::from_slice(&received[0].body).unwrap();
     assert_eq!(body["stream"], true);
+}
+
+/// Thinking deltas arrive as `thinking` blocks; they are counted for usage and never become
+/// answer text.
+#[tokio::test]
+async fn anthropic_stream_thinking_is_estimated_and_never_visible() {
+    let server = serve(
+        "/v1/messages",
+        events(
+            "data: {\"type\":\"message_start\",\"message\":{}}\n\n\
+             data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"thinking\",\"thinking\":\"\"}}\n\n\
+             data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason reason \"}}\n\n\
+             data: {\"type\":\"content_block_stop\",\"index\":0}\n\n\
+             data: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n\
+             data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"All good.\"}}\n\n\
+             data: {\"type\":\"content_block_stop\",\"index\":1}\n\n\
+             data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"}}\n\n\
+             data: {\"type\":\"message_stop\"}\n\n",
+        ),
+    )
+    .await;
+    let provider = build(&priced_anthropic(&server.uri()), None).unwrap();
+    let response = provider.complete(ask("Which are down?")).await.unwrap();
+    assert_eq!(
+        response.parts,
+        vec![Part::Text("All good.".to_owned())],
+        "thinking is never answer text"
+    );
+    assert_eq!(response.usage.source, UsageSource::Estimated);
+    assert!(
+        response.usage.output_tokens >= 100,
+        "the thinking deltas are counted: {:?}",
+        response.usage
+    );
+    assert!(response.usage.cost_micros.is_some_and(|cost| cost > 0));
+}
+
+/// A stream that reported input usage but never reported output usage keeps the input total
+/// and estimates only the output.
+#[tokio::test]
+async fn anthropic_stream_input_usage_without_output_is_estimated() {
+    let server = serve(
+        "/v1/messages",
+        events(
+            "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":25,\"output_tokens\":1}}}\n\n\
+             data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n\
+             data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Checking now.\"}}\n\n\
+             data: {\"type\":\"content_block_stop\",\"index\":0}\n\n\
+             data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"}}\n\n\
+             data: {\"type\":\"message_stop\"}\n\n",
+        ),
+    )
+    .await;
+    let provider = build(&priced_anthropic(&server.uri()), None).unwrap();
+    let response = provider.complete(ask("Which are down?")).await.unwrap();
+    assert_eq!(
+        response.usage.input_tokens, 25,
+        "the reported input is kept"
+    );
+    assert_eq!(response.usage.source, UsageSource::Estimated);
+    assert!(
+        response.usage.output_tokens > 0,
+        "the output is estimated: {:?}",
+        response.usage
+    );
+    assert_eq!(
+        response.usage.cost_micros,
+        Some(25 * 2 + u64::from(response.usage.output_tokens) * 10)
+    );
+}
+
+/// Both halves reported is complete usage: it wins over the thinking text.
+#[tokio::test]
+async fn anthropic_stream_complete_usage_wins_over_thinking() {
+    let server = serve(
+        "/v1/messages",
+        events(
+            "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":25,\"output_tokens\":1}}}\n\n\
+             data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"thinking\",\"thinking\":\"\"}}\n\n\
+             data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"a long private chain\"}}\n\n\
+             data: {\"type\":\"content_block_stop\",\"index\":0}\n\n\
+             data: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n\
+             data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"All good.\"}}\n\n\
+             data: {\"type\":\"content_block_stop\",\"index\":1}\n\n\
+             data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":42}}\n\n\
+             data: {\"type\":\"message_stop\"}\n\n",
+        ),
+    )
+    .await;
+    let provider = build(&priced_anthropic(&server.uri()), None).unwrap();
+    let response = provider.complete(ask("Which are down?")).await.unwrap();
+    assert_eq!(response.usage.source, UsageSource::Reported);
+    assert_eq!(response.usage.input_tokens, 25);
+    assert_eq!(response.usage.output_tokens, 42, "not doubled by thinking");
+    assert_eq!(response.usage.cost_micros, Some(25 * 2 + 42 * 10));
+}
+
+/// A stream that ran out of room and reported no usage is estimated at the whole allowance.
+#[tokio::test]
+async fn anthropic_stream_max_tokens_without_usage_estimates_the_allowance() {
+    let server = serve(
+        "/v1/messages",
+        events(
+            "data: {\"type\":\"message_start\",\"message\":{}}\n\n\
+             data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n\
+             data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"partial answer\"}}\n\n\
+             data: {\"type\":\"content_block_stop\",\"index\":0}\n\n\
+             data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"max_tokens\"}}\n\n\
+             data: {\"type\":\"message_stop\"}\n\n",
+        ),
+    )
+    .await;
+    let provider = build(&priced_anthropic(&server.uri()), None).unwrap();
+    let mut req = ask("Which are down?");
+    req.max_output_tokens = 2000;
+    let response = provider.complete(req).await.unwrap();
+    assert_eq!(response.stop, StopReason::MaxTokens);
+    assert_eq!(response.usage.output_tokens, 2000);
+    assert_eq!(response.usage.source, UsageSource::Estimated);
+    assert!(response.usage.cost_micros.is_some_and(|cost| cost > 0));
 }
 
 #[tokio::test]
