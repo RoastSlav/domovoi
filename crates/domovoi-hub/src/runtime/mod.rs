@@ -46,7 +46,8 @@ use crate::runtime::updates::UpdateChecker;
 pub(crate) use dispatcher::Dispatcher;
 pub use local::{LocalAgents, LocalEnrollment};
 pub use lock::{HubLock, LockError};
-pub(crate) use schedulers::Schedulers;
+pub(crate) mod backup_job;
+pub(crate) use schedulers::{RuntimeContext, Schedulers};
 pub(crate) use support::FanOut;
 pub(crate) use support::public_url as support_public_url;
 
@@ -346,8 +347,11 @@ impl HubRuntime {
         );
         let schedulers = Schedulers::new(
             config.clone(),
-            clock.clone(),
-            store.clone(),
+            RuntimeContext {
+                clock: clock.clone(),
+                store: store.clone(),
+                redactor: redactor.clone(),
+            },
             actions_service,
             dispatcher.clone(),
             digest,

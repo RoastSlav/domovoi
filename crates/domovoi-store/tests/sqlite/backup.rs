@@ -2,7 +2,9 @@
 
 use domovoi_core::ports::AdvisoryRepo;
 use domovoi_core::{Advisory, AdvisoryId, AdvisoryKind};
-use domovoi_store::{Depth, MIGRATOR, Store, verify_backup};
+use domovoi_store::{
+    BackupError, Depth, MIGRATOR, Store, StoreOpenError, verify_backup, verify_or_tracked_for_tests,
+};
 use domovoi_testkit::build::{T0, at};
 use sqlx::{ConnectOptions, Connection};
 
@@ -250,4 +252,156 @@ async fn backup_failed_advisory_round_trips_and_keeps_existing_ones() {
     assert!(open.contains(&existing), "the existing advisory survives");
     assert!(open.contains(&backup), "backup_failed round-trips");
     fresh.store.close().await;
+}
+
+#[tokio::test]
+async fn backup_verification_rejects_a_newer_min_reader() {
+    let fresh = Fresh::new().await;
+    let dir = fresh.dir.path().join("nightly");
+    let good = fresh.store.backup_to(&dir, at(0)).await.unwrap();
+    fresh.store.close().await;
+
+    let copied = fresh.dir.path().join("newer-reader.db");
+    std::fs::copy(&good, &copied).unwrap();
+    let mut conn = sqlx::sqlite::SqliteConnectOptions::new()
+        .filename(&copied)
+        .connect()
+        .await
+        .unwrap();
+    // A reader requirement no present or past binary can meet.
+    sqlx::query("UPDATE schema_compat SET min_reader = '99.0.0' WHERE id = 1")
+        .execute(&mut conn)
+        .await
+        .unwrap();
+    conn.close().await.unwrap();
+
+    let err = verify_backup(&copied, Depth::Quick).await.unwrap_err();
+    match err {
+        BackupError::Incompatible { min_reader, binary } => {
+            assert_eq!(min_reader, "99.0.0");
+            assert_eq!(binary, env!("CARGO_PKG_VERSION"), "this binary's version");
+        }
+        other => panic!("expected Incompatible, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn restore_refuses_a_backup_from_a_newer_reader_without_moving_anything() {
+    use domovoi_core::ports::SettingsRepo;
+    use domovoi_store::restore_from_backup;
+
+    let dir = tempfile::tempdir().unwrap();
+    let live = dir.path().join("hub.db");
+    let store = Store::open(&live, domovoi_store::StoreOptions::beside(&live, T0))
+        .await
+        .unwrap();
+    store
+        .set("ui.theme", &serde_json::json!("live-theme"))
+        .await
+        .unwrap();
+    store.close().await;
+    let before = std::fs::read(&live).unwrap();
+
+    let dir_backup = newer_reader_backup(dir.path()).await;
+
+    let err = restore_from_backup(&live, &dir_backup, at(60))
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(
+            err,
+            domovoi_store::RestoreError::Backup(BackupError::Incompatible { .. })
+        ),
+        "{err}"
+    );
+    assert_eq!(std::fs::read(&live).unwrap(), before, "nothing moved");
+    assert_eq!(
+        names(dir.path())
+            .iter()
+            .filter(|name| name.contains("before-restore") || name.contains("restore-tmp"))
+            .count(),
+        0,
+        "no artifact was left: {:?}",
+        names(dir.path())
+    );
+}
+
+/// A backup whose `schema_compat.min_reader` no binary can meet.
+async fn newer_reader_backup(dir: &std::path::Path) -> std::path::PathBuf {
+    let source = dir.join("reader-source");
+    std::fs::create_dir_all(&source).unwrap();
+    let path = source.join("backup.db");
+    let store = Store::open(&path, domovoi_store::StoreOptions::beside(&path, T0))
+        .await
+        .unwrap();
+    store.close().await;
+    let mut conn = sqlx::sqlite::SqliteConnectOptions::new()
+        .filename(&path)
+        .connect()
+        .await
+        .unwrap();
+    sqlx::query("UPDATE schema_compat SET min_reader = '99.0.0' WHERE id = 1")
+        .execute(&mut conn)
+        .await
+        .unwrap();
+    conn.close().await.unwrap();
+    path
+}
+
+#[tokio::test]
+async fn a_failed_verification_removes_the_new_backup_and_keeps_the_good_ones() {
+    let dir = tempfile::tempdir().unwrap();
+    let nightly = dir.path().join("nightly");
+    std::fs::create_dir_all(&nightly).unwrap();
+    // Two good backups that must survive, and an unrelated file.
+    for name in ["domovoi-20260101T040000Z.db", "domovoi-20260102T040000Z.db"] {
+        std::fs::write(nightly.join(name), b"good").unwrap();
+    }
+    std::fs::write(nightly.join("notes.txt"), b"notes").unwrap();
+    let failed = nightly.join("domovoi-20260103T040000Z.db");
+    std::fs::write(&failed, b"would not verify").unwrap();
+
+    let err = verify_or_tracked_for_tests(&failed, "the database failed its integrity check")
+        .await
+        .unwrap_err();
+    match err {
+        StoreOpenError::Verify { path, reason } => {
+            assert_eq!(path, failed);
+            assert!(
+                reason.contains("failed its integrity check"),
+                "the check's reason is kept: {reason}"
+            );
+        }
+        other => panic!("expected Verify, got {other:?}"),
+    }
+    assert!(!failed.exists(), "the failed copy was removed");
+    assert_eq!(
+        names(&nightly),
+        [
+            "domovoi-20260101T040000Z.db",
+            "domovoi-20260102T040000Z.db",
+            "notes.txt"
+        ],
+        "the good backups and the unrelated file are untouched"
+    );
+}
+
+#[tokio::test]
+async fn a_backup_that_cannot_be_removed_says_so() {
+    let dir = tempfile::tempdir().unwrap();
+    // A directory cannot be removed as a file, so the cleanup itself fails.
+    let stuck = dir.path().join("not-a-file.db");
+    std::fs::create_dir_all(&stuck).unwrap();
+
+    let err = verify_or_tracked_for_tests(&stuck, "damaged")
+        .await
+        .unwrap_err();
+    let StoreOpenError::Verify { reason, .. } = err else {
+        panic!("expected Verify, got {err:?}");
+    };
+    assert!(
+        reason.contains("could not be removed"),
+        "the failure to remove is reported, not hidden: {reason}"
+    );
+    assert!(stuck.exists(), "nothing was deleted");
 }

@@ -1,7 +1,10 @@
 //! Installing a backup: the previous database is kept, and a failure puts it back.
 
 use domovoi_core::ports::SettingsRepo;
-use domovoi_store::{MIGRATOR, Store, StoreOptions, restore_from_backup};
+use domovoi_store::{
+    MIGRATOR, RestoreError, Store, StoreOptions, pre_migrate_name, restore_from_backup,
+    restore_from_backup_failing_at,
+};
 use domovoi_testkit::build::{T0, at};
 
 /// A database in `dir/hub.db`, with `ui.theme` set to `theme`, and the store closed.
@@ -248,5 +251,217 @@ async fn restore_puts_the_old_database_back_when_the_open_fails() {
     assert!(
         !names.iter().any(|name| name.contains(".before-restore-")),
         "the previous copy never moved: {names:?}"
+    );
+}
+
+/// Every file in `dir`, by name, sorted.
+fn names(dir: &std::path::Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    names
+}
+
+#[tokio::test]
+async fn restore_never_overwrites_an_existing_previous_database() {
+    let dir = tempfile::tempdir().unwrap();
+    let backup_store = Fresh::in_dir(dir.path().join("backup"));
+    let backup_path = backup_store.write("from-backup").await;
+    let live = database_with(dir.path(), "first-live").await;
+
+    // Both restores use the same directory and the same supplied timestamp, so the
+    // preserved name collides.
+    let first = restore_from_backup(&live, &backup_path, at(60))
+        .await
+        .unwrap();
+    let first_previous = first.previous.expect("the first database is kept");
+    let first_bytes = std::fs::read(&first_previous).unwrap();
+
+    // A fresh live database in the same place, restored at the same time.
+    let store = Store::open(&live, StoreOptions::beside(&live, T0))
+        .await
+        .unwrap();
+    store
+        .set("ui.theme", &serde_json::json!("second-live"))
+        .await
+        .unwrap();
+    store.close().await;
+    let second = restore_from_backup(&live, &backup_path, at(60))
+        .await
+        .unwrap();
+    let second_previous = second.previous.expect("the second database is kept");
+
+    assert_ne!(
+        first_previous, second_previous,
+        "the second restore took a different name"
+    );
+    assert!(
+        second_previous
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .ends_with("-2"),
+        "the collision got a suffix: {}",
+        second_previous.display()
+    );
+    assert_eq!(
+        std::fs::read(&first_previous).unwrap(),
+        first_bytes,
+        "the first preserved database is byte-for-byte intact"
+    );
+    assert_eq!(
+        theme_of(&first_previous).await,
+        Some(serde_json::json!("first-live"))
+    );
+    assert_eq!(
+        theme_of(&second_previous).await,
+        Some(serde_json::json!("second-live"))
+    );
+}
+
+#[tokio::test]
+async fn restore_refuses_to_overwrite_an_existing_temporary_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let backup_store = Fresh::in_dir(dir.path().join("backup"));
+    let backup_path = backup_store.write("from-backup").await;
+    let live = database_with(dir.path(), "live-theme").await;
+
+    // A previous failed attempt left a temporary copy behind.
+    let leftover = dir.path().join("hub.db.restore-tmp");
+    std::fs::write(&leftover, b"left by an earlier run").unwrap();
+
+    let report = restore_from_backup(&live, &backup_path, at(60))
+        .await
+        .unwrap();
+    assert_eq!(
+        std::fs::read(&leftover).unwrap(),
+        b"left by an earlier run",
+        "the leftover is untouched"
+    );
+    assert!(
+        report.previous.as_ref().is_some_and(|path| path.exists()),
+        "the restore itself succeeded under another name"
+    );
+    assert_eq!(
+        theme_of(&live).await,
+        Some(serde_json::json!("from-backup"))
+    );
+}
+
+#[tokio::test]
+async fn restore_carries_the_previous_database_sidecars() {
+    let dir = tempfile::tempdir().unwrap();
+    let backup_store = Fresh::in_dir(dir.path().join("backup"));
+    let backup_path = backup_store.write("from-backup").await;
+    let live = database_with(dir.path(), "live-theme").await;
+    // Sidecars beside the live database, as a hub that stopped abruptly leaves them.
+    std::fs::write(dir.path().join("hub.db-wal"), b"wal").unwrap();
+    std::fs::write(dir.path().join("hub.db-shm"), b"shm").unwrap();
+
+    let report = restore_from_backup(&live, &backup_path, at(60))
+        .await
+        .unwrap();
+    let previous = report.previous.expect("the old database is kept");
+    let mut wal = previous.as_os_str().to_owned();
+    wal.push("-wal");
+    let mut shm = previous.as_os_str().to_owned();
+    shm.push("-shm");
+    assert_eq!(std::fs::read(&wal).unwrap(), b"wal");
+    assert_eq!(std::fs::read(&shm).unwrap(), b"shm");
+    assert!(
+        !dir.path().join("hub.db-wal").exists(),
+        "the live sidecars moved with the database"
+    );
+    assert_eq!(
+        theme_of(&live).await,
+        Some(serde_json::json!("from-backup"))
+    );
+}
+
+#[tokio::test]
+async fn a_sidecar_that_cannot_move_aside_leaves_the_database_in_place() {
+    let dir = tempfile::tempdir().unwrap();
+    let backup_store = Fresh::in_dir(dir.path().join("backup"));
+    let backup_path = backup_store.write("from-backup").await;
+    let live = database_with(dir.path(), "live-theme").await;
+    std::fs::write(dir.path().join("hub.db-shm"), b"shm").unwrap();
+    let before = std::fs::read(&live).unwrap();
+
+    let err = restore_from_backup_failing_at(&live, &backup_path, at(60), "aside-shm")
+        .await
+        .unwrap_err();
+    assert!(matches!(err, RestoreError::Io { .. }), "{err}");
+    assert_eq!(
+        std::fs::read(&live).unwrap(),
+        before,
+        "the database did not move"
+    );
+    assert!(
+        dir.path().join("hub.db-shm").exists(),
+        "the sidecar is back where it was"
+    );
+    assert_eq!(theme_of(&live).await, Some(serde_json::json!("live-theme")));
+}
+
+#[tokio::test]
+async fn a_sidecar_that_cannot_be_installed_puts_everything_back() {
+    let dir = tempfile::tempdir().unwrap();
+    let backup_store = Fresh::in_dir(dir.path().join("backup"));
+    let backup_path = backup_store.write("from-backup").await;
+    let live = database_with(dir.path(), "live-theme").await;
+    let before = std::fs::read(&live).unwrap();
+
+    let err = restore_from_backup_failing_at(&live, &backup_path, at(60), "swap-database")
+        .await
+        .unwrap_err();
+    assert!(matches!(err, RestoreError::Io { .. }), "{err}");
+    assert_eq!(
+        std::fs::read(&live).unwrap(),
+        before,
+        "the previous database is back in place"
+    );
+    assert_eq!(theme_of(&live).await, Some(serde_json::json!("live-theme")));
+    let listed = names(dir.path());
+    assert!(
+        !listed.iter().any(|name| name.contains(".before-restore-")),
+        "the preserved copy is not left behind: {listed:?}"
+    );
+}
+
+#[tokio::test]
+async fn restore_names_its_pre_migration_copy_with_the_supplied_clock() {
+    let dir = tempfile::tempdir().unwrap();
+    let older_dir = dir.path().join("older");
+    std::fs::create_dir_all(&older_dir).unwrap();
+    let older = older_dir.join("hub.db");
+    let connect = sqlx::sqlite::SqliteConnectOptions::new()
+        .filename(&older)
+        .create_if_missing(true);
+    let pool = sqlx::sqlite::SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(connect)
+        .await
+        .unwrap();
+    MIGRATOR.run_to(5, &pool).await.unwrap();
+    pool.close().await;
+    let backup = dir.path().join("older.db");
+    std::fs::copy(&older, &backup).unwrap();
+
+    let live_dir = dir.path().join("live");
+    std::fs::create_dir_all(&live_dir).unwrap();
+    let live = live_dir.join("hub.db");
+    let now = at(12_345);
+    let report = restore_from_backup(&live, &backup, now).await.unwrap();
+    assert!(report.migrations_applied_after > 0);
+    // The pre-migration copy the open took is named for `now`, not the wall clock.
+    assert!(
+        live_dir
+            .join("backups")
+            .join(pre_migrate_name(now))
+            .exists(),
+        "the pre-migration copy is named for the supplied time: {:?}",
+        names(&live_dir.join("backups"))
     );
 }

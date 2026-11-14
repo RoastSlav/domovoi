@@ -26,11 +26,13 @@ mod uow;
 
 pub use backup::{
     BACKUP_PREFIX, BackupError, BackupReport, Depth, PRE_MIGRATE_PREFIX, pre_migrate_name,
-    prune_pre_migrate_for_tests, verify_backup,
+    prune_pre_migrate_for_tests, verify_backup, verify_or_tracked_for_tests,
 };
 pub use compat::MIN_READER;
 pub use db::{BUSY_TIMEOUT, MIGRATOR, READ_CONNECTIONS, Store, StoreOptions, needs_backup};
 pub use error::StoreOpenError;
 pub use purge::{FTS_CLEANUP, PURGED_TABLES, PurgeReport, RetentionPolicy};
 pub use repos::SNIPPET_CHARS;
-pub use restore::{RestoreError, RestoreReport, restore_from_backup};
+pub use restore::{
+    RestoreError, RestoreReport, restore_from_backup, restore_from_backup_failing_at,
+};

@@ -101,6 +101,16 @@ pub enum BackupError {
     /// A migration in the file did not finish.
     #[error("the backup has a migration that did not finish ({0})")]
     Unfinished(i64),
+    /// The file records a schema this binary is too old to read.
+    #[error(
+        "the backup needs Domovoi {min_reader} or newer, but this is {binary}; upgrade before restoring it"
+    )]
+    Incompatible {
+        /// The lowest binary version the backup accepts.
+        min_reader: String,
+        /// This binary's version.
+        binary: String,
+    },
 }
 
 /// Opens `path` read-only (never creates it) and checks it.
@@ -128,6 +138,14 @@ pub async fn verify_backup(path: &Path, depth: Depth) -> Result<BackupReport, Ba
     let checked = check(&mut conn, depth).await;
     let _ = conn.close().await;
     let (migrations, newest_migration) = checked?;
+    // The `schema_compat` row says which binary may read the file; `_sqlx_migrations`
+    // says which migrations it has. A backup can pass one and fail the other.
+    crate::compat::check(path).await.map_err(|err| match err {
+        StoreOpenError::SchemaTooNew { min_reader, binary } => {
+            BackupError::Incompatible { min_reader, binary }
+        }
+        other => BackupError::Unreadable(other.to_string()),
+    })?;
     Ok(BackupReport {
         migrations,
         newest_migration,
@@ -179,12 +197,23 @@ async fn check(conn: &mut SqliteConnection, depth: Depth) -> Result<(usize, i64)
 }
 
 /// Deletes `path` after a failed verification, so a bad copy never counts as a backup.
-fn verify_or_remove(path: &Path) -> Result<(), StoreOpenError> {
-    std::fs::remove_file(path).map_err(|err| io(path, err))?;
+///
+/// `reason` is what the check found, kept for the operator. A file that cannot be removed
+/// is reported as such: the caller must never read this as "the bad copy is gone".
+fn verify_or_remove(path: &Path, reason: &str) -> Result<(), StoreOpenError> {
+    if let Err(err) = std::fs::remove_file(path) {
+        return Err(StoreOpenError::Verify {
+            path: path.to_owned(),
+            reason: format!(
+                "the new backup did not verify ({reason}) and could not be removed: {err}"
+            ),
+        });
+    }
     Err(StoreOpenError::Verify {
         path: path.to_owned(),
-        reason: "the new backup did not verify; it was removed and older backups were kept"
-            .to_owned(),
+        reason: format!(
+            "the new backup did not verify ({reason}); it was removed and older backups were kept"
+        ),
     })
 }
 
@@ -220,9 +249,30 @@ async fn verify_or_track(target: &Path) -> Result<(), StoreOpenError> {
         Ok(_) => Ok(()),
         Err(err) => {
             tracing::warn!(backup = %target.display(), %err, "a new backup did not verify");
-            verify_or_remove(target)
+            verify_or_tracked(target, &err.to_string()).await
         }
     }
+}
+
+/// The verification failure path of [`Store::backup_to`], over the same helper.
+#[doc(hidden)]
+pub async fn verify_or_tracked_for_tests(
+    target: &Path,
+    reason: &str,
+) -> Result<(), StoreOpenError> {
+    verify_or_tracked(target, reason).await
+}
+
+/// [`verify_or_remove`] on the blocking pool: it removes a file, and the caller is async.
+async fn verify_or_tracked(target: &Path, reason: &str) -> Result<(), StoreOpenError> {
+    let path = target.to_owned();
+    let reason = reason.to_owned();
+    tokio::task::spawn_blocking(move || verify_or_remove(&path, &reason))
+        .await
+        .map_err(|err| StoreOpenError::Verify {
+            path: target.to_owned(),
+            reason: format!("the check could not be run: {err}"),
+        })?
 }
 
 /// Deletes the oldest nightly backups in `dir` beyond `keep`. Names sort by time.
