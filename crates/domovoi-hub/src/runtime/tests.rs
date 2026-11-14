@@ -753,8 +753,11 @@ fn chain_for_builds_one_provider_per_fallback_model() {
         cli: None,
         price: None,
         timeout: None,
+        call_deadline: None,
     };
-    let chain = super::settings::chain_for(&config, None).unwrap();
+    let clock: Arc<dyn Clock> =
+        Arc::new(domovoi_testkit::FakeClock::new(at("2026-01-01T00:00:00Z")));
+    let chain = super::settings::chain_for(&config, None, &clock).unwrap();
     assert_eq!(
         chain.len(),
         3,

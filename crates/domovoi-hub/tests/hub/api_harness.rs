@@ -229,28 +229,33 @@ pub fn config() -> HubConfig {
 }
 
 pub async fn api() -> Api {
-    build(false, None, true, true).await
+    build(false, None, true, true, TriageSettings::default()).await
 }
 
 /// [`api`] with `notifier` taking digests.
 pub async fn api_with_notifier(notifier: Arc<dyn Notifier>) -> Api {
-    build(false, Some(notifier), true, true).await
+    build(false, Some(notifier), true, true, TriageSettings::default()).await
 }
 
 /// [`api`] with triage on, answering from [`Api::llm`].
 pub async fn api_with_triage() -> Api {
-    build(true, None, true, true).await
+    build(true, None, true, true, TriageSettings::default()).await
+}
+
+/// [`api`] with triage on under `settings`, for the admission refusals.
+pub async fn api_with_triage_settings(settings: TriageSettings) -> Api {
+    build(true, None, true, true, settings).await
 }
 
 /// [`api`] whose hub was built without profile collection: the profile endpoints say they
 /// are unavailable, and the chat commands that only want the host's line still answer.
 pub async fn api_without_profiles() -> Api {
-    build(false, None, false, true).await
+    build(false, None, false, true, TriageSettings::default()).await
 }
 
 /// [`api`] with nothing captured behind it: the log endpoints say they are unavailable.
 pub async fn api_without_logs() -> Api {
-    build(false, None, true, false).await
+    build(false, None, true, false, TriageSettings::default()).await
 }
 
 async fn build(
@@ -258,6 +263,7 @@ async fn build(
     notifier: Option<Arc<dyn Notifier>>,
     profiles: bool,
     logs: bool,
+    triage_settings: TriageSettings,
 ) -> Api {
     // The binary installs the process-wide provider; connection tests build HTTP clients.
     let _ = rustls::crypto::ring::default_provider().install_default();
@@ -318,6 +324,7 @@ async fn build(
                 actions_service: actions_service.clone(),
                 cache: store.clone(),
                 usage: store.clone(),
+                admission: store.clone(),
                 advisories: store.clone(),
                 redactor: Arc::new(PatternRedactor::default()),
                 clock: clock.clone(),
@@ -325,7 +332,7 @@ async fn build(
                 bus: bus.clone(),
                 shutdown: shutdown.clone(),
             },
-            TriageSettings::default(),
+            triage_settings,
         )
         .0
     });
