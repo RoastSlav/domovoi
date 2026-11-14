@@ -61,6 +61,8 @@ struct State {
 pub struct InMemoryStore {
     state: Mutex<State>,
     failures: Mutex<VecDeque<StoreError>>,
+    /// How long an incident listing or note search takes before it answers.
+    delay: Mutex<Option<std::time::Duration>>,
 }
 
 impl InMemoryStore {
@@ -68,6 +70,22 @@ impl InMemoryStore {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Makes incident listings and note searches take `delay` before answering, so a test
+    /// can put them past a run deadline without a real sleep.
+    #[must_use]
+    pub fn with_delay(self, delay: std::time::Duration) -> Self {
+        *lock(&self.delay) = Some(delay);
+        self
+    }
+
+    /// Waits the configured delay, if any. The guard is dropped before the wait.
+    async fn pause(&self) {
+        let delay = *lock(&self.delay);
+        if let Some(delay) = delay {
+            tokio::time::sleep(delay).await;
+        }
     }
 
     /// Makes the next repository call, whatever it is, fail with `error` without changing

@@ -3,7 +3,7 @@
 
 use domovoi_core::ports::{IncidentFilter, Page};
 use domovoi_core::{HostId, Incident, IncidentId, ReadToolCall, Risk, SkillSummary};
-use jiff::SignedDuration;
+use jiff::{SignedDuration, Timestamp};
 use serde_json::Value;
 
 use super::Shared;
@@ -57,16 +57,18 @@ pub(crate) fn cut(text: &str, max: usize) -> String {
 
 /// Runs the call the model named `name` with `input` within `scope`. Unknown tools and bad
 /// arguments are answered with an error the model can read; nothing outside the read
-/// tools can run.
+/// tools can run. Agent calls are bounded by `run_deadline` and by [`TOOL_DEADLINE`],
+/// whichever comes first.
 pub(crate) async fn call(
     shared: &Shared,
     scope: Scope,
     skills: &[SkillSummary],
     name: &str,
     input: Value,
+    run_deadline: Timestamp,
 ) -> ToolResult {
     match ReadToolCall::from_json(name, input) {
-        Ok(call) => run(shared, scope, skills, call).await,
+        Ok(call) => run(shared, scope, skills, call, run_deadline).await,
         Err(err) => finish(shared, &format!("error: {err}"), true),
     }
 }
@@ -77,8 +79,9 @@ pub(crate) async fn run(
     scope: Scope,
     skills: &[SkillSummary],
     call: ReadToolCall,
+    run_deadline: Timestamp,
 ) -> ToolResult {
-    match execute(shared, scope, skills, call).await {
+    match execute(shared, scope, skills, call, run_deadline).await {
         Ok(text) => finish(shared, &text, false),
         Err(text) => finish(shared, &format!("error: {text}"), true),
     }
@@ -92,11 +95,31 @@ fn finish(shared: &Shared, text: &str, is_error: bool) -> ToolResult {
     }
 }
 
+/// The error every tool path returns when the run ran out of time around it.
+const TIMEOUT_TEXT: &str = "the tool did not finish before the run deadline";
+
+/// Runs `work` under `deadline`, dropping it when the deadline passes so nothing keeps
+/// running after the run is over. Every tool path uses this: a slow repository and a slow
+/// agent are bounded the same way.
+async fn bounded<F>(shared: &Shared, deadline: Timestamp, work: F) -> Result<F::Output, String>
+where
+    F: std::future::Future,
+{
+    let left = deadline.duration_since(shared.deps.clock.now());
+    if left <= SignedDuration::ZERO {
+        return Err(TIMEOUT_TEXT.to_owned());
+    }
+    tokio::time::timeout(left.unsigned_abs(), work)
+        .await
+        .map_err(|_| TIMEOUT_TEXT.to_owned())
+}
+
 async fn execute(
     shared: &Shared,
     scope: Scope,
     skills: &[SkillSummary],
     call: ReadToolCall,
+    run_deadline: Timestamp,
 ) -> Result<String, String> {
     let deps = &shared.deps;
     match &call {
@@ -105,11 +128,13 @@ async fn execute(
                 host: Some(scope.host),
                 ..IncidentFilter::default()
             };
-            let page = deps
-                .incidents
-                .list(&filter, &Page::first(*limit))
-                .await
-                .map_err(|e| e.to_string())?;
+            let page = bounded(
+                shared,
+                run_deadline,
+                deps.incidents.list(&filter, &Page::first(*limit)),
+            )
+            .await?
+            .map_err(|e| e.to_string())?;
             let lines: Vec<String> = page
                 .items
                 .iter()
@@ -132,11 +157,13 @@ async fn execute(
             })
         }
         ReadToolCall::NotesSearch { query, limit } => {
-            let hits = deps
-                .notes
-                .search(query, Some(scope.host), *limit)
-                .await
-                .map_err(|e| e.to_string())?;
+            let hits = bounded(
+                shared,
+                run_deadline,
+                deps.notes.search(query, Some(scope.host), *limit),
+            )
+            .await?
+            .map_err(|e| e.to_string())?;
             Ok(if hits.is_empty() {
                 "No matching notes.".to_owned()
             } else {
@@ -155,24 +182,30 @@ async fn execute(
                 return Err(format!("skill `{skill}` is not read-only"));
             }
             summary.validate_args(args).map_err(|e| e.to_string())?;
-            agent(shared, scope, call).await
+            agent(shared, scope, call, run_deadline).await
         }
-        _ => agent(shared, scope, call).await,
+        _ => agent(shared, scope, call, run_deadline).await,
     }
 }
 
-async fn agent(shared: &Shared, scope: Scope, call: ReadToolCall) -> Result<String, String> {
+async fn agent(
+    shared: &Shared,
+    scope: Scope,
+    call: ReadToolCall,
+    run_deadline: Timestamp,
+) -> Result<String, String> {
     let deps = &shared.deps;
-    let deadline = deps
-        .clock
-        .now()
-        .checked_add(TOOL_DEADLINE)
-        .unwrap_or(deps.clock.now());
-    let out = deps
-        .link
-        .run_tool(scope.host, call, deadline)
-        .await
-        .map_err(|e| e.to_string())?;
+    let now = deps.clock.now();
+    let per_tool = now.checked_add(TOOL_DEADLINE).unwrap_or(now);
+    // The per-tool limit is an extra safety net; the run's deadline always wins.
+    let deadline = std::cmp::min(per_tool, run_deadline);
+    let out = bounded(
+        shared,
+        deadline,
+        deps.link.run_tool(scope.host, call, deadline),
+    )
+    .await?
+    .map_err(|err| err.to_string())?;
     Ok(if out.truncated {
         format!("{}\n[the agent cut this output]", out.text)
     } else {

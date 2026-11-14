@@ -35,6 +35,12 @@ struct Delta {
     content: Option<String>,
     #[serde(default)]
     tool_calls: Vec<DeltaCall>,
+    /// Reasoning tokens a reasoning model streams beside (or instead of) the answer.
+    #[serde(default)]
+    reasoning: Option<String>,
+    /// The same field under the name some servers use.
+    #[serde(default)]
+    reasoning_content: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -70,6 +76,7 @@ pub(crate) async fn assemble(
     secret: Option<&SecretString>,
 ) -> Result<WireResponse, LlmError> {
     let mut content = String::new();
+    let mut reasoning = String::new();
     let mut calls: BTreeMap<usize, Partial> = BTreeMap::new();
     let mut finish_reason = None;
     let mut usage = None;
@@ -87,12 +94,27 @@ pub(crate) async fn assemble(
                 excerpt(&error.to_string(), secret)
             )));
         }
-        if chunk.usage.is_some() {
-            usage = chunk.usage;
+        // Usage may arrive in several chunks, each carrying different fields. Merge them:
+        // an earlier reported value is never discarded by a later partial one, and an
+        // explicit zero stays reported.
+        if let Some(chunk_usage) = chunk.usage {
+            let merged = usage.get_or_insert_with(WireUsage::default);
+            if chunk_usage.prompt_tokens.is_some() {
+                merged.prompt_tokens = chunk_usage.prompt_tokens;
+            }
+            if chunk_usage.completion_tokens.is_some() {
+                merged.completion_tokens = chunk_usage.completion_tokens;
+            }
         }
         for choice in chunk.choices {
             if let Some(text) = choice.delta.content {
                 content.push_str(&text);
+            }
+            if let Some(text) = choice.delta.reasoning {
+                reasoning.push_str(&text);
+            }
+            if let Some(text) = choice.delta.reasoning_content {
+                reasoning.push_str(&text);
             }
             for call in choice.delta.tool_calls {
                 add_call(&mut calls, call);
@@ -122,10 +144,13 @@ pub(crate) async fn assemble(
                         },
                     })
                     .collect(),
+                reasoning: None,
+                reasoning_content: None,
             },
             finish_reason,
         }],
         usage,
+        reasoning,
     })
 }
 

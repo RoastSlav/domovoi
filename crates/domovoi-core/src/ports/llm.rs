@@ -97,8 +97,21 @@ pub enum StopReason {
     Other(String),
 }
 
-/// Tokens used by one turn.
+/// Whether a turn's usage totals are real or inferred.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum UsageSource {
+    /// The provider reported the totals.
+    #[default]
+    Reported,
+    /// The provider reported nothing; the engine inferred the tokens from the request and
+    /// the answer. Cost is only known when the provider has a price.
+    Estimated,
+    /// Nothing is known: neither the provider nor an inference produced totals.
+    Unknown,
+}
+
+/// Tokens used by one turn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Usage {
     /// Prompt tokens.
     pub input_tokens: u32,
@@ -106,6 +119,22 @@ pub struct Usage {
     pub output_tokens: u32,
     /// Cost in millionths of a US dollar, when the provider reports or implies it.
     pub cost_micros: Option<u64>,
+    /// Whether the totals were reported, inferred or are unknown.
+    pub source: UsageSource,
+}
+
+impl Default for Usage {
+    /// No tokens at a known zero cost: a caller that does not track usage, such as a fake
+    /// or a provider that charges nothing, says so explicitly rather than leaving the cost
+    /// unknown.
+    fn default() -> Self {
+        Self {
+            input_tokens: 0,
+            output_tokens: 0,
+            cost_micros: Some(0),
+            source: UsageSource::Reported,
+        }
+    }
 }
 
 /// The model's answer to one turn.
@@ -117,6 +146,30 @@ pub struct LlmResponse {
     pub stop: StopReason,
     /// Token usage.
     pub usage: Usage,
+}
+
+/// A provider feature one request can leave out.
+///
+/// An adapter reports one through [`LlmError::CapabilityRejected`] when a provider refuses
+/// it, so the caller can rebuild its request and prompt without it. Only capabilities whose
+/// absence the caller can compensate for are listed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum LlmCapability {
+    /// The `tools` field: the model calls read tools itself. Without it the caller gathers
+    /// the tool output and puts it in the prompt.
+    Tools,
+    /// Usage totals inside a streamed answer (`stream_options`). Without it the answer still
+    /// arrives, but its cost is unknown.
+    StreamUsage,
+}
+
+impl std::fmt::Display for LlmCapability {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Tools => "tool calling",
+            Self::StreamUsage => "streamed usage totals",
+        })
+    }
 }
 
 /// Why a turn failed.
@@ -137,6 +190,16 @@ pub enum LlmError {
     /// The provider answered with something that could not be parsed.
     #[error("invalid response: {0}")]
     InvalidResponse(String),
+    /// The provider refused a capability this request used. The same request without it may
+    /// work, so the caller rebuilds what it sends and tries again. This is not an
+    /// authentication or rate-limit failure.
+    #[error("the provider refused {capability}: {detail}")]
+    CapabilityRejected {
+        /// What the provider refused.
+        capability: LlmCapability,
+        /// The provider's message, already redacted.
+        detail: String,
+    },
     /// The provider is not usable (disabled, missing binary, exhausted budget).
     #[error("unavailable: {0}")]
     Unavailable(String),
@@ -157,6 +220,15 @@ pub trait LlmProvider: Send + Sync {
     /// Whether the provider accepts [`LlmRequest::tools`]. When `false` the engine sends no
     /// tools and expects a final answer.
     fn supports_tools(&self) -> bool;
+
+    /// Whether this adapter can price a turn, so a monthly budget in dollars can count it.
+    ///
+    /// An adapter with no configured price returns `false`; a provider configured as
+    /// explicitly free returns `true`, because zero is a price. Adapters whose turns are
+    /// always free may keep the default.
+    fn prices_usage(&self) -> bool {
+        true
+    }
 
     /// Runs one turn. Does not retry; retries and budgets are the engine's job.
     async fn complete(&self, req: LlmRequest) -> Result<LlmResponse, LlmError>;

@@ -17,6 +17,7 @@ async fn cost_is_computed_only_with_configured_prices() {
         input_tokens: 1000,
         output_tokens: 200,
         cost_micros: None,
+        source: domovoi_core::ports::UsageSource::Reported,
     };
     assert_eq!(cost_micros(None, &usage), None);
     assert_eq!(cost_micros(Some(&PRICE), &usage), Some(6000));
