@@ -22,6 +22,23 @@ type Run = fn(&mut World<InMemoryStore>) -> BoxFuture<'_, ()>;
 /// [`commit_sites_are_the_ones_the_sweep_exercises`] until it adds a scenario here.
 const COMMIT_SITES: [&str; 2] = ["actions/mod.rs", "manager/actor.rs"];
 
+/// Every audit kind the action writer can produce, including the chat-token rotation. A scenario
+/// has to exercise each one, and a new producer has to be added here.
+const AUDIT_KINDS: [&str; 12] = [
+    "action.proposed",
+    "action.approved",
+    "action.denied",
+    "action.expired",
+    "action.rejected",
+    "action.blocked",
+    "action.dispatched",
+    "action.succeeded",
+    "action.failed",
+    "action.verified",
+    "action.verify_failed",
+    "action.token_rotated",
+];
+
 /// Runs a scenario once with the wrapper recording, and returns what it committed.
 async fn recorded(run: Run) -> Vec<TxSummary> {
     let mut world = World::new(Arc::new(InMemoryStore::new())).await;
@@ -90,9 +107,21 @@ async fn sweep_covers_every_kind_of_write() {
         journal.contains("action.transition"),
         "no scenario writes an action transition journal row\nfound: {journal:#?}"
     );
+
+    // The audit contract, both ways: every kind the action writer produces must be exercised,
+    // and a kind this list does not know is a new producer that needs reviewing here.
+    let observed: BTreeSet<&str> = audit.iter().map(String::as_str).collect();
+    let expected: BTreeSet<&str> = AUDIT_KINDS.into_iter().collect();
+    let missing: Vec<&str> = expected.difference(&observed).copied().collect();
     assert!(
-        audit.contains("action.token_rotated"),
-        "no scenario rotates a chat token, so its audit row is never covered\nfound: {audit:#?}"
+        missing.is_empty(),
+        "no scenario produces these audit kinds, so the sweep does not cover them: {missing:?}"
+    );
+    let unexpected: Vec<&str> = observed.difference(&expected).copied().collect();
+    assert!(
+        unexpected.is_empty(),
+        "the writers now produce audit kinds the contract does not list: {unexpected:?}; review \
+         the new producer and extend AUDIT_KINDS in the same change"
     );
 }
 

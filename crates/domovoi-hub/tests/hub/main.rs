@@ -53,4 +53,6 @@ mod skills;
 #[cfg(test)]
 mod spa;
 #[cfg(test)]
+mod sqlite;
+#[cfg(test)]
 mod upgrade_flow;

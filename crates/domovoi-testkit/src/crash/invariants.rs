@@ -10,6 +10,7 @@ use domovoi_core::{ActionId, IncidentId};
 use serde_json::Value;
 
 use super::SweepStore;
+use super::integrity::OrphanStorage;
 
 /// The audit kinds that correspond one-to-one with a non-rotation action transition.
 const TRANSITION_AUDITS: [&str; 11] = [
@@ -197,9 +198,33 @@ pub async fn check_invariants_except<S: SweepStore>(
         }
     }
 
-    // Orphan timeline entries and signal links cannot be enumerated through the ports:
-    // both are only readable per existing incident. Actions may outlive discarded
-    // incidents, and the brief exempts them, so there is nothing left to check here.
+    // References left behind by an incident that no longer exists cannot be reached through
+    // the ports, which read a timeline and its links only for an incident that exists, so the
+    // store reports them itself.
+    match store.orphan_incident_refs().await {
+        Ok(orphans) => {
+            for orphan in orphans {
+                let (one, many) = match orphan.storage {
+                    OrphanStorage::Timeline => ("timeline entry", "timeline entries"),
+                    OrphanStorage::SignalLink => ("signal link", "signal links"),
+                };
+                let (what, verb) = if orphan.count == 1 {
+                    (one, "refers")
+                } else {
+                    (many, "refer")
+                };
+                violations.push(format!(
+                    "I3: {} {what} {verb} to incident {}, which is not stored",
+                    orphan.count, orphan.incident
+                ));
+            }
+        }
+        Err(err) => violations.push(format!(
+            "I3: the orphan references could not be read: {err}"
+        )),
+    }
+
+    // Actions may outlive discarded incidents, so they are exempt from the referential check.
 
     if violations.is_empty() {
         Ok(())

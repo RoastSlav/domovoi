@@ -26,6 +26,7 @@ use domovoi_testkit::crash::Reopen;
 
 use self::scenarios::{action_lifecycle, incident_lifecycle};
 use self::sweep::{BoxFuture, Scenario, sweep};
+use super::sqlite::SqliteStore;
 
 /// One temporary database per sweep case, reopened the way a restarted hub would open it.
 struct Sqlite {
@@ -44,26 +45,26 @@ impl Sqlite {
     }
 
     /// A fresh database file, so no case inherits another's state.
-    fn make(&self) -> BoxFuture<'static, Arc<Store>> {
+    fn make(&self) -> BoxFuture<'static, Arc<SqliteStore>> {
         let path = self.dir.join(format!(
             "case-{}.db",
             self.next.fetch_add(1, Ordering::Relaxed)
         ));
         *self.current.lock().expect("the path lock is not poisoned") = path.clone();
-        Box::pin(async move { Arc::new(open(&path).await) })
+        Box::pin(async move { Arc::new(SqliteStore::new(open(&path).await)) })
     }
 }
 
 #[async_trait]
-impl Reopen<Store> for Sqlite {
-    async fn reopen(&self, old: Arc<Store>) -> Arc<Store> {
+impl Reopen<SqliteStore> for Sqlite {
+    async fn reopen(&self, old: Arc<SqliteStore>) -> Arc<SqliteStore> {
         old.close().await;
         let path = self
             .current
             .lock()
             .expect("the path lock is not poisoned")
             .clone();
-        let store = Arc::new(open(&path).await);
+        let store = Arc::new(SqliteStore::new(open(&path).await));
         // A crash never breaks the chain: what was written before it either chained on or
         // was never written, and the legacy history still matches its anchor.
         let report = store
@@ -100,7 +101,7 @@ async fn incident_lifecycle_survives_a_crash_at_every_commit_on_sqlite() {
     let sqlite = Sqlite::new(dir.path().to_path_buf());
     let scenario = Scenario {
         name: "incident_lifecycle",
-        run: incident_lifecycle::<Store>,
+        run: incident_lifecycle::<SqliteStore>,
         min_commits: 14,
     };
     sweep(&scenario, &|| sqlite.make(), &sqlite).await;
@@ -112,7 +113,7 @@ async fn action_lifecycle_survives_a_crash_at_every_commit_on_sqlite() {
     let sqlite = Sqlite::new(dir.path().to_path_buf());
     let scenario = Scenario {
         name: "action_lifecycle",
-        run: action_lifecycle::<Store>,
+        run: action_lifecycle::<SqliteStore>,
         min_commits: 24,
     };
     sweep(&scenario, &|| sqlite.make(), &sqlite).await;

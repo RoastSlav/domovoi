@@ -1,11 +1,12 @@
 //! Unit tests for the crash wrapper, snapshots and invariants.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use domovoi_core::ports::StoreError;
 use domovoi_core::ports::{
     ActionGuard, AggregateRef, AuditDraft, IncidentRepo, IncidentTimelineEntry, JournalDraft,
-    JournalKind, StateWrite, Transaction, UnitOfWork,
+    JournalKind, SignalRepo, StateWrite, Transaction, UnitOfWork,
 };
 use domovoi_core::{ActionRequest, Actor, Incident, Risk, UserId};
 use serde_json::json;
@@ -452,6 +453,132 @@ async fn missing_actions_are_reported_as_store_errors_not_consistent() {
     IncidentRepo::insert(&*store, &incident).await.unwrap();
     store.fail_next(StoreError::Backend("disk".to_owned()));
     assert!(check_invariants(&*store).await.is_err());
+}
+
+/// A timeline entry whose incident is gone is an I3 violation: the ports cannot reach it, so the
+/// store reports it through its integrity read.
+#[tokio::test]
+async fn invariants_report_a_timeline_entry_for_a_missing_incident() {
+    let (store, _, _) = consistent_store().await;
+    let missing = domovoi_core::IncidentId::new();
+    store.insert_dangling_timeline(&IncidentTimelineEntry {
+        incident: missing,
+        at: T0,
+        kind: "status.changed".to_owned(),
+        summary: "left behind".to_owned(),
+        detail: json!({"from": "open", "to": "resolved"}),
+    });
+
+    let violations = check_invariants(&*store).await.unwrap_err();
+    assert!(
+        violations
+            .iter()
+            .any(|violation| violation.starts_with("I3:")
+                && violation.contains(&missing.to_string())
+                && violation.contains("timeline")),
+        "{violations:?}"
+    );
+}
+
+/// A signal linked to an incident that is gone is an I3 violation.
+#[tokio::test]
+async fn invariants_report_a_signal_linked_to_a_missing_incident() {
+    let (store, _, _) = consistent_store().await;
+    let missing = domovoi_core::IncidentId::new();
+    let linked = crate::build::signal(host(), "net.link", None).unwrap();
+    SignalRepo::insert(&*store, &linked, Some(missing))
+        .await
+        .unwrap();
+
+    let violations = check_invariants(&*store).await.unwrap_err();
+    assert!(
+        violations
+            .iter()
+            .any(|violation| violation.starts_with("I3:")
+                && violation.contains(&missing.to_string())
+                && violation.contains("signal")),
+        "{violations:?}"
+    );
+}
+
+/// Entries written before the journal existed are exempt from the timeline count, and the
+/// exemption does not hide a dangling reference: this entry's incident is stored.
+#[tokio::test]
+async fn legacy_timeline_entries_are_exempt_from_the_journal_count() {
+    let store = Arc::new(InMemoryStore::new());
+    let incident = pending_incident(host(), "disk.smart", None).unwrap();
+    IncidentRepo::insert(&*store, &incident).await.unwrap();
+    IncidentRepo::append_event(
+        &*store,
+        &IncidentTimelineEntry {
+            incident: incident.id(),
+            at: T0,
+            kind: "incident.created".to_owned(),
+            summary: "opened".to_owned(),
+            detail: serde_json::Value::Null,
+        },
+    )
+    .await
+    .unwrap();
+
+    let violations = check_invariants(&*store).await.unwrap_err();
+    assert!(
+        violations
+            .iter()
+            .any(|violation| violation.starts_with("I3:")),
+        "{violations:?}"
+    );
+    let exempt = Exempt {
+        actions: BTreeSet::new(),
+        legacy_timeline: BTreeMap::from([(incident.id(), 1)]),
+    };
+    check_invariants_except(&*store, &exempt)
+        .await
+        .expect("the entry is old enough to predate the journal");
+}
+
+/// Discarding a pending incident takes its timeline and its signal links with it, so nothing is
+/// left pointing at an incident that no longer exists.
+#[tokio::test]
+async fn discarding_a_pending_incident_leaves_no_orphans() {
+    let store = Arc::new(InMemoryStore::new());
+    let host = host();
+    let incident = pending_incident(host, "net.link", None).unwrap();
+    let signal = crate::build::signal(host, "net.link", None).unwrap();
+    store
+        .commit(
+            Transaction::new()
+                .write(StateWrite::Incident {
+                    incident: incident.clone(),
+                    expected: domovoi_core::ports::Expected::New,
+                })
+                .write(StateWrite::Signal {
+                    signal,
+                    incident: Some(incident.id()),
+                })
+                .write(StateWrite::IncidentEvent(IncidentTimelineEntry {
+                    incident: incident.id(),
+                    at: T0,
+                    kind: "incident.created".to_owned(),
+                    summary: "opened".to_owned(),
+                    detail: serde_json::Value::Null,
+                })),
+        )
+        .await
+        .unwrap();
+    store
+        .commit(
+            Transaction::new().write(StateWrite::DiscardPendingIncident {
+                id: incident.id(),
+                expected: 1,
+            }),
+        )
+        .await
+        .unwrap();
+
+    check_invariants(&*store)
+        .await
+        .expect("a discarded incident leaves no reference behind");
 }
 
 /// A second commit cannot reach the store while an earlier one is between its durable write

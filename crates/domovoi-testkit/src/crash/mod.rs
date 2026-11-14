@@ -9,6 +9,7 @@
 //! ids, so a run interrupted at any commit can be compared with the fault-free prefix and
 //! checked for the F1 cross-table invariants.
 
+mod integrity;
 mod invariants;
 #[cfg(test)]
 mod seams;
@@ -19,6 +20,7 @@ mod tests;
 #[cfg(test)]
 use seams::Hold;
 
+pub use integrity::{IntegrityRead, Orphan, OrphanStorage};
 pub use invariants::{Exempt, check_invariants, check_invariants_except};
 pub use snapshot::Snapshot;
 
@@ -51,8 +53,8 @@ pub struct CrashPlan {
     pub point: CrashPoint,
 }
 
-/// What the storage under test must provide: the unit of work, its readers and the
-/// repository ports the services read through.
+/// What the storage under test must provide: the unit of work, its readers, the repository
+/// ports the services read through, and the references those ports cannot enumerate.
 pub trait SweepStore:
     UnitOfWork
     + VersionedRead
@@ -63,6 +65,7 @@ pub trait SweepStore:
     + ActionRepo
     + AuditLog
     + AckRepo
+    + IntegrityRead
     + Send
     + Sync
     + 'static
@@ -79,6 +82,7 @@ impl<T> SweepStore for T where
         + ActionRepo
         + AuditLog
         + AckRepo
+        + IntegrityRead
         + Send
         + Sync
         + 'static

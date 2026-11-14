@@ -31,6 +31,8 @@ use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
+use super::sqlite::SqliteStore;
+
 /// The committed database written before the rework; it is never regenerated.
 fn fixture() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../domovoi-store/tests/fixtures/n1-schema5.db")
@@ -46,12 +48,12 @@ fn copy_fixture(dir: &Path) -> PathBuf {
 }
 
 /// The fixture's copy, opened at the current schema.
-async fn upgraded(dir: &Path) -> (Arc<Store>, PathBuf) {
+async fn upgraded(dir: &Path) -> (Arc<SqliteStore>, PathBuf) {
     let path = copy_fixture(dir);
     let store = Store::open(&path, StoreOptions::beside(&path, T0))
         .await
         .expect("the upgraded database opens");
-    (Arc::new(store), path)
+    (Arc::new(SqliteStore::new(store)), path)
 }
 
 /// The fixture's row counts, in the order the upgrade test checks them.
@@ -315,6 +317,7 @@ async fn invariants_hold_after_upgrade_and_a_restart() {
     let reopened = Store::open(&path, StoreOptions::beside(&path, T0))
         .await
         .expect("the upgraded database reopens");
+    let reopened = SqliteStore::new(reopened);
     check_invariants_except(&reopened, &exempt)
         .await
         .expect("the invariants hold after a restart");
@@ -511,7 +514,7 @@ struct Harness {
 }
 
 impl Harness {
-    fn start(store: Arc<Store>) -> Self {
+    fn start(store: Arc<SqliteStore>) -> Self {
         let clock = Arc::new(FakeClock::new(T0));
         let link = Arc::new(FakeAgentLink::new());
         let (bus, _events) = broadcast::channel(256);
