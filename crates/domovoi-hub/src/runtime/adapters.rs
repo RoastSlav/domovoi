@@ -25,23 +25,26 @@ pub(crate) async fn open_store(
         &config.hub.data_dir,
         config.backup.dir.as_deref(),
         config.backup.keep as usize,
+        config.backup.keep_pre_migrate as usize,
         clock,
     )
     .await
 }
 
-/// Opens (and migrates) `<data_dir>/hub.db`, keeping `keep` backups in `backup_dir`
-/// (default `<data_dir>/backups`).
+/// Opens (and migrates) `<data_dir>/hub.db`, keeping `keep` nightly and
+/// `keep_pre_migrate` pre-migration backups in `backup_dir` (default `<data_dir>/backups`).
 pub(crate) async fn open_store_at(
     data_dir: &std::path::Path,
     backup_dir: Option<&std::path::Path>,
     keep: usize,
+    keep_pre_migrate: usize,
     clock: &dyn Clock,
 ) -> Result<Store, RuntimeError> {
     let options = StoreOptions {
         backup_dir: backup_dir
             .map_or_else(|| data_dir.join("backups"), std::path::Path::to_path_buf),
         keep_backups: keep,
+        keep_pre_migrate,
         now: clock.now(),
     };
     Ok(Store::open(&data_dir.join("hub.db"), options).await?)

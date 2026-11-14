@@ -31,7 +31,7 @@ impl HubRuntime {
         let key = Arc::new(SecretKey::load_or_create(&data_dir).map_err(LoadError::Crypto)?);
         // Backups before a migration go to the default directory: `[backup]` may only be
         // known once the stored layer is read.
-        let store = Arc::new(adapters::open_store_at(&data_dir, None, 7, &*deps.clock).await?);
+        let store = Arc::new(adapters::open_store_at(&data_dir, None, 7, 3, &*deps.clock).await?);
         let (layered, _) =
             crate::settings::apply::load_layers(&store, &key, &sources, &*deps.clock).await?;
         for issue in &layered.issues {

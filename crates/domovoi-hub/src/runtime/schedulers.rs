@@ -9,7 +9,7 @@ use domovoi_core::{AdvisoryKind, DigestFact};
 use domovoi_engine::ActionHandle;
 use domovoi_engine::advisories::{AdvisoryInputs, AgentVersion, HeartbeatStatus, evaluate};
 use domovoi_engine::digest::DigestService;
-use domovoi_store::{RetentionPolicy, Store};
+use domovoi_store::Store;
 use jiff::civil::Time;
 use jiff::tz::TimeZone;
 use jiff::{SignedDuration, Timestamp};
@@ -350,7 +350,8 @@ fn spawn_daily(
             let now = runtime.clock.now();
             match job {
                 DailyJob::Retention => {
-                    if let Err(err) = runtime.store.purge(now, &RetentionPolicy::default()).await {
+                    let policy = super::settings::retention(&runtime.config);
+                    if let Err(err) = runtime.store.purge(now, &policy).await {
                         tracing::warn!(%err, "retention purge failed");
                     }
                 }

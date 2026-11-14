@@ -117,9 +117,12 @@ pub async fn load_effective(
 }
 
 async fn open_store(data_dir: &std::path::Path, clock: &dyn Clock) -> Result<Store, LoadError> {
+    // This helper restores a rollback and has no full config to read, so it uses the
+    // documented defaults.
     let options = domovoi_store::StoreOptions {
         backup_dir: data_dir.join("backups"),
         keep_backups: 7,
+        keep_pre_migrate: 3,
         now: clock.now(),
     };
     Store::open(&data_dir.join("hub.db"), options)
