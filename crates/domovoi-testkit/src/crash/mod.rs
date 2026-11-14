@@ -149,10 +149,16 @@ struct PlanState {
 
 /// Wraps a store; the services' *commits* pass through it, reads go to [`inner`].
 ///
+/// Only one commit is applied at a time. Without that, two commits could be inside the inner
+/// store together: the crash could be armed for the first while the second still applied, so
+/// the surviving state would carry a write past the crash point, and a snapshot taken after
+/// commit `k` could see commit `k + 1`.
+///
 /// [`inner`]: CrashingStore::inner
 pub struct CrashingStore<S: SweepStore> {
     inner: Arc<S>,
     state: Mutex<PlanState>,
+    serial: tokio::sync::Mutex<()>,
 }
 
 impl<S: SweepStore> CrashingStore<S> {
@@ -162,6 +168,7 @@ impl<S: SweepStore> CrashingStore<S> {
         Self {
             inner,
             state: Mutex::new(PlanState::default()),
+            serial: tokio::sync::Mutex::new(()),
         }
     }
 
@@ -262,6 +269,10 @@ impl<S: SweepStore> UnitOfWork for CrashingStore<S> {
         if tx.is_empty() {
             return self.inner.commit(tx).await;
         }
+
+        // One commit at a time: the next one can only start once this one is applied and,
+        // if it is the planned crash, the process is already down.
+        let _serial = self.serial.lock().await;
 
         // Decide while holding the lock, then release it before any await.
         let (nth, plan, recording) = {
