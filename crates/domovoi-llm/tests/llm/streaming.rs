@@ -304,3 +304,132 @@ async fn anthropic_stream_cut_off_before_message_stop_is_unavailable() {
     let err = provider.complete(ask("hello")).await.unwrap_err();
     assert!(matches!(err, LlmError::Unavailable(_)), "{err:?}");
 }
+
+/// A redacted-thinking block has no text to count: without output usage the stream is charged
+/// its whole allowance, and the encrypted payload never becomes answer text.
+#[tokio::test]
+async fn anthropic_stream_redacted_thinking_charges_the_allowance() {
+    let server = serve(
+        "/v1/messages",
+        events(
+            "data: {\"type\":\"message_start\",\"message\":{}}\n\n\
+             data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"redacted_thinking\",\"data\":\"emr_this_payload_is_private\"}}\n\n\
+             data: {\"type\":\"content_block_stop\",\"index\":0}\n\n\
+             data: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n\
+             data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"All good.\"}}\n\n\
+             data: {\"type\":\"content_block_stop\",\"index\":1}\n\n\
+             data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"}}\n\n\
+             data: {\"type\":\"message_stop\"}\n\n",
+        ),
+    )
+    .await;
+    let provider = build(&priced_anthropic(&server.uri()), None).unwrap();
+    let mut req = ask("Which are down?");
+    req.max_output_tokens = 2000;
+    let response = provider.complete(req).await.unwrap();
+    assert_eq!(
+        response.parts,
+        vec![Part::Text("All good.".to_owned())],
+        "the redacted payload never reaches the answer"
+    );
+    assert_eq!(response.usage.source, UsageSource::Estimated);
+    assert_eq!(response.usage.output_tokens, 2000);
+    assert!(response.usage.cost_micros.is_some_and(|cost| cost > 0));
+}
+
+/// A stream that reported its input but not its output keeps the input and charges the
+/// allowance for the redacted reasoning.
+#[tokio::test]
+async fn anthropic_stream_redacted_with_input_usage_keeps_input() {
+    let server = serve(
+        "/v1/messages",
+        events(
+            "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":25,\"output_tokens\":1}}}\n\n\
+             data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"redacted_thinking\",\"data\":\"emr_private\"}}\n\n\
+             data: {\"type\":\"content_block_stop\",\"index\":0}\n\n\
+             data: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n\
+             data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"All good.\"}}\n\n\
+             data: {\"type\":\"content_block_stop\",\"index\":1}\n\n\
+             data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"}}\n\n\
+             data: {\"type\":\"message_stop\"}\n\n",
+        ),
+    )
+    .await;
+    let provider = build(&priced_anthropic(&server.uri()), None).unwrap();
+    let mut req = ask("Which are down?");
+    req.max_output_tokens = 2000;
+    let response = provider.complete(req).await.unwrap();
+    assert_eq!(
+        response.usage.input_tokens, 25,
+        "the reported input is kept"
+    );
+    assert_eq!(response.usage.output_tokens, 2000);
+    assert_eq!(response.usage.source, UsageSource::Estimated);
+    assert_eq!(response.usage.cost_micros, Some(25 * 2 + 2000 * 10));
+}
+
+/// Output usage reported without an input total stays authoritative; only the input is
+/// estimated.
+#[tokio::test]
+async fn anthropic_stream_output_only_usage_stays_authoritative() {
+    let server = serve(
+        "/v1/messages",
+        events(
+            "data: {\"type\":\"message_start\",\"message\":{}}\n\n\
+             data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"redacted_thinking\",\"data\":\"emr_private\"}}\n\n\
+             data: {\"type\":\"content_block_stop\",\"index\":0}\n\n\
+             data: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n\
+             data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"All good.\"}}\n\n\
+             data: {\"type\":\"content_block_stop\",\"index\":1}\n\n\
+             data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":42}}\n\n\
+             data: {\"type\":\"message_stop\"}\n\n",
+        ),
+    )
+    .await;
+    let provider = build(&priced_anthropic(&server.uri()), None).unwrap();
+    let mut req = ask("Which are down?");
+    req.max_output_tokens = 2000;
+    let response = provider.complete(req).await.unwrap();
+    assert_eq!(response.usage.output_tokens, 42, "the reported output wins");
+    assert_eq!(response.usage.source, UsageSource::Estimated);
+    assert!(
+        response.usage.input_tokens > 0,
+        "the input is estimated: {:?}",
+        response.usage
+    );
+    assert_eq!(
+        response.usage.cost_micros,
+        Some(u64::from(response.usage.input_tokens) * 2 + 42 * 10)
+    );
+}
+
+/// Complete reported totals with redacted reasoning remain authoritative and are not
+/// replaced by the allowance.
+#[tokio::test]
+async fn anthropic_stream_complete_usage_with_redacted_wins() {
+    let server = serve(
+        "/v1/messages",
+        events(
+            "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":25,\"output_tokens\":1}}}\n\n\
+             data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"redacted_thinking\",\"data\":\"emr_private\"}}\n\n\
+             data: {\"type\":\"content_block_stop\",\"index\":0}\n\n\
+             data: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n\
+             data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"All good.\"}}\n\n\
+             data: {\"type\":\"content_block_stop\",\"index\":1}\n\n\
+             data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":42}}\n\n\
+             data: {\"type\":\"message_stop\"}\n\n",
+        ),
+    )
+    .await;
+    let provider = build(&priced_anthropic(&server.uri()), None).unwrap();
+    let mut req = ask("Which are down?");
+    req.max_output_tokens = 2000;
+    let response = provider.complete(req).await.unwrap();
+    assert_eq!(response.usage.source, UsageSource::Reported);
+    assert_eq!(response.usage.input_tokens, 25);
+    assert_eq!(
+        response.usage.output_tokens, 42,
+        "not replaced by the allowance"
+    );
+    assert_eq!(response.usage.cost_micros, Some(25 * 2 + 42 * 10));
+}

@@ -197,3 +197,100 @@ async fn anthropic_reported_usage_wins_over_thinking() {
     assert_eq!(response.usage.output_tokens, 9, "not doubled by thinking");
     assert_eq!(response.usage.cost_micros, Some(120 * 2 + 9 * 10));
 }
+
+/// Redacted reasoning has no text to count, so visible text alone would understate the turn.
+/// Without output usage the whole authorised allowance is charged, and the encrypted payload
+/// never reaches the answer.
+#[tokio::test]
+async fn anthropic_redacted_thinking_without_usage_charges_the_allowance() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "content": [
+                {"type": "redacted_thinking", "data": "emr_this_payload_is_private"},
+                {"type": "text", "text": "The disk is full."}
+            ],
+            "stop_reason": "end_turn"
+        })))
+        .mount(&server)
+        .await;
+
+    let provider = build(&priced(&server.uri()), None).unwrap();
+    let mut req = ask("Why is nas down?");
+    req.max_output_tokens = 2000;
+    let response = provider.complete(req).await.unwrap();
+    assert_eq!(
+        response.parts,
+        vec![Part::Text("The disk is full.".to_owned())],
+        "redacted reasoning never reaches the answer"
+    );
+    assert_eq!(response.usage.source, UsageSource::Estimated);
+    assert_eq!(
+        response.usage.output_tokens, 2000,
+        "visible text alone would understate the turn"
+    );
+    assert!(response.usage.cost_micros.is_some_and(|cost| cost > 0));
+}
+
+/// A whole response that reported its input but not its output keeps the reported input and
+/// charges the conservative allowance for the redacted output.
+#[tokio::test]
+async fn anthropic_redacted_thinking_with_input_usage_keeps_input() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "content": [
+                {"type": "redacted_thinking", "data": "emr_private"},
+                {"type": "text", "text": "The disk is full."}
+            ],
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 120}
+        })))
+        .mount(&server)
+        .await;
+
+    let provider = build(&priced(&server.uri()), None).unwrap();
+    let mut req = ask("Why is nas down?");
+    req.max_output_tokens = 2000;
+    let response = provider.complete(req).await.unwrap();
+    assert_eq!(
+        response.usage.input_tokens, 120,
+        "the reported input is kept"
+    );
+    assert_eq!(response.usage.output_tokens, 2000);
+    assert_eq!(response.usage.source, UsageSource::Estimated);
+    assert_eq!(response.usage.cost_micros, Some(120 * 2 + 2000 * 10));
+}
+
+/// Complete reported totals already cover redacted reasoning: they win, with no allowance
+/// added.
+#[tokio::test]
+async fn anthropic_complete_usage_wins_over_redacted_thinking() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "content": [
+                {"type": "redacted_thinking", "data": "emr_private"},
+                {"type": "text", "text": "The disk is full."}
+            ],
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 120, "output_tokens": 9}
+        })))
+        .mount(&server)
+        .await;
+
+    let provider = build(&priced(&server.uri()), None).unwrap();
+    let mut req = ask("Why is nas down?");
+    req.max_output_tokens = 2000;
+    let response = provider.complete(req).await.unwrap();
+    assert_eq!(response.usage.source, UsageSource::Reported);
+    assert_eq!(response.usage.input_tokens, 120);
+    assert_eq!(
+        response.usage.output_tokens, 9,
+        "not replaced by the allowance"
+    );
+    assert_eq!(response.usage.cost_micros, Some(120 * 2 + 9 * 10));
+}

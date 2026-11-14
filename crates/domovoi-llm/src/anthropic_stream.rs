@@ -61,6 +61,11 @@ enum StartBlock {
         #[serde(default)]
         thinking: String,
     },
+    /// Reasoning the provider encrypted. Only its presence matters; the payload is skipped.
+    RedactedThinking {
+        #[serde(skip)]
+        _data: (),
+    },
     #[serde(other)]
     Other,
 }
@@ -89,8 +94,9 @@ struct MessageDelta {
 
 #[derive(Deserialize)]
 struct DeltaUsage {
+    /// Present when the provider reported the generated total for this delta.
     #[serde(default)]
-    output_tokens: u32,
+    output_tokens: Option<u32>,
 }
 
 #[derive(Deserialize)]
@@ -110,6 +116,8 @@ enum Block {
     },
     /// Private reasoning, counted for usage and never returned as answer text.
     Thinking(String),
+    /// Encrypted reasoning: its presence matters, its content is never read.
+    RedactedThinking,
     Other,
 }
 
@@ -132,7 +140,7 @@ pub(crate) async fn assemble(
                 // Input usage normally arrives here; output usage arrives later, in
                 // `message_delta`. Until it does, the totals are partial.
                 if let Some(start) = message.usage {
-                    input_tokens = Some(start.input_tokens);
+                    input_tokens = start.input_tokens;
                 }
             }
             Event::ContentBlockStart {
@@ -147,6 +155,7 @@ pub(crate) async fn assemble(
                         json: String::new(),
                     },
                     StartBlock::Thinking { thinking } => Block::Thinking(thinking),
+                    StartBlock::RedactedThinking { .. } => Block::RedactedThinking,
                     StartBlock::Other => Block::Other,
                 };
                 blocks.insert(index, block);
@@ -170,8 +179,10 @@ pub(crate) async fn assemble(
                 if delta.stop_reason.is_some() {
                     stop_reason = delta.stop_reason;
                 }
-                if let Some(delta_usage) = delta_usage {
-                    output_tokens = Some(delta_usage.output_tokens);
+                if let Some(delta_usage) = delta_usage
+                    && delta_usage.output_tokens.is_some()
+                {
+                    output_tokens = delta_usage.output_tokens;
                 }
             }
             Event::MessageStop => {
@@ -195,8 +206,8 @@ pub(crate) async fn assemble(
     // estimator rather than passed off as complete usage.
     let usage = match (input_tokens, output_tokens) {
         (Some(input_tokens), Some(output_tokens)) => Some(WireUsage {
-            input_tokens,
-            output_tokens,
+            input_tokens: Some(input_tokens),
+            output_tokens: Some(output_tokens),
         }),
         _ => None,
     };
@@ -227,6 +238,7 @@ fn block_content(
             Some(WireContent::ToolUse { id, name, input })
         }
         Block::Thinking(thinking) => Some(WireContent::Thinking { thinking }),
+        Block::RedactedThinking => Some(WireContent::RedactedThinking { _data: () }),
         Block::Other => None,
     })
 }

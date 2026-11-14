@@ -437,6 +437,7 @@ fn into_response(
             &reasoning,
             &stop,
             req.max_output_tokens,
+            false,
             price,
         ),
     };

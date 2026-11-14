@@ -292,6 +292,7 @@ fn read_output(
                 "",
                 &StopReason::EndTurn,
                 0,
+                false,
                 price,
             );
             return Ok((text, usage));
@@ -329,6 +330,7 @@ fn read_output(
             "",
             &StopReason::EndTurn,
             0,
+            false,
             price,
         )
     };

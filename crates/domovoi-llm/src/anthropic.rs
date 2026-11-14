@@ -209,21 +209,30 @@ pub(crate) enum WireContent {
         #[serde(default)]
         thinking: String,
     },
+    /// Reasoning the provider encrypted. There is no text to count or expose; its presence
+    /// alone says the turn generated hidden output. The payload is skipped, never stored.
+    RedactedThinking {
+        #[serde(skip)]
+        _data: (),
+    },
     #[serde(other)]
     Other,
 }
 
 #[derive(Deserialize, Default)]
 pub(crate) struct WireUsage {
+    /// Present when the provider reported the prompt total.
     #[serde(default)]
-    pub(crate) input_tokens: u32,
+    pub(crate) input_tokens: Option<u32>,
+    /// Present when the provider reported the generated total.
     #[serde(default)]
-    pub(crate) output_tokens: u32,
+    pub(crate) output_tokens: Option<u32>,
 }
 
 fn into_response(response: WireResponse, req: &LlmRequest, price: Option<&Price>) -> LlmResponse {
     let mut parts = Vec::new();
     let mut reasoning = String::new();
+    let mut redacted_thinking = false;
     for block in response.content {
         match block {
             WireContent::Text { text } => parts.push(Part::Text(text)),
@@ -232,6 +241,9 @@ fn into_response(response: WireResponse, req: &LlmRequest, price: Option<&Price>
             }
             // Thinking is billed output, but it is private reasoning: count it, never show it.
             WireContent::Thinking { thinking } => reasoning.push_str(&thinking),
+            // Nothing to count and nothing to show, but its presence means the visible text
+            // is not the whole output.
+            WireContent::RedactedThinking { .. } => redacted_thinking = true,
             WireContent::Other => {}
         }
     }
@@ -241,13 +253,31 @@ fn into_response(response: WireResponse, req: &LlmRequest, price: Option<&Price>
         Some("max_tokens") => StopReason::MaxTokens,
         Some(other) => StopReason::Other(other.to_owned()),
     };
-    // Complete reported totals are authoritative. A stream that reported only its input (or
-    // only its output) keeps that half and has the other half estimated; a response with no
-    // totals at all is estimated from what it contains.
+    // Complete reported totals are authoritative. A response that reported only one half
+    // keeps it and has the other estimated; a response with no totals at all is estimated
+    // from what it contains â€” or, with redacted reasoning, from the whole authorised
+    // allowance.
     let usage = match response.usage {
-        Some(reported) => {
-            crate::usage::reported(reported.input_tokens, reported.output_tokens, price)
-        }
+        Some(reported) => match (reported.input_tokens, reported.output_tokens) {
+            (Some(input), Some(output)) => crate::usage::reported(input, output, price),
+            (input, output) => {
+                let input = input
+                    .or(response.input_tokens)
+                    .unwrap_or_else(|| crate::usage::request_tokens(req));
+                match output.or(response.output_tokens) {
+                    Some(output) => crate::usage::estimated(input, output, price),
+                    None => crate::usage::estimated_answer(
+                        input,
+                        &parts,
+                        &reasoning,
+                        &stop,
+                        req.max_output_tokens,
+                        redacted_thinking,
+                        price,
+                    ),
+                }
+            }
+        },
         None => {
             let input = response
                 .input_tokens
@@ -260,6 +290,7 @@ fn into_response(response: WireResponse, req: &LlmRequest, price: Option<&Price>
                     &reasoning,
                     &stop,
                     req.max_output_tokens,
+                    redacted_thinking,
                     price,
                 ),
             }

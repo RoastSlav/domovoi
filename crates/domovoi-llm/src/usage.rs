@@ -66,19 +66,22 @@ pub(crate) fn estimated(input_tokens: u32, output_tokens: u32, price: Option<&Pr
 ///
 /// The visible text, the tool calls and the reasoning a provider exposed are counted. A turn
 /// that ended at its output allowance used the whole allowance, and hidden reasoning may
-/// account for all of it, so the allowance is the only safe number. When nothing at all can
-/// be counted, the request was still authorised and may have generated hidden output, so the
-/// allowance is charged as a conservative bound and the total stays
-/// [`UsageSource::Unknown`] — never a free turn.
+/// account for all of it, so the allowance is the only safe number. The same holds when the
+/// provider says part of its reasoning is redacted: its text cannot be counted, so the
+/// visible answer alone would understate the turn. When nothing at all can be counted, the
+/// request was still authorised and may have generated hidden output, so the allowance is
+/// charged as a conservative bound and the total stays [`UsageSource::Unknown`] — never a
+/// free turn.
 pub(crate) fn estimated_answer(
     input_tokens: u32,
     parts: &[Part],
     reasoning: &str,
     stop: &StopReason,
     allowance: u32,
+    redacted_thinking: bool,
     price: Option<&Price>,
 ) -> Usage {
-    let output = if *stop == StopReason::MaxTokens {
+    let output = if redacted_thinking || *stop == StopReason::MaxTokens {
         allowance
     } else {
         answer_tokens(parts).saturating_add(text_tokens(reasoning))
