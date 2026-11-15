@@ -8,7 +8,7 @@
 | Depends on (must be merged into `overhaul-investigation` before implementation) | 18, 20, 21 |
 | Parallel with | none; 23 depends on this one |
 | Produces | `ExecutionId`, `Authorization`, plan hash v2, the approval binding columns |
-| Gate | **blocked on an owner decision.** `03 RW-11` requires the implementation hash to cover the entry-script bytes; the frozen 1.2 wire carries no script digest, so §5.4 must be resolved by the owner before implementation starts. Not accepted at the time of writing |
+| Gate | none beyond the listed implementation dependencies (18, 20, 21) |
 | Suggested model | large |
 
 ## 1. Objective
@@ -91,10 +91,6 @@ time this was written none of the three was merged: 18 is ready, and 20 and 21 h
 merged implementation. Launch order is 20, then 21, then 22, then 23 (`07 §3`); they are never taken
 concurrently.
 
-**One further gate is this prompt's own.** The entry-script digest decision in §5.4 is open, and the branch
-must not be cut until the owner has explicitly accepted one of its three options. Until then this brief is
-complete but not launchable, whatever the dependency list says.
-
 **Dependency on prompt 21's document.** Everything about reconciliation, `OutcomeUnknown` and the epoch
 is outside this brief. It needs only two things from that area, and takes them from `03 RW-09`,
 `03 RW-36` and `04 §15`: a `Dispatched` execution is never auto-failed, and the idempotency key never
@@ -124,7 +120,7 @@ and stop if it changes the design.
 | approval value | same | `ApprovalChannel { Web{typed_confirmation}, Chat{platform, platform_user} }` `:65-81`; `HumanApproval` `:83-93` with private `user`, `channel`, `at`; `new` `:100-103`; `restore` `:109-112`; `Serialize` only — no `Default`, no `Deserialize` |
 | action state | `crates/domovoi-core/src/action/request.rs` | `ActionStatus` `:15-42` (10 statuses); `ActionRequest` `:129-145` with `plan_hash: PlanHash`; `propose` `:152-178` generates `ActionId::new()` at `:163` and computes the v1 hash at `:169`; `from_stored` `:180-199`; `plan_hash()` `:258` |
 | transitions | `crates/domovoi-core/src/action/transition.rs` | `ActionChange` `:11`; `ActionError` `:20-44`; `dispatch` `:104-118` compares the recomputed hash and moves to `Rejected { reason: "the plan changed after approval" }` on a difference |
-| manifest hash | `crates/domovoi-core/src/skill/manifest.rs` | `ManifestHash` `:18-24` over the canonical JSON of the manifest `:143-151`; `SkillSummary` `:170-190` carries `manifest_hash` but **no entry path, no script bytes and no script digest** |
+| manifest hash | `crates/domovoi-core/src/skill/manifest.rs` | `ManifestHash` `:18-24` over the canonical JSON of the manifest `:143-151`; `SkillSummary` `:172-197` carries `manifest_hash` `:184`. **Before prompt 20** it carries no script digest; **after prompt 20** it carries the required `entry_script_digest: ScriptDigest` (prompt 20 §5.1-5.3). Read the merged code |
 | validated args | `crates/domovoi-core/src/skill/validate.rs` | `ValidatedArgs` `:79-87`, only obtainable through validation; `canonical()` `:107-116` emits `name:byte_len:value\n` per value in declared order |
 | hash newtype | `crates/domovoi-core/src/sha256.rs` | `sha256_newtype!` `:4-60`: `digest` is `pub(crate)`, `Display` is 64 lowercase hex, `FromStr` parses 64 hex, `Serialize` writes a string, `Deserialize` parses one |
 | ids | `crates/domovoi-core/src/id.rs` | `define_id!` `:8-58` (UUIDv7, `new`, `from_uuid`, `Display`, `FromStr`, serde transparent); `ActionId` `:76-79`; **no `ExecutionId` exists** |
@@ -158,9 +154,10 @@ and stop if it changes the design.
    the **text scan** and the dev-only testkit rule (`rules.rs:157`) exist; `clippy.toml` has no approval
    entry, and the attribute rule (`scan.rs:91-97`) is about `allow(clippy::disallowed_methods)` in
    `domovoi-runner` only. Section 9 says what is actually there and what this prompt adds.
-3. `03 RW-11` says v2 binds the entry-script bytes. `SkillSummary` reports only `manifest_hash`
-   (`manifest.rs:170-190`) and the 1.2 wire is frozen, so at M1 the hub cannot know a script digest.
-   Section 5.4 states the gap and the follow-up owner; do not invent a wire field.
+3. `03 RW-11` says v2 binds the entry-script bytes. Prompt 20 makes protocol 1.2 carry
+   `SkillSummary::entry_script_digest`, so the hub reads that field instead of computing anything itself;
+   this prompt imports the type and never defines a second one. If the merged 20 reports the digest under a
+   different name, follow the merged code and report the difference.
 4. `07 §6.1` records 18 as ready but not merged, while the v1 approve-time binding it specifies is already
    in this checkout (`api/actions.rs:115-133`, `writer.rs:283-285`, `ActionCard.tsx:155`, from the
    `plan hash on approval` change). Treat the code as the state, report the stale row rather than editing
@@ -175,7 +172,7 @@ Plan hash v2 is SHA-256 over a canonical encoding of exactly five inputs, in thi
 | # | Input | Type | Where it comes from |
 |---|---|---|---|
 | 1 | capability contract id and version | `PlanContract` | the plan. At M1 the skill adapter supplies the skill name and the contract version `1`; 24 replaces the source, not the field |
-| 2 | implementation hash | `ImplHash` | the manifest digest the hub holds, plus a script digest when one exists (5.4) |
+| 2 | implementation hash | `ImplHash` | the manifest hash the hub holds plus the required `entry_script_digest` of that same skill summary, both from `hello.skills` (5.4) |
 | 3 | canonical target identity | `PlanTarget` | the action's host plus the linked incident's `CheckKey` and `TargetKey` at propose time; 25 replaces the producer |
 | 4 | canonical arguments | `ValidatedArgs::canonical()` | already stored on the action as a map, re-validated from the manifest |
 | 5 | execution identity | `ExecutionId` | `= ActionId` at M1 (`03 RW-36`) |
@@ -247,47 +244,35 @@ bytes alone do not say which family they belong to, so:
 Domain separation is the only defence against a downgrade, so it must not be removed, shortened or made
 configurable.
 
-### 5.4 `ImplHash` and the entry-script gap — an open owner decision
+### 5.4 `ImplHash` binds the manifest and the entry executable
 
 `ImplHash` is a `sha256_newtype!` over:
 
 ```text
-impl:v1\nmanifest:{64 hex}\nentry:{64 hex}|absent\n
+impl:v1\nmanifest:{64 hex}\nentry:{64 hex}\n
 ```
 
-**What `03 RW-11` requires.** v2's implementation hash covers the manifest bytes **and the entry-script
-bytes**. The manifest half is available today: the hub holds the `ManifestHash` from the catalogue. The
-script half is not: `SkillSummary` (`manifest.rs:170-190`) carries no entry path, no script bytes and no
-script digest, and the 1.2 wire that prompt 20 froze has no field for one. `hello.catalog_hash` covers the
-catalogue, not a script.
+Both fields are always present. There is **no** `entry:absent` form, no optional field, no zero-filled
+placeholder and no fallback.
 
-**This brief does not treat that as satisfying RW-11.** `entry:absent` is a placeholder shape, not an
-accepted binding. Implementation is **gated** on the owner explicitly accepting one of these three
-resolutions, and the completion report must say which one was accepted — an owner acceptance, not a
-proposal this brief makes on its own:
-
-| # | Resolution | What it costs | State |
-|---|---|---|---|
-| A | Bind the real script digest without changing 1.2, using only information the hub can already obtain | needs a means of getting the digest that does not exist today; if you cannot name a verified one, this option is unavailable and you must say so | **not verified available** |
-| B | An explicit, documented M1 exception to RW-11: v2 binds the manifest only, `entry:absent` is the accepted M1 value, with a named follow-up owner and an acceptance gate for closing it | an accepted, time-boxed exception, recorded in the ADR and in `03`/`04`; the UI and API must say the hash does not cover script bytes | **proposal only** |
-| C | A coordinated protocol change under `03 RW-42`: the agent reports a per-skill script digest on the wire, in a later protocol version | a wire bump and its own prompt; 1.2 stays as prompt 20 froze it | **proposal only** |
-
-- **None of the three is accepted.** The owner decision is open at the time of writing. Do not start the
-  branch, and do not pick an option in the implementation, without it.
-- Whichever option is accepted, the encoder shape does not change: `entry:<64 hex>` when a digest exists and
-  `entry:absent` when it does not. That is what lets option B be closed later without a v3 hash — a plan
-  approved under `absent` mismatches once the digest appears, and is **rejected**, which is the safe
-  direction.
-- If the accepted option is B, the follow-up owner is named in the same decision record (25, 41 and 47 are
-  the natural candidates, because they own the catalogue, packages and the skill runner respectively), and
-  the acceptance gate is a prompt that reports the digest end to end.
-- If the accepted option is C, this prompt stays blocked until that protocol change merges; it does not
-  pre-empt the field.
-- **Do not invent a wire field**, do not add one to `run_capability`, and do not change anything under
-  `crates/domovoi-proto/**`. Prompt 20's contract is frozen.
-- Until a resolution is accepted, no code, comment, UI text or doc page may claim that v2 proves which
-  script bytes run. `ImplHash`'s doc comment says it binds the manifest only while the agent reports no
-  script digest.
+- **Where the two values come from.** The hub already holds each agent's `SkillSummary` from `hello.skills`.
+  Prompt 20 makes `SkillSummary::entry_script_digest: ScriptDigest` mandatory in protocol 1.2, computed by the
+  agent's catalogue from the raw bytes of the resolved entry executable. The hub reads that field; it does
+  not compute a script digest itself and never has the file.
+- **`ScriptDigest` is prompt 20's type**, defined in `domovoi-core`'s skill module. Import it; do not define a
+  second digest type here and do not alias `ManifestHash` or `PlanHash` into that role.
+- `ImplHash::from_parts(manifest: ManifestHash, entry: ScriptDigest) -> Self` is the only constructor.
+  There is no `from_manifest`, and no path that hashes the manifest alone.
+- If an agent's summary is missing the field, the hub cannot build `ImplHash` and cannot compute v2: refuse
+  to propose a v2 action for that skill rather than hashing the manifest alone. Under 1.2 the field is
+  mandatory, so this is a protocol error, not a supported older agent.
+- **What this binds.** The manifest bytes and the declared entry executable's bytes, which is exactly
+  `03 RW-11`'s requirement. It does **not** bind transitive dependencies, interpreters, sourced scripts,
+  other files in the skill folder, external programs or the rest of the runtime environment. Say that in the
+  code comments and the PR; do not claim more.
+- The agent independently rechecks the entry bytes against the digest it announced before every run (prompt
+  20, `recheck_entry`). That is the agent's own guard; it is not a substitute for the hub's recomputation and
+  the hub does not rely on it.
 
 ### 5.5 Target identity at M1
 
@@ -319,7 +304,8 @@ construction (`signal/keys.rs:75-107`), so the text is canonical by construction
    independently of the plan columns, and is never rewritten. It is `NULL` for actions approved before
    this change, because for those the hub cannot honestly claim which value was shown.
 3. **Dispatch recomputes the hash of the action's own family** from the current manifest, arguments,
-   target and identity. Any difference is a rejection, not an error, and never a dispatch.
+   target, identity and entry-script digest. Any difference is a rejection, not an error, and never a
+   dispatch. The `run_skill` request is a separate v1 value and is not the approval binding (6.5).
 4. **`execution_id` never changes after dispatch.** At M1 it is the `ActionId`; nothing rewrites it.
 5. **No approval survives a plan change of any covered input**: contract, version, implementation,
    target, arguments or execution identity.
@@ -359,12 +345,10 @@ impl PlanTarget {
 }
 
 sha256_newtype!(/* docs */ ImplHash);
-sha256_newtype!(/* docs, says "not a plan hash" */ ScriptDigest);
+// `ScriptDigest` is prompt 20's type in `domovoi-core`'s skill module. Import it; do not define a second one.
 
 impl ImplHash {
-    /// The implementation hash of a skill whose entry-script digest the hub does not know (§5.4).
-    pub fn from_manifest(manifest: ManifestHash) -> Self;
-    /// Manifest plus entry-script digest, for once §5.4 is resolved and a digest exists.
+    /// SHA-256 over the manifest hash and the required entry-script digest. Both are always present.
     pub fn from_parts(manifest: ManifestHash, entry: ScriptDigest) -> Self;
 }
 
@@ -503,10 +487,10 @@ Order inside `approve` (all before any write):
 
 Nothing about the queue, the recovery handshake or the guarded write changes.
 
-`WriteCommand::Dispatch` keeps `{ id, plan }`; the executor computes `plan` with `compute_v2` for a v2
-action and `compute` for a v1 action, and the writer keeps rejecting on mismatch. The only new rule: the
-executor must **not** compute v1 for a v2 action or the reverse; derive the family from the action, never
-from a feature flag.
+`WriteCommand::Dispatch` keeps `{ id, plan }`; `plan` is the **approval-family** hash — `compute_v2` for a v2
+action, `compute` for a v1 action — and the writer keeps rejecting on mismatch. The executor must never
+compute v1 for a v2 action's guard or the reverse: derive the family from the action, never from a feature
+flag. This is a different value from the one sent to the agent in `run_skill`; see 6.5.
 
 `ApprovalError` gains `NotYetSupported` (a policy authorization at M1) and keeps `PlanChanged`. Both are
 logged at debug by `refused()` (`writer.rs:251-264`).
@@ -540,11 +524,49 @@ logged at debug by `refused()` (`writer.rs:251-264`).
   approval. An approved action that expires keeps the binding it was approved with.
 - Reads never repair: a row missing `plan_hash_v2` is a v1 action, not a corrupt one.
 
+### 6.5 Two hashes, two jobs at M1
+
+M1 keeps the existing agent request path: an action is still executed with `RunSkill`, and the agent still
+recomputes **v1** there (`crates/domovoi-agent/src/requests/skills.rs:98-103`: `PlanHash::compute` over the
+local skill name, manifest hash, host id and validated args, compared with `run.plan_hash`). Sending a v2
+hash in that field would make every action fail on the agent. So the two hashes are deliberately different
+values and must never share a variable name or a field:
+
+| Value | Which hash | Carried by | Purpose |
+|---|---|---|---|
+| `approval_plan_hash` | the action's **family**: v2 for new actions, v1 for legacy | the approve request `plan_hash`, `ActionDto.plan_hash`, `approved_plan_hash`, `WriteCommand::Dispatch { plan }` | what the human approved and what the hub's dispatch guard re-checks |
+| `runskill_plan_hash` | **always v1** | `SkillDispatch.plan_hash` (`executor.rs:328-333`), the wire `RunSkill.plan_hash` | the agent's existing local manifest/host/arguments consistency check |
+
+Rules:
+
+1. **New actions:** approval, the UI/API hash, `approved_plan_hash` and the dispatch guard use v2, including
+   the entry-script digest, the canonical target, the arguments and `execution_id`. The hub recomputes v2
+   immediately before dispatch and refuses a mismatch (`WriteCommand::Dispatch` → `Rejected`).
+2. **The `RunSkill` request:** `runskill_plan_hash` is computed with `PlanHash::compute` exactly as today, for
+   every action, v1 or v2. The existing agent-side check is untouched; it was never the human approval
+   binding and does not become one.
+3. **The entry bytes are guarded twice, independently:** the hub's v2 recomputation (which includes the
+   digest) and the agent's own pre-execution `recheck_entry` from prompt 20. Neither substitutes for the
+   other.
+4. **The stored row keeps both.** `plan_hash` holds the v1 hash (legacy family, and the value used to build
+   `RunSkill`), `plan_hash_v2` holds the v2 approval hash. `plan_hash_for_approval()` selects the approval
+   family and is the only selector the writer and the DTO use.
+5. **Legacy actions** use v1 for the approval and for `RunSkill`, exactly as before; nothing about them
+   changes.
+6. **Exact call sites and names**, so the two cannot be confused:
+   - `actions/executor.rs`: compute `approval_plan_hash` and `runskill_plan_hash` into two separately named
+     bindings; pass the first to `ask_dispatch`, the second into `SkillDispatch`.
+   - `actions/writer.rs::dispatch`: `plan: PlanHash` is the approval-family value; compare it with
+     `action.plan_hash_for_approval()` only.
+   - `cards.rs`, `api/dto.rs`, `api/actions.rs`: the approval-family hash only.
+   - `domovoi-proto` and `domovoi-agent`: untouched. Do not add, rename or reinterpret a wire field, and do
+     not introduce `run_capability` here; it belongs to 24/25.
+
 ## 7. Files and components expected to change
 
 | Path | Change |
 |---|---|
-| `crates/domovoi-core/src/action/plan.rs` (new) | `PlanContract`, `PlanTarget`, `ImplHash`, the canonical encoder, `PlanHash::compute_v2`, `PlanError`, tests |
+| `crates/domovoi-core/src/action/plan.rs` (new) | `PlanContract`, `PlanTarget`, `ImplHash` (from prompt 20's `ScriptDigest`), the canonical encoder, `PlanHash::compute_v2`, `PlanError`, tests |
 | `crates/domovoi-core/src/action/authorization.rs` (new) | `Authorization`, `PolicyPermit`, `AuthorizationKind`, tests |
 | `crates/domovoi-core/src/action/approval.rs` | `ApprovalProvenance`; doc comment on v1 stating it is the legacy family; no behavioural change |
 | `crates/domovoi-core/src/action/request.rs` | new fields, `propose` computes v2, `approve` takes the authorization and provenance, `plan_hash_for_approval()`, `plan_hash_v2()`, `approved_plan_hash()`, `authorization_kind()` |
@@ -556,7 +578,7 @@ logged at debug by `refused()` (`writer.rs:251-264`).
 | `crates/domovoi-store/src/repos/actions.rs` | columns, `Bound`, insert and update, `from_stored` mapping |
 | `crates/domovoi-store/src/rows/action.rs` (if it holds the mapping) | the same fields |
 | `crates/domovoi-engine/src/actions/writer.rs` | `WriteCommand::Approve`, `approve`, `ApprovalError::NotYetSupported`, dispatch wiring |
-| `crates/domovoi-engine/src/actions/executor.rs` | compute the family-specific hash; pass the incident it already loaded |
+| `crates/domovoi-engine/src/actions/executor.rs` | compute two separately named values: the approval-family hash for `ask_dispatch` and the always-v1 `runskill_plan_hash` for `SkillDispatch` (6.5); pass the incident it already loaded |
 | `crates/domovoi-engine/src/actions/freshness.rs` | return the incident (or take it as an argument) so the target can be recomputed from one read |
 | `crates/domovoi-engine/src/actions/mod.rs` | `ActionHandle::approve` signature |
 | `crates/domovoi-engine/src/cards.rs` | unchanged behaviour; the plan tag text says which family, from one constant |
@@ -660,9 +682,11 @@ prompt produces. A "wire change" here would be a coordinated `03 RW-42` decision
 - **It does not prove**: that the process computing the hash is honest. A compromised hub can compute any
   hash it likes. Runtime limits remain dispatch recomputation, the agent's local checks, the ceiling, the
   helper allowlist and the audit chain (`03 RW-11` "Honesty", `04 §8.4`).
-- **It does not prove** which script bytes run: §5.4 is an **open owner decision**, and until it is accepted
-  the hash binds the manifest only. At M1 it also resolves the target only as far as the incident subject
-  (5.5). Say both in the PR, in the DTO doc comments and in the UI tooltip.
+- **It does prove which entry executable was approved**, to the extent the agent's report is honest: the
+  digest is over the resolved file's bytes, so a replaced or edited entry invalidates the approval. It says
+  nothing about transitive dependencies, interpreters or other files, and the PR must not imply otherwise.
+- At M1 it resolves the target only as far as the incident subject (5.5); say that in the DTO doc comments
+  and the UI tooltip.
 
 ### 9.2 The enforcement mechanism that exists, and what this prompt adds
 
@@ -751,8 +775,10 @@ Name tests after the behaviour. Keep the exact names marked **(required)**; they
 - `plan_hash_v2_rejects_a_non_canonical_contract_id`: uppercase, empty, over-long and `@`-containing ids.
 - `plan_hash_v2_rejects_a_non_canonical_target`: a target with control characters or surrounding
   whitespace never reaches the encoder, because `TargetKey` refuses it.
-- `impl_hash_records_an_absent_entry_digest`: the `impl:v1` string with `entry:absent`, and with a
-  `ScriptDigest` when one is supplied — the entry half is a script digest, never a `PlanHash`.
+- `impl_hash_binds_the_entry_script_digest`: the `impl:v1` string always carries both 64-hex fields; changing
+  the `ScriptDigest` changes the `ImplHash` and the v2 hash, and there is no manifest-only constructor.
+- `changed_entry_script_digest_invalidates_approval`: approve a v2 action, change the skill summary's
+  `entry_script_digest`, dispatch → `Rejected`, and no agent request is made.
 - **`approval_bound_to_displayed_plan_hash`** **(required)**: a `PlanBinding::Full` of the displayed hash
   matches that plan and nothing else; a prefix of 3 bytes matches, 2 bytes does not (extend the existing
   `plan_binding_*` tests rather than duplicating them).
@@ -788,6 +814,14 @@ Name tests after the behaviour. Keep the exact names marked **(required)**; they
   arguments (test paths are exempt from the call-site scan), wrap it with `Authorization::policy(..)`, and
   assert that both `Approve` and `Dispatch` return `NotYetSupported`, write nothing, and reach no agent.
   Do not assert this with a value the type cannot produce.
+- `new_v2_action_binds_the_approval_and_dispatch_with_v2`: for an action created after the upgrade, the
+  approve request, `plan_hash_for_approval()`, `approved_plan_hash` and the writer's dispatch comparison all
+  use the v2 hash; a stale v2 hash is refused.
+- `runskill_request_carries_the_v1_local_check_hash`: the `SkillDispatch.plan_hash` sent to the agent is
+  `PlanHash::compute(..)` over skill, manifest, host and canonical args — v1 — even for a v2 action, and the
+  agent's existing `run_skill` check accepts it. Assert the two values differ for a v2 action.
+- `legacy_v1_action_keeps_v1_for_approval_and_runskill`: a pre-upgrade action is approved, guarded and sent
+  with the v1 hash on both paths.
 
 ### 10.3 Store (`crates/domovoi-store`)
 
@@ -842,8 +876,9 @@ Name tests after the behaviour. Keep the exact names marked **(required)**; they
     added.
 12. No wire change, no protocol bump, no second execution path, no reconciliation change, no policy
     evaluation.
-13. The §5.4 entry-script decision is recorded as **accepted by the owner**, with the option named; if it is
-    not, this prompt does not start.
+13. A v2 action uses the v2 hash for the human approval and the hub's dispatch guard, while the M1
+    `run_skill` request carries the v1 local-check hash, and the two are distinct named values at every call
+    site.
 
 ## 11. Documentation and architecture updates
 
@@ -852,27 +887,26 @@ Name tests after the behaviour. Keep the exact names marked **(required)**; they
   same place; extend the INV-1 row to say the scan now covers every authorization constructor and that
   `HumanApproval::new` remains hub-auth-only. State plainly that the scan is textual.
 - **`docs/book`**: the action/approval page says what an approval binds (v2: contract and version,
-  implementation digest as far as the agent reports it, target subject, arguments, execution id) and what
-  it does not (script bytes until the §5.4 decision closes the gap, any proof against a compromised hub).
-  No prompt numbers, no build-plan references.
+  implementation — the manifest hash plus the resolved entry executable's SHA-256 — target subject,
+  arguments, execution id) and what it does not (transitive dependencies, interpreters, other files, any
+  proof against a compromised hub). No prompt numbers, no build-plan references.
 - **ADR** `docs/adr/00NN-plan-hash-v2-and-authorization.md`: the ownership rules, the wrapper-with-private-
-  internals decision, the text-scan mechanism and its limits, why no `clippy.toml` entry is used, and the
-  version-presence scheme. If the accepted §5.4 option is B, the ADR records the exception, its follow-up
-  owner and its acceptance gate.
+  internals decision, the text-scan mechanism and its limits, why no `clippy.toml` entry is used, the
+  version-presence scheme, and the two-hash rule of 6.5.
 - **`docs/rework/`**: nothing. The planning documents are not edited by an implementation prompt.
 - **Generated files**: `web/src/api/openapi.json` and `web/src/api/schema.d.ts` regenerated; `cargo xtask
   docs-config` only if a config value is added (it is not).
 
 ## 12. Implementation order and completion requirements
 
-1. **Read the merged prerequisites.** 18's approve-time binding, 20's frozen 1.2 wire and 21's
-   reconciliation and expiry rules, as merged. Confirm the four discrepancies in section 4 and report any new
-   one before editing. **Stop here if the §5.4 decision is not accepted**: it is a gate, not a step.
+1. **Read the merged prerequisites.** 18's approve-time binding, 20's frozen 1.2 wire, `ScriptDigest` and
+   `SkillSummary::entry_script_digest`, and 21's reconciliation and expiry rules, as merged. Confirm the four
+   discrepancies in section 4 and report any new one before editing.
 2. **List the migrations directory** and write down the number you will take, and the ADR number from
    `docs/adr/`.
-3. **Core, encoding first:** `PlanContract`, `PlanTarget`, `ImplHash`, `ScriptDigest`, the encoder,
-   `compute_v2` and the encoding tests. Nothing else depends on the store or the writer, so this is
-   self-contained.
+3. **Core, encoding first:** `PlanContract`, `PlanTarget`, `ImplHash` (consuming prompt 20's `ScriptDigest`),
+   the encoder, `compute_v2` and the encoding tests. Nothing else depends on the store or the writer, so this
+   is self-contained.
 4. **Core, types:** `ExecutionId`, `Authorization`, `PolicyPermit`, `ApprovalProvenance`, then the
    `ActionRequest` fields and `approve`/`plan_hash_for_approval`. Update `lib.rs` re-exports.
 5. **Store:** the migration, then the row mapping.
@@ -898,11 +932,13 @@ Completion requirements:
 - The migration number and the ADR number were read from the directories, not copied from this brief.
 - `PolicyPermit` has private fields, no `Default`, no `Deserialize`, and only the restricted `issue`
   constructor; no `PermitIssuer` and no policy evaluation exist anywhere in the diff.
-- The §5.4 decision is quoted in the PR description as accepted by the owner, with the option named; if it
-  is not accepted, the branch was not started.
+- The §5.4 contract is implemented as written: both `impl` fields always present, `ScriptDigest` imported
+  from prompt 20 rather than defined, and no manifest-only path.
+- The v1 local-check hash and the v2 approval hash are separate named values at every call site; no generic
+  `plan` variable carries both.
 - No `run_capability`, protocol, agent or `hello` change appears in the diff.
-- Every deferral in 8.3 and every gap in 5.4/5.5 is stated in the PR description as unfinished, not as
-  done.
+- Every deferral in 8.3 and the M1 target-identity limit in 5.5 are stated in the PR description as
+  limits, not as done.
 - The completion report below is filled in with real command output, not claims.
 
 ## Execution constraints

@@ -122,10 +122,10 @@ dependency forcing an order (§1): it is not permission to run them at the same 
 | 18 | `structured-approvals` | F4 | structured cards (web, Discord); approve binds the **v1** hash | 10 | 17, 19, 57 | — | — | M |
 | 19 | `ops-readiness` | F4 | step-up list, `/readyz`, metrics auth, backup verify, restore, pre-migrate pruning | 08 | 18, 57 | — | — | M |
 | 57 | `configurable-retention` | F4 | D-21 retention config and pruning for existing data | 08 | 17, 18, 19 | retention config | — | S |
-| 20 | `agent-action-journal` | M1 | **protocol 1.1 → 1.2** (complete v1 wire), agent journal, `action_status`, mutation limiter | 13, 14, 15, 16, 17, 18, 19 | — (21 depends on it) | wire 1.2 | — | L |
+| 20 | `agent-action-journal` | M1 | **protocol 1.1 → 1.2** (complete v1 wire, incl. `hello.skills[].entry_script_digest`), agent journal, `action_status`, mutation limiter | 13, 14, 15, 16, 17, 18, 19 | - (21 depends on it) | wire 1.2, `ScriptDigest` | - | L |
 | 21 | `outcome-unknown-reconcile` | M1 | OutcomeUnknown, reconcile on hello | 14, 20 | — | — | — | M |
-| 22 | `plan-hash-v2-and-authorization` | M1 | plan hash v2, approval binding columns, `Authorization` wrapper, `PolicyPermit` with a restricted `issue`, CI enforcement | 18, 20, 21 | — | ExecutionId, Authorization | **owner decision on the entry-script digest (22 §5.4)** | L |
-| 23 | `single-execution-boundary` | M1 | one execute path, one read boundary, arch rules | 22 | — | — | — | M |
+| 22 | `plan-hash-v2-and-authorization` | M1 | plan hash v2 (manifest hash + the 1.2 entry-script digest), approval binding columns, `Authorization` wrapper, `PolicyPermit` with a restricted `issue`, CI enforcement | 18, 20, 21 | - | ExecutionId, Authorization | - | L |
+| 23 | `single-execution-boundary` | M1 | one execute path, one read boundary, arch rules; keeps the v2 approval hash and the v1 `run_skill` local check apart | 22 | - | - | - | M |
 | 24 | `capability-contracts` | M2 | contract types, built-ins, skill adapter + floor | 23 | 53–56 | contract types | — | M |
 | 25 | `capability-registry` | M2 | availability, catalogue, replace PolicyLink, target identity, inventory UI | 23, 24 | 39 | registry | — | L |
 | 26 | `operation-aggregate` | M3 | operations/steps/edges/executions, writer, decide, effect runner, simulator, trace schema | 23, 25 | 39 | Operation model, trace schema | — | L |
@@ -196,8 +196,9 @@ does not suspend the migration rule (§7) or the shared-file order (§1).
 |---|---|---|
 | `Transaction`, `CommitError`, `CommitReceipt`; `advisories.kind` CHECK removed (new advisory kinds are Rust-only) | 08 (present in this branch line) | 09, 10, 11, 15, 16, 19, 26 |
 | effect lifecycle and lease fencing | 15 | 16, 26 |
-| wire 1.2 (complete RW-42 list, frozen golden frames) | 20 | 21, 22, 25, 41, 47 |
-| `ExecutionId`, `Authorization`, plan hash v2 | 22 | 23, 26, 45 |
+| wire 1.2 (complete RW-42 list, frozen golden frames, `hello.skills[].entry_script_digest`) | 20 | 21, 22, 25, 41, 47 |
+| `ScriptDigest`, `SkillSummary::entry_script_digest` | 20 | 22, 25 |
+| `ExecutionId`, `Authorization`, plan hash v2 (manifest hash + entry digest) | 22 | 23, 26, 45 |
 | capability contract types | 24 | 25, 31, 39 |
 | trace schema (Rust and web fixtures) | 26 | 28, 30, 38, 52 |
 | SSE contract | 28 | 30, 36, 51 |
@@ -275,9 +276,9 @@ row as pending or as still to be implemented.
 | 14 | `14-recovery-order.md` | ready: 10 is merged; adds no migration |
 | 15 | `15-durable-timers.md` | merged into `overhaul-investigation` (#136, `bca079d`; no migration; the effect columns came with `0006`) |
 | 18 | `18-structured-approvals.md` | ready: 10 is merged; adds no migration |
-| 20 | `20-agent-action-journal.md` | ready: 13 and 15 are merged and 14 and 16–19 are ready to land before it; carries the protocol 1.2 bump and the agent-side journal, and adds no hub migration |
+| 20 | `20-agent-action-journal.md` | ready: 13 and 15 are merged and 14 and 16–19 are ready to land before it; carries the protocol 1.2 bump, the per-skill `entry_script_digest` (`ScriptDigest`) and the agent-side journal, and adds no hub migration |
 | 21 | `21-outcome-unknown-reconcile.md` | waiting: 20; adds no migration — `OutcomeUnknown` lives in the existing JSON `status` column |
-| 22 | `22-plan-hash-v2-and-authorization.md` | waiting: 20 and 21, **and the owner decision on the entry-script digest (§5.4 of the brief)**; adds a migration, so take the next free number (§7) |
+| 22 | `22-plan-hash-v2-and-authorization.md` | waiting: 20 and 21; consumes 20's `ScriptDigest` and `SkillSummary::entry_script_digest`; adds a migration, so take the next free number (§7) |
 | 23 | `23-single-execution-boundary.md` | waiting: 22; adds no migration |
 | 24 | `24-capability-contracts.md` | waiting: 23 to merge; the dependency is ordering only and adds no migration |
 

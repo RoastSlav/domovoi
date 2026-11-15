@@ -99,20 +99,26 @@ delivery durability from 16. No journal, no epoch, no `action_status`, no limite
 
 | ID | Remaining work | Owns / migration | Consumers |
 |---|---|---|---|
-| 20 | Complete RW-42 wire list with frozen golden frames for 1.1 and 1.2 (`hello` extensions incl. `journal_epoch`, `catalog_hash`, ceiling fields, `helper_status`, `helper_identity`, `skill_runner_status`, `runs_as_root`, `boot_id`; `run_capability`, `refused`, `action_status`, `get_catalog`, `transfer_*`, `agent_status`, `attest_safety`/`safety_attestation`, `unsupported`); fsynced agent journal (`accepted`/`started{pid,pid_start}`/`finished`, `abandoned`) with dedup by `execution_id` and orphan handling; `action_status` answers; RW-38 limiter with boot-id ages | wire 1.2 (complete RW-42 contract); agent journal file; no hub migration named | 21, 22, 25, 41, 47 (`07 §4`) |
+| 20 | Complete RW-42 wire list with frozen golden frames for 1.1 and 1.2 (`hello` extensions incl. `journal_epoch`, `catalog_hash`, ceiling fields, `helper_status`, `helper_identity`, `skill_runner_status`, `runs_as_root`, `boot_id`, and the required `skills[].entry_script_digest`; `run_capability`, `refused`, `action_status`, `get_catalog`, `transfer_*`, `agent_status`, `attest_safety`/`safety_attestation`, `unsupported`); fsynced agent journal (`accepted`/`started{pid,pid_start}`/`finished`, `abandoned`) with dedup by `execution_id` and orphan handling; `action_status` answers; RW-38 limiter with boot-id ages; `ScriptDigest` in core, the catalogue computing it from the resolved entry file and the pre-execution byte recheck | wire 1.2 (complete RW-42 contract); `ScriptDigest` and `SkillSummary::entry_script_digest`; agent journal file; no hub migration named | 21, 22, 25, 41, 47 (`07 §4`) |
 
 Helper and attestation handlers are defined here but exercised only in 47; `transfer_*` is present but
-unused until 41.
+unused until 41. The entry-script digest is what makes plan hash v2 satisfy RW-11: 22 consumes it and must
+not define a second type.
 
 **Dependencies.** 13–19 merged, including 15 (#136); no migration named for the hub — the agent journal
 is a file on disk. Verify at drafting whether the hub stores `journal_epoch` in a column.
 
-**Components.** `domovoi-proto` (all), `domovoi-agent` (journal, limiter, runtime), `domovoi-hub`
-agent_server + dispatcher, `domovoi-testkit` (golden frames, crash fixtures), `docs/book` protocol page.
+**Components.** `domovoi-proto` (all), `domovoi-core` (`ScriptDigest`, `SkillSummary`), `domovoi-runner`
+(catalogue digest and recheck), `domovoi-agent` (journal, limiter, runtime), `domovoi-hub` agent_server +
+dispatcher, `domovoi-testkit` (golden frames, crash fixtures), `docs/book` protocol page.
 
 **Validation.** `duplicate_dispatch_runs_once`; `agent_rate_limit_applies_to_human_kind`; every RW-38
-test; 1.1/1.2 golden frames; a 1.2 hub rejecting a 1.1 agent as `Incompatible`. The `04 §15.2`
-crash-window tests belong to 21, which owns the reconcile path they exercise.
+test; 1.1/1.2 golden frames; a 1.2 hub rejecting a 1.1 agent as `Incompatible`;
+`entry_script_digest_is_hash_of_resolved_file_bytes`,
+`entry_script_digest_is_present_in_every_loaded_skill_summary`,
+`entry_script_change_after_catalog_load_is_refused`, `entry_script_digest_survives_hello_roundtrip`,
+`entry_script_digest_is_not_manifest_hash`, with the 1.1 fixtures untouched. The `04 §15.2` crash-window
+tests belong to 21, which owns the reconcile path they exercise.
 
 **Blockers.** None. Type: implementation, cross-cutting. Model: **L** — careful reviewer, strongest
 available model.
@@ -126,17 +132,16 @@ contract that 23 consumes.
 
 | ID | Work the prompt must specify | Owns / migration | Key existing code | Named validation |
 |---|---|---|---|---|
-| 21 | `OutcomeUnknown` as a terminal outcome; reconcile on `hello`; epoch change, `not_found`, orphan and journal-lost rules; never auto-fail a `Dispatched` execution; `Approved → NotRun` when an approval expires before dispatch | Outcome representation; **no migration** — verified: `actions.status` is unconstrained TEXT holding the status as JSON (`repos/actions.rs:123`, filtered by `json_extract(status, '$.type')`), so a new variant and a field inside it need no column; `investigations/D-protocol.md:175` is superseded. The epoch lives in the status JSON with `#[serde(default)]` for old rows | `agent_server`, `actions/{executor,writer,freshness,recover}.rs` | `crash_after_accepted_is_outcome_unknown`, `crash_after_started_is_outcome_unknown`, `finished_durable_reply_lost_reconciles`, `hub_crash_before_commit_reconciles_from_journal`, `epoch_change_is_outcome_unknown`, `not_found_with_matching_epoch_is_not_run`, `approved_expiry_before_dispatch_is_not_run` |
-| 22 | Plan hash v2 (contract+version, `impl_hash`, canonical target identity, canonical args, `execution_id`); approval binding columns; `Authorization` wrapper with private internals and two factories, `PolicyPermit` with a restricted `issue`; CI enforcement of every constructor | `ExecutionId`, `Authorization`, plan hash v2, binding columns; **migration** (`05:110`); **launch gate: owner decision on the entry-script digest (`22 §5.4`)** | `core/src/action/approval.rs` (`PlanBinding` v1), hub `auth/`, `clippy.toml`, `xtask/src/arch/` | `approval_bound_to_displayed_plan_hash`, `v1_actions_keep_v1_binding_after_upgrade`; arch rule; v1 actions labelled |
-| 23 | One `execute(AuthorizedExecution)` path; one `collect_evidence` read boundary; arch rules that stop transports reaching `AgentLink` | No contract, **no migration** | `engine/actions/{executor,writer}.rs`, `core/ports/agent_link.rs`, hub transports | `cargo xtask arch-check`; existing action/evidence suites |
+| 21 | `OutcomeUnknown` as a terminal outcome; reconcile on `hello`; epoch change, `not_found`, orphan and journal-lost rules; never auto-fail a `Dispatched` execution; `Approved → NotRun` on every expiry route (both executor preflights, the writer dispatch guard and the sweep), all through one writer-owned command | Outcome representation; **no migration** — verified: `actions.status` is unconstrained TEXT holding the status as JSON (`repos/actions.rs:123`, filtered by `json_extract(status, '$.type')`), so a new variant and a field inside it need no column; `investigations/D-protocol.md:175` is superseded. The epoch lives in the status JSON with `#[serde(default)]` for old rows | `agent_server`, `actions/{executor,writer,freshness,recover}.rs` | `crash_after_accepted_is_outcome_unknown`, `crash_after_started_is_outcome_unknown`, `finished_durable_reply_lost_reconciles`, `hub_crash_before_commit_reconciles_from_journal`, `epoch_change_is_outcome_unknown`, `not_found_with_matching_epoch_is_not_run`, `approved_expiry_before_dispatch_is_not_run`, `approved_expiry_during_the_host_wait_is_not_run`, `writer_dispatch_expiry_race_is_not_run` |
+| 22 | Plan hash v2 (contract+version, `impl_hash` = manifest hash + the required 1.2 `entry_script_digest`, canonical target identity, canonical args, `execution_id`); approval binding columns; `Authorization` wrapper with private internals and two factories, `PolicyPermit` with a restricted `issue`; CI enforcement of every constructor; keeps the v2 approval hash and the v1 `run_skill` local-check hash apart | `ExecutionId`, `Authorization`, plan hash v2, binding columns; **migration** (`05:110`); consumes 20's `ScriptDigest`, defines no second type | `core/src/action/approval.rs` (`PlanBinding` v1), hub `auth/`, `clippy.toml`, `xtask/src/arch/` | `approval_bound_to_displayed_plan_hash`, `v1_actions_keep_v1_binding_after_upgrade`, `changed_entry_script_digest_invalidates_approval`; arch rule; v1 actions labelled |
+| 23 | One `execute(AuthorizedExecution)` path; one `collect_evidence` read boundary; arch rules that stop transports reaching `AgentLink`; consumes 22's v2 approval hash for the dispatch guard, keeps the always-v1 `run_skill` local-check hash separate, and leaves both executor expiry preflights to 21 | No contract, **no migration** | `engine/actions/{executor,writer}.rs`, `core/ports/agent_link.rs`, hub transports | `cargo xtask arch-check`; existing action/evidence suites |
 
 **Consumers.** 22 → 23, 26, 45 (`07 §4`). 23 → 24 (ordering only), 25, 26. 21 → 22, which depends on it;
 26 reuses its reconcile rules for `Dispatch` rather than owning them again.
 **File overlap.** 22 and 23 both edit `engine/src/actions/*` (22: `writer`, `executor`, `freshness`, `mod`;
 23: `executor`, `mod` and the new `execute.rs`); 23 does not touch `core/src/action/*`, which 22 owns. Run 22
 before 23.
-**Blockers.** None beyond 20, plus 22's own gate: its entry-script digest decision (`22 §5.4`) must be
-accepted by the owner before 22 is launched. Type: implementation. Model: 21 M, 22 **L**, 23 M.
+**Blockers.** None beyond 20. Type: implementation. Model: 21 M, 22 **L**, 23 M.
 
 ## 5. Wave G — M2 and the evaluator (24, 25, 39)
 

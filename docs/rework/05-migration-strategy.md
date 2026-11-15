@@ -83,6 +83,10 @@ Restoring a pre-migration backup is never presented as a routine rollback.
   and are restarted by systemd every 5 s until upgraded; the hub writes their state only on change.
 - Executions dispatched before the M1 upgrade (no journal on the old agent) become `OutcomeUnknown`
   when the upgraded agent connects with a new journal epoch.
+- **1.2 carries the per-skill entry-script digest** in `hello.skills[].entry_script_digest`: the SHA-256 of
+  the raw bytes of the agent's resolved entry executable, required with no absent form. It is part of the
+  same 1.1 → 1.2 upgrade, not deferred to a later protocol version. An agent that has not been upgraded does
+  not connect at all (exact rule), so there is no mixed-version summary to interpret.
 - Patch releases with the same protocol interoperate. Agent self-update is not provided (INV-3).
 
 ## 4a. Agent privilege migration (D-29, RW-39, workstream H1, after M1)

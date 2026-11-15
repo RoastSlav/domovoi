@@ -298,7 +298,7 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
   | | v1 (FACT, `approval.rs:16-27`) | v2 (M1) |
   |---|---|---|
   | Format | `plan:v1\n{skill}\n{manifest_hash}\n{host_id}\n{canonical args}` | `plan:v2\n{contract}@{version}\n{impl_hash}\n{target identity}\n{canonical args}\n{execution_id}` |
-  | Entry-script bytes | **not bound** (manifest only) | bound (`impl_hash` = SHA-256 over manifest + entry-script bytes) |
+  | Entry-script bytes | **not bound** (manifest only) | bound (`impl_hash` = SHA-256 over manifest + entry-script bytes; the entry digest is reported per skill in `hello.skills[].entry_script_digest`, RW-42) |
   | Target | host only | resolved target identity (RW-34) |
   | Execution identity | not bound | `execution_id` (RW-36) |
   | Recomputed at dispatch | yes (INV-4) | yes, from the current registry and a fresh target resolution |
@@ -1553,9 +1553,14 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
 - **Problem.** Under D-20, every protocol minor change is a coordinated fleet upgrade. Planned wire
   additions span F3, M1, M2, P1, M8 and M9.
 - **Decision (PROPOSAL).** Exactly one protocol bump before v1, **1.1 → 1.2 in M1**, freezing the v1
-  wire contract. Later milestones add capability contracts carried by that wire, not new messages.
+  wire contract, including the per-skill entry-script digest in `hello.skills[]`. Later milestones add
+  capability contracts carried by that wire, not new messages.
 - **The 1.2 wire contract (complete list):**
   - `hello` extensions:
+    - `skills[]` summaries, each carrying the required `entry_script_digest`: the SHA-256 of the raw bytes
+      of the agent's canonical resolved entry executable, 64 lowercase hex on the wire. Mandatory in 1.2 —
+      no absent form, no default — because it is the only way the hub can bind the entry-script bytes that
+      RW-08 and RW-11 require. The agent recomputes it and compares before every run;
     - `features`;
     - `journal_epoch`;
     - `catalog_hash`;

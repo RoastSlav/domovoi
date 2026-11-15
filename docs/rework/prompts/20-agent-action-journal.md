@@ -4,10 +4,10 @@
 |---|---|
 | Branch | `agent-action-journal` |
 | Milestone | M1 |
-| Scope | Protocol 1.1 -> 1.2, the complete v1 wire contract, the agent action journal, `action_status`, the agent mutation limiter |
+| Scope | Protocol 1.1 -> 1.2, the complete v1 wire contract, the agent action journal, `action_status`, the agent mutation limiter, the per-skill entry-script digest in `hello.skills` |
 | Depends on (must be merged into `overhaul-investigation` before implementation) | 13, 14, 15, 16, 17, 18, 19 |
 | Parallel with | none; prompt 21 depends on this one |
-| Produces | the frozen protocol 1.2 wire contract and the durable agent action journal |
+| Produces | the frozen protocol 1.2 wire contract, the durable agent action journal, and `ScriptDigest` with `SkillSummary::entry_script_digest` |
 | Gate | none beyond the listed dependencies |
 | Suggested model | large |
 
@@ -25,7 +25,9 @@ contract, and implement the parts of that contract that exist today:
 2. idempotent acceptance of execution requests;
 3. the `action_status` query and its answers;
 4. the agent-side mutation rate limiter from `03 RW-38`;
-5. every 1.2 message type, with golden frames.
+5. every 1.2 message type, with golden frames;
+6. the per-skill entry-script digest that `hello.skills` carries from 1.2: its type, its load-time
+   computation from the resolved executable, its pre-execution recheck, and its wire field.
 
 The point is a single question the hub must always be able to answer: did a dispatched execution never
 reach the agent, finish, is it still running in this agent instance, or is its outcome unknowable after
@@ -34,12 +36,20 @@ a crash or journal loss?
 Everything in the 1.2 message set is frozen here, including messages whose consumer lands in a later
 milestone. Later milestones consume this wire; they do not change it.
 
+Item 6 exists for one reason: `03 RW-11` requires plan hash v2 to bind the manifest **and** the
+entry-script bytes, and the hub can only bind what the agent reports. The digest is therefore part of this
+prompt's wire contract, not an optional extra, and prompt 22 consumes it unchanged.
+
 ## 2. Scope and non-goals
 
 This prompt owns:
 
 - `domovoi-proto`: `PROTOCOL_VERSION`, the 1.2 message types and their serde representation, `Open<T>`,
   the tolerant-decoding rules, the 1.1 and 1.2 golden-frame tests.
+- `domovoi-core`: the `ScriptDigest` newtype and the required `SkillSummary::entry_script_digest` field,
+  with every call site that builds a summary updated.
+- `domovoi-runner`: the catalogue computes the digest from the resolved entry file, stores it on the
+  loaded skill, reports it in `summaries()`, and rechecks it before every run.
 - `domovoi-agent`: the action journal, its epoch, the durable accepted/started/finished lifecycle, the
   `action_status` handler, the mutation limiter, and `domovoi agent journal reset`.
 - `domovoi-config`: `[mutation_limits]` in the agent section.
@@ -51,7 +61,7 @@ This prompt does **not** own, and must not implement:
 | Owner | Excluded work |
 |---|---|
 | 21 | hub reconciliation on `hello`, mapping `action_status` to hub execution state, `OutcomeUnknown` commit |
-| 22 | `ExecutionId`, plan hash v2, `Authorization`, `PolicyPermit`, approval binding, CI authorization checks |
+| 22 | `ExecutionId`, plan hash v2, `Authorization`, `PolicyPermit`, approval binding, CI authorization checks. It **consumes** `ScriptDigest` and `SkillSummary::entry_script_digest` from this prompt; it does not define them |
 | 23 | the single execution boundary and its arch rules |
 | 24 | capability registry, contract definitions, skill adapter |
 | 25 | capability catalogue contents and the availability model |
@@ -83,6 +93,8 @@ editing and stop if it changes the design.
 | stream types | `crates/domovoi-proto/src/messages/stream.rs` | `Ping{at}`, `Pong{at}`, `Signals`, `SignalsAck`, `DigestFacts`, `ConfigUpdate`, `ErrorMessage`, `Unsupported{kind}` |
 | wire bytes | `crates/domovoi-proto/src/bytes.rs` | fixed-length base64 newtypes (`Nonce`, `PublicKey`, `Signature`, `Sha256Bytes`); standard padded base64 |
 | golden frames | `crates/domovoi-proto/tests/protocol/` | `snapshots.rs` with `golden_frames_stay_at_1_1`; `version.rs` with `current_version_is_one_one`; `roundtrip.rs`, `auth.rs`, `samples.rs` |
+| skill summary | `crates/domovoi-core/src/skill/manifest.rs` | `SkillManifest::summary()` `:155-167` builds `SkillSummary` `:172-197` from the manifest alone; `SkillSummary` has `manifest_hash: ManifestHash` `:184` and **no entry-script digest**. There is no `ScriptDigest` type (`sha256_newtype!` in `crates/domovoi-core/src/sha256.rs:4-60` is the pattern to follow) |
+| skill catalogue | `crates/domovoi-runner/src/catalog/{mod,checks}.rs` | `LoadedSkill` `mod.rs:16-23` holds `manifest_hash`, `entry_path`, `dir`, `readme` and no digest; `load_skill` `checks.rs:70-97` resolves the entry at `:94` through `resolve_entry` `:114-135` (relative, canonicalized, inside the folder, regular, executable, not group/other-writable); `summaries()` `mod.rs:101-110` calls `manifest.summary()`; `recheck_entry` `checks.rs:100-111` re-resolves and compares the path but reads no bytes |
 | heartbeats | `crates/domovoi-agent/src/link/mod.rs` | the agent sends `Ping` on `welcome.config.heartbeat_seconds` and gives up after three unanswered; the hub answers `Pong` and never pings (`session.rs`) |
 | agent state | `crates/domovoi-agent/src/{identity,fs_atomic,spool}.rs` | `identity.json` mode 0600; `write_atomic`, `read_optional`; `spool.jsonl` + `spool.json`, 10 000 batches / 8 MiB, `batch_seq` across restarts |
 | agent requests | `crates/domovoi-agent/src/requests/mod.rs` | `run_tool`, `run_skill`, `run_check`, `get_logs`; 4 concurrent, queue 32, per-request deadline; no journal, no dedup |
@@ -94,7 +106,8 @@ editing and stop if it changes the design.
 
 Unavailable today: `Open<T>`, `agent_status`, `action_status`, `run_capability`, `refused`,
 `get_catalog`, `transfer_*`, `attest_safety`, `safety_attestation`, `expected_safety`, `journal_epoch`,
-`helper_identity`, `mutation_limits`, any action journal. Build them; do not look for them.
+`helper_identity`, `mutation_limits`, `ScriptDigest`, any entry-script digest in a summary, the
+pre-execution byte recheck, any action journal. Build them; do not look for them.
 
 ## 4. Protocol 1.2: version and compatibility
 
@@ -174,6 +187,94 @@ Rules:
   and a test pins it.
 - `features`, `catalog_hash`, `ceiling_hash` and `ceiling_summary` must keep their wire presence even
   while empty. A later milestone fills them; it does not add fields.
+
+### 5.1 `skills[].entry_script_digest` — required in 1.2
+
+`Hello.skills` stays `Vec<SkillSummary>`. Each element gains one **required** field:
+
+```rust
+pub struct SkillSummary {
+    // ... the existing fields, unchanged ...
+    /// SHA-256 of the raw bytes of the agent's canonical resolved entry executable.
+    pub entry_script_digest: ScriptDigest,
+}
+```
+
+- The wire value is exactly 64 lowercase hexadecimal characters, serialized as a string. It is a digest of
+  file **bytes**, not of a path, a symlink target, a manifest, a README or the catalogue.
+- **Mandatory.** No `Option`, no `entry:absent`, no all-zero sentinel, no fabricated placeholder, no
+  `#[serde(default)]`. A 1.2 skill summary without it does not decode, and the hub must never treat such an
+  element as a complete summary. A missing field is a protocol error, not an older agent.
+- This is an addition to an existing element, not a new top-level `hello` field and not a new message. The
+  `hello` frame keeps its shape apart from the fields inside `skills[]`.
+- 1.1 historical fixtures stay byte-for-byte unchanged (`8.6`); the 1.2 golden frame pins the digest, and
+  the sample catalogue it is generated from carries a real computed value, not a literal typed by hand.
+- No compatibility alias, no "accept a summary without a digest" path, and no protocol 1.3: the single
+  coordinated M1 upgrade stays 1.1 -> 1.2 (`03 RW-42`).
+
+### 5.2 `ScriptDigest` in `domovoi-core`
+
+```rust
+sha256_newtype!(
+    /// SHA-256 over the raw bytes of a skill's resolved entry executable.
+    ///
+    /// Not a manifest hash and not a plan hash: it says which file bytes the agent will run.
+    /// Never produced from text that has been normalized, re-encoded or line-ending converted.
+    ScriptDigest
+);
+
+impl ScriptDigest {
+    /// Hashes exactly `bytes`, byte for byte, with no normalization of any kind.
+    #[must_use]
+    pub fn of_bytes(bytes: &[u8]) -> Self;
+}
+```
+
+- `sha256_newtype!` already gives `Copy`, `Debug`, hex `Display`, `FromStr` and serde as a 64-character
+  string; `digest` stays `pub(crate)`, so `of_bytes` is the only public way to construct one and every call
+  site names its intent.
+- It is a **distinct type** from `ManifestHash` (canonical manifest JSON) and from `PlanHash` (the plan
+  binding). Do not add `From` conversions, do not alias them, do not store one in the other's column or
+  field. A test asserts the three never compare equal for the same input.
+- `domovoi-core` stays pure: hashing a slice it was handed performs no I/O.
+- `SkillSummary` gains the field, so `SkillManifest::summary()` can no longer build a complete summary: the
+  manifest does not contain the file. Replace it with a constructor that takes the digest, for example
+  `SkillManifest::summary(&self, entry_script_digest: ScriptDigest) -> SkillSummary`, and update **every**
+  call site, struct literal, fixture, protocol sample and snapshot in the checkout. The runner catalogue is
+  the only production producer (5.3). A test may compute a digest from explicit fixture bytes; production
+  code never fabricates one.
+- `ManifestHash` semantics do not change: it remains SHA-256 over the canonical manifest JSON only.
+
+### 5.3 The runner computes, stores, reports and rechecks the digest
+
+`crates/domovoi-runner/src/catalog/` owns the real value:
+
+- `LoadedSkill` stores `entry_script_digest: ScriptDigest` beside `manifest_hash`, `entry_path` and `dir`.
+- `checks::load_skill` computes it from the bytes of the canonical `entry_path`, **after**
+  `resolve_entry` has applied the existing rules: the entry is relative, canonicalizes inside the skill
+  folder, is a regular file, is executable, and is not writable by group or others.
+- A read error, an I/O error or any failure to compute the digest means the skill is **not loaded**: report
+  it as a `CatalogIssue` like every other load rule and leave it out of the catalogue. Never load a skill
+  with an unknown digest and never substitute a zero or a manifest digest.
+- `SkillCatalog::summaries()` reports `s.entry_script_digest` for each skill, beside the manifest hash it
+  already reports.
+- Only the digest crosses the wire. Do not send the entry path, the script contents or the resolved folder.
+- `checks::recheck_entry(skill)` — already called by `SkillCatalog::run_skill` immediately before the argv is
+  built — gains three steps after the ones it has: read the current bytes of the still-resolved
+  `entry_path`, compute the current `ScriptDigest`, and refuse the run when it differs from the digest stored
+  on `LoadedSkill`. A read failure also refuses. The existing checks stay exactly as they are: the folder is
+  rechecked, the entry is re-resolved with the same rules, and a path that moved is refused.
+- A file that changed after catalogue load must not execute under the digest the agent announced. Failing
+  closed is the whole point: do not reload the changed file into the old catalogue entry, do not update the
+  stored digest, and do not warn-and-continue. Add a `RunError` variant if the existing entry-changed error
+  cannot say "the entry bytes changed since the catalogue was loaded"; keep the existing error handling
+  shape otherwise.
+
+**What the digest covers, and what it does not.** It covers the manifest and the declared entry
+executable's bytes, which is what `03 RW-11` requires. It does **not** cover transitive dependencies,
+interpreters, sourced scripts, external programs, other files in the folder, or the rest of the runtime
+environment. Say exactly that in the PR and in the doc comment; do not claim more in code, comments, UI or
+documentation.
 
 ## 6. `agent_status`
 
@@ -1121,10 +1222,14 @@ this table:
   either, but the `refused` shape must remain usable by the approval card 18 introduced.
 - **21** depends on this prompt. Do not implement any reconciliation, hello-time recovery or
   `OutcomeUnknown` hub commit here.
+- **22** consumes `ScriptDigest` and `SkillSummary::entry_script_digest` from this prompt. Do not build
+  plan hash v2, an `ImplHash` or any approval binding here; produce the digest, report it, and recheck it.
 
 Repository rules that matter here:
 
-- `domovoi-proto` stays pure: no I/O, no clock, no UUID creation at decode time.
+- `domovoi-proto` stays pure: no I/O, no clock, no UUID creation at decode time. `domovoi-core` stays pure
+  too: `ScriptDigest::of_bytes` hashes the slice it is handed, and the file read happens in
+  `domovoi-runner`.
 - Spawning stays exclusively in `domovoi-runner`, with argv vectors, never `sh -c`.
 - No new crates. `nix` is already a workspace dependency; add it to `domovoi-agent` for the `Flock`
   guard only (10.1). Do not enable extra `nix` features. Prefer `/proc/uptime` over `nix`'s `time`
@@ -1268,40 +1373,73 @@ Add:
 - Review every accepted `insta` snapshot. A 1.1 fixture must not be edited to look like 1.2.
 - If a public protocol type changes, run `cargo nextest run -E 'rdeps(domovoi-proto)'`.
 
+### 14.5 Entry-script digest
+
+- **`entry_script_digest_is_hash_of_resolved_file_bytes`** (runner): load a skill whose entry is a real file
+  with known bytes (and, in a second case, a symlink to it); the digest equals `ScriptDigest::of_bytes` over
+  the resolved file's bytes, not over the link text, the manifest, the README or the folder name.
+- **`entry_script_digest_is_present_in_every_loaded_skill_summary`** (runner): every summary from
+  `summaries()` carries the digest of its own entry; no element is missing it, and two skills with different
+  entries have different digests.
+- **`entry_script_change_after_catalog_load_is_refused`** (runner): rewrite the entry file after the
+  catalogue loaded; `run_skill` refuses with the entry-changed error, performs no run, and the stored digest
+  is unchanged. A read failure of the entry also refuses.
+- **`entry_script_digest_is_not_manifest_hash`** (core): a `ScriptDigest`, a `ManifestHash` and a `PlanHash`
+  computed over the same input bytes are never equal, and no `From` conversion exists between them.
+- **`entry_script_digest_survives_hello_roundtrip`** (proto): a 1.2 `Hello` carrying a summary with a digest
+  serializes to the 64-hex wire value, parses back unchanged, and is covered by the 1.2 golden frame; a 1.2
+  summary without the field is refused rather than defaulted.
+- Retain every existing catalogue, symlink, permission, runner and protocol test; do not relax a load check
+  to make the digest fit.
+
 ## 15. Implementation order
 
-1. `domovoi-proto`: `Open<T>`, `Base64Bytes`, the new message types, the version constant.
-2. Protocol tests: 1.1 fixtures untouched, new 1.2 samples and snapshots, round-trip and tolerant
-   decoding tests.
-3. `domovoi-config`: `[mutation_limits]` and its schema test.
-4. `domovoi-agent`: the `action-journal.lock` module (owned `Flock<File>` guard via `nix`, held in the
+1. `domovoi-core`: `ScriptDigest`, the `SkillSummary::entry_script_digest` field, the summary constructor
+   that requires the digest, and every call site, fixture and struct literal that builds a summary.
+2. `domovoi-runner`: compute the digest in `load_skill` after `resolve_entry`, store it on `LoadedSkill`,
+   report it from `summaries()`, and extend `recheck_entry` to compare the bytes before every run, with
+   the runner tests from 14.5.
+3. `domovoi-proto`: `Open<T>`, `Base64Bytes`, the new message types, the version constant, and 1.2 samples
+   whose skill summaries carry real computed digests.
+4. Protocol tests: 1.1 fixtures untouched, new 1.2 samples and snapshots, round-trip and tolerant
+   decoding tests, and `entry_script_digest_survives_hello_roundtrip`.
+5. `domovoi-config`: `[mutation_limits]` and its schema test.
+6. `domovoi-agent`: the `action-journal.lock` module (owned `Flock<File>` guard via `nix`, held in the
    journal owner for the process lifetime) and the journal module (metadata, epoch, initialization,
    framing, recovery, retention) with unit tests that do not need a hub. Build the durable metadata
    writer, the lock and the startup validation pair-check before anything writes a journal.
-5. `domovoi-agent`: journal-backed acceptance in the request handler, `action_status`, duplicate
+7. `domovoi-agent`: journal-backed acceptance in the request handler, `action_status`, duplicate
    handling, all under the process lock and the `JournalState` mutex.
-6. `domovoi-agent`: mutation limiter, and the `journal init` / `journal reset` commands, each taking
+8. `domovoi-agent`: mutation limiter, and the `journal init` / `journal reset` commands, each taking
    the same lock and refusing while the daemon owns it.
-7. `domovoi-hub`: session handling for the new frames, the reversed ping, and the minimum bookkeeping
+9. `domovoi-hub`: session handling for the new frames, the reversed ping, and the minimum bookkeeping
    needed to keep the workspace compiling.
-8. `hello`/`agent_status` population in the agent, with the honest `absent`/`None` values.
-9. Architecture check, clippy, the full crate tests, and the documented checks.
+10. `hello`/`agent_status` population in the agent, with the honest `absent`/`None` values and the real
+    skill summaries from the catalogue.
+11. Architecture check, clippy, the full crate tests, and the documented checks.
 
-Do not reorder the journal before the wire: the 1.2 types are what the journal's status answers use.
+Do not reorder the journal before the wire: the 1.2 types are what the journal's status answers use. Do not
+put the protocol field before the core type: `SkillSummary` is a core type and the 1.2 sample cannot carry a
+digest the workspace cannot build.
 
 ## 16. Checks
 
 Run exactly these, and put the real output in the completion report:
 
 - `cargo fmt --all`
+- `cargo clippy -p domovoi-core --all-targets -- -D warnings`
+- `cargo clippy -p domovoi-runner --all-targets -- -D warnings`
 - `cargo clippy -p domovoi-proto --all-targets -- -D warnings`
 - `cargo clippy -p domovoi-agent --all-targets -- -D warnings`
 - `cargo clippy -p domovoi-config --all-targets -- -D warnings`
 - `cargo clippy -p domovoi-hub --all-targets -- -D warnings`
-- `cargo nextest run -p domovoi-proto` (or `cargo test`)
+- `cargo nextest run -p domovoi-core` (or `cargo test`)
+- `cargo nextest run -p domovoi-runner`
+- `cargo nextest run -p domovoi-proto`
 - `cargo nextest run -p domovoi-agent`
 - `cargo nextest run -p domovoi-config`
 - `cargo nextest run -p domovoi-hub`
+- `cargo nextest run -E 'rdeps(domovoi-core)'` (`ScriptDigest`, `SkillSummary`)
 - `cargo nextest run -E 'rdeps(domovoi-proto)'`
 - `cargo xtask arch-check` (new modules)
 - `cargo xtask docs-links` if any book or reference page is touched
@@ -1318,6 +1456,12 @@ CI runs the full suite; do not run the whole workspace locally by default.
   changes did not touch.
 - `hello` and `agent_status` carry every extension with honest values: `absent`, `None`, empty, and
   `runs_as_root` from the real uid.
+- Every 1.2 `hello` skill summary carries `entry_script_digest`, a 64-hex SHA-256 of the resolved entry
+  file's raw bytes; the type is `ScriptDigest`, distinct from `ManifestHash` and `PlanHash`; no production
+  path fabricates, defaults or omits it.
+- The catalogue computes the digest after the existing entry-resolution and permission checks, fails the
+  load when it cannot read the bytes, and the runner refuses to execute an entry whose bytes changed since
+  load. The digest covers the manifest and the entry executable only, and the PR says so.
 - The journal is durable, framed, epoch-scoped, idempotent and restart-safe, and every crash window in
   `04 15.2` (except row 8) has a passing named test. The full five-column table is reproduced in
   10.5; row 8's implementation and test belong to prompt 46.

@@ -54,7 +54,8 @@ This prompt does **not** own, and must not implement:
 
 | Owner | Excluded work |
 |---|---|
-| 22 | `ExecutionId`, `Authorization`, `PolicyPermit`, `PlanContract`, `PlanTarget`, `ImplHash`, plan hash v1 and v2, the approval binding columns, the authorization constructors and their scan rules. All of them are **consumed** here, not restated |
+| 22 | `ExecutionId`, `Authorization`, `PolicyPermit`, `PlanContract`, `PlanTarget`, `ImplHash`, plan hash v1 and v2, the approval binding columns, the authorization constructors and their scan rules, and the v1-vs-v2 hash split of 22 §6.5. All of them are **consumed** here, not restated |
+| 20 | `ScriptDigest`, `SkillSummary::entry_script_digest`, the catalogue's digest computation and the agent's pre-execution entry recheck |
 | 24 | capability contract types, the contract index, built-ins, the skill adapter. `collect_evidence` gains no contract type |
 | 25 | the capability registry: availability states, the catalogue, target identity resolution, replacing `PolicyLink`, `AgentLink::run_capability` |
 | 26 | `operations`/`steps`/`executions`, the operation writer, `decide`, the effect runner, `CollectEvidence` as a real effect |
@@ -100,12 +101,19 @@ first and this brief is written to land on top of it.
 | Transport reach | `AgentServer::link()` is public (`agent_server/mod.rs:137`); `api/mod.rs:104/116/125` use it | `link()` is crate-private; `AgentAdmin` reads through `AgentServer` | 29 formalises the use-case layer and its module edges |
 | Enforcement | `scan.rs` covers process spawning, shells, pure-crate I/O, file size, crate docs and approval constructors | four constants and their scans: `run_tool`, `run_skill`/`run_capability`, `run_check`, and naming `AgentLink` in a transport | 29 adds the hub module-edge rule |
 
-**Dependency on 22's document.** This brief needs four things from it and takes them as given:
+**Dependency on 22's document.** This brief needs five things from it and takes them as given:
 `ExecutionId` (`= ActionId` at M1, `ExecutionId::from_action`/`as_action`), `Authorization` as a wrapper with
 private internals plus its `human_approval()`/`policy_permit()` accessors,
-`ActionRequest::plan_hash_for_approval()` as the single family selector, and `ApprovalError`
-carrying `PlanChanged` and `NotYetSupported`. If 22's merged code settles a different name or a different
-selector, follow the merged code and report the difference; do not add a compatibility path.
+`ActionRequest::plan_hash_for_approval()` as the single family selector, `ApprovalError` carrying
+`PlanChanged` and `NotYetSupported`, and the two-hash rule of 22 §6.5 — the approval-family hash for the
+approve request and the dispatch guard, and an always-v1 `runskill_plan_hash` for the wire. If 22's merged
+code settles a different name or a different selector, follow the merged code and report the difference; do
+not add a compatibility path.
+
+**Dependency on 20's and 21's documents.** From 20: `ScriptDigest` and the agent's pre-execution entry recheck
+exist and are owned there; this prompt names neither. From 21: every `Approved`-expiry route, including the
+two executor preflights this prompt keeps, already commits `NotRun` through the writer; this prompt does not
+add a route or an outcome.
 
 ## 4. Verified current state (re-check before editing)
 
@@ -191,14 +199,22 @@ Rules:
    (`WriteCommand::Dispatch { id, plan }`, kept as prompt 22 leaves it), and only when the writer answers
    `Dispatched` does it call `run_skill`, exactly as `executor.rs:315-334` does today.
 4. `execute` takes over the tail the executor owns today — `executor.rs:300-352`: the revalidation, the loop
-   guard, the hash recomputation for the action's own family (prompt 22's `plan_hash_for_approval()` /
-   `compute_v2`), the `Dispatch` commit, `run_skill`, the completion and the verification step — in that
-   order, with no step added, removed or reordered. The executor keeps everything before it
-   (`executor.rs:248-300`: freshness, the host wait, the pool, the second freshness check, the revalidate
-   call), so the incident is still read once, the hash is still recomputed once and the commit is still one.
+   guard, the **approval-family** hash recomputation (prompt 22's `plan_hash_for_approval()` / `compute_v2`),
+   the `Dispatch` commit, `run_skill`, the completion and the verification step — in that order, with no step
+   added, removed or reordered. The executor keeps everything before it (`executor.rs:248-300`: freshness, the
+   host wait, the pool, the second freshness check, the revalidate call), so the incident is still read once,
+   the approval hash is still recomputed once and the commit is still one.
    `execute` additionally guards the precondition `03 RW-08` names and nothing else checks: the stored
    authorization exists and has not expired. That is a check, not a new phase.
-5. There is exactly one dispatch transition. `WriteCommand::Dispatch {` is constructed only in
+5. **Two hashes, kept apart (22 §6.5).** `execute` computes the approval-family hash for
+   `WriteCommand::Dispatch` and, separately, the always-v1 `runskill_plan_hash` for `SkillDispatch.plan_hash`.
+   Two named bindings, never one `plan` variable: the agent's existing `run_skill` check recomputes v1, so a v2
+   value in that field would refuse every new action. Legacy v1 actions use v1 for both.
+6. **Expiry inside the runner task is prompt 21's.** The two `still_current` preflights run before `execute`
+   is reached and resolve `Stale::Expired` through the writer's `ExpireApproved`; `execute` never writes an
+   outcome and never mutates the action. Its own expired-authorization refusal (§6.3) is a defensive guard for
+   a direct call, not the normal path.
+7. There is exactly one dispatch transition. `WriteCommand::Dispatch {` is constructed only in
    `execute.rs`; the writer defines it and matches it (`writer.rs:63-67`, `:200-206`). A second
    construction is a failing gate test, not a code review note.
 
@@ -312,7 +328,8 @@ Rules:
 |---|---|---|---|
 | `AuthorizedExecution`, `ExecuteError`, `execute()` | engine `actions/execute.rs` | being the single dispatch path | persist itself, hold a link, or be public outside the crate |
 | `Evidence`, `EvidenceRequest`, `EvidenceScope`, `EvidenceError`, `collect_evidence` | engine `evidence/` | being the single `run_tool` path and the host-scope check | store, redact, format, expose the link, or become the only way to read host metadata |
-| `Authorization`, `PolicyPermit`, `ExecutionId`, plan hash v1/v2 | 22, consumed unchanged | authorization and plan identity | — |
+| `Authorization`, `PolicyPermit`, `ExecutionId`, plan hash v1/v2 | 22, consumed unchanged | authorization and plan identity | - |
+| `ScriptDigest`, the entry-script recheck | 20, consumed unchanged | proving the approved entry bytes still run | - |
 | `AgentLink` | core `ports/agent_link.rs`, unchanged | the transport port | gain a method in this prompt |
 
 No table, no column, no DTO, no endpoint and no message is added or changed.
@@ -342,7 +359,7 @@ api host pages ──▶ AgentAdmin ──▶ AgentServer inherent methods ─�
 |---|---|
 | action has no stored approval at dispatch (`approved_by` is `None`) | `ExecuteError::NotAuthorized`; the action stays as it is and the run stops. Unreachable for an `Approved` row; it is the precondition's own guard |
 | authorization is a policy permit | `ExecuteError::NotYetSupported`, nothing written — the same answer prompt 22's writer gives |
-| approval expired | `Approved → NotRun` written by the writer with `action.not_run` (prompt 21, §5.6); `execute` returns `Expired` and does not call `run_skill`. Not `Rejected` |
+| approval expired | prompt 21's writer-owned `Approved → NotRun` with `action.not_run`; the executor preflights resolve it before `execute`, and this row is the defensive direct-call guard. `execute` returns `Expired`, writes nothing and does not call `run_skill` |
 | plan hash differs at the instant of dispatch | `WriteCommand::Dispatch` answers `Rejected`; `execute` returns `PlanChanged` and does not call `run_skill` |
 | writer closing during dispatch | `ExecuteError::NotDispatched`; nothing was sent |
 | host `Unknown`/`Absent` at a read | `EvidenceError::NotConnected`, no link call |
@@ -503,9 +520,16 @@ cite them.
   `ExecuteError::NotAuthorized` and nothing reaches the agent.
 - `execute_refuses_a_policy_authorization`: a `PolicyPermit::issue(..)` fixture wrapped with
   `Authorization::policy(..)` returns `NotYetSupported` and writes nothing (the engine half of 22's rule).
-- `execute_refuses_an_expired_approval`: the row becomes `NotRun` with `action.not_run` and prompt 21's
-  expiry reason, `execute` returns `Expired`, and no `run_skill` is attempted. Assert `NotRun`, not
-  `Rejected`: the canonical outcome for expiry before dispatch is `NotRun` (`04 §3.2`, `04 §3.3`).
+- `execute_refuses_an_expired_approval`: a **defensive** direct-boundary test — call `execute` with an action
+  whose window already closed, bypassing the executor preflights: it returns `Expired`, writes nothing and
+  attempts no `run_skill`. The normal orchestration path never reaches it (see the next test), and the durable
+  `NotRun` outcome there is prompt 21's.
+- `executor_preflights_resolve_expiry_before_execute`: with a fake clock past `expires_at`, `executor::run`
+  stops at the first or second `still_current` and `execute` is never entered; the row is `NotRun` with one
+  `action.not_run` entry and no agent request (the engine half of 21's §5.6 routes 1 and 2).
+- `execute_sends_the_v1_local_check_hash`: for a v2 action, the `SkillDispatch.plan_hash` reaching the agent
+  equals `PlanHash::compute(..)` (v1) and differs from the approval-family hash used for the `Dispatch`
+  command; the agent's existing `run_skill` check accepts it.
 - `execute_does_not_run_a_skill_the_writer_did_not_dispatch`: a plan that changed between approval and
   dispatch leaves the action `Rejected` and the recording link sees no call.
 - `evidence_collect_uses_the_scope_host`: a request built from an incident reads that incident's host, and
@@ -563,6 +587,11 @@ These are the proof that the consolidation did not change behaviour; run them at
 9. The diff contains no migration, no wire change, no protocol bump, no new approval, permit or
    authorization constructor, and no change under `crates/domovoi-core/src/action/`.
 10. The ADR from `rules.rs` is in the same PR, and `ARCHITECTURE.md` states both boundaries.
+11. `execute` carries two distinct named values: the approval-family hash for the `Dispatch` command and the
+    always-v1 `runskill_plan_hash` for the wire; no single `plan` variable carries both, and a v2 action's
+    `run_skill` request is still accepted by the agent's existing v1 check.
+12. Every `Approved`-expiry route stays prompt 21's: the two preflights and the writer guard resolve `NotRun`
+    through the writer, and `execute` writes no outcome of its own.
 
 ## 12. Documentation and architecture updates
 

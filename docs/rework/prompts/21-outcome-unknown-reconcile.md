@@ -7,7 +7,7 @@
 | Scope | `OutcomeUnknown` as a terminal outcome; reconciling dispatched executions against the agent's action journal on authenticated `hello` |
 | Depends on (must be merged into `overhaul-investigation` before implementation) | 14, 20 |
 | Parallel with | none; 22 depends on this one |
-| Produces | `ActionStatus::OutcomeUnknown` and `ActionStatus::NotRun`, the journal epoch recorded at dispatch, the hub-side reconciliation pass, its audit kinds and its tests |
+| Produces | `ActionStatus::OutcomeUnknown` and `ActionStatus::NotRun`, the journal epoch recorded at dispatch, the hub-side reconciliation pass, the four-route `Approved → NotRun` expiry path, its audit kinds and its tests |
 | Gate | none beyond the listed dependencies |
 | Suggested model | medium |
 
@@ -290,40 +290,50 @@ Crash windows (`04` §15.2), as the hub sees them:
 | 8 | agent restarts with active containment | containment records | **not this prompt**: prompt 46 updates containment state |
 | - | request never reached the agent | `not_found` with a matching epoch | `NotRun` |
 
-### 5.6 Expiry before dispatch: `Approved → NotRun`
+### 5.6 Expiry before dispatch: `Approved → NotRun`, on every route
 
 `04 §3.2` places "its authorization or approval expired before dispatch" inside `NotRun`; `04 §3.3` and
-`04 §15.1` say the same for an authorized execution that never dispatched. Today that case becomes
-`Rejected` with "the approval expired before the action was dispatched" (`freshness.rs:31`, reached from
-`writer::dispatch` at `:340-346` and from the executor's pre-dispatch check). That is the wrong vocabulary:
-nothing was attempted. This prompt changes that one outcome.
+`04 §15.1` say the same for an authorized execution that never dispatched. Today **every** route writes
+`Rejected`:
 
-Two trigger points, one outcome:
+- `writer::dispatch` (`:340-346`) maps any `Stale` — including `Expired` — to `reject::stop`;
+- `executor::still_current` (`executor.rs:265` and `:297`) maps any `Stale` to `ask_reject`, so both executor
+  preflights do it as well.
 
-1. **At dispatch.** `freshness::check` still returns `Stale::Expired`. `writer::dispatch` sends that one
-   reason through `never_ran` (7.3) instead of `reject::stop`. `IncidentGone` and `IncidentResolved` keep the
-   `Rejected` path unchanged.
-2. **Without a dispatch attempt.** `expire_due` (`writer.rs:408-453`) sweeps `status = "proposed"` today.
-   Add a second pass over `status = "approved"` with the same `expires_before` filter: each row takes
-   `Approved → NotRun`, the audit entry below, and the guarded write on `"approved"`. Without it, an approval
-   whose host never returns sits `Approved` for ever, because nothing else looks at the row.
+That is the wrong vocabulary: nothing was attempted. This prompt moves **all four** routes onto one outcome
+and one writer-owned commit. Do not fix one route and leave another.
+
+| # | Route | Where | Trigger |
+|---|---|---|---|
+| 1 | first executor preflight | `executor::run` before the host wait (`still_current`, `:265`) | the approval expired between being found and the host wait |
+| 2 | second executor preflight | `executor::run` after the host wait (`still_current`, `:297`) | the approval expired while waiting for the host |
+| 3 | writer dispatch guard | `writer::dispatch` freshness check (`:340-346`) | the approval expired between the executor's last check and the dispatch decision |
+| 4 | background sweep | `writer::expire_due` (`:408-453`) | no dispatch attempt happened at all; the host never returned |
+
+One transition, one audit entry, one reason: `never_ran` (7.3) with `EXPIRED_REASON`, audit `action.not_run`,
+guarded on `"approved"`. Route 4's sweep is the route that resolves an approval whose host never comes back;
+route 3 is the one that catches a race with the clock.
 
 Rules:
 
+- **The executor never writes.** `still_current` distinguishes the `Stale` variant and, for `Expired`, queues
+  the writer command in §7.5 (`WriteCommand::ExpireApproved`); for `IncidentGone` and `IncidentResolved` it
+  keeps `ask_reject` exactly as today. It never mutates the action, never commits, and never bypasses the
+  writer's atomic action + audit + journal commit.
 - The outcome is `NotRun { reason }` with `EXPIRED_REASON`, reusing today's sentence so no user-visible text
   changes: "the approval expired before the action was dispatched".
 - The audit kind is `action.not_run` — the kind this prompt adds — **not** `action.expired`.
   `action.expired` stays the `Proposed` sweep's kind and `action.rejected` stays the incident-gone path's.
 - `NotRun` is terminal: the row is never dispatched, retried or re-approved afterwards. A person who still
   wants the work approves a new action.
-- Nothing is sent to the agent, and the row never enters `RAN_STATUSES`.
+- Nothing is sent to the agent on any of the four routes, and the row never enters `RAN_STATUSES`.
 - The DTO already carries the reason (7.6) and the web status set already treats `not_run` as terminal, so no
   new API or UI shape appears for this path.
-- Keep the sweep idempotent and race-safe as it is: the filter picks the rows, the transition checks the
-  status, the guarded write refuses a row decided meanwhile, and a `Conflict` is logged and skipped.
-- The host-availability rows of `04 §15.1` are **out of scope here**: do not change the offline-timeout
-  outcome, and do not call it `Unavailable` until the prompt that owns `Unavailable` exists. Only the expiry
-  outcome moves.
+- Keep every route idempotent and race-safe as the existing code is: the transition checks the status, the
+  guarded write refuses a row decided meanwhile, and a `Conflict` is logged and skipped, never retried.
+- The host-availability rows of `04 §15.1` are **out of scope here**: do not change the offline-timeout or
+  incompatible-agent outcome, and do not call it `Unavailable` until the prompt that owns `Unavailable`
+  exists. Only the expiry outcome moves.
 
 ## 6. Behavioural invariants
 
@@ -526,15 +536,23 @@ in `domovoi-hub`.
   builds the audit entry, and commits with `ActionGuard::Status("dispatched".to_owned())` and
   `extra = Some(("outcome_reason", wire_reason))`. The pass awaits the reply, logs a refused commit at debug
   and never retries it.
-- The reason constants, the answer → outcome mapping, and `never_ran`'s expiry use live in `reconcile.rs`
-  beside the journal reasons, so there is one place that says why something did not run.
-- `writer::dispatch` maps `Stale::Expired` to `not_run::expire(...)` (`never_ran` + `action.not_run` +
-  `EXPIRED_REASON`, guarded on `"approved"`) instead of `reject::stop`; `IncidentGone` and `IncidentResolved`
-  keep `reject::stop` unchanged (§5.6).
-- `writer::expire_due` gains the second pass over `status = "approved"` described in §5.6: same
-  `expires_before` deadline, `never_ran` with `EXPIRED_REASON`, `audit::not_run`, guard `"approved"`. The
-  `proposed` pass keeps `action.expired` and `ExpireDue`'s existing reply count; return the total so the
-  caller's count still means "rows resolved".
+- The reason constants, the answer → outcome mapping, `never_ran`'s journal use and its expiry use live in
+  `reconcile.rs` beside the journal reasons, so there is one place that says why something did not run.
+- **One writer-owned expiry helper.** `writer.rs` gains `async fn expire_approved(shared, id) -> Decision`:
+  load the action, call `never_ran(EXPIRED_REASON, now)`, build `audit::not_run`, and commit through
+  `commit_action` with `ActionGuard::Status("approved")`; a refused commit is logged and dropped, never
+  retried. It is the only code that produces this outcome, and it is not reachable from the executor's own
+  state.
+- **Routes 1 and 2 (executor preflights).** `executor::still_current` matches the `Stale` variant:
+  `Stale::Expired` queues the new `WriteCommand::ExpireApproved { id, reply }`, whose handler calls
+  `expire_approved`; `IncidentGone` and `IncidentResolved` keep `ask_reject` unchanged. The executor awaits
+  the answer, treats a refusal as "the row was decided meanwhile" and returns, and writes nothing itself.
+- **Route 3 (writer dispatch guard).** `writer::dispatch` maps `Stale::Expired` to `expire_approved` instead
+  of `reject::stop`; the other two `Stale` reasons keep `reject::stop` (§5.6).
+- **Route 4 (sweep).** `writer::expire_due` gains the second pass over `status = "approved"` described in
+  §5.6: same `expires_before` deadline, `expire_approved` per row. The `proposed` pass keeps
+  `action.expired` and the existing count; return the total so the caller's count still means "rows
+  resolved".
 - `impl HostReconciler for ActionHandle`, delegating to `reconcile::host(shared, host)`.
 - `writer::run` no longer calls `fail_abandoned`; `recover::fail_abandoned` and `RESTART_REASON` are deleted.
   `recover::scan`, `scanned`, `approved` and `dispatch_history` stay, because the catch-up and the loop guard
@@ -578,6 +596,13 @@ which is what makes an idempotency test possible.
 - One answer, one `UnitOfWork` commit, by the action writer, containing exactly: the guarded action write
   (`expected = "dispatched"`), the audit entry, and the journal entry. This is `commit_action`'s existing
   shape (`actions/mod.rs:155-213`); do not add a second write path and do not commit from the pass directly.
+- **Expiry is one commit too, and it is always the writer's.** Every one of §5.6's four routes ends in
+  `expire_approved`: the guarded action write (`expected = "approved"`), the `action.not_run` audit entry, and
+  the journal entry, in that one commit. The executor queues a command and never writes; the sweep calls the
+  same helper. A refused guard means the row was dispatched or decided meanwhile, and the route drops the
+  result instead of retrying.
+- **The two guards never mix:** reconciliation is guarded on `"dispatched"` and expiry on `"approved"`, so a
+  pass and an expiry cannot both win one row, and the loser writes nothing.
 - The guard is the whole concurrency story. Two passes, a pass racing a hand decision, or a pass racing
   another epoch all resolve the same way: the second commit finds the status is no longer `dispatched`, the
   store refuses it, and the pass drops that result. Never retry a refused commit and never reload-and-force.
@@ -607,10 +632,11 @@ Changed:
 
 - `crates/domovoi-core/src/action/{mod,request,transition}.rs`, `src/lib.rs`, `src/ports/agent_link.rs`,
   `src/ports/repos/actions.rs`.
-- `crates/domovoi-engine/src/actions/{mod,writer,recover}.rs` (settings, command, transition call, expiry
-  mapping and sweep, delete the restart failure and the `recovered` watch), `src/actions/executor.rs` (drop
-  the `recovered` wait, send an expired action through the `NotRun` path), `src/actions/freshness.rs` (no
-  signature change; its `Expired` reason now selects `NotRun` at both call sites).
+- `crates/domovoi-engine/src/actions/{mod,writer,recover}.rs` (settings, `ExpireApproved`, `expire_approved`,
+  the expiry mapping and sweep, delete the restart failure and the `recovered` watch),
+  `src/actions/executor.rs` (drop the `recovered` wait; `still_current` queues `ExpireApproved` for
+  `Stale::Expired` and keeps `ask_reject` for the other reasons), `src/actions/freshness.rs` (no signature
+  change; its `Expired` reason now selects `NotRun` on all three writer/interactive routes).
 - `crates/domovoi-hub/src/agent_server/{mod,session,link,registry,skill_policy}.rs`,
   `src/runtime/mod.rs`, `src/admin/mod.rs`, `src/api/dto.rs`.
 - `crates/domovoi-testkit/src/link.rs`.
@@ -690,7 +716,8 @@ crate changed; `domovoi-proto` itself is not edited.
 | the epoch changes during a pass | the pass stops before the next round |
 | the writer queue is closed (shutdown) | the outcome is not committed; the row stays `Dispatched`, which is correct |
 | an approved action expires while the hub is down | the next `expire_due` resolves it to `NotRun` (§5.6); no agent is contacted |
-| an approved action expires while its run waits for the host | the pre-dispatch freshness check resolves it to `NotRun`, not `Rejected` |
+| an approved action expires before or during the host wait | both executor preflights queue `ExpireApproved`, so it is `NotRun`, not `Rejected` |
+| an approved action expires between the last executor check and the dispatch decision | the writer's dispatch guard resolves it to `NotRun`; nothing is sent |
 
 ## 12. Named tests and acceptance criteria
 
@@ -741,17 +768,27 @@ comment.
 - `active_containment_reconciled_after_agent_restart` — prompt 46. Not implemented, not tested, not claimed
   here.
 
-`crates/domovoi-engine/tests/services/expiry.rs` (new), for §5.6:
+`crates/domovoi-engine/tests/services/expiry.rs` (new), for §5.6. Every case below asserts the same four
+facts: stored status `NotRun` with `EXPIRED_REASON`; exactly one `action.not_run` entry and no
+`action.rejected`, `action.failed` or `action.expired`; the recording link saw no agent request; and
+`RAN_STATUSES` never included the row.
 
-- **`approved_expiry_before_dispatch_is_not_run`** — approve an action, advance the fake clock past
-  `expires_at`, run the executor: the row is `NotRun` with `EXPIRED_REASON`, exactly one `action.not_run`
-  entry, no `action.rejected` and no `action.failed`, and the recording link saw no call.
-- `expiry_sweep_resolves_an_approved_action_without_a_host` — an approved action whose host never appears is
-  swept to `NotRun` by `expire_due` when its window closes, with no agent call and the same audit kind.
+- **`approved_expiry_before_dispatch_is_not_run`** — route 1: approve, advance the fake clock past
+  `expires_at`, run the executor; the first `still_current` resolves it.
+- **`approved_expiry_during_the_host_wait_is_not_run`** — route 2: the host is absent at the first check and
+  appears only after the clock passes `expires_at`; the second `still_current` resolves it, and the host wait
+  is driven entirely by the fake clock and a scripted `availability`.
+- **`writer_dispatch_expiry_race_is_not_run`** — route 3: the executor's final check passes, the clock moves
+  past `expires_at` before `WriteCommand::Dispatch` is processed, and the writer's freshness guard resolves
+  `NotRun` instead of dispatching or rejecting.
+- `expiry_sweep_resolves_an_approved_action_without_a_host` — route 4: an approved action whose host never
+  appears is swept to `NotRun` by `expire_due` when its window closes.
 - `proposed_expiry_stays_expired` — a `Proposed` action still becomes `Expired` with `action.expired`; the
   sweep's first pass and its count are unchanged.
 - `incident_resolved_before_dispatch_stays_rejected` — the incident-gone and incident-resolved paths still
-  yield `Rejected`, proving the change is limited to expiry.
+  yield `Rejected` on both executor preflights and at the writer, proving the change is limited to expiry.
+- `executor_never_writes_an_expiry_outcome` — a recording writer shows the executor queued exactly one
+  command per expiry and performed no store write of its own.
 
 `crates/domovoi-hub/tests/hub/reconciliation.rs` (new):
 
@@ -787,9 +824,10 @@ Acceptance criteria:
 7. Nothing is reconciled for an unauthenticated client, and nothing is persisted for a host with no session.
 8. No new wire type, no protocol version change, no migration file, no new crate, no new dependency.
 9. The old stored status shape loads and reconciles as `OutcomeUnknown`, proven by a test.
-10. An approved action whose window closes before dispatch is `NotRun` on both trigger points, with one
-    `action.not_run` entry, no agent call, and no `action.rejected` or `action.failed`; `Proposed` expiry and
-    the incident-gone rejection are unchanged.
+10. All four `Approved`-expiry routes — both executor preflights, the writer dispatch guard and the sweep —
+    produce `NotRun` with one `action.not_run` entry, no agent call, and no `action.rejected` or
+    `action.failed`; `Proposed` expiry and the incident-gone rejection are unchanged, and the executor never
+    writes an outcome itself.
 11. The unattended-reuse rule is recorded as prompt 45's, and this prompt does not claim the loop guard
     enforces it.
 
@@ -816,11 +854,12 @@ Acceptance criteria:
    Compile the workspace and fix call sites (`writer::dispatch` passes `None` for now).
 2. `domovoi-store`: the old-row test. Nothing else; no migration.
 3. `domovoi-testkit`: scripted epochs and answers, the recording reconciler.
-4. `domovoi-engine`: the expiry path first — `never_ran` in `writer::dispatch`, the `approved` pass in
-   `expire_due`, `EXPIRED_REASON` and `audit::not_run` — then the pass, the mapping, the write command and the
-   remaining audit kind; then delete `fail_abandoned`, `RESTART_REASON` and the `recovered` watch, and rewrite
-   the recovery test. Do the expiry path first because it is the smallest change that touches the same
-   transition and audit code the reconciliation mapping also uses.
+4. `domovoi-engine`: the expiry path first — `never_ran` in `writer::dispatch`, `WriteCommand::ExpireApproved`
+   and `expire_approved` in `writer.rs`, `still_current` routing `Stale::Expired` through the command, the
+   `approved` pass in `expire_due`, `EXPIRED_REASON` and `audit::not_run` — then the pass, the mapping, the
+   write command and the remaining audit kind; then delete `fail_abandoned`, `RESTART_REASON` and the
+   `recovered` watch, and rewrite the recovery test. Do the expiry path first because it is the smallest
+   change that touches the same transition and audit code the reconciliation mapping also uses.
 5. `domovoi-engine` tests: the §5.6 expiry suite, then the crash-window suite.
 6. `domovoi-hub`: `WsAgentLink`, `PolicyLink`, the trigger in `run_session`, `AgentServerDeps`, the DTO
    reason, the hub tests.
