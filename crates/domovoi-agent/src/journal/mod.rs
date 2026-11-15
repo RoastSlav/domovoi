@@ -102,6 +102,9 @@ impl Journal {
         mono_ns: u64,
         limits: MutationLimits,
     ) -> Result<Self, JournalError> {
+        // The lock file lives in the state directory; create the directory before opening
+        // it, then take the lock before inspecting either journal file.
+        std::fs::create_dir_all(dir).map_err(|err| StateError::new(dir, err))?;
         let lock = lock::acquire(&dir.join(lock::LOCK_FILE))?;
         Self::open_with_lock(dir, lock, boot_id, mono_ns, limits)
     }
@@ -204,6 +207,7 @@ impl Journal {
         boot_id: &str,
         mono_ns: u64,
     ) -> Result<Uuid, JournalError> {
+        std::fs::create_dir_all(dir).map_err(|err| StateError::new(dir, err))?;
         let lock = lock::acquire(&dir.join(lock::LOCK_FILE))?;
         Self::init_with_lock(dir, lock, now, boot_id, mono_ns)
     }
