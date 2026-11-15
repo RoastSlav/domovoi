@@ -27,6 +27,9 @@ fn approval_error(err: ApprovalError) -> ApiError {
             ApiError::Forbidden("type the skill's name to approve a destructive action".to_owned())
         }
         ApprovalError::Refused(refused) => ApiError::Conflict(refused.to_string()),
+        ApprovalError::StaleEffect => ApiError::Conflict(
+            "another runner took over this step; reload and try again".to_owned(),
+        ),
         ApprovalError::Store(e) => ApiError::internal("approval failed", e),
         ApprovalError::Unavailable => {
             ApiError::Unavailable("the action service is restarting; try again".to_owned())

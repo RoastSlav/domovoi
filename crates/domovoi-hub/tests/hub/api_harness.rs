@@ -12,8 +12,8 @@ use axum::extract::connect_info::MockConnectInfo;
 use axum::http::{HeaderMap, Method, Request, StatusCode, header};
 use domovoi_config::{HubConfig, MapEnv};
 use domovoi_core::ports::{
-    ActionRepo, AuditEvent, AuditFilter, AuditLog, HostRepo, IncidentRepo, LinkError, LlmProvider,
-    LogLine, LogSource, Notifier, Page, Presence,
+    ActionRepo, AuditEvent, AuditFilter, AuditLog, HostRepo, IncidentRepo, IncidentTimelineEntry,
+    LinkError, LlmProvider, LogLine, LogSource, Notifier, Page, Presence,
 };
 use domovoi_core::{ActionRequest, HostId, HostName, Incident, Principal, Risk, SkillSummary};
 use domovoi_engine::{
@@ -274,6 +274,19 @@ async fn build(
     store.upsert_host(&nas).await.unwrap();
     let incident = open_incident(nas.id, "disk.usage", Some("/srv")).unwrap();
     IncidentRepo::insert(&*store, &incident).await.unwrap();
+    if triage {
+        // The fixture's incident is driven by the test, not by the service's start-up pass:
+        // the entry marks it as already triaged, and its empty detail is never read as a
+        // report.
+        let handled = IncidentTimelineEntry {
+            incident: incident.id(),
+            at: t0(),
+            kind: "triage.cached".to_owned(),
+            summary: "the fixture incident is not triaged on start".to_owned(),
+            detail: Value::Null,
+        };
+        IncidentRepo::append_event(&*store, &handled).await.unwrap();
+    }
 
     let (bus, _) = broadcast::channel(256);
     let shutdown = CancellationToken::new();
@@ -294,6 +307,8 @@ async fn build(
             incidents: store.clone(),
             audit: store.clone(),
             uow: store.clone(),
+            effects: store.clone(),
+            advisories: store.clone(),
             link: link.clone(),
             redactor: Arc::new(PatternRedactor::default()),
             clock: clock.clone(),

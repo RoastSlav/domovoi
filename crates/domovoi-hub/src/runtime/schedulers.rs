@@ -241,6 +241,7 @@ impl Schedulers {
                             | AdvisoryKind::DeliveryFailed
                             | AdvisoryKind::StoredSecretUnreadable
                             | AdvisoryKind::SettingsApplyFailed
+                            | AdvisoryKind::EffectDead
                     )
                 })
         });

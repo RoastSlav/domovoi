@@ -226,6 +226,8 @@ impl HubRuntime {
                 incidents: store.clone(),
                 audit: store.clone(),
                 uow: store.clone(),
+                effects: store.clone(),
+                advisories: store.clone(),
                 link: policy_link.clone(),
                 redactor: redactor.clone(),
                 clock: clock.clone(),

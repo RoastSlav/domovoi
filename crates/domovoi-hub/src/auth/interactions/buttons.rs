@@ -56,6 +56,7 @@ pub fn approval_reason(err: &ApprovalError) -> String {
             "Someone already decided this action".to_owned()
         }
         ApprovalError::Refused(refused) => format!("Not possible: {refused}"),
+        ApprovalError::StaleEffect => "This step was taken over; try again".to_owned(),
         ApprovalError::Store(_) => "Something went wrong; try again".to_owned(),
         ApprovalError::Unavailable => {
             "The service that decides actions is restarting; try again".to_owned()
