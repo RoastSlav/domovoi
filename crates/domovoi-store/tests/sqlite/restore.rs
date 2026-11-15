@@ -1028,29 +1028,78 @@ async fn a_failed_rename_and_a_failed_flush_are_both_reported() {
     let dir = tempfile::tempdir().unwrap();
     let live = database_with(dir.path(), "live-theme").await;
     let backup = good_backup(dir.path()).await;
+    let before = std::fs::read(&live).unwrap();
 
-    // The install fails, the rollback of the moved database fails, and so does the flush.
-    let err = restore_from_backup_failing_at(&live, &backup, at(60), "undo-database")
+    // One restore, three failures: the install rename fails, undoing the move of the
+    // previous database fails, and the flush that would record the rollback fails too.
+    let err = restore_from_backup_failing_at(&live, &backup, at(60), "undo-database-sync-rollback")
         .await
         .unwrap_err();
 
-    let text = err.to_string();
-    // Either the rollback-complete or the incomplete form is right; neither may hide the
-    // original failure, and the file that stayed put must be named.
-    match &err {
-        RestoreError::RecoveryIncomplete { reason, recovery }
-        | RestoreError::RecoveryIncompleteNotDurable {
-            reason, recovery, ..
-        } => {
-            assert!(reason.contains("cannot install it"), "{reason}");
-            assert!(recovery.contains("before-restore"), "{recovery}");
-        }
-        other => panic!("expected incomplete recovery, got {other:?}"),
-    }
-    let misplaced = preserved_names(dir.path());
-    assert_eq!(misplaced.len(), 1, "{misplaced:?}");
+    // Exactly this variant: every other outcome would hide one of the three failures.
+    let RestoreError::RecoveryIncompleteNotDurable {
+        reason,
+        recovery,
+        durability,
+    } = &err
+    else {
+        panic!("expected RecoveryIncompleteNotDurable, got {err:?}");
+    };
+
+    // The installation failure is the reason, not something the rollback or flush replaced.
     assert!(
-        text.contains(&misplaced[0]),
-        "the error names the misplaced file: {text}"
+        reason.contains("cannot install it"),
+        "the original installation failure is named: {reason}"
+    );
+
+    // The rollback could not put the previous database back, and the path it names is
+    // where the file really is.
+    let preserved = preserved_names(dir.path());
+    assert_eq!(preserved.len(), 1, "one file stayed put: {preserved:?}");
+    let previous = dir.path().join(&preserved[0]);
+    assert!(
+        previous
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .contains(".before-restore-"),
+        "the preserved name is a `.before-restore-*` path: {}",
+        previous.display()
+    );
+    assert!(
+        recovery.contains(&previous.display().to_string()),
+        "the recovery names the exact path: {recovery}"
+    );
+    assert!(previous.exists(), "the previous database is still there");
+    assert_eq!(
+        std::fs::read(&previous).unwrap(),
+        before,
+        "its bytes are unchanged, so nothing overwrote it"
+    );
+
+    // The rollback's own flush failed, and the error says the result is not durable.
+    assert!(
+        durability.contains("simulated failure"),
+        "the flush failure is reported: {durability}"
+    );
+    assert!(
+        durability.contains(&dir.path().display().to_string()),
+        "the directory that could not be flushed is named: {durability}"
+    );
+    assert!(
+        err.to_string().contains("not durable"),
+        "the message says the result is not durable: {err}"
+    );
+
+    // The live database was never reported as restored, and the previous data is still
+    // recoverable at the path the error names.
+    assert!(
+        !live.exists(),
+        "the live path holds no database, so nothing was reported as installed"
+    );
+    assert_eq!(
+        theme_of(&previous).await,
+        Some(serde_json::json!("live-theme")),
+        "the previous database is readable where the error says it is"
     );
 }

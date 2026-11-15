@@ -81,13 +81,23 @@ pub(super) fn forced(fail_at: Option<&str>, phase: &str, tail: &str) -> bool {
             // The rollback-failure steps install nothing either.
             return matches!(
                 fail_at,
-                Some("swap-database" | "undo-database" | "sync-rollback")
+                Some(
+                    "swap-database"
+                        | "undo-database"
+                        | "sync-rollback"
+                        | "undo-database-sync-rollback"
+                )
             );
         }
         ("sync", "aside") => "sync-aside",
         ("sync", "install") => "sync-install",
         // Only consulted after a rollback, by `roll_back`.
-        ("sync", "rollback") => "sync-rollback",
+        ("sync", "rollback") => {
+            return matches!(
+                fail_at,
+                Some("sync-rollback" | "undo-database-sync-rollback")
+            );
+        }
         _ => return false,
     };
     fail_at == Some(wanted)
@@ -97,10 +107,12 @@ pub(super) fn forced(fail_at: Option<&str>, phase: &str, tail: &str) -> bool {
 ///
 /// `undo-database` makes the install fail and then the rollback fail too, which is how a
 /// test reaches [`RestoreError::RecoveryIncomplete`] without depending on permissions.
+/// `undo-database-sync-rollback` adds a failing flush to the rollback, for the combined
+/// case where every failure has to be reported at once.
 pub(super) fn undo_fails(fail_at: Option<&str>) -> bool {
     matches!(
         fail_at,
-        Some("undo-database" | "failed-database-with-wal-stuck")
+        Some("undo-database" | "undo-database-sync-rollback" | "failed-database-with-wal-stuck")
     )
 }
 
