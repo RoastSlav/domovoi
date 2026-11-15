@@ -65,6 +65,12 @@ pub enum Record {
         pid: u32,
         /// `/proc/<pid>/stat` field 22, in clock ticks since boot.
         proc_start_time: u64,
+        /// The child's process-group id at spawn; `0` in records written before it was kept.
+        #[serde(default)]
+        pgid: u32,
+        /// The child's session id at spawn; `0` in records written before it was kept.
+        #[serde(default)]
+        session: u32,
     },
     /// The child completed. Durable before the reply.
     Finished {
@@ -206,6 +212,11 @@ fn validate(records: &[Record], metadata_epoch: Uuid) -> Result<(), JournalError
     if *epoch != metadata_epoch {
         return Err(JournalError::Corrupt(
             "journal_created names an epoch other than the metadata's".to_owned(),
+        ));
+    }
+    if epoch.is_nil() {
+        return Err(JournalError::Corrupt(
+            "journal_created names a nil epoch".to_owned(),
         ));
     }
     if records

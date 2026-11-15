@@ -3,6 +3,7 @@
 //! The signal spool is separate: this journal records execution lifecycle so the hub can
 //! always tell "never reached the agent", "finished", "running here", or "unknowable".
 
+mod append;
 mod compact;
 mod limiter;
 mod lock;
@@ -25,10 +26,11 @@ use uuid::Uuid;
 
 use crate::error::{JournalError, StateError};
 use crate::fs_atomic::{DurableFaults, DurableWriteError};
+use append::append_locked;
 use lock::JournalLock;
 use store::{
-    JournalState, Phase, absent_locked, acceptances_locked, answer_locked, append_locked,
-    create_epoch, journal_corrupt, load_records, outcome_unknown, phase_locked, reset_locked,
+    Fence, JournalState, Phase, absent_locked, acceptances_locked, answer_locked, create_epoch,
+    journal_corrupt, load_records, outcome_unknown, phase_locked, reset_locked,
 };
 
 /// A one-shot append failure a test can inject. Never set in production.
@@ -78,7 +80,7 @@ pub struct AcceptedRequest<'a> {
 impl std::fmt::Debug for Journal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Journal")
-            .field("epoch", &self.epoch())
+            .field("epoch", &self.epoch)
             .field("fenced", &self.corruption().is_some())
             .finish_non_exhaustive()
     }
@@ -86,6 +88,8 @@ impl std::fmt::Debug for Journal {
 
 /// The journal owner.
 pub struct Journal {
+    /// Immutable for this owner; never read through the mutable state mutex.
+    epoch: Uuid,
     state: Mutex<JournalState>,
     limits: MutationLimits,
     _lock: JournalLock,
@@ -127,6 +131,12 @@ impl Journal {
         mono_ns: u64,
         limits: MutationLimits,
     ) -> Result<Self, JournalError> {
+        if dir.join(store::RESET_INTENT_FILE).exists() {
+            return Err(JournalError::State(StateError::new(
+                dir.join(store::RESET_INTENT_FILE),
+                "an interrupted journal reset; run `domovoi agent journal reset`",
+            )));
+        }
         let mut meta = match Metadata::load(dir)? {
             Some(meta) => meta,
             None => {
@@ -159,7 +169,7 @@ impl Journal {
                     return Err(JournalError::State(err));
                 }
                 Err(DurableWriteError::Indeterminate(err)) => {
-                    fenced = Some(err.to_string());
+                    fenced = Some(Fence::metadata(err.to_string()));
                     match Metadata::load(dir) {
                         Ok(Some(loaded)) if loaded.epoch == meta.epoch => {
                             match load_records(dir, &loaded) {
@@ -169,14 +179,17 @@ impl Journal {
                                     valid_len = len;
                                     fenced = fence;
                                 }
-                                Err(load_err) => fenced = Some(load_err.to_string()),
+                                Err(load_err) => {
+                                    fenced = Some(Fence::metadata(load_err.to_string()));
+                                }
                             }
                         }
                         Ok(Some(_)) => {
-                            fenced = Some("metadata epoch changed during the write".to_owned());
+                            fenced =
+                                Some(Fence::metadata("metadata epoch changed during the write"));
                         }
                         Ok(None) => {}
-                        Err(load_err) => fenced = Some(load_err.to_string()),
+                        Err(load_err) => fenced = Some(Fence::metadata(load_err.to_string())),
                     }
                 }
             }
@@ -193,7 +206,9 @@ impl Journal {
             rewrite_dir_sync_fault: false,
         };
         lock.hold();
+        let epoch = state.meta.epoch;
         Ok(Self {
+            epoch,
             state: Mutex::new(state),
             limits,
             _lock: lock,
@@ -231,7 +246,10 @@ impl Journal {
         mono_ns: u64,
     ) -> Result<Uuid, JournalError> {
         let _lock = lock;
-        if dir.join(JOURNAL_FILE).exists() || dir.join(META_FILE).exists() {
+        if dir.join(JOURNAL_FILE).exists()
+            || dir.join(META_FILE).exists()
+            || dir.join(store::RESET_INTENT_FILE).exists()
+        {
             return Err(JournalError::AlreadyExists);
         }
         create_epoch(dir, now, boot_id, mono_ns)
@@ -260,17 +278,18 @@ impl Journal {
         reset_locked(dir, now, boot_id, mono_ns)
     }
 
-    /// The journal's epoch.
+    /// The journal's epoch. Immutable for this owner, so a poisoned state mutex cannot
+    /// change or hide it.
     pub fn epoch(&self) -> Uuid {
-        self.state
-            .lock()
-            .map(|s| s.meta.epoch)
-            .unwrap_or(Uuid::nil())
+        self.epoch
     }
 
     /// Why the journal is fenced, when it is.
     pub fn corruption(&self) -> Option<String> {
-        self.state.lock().ok().and_then(|s| s.fenced.clone())
+        self.state
+            .lock()
+            .ok()
+            .and_then(|state| state.fenced.as_ref().map(|fence| fence.reason.clone()))
     }
 
     /// Accepts `request`, writing a durable `accepted` record before returning.
@@ -282,8 +301,10 @@ impl Journal {
         mono_ns: u64,
     ) -> Result<AcceptOutcome, JournalError> {
         let mut state = self.lock()?;
-        if let Some(reason) = &state.fenced {
-            return Ok(AcceptOutcome::Refused(Box::new(journal_corrupt(reason))));
+        if let Some(fence) = &state.fenced {
+            return Ok(AcceptOutcome::Refused(Box::new(journal_corrupt(
+                &fence.reason,
+            ))));
         }
         if let Some(answer) = answer_locked(&state, request.execution_id) {
             return Ok(AcceptOutcome::Duplicate(answer));
@@ -327,16 +348,22 @@ impl Journal {
         proc_start_time: u64,
     ) -> Result<(), JournalError> {
         let mut state = self.lock()?;
+        if let Some(fence) = &state.fenced {
+            return Err(JournalError::Corrupt(fence.reason.clone()));
+        }
         if phase_locked(&state, execution_id) != Some(Phase::Accepted) {
             return Err(JournalError::Lifecycle(format!(
                 "started for {execution_id} requires a preceding accepted record"
             )));
         }
+        let stat = recovery::process_stat(pid);
         let record = Record::Started {
             format: Record::FORMAT,
             execution_id,
             pid,
             proc_start_time,
+            pgid: stat.map_or(0, |stat| stat.pgrp),
+            session: stat.map_or(0, |stat| stat.session),
         };
         append_locked(&mut state, &record)?;
         state.running_now.insert(execution_id);
@@ -350,6 +377,9 @@ impl Journal {
         result: CapabilityResult,
     ) -> Result<(), JournalError> {
         let mut state = self.lock()?;
+        if let Some(fence) = &state.fenced {
+            return Err(JournalError::Corrupt(fence.reason.clone()));
+        }
         if phase_locked(&state, execution_id) != Some(Phase::Started) {
             return Err(JournalError::Lifecycle(format!(
                 "finished for {execution_id} requires a preceding started record"
@@ -360,7 +390,12 @@ impl Journal {
             execution_id,
             result,
         };
-        append_locked(&mut state, &record)?;
+        if let Err(err) = append_locked(&mut state, &record) {
+            // The child may already have finished, but its result is not durable. Stop
+            // claiming it is running; the status falls back to outcome-unknown.
+            state.running_now.remove(&execution_id);
+            return Err(err);
+        }
         state.running_now.remove(&execution_id);
         Ok(())
     }
@@ -392,7 +427,7 @@ impl Journal {
     #[doc(hidden)]
     pub fn fence(&self, reason: impl Into<String>) {
         if let Ok(mut state) = self.state.lock() {
-            state.fenced = Some(reason.into());
+            state.fenced = Some(Fence::corrupt(reason));
         }
     }
 
@@ -418,6 +453,15 @@ impl Journal {
         if let Ok(mut state) = self.state.lock() {
             state.rewrite_dir_sync_fault = true;
         }
+    }
+
+    /// Poisons the state mutex. Test-only.
+    #[cfg(test)]
+    pub(crate) fn poison_state_for_test(&self) {
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = self.state.lock().expect("the journal lock is healthy");
+            panic!("poison the journal lock");
+        }));
     }
 
     /// Serialises every journal operation inside the owning process.

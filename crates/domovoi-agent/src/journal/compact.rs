@@ -55,7 +55,7 @@ pub(super) fn rewrite_locked(
                 state.valid_len = valid_len;
                 state.fenced = fence;
             }
-            Err(err) => state.fenced = Some(err.to_string()),
+            Err(err) => state.fenced = Some(super::store::Fence::corrupt(err.to_string())),
         }
         return Ok(RewriteOutcome::Indeterminate);
     }
@@ -132,8 +132,8 @@ impl Journal {
         boot_id: &str,
     ) -> Result<bool, JournalError> {
         let mut state = self.lock()?;
-        if let Some(reason) = &state.fenced {
-            return Err(JournalError::Corrupt(reason.clone()));
+        if let Some(fence) = &state.fenced {
+            return Err(JournalError::Corrupt(fence.reason.clone()));
         }
         let keep_set = kept_executions(
             &state.records,

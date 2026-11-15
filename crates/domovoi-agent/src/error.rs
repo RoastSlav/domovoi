@@ -162,4 +162,7 @@ pub enum AgentError {
     /// The action journal could not be opened.
     #[error(transparent)]
     Journal(#[from] JournalError),
+    /// The boot identity or monotonic time could not be read.
+    #[error(transparent)]
+    Boot(#[from] crate::boot::BootSnapshotError),
 }

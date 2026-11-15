@@ -96,20 +96,13 @@ pub async fn run(command: AgentCommand, logs: Arc<LogRing>) -> anyhow::Result<Ex
             let config = load_agent(&args.config)?;
             let clock = SystemClock;
             let fs = production::host_fs(&config);
-            let boot_id = fs
-                .read_to_string("/proc/sys/kernel/random/boot_id")
-                .await
-                .unwrap_or_default()
-                .trim()
-                .to_owned();
-            let mono_ns = domovoi_agent::facts::parse_uptime_ns(
-                &fs.read_to_string("/proc/uptime").await.unwrap_or_default(),
-            );
+            let snapshot = domovoi_agent::boot_snapshot(&*fs).await?;
+            let boot_id = snapshot.boot_id.to_string();
             let dir = &config.agent.state_dir;
             let result = if reset {
-                Journal::reset(dir, clock.now(), &boot_id, mono_ns)
+                Journal::reset(dir, clock.now(), &boot_id, snapshot.monotonic_ns)
             } else {
-                Journal::init(dir, clock.now(), &boot_id, mono_ns)
+                Journal::init(dir, clock.now(), &boot_id, snapshot.monotonic_ns)
             };
             match result {
                 Ok(epoch) => {

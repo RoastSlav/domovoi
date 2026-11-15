@@ -51,6 +51,11 @@ pub const OUTBOX: usize = 256;
 /// How often an idle agent says it is still waiting to be upgraded.
 pub const IDLE_NOTICE_INTERVAL: SignedDuration = SignedDuration::from_hours(1);
 /// How often the agent compares its runtime status and reports a change.
+///
+/// Only immutable values exist in this milestone (`runs_as_root`, the absent helper and
+/// skill runner, and the absent ceiling). The probe compares the current snapshot and sends
+/// a change; it is not an environment refresh. A later milestone supplies mutable component
+/// status through the same source.
 pub const STATUS_PROBE_INTERVAL: SignedDuration = SignedDuration::from_secs(60);
 
 /// A request from the hub, waiting for the request handler.
@@ -313,14 +318,17 @@ impl Link {
         // The hub pings; the agent answers `pong`. A silent link for three intervals is dead.
         let mut last_activity = clock.now();
         let mut next_check = clock.now().saturating_add(beat).unwrap_or(clock.now());
-        // Report the session's initial status, then only real changes.
+        // Report the session's initial status, then only real changes. A status that cannot
+        // be read is not sent: the hub must not receive fabricated values.
         let mut last_status = self.parts.status.current();
-        frame::send(
-            transport.as_mut(),
-            &Message::AgentStatus(last_status.clone()),
-            None,
-        )
-        .await?;
+        if let Some(status) = &last_status {
+            frame::send(
+                transport.as_mut(),
+                &Message::AgentStatus(status.clone()),
+                None,
+            )
+            .await?;
+        }
         let mut next_status = clock
             .now()
             .saturating_add(STATUS_PROBE_INTERVAL)
@@ -341,15 +349,16 @@ impl Link {
                 }
                 () = self.parts.spool.pushed() => self.flush(transport.as_mut(), &mut sent).await?,
                 () = clock.sleep_until(next_status) => {
-                    let current = self.parts.status.current();
-                    if current != last_status {
+                    if let Some(current) = self.parts.status.current()
+                        && last_status.as_ref() != Some(&current)
+                    {
                         frame::send(
                             transport.as_mut(),
                             &Message::AgentStatus(current.clone()),
                             None,
                         )
                         .await?;
-                        last_status = current;
+                        last_status = Some(current);
                     }
                     next_status = next_status.saturating_add(STATUS_PROBE_INTERVAL).unwrap_or(next_status);
                 }

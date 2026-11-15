@@ -36,7 +36,16 @@ pub fn clock() -> Arc<FakeClock> {
 }
 
 pub fn empty_fs(dir: &tempfile::TempDir) -> Arc<FixtureHostFs> {
-    Arc::new(FixtureHostFs::new(dir.path().join("host")))
+    let root = dir.path().join("host");
+    let proc = root.join("proc");
+    std::fs::create_dir_all(proc.join("sys/kernel/random")).unwrap();
+    std::fs::write(
+        proc.join("sys/kernel/random/boot_id"),
+        "018f0000-0000-7000-8000-000000000001\n",
+    )
+    .unwrap();
+    std::fs::write(proc.join("uptime"), "1.00 1.00\n").unwrap();
+    Arc::new(FixtureHostFs::new(root))
 }
 
 /// Yields until the tasks that can make progress have made it.
@@ -114,7 +123,10 @@ fn start_link_full(
         skills: Vec::new(),
         checks: Vec::new(),
         docker: None,
-        extensions: Default::default(),
+        extensions: domovoi_agent::link::handshake::HelloExtensions {
+            journal_epoch: uuid::Uuid::now_v7(),
+            ..Default::default()
+        },
         status,
         overrides: None,
         spool,

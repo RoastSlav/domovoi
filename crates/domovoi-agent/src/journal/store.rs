@@ -26,17 +26,64 @@ pub enum AppendFault {
     Open,
     /// Write only part of the frame.
     Partial,
-    /// Write the complete frame but fail before syncing it.
+    /// Write only part of the frame, and fail the truncation that would repair it.
+    PartialTruncate,
+    /// Write the complete frame but fail before syncing it; a recovery sync may succeed.
     Sync,
+    /// Write the complete frame, fail its sync, and fail the recovery sync too.
+    RecoverySync,
     /// Write and sync the frame, then report an uncertain outcome.
     Uncertain,
+}
+
+/// Why a journal refuses mutations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum FenceKind {
+    /// Permanent corruption; only a local reset recovers.
+    Corrupt,
+    /// A metadata write's durability is unknown; only a validated reload may clear it.
+    Metadata,
+    /// An append's durability is unknown; only a successful recovery sync may clear it.
+    Append,
+}
+
+/// A fence and its reason.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct Fence {
+    /// What kind of condition holds.
+    pub(super) kind: FenceKind,
+    /// What is wrong, for the refusal detail and logs.
+    pub(super) reason: String,
+}
+
+impl Fence {
+    pub(super) fn corrupt(reason: impl Into<String>) -> Self {
+        Self {
+            kind: FenceKind::Corrupt,
+            reason: reason.into(),
+        }
+    }
+
+    pub(super) fn metadata(reason: impl Into<String>) -> Self {
+        Self {
+            kind: FenceKind::Metadata,
+            reason: reason.into(),
+        }
+    }
+
+    pub(super) fn append(reason: impl Into<String>) -> Self {
+        Self {
+            kind: FenceKind::Append,
+            reason: reason.into(),
+        }
+    }
 }
 
 /// The in-memory journal, guarded by one mutex for the owning process.
 pub(super) struct JournalState {
     pub(super) dir: PathBuf,
     pub(super) meta: Metadata,
-    pub(super) fenced: Option<String>,
+    pub(super) fenced: Option<Fence>,
     pub(super) records: Vec<Record>,
     pub(super) valid_len: u64,
     pub(super) running_now: BTreeSet<Uuid>,
@@ -48,17 +95,21 @@ pub(super) struct JournalState {
 pub(super) fn load_records(
     dir: &Path,
     meta: &Metadata,
-) -> Result<(Vec<Record>, u64, Option<String>), JournalError> {
+) -> Result<(Vec<Record>, u64, Option<Fence>), JournalError> {
     let path = dir.join(JOURNAL_FILE);
     let Some(bytes) = crate::fs_atomic::read_optional(&path)? else {
         return Ok((
             Vec::new(),
             0,
-            Some("the journal file is missing".to_owned()),
+            Some(Fence::corrupt("the journal file is missing")),
         ));
     };
     if bytes.is_empty() {
-        return Ok((Vec::new(), 0, Some("the journal file is empty".to_owned())));
+        return Ok((
+            Vec::new(),
+            0,
+            Some(Fence::corrupt("the journal file is empty")),
+        ));
     }
     match record::parse(&bytes, meta.epoch) {
         Ok(parsed) => {
@@ -75,9 +126,12 @@ pub(super) fn load_records(
             }
             Ok((parsed.records, parsed.valid_len, None))
         }
-        Err(err) => Ok((Vec::new(), 0, Some(err.to_string()))),
+        Err(err) => Ok((Vec::new(), 0, Some(Fence::corrupt(err.to_string())))),
     }
 }
+
+/// Marks an in-progress explicit reset so a restart never treats it as history loss.
+pub(super) const RESET_INTENT_FILE: &str = "action-journal.reset";
 
 pub(super) fn reset_locked(
     dir: &Path,
@@ -85,18 +139,82 @@ pub(super) fn reset_locked(
     boot_id: &str,
     mono_ns: u64,
 ) -> Result<Uuid, JournalError> {
-    let old = Metadata::load(dir).ok().flatten().map(|m| m.epoch);
-    let suffix = old
-        .map(|epoch| epoch.to_string())
-        .unwrap_or_else(|| "unknown".to_owned());
-    for name in [JOURNAL_FILE, META_FILE] {
-        let from = dir.join(name);
-        if from.exists() {
-            let to = dir.join(format!("{name}.{suffix}"));
-            std::fs::rename(&from, &to).map_err(|err| StateError::new(&from, err))?;
-        }
+    let journal = dir.join(JOURNAL_FILE);
+    let meta = dir.join(META_FILE);
+    let intent = dir.join(RESET_INTENT_FILE);
+    let any = journal.exists() || meta.exists();
+    if !any && !intent.exists() {
+        return Err(JournalError::State(StateError::new(
+            dir,
+            "there is no journal to reset; use `journal init` for a new installation",
+        )));
     }
-    create_epoch(dir, now, boot_id, mono_ns)
+    if any {
+        let base = Metadata::load(dir)
+            .ok()
+            .flatten()
+            .map(|meta| meta.epoch.to_string())
+            .unwrap_or_else(|| Uuid::now_v7().to_string());
+        let marker = format!("{base}\n");
+        crate::fs_atomic::write_atomic_durable(&intent, marker.as_bytes(), 0o600)
+            .map_err(|err| StateError::new(&intent, err))?;
+        archive_existing(dir, &base)?;
+    }
+    let epoch = create_epoch(dir, now, boot_id, mono_ns)?;
+    match std::fs::remove_file(&intent) {
+        Err(err) if err.kind() != std::io::ErrorKind::NotFound => {
+            tracing::warn!(%err, "the completed reset intent could not be removed");
+        }
+        _ => {}
+    }
+    Ok(epoch)
+}
+
+/// Hard-links each existing journal file to a unique archive name, then removes the source.
+///
+/// Hard links give no-overwrite semantics: a collision fails rather than replacing the
+/// archive, and every source is removed only after every archive link exists.
+fn archive_existing(dir: &Path, base: &str) -> Result<(), JournalError> {
+    let mut generation = base.to_owned();
+    for _ in 0..10 {
+        let mut created: Vec<(std::path::PathBuf, std::path::PathBuf)> = Vec::new();
+        let mut collision = false;
+        for name in [JOURNAL_FILE, META_FILE] {
+            let from = dir.join(name);
+            if !from.exists() {
+                continue;
+            }
+            let to = dir.join(format!("{name}.{generation}"));
+            match std::fs::hard_link(&from, &to) {
+                Ok(()) => created.push((from, to)),
+                Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+                    collision = true;
+                    break;
+                }
+                Err(err) => {
+                    for (_, link) in &created {
+                        let _ = std::fs::remove_file(link);
+                    }
+                    return Err(JournalError::State(StateError::new(&from, err)));
+                }
+            }
+        }
+        if collision {
+            for (_, link) in &created {
+                let _ = std::fs::remove_file(link);
+            }
+            generation = format!("{base}-{}", Uuid::now_v7());
+            continue;
+        }
+        for (from, _) in &created {
+            std::fs::remove_file(from).map_err(|err| StateError::new(from, err))?;
+        }
+        return Ok(());
+    }
+    Err(JournalError::State(StateError::new(
+        dir,
+        "could not choose a unique archive name",
+    )))
 }
 
 pub(super) fn create_epoch(
@@ -131,99 +249,6 @@ pub(super) fn create_epoch(
     Ok(epoch)
 }
 
-pub(super) fn append_locked(state: &mut JournalState, record: &Record) -> Result<(), JournalError> {
-    let fault = std::mem::take(&mut state.append_fault);
-    let frame = record::frame(record)?;
-    let path = state.dir.join(JOURNAL_FILE);
-    match write_frame(&path, &frame, fault) {
-        Ok(()) => {
-            state.valid_len += frame.len() as u64;
-            state.records.push(record.clone());
-            Ok(())
-        }
-        Err(err) => {
-            // The file may now hold a partial frame, a complete but unsynced frame, or
-            // nothing. Reconcile to whatever is actually there before returning, so the
-            // in-memory list never runs ahead of the file.
-            reconcile_locked(state);
-            Err(JournalError::State(err))
-        }
-    }
-}
-
-fn write_frame(path: &Path, frame: &[u8], fault: AppendFault) -> Result<(), StateError> {
-    if fault == AppendFault::Open {
-        return Err(StateError::new(path, "injected append open failure"));
-    }
-    let mut file = std::fs::OpenOptions::new()
-        .append(true)
-        .open(path)
-        .map_err(|err| StateError::new(path, err))?;
-    match fault {
-        AppendFault::Partial => {
-            let half = frame.len() / 2;
-            file.write_all(&frame[..half])
-                .map_err(|err| StateError::new(path, err))?;
-            Err(StateError::new(path, "injected partial append failure"))
-        }
-        AppendFault::Sync => {
-            file.write_all(frame)
-                .map_err(|err| StateError::new(path, err))?;
-            Err(StateError::new(path, "injected append sync failure"))
-        }
-        AppendFault::Uncertain => {
-            file.write_all(frame)
-                .and_then(|()| file.sync_all())
-                .map_err(|err| StateError::new(path, err))?;
-            Err(StateError::new(path, "injected uncertain append outcome"))
-        }
-        AppendFault::Open | AppendFault::None => file
-            .write_all(frame)
-            .and_then(|()| file.sync_all())
-            .map_err(|err| StateError::new(path, err)),
-    }
-}
-
-/// Replaces the in-memory records with what the file actually holds.
-///
-/// A physically incomplete tail is truncated to the last complete frame. A complete frame
-/// with a bad checksum or invalid ordering fences the journal; it is never truncated.
-fn reconcile_locked(state: &mut JournalState) {
-    let path = state.dir.join(JOURNAL_FILE);
-    let bytes = match crate::fs_atomic::read_optional(&path) {
-        Ok(Some(bytes)) => bytes,
-        Ok(None) => {
-            state.fenced = Some("the journal file is missing".to_owned());
-            return;
-        }
-        Err(err) => {
-            state.fenced = Some(err.to_string());
-            return;
-        }
-    };
-    match record::parse(&bytes, state.meta.epoch) {
-        Ok(parsed) => {
-            if parsed.valid_len < bytes.len() as u64 {
-                let truncated = std::fs::OpenOptions::new()
-                    .write(true)
-                    .open(&path)
-                    .and_then(|file| {
-                        file.set_len(parsed.valid_len)
-                            .and_then(|()| file.sync_all())
-                    });
-                if let Err(err) = truncated {
-                    state.fenced = Some(StateError::new(&path, err).to_string());
-                    return;
-                }
-            }
-            state.records = parsed.records;
-            state.valid_len = parsed.valid_len;
-            state.fenced = None;
-        }
-        Err(err) => state.fenced = Some(err.to_string()),
-    }
-}
-
 /// Writes `next` metadata, handling the three outcomes. Returns whether it committed.
 pub(super) fn write_meta_locked(
     state: &mut JournalState,
@@ -240,7 +265,7 @@ pub(super) fn write_meta_locked(
             // Indeterminate durability: never remove records and never claim either version
             // is authoritative without reading it. The visible metadata must parse, name the
             // same epoch and describe a journal that itself validates before the fence clears.
-            state.fenced = Some(err.to_string());
+            state.fenced = Some(Fence::metadata(err.to_string()));
             match Metadata::load(&state.dir) {
                 Ok(Some(meta)) if meta.epoch == state.meta.epoch => {
                     match load_records(&state.dir, &meta) {
@@ -252,18 +277,18 @@ pub(super) fn write_meta_locked(
                             Ok(false)
                         }
                         Err(load_err) => {
-                            state.fenced = Some(load_err.to_string());
+                            state.fenced = Some(Fence::metadata(load_err.to_string()));
                             Ok(false)
                         }
                     }
                 }
                 Ok(Some(_)) => {
-                    state.fenced = Some("metadata epoch changed during the write".to_owned());
+                    state.fenced = Some(Fence::metadata("metadata epoch changed during the write"));
                     Ok(false)
                 }
                 Ok(None) => Ok(false),
                 Err(load_err) => {
-                    state.fenced = Some(load_err.to_string());
+                    state.fenced = Some(Fence::metadata(load_err.to_string()));
                     Ok(false)
                 }
             }

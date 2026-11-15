@@ -63,6 +63,16 @@ impl Metadata {
         if meta.format != META_FORMAT {
             return Err(JournalError::UnsupportedFormat(meta.format));
         }
+        if meta.epoch.is_nil() {
+            return Err(JournalError::Corrupt(format!("{META_FILE}: epoch is nil")));
+        }
+        let boot = crate::boot::parse_boot_id(&meta.boot.boot_id)
+            .map_err(|reason| JournalError::Corrupt(format!("{META_FILE}: boot id {reason}")))?;
+        if boot.is_nil() {
+            return Err(JournalError::Corrupt(format!(
+                "{META_FILE}: boot id is nil"
+            )));
+        }
         Ok(Some(meta))
     }
 

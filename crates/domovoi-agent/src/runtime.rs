@@ -87,21 +87,13 @@ pub(crate) fn container_policy(config: &AgentConfig) -> ContainerPolicy {
 /// fatal to agent startup. The agent never serves without the journal it owns.
 async fn open_journal(config: &AgentConfig, deps: &AgentDeps) -> Result<Arc<Journal>, AgentError> {
     let dir = &config.agent.state_dir;
-    let boot_id = deps
-        .hostfs
-        .read_to_string("/proc/sys/kernel/random/boot_id")
-        .await
-        .unwrap_or_default()
-        .trim()
-        .to_owned();
-    let mono_ns = crate::facts::parse_uptime_ns(
-        &deps
-            .hostfs
-            .read_to_string("/proc/uptime")
-            .await
-            .unwrap_or_default(),
-    );
-    let journal = Journal::open(dir, &boot_id, mono_ns, config.agent.mutation_limits.clone())?;
+    let snapshot = crate::boot::boot_snapshot(&*deps.hostfs).await?;
+    let journal = Journal::open(
+        dir,
+        &snapshot.boot_id.to_string(),
+        snapshot.monotonic_ns,
+        config.agent.mutation_limits.clone(),
+    )?;
     journal.recover_orphans(&*deps.clock).await;
     Ok(Arc::new(journal))
 }

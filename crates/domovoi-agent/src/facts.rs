@@ -46,29 +46,6 @@ pub fn parse_cpu_count(cpuinfo: &str) -> u32 {
     u32::try_from(count).unwrap_or(u32::MAX)
 }
 
-/// `/proc/uptime` in nanoseconds: seconds with hundredth-of-a-second resolution.
-///
-/// This is monotonic across processes on the same boot, which `std::time::Instant` is not.
-#[must_use]
-pub fn parse_uptime_ns(text: &str) -> u64 {
-    let Some(secs) = text.split_whitespace().next() else {
-        return 0;
-    };
-    let (whole, frac) = secs.split_once('.').unwrap_or((secs, ""));
-    let whole: u64 = whole.parse().unwrap_or(0);
-    let mut hundredths = String::new();
-    for ch in frac.chars().take(2) {
-        if ch.is_ascii_digit() {
-            hundredths.push(ch);
-        }
-    }
-    while hundredths.len() < 2 {
-        hundredths.push('0');
-    }
-    let frac_ns = hundredths.parse::<u64>().unwrap_or(0) * 10_000_000;
-    whole.saturating_mul(1_000_000_000).saturating_add(frac_ns)
-}
-
 /// Reads the host's facts; anything unreadable is left empty or zero.
 pub async fn host_facts(fs: &dyn HostFs) -> HostFacts {
     let os_release = match fs.read_to_string("/etc/os-release").await {

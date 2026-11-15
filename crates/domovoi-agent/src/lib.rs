@@ -12,6 +12,7 @@
 //!   the runner sees it.
 //! - [`runtime::AgentRuntime`] wires it all together.
 
+pub mod boot;
 pub mod checks;
 pub mod config_file;
 pub mod docker;
@@ -34,6 +35,7 @@ pub mod spool;
 pub mod store;
 pub mod time;
 
+pub use boot::{BootSnapshot, BootSnapshotError, boot_snapshot};
 pub use docker::DockerControl;
 pub use domovoi_proto::EnrollToken;
 pub use enroll::{EnrollEnv, enroll};

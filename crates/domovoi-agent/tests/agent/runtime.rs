@@ -48,7 +48,7 @@ async fn runtime_shuts_down_within_two_seconds_on_cancel() {
     let epoch = domovoi_agent::Journal::init(
         dir.path(),
         jiff::Timestamp::constant(1_700_000_000, 0),
-        "test-boot",
+        "018f0000-0000-7000-8000-000000000001",
         1,
     )
     .unwrap();
@@ -88,14 +88,14 @@ async fn runtime_refuses_to_start_when_another_agent_owns_the_journal() {
     domovoi_agent::Journal::init(
         dir.path(),
         jiff::Timestamp::constant(1_700_000_000, 0),
-        "test-boot",
+        "018f0000-0000-7000-8000-000000000001",
         1,
     )
     .unwrap();
     // The first runtime owns the journal for as long as it lives.
     let held = domovoi_agent::Journal::open(
         dir.path(),
-        "test-boot",
+        "018f0000-0000-7000-8000-000000000001",
         1,
         domovoi_config::MutationLimits::default(),
     )
@@ -114,4 +114,91 @@ async fn runtime_refuses_to_start_when_another_agent_owns_the_journal() {
         .await
         .expect("the journal is free again");
     drop(runtime);
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn a_failed_boot_read_cannot_reopen_the_mutation_window() {
+    use domovoi_config::MutationLimits;
+    use domovoi_proto::messages::AuthorizationKind;
+
+    let hub = TestHub::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let identity = identity(&hub);
+    identity.save(dir.path()).unwrap();
+    let epoch = domovoi_agent::Journal::init(
+        dir.path(),
+        jiff::Timestamp::constant(1_700_000_000, 0),
+        "018f0000-0000-7000-8000-000000000001",
+        1,
+    )
+    .unwrap();
+    let limits = MutationLimits {
+        per_hour: 1,
+        per_capability: Default::default(),
+    };
+    let first = uuid::Uuid::now_v7();
+    {
+        let journal = domovoi_agent::Journal::open(
+            dir.path(),
+            "018f0000-0000-7000-8000-000000000001",
+            1,
+            limits.clone(),
+        )
+        .unwrap();
+        assert_eq!(journal.epoch(), epoch);
+        journal
+            .accept(
+                &domovoi_agent::journal::AcceptedRequest {
+                    execution_id: first,
+                    contract: "container.restart",
+                    version: 1,
+                    target: "container:plex",
+                    plan_hash: "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+                    authorization_kind: AuthorizationKind::Human,
+                    mutating: true,
+                },
+                jiff::Timestamp::constant(1_700_000_000, 0),
+                "018f0000-0000-7000-8000-000000000001",
+                1,
+            )
+            .unwrap();
+    }
+
+    // A host filesystem without /proc makes the boot read fail before the journal opens.
+    let mut broken = deps(&dir);
+    broken.hostfs = Arc::new(domovoi_testkit::FixtureHostFs::new(
+        dir.path().join("no-boot"),
+    ));
+    let result = AgentRuntime::new(config(&dir, &hub), broken).await;
+    assert!(
+        matches!(result, Err(AgentError::Boot(_))),
+        "a failed boot read is fatal"
+    );
+
+    // The earlier acceptance still counts: the failed start did not reopen the window.
+    let journal = domovoi_agent::Journal::open(
+        dir.path(),
+        "018f0000-0000-7000-8000-000000000001",
+        1,
+        limits,
+    )
+    .unwrap();
+    assert!(matches!(
+        journal.accept(
+            &domovoi_agent::journal::AcceptedRequest {
+                execution_id: uuid::Uuid::now_v7(),
+                contract: "container.restart",
+                version: 1,
+                target: "container:plex",
+                plan_hash: "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+                authorization_kind: AuthorizationKind::Human,
+                mutating: true,
+            },
+            jiff::Timestamp::constant(1_700_000_000, 0),
+            "018f0000-0000-7000-8000-000000000001",
+            1,
+        ),
+        Ok(domovoi_agent::journal::AcceptOutcome::Refused(_))
+    ));
 }

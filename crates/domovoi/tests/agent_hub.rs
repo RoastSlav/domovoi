@@ -147,7 +147,16 @@ mod common {
             .await
             .unwrap();
         let clock = Arc::new(FakeClock::new(t0()));
-        let fs = Arc::new(FixtureHostFs::new(dir.path().join("host")));
+        let root = dir.path().join("host");
+        let proc = root.join("proc");
+        std::fs::create_dir_all(proc.join("sys/kernel/random")).unwrap();
+        std::fs::write(
+            proc.join("sys/kernel/random/boot_id"),
+            "018f0000-0000-7000-8000-000000000001\n",
+        )
+        .unwrap();
+        std::fs::write(proc.join("uptime"), "1.00 1.00\n").unwrap();
+        let fs = Arc::new(FixtureHostFs::new(root));
         let config = config(dir.path(), &hub.url);
         let identity = tokio::time::timeout(
             GUARD,
@@ -176,7 +185,7 @@ mod common {
         domovoi_agent::Journal::init(
             dir.path(),
             jiff::Timestamp::constant(1_700_000_000, 0),
-            "test-boot",
+            "018f0000-0000-7000-8000-000000000001",
             1,
         )
         .unwrap();

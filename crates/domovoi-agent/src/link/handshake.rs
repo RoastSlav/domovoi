@@ -84,13 +84,20 @@ impl AgentStatusSource {
         }
     }
 
-    /// The values to report now.
+    /// The values to report now, or `None` when the lock is poisoned and the true values
+    /// are unknown. Never invents a status.
     #[must_use]
-    pub fn current(&self) -> AgentStatus {
-        self.current
-            .lock()
-            .map(|status| status.clone())
-            .unwrap_or_else(|_| absent_status())
+    pub fn current(&self) -> Option<AgentStatus> {
+        self.current.lock().ok().map(|status| status.clone())
+    }
+
+    /// Poisons the status mutex so a test can prove no status is fabricated. Test-only.
+    #[cfg(test)]
+    pub fn poison(&self) {
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = self.current.lock().expect("the status lock is healthy");
+            panic!("poison the status lock");
+        }));
     }
 
     /// Replaces the reported values; the next probe sends them if they differ.
@@ -145,6 +152,13 @@ pub async fn handshake(
     session_hint: &str,
     announce: Announce<'_>,
 ) -> Result<Welcome, LinkError> {
+    if announce.extensions.journal_epoch.is_nil() {
+        // A running protocol 1.2 agent always owns a journal with a real epoch. The
+        // `Default` value exists for tests and decoding, never for an outbound handshake.
+        return Err(LinkError::Protocol(
+            "the agent has no journal epoch to announce".to_owned(),
+        ));
+    }
     let release = env!("CARGO_PKG_VERSION");
     let hello = Hello {
         agent_id: identity.agent_id,
@@ -206,5 +220,21 @@ pub fn heartbeat(settings: &AgentSettings) -> SignedDuration {
     match settings.heartbeat_seconds {
         0 => SignedDuration::from_secs(10),
         secs => SignedDuration::from_secs(i64::from(secs)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AgentStatusSource;
+
+    #[test]
+    fn a_poisoned_status_source_never_fabricates_a_status() {
+        let source = AgentStatusSource::default();
+        assert!(source.current().is_some());
+        source.poison();
+        assert!(
+            source.current().is_none(),
+            "an unreadable status is unknown, not absent"
+        );
     }
 }
