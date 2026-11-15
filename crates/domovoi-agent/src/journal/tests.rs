@@ -9,11 +9,14 @@ use domovoi_proto::messages::{
     OutcomeUnknownReason, RefusalCode,
 };
 use jiff::Timestamp;
+use sha2::Digest as _;
 use tempfile::TempDir;
 use uuid::Uuid;
 
 use super::limiter::{self, Acceptance, LimitCheck};
-use super::{AcceptOutcome, AcceptedRequest, JOURNAL_FILE, Journal};
+use super::{AcceptOutcome, AcceptedRequest, AppendFault, JOURNAL_FILE, Journal, Record};
+#[cfg(target_os = "linux")]
+use crate::error::JournalError;
 use crate::fs_atomic::DurableFaults;
 
 const T0: Timestamp = Timestamp::constant(1_700_000_000, 0);
@@ -53,6 +56,15 @@ fn result() -> CapabilityResult {
             outputs: BTreeMap::new(),
         },
     }
+}
+
+/// Accepts, starts and finishes one execution.
+fn finished_execution(journal: &Journal, id: Uuid) {
+    journal
+        .accept(&request(id, "container.restart", true), T0, BOOT, MONO)
+        .unwrap();
+    journal.started(id, 1, 1).unwrap();
+    journal.finished(id, result()).unwrap();
 }
 
 fn query(epoch: Uuid, id: Uuid) -> ActionStatusQuery {
@@ -332,15 +344,10 @@ fn metadata_update_preserves_pruned_flag() {
     init(dir.path());
     {
         let journal = open(dir.path());
+        finished_execution(&journal, Uuid::now_v7());
         journal
-            .accept(
-                &request(Uuid::now_v7(), "container.restart", true),
-                T0,
-                BOOT,
-                MONO,
-            )
+            .prune(0, MONO + super::limiter::WINDOW_NS + 1, BOOT)
             .unwrap();
-        journal.prune(0).unwrap();
     }
     // A new boot updates the boot state but must carry `pruned = true` forward.
     let journal = Journal::open_unlocked(dir.path(), "boot-b", 5 * MONO, limits()).unwrap();
@@ -386,12 +393,12 @@ fn not_found_requires_an_unpruned_journal() {
     let journal = open(dir.path());
     assert_eq!(state_of(&journal, Uuid::now_v7()), ActionState::NotFound);
 
-    let id = Uuid::now_v7();
-    journal
-        .accept(&request(id, "container.restart", true), T0, BOOT, MONO)
-        .unwrap();
-    journal.finished(id, result()).unwrap();
-    assert!(journal.prune(0).unwrap());
+    finished_execution(&journal, Uuid::now_v7());
+    assert!(
+        journal
+            .prune(0, MONO + super::limiter::WINDOW_NS + 1, BOOT)
+            .unwrap()
+    );
     assert!(matches!(
         state_of(&journal, Uuid::now_v7()),
         ActionState::OutcomeUnknown {
@@ -407,10 +414,7 @@ fn crash_after_prune_marker_before_record_removal_is_safe() {
     let id = Uuid::now_v7();
     {
         let journal = open(dir.path());
-        journal
-            .accept(&request(id, "container.restart", true), T0, BOOT, MONO)
-            .unwrap();
-        journal.finished(id, result()).unwrap();
+        finished_execution(&journal, id);
         // The marker is durable, then the process stops before records are rewritten.
         let meta = super::Metadata::load(dir.path()).unwrap().unwrap();
         let mut pruned = meta;
@@ -443,16 +447,10 @@ fn journal_retention_never_drops_unresolved_records() {
             MONO,
         )
         .unwrap();
+    finished_execution(&journal, resolved);
     journal
-        .accept(
-            &request(resolved, "container.restart", true),
-            T0,
-            BOOT,
-            MONO,
-        )
+        .prune(0, MONO + super::limiter::WINDOW_NS + 1, BOOT)
         .unwrap();
-    journal.finished(resolved, result()).unwrap();
-    journal.prune(0).unwrap();
     assert!(matches!(
         state_of(&journal, unresolved),
         ActionState::OutcomeUnknown {
@@ -473,15 +471,16 @@ fn failed_metadata_write_prevents_pruning() {
     init(dir.path());
     let id = Uuid::now_v7();
     let journal = open(dir.path());
-    journal
-        .accept(&request(id, "container.restart", true), T0, BOOT, MONO)
-        .unwrap();
-    journal.finished(id, result()).unwrap();
+    finished_execution(&journal, id);
     journal.inject_metadata_faults(DurableFaults {
         rename: true,
         ..DurableFaults::default()
     });
-    assert!(journal.prune(0).is_err());
+    assert!(
+        journal
+            .prune(0, MONO + super::limiter::WINDOW_NS + 1, BOOT)
+            .is_err()
+    );
     assert!(matches!(
         state_of(&journal, id),
         ActionState::Finished { .. }
@@ -495,20 +494,15 @@ fn no_not_found_after_indeterminate_metadata_write() {
     let dir = TempDir::new().unwrap();
     init(dir.path());
     let journal = open(dir.path());
-    journal
-        .accept(
-            &request(Uuid::now_v7(), "container.restart", true),
-            T0,
-            BOOT,
-            MONO,
-        )
-        .unwrap();
+    finished_execution(&journal, Uuid::now_v7());
     journal.inject_metadata_faults(DurableFaults {
         dir_sync: true,
         ..DurableFaults::default()
     });
     // The marker may be visible; no records are removed and no absent id is `not_found`.
-    journal.prune(0).unwrap();
+    journal
+        .prune(0, MONO + super::limiter::WINDOW_NS + 1, BOOT)
+        .unwrap();
     assert!(!matches!(
         state_of(&journal, Uuid::now_v7()),
         ActionState::NotFound
@@ -651,4 +645,524 @@ fn rate_limited_request_is_not_accepted_or_started() {
         AcceptOutcome::Refused(_)
     ));
     assert_eq!(state_of(&journal, second), ActionState::NotFound);
+}
+
+// ---- Startup and ownership -------------------------------------------------
+
+#[test]
+fn missing_metadata_and_missing_journal_reports_init() {
+    let dir = TempDir::new().unwrap();
+    let err = Journal::open_unlocked(dir.path(), BOOT, MONO, limits()).unwrap_err();
+    assert!(err.to_string().contains("journal init"), "{err}");
+}
+
+#[test]
+fn missing_metadata_with_existing_journal_reports_recovery() {
+    let dir = TempDir::new().unwrap();
+    init(dir.path());
+    std::fs::remove_file(dir.path().join(super::META_FILE)).unwrap();
+    let err = Journal::open_unlocked(dir.path(), BOOT, MONO, limits()).unwrap_err();
+    assert!(err.to_string().contains("journal reset"), "{err}");
+}
+
+#[test]
+fn invalid_metadata_never_creates_a_fresh_journal() {
+    let dir = TempDir::new().unwrap();
+    init(dir.path());
+    let journal_before = std::fs::read(dir.path().join(JOURNAL_FILE)).unwrap();
+    std::fs::write(dir.path().join(super::META_FILE), b"{ not json").unwrap();
+    assert!(Journal::open_unlocked(dir.path(), BOOT, MONO, limits()).is_err());
+    assert_eq!(
+        std::fs::read(dir.path().join(JOURNAL_FILE)).unwrap(),
+        journal_before
+    );
+    assert!(
+        Journal::open_unlocked(dir.path(), BOOT, MONO, limits()).is_err(),
+        "a second attempt must not repair or replace the metadata"
+    );
+}
+
+#[test]
+fn corrupt_journal_never_reports_not_found() {
+    let dir = TempDir::new().unwrap();
+    init(dir.path());
+    std::fs::File::create(dir.path().join(JOURNAL_FILE)).unwrap();
+    let journal = open(dir.path());
+    assert!(matches!(
+        state_of(&journal, Uuid::now_v7()),
+        ActionState::OutcomeUnknown {
+            reason
+        } if reason.known() == Some(&OutcomeUnknownReason::JournalLost)
+    ));
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn second_open_on_the_same_lock_is_refused() {
+    let dir = TempDir::new().unwrap();
+    init(dir.path());
+    let first = Journal::open(dir.path(), BOOT, MONO, limits()).unwrap();
+    assert!(matches!(
+        Journal::open(dir.path(), BOOT, MONO, limits()),
+        Err(JournalError::Locked(_))
+    ));
+    drop(first);
+    assert!(Journal::open(dir.path(), BOOT, MONO, limits()).is_ok());
+}
+
+// ---- Append failures -------------------------------------------------------
+
+#[test]
+fn partial_acceptance_write_does_not_permit_a_spawn() {
+    let dir = TempDir::new().unwrap();
+    init(dir.path());
+    let journal = open(dir.path());
+    let id = Uuid::now_v7();
+    journal.inject_append_fault(AppendFault::Partial);
+    assert!(
+        journal
+            .accept(&request(id, "container.restart", true), T0, BOOT, MONO)
+            .is_err()
+    );
+    assert_eq!(state_of(&journal, id), ActionState::NotFound);
+    assert!(journal.corruption().is_none(), "a torn tail is recoverable");
+}
+
+#[test]
+fn failed_acceptance_sync_never_acknowledges() {
+    let dir = TempDir::new().unwrap();
+    init(dir.path());
+    let id = Uuid::now_v7();
+    {
+        let journal = open(dir.path());
+        journal.inject_append_fault(AppendFault::Sync);
+        assert!(
+            journal
+                .accept(&request(id, "container.restart", true), T0, BOOT, MONO)
+                .is_err()
+        );
+    }
+    let reopened = open(dir.path());
+    assert!(matches!(
+        state_of(&reopened, id),
+        ActionState::OutcomeUnknown {
+            reason
+        } if reason.known() == Some(&OutcomeUnknownReason::NoStartRecord)
+    ));
+}
+
+#[test]
+fn uncertain_acceptance_retry_cannot_spawn_twice() {
+    let dir = TempDir::new().unwrap();
+    init(dir.path());
+    let journal = open(dir.path());
+    let id = Uuid::now_v7();
+    let req = request(id, "container.restart", true);
+    journal.inject_append_fault(AppendFault::Uncertain);
+    assert!(journal.accept(&req, T0, BOOT, MONO).is_err());
+    // The frame may be visible; reconciling adopted it, so a retry is a duplicate.
+    assert!(matches!(
+        journal.accept(&req, T0, BOOT, MONO).unwrap(),
+        AcceptOutcome::Duplicate(_)
+    ));
+}
+
+#[test]
+fn journal_cannot_append_behind_a_partial_frame() {
+    let dir = TempDir::new().unwrap();
+    init(dir.path());
+    let journal = open(dir.path());
+    journal.inject_append_fault(AppendFault::Partial);
+    assert!(
+        journal
+            .accept(
+                &request(Uuid::now_v7(), "container.restart", true),
+                T0,
+                BOOT,
+                MONO
+            )
+            .is_err()
+    );
+    let id = Uuid::now_v7();
+    assert_eq!(
+        journal
+            .accept(&request(id, "container.restart", true), T0, BOOT, MONO)
+            .unwrap(),
+        AcceptOutcome::Accepted
+    );
+    let reopened = open(dir.path());
+    assert_eq!(reopened.epoch(), journal.epoch());
+    assert!(matches!(
+        state_of(&reopened, id),
+        ActionState::OutcomeUnknown { .. }
+    ));
+}
+
+#[test]
+fn failed_started_append_does_not_leave_running() {
+    let dir = TempDir::new().unwrap();
+    init(dir.path());
+    let journal = open(dir.path());
+    let id = Uuid::now_v7();
+    journal
+        .accept(&request(id, "container.restart", true), T0, BOOT, MONO)
+        .unwrap();
+    journal.inject_append_fault(AppendFault::Open);
+    assert!(journal.started(id, 1, 1).is_err());
+    assert!(!matches!(state_of(&journal, id), ActionState::Running));
+    let reopened = open(dir.path());
+    assert!(!matches!(state_of(&reopened, id), ActionState::Running));
+}
+
+#[test]
+fn failed_finished_append_never_reports_durable_success() {
+    let dir = TempDir::new().unwrap();
+    init(dir.path());
+    let journal = open(dir.path());
+    let id = Uuid::now_v7();
+    journal
+        .accept(&request(id, "container.restart", true), T0, BOOT, MONO)
+        .unwrap();
+    journal.started(id, 1, 1).unwrap();
+    journal.inject_append_fault(AppendFault::Sync);
+    assert!(journal.finished(id, result()).is_err());
+    // The record may be visible, but the method never acknowledged it.
+    let reopened = open(dir.path());
+    assert!(reopened.corruption().is_none());
+    let _ = state_of(&reopened, id);
+}
+
+// ---- Lifecycle validation --------------------------------------------------
+
+fn created(epoch: Uuid) -> Record {
+    Record::JournalCreated {
+        format: Record::FORMAT,
+        epoch,
+        wall_time: T0,
+        boot_id: BOOT.to_owned(),
+        mono_ns: MONO,
+    }
+}
+
+fn accepted(id: Uuid) -> Record {
+    Record::Accepted {
+        format: Record::FORMAT,
+        execution_id: id,
+        contract: "container.restart".to_owned(),
+        version: 1,
+        target: "container:plex".to_owned(),
+        plan_hash: "cd".repeat(32),
+        authorization_kind: AuthorizationKind::Human,
+        wall_time: T0,
+        boot_id: BOOT.to_owned(),
+        mono_ns: MONO,
+        mutating: true,
+    }
+}
+
+fn started_rec(id: Uuid) -> Record {
+    Record::Started {
+        format: Record::FORMAT,
+        execution_id: id,
+        pid: 1,
+        proc_start_time: 1,
+    }
+}
+
+fn finished_rec(id: Uuid) -> Record {
+    Record::Finished {
+        format: Record::FORMAT,
+        execution_id: id,
+        result: result(),
+    }
+}
+
+fn abandoned_rec(id: Uuid) -> Record {
+    Record::Abandoned {
+        format: Record::FORMAT,
+        execution_id: id,
+        pid: 1,
+        reason: "test".to_owned(),
+    }
+}
+
+fn write_records(dir: &Path, records: &[Record]) {
+    let mut bytes = Vec::new();
+    for record in records {
+        bytes.extend_from_slice(&super::record::frame(record).unwrap());
+    }
+    std::fs::write(dir.join(JOURNAL_FILE), bytes).unwrap();
+}
+
+fn assert_corrupt(dir: &Path) {
+    let journal = open(dir);
+    assert!(journal.corruption().is_some(), "expected a fenced journal");
+}
+
+#[test]
+fn rejects_started_without_accepted() {
+    let dir = TempDir::new().unwrap();
+    let epoch = init(dir.path());
+    write_records(dir.path(), &[created(epoch), started_rec(Uuid::now_v7())]);
+    assert_corrupt(dir.path());
+}
+
+#[test]
+fn rejects_duplicate_accepted() {
+    let dir = TempDir::new().unwrap();
+    let epoch = init(dir.path());
+    let id = Uuid::now_v7();
+    write_records(dir.path(), &[created(epoch), accepted(id), accepted(id)]);
+    assert_corrupt(dir.path());
+}
+
+#[test]
+fn rejects_finished_without_started() {
+    let dir = TempDir::new().unwrap();
+    let epoch = init(dir.path());
+    let id = Uuid::now_v7();
+    write_records(
+        dir.path(),
+        &[created(epoch), accepted(id), finished_rec(id)],
+    );
+    assert_corrupt(dir.path());
+}
+
+#[test]
+fn rejects_duplicate_started() {
+    let dir = TempDir::new().unwrap();
+    let epoch = init(dir.path());
+    let id = Uuid::now_v7();
+    write_records(
+        dir.path(),
+        &[
+            created(epoch),
+            accepted(id),
+            started_rec(id),
+            started_rec(id),
+        ],
+    );
+    assert_corrupt(dir.path());
+}
+
+#[test]
+fn rejects_abandoned_without_started() {
+    let dir = TempDir::new().unwrap();
+    let epoch = init(dir.path());
+    let id = Uuid::now_v7();
+    write_records(
+        dir.path(),
+        &[created(epoch), accepted(id), abandoned_rec(id)],
+    );
+    assert_corrupt(dir.path());
+}
+
+#[test]
+fn rejects_abandoned_after_finished() {
+    let dir = TempDir::new().unwrap();
+    let epoch = init(dir.path());
+    let id = Uuid::now_v7();
+    write_records(
+        dir.path(),
+        &[
+            created(epoch),
+            accepted(id),
+            started_rec(id),
+            finished_rec(id),
+            abandoned_rec(id),
+        ],
+    );
+    assert_corrupt(dir.path());
+}
+
+#[test]
+fn rejects_duplicate_finished() {
+    let dir = TempDir::new().unwrap();
+    let epoch = init(dir.path());
+    let id = Uuid::now_v7();
+    write_records(
+        dir.path(),
+        &[
+            created(epoch),
+            accepted(id),
+            started_rec(id),
+            finished_rec(id),
+            finished_rec(id),
+        ],
+    );
+    assert_corrupt(dir.path());
+}
+
+#[test]
+fn rejects_record_after_terminal() {
+    let dir = TempDir::new().unwrap();
+    let epoch = init(dir.path());
+    let id = Uuid::now_v7();
+    write_records(
+        dir.path(),
+        &[
+            created(epoch),
+            accepted(id),
+            started_rec(id),
+            finished_rec(id),
+            started_rec(id),
+        ],
+    );
+    assert_corrupt(dir.path());
+}
+
+#[test]
+fn rejects_duplicate_journal_created() {
+    let dir = TempDir::new().unwrap();
+    let epoch = init(dir.path());
+    write_records(dir.path(), &[created(epoch), created(epoch)]);
+    assert_corrupt(dir.path());
+}
+
+#[test]
+fn rejects_unknown_record_kind() {
+    let dir = TempDir::new().unwrap();
+    let epoch = init(dir.path());
+    let created_frame = super::record::frame(&created(epoch)).unwrap();
+    let payload = br#"{"kind":"teleport","format":1}"#;
+    let mut bytes = created_frame;
+    bytes.extend_from_slice(&(payload.len() as u32).to_be_bytes());
+    bytes.extend_from_slice(&sha2::Sha256::digest(payload));
+    bytes.extend_from_slice(payload);
+    std::fs::write(dir.path().join(JOURNAL_FILE), bytes).unwrap();
+    assert_corrupt(dir.path());
+}
+
+// ---- Pruning and mutation evidence -----------------------------------------
+
+#[test]
+fn recent_mutating_acceptances_survive_compaction() {
+    let dir = TempDir::new().unwrap();
+    init(dir.path());
+    let id = Uuid::now_v7();
+    let journal = open(dir.path());
+    journal
+        .accept(&request(id, "container.restart", true), T0, BOOT, MONO)
+        .unwrap();
+    assert!(!journal.prune(0, MONO, BOOT).unwrap(), "nothing removable");
+    assert!(matches!(
+        state_of(&journal, id),
+        ActionState::OutcomeUnknown { .. }
+    ));
+}
+
+#[test]
+fn global_limits_survive_compaction() {
+    let dir = TempDir::new().unwrap();
+    init(dir.path());
+    let journal = Journal::open_unlocked(
+        dir.path(),
+        BOOT,
+        MONO,
+        MutationLimits {
+            per_hour: 2,
+            per_capability: BTreeMap::new(),
+        },
+    )
+    .unwrap();
+    finished_execution(&journal, Uuid::now_v7());
+    finished_execution(&journal, Uuid::now_v7());
+    assert!(
+        !journal.prune(0, MONO, BOOT).unwrap(),
+        "active evidence stays"
+    );
+    assert!(matches!(
+        journal.accept(
+            &request(Uuid::now_v7(), "container.restart", true),
+            T0,
+            BOOT,
+            MONO
+        ),
+        Ok(AcceptOutcome::Refused(_))
+    ));
+}
+
+#[test]
+fn per_capability_limits_survive_compaction() {
+    let dir = TempDir::new().unwrap();
+    init(dir.path());
+    let mut limits = limits();
+    limits
+        .per_capability
+        .insert("container.restart".to_owned(), 1);
+    let journal = Journal::open_unlocked(dir.path(), BOOT, MONO, limits).unwrap();
+    finished_execution(&journal, Uuid::now_v7());
+    assert!(!journal.prune(0, MONO, BOOT).unwrap());
+    assert!(matches!(
+        journal.accept(
+            &request(Uuid::now_v7(), "container.restart", true),
+            T0,
+            BOOT,
+            MONO
+        ),
+        Ok(AcceptOutcome::Refused(_))
+    ));
+}
+
+#[test]
+fn old_acceptance_can_be_removed() {
+    let dir = TempDir::new().unwrap();
+    init(dir.path());
+    let id = Uuid::now_v7();
+    let journal = open(dir.path());
+    finished_execution(&journal, id);
+    assert!(
+        journal
+            .prune(0, MONO + super::limiter::WINDOW_NS + 1, BOOT)
+            .unwrap()
+    );
+    assert!(matches!(
+        state_of(&journal, id),
+        ActionState::OutcomeUnknown {
+            reason
+        } if reason.known() == Some(&OutcomeUnknownReason::JournalLost)
+    ));
+}
+
+#[test]
+fn noop_prune_does_not_set_marker() {
+    let dir = TempDir::new().unwrap();
+    init(dir.path());
+    let journal = open(dir.path());
+    assert!(!journal.prune(0, MONO, BOOT).unwrap());
+    let meta = super::Metadata::load(dir.path()).unwrap().unwrap();
+    assert!(!meta.pruned);
+}
+
+#[test]
+fn failed_directory_sync_never_causes_not_found() {
+    let dir = TempDir::new().unwrap();
+    init(dir.path());
+    let journal = open(dir.path());
+    finished_execution(&journal, Uuid::now_v7());
+    journal.inject_rewrite_dir_sync_failure();
+    assert!(
+        !journal
+            .prune(0, MONO + super::limiter::WINDOW_NS + 1, BOOT)
+            .unwrap()
+    );
+    assert!(!matches!(
+        state_of(&journal, Uuid::now_v7()),
+        ActionState::NotFound
+    ));
+}
+
+#[test]
+fn second_execution_of_a_finished_id_is_a_duplicate() {
+    let dir = TempDir::new().unwrap();
+    init(dir.path());
+    let journal = open(dir.path());
+    let id = Uuid::now_v7();
+    finished_execution(&journal, id);
+    assert!(matches!(
+        journal
+            .accept(&request(id, "container.restart", true), T0, BOOT, MONO)
+            .unwrap(),
+        AcceptOutcome::Duplicate(_)
+    ));
 }

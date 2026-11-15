@@ -48,6 +48,9 @@ pub enum JournalError {
     /// A journal file names a metadata format this build does not know.
     #[error("the action journal uses unsupported format {0}")]
     UnsupportedFormat(u32),
+    /// A live journal operation would break the execution lifecycle.
+    #[error("invalid journal lifecycle transition: {0}")]
+    Lifecycle(String),
 }
 
 /// Why connecting to the hub or keeping the link up failed.

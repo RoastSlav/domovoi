@@ -71,6 +71,36 @@ pub fn start_link_with(
     dir: &tempfile::TempDir,
     spool: Arc<SharedSpool>,
 ) -> RunningLink {
+    start_link_full(
+        hub,
+        identity,
+        clock,
+        dir,
+        spool,
+        domovoi_agent::link::handshake::AgentStatusSource::default(),
+    )
+}
+
+/// A link whose runtime status a test can change between probes.
+pub fn start_link_with_status(
+    hub: &TestHub,
+    identity: &Identity,
+    clock: &Arc<FakeClock>,
+    dir: &tempfile::TempDir,
+    status: domovoi_agent::link::handshake::AgentStatusSource,
+) -> RunningLink {
+    let spool = Arc::new(SharedSpool::new(Spool::open(dir.path()).unwrap()));
+    start_link_full(hub, identity, clock, dir, spool, status)
+}
+
+fn start_link_full(
+    hub: &TestHub,
+    identity: &Identity,
+    clock: &Arc<FakeClock>,
+    dir: &tempfile::TempDir,
+    spool: Arc<SharedSpool>,
+    status: domovoi_agent::link::handshake::AgentStatusSource,
+) -> RunningLink {
     let connector = Arc::new(TlsConnector::new(
         hub.url.clone(),
         Arc::new(PinnedVerifier::new(identity.hub_fingerprint)),
@@ -85,6 +115,7 @@ pub fn start_link_with(
         checks: Vec::new(),
         docker: None,
         extensions: Default::default(),
+        status,
         overrides: None,
         spool,
         jitter: Box::new(|| 1.0),

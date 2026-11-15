@@ -1,9 +1,11 @@
 //! The authentication handshake: `hello`, `challenge`, signed response, `welcome`.
 
+use std::sync::{Arc, Mutex};
+
 use domovoi_core::SkillSummary;
 use domovoi_proto::messages::{
-    AgentSettings, ChallengeResponse, CheckInfo, Hello, HelperIdentity, HelperStatus, HostFacts,
-    RejectReason, SkillRunnerStatus, Welcome,
+    AgentSettings, AgentStatus, ChallengeResponse, CheckInfo, Hello, HelperIdentity, HelperStatus,
+    HostFacts, RejectReason, SkillRunnerStatus, Welcome,
 };
 use domovoi_proto::{Message, PROTOCOL_VERSION, Sha256Bytes, Transport, challenge_message};
 use jiff::SignedDuration;
@@ -49,6 +51,70 @@ impl Default for HelloExtensions {
             runs_as_root: false,
             helper_identity: None,
         }
+    }
+}
+
+impl HelloExtensions {
+    /// The runtime status these extensions describe.
+    #[must_use]
+    pub fn status(&self) -> AgentStatus {
+        AgentStatus {
+            helper_status: self.helper_status.clone(),
+            helper_identity: self.helper_identity.clone(),
+            skill_runner_status: self.skill_runner_status.clone(),
+            runs_as_root: self.runs_as_root,
+            ceiling_hash: self.ceiling_hash,
+            ceiling_summary: self.ceiling_summary.clone(),
+        }
+    }
+}
+
+/// The values an agent reports in `agent_status`, shared so a probe can change them.
+#[derive(Clone)]
+pub struct AgentStatusSource {
+    current: Arc<Mutex<AgentStatus>>,
+}
+
+impl AgentStatusSource {
+    /// A source that always reports `status` until changed.
+    #[must_use]
+    pub fn new(status: AgentStatus) -> Self {
+        Self {
+            current: Arc::new(Mutex::new(status)),
+        }
+    }
+
+    /// The values to report now.
+    #[must_use]
+    pub fn current(&self) -> AgentStatus {
+        self.current
+            .lock()
+            .map(|status| status.clone())
+            .unwrap_or_else(|_| absent_status())
+    }
+
+    /// Replaces the reported values; the next probe sends them if they differ.
+    pub fn set(&self, status: AgentStatus) {
+        if let Ok(mut current) = self.current.lock() {
+            *current = status;
+        }
+    }
+}
+
+impl Default for AgentStatusSource {
+    fn default() -> Self {
+        Self::new(absent_status())
+    }
+}
+
+fn absent_status() -> AgentStatus {
+    AgentStatus {
+        helper_status: HelperStatus::Absent,
+        helper_identity: None,
+        skill_runner_status: SkillRunnerStatus::Absent,
+        runs_as_root: false,
+        ceiling_hash: None,
+        ceiling_summary: None,
     }
 }
 

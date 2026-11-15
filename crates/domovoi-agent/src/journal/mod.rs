@@ -3,10 +3,12 @@
 //! The signal spool is separate: this journal records execution lifecycle so the hub can
 //! always tell "never reached the agent", "finished", "running here", or "unknowable".
 
+mod compact;
 mod limiter;
 mod lock;
 mod meta;
 mod record;
+mod recovery;
 mod store;
 
 use std::collections::BTreeSet;
@@ -25,10 +27,13 @@ use crate::error::{JournalError, StateError};
 use crate::fs_atomic::{DurableFaults, DurableWriteError};
 use lock::JournalLock;
 use store::{
-    JournalState, absent_locked, acceptances_locked, answer_locked, append_locked, create_epoch,
-    current_start_time, journal_corrupt, kept_executions, kill_process_group, load_records,
-    outcome_unknown, reset_locked, rewrite_locked, started_without_finished, write_meta_locked,
+    JournalState, Phase, absent_locked, acceptances_locked, answer_locked, append_locked,
+    create_epoch, journal_corrupt, load_records, outcome_unknown, phase_locked, reset_locked,
 };
+
+/// A one-shot append failure a test can inject. Never set in production.
+#[doc(hidden)]
+pub use store::AppendFault;
 
 #[cfg(test)]
 mod tests;
@@ -70,6 +75,15 @@ pub struct AcceptedRequest<'a> {
     pub mutating: bool,
 }
 
+impl std::fmt::Debug for Journal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Journal")
+            .field("epoch", &self.epoch())
+            .field("fenced", &self.corruption().is_some())
+            .finish_non_exhaustive()
+    }
+}
+
 /// The journal owner.
 pub struct Journal {
     state: Mutex<JournalState>,
@@ -93,8 +107,8 @@ impl Journal {
     }
 
     /// Opens without the OS lock. Test-only; production always uses [`Journal::open`].
-    #[doc(hidden)]
-    pub fn open_unlocked(
+    #[cfg(test)]
+    pub(crate) fn open_unlocked(
         dir: &Path,
         boot_id: &str,
         mono_ns: u64,
@@ -110,13 +124,23 @@ impl Journal {
         mono_ns: u64,
         limits: MutationLimits,
     ) -> Result<Self, JournalError> {
-        let Some(mut meta) = Metadata::load(dir)? else {
-            return Err(JournalError::State(StateError::new(
-                dir.join(META_FILE),
-                "no action journal; run `domovoi agent journal init` first",
-            )));
+        let mut meta = match Metadata::load(dir)? {
+            Some(meta) => meta,
+            None => {
+                // The journal file is the only evidence of a partial initialization. Never
+                // treat it as a fresh install and never create an epoch here.
+                let detail = if dir.join(JOURNAL_FILE).exists() {
+                    "the action journal is partially initialized; run `domovoi agent journal reset`"
+                } else {
+                    "no action journal; run `domovoi agent journal init` first"
+                };
+                return Err(JournalError::State(StateError::new(
+                    dir.join(META_FILE),
+                    detail,
+                )));
+            }
         };
-        let (records, valid_len, mut fenced) = load_records(dir, &meta)?;
+        let (mut records, mut valid_len, mut fenced) = load_records(dir, &meta)?;
         // A boot load is written once per boot, carrying the sticky marker forward.
         if meta.boot.boot_id != boot_id {
             let next = Metadata {
@@ -134,8 +158,21 @@ impl Journal {
                 Err(DurableWriteError::Indeterminate(err)) => {
                     fenced = Some(err.to_string());
                     match Metadata::load(dir) {
-                        Ok(Some(loaded)) if loaded.epoch == meta.epoch => meta = loaded,
-                        Ok(_) => {}
+                        Ok(Some(loaded)) if loaded.epoch == meta.epoch => {
+                            match load_records(dir, &loaded) {
+                                Ok((kept, len, fence)) => {
+                                    meta = loaded;
+                                    records = kept;
+                                    valid_len = len;
+                                    fenced = fence;
+                                }
+                                Err(load_err) => fenced = Some(load_err.to_string()),
+                            }
+                        }
+                        Ok(Some(_)) => {
+                            fenced = Some("metadata epoch changed during the write".to_owned());
+                        }
+                        Ok(None) => {}
                         Err(load_err) => fenced = Some(load_err.to_string()),
                     }
                 }
@@ -149,15 +186,15 @@ impl Journal {
             valid_len,
             running_now: BTreeSet::new(),
             meta_faults: DurableFaults::default(),
+            append_fault: AppendFault::default(),
+            rewrite_dir_sync_fault: false,
         };
         lock.hold();
-        let journal = Self {
+        Ok(Self {
             state: Mutex::new(state),
             limits,
             _lock: lock,
-        };
-        journal.recover_orphans();
-        Ok(journal)
+        })
     }
 
     /// Creates the journal for the first time, refusing if either journal file exists.
@@ -172,8 +209,8 @@ impl Journal {
     }
 
     /// Creates the journal without the OS lock. Test-only; production uses [`Journal::init`].
-    #[doc(hidden)]
-    pub fn init_unlocked(
+    #[cfg(test)]
+    pub(crate) fn init_unlocked(
         dir: &Path,
         now: Timestamp,
         boot_id: &str,
@@ -197,8 +234,8 @@ impl Journal {
     }
 
     /// Archives the existing pair and starts a new epoch, without the OS lock. Test-only.
-    #[doc(hidden)]
-    pub fn reset_unlocked(
+    #[cfg(test)]
+    pub(crate) fn reset_unlocked(
         dir: &Path,
         now: Timestamp,
         boot_id: &str,
@@ -286,6 +323,11 @@ impl Journal {
         proc_start_time: u64,
     ) -> Result<(), JournalError> {
         let mut state = self.lock()?;
+        if phase_locked(&state, execution_id) != Some(Phase::Accepted) {
+            return Err(JournalError::Lifecycle(format!(
+                "started for {execution_id} requires a preceding accepted record"
+            )));
+        }
         let record = Record::Started {
             format: Record::FORMAT,
             execution_id,
@@ -304,6 +346,11 @@ impl Journal {
         result: CapabilityResult,
     ) -> Result<(), JournalError> {
         let mut state = self.lock()?;
+        if phase_locked(&state, execution_id) != Some(Phase::Started) {
+            return Err(JournalError::Lifecycle(format!(
+                "finished for {execution_id} requires a preceding started record"
+            )));
+        }
         let record = Record::Finished {
             format: Record::FORMAT,
             execution_id,
@@ -337,40 +384,6 @@ impl Journal {
         })
     }
 
-    /// Prunes resolved history, first making the sticky marker durable.
-    ///
-    /// Returns whether anything was removed.
-    pub fn prune(&self, keep: usize) -> Result<bool, JournalError> {
-        let mut state = self.lock()?;
-        if let Some(reason) = &state.fenced {
-            return Err(JournalError::Corrupt(reason.clone()));
-        }
-        let mut committed = state.meta.pruned;
-        if !state.meta.pruned {
-            let mut next = state.meta.clone();
-            next.pruned = true;
-            committed = write_meta_locked(&mut state, &next)?;
-        }
-        if !committed {
-            return Ok(false);
-        }
-        let keep_set = kept_executions(&state.records, keep);
-        let mut kept = vec![state.records[0].clone()];
-        for record in &state.records[1..] {
-            if record
-                .execution_id()
-                .is_some_and(|id| keep_set.contains(&id))
-            {
-                kept.push(record.clone());
-            }
-        }
-        if kept.len() == state.records.len() {
-            return Ok(false);
-        }
-        rewrite_locked(&mut state, &kept)?;
-        Ok(true)
-    }
-
     /// Marks a corrupt journal, refusing later mutations.
     #[doc(hidden)]
     pub fn fence(&self, reason: impl Into<String>) {
@@ -387,35 +400,26 @@ impl Journal {
         }
     }
 
+    /// Injects the next append failure. Test-only.
+    #[doc(hidden)]
+    pub fn inject_append_fault(&self, fault: AppendFault) {
+        if let Ok(mut state) = self.state.lock() {
+            state.append_fault = fault;
+        }
+    }
+
+    /// Injects the next compaction directory-sync failure. Test-only.
+    #[doc(hidden)]
+    pub fn inject_rewrite_dir_sync_failure(&self) {
+        if let Ok(mut state) = self.state.lock() {
+            state.rewrite_dir_sync_fault = true;
+        }
+    }
+
+    /// Serialises every journal operation inside the owning process.
     fn lock(&self) -> Result<std::sync::MutexGuard<'_, JournalState>, JournalError> {
         self.state
             .lock()
             .map_err(|_| JournalError::Corrupt("the journal mutex was poisoned".to_owned()))
-    }
-
-    fn recover_orphans(&self) {
-        let mut state = match self.state.lock() {
-            Ok(state) => state,
-            Err(_) => return,
-        };
-        if state.fenced.is_some() {
-            return;
-        }
-        let unresolved: Vec<(Uuid, u32, u64)> = started_without_finished(&state.records);
-        for (execution_id, pid, proc_start_time) in unresolved {
-            if current_start_time(pid) != Some(proc_start_time) {
-                continue;
-            }
-            kill_process_group(pid);
-            let record = Record::Abandoned {
-                format: Record::FORMAT,
-                execution_id,
-                pid,
-                reason: "the agent restarted while the process was alive".to_owned(),
-            };
-            if let Err(err) = append_locked(&mut state, &record) {
-                tracing::error!(%err, "could not record an abandoned execution");
-            }
-        }
     }
 }

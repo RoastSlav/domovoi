@@ -156,6 +156,14 @@ impl Registry {
         }
     }
 
+    /// The latest runtime status for the host's live session.
+    pub fn agent_status(&self, host: HostId) -> Option<AgentStatus> {
+        self.lock()
+            .get(&host)
+            .and_then(|entry| entry.live.as_ref())
+            .and_then(|live| live.agent_status.clone())
+    }
+
     /// Records the agent's latest runtime status for `session`.
     pub fn set_agent_status(&self, host: HostId, session: SessionId, status: AgentStatus) {
         if let Some(live) = self

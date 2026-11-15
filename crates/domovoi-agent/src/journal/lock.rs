@@ -72,7 +72,8 @@ pub(super) enum JournalLock {
     /// The real cross-process lock, kept alive by the journal owner.
     Owner(platform::OwnerLock),
     /// A test-only guard that owns nothing.
-    None,
+    #[cfg(test)]
+    TestOnly,
 }
 
 impl JournalLock {
@@ -81,18 +82,23 @@ impl JournalLock {
     /// The guard's only job is to stay alive; reading it here keeps `dead_code` quiet without
     /// an `#[allow]`, and never releases it.
     pub(super) fn hold(&self) {
-        if let Self::Owner(guard) = self {
-            let _ = guard;
+        match self {
+            Self::Owner(guard) => {
+                let _ = guard;
+            }
+            #[cfg(test)]
+            Self::TestOnly => {}
         }
     }
+}
+
+/// A test-only lock that owns nothing. Never compiled into a production build.
+#[cfg(test)]
+pub(super) fn unlocked() -> JournalLock {
+    JournalLock::TestOnly
 }
 
 /// Takes the journal lock on `path`, or reports who owns it.
 pub(super) fn acquire(path: &Path) -> Result<JournalLock, JournalError> {
     platform::OwnerLock::acquire(path).map(JournalLock::Owner)
-}
-
-/// A test-only lock that owns nothing, so journal logic can run where `Flock` is unavailable.
-pub(super) fn unlocked() -> JournalLock {
-    JournalLock::None
 }

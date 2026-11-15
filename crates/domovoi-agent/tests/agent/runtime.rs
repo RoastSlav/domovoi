@@ -4,10 +4,15 @@ use std::sync::Arc;
 
 use domovoi_agent::{AgentDeps, AgentError, AgentRuntime};
 use domovoi_testkit::{FakeProcessExecutor, ListRedactor};
+#[cfg(target_os = "linux")]
 use tokio_util::sync::CancellationToken;
 
-use crate::common::{NoStats, install};
-use crate::harness::{clock, empty_fs, identity};
+use crate::common::NoStats;
+#[cfg(target_os = "linux")]
+use crate::common::install;
+#[cfg(target_os = "linux")]
+use crate::harness::identity;
+use crate::harness::{clock, empty_fs};
 use crate::hub::TestHub;
 use crate::link::config;
 
@@ -33,12 +38,20 @@ async fn runtime_refuses_to_start_before_enrollment() {
     assert!(matches!(result, Err(AgentError::NotEnrolled(_))));
 }
 
+#[cfg(target_os = "linux")]
 #[tokio::test]
 async fn runtime_shuts_down_within_two_seconds_on_cancel() {
     let mut hub = TestHub::start().await;
     let dir = tempfile::tempdir().unwrap();
     let identity = identity(&hub);
     identity.save(dir.path()).unwrap();
+    domovoi_agent::Journal::init(
+        dir.path(),
+        jiff::Timestamp::constant(1_700_000_000, 0),
+        "test-boot",
+        1,
+    )
+    .unwrap();
     install(&dir.path().join("skills"), "restart_app", "write");
     let runtime = AgentRuntime::new(config(&dir, &hub), deps(&dir))
         .await
@@ -59,4 +72,42 @@ async fn runtime_shuts_down_within_two_seconds_on_cancel() {
         .unwrap();
     assert!(result.is_ok(), "{result:?}");
     assert!(dir.path().join("checks.json").exists());
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn runtime_refuses_to_start_when_another_agent_owns_the_journal() {
+    let mut hub = TestHub::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let identity = identity(&hub);
+    identity.save(dir.path()).unwrap();
+    domovoi_agent::Journal::init(
+        dir.path(),
+        jiff::Timestamp::constant(1_700_000_000, 0),
+        "test-boot",
+        1,
+    )
+    .unwrap();
+    // The first runtime owns the journal for as long as it lives.
+    let held = domovoi_agent::Journal::open(
+        dir.path(),
+        "test-boot",
+        1,
+        domovoi_config::MutationLimits::default(),
+    )
+    .unwrap();
+    let result = AgentRuntime::new(config(&dir, &hub), deps(&dir)).await;
+    assert!(
+        matches!(
+            result,
+            Err(AgentError::Journal(domovoi_agent::JournalError::Locked(_)))
+        ),
+        "a second agent must not start without the journal lock"
+    );
+    drop(held);
+
+    let runtime = AgentRuntime::new(config(&dir, &hub), deps(&dir))
+        .await
+        .expect("the journal is free again");
+    drop(runtime);
 }

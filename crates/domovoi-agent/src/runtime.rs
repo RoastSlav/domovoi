@@ -15,7 +15,7 @@ use tokio_util::sync::CancellationToken;
 use crate::checks::{CheckSet, check_settings};
 use crate::error::AgentError;
 use crate::identity::Identity;
-use crate::journal::{Journal, META_FILE};
+use crate::journal::Journal;
 use crate::link::backoff::random_jitter;
 use crate::link::handshake::HelloExtensions;
 use crate::link::tls::PinnedVerifier;
@@ -64,7 +64,7 @@ pub struct AgentRuntime {
     connector: Arc<dyn Connector>,
     checks: Arc<dyn CheckSet>,
     requests: Arc<RequestCtx>,
-    journal: Option<Arc<Journal>>,
+    journal: Arc<Journal>,
     store: Arc<CheckStore>,
     spool: Arc<SharedSpool>,
     relay: Option<crate::relay::Relay>,
@@ -81,16 +81,12 @@ pub(crate) fn container_policy(config: &AgentConfig) -> ContainerPolicy {
     }
 }
 
-/// Opens the journal when an installation already has one.
+/// Opens and recovers the action journal, propagating every ownership and metadata error.
 ///
-/// A missing journal is not an error here: the CLI and single-box paths must still start so
-/// read-only work and check scheduling continue, and mutating capability execution refuses
-/// because there is no journal. `domovoi agent journal init` creates one.
-async fn open_journal(config: &AgentConfig, deps: &AgentDeps) -> Option<Arc<Journal>> {
+/// A missing journal, a partial initialization, corrupt metadata or an ownership conflict is
+/// fatal to agent startup. The agent never serves without the journal it owns.
+async fn open_journal(config: &AgentConfig, deps: &AgentDeps) -> Result<Arc<Journal>, AgentError> {
     let dir = &config.agent.state_dir;
-    if !dir.join(META_FILE).exists() {
-        return None;
-    }
     let boot_id = deps
         .hostfs
         .read_to_string("/proc/sys/kernel/random/boot_id")
@@ -105,13 +101,9 @@ async fn open_journal(config: &AgentConfig, deps: &AgentDeps) -> Option<Arc<Jour
             .await
             .unwrap_or_default(),
     );
-    match Journal::open(dir, &boot_id, mono_ns, config.agent.mutation_limits.clone()) {
-        Ok(journal) => Some(Arc::new(journal)),
-        Err(err) => {
-            tracing::warn!(%err, "the action journal is unavailable; mutations are refused");
-            None
-        }
-    }
+    let journal = Journal::open(dir, &boot_id, mono_ns, config.agent.mutation_limits.clone())?;
+    journal.recover_orphans(&*deps.clock).await;
+    Ok(Arc::new(journal))
 }
 
 #[cfg(target_os = "linux")]
@@ -172,7 +164,7 @@ impl AgentRuntime {
         );
         let store = Arc::new(CheckStore::open(state_dir)?);
         let spool = Arc::new(SharedSpool::new(Spool::open(state_dir)?));
-        let journal = open_journal(&config, &deps).await;
+        let journal = open_journal(&config, &deps).await?;
         let check_env = CheckEnv {
             host: identity.host_id,
             fs: deps.hostfs.clone(),
@@ -196,7 +188,7 @@ impl AgentRuntime {
             check_env,
             store: store.clone(),
             logs: deps.logs.clone(),
-            journal: journal.clone(),
+            journal: Some(journal.clone()),
         });
         let verifier = Arc::new(PinnedVerifier::new(identity.hub_fingerprint));
         let connector = Arc::new(TlsConnector::new(
@@ -246,6 +238,12 @@ impl AgentRuntime {
     pub async fn run(self, shutdown: CancellationToken) -> Result<(), AgentError> {
         let stop = shutdown.child_token();
         let host = self.identity.host_id;
+        let extensions = HelloExtensions {
+            journal_epoch: self.journal.epoch(),
+            runs_as_root: runs_as_root(),
+            ..HelloExtensions::default()
+        };
+        let status = crate::link::handshake::AgentStatusSource::new(extensions.status());
         let parts = LinkParts {
             connector: self.connector,
             identity: self.identity,
@@ -254,14 +252,8 @@ impl AgentRuntime {
             skills: self.requests.catalog.summaries(),
             checks: self.check_infos,
             docker: self.deps.docker.as_ref().map(|d| d.report().clone()),
-            extensions: HelloExtensions {
-                journal_epoch: self
-                    .journal
-                    .as_ref()
-                    .map_or(uuid::Uuid::nil(), |journal| journal.epoch()),
-                runs_as_root: runs_as_root(),
-                ..HelloExtensions::default()
-            },
+            extensions,
+            status,
             overrides: Some(self.effective),
             spool: self.spool.clone(),
             jitter: self.jitter,

@@ -13,6 +13,8 @@ use domovoi_proto::messages::{
 use domovoi_testkit::{CannedLogSource, build::T0};
 use jiff::SignedDuration;
 
+#[cfg(not(unix))]
+use crate::common::install;
 use crate::common::{Fixture, SECRET};
 use crate::docker::FakeDocker;
 use crate::harness::{ScriptedCheck, firing, key, ok, report, settle, target};
@@ -360,9 +362,13 @@ mod skills {
         );
         assert!(fixture.exec.calls().is_empty(), "the runner was called");
 
-        // The valid request reaches the runner.
-        let _ = run_skill(&ctx, &valid).await;
-        assert_eq!(fixture.exec.calls().len(), 1);
+        // A valid write skill still fails closed: the legacy path has no journal-backed
+        // acceptance or process identity, so it must not run unjournaled.
+        assert_eq!(code(run_skill(&ctx, &valid).await), SkillFailureCode::Exec);
+        assert!(
+            fixture.exec.calls().is_empty(),
+            "a mutating skill ran without a journal-backed path"
+        );
     }
 
     #[tokio::test]
@@ -386,4 +392,11 @@ mod skills {
         let _ = handle(&ctx, &call("show_status")).await;
         assert_eq!(fixture.exec.calls().len(), 1);
     }
+}
+
+#[cfg(not(unix))]
+#[tokio::test]
+async fn skill_install_helper_works_off_unix() {
+    let fixture = Fixture::new();
+    install(&fixture.skills(), "show_status", "read");
 }

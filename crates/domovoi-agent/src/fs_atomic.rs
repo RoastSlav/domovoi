@@ -132,14 +132,20 @@ pub fn write_atomic_durable_with(
     sync_dir(dir).map_err(|e| DurableWriteError::Indeterminate(StateError::new(dir, e)))
 }
 
+/// `fsync`s a directory so a rename inside it is durable.
+///
+/// On Windows a directory cannot be opened for syncing; the rename rests on the file sync.
+pub(crate) fn sync_dir(dir: &Path) -> std::io::Result<()> {
+    sys_sync_dir(dir)
+}
+
 #[cfg(unix)]
-fn sync_dir(dir: &Path) -> std::io::Result<()> {
+fn sys_sync_dir(dir: &Path) -> std::io::Result<()> {
     std::fs::File::open(dir)?.sync_all()
 }
 
 #[cfg(not(unix))]
-fn sync_dir(_dir: &Path) -> std::io::Result<()> {
-    // Windows cannot open a directory for syncing; the rename rests on the file sync.
+fn sys_sync_dir(_dir: &Path) -> std::io::Result<()> {
     Ok(())
 }
 

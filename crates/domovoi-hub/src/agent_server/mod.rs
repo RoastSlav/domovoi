@@ -151,6 +151,13 @@ impl AgentServer {
         self.inner.registry.checks(host).unwrap_or_default()
     }
 
+    /// The last `agent_status` the host's live session reported; `None` while it is offline
+    /// or before the agent sent one in this session.
+    #[must_use]
+    pub fn agent_status(&self, host: HostId) -> Option<domovoi_proto::messages::AgentStatus> {
+        self.inner.registry.agent_status(host)
+    }
+
     /// How the host's agent stands against this hub's protocol, from its stored report.
     pub async fn protocol_state(&self, host: HostId) -> Result<ProtocolState, StoreError> {
         let Some(agent) = self.inner.deps.hosts.live_agent(host).await? else {

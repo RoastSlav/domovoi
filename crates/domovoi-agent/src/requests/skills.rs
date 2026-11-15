@@ -107,6 +107,23 @@ pub async fn run_skill(ctx: &RequestCtx, run: &RunSkill) -> SkillOutcome {
             "the approved plan does not match this host's skill; approve it again",
         );
     }
+    // The legacy `run_skill` path has no journal-backed acceptance and no process identity,
+    // so a mutating skill cannot be given durable `accepted`/`started`/`finished` records or
+    // counted by the local mutation limiter. Fail closed rather than execute unjournaled.
+    if skill.manifest().risk != Risk::Read {
+        tracing::warn!(
+            skill = skill_name,
+            risk = ?skill.manifest().risk,
+            "refused a mutating skill without a journal-backed execution path"
+        );
+        return fail(
+            SkillFailureCode::Exec,
+            format!(
+                "{skill_name} changes the host and needs a journal-backed execution path; \
+                 this agent refuses it"
+            ),
+        );
+    }
     tracing::info!(skill = skill_name, action = %run.action_id, "running an approved skill");
     match ctx.catalog.run_skill(skill, &validated, &*ctx.exec).await {
         Ok(output) => {

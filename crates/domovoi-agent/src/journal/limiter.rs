@@ -86,9 +86,26 @@ pub fn check(
 }
 
 fn leave_at(entry: &Acceptance, boot_id: &str, boot_first_load_mono_ns: u64) -> u64 {
-    if entry.boot_id == boot_id {
+    active_until(
+        &entry.boot_id,
+        entry.mono_ns,
+        boot_id,
+        boot_first_load_mono_ns,
+    )
+}
+
+/// When an acceptance stops counting: one window after it ran, or one window after this
+/// boot's first journal load for an earlier-boot entry.
+#[must_use]
+pub fn active_until(
+    entry_boot_id: &str,
+    entry_mono_ns: u64,
+    boot_id: &str,
+    boot_first_load_mono_ns: u64,
+) -> u64 {
+    if entry_boot_id == boot_id {
         // A negative age is a corrupted clock, not a fresh window: treat it as age 0.
-        entry.mono_ns.saturating_add(WINDOW_NS)
+        entry_mono_ns.saturating_add(WINDOW_NS)
     } else {
         // The entry's age is unknown; it leaves one window after this boot's first load.
         boot_first_load_mono_ns.saturating_add(WINDOW_NS)

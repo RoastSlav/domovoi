@@ -6,8 +6,8 @@ use domovoi_core::{
 };
 use domovoi_hub::agent_server::{LOCAL_SESSION_HINT, MAX_FRAMES_PER_SECOND, MemoryTransport};
 use domovoi_proto::messages::{
-    Challenge, ChallengeResponse, DigestFacts, ErrorMessage, Logs, Ping, RejectReason, Signals,
-    ToolOutcome, ToolResult, ToolSuccess, Unsupported,
+    AgentStatus, Challenge, ChallengeResponse, DigestFacts, ErrorMessage, HelperStatus, Logs, Ping,
+    RejectReason, Signals, SkillRunnerStatus, ToolOutcome, ToolResult, ToolSuccess, Unsupported,
 };
 use domovoi_proto::{
     MAX_FRAME_BYTES, Message, PROTOCOL_VERSION, Signature, Transport, challenge_message, decode,
@@ -426,4 +426,28 @@ async fn local_attach_runs_the_same_handshake() {
         hub.server.link().presence(ident.host),
         Presence::Connected { .. }
     ));
+}
+
+#[tokio::test]
+async fn agent_status_is_recorded_per_session() {
+    let hub = Hub::start().await;
+    let (ident, mut agent) = online(&hub, "nas").await;
+    let status = AgentStatus {
+        helper_status: HelperStatus::Absent,
+        helper_identity: None,
+        skill_runner_status: SkillRunnerStatus::Absent,
+        runs_as_root: true,
+        ceiling_hash: None,
+        ceiling_summary: None,
+    };
+    agent.send(Message::AgentStatus(status.clone()), None).await;
+    // A ping answers after the status in the same loop, proving it was processed.
+    agent.send(Message::Ping(Ping { at: t0() }), None).await;
+    assert!(matches!(agent.expect().await.message, Message::Pong(_)));
+    assert_eq!(hub.server.agent_status(ident.host), Some(status));
+
+    // A replacement session starts with no status inherited from the old one.
+    let mut second = FakeAgent::connect(hub.addr).await;
+    second.authenticate(&ident).await;
+    assert_eq!(hub.server.agent_status(ident.host), None);
 }

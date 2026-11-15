@@ -1,5 +1,7 @@
 //! Record framing and the five lifecycle records.
 
+use std::collections::BTreeMap;
+
 use domovoi_proto::messages::{AuthorizationKind, CapabilityResult};
 use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
@@ -215,6 +217,62 @@ fn validate(records: &[Record], metadata_epoch: Uuid) -> Result<(), JournalError
         return Err(JournalError::Corrupt(
             "the journal has more than one journal_created record".to_owned(),
         ));
+    }
+    validate_lifecycle(records)
+}
+
+/// The state of one execution as records for it are replayed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Phase {
+    Accepted,
+    Started,
+    Finished,
+    Abandoned,
+}
+
+/// Enforces the only valid transitions:
+/// `accepted -> started -> finished|abandoned`.
+fn validate_lifecycle(records: &[Record]) -> Result<(), JournalError> {
+    let mut phases: BTreeMap<Uuid, Phase> = BTreeMap::new();
+    for record in &records[1..] {
+        match record {
+            Record::JournalCreated { .. } => {
+                return Err(JournalError::Corrupt(
+                    "the journal has more than one journal_created record".to_owned(),
+                ));
+            }
+            Record::Accepted { execution_id, .. } => {
+                if phases.insert(*execution_id, Phase::Accepted).is_some() {
+                    return Err(JournalError::Corrupt(format!(
+                        "duplicate accepted record for {execution_id}"
+                    )));
+                }
+            }
+            Record::Started { execution_id, .. } => {
+                if phases.get(execution_id) != Some(&Phase::Accepted) {
+                    return Err(JournalError::Corrupt(format!(
+                        "started record for {execution_id} without a preceding accepted record"
+                    )));
+                }
+                phases.insert(*execution_id, Phase::Started);
+            }
+            Record::Finished { execution_id, .. } => {
+                if phases.get(execution_id) != Some(&Phase::Started) {
+                    return Err(JournalError::Corrupt(format!(
+                        "finished record for {execution_id} without a preceding started record"
+                    )));
+                }
+                phases.insert(*execution_id, Phase::Finished);
+            }
+            Record::Abandoned { execution_id, .. } => {
+                if phases.get(execution_id) != Some(&Phase::Started) {
+                    return Err(JournalError::Corrupt(format!(
+                        "abandoned record for {execution_id} without a preceding started record"
+                    )));
+                }
+                phases.insert(*execution_id, Phase::Abandoned);
+            }
+        }
     }
     Ok(())
 }

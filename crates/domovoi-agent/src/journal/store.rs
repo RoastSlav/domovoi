@@ -16,6 +16,22 @@ use super::record::{self, Record};
 use crate::error::{JournalError, StateError};
 use crate::fs_atomic::{DurableFaults, DurableWriteError};
 
+/// A one-shot append failure a test injects. Never set in production.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum AppendFault {
+    /// Open the append file but write nothing.
+    #[default]
+    None,
+    /// Fail before opening the file.
+    Open,
+    /// Write only part of the frame.
+    Partial,
+    /// Write the complete frame but fail before syncing it.
+    Sync,
+    /// Write and sync the frame, then report an uncertain outcome.
+    Uncertain,
+}
+
 /// The in-memory journal, guarded by one mutex for the owning process.
 pub(super) struct JournalState {
     pub(super) dir: PathBuf,
@@ -25,6 +41,8 @@ pub(super) struct JournalState {
     pub(super) valid_len: u64,
     pub(super) running_now: BTreeSet<Uuid>,
     pub(super) meta_faults: DurableFaults,
+    pub(super) append_fault: AppendFault,
+    pub(super) rewrite_dir_sync_fault: bool,
 }
 
 pub(super) fn load_records(
@@ -114,44 +132,96 @@ pub(super) fn create_epoch(
 }
 
 pub(super) fn append_locked(state: &mut JournalState, record: &Record) -> Result<(), JournalError> {
+    let fault = std::mem::take(&mut state.append_fault);
     let frame = record::frame(record)?;
     let path = state.dir.join(JOURNAL_FILE);
-    let mut file = std::fs::OpenOptions::new()
-        .append(true)
-        .open(&path)
-        .map_err(|err| StateError::new(&path, err))?;
-    file.write_all(&frame)
-        .and_then(|()| file.sync_all())
-        .map_err(|err| StateError::new(&path, err))?;
-    state.valid_len += frame.len() as u64;
-    state.records.push(record.clone());
-    Ok(())
+    match write_frame(&path, &frame, fault) {
+        Ok(()) => {
+            state.valid_len += frame.len() as u64;
+            state.records.push(record.clone());
+            Ok(())
+        }
+        Err(err) => {
+            // The file may now hold a partial frame, a complete but unsynced frame, or
+            // nothing. Reconcile to whatever is actually there before returning, so the
+            // in-memory list never runs ahead of the file.
+            reconcile_locked(state);
+            Err(JournalError::State(err))
+        }
+    }
 }
 
-pub(super) fn rewrite_locked(
-    state: &mut JournalState,
-    records: &[Record],
-) -> Result<(), JournalError> {
-    let mut bytes = Vec::new();
-    for record in records {
-        bytes.extend_from_slice(&record::frame(record)?);
+fn write_frame(path: &Path, frame: &[u8], fault: AppendFault) -> Result<(), StateError> {
+    if fault == AppendFault::Open {
+        return Err(StateError::new(path, "injected append open failure"));
     }
-    let path = state.dir.join(JOURNAL_FILE);
-    let tmp = state.dir.join(format!("{JOURNAL_FILE}.tmp"));
     let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(&tmp)
-        .map_err(|err| StateError::new(&tmp, err))?;
-    file.write_all(&bytes)
-        .and_then(|()| file.sync_all())
-        .map_err(|err| StateError::new(&tmp, err))?;
-    drop(file);
-    std::fs::rename(&tmp, &path).map_err(|err| StateError::new(&path, err))?;
-    state.records = records.to_vec();
-    state.valid_len = bytes.len() as u64;
-    Ok(())
+        .append(true)
+        .open(path)
+        .map_err(|err| StateError::new(path, err))?;
+    match fault {
+        AppendFault::Partial => {
+            let half = frame.len() / 2;
+            file.write_all(&frame[..half])
+                .map_err(|err| StateError::new(path, err))?;
+            Err(StateError::new(path, "injected partial append failure"))
+        }
+        AppendFault::Sync => {
+            file.write_all(frame)
+                .map_err(|err| StateError::new(path, err))?;
+            Err(StateError::new(path, "injected append sync failure"))
+        }
+        AppendFault::Uncertain => {
+            file.write_all(frame)
+                .and_then(|()| file.sync_all())
+                .map_err(|err| StateError::new(path, err))?;
+            Err(StateError::new(path, "injected uncertain append outcome"))
+        }
+        AppendFault::Open | AppendFault::None => file
+            .write_all(frame)
+            .and_then(|()| file.sync_all())
+            .map_err(|err| StateError::new(path, err)),
+    }
+}
+
+/// Replaces the in-memory records with what the file actually holds.
+///
+/// A physically incomplete tail is truncated to the last complete frame. A complete frame
+/// with a bad checksum or invalid ordering fences the journal; it is never truncated.
+fn reconcile_locked(state: &mut JournalState) {
+    let path = state.dir.join(JOURNAL_FILE);
+    let bytes = match crate::fs_atomic::read_optional(&path) {
+        Ok(Some(bytes)) => bytes,
+        Ok(None) => {
+            state.fenced = Some("the journal file is missing".to_owned());
+            return;
+        }
+        Err(err) => {
+            state.fenced = Some(err.to_string());
+            return;
+        }
+    };
+    match record::parse(&bytes, state.meta.epoch) {
+        Ok(parsed) => {
+            if parsed.valid_len < bytes.len() as u64 {
+                let truncated = std::fs::OpenOptions::new()
+                    .write(true)
+                    .open(&path)
+                    .and_then(|file| {
+                        file.set_len(parsed.valid_len)
+                            .and_then(|()| file.sync_all())
+                    });
+                if let Err(err) = truncated {
+                    state.fenced = Some(StateError::new(&path, err).to_string());
+                    return;
+                }
+            }
+            state.records = parsed.records;
+            state.valid_len = parsed.valid_len;
+            state.fenced = None;
+        }
+        Err(err) => state.fenced = Some(err.to_string()),
+    }
 }
 
 /// Writes `next` metadata, handling the three outcomes. Returns whether it committed.
@@ -167,13 +237,28 @@ pub(super) fn write_meta_locked(
         }
         Err(DurableWriteError::BeforeCommit(err)) => Err(JournalError::State(err)),
         Err(DurableWriteError::Indeterminate(err)) => {
-            // Indeterminate durability: never remove records, fence, reload whichever file is
-            // visible and adopt it if it validates.
+            // Indeterminate durability: never remove records and never claim either version
+            // is authoritative without reading it. The visible metadata must parse, name the
+            // same epoch and describe a journal that itself validates before the fence clears.
             state.fenced = Some(err.to_string());
             match Metadata::load(&state.dir) {
-                Ok(Some(meta)) => {
-                    state.meta = meta;
-                    state.fenced = None;
+                Ok(Some(meta)) if meta.epoch == state.meta.epoch => {
+                    match load_records(&state.dir, &meta) {
+                        Ok((records, valid_len, fence)) => {
+                            state.meta = meta;
+                            state.records = records;
+                            state.valid_len = valid_len;
+                            state.fenced = fence;
+                            Ok(false)
+                        }
+                        Err(load_err) => {
+                            state.fenced = Some(load_err.to_string());
+                            Ok(false)
+                        }
+                    }
+                }
+                Ok(Some(_)) => {
+                    state.fenced = Some("metadata epoch changed during the write".to_owned());
                     Ok(false)
                 }
                 Ok(None) => Ok(false),
@@ -207,6 +292,37 @@ pub(super) fn acceptances_locked(state: &JournalState) -> Vec<Acceptance> {
             _ => None,
         })
         .collect()
+}
+
+/// The lifecycle phase of one execution in the retained records.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Phase {
+    Accepted,
+    Started,
+    Finished,
+    Abandoned,
+}
+
+pub(super) fn phase_locked(state: &JournalState, execution_id: Uuid) -> Option<Phase> {
+    let mut phase = None;
+    for record in &state.records {
+        match record {
+            Record::Accepted {
+                execution_id: id, ..
+            } if *id == execution_id => phase = Some(Phase::Accepted),
+            Record::Started {
+                execution_id: id, ..
+            } if *id == execution_id => phase = Some(Phase::Started),
+            Record::Finished {
+                execution_id: id, ..
+            } if *id == execution_id => phase = Some(Phase::Finished),
+            Record::Abandoned {
+                execution_id: id, ..
+            } if *id == execution_id => phase = Some(Phase::Abandoned),
+            _ => {}
+        }
+    }
+    phase
 }
 
 pub(super) fn answer_locked(
@@ -295,82 +411,3 @@ pub(super) fn journal_corrupt(reason: &str) -> Refused {
         scope: None,
     }
 }
-
-pub(super) fn started_without_finished(records: &[Record]) -> Vec<(Uuid, u32, u64)> {
-    let mut started = Vec::new();
-    let mut resolved = BTreeSet::new();
-    for record in records {
-        match record {
-            Record::Started {
-                execution_id,
-                pid,
-                proc_start_time,
-                ..
-            } => started.push((*execution_id, *pid, *proc_start_time)),
-            Record::Finished { execution_id, .. } | Record::Abandoned { execution_id, .. } => {
-                resolved.insert(*execution_id);
-            }
-            _ => {}
-        }
-    }
-    started
-        .into_iter()
-        .filter(|(id, _, _)| !resolved.contains(id))
-        .collect()
-}
-
-pub(super) fn kept_executions(records: &[Record], keep: usize) -> BTreeSet<Uuid> {
-    let mut accepted = BTreeSet::new();
-    let mut resolved = BTreeSet::new();
-    let mut finished: Vec<Uuid> = Vec::new();
-    for record in records {
-        match record {
-            Record::Accepted { execution_id, .. } => {
-                accepted.insert(*execution_id);
-            }
-            Record::Finished { execution_id, .. } => {
-                resolved.insert(*execution_id);
-                if !finished.contains(execution_id) {
-                    finished.push(*execution_id);
-                }
-            }
-            Record::Abandoned { execution_id, .. } => {
-                resolved.insert(*execution_id);
-            }
-            _ => {}
-        }
-    }
-    // Every unresolved acceptance is kept; so are the newest `keep` resolved ones.
-    let mut kept: BTreeSet<Uuid> = accepted.difference(&resolved).copied().collect();
-    for id in finished.into_iter().rev().take(keep) {
-        kept.insert(id);
-    }
-    kept
-}
-
-#[cfg(target_os = "linux")]
-pub(super) fn current_start_time(pid: u32) -> Option<u64> {
-    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
-    let rest = stat.rsplit_once(')')?.1;
-    let fields: Vec<&str> = rest.split_whitespace().collect();
-    fields.get(19)?.parse().ok()
-}
-
-#[cfg(not(target_os = "linux"))]
-pub(super) fn current_start_time(_pid: u32) -> Option<u64> {
-    None
-}
-
-#[cfg(target_os = "linux")]
-pub(super) fn kill_process_group(pid: u32) {
-    use nix::sys::signal::{Signal, killpg};
-    use nix::unistd::Pid;
-    let group = Pid::from_raw(pid as i32);
-    // Signal the whole group to stop, then stop it outright. A grace period would need a
-    // clock the journal does not own, and the shipped unit's cgroup already reaps leftovers.
-    let _ = killpg(group, Signal::SIGTERM);
-    let _ = killpg(group, Signal::SIGKILL);
-}
-
-#[cfg(not(target_os = "linux"))]
-pub(super) fn kill_process_group(_pid: u32) {}

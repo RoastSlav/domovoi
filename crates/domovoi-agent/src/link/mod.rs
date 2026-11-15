@@ -31,7 +31,9 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use self::backoff::{Backoff, STABLE_AFTER};
-use self::handshake::{Announce, HelloExtensions, STEP_TIMEOUT, handshake, heartbeat};
+use self::handshake::{
+    AgentStatusSource, Announce, HelloExtensions, STEP_TIMEOUT, handshake, heartbeat,
+};
 use self::status::LinkStatus;
 use self::ws::{Connected, Connector};
 use crate::error::LinkError;
@@ -48,6 +50,8 @@ pub const REQUEST_QUEUE: usize = 32;
 pub const OUTBOX: usize = 256;
 /// How often an idle agent says it is still waiting to be upgraded.
 pub const IDLE_NOTICE_INTERVAL: SignedDuration = SignedDuration::from_hours(1);
+/// How often the agent compares its runtime status and reports a change.
+pub const STATUS_PROBE_INTERVAL: SignedDuration = SignedDuration::from_secs(60);
 
 /// A request from the hub, waiting for the request handler.
 #[derive(Debug, Clone, PartialEq)]
@@ -123,6 +127,8 @@ pub struct LinkParts {
     pub docker: Option<domovoi_proto::messages::DockerReport>,
     /// The rest of the 1.2 `hello` extensions.
     pub extensions: HelloExtensions,
+    /// The runtime status the agent reports in `agent_status`.
+    pub status: AgentStatusSource,
     /// Where the hub's check overrides take effect; `None` ignores them.
     pub overrides: Option<crate::overrides::EffectiveChecks>,
     /// Signal batches to send and replay.
@@ -307,6 +313,18 @@ impl Link {
         // The hub pings; the agent answers `pong`. A silent link for three intervals is dead.
         let mut last_activity = clock.now();
         let mut next_check = clock.now().saturating_add(beat).unwrap_or(clock.now());
+        // Report the session's initial status, then only real changes.
+        let mut last_status = self.parts.status.current();
+        frame::send(
+            transport.as_mut(),
+            &Message::AgentStatus(last_status.clone()),
+            None,
+        )
+        .await?;
+        let mut next_status = clock
+            .now()
+            .saturating_add(STATUS_PROBE_INTERVAL)
+            .unwrap_or(clock.now());
         self.flush(transport.as_mut(), &mut sent).await?;
         loop {
             tokio::select! {
@@ -322,6 +340,19 @@ impl Link {
                     frame::send(transport.as_mut(), &out.message, out.reply_to).await?;
                 }
                 () = self.parts.spool.pushed() => self.flush(transport.as_mut(), &mut sent).await?,
+                () = clock.sleep_until(next_status) => {
+                    let current = self.parts.status.current();
+                    if current != last_status {
+                        frame::send(
+                            transport.as_mut(),
+                            &Message::AgentStatus(current.clone()),
+                            None,
+                        )
+                        .await?;
+                        last_status = current;
+                    }
+                    next_status = next_status.saturating_add(STATUS_PROBE_INTERVAL).unwrap_or(next_status);
+                }
                 () = clock.sleep_until(next_check) => {
                     let silence = clock.now().duration_since(last_activity);
                     let limit = beat.saturating_mul(i32::try_from(MISSED_PONGS).unwrap_or(3));
