@@ -124,7 +124,7 @@ dependency forcing an order (§1): it is not permission to run them at the same 
 | 57 | `configurable-retention` | F4 | D-21 retention config and pruning for existing data | 08 | 17, 18, 19 | retention config | — | S |
 | 20 | `agent-action-journal` | M1 | **protocol 1.1 → 1.2** (complete v1 wire), agent journal, `action_status`, mutation limiter | 13, 14, 15, 16, 17, 18, 19 | — (21 depends on it) | wire 1.2 | — | L |
 | 21 | `outcome-unknown-reconcile` | M1 | OutcomeUnknown, reconcile on hello | 14, 20 | — | — | — | M |
-| 22 | `plan-hash-v2-and-authorization` | M1 | plan hash v2, approval binding columns, `Authorization`, `PolicyPermit` type, CI enforcement | 18, 20, 21 | — | ExecutionId, Authorization | — | L |
+| 22 | `plan-hash-v2-and-authorization` | M1 | plan hash v2, approval binding columns, `Authorization` wrapper, `PolicyPermit` with a restricted `issue`, CI enforcement | 18, 20, 21 | — | ExecutionId, Authorization | **owner decision on the entry-script digest (22 §5.4)** | L |
 | 23 | `single-execution-boundary` | M1 | one execute path, one read boundary, arch rules | 22 | — | — | — | M |
 | 24 | `capability-contracts` | M2 | contract types, built-ins, skill adapter + floor | 23 | 53–56 | contract types | — | M |
 | 25 | `capability-registry` | M2 | availability, catalogue, replace PolicyLink, target identity, inventory UI | 23, 24 | 39 | registry | — | L |
@@ -158,7 +158,7 @@ dependency forcing an order (§1): it is not permission to run them at the same 
 | 56 | `spike-systemd-unit-identity` | R-8 | evidence on effective unit identity | — | — | R-8 evidence | WSL2 environment available (§6.3) | S |
 | 44 | `helper-adrs` | H1 | ADRs for the three identities and for helper attestation | — | — | ADRs | 54 and 55 evidence (or unproven items recorded) | M |
 | 47 | `three-identities-helper-and-skill-runner` (may be split 47a/b/c) | H1 | helper, attestation, skill runner, installer migration, hub enrollment | 20, 22, 44 | — | helper protocol, SafetyIdentity | **O-30 answered; R-3, R-9, R-10 accepted** | L |
-| 45 | `policy-permit-autonomy` | M8 | PermitIssuer, ceiling, guardrails, `unit.restart`, `container.restart` | 32, 40, 47 | — | — | **R-8 accepted; H1 complete** | L |
+| 45 | `policy-permit-autonomy` | M8 | PermitIssuer, ceiling, guardrails, `unit.restart`, `container.restart`; the unresolved-`OutcomeUnknown` unattended-reuse guard | 32, 40, 47 | — | — | **R-8 accepted; H1 complete** | L |
 | 46 | `containment` | M9 | `firewall.block_source` with kernel timeout, verified and unverified paths, drills | 45, 34, 47 | — | — | **R-2, R-10 accepted** | L |
 
 ## 3. Recommended launch order
@@ -277,7 +277,7 @@ row as pending or as still to be implemented.
 | 18 | `18-structured-approvals.md` | ready: 10 is merged; adds no migration |
 | 20 | `20-agent-action-journal.md` | ready: 13 and 15 are merged and 14 and 16–19 are ready to land before it; carries the protocol 1.2 bump and the agent-side journal, and adds no hub migration |
 | 21 | `21-outcome-unknown-reconcile.md` | waiting: 20; adds no migration — `OutcomeUnknown` lives in the existing JSON `status` column |
-| 22 | `22-plan-hash-v2-and-authorization.md` | waiting: 20 and 21; adds a migration, so take the next free number (§7) |
+| 22 | `22-plan-hash-v2-and-authorization.md` | waiting: 20 and 21, **and the owner decision on the entry-script digest (§5.4 of the brief)**; adds a migration, so take the next free number (§7) |
 | 23 | `23-single-execution-boundary.md` | waiting: 22; adds no migration |
 | 24 | `24-capability-contracts.md` | waiting: 23 to merge; the dependency is ordering only and adds no migration |
 

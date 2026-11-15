@@ -4,11 +4,11 @@
 |---|---|
 | Branch | `plan-hash-v2-and-authorization` |
 | Milestone | M1 |
-| Scope | Plan hash v2 (contract + version, `impl_hash`, canonical target identity, canonical arguments, `execution_id`); the approval binding columns; `Authorization` with `Human` and `Policy`; the `PolicyPermit` type only; the architecture rule that covers both authorization constructors |
+| Scope | Plan hash v2 (contract + version, `impl_hash`, canonical target identity, canonical arguments, `execution_id`); the approval binding columns; `Authorization` as a wrapper with private internals; `PolicyPermit` with a restricted `issue` factory; the architecture rules that cover every authorization constructor |
 | Depends on (must be merged into `overhaul-investigation` before implementation) | 18, 20, 21 |
 | Parallel with | none; 23 depends on this one |
 | Produces | `ExecutionId`, `Authorization`, plan hash v2, the approval binding columns |
-| Gate | none beyond the listed dependencies |
+| Gate | **blocked on an owner decision.** `03 RW-11` requires the implementation hash to cover the entry-script bytes; the frozen 1.2 wire carries no script digest, so §5.4 must be resolved by the owner before implementation starts. Not accepted at the time of writing |
 | Suggested model | large |
 
 ## 1. Objective
@@ -21,8 +21,10 @@ authorization value the later execution path consumes:
 2. The approval binding columns, so a stored action records **the plan hash the human was shown** and
    who showed it to them.
 3. `ExecutionId`, the opaque idempotency key of `03 RW-36`, which at M1 equals the `ActionId`.
-4. `Authorization { Human(HumanApproval), Policy(PolicyPermit) }`, with `PolicyPermit` as a type only.
-5. Extension of the existing architecture scan so both authorization constructors have an owner, without
+4. `Authorization`, a wrapper whose internals are private and whose only constructors are the `human(..)`
+   and `policy(..)` factories, plus the `PolicyPermit` type with its restricted `issue` factory. No
+   `PermitIssuer` and no policy evaluation exist in this milestone.
+5. Extension of the existing architecture scan so every authorization constructor has an owner, without
    changing what the compiler can and cannot enforce.
 
 The single question this milestone must answer is: **is the approval that exists now an approval of
@@ -44,7 +46,7 @@ This prompt owns:
   the dispatch path recomputes the hash for **the action's own version**, and refuses on any difference.
 - `domovoi-hub`: the approve handlers pass the displayed hash through as they do today, plus the
   provenance from the authenticated session; `ActionDto` gains the version label.
-- `xtask`: one new architecture rule (plus its unit tests) confining both authorization constructors, and
+- `xtask`: one new architecture rule (plus its unit tests) confining every authorization constructor, and
   one confining the `plan:v2` literal.
 - `web`: the plan tag says which binding family it is; a legacy action is labelled `v1 binding`.
 
@@ -57,15 +59,16 @@ This prompt does **not** own, and must not implement:
 | 25 | target identity **resolution** against the registry, availability, the catalogue, inventory UI |
 | 26 | the operation/step/execution tables; the approval binding columns move to the execution detail there |
 | 39, 40 | policy evaluation, decisions, policy versions, shadow, publication |
-| 45 | `PermitIssuer`, permit issuance, the autonomy ceiling, guardrails, `PolicyPermit` construction |
+| 45 | `PermitIssuer`, policy-authorized issuance, the autonomy ceiling, guardrails; the unresolved-`OutcomeUnknown` unattended-reuse guard that prompt 21 defines but does not enforce |
 | 47 | `SafetyIdentity`, helper attestation, the `expected_safety` values a permit binds |
 | 20 | the wire. It is frozen at 1.2 by that prompt and this one changes nothing on it (`03 RW-42`) |
 | 21 | hub reconciliation, `OutcomeUnknown` commit, the epoch rules |
 
 Consequences:
 
-- **No permit is issued, ever, by this change.** `PolicyPermit` has no public constructor and no
-  `Deserialize`. The `Authorization::Policy` arm is matched and refused in the writer with a named error.
+- **No permit is issued, ever, by this change.** `PolicyPermit::issue` is a restricted data factory: private
+  fields, no policy knowledge, no authority, and no product-code call site until `crates/domovoi-hub/src/policy/`
+  lands in 45. The policy branch is reached through an accessor and refused in the writer with a named error.
   If you find yourself writing a `PermitIssuer`, a policy lookup, a ceiling check or an autonomy switch,
   stop: that is 45.
 - **No second execution path.** Do not add an executor, a dispatch entry point or a service method that
@@ -88,6 +91,10 @@ time this was written none of the three was merged: 18 is ready, and 20 and 21 h
 merged implementation. Launch order is 20, then 21, then 22, then 23 (`07 §3`); they are never taken
 concurrently.
 
+**One further gate is this prompt's own.** The entry-script digest decision in §5.4 is open, and the branch
+must not be cut until the owner has explicitly accepted one of its three options. Until then this brief is
+complete but not launchable, whatever the dependency list says.
+
 **Dependency on prompt 21's document.** Everything about reconciliation, `OutcomeUnknown` and the epoch
 is outside this brief. It needs only two things from that area, and takes them from `03 RW-09`,
 `03 RW-36` and `04 §15`: a `Dispatched` execution is never auto-failed, and the idempotency key never
@@ -101,7 +108,7 @@ execution-identity rule that contradicts `03 RW-36`, follow 21 and report the di
 |---|---|---|---|
 | Plan identity | `PlanHash` (32 bytes, hex), v1 over skill + manifest + host + canonical args (`approval.rs:24-33`) | `compute_v2` with its own domain line and field encoding; both versions in one type | 25 replaces the target producer; 26 moves the hash to the execution detail |
 | Approval binding | the approve request carries the v1 hash and the writer refuses a mismatch (`writer.rs:283-285`) | the same check for both versions, plus `approved_plan_hash`, `approval_session_ref`, `approval_client` | 27 moves the endpoint to steps |
-| Authorization | `HumanApproval` only; approve carries a `HumanApproval` (`writer.rs:39-45`) | `Authorization` wrapper, `PolicyPermit` type, refusal of `Policy` | 45 constructs permits; 23/26 consume `Authorization` |
+| Authorization | `HumanApproval` only; approve carries a `HumanApproval` (`writer.rs:39-45`) | `Authorization` wrapper with private internals and two factories, `PolicyPermit` with a restricted `issue`, refusal of the policy branch | 45 issues permits through `PermitIssuer`; 23/26 consume `Authorization` |
 | Execution identity | `ActionId` only | `ExecutionId` newtype, `= ActionId` at M1 | 26/27 set `execution_id = step_id` |
 | Enforcement | one line-based scan for `HumanApproval::new`/`restore` (`scan.rs:105-118`) | extended to every authorization constructor and to the `plan:v2` literal | 23 adds the boundary rules |
 
@@ -210,11 +217,14 @@ Rules, all enforced by construction rather than by a parser:
    omitted entirely when the incident carries none — written as the literal `target:absent`. That keeps
    "no target" distinct from "empty target" and is the reason `PlanTarget` is a type rather than a
    `String`.
-6. **Rejection of non-canonical input is part of the constructors**, not of the hashing function:
-   `PlanContract::new`, `PlanTarget::new` and `ImplHash::from_parts` return an error for anything the
-   rules above do not describe. `PlanHash::compute_v2` takes those types, so a caller cannot hand it a
-   raw string. A hash function that returned `Result` would push the same check into every call site and
-   leave the unvalidated path open.
+6. **Rejection of non-canonical input is part of the constructors**, not of the hashing function.
+   `PlanContract::new` takes a raw `&str` and returns an error for an id outside the grammar, so that check
+   has one home. `PlanTarget::new` and `ImplHash::from_parts` are **infallible**: every argument is already a
+   validated type (`HostId`, `CheckKey`, `TargetKey`, `ManifestHash`, `ScriptDigest`), so there is nothing
+   left to reject and the canonical text is produced by construction rather than by parsing. Do not give
+   either of them a `&str` overload and do not make them return `Result` for symmetry. `PlanHash::compute_v2`
+   takes the typed values, so a caller cannot hand it a raw string; a hash function that returned `Result`
+   would push the same checks into every call site and leave the unvalidated path open.
 
 `PlanHash::compute_v2(contract, impl_hash, target, args, execution)` is `#[must_use]` and takes the five
 typed inputs; it has no string overload, no default argument and no `impl Into<String>`.
@@ -237,7 +247,7 @@ bytes alone do not say which family they belong to, so:
 Domain separation is the only defence against a downgrade, so it must not be removed, shortened or made
 configurable.
 
-### 5.4 `ImplHash` and the entry-script gap
+### 5.4 `ImplHash` and the entry-script gap — an open owner decision
 
 `ImplHash` is a `sha256_newtype!` over:
 
@@ -245,15 +255,39 @@ configurable.
 impl:v1\nmanifest:{64 hex}\nentry:{64 hex}|absent\n
 ```
 
-- **At M1 the hub always writes `entry:absent`.** There is no per-skill script digest on the frozen 1.2
-  wire, and `SkillSummary` deliberately carries none.
-- The gap is real and must be visible: `ImplHash` documents that it binds the manifest only while the
-  agent reports no script digest, the PR description records it, and no code, comment, UI text or doc page
-  claims that v2 proves which script bytes run.
-- Closing it needs an agent-side digest reported per skill, which is a wire addition and therefore a
-  coordinated `03 RW-42` decision. It is not this prompt's, and 25/41/47 are its natural owners. When it
-  lands, the same `impl:v1` encoding carries `entry:<hex>`; a plan approved under `absent` then
-  mismatches at dispatch and is **rejected**, which is the safe direction.
+**What `03 RW-11` requires.** v2's implementation hash covers the manifest bytes **and the entry-script
+bytes**. The manifest half is available today: the hub holds the `ManifestHash` from the catalogue. The
+script half is not: `SkillSummary` (`manifest.rs:170-190`) carries no entry path, no script bytes and no
+script digest, and the 1.2 wire that prompt 20 froze has no field for one. `hello.catalog_hash` covers the
+catalogue, not a script.
+
+**This brief does not treat that as satisfying RW-11.** `entry:absent` is a placeholder shape, not an
+accepted binding. Implementation is **gated** on the owner explicitly accepting one of these three
+resolutions, and the completion report must say which one was accepted — an owner acceptance, not a
+proposal this brief makes on its own:
+
+| # | Resolution | What it costs | State |
+|---|---|---|---|
+| A | Bind the real script digest without changing 1.2, using only information the hub can already obtain | needs a means of getting the digest that does not exist today; if you cannot name a verified one, this option is unavailable and you must say so | **not verified available** |
+| B | An explicit, documented M1 exception to RW-11: v2 binds the manifest only, `entry:absent` is the accepted M1 value, with a named follow-up owner and an acceptance gate for closing it | an accepted, time-boxed exception, recorded in the ADR and in `03`/`04`; the UI and API must say the hash does not cover script bytes | **proposal only** |
+| C | A coordinated protocol change under `03 RW-42`: the agent reports a per-skill script digest on the wire, in a later protocol version | a wire bump and its own prompt; 1.2 stays as prompt 20 froze it | **proposal only** |
+
+- **None of the three is accepted.** The owner decision is open at the time of writing. Do not start the
+  branch, and do not pick an option in the implementation, without it.
+- Whichever option is accepted, the encoder shape does not change: `entry:<64 hex>` when a digest exists and
+  `entry:absent` when it does not. That is what lets option B be closed later without a v3 hash — a plan
+  approved under `absent` mismatches once the digest appears, and is **rejected**, which is the safe
+  direction.
+- If the accepted option is B, the follow-up owner is named in the same decision record (25, 41 and 47 are
+  the natural candidates, because they own the catalogue, packages and the skill runner respectively), and
+  the acceptance gate is a prompt that reports the digest end to end.
+- If the accepted option is C, this prompt stays blocked until that protocol change merges; it does not
+  pre-empt the field.
+- **Do not invent a wire field**, do not add one to `run_capability`, and do not change anything under
+  `crates/domovoi-proto/**`. Prompt 20's contract is frozen.
+- Until a resolution is accepted, no code, comment, UI text or doc page may claim that v2 proves which
+  script bytes run. `ImplHash`'s doc comment says it binds the manifest only while the agent reports no
+  script digest.
 
 ### 5.5 Target identity at M1
 
@@ -263,6 +297,10 @@ construction (`signal/keys.rs:75-107`), so the text is canonical by construction
 
 - Recomputing it at dispatch needs the incident, which the writer already reads in `freshness::check`
   (`freshness.rs:42-57`). Read the incident once and pass it to both checks; do not read it twice.
+- **The host comes from the incident, not from a second argument.** `PlanTarget::of_incident(incident)` takes
+  only the incident and derives both the host and the subject from it, so a caller cannot approve a plan on
+  host A that names incident B. `PlanTarget::new(host, check, target)` exists for a caller that already holds
+  a host and no incident — at M1 only tests — and it is not a shortcut around that rule.
 - An incident that vanished or was resolved is already a rejection (`Stale::IncidentGone`,
   `Stale::IncidentResolved`). An incident whose target changed now also changes the hash and becomes
   `Rejected`.
@@ -288,7 +326,8 @@ construction (`signal/keys.rs:75-107`), so the text is canonical by construction
 6. **A legacy action keeps v1 semantics for its whole life.** It is approved, dispatched and rejected
    under v1, and is labelled as v1 in the API and the UI.
 7. **Authority is unchanged.** Only `HumanApproval`, constructed only in `crates/domovoi-hub/src/auth/`,
-   authorizes anything at M1. `Policy` is refused with a named error.
+   authorizes anything at M1. A policy authorization is reached through `policy_permit()` and refused with a
+named error.
 8. **Refusals are silent in the audit log**, as today: no approval entry is written when a hash
    mismatches (`writer.rs:270-305` writes only after the check).
 
@@ -311,16 +350,22 @@ impl PlanContract {
 
 pub struct PlanTarget { /* host: HostId, check: CheckKey, target: Option<TargetKey> */ }
 impl PlanTarget {
+    /// Infallible: all three arguments are already validated types, so the canonical text is
+    /// produced by construction. Do not add a `&str` form and do not make it return `Result`.
     pub fn new(host: HostId, check: CheckKey, target: Option<TargetKey>) -> Self;
-    pub fn of_incident(host: HostId, incident: &Incident) -> Self;
+    /// Both the host and the subject come from `incident`; there is no separate host argument.
+    pub fn of_incident(incident: &Incident) -> Self;
     pub fn canonical(&self) -> String;
 }
 
 sha256_newtype!(/* docs */ ImplHash);
+sha256_newtype!(/* docs, says "not a plan hash" */ ScriptDigest);
 
 impl ImplHash {
+    /// The implementation hash of a skill whose entry-script digest the hub does not know (§5.4).
     pub fn from_manifest(manifest: ManifestHash) -> Self;
-    pub fn from_parts(manifest: ManifestHash, entry: Option<PlanHash>) -> Self; // entry digest later
+    /// Manifest plus entry-script digest, for once §5.4 is resolved and a digest exists.
+    pub fn from_parts(manifest: ManifestHash, entry: ScriptDigest) -> Self;
 }
 
 impl PlanHash {
@@ -337,16 +382,57 @@ impl PlanHash {
 pub struct ApprovalProvenance { /* session_ref: Option<String>, client: String */ }
 
 // authorization.rs
-pub enum Authorization { Human(HumanApproval), Policy(PolicyPermit) }
+/// Who authorised a run. The representation is private, so the two cases are not public
+/// variants and `Authorization { .. }` cannot be built outside this module.
+pub struct Authorization { /* source: AuthorizationSource, all private */ }
+
+/// Private on purpose: never exported, never named outside this module.
+enum AuthorizationSource { Human(HumanApproval), Policy(PolicyPermit) }
+
 impl Authorization {
-    pub fn human(approval: HumanApproval) -> Self;  // calls allowed only in hub/src/auth/
-    pub fn policy(permit: PolicyPermit) -> Self;    // calls allowed only in hub/src/policy/; unused until 45
+    /// Calls are allowed only from `crates/domovoi-hub/src/auth/` and from tests.
+    pub fn human(approval: HumanApproval) -> Self;
+    /// Calls are allowed only from `crates/domovoi-hub/src/policy/` and from tests.
+    pub fn policy(permit: PolicyPermit) -> Self;
+    #[must_use] pub fn human_approval(&self) -> Option<&HumanApproval>;
+    #[must_use] pub fn policy_permit(&self) -> Option<&PolicyPermit>;
+    #[must_use] pub fn kind(&self) -> AuthorizationKind;
 }
-pub struct PolicyPermit { /* fields below, no public constructor */ }
+
+/// A packaged policy decision. Every field is private; the only constructor is the restricted
+/// `issue` factory below, which evaluates nothing and grants nothing.
+pub struct PolicyPermit { /* all fields private */ }
+
+impl PolicyPermit {
+    /// Calls are allowed only from `crates/domovoi-hub/src/policy/` and from tests. This is a
+    /// data factory, **not** a `PermitIssuer`: it performs no policy evaluation, holds no
+    /// registry, and no product code calls it in M1.
+    pub fn issue(
+        decision_id: &str,
+        rule_ids: Vec<String>,
+        policy_version: &str,
+        plan_hash: PlanHash,
+        issued_at: Timestamp,
+        expires_at: Timestamp,
+        ceiling_hash: &str,
+        safety_identity: Option<&str>,
+    ) -> Result<Self, PermitError>;
+    #[must_use] pub fn plan_hash(&self) -> PlanHash;
+    #[must_use] pub fn expires_at(&self) -> Timestamp;
+    #[must_use] pub fn decision_id(&self) -> &str;
+}
 ```
 
-These two functions are the only constructors the scan in §9.2 knows, so do not add a third way to build an
-`Authorization` and do not make the enum's variants constructible from another module by `From`.
+The two `Authorization` factories are the only way to build the value: there is no public variant, no
+`From`/`Into`, no `Default` and no `Deserialize`. `authorization_kind` is derived from `kind()`, never from the
+caller's word. `PolicyPermit::issue` exists so that the refusal test in §10.2 can build a real policy
+authorization; it is restricted by the same scan as the two factories (§9.2), and it is deliberately not the
+operational issuer, which stays absent until 45.
+
+`04 §8.1` and `03 RW-11` write this type as an enum with two public variants. This brief keeps the same two
+cases and the same meaning but puts them behind a private internal enum, because a public variant is a
+construction path the call-site scan cannot see. Record the deviation from the canonical sketch in the ADR;
+do not edit `03` or `04` to match.
 
 `ExecutionId` goes in `crates/domovoi-core/src/id.rs` via `define_id!`, next to `ActionId`:
 
@@ -361,12 +447,18 @@ impl ExecutionId {
   `plan_hash`, `issued_at`, `expires_at`, `ceiling_hash`, `safety_identity: Option<..>` (required only
   for `Contain`, `03 RW-37`). The three policy identifiers, `ceiling_hash` and `safety_identity` have no
   domain type in this milestone; hold them as documented opaque strings (sorted and deduplicated for
-  `rule_ids`) and say so in their doc comments. 39/40 define the decision types and 45 issues permits;
-  this struct is deliberately not `#[non_exhaustive]` so 45 can fill in real types in one place.
+  `rule_ids`) and say so in their doc comments. 39/40 define the decision types and 45 issues permits
+  through `PermitIssuer`; this struct is deliberately not `#[non_exhaustive]` so 45 can fill in real types
+  in one place.
 - `PolicyPermit` derives `Debug`, `Clone`, `PartialEq`, `Eq`, `Serialize`. **No `Default`, no
-  `Deserialize`, no public constructor, no `pub` fields.** Its accessors are `#[must_use]`.
-- `Authorization` derives the same set. No `Default`, no `Deserialize`, no convenience `From`
-  implementation from `HumanApproval` that would let a transport mint one without naming it.
+  `Deserialize`, no `pub` fields, no constructor other than `issue`.** Its accessors are `#[must_use]`.
+- `Authorization` derives the same set over private internals. **No `Default`, no `Deserialize`, no public
+  variant and no `From`/`Into` implementation**, from `HumanApproval` or anything else: a transport must
+  name `Authorization::human(..)` or `Authorization::policy(..)`, which is exactly what the scan in §9.2
+  checks. `kind()` is the only way to learn which case it is.
+- `PermitError` is a small `thiserror` enum for `issue`'s own arguments: an empty `decision_id` or
+  `policy_version`, an empty entry in `rule_ids`, and an `expires_at` that is not after `issued_at`. It says
+  nothing about policy and nothing about authority.
 - `ActionRequest` gains `plan_hash_v2: Option<PlanHash>`, `approved_plan_hash: Option<PlanHash>`,
   `provenance: Option<ApprovalProvenance>` (or the two provenance strings stored separately — pick one
   and keep the store row mapping in step) and `authorization_kind: Option<AuthorizationKind>` where
@@ -403,8 +495,9 @@ Order inside `approve` (all before any write):
 1. load the action;
 2. ask the chat-token check, unchanged;
 3. `binding.matches(&action.plan_hash_for_approval())` → `ApprovalError::PlanChanged`;
-4. match the authorization: `Authorization::Human(approval)` continues; `Authorization::Policy(_)`
-   returns the new `ApprovalError::NotYetSupported` and writes nothing;
+4. read the authorization through its accessors: `human_approval()` continues with that approval;
+   `policy_permit()` — and any other case — returns the new `ApprovalError::NotYetSupported` and writes
+   nothing. Do not match a variant; there is no public one.
 5. build the transition, then one `commit_action` carrying the row, the audit entry and the journal entry,
    as today (`writer.rs:456-473`).
 
@@ -425,8 +518,8 @@ logged at debug by `refused()` (`writer.rs:251-264`).
   `session_ref` is an opaque, non-reversible reference to the authenticated session (never the cookie,
   never a token), `client` is `"web"` or `"chat:<platform>"`.
 - `POST /api/v1/actions/{id}/approve` keeps its body and its order: load the action, require a 64-hex
-  `plan_hash` (400), then approve with `PlanBinding::Full`. It wraps the approval in
-  `Authorization::Human` and passes the provenance. Every first-party caller sends the hash of the
+  `plan_hash` (400), then approve with `PlanBinding::Full`. It wraps the approval with
+  `Authorization::human(..)` and passes the provenance. Every first-party caller sends the hash of the
   action's own family, which `ActionDto.plan_hash` now means.
 - `ActionDto.plan_hash` is `plan_hash_for_approval()` as 64 hex — unchanged field, corrected meaning.
   Add `plan_hash_v1: Option<String>` (the stored v1 hash, for audit display) and
@@ -441,8 +534,10 @@ logged at debug by `refused()` (`writer.rs:251-264`).
   A failed audit fails the approval, as today.
 - Dispatch is one commit: `Approved → Dispatched` or `Approved → Rejected`. There is no state where the
   row is dispatched with a hash that was not compared.
-- The expiry sweep and recovery are untouched. A v2 action that expires never had a binding written,
-  which is correct: `approved_plan_hash` is `NULL` until approval.
+- The expiry sweep is what prompt 21 leaves: it resolves a `Proposed` action to `Expired` and an
+  `Approved` action whose approval expired before dispatch to `NotRun`. Recovery is untouched. A `Proposed`
+  v2 action that expires never had a binding written, which is correct: `approved_plan_hash` is `NULL` until
+  approval. An approved action that expires keeps the binding it was approved with.
 - Reads never repair: a row missing `plan_hash_v2` is a v1 action, not a corrupt one.
 
 ## 7. Files and components expected to change
@@ -466,9 +561,9 @@ logged at debug by `refused()` (`writer.rs:251-264`).
 | `crates/domovoi-engine/src/actions/mod.rs` | `ActionHandle::approve` signature |
 | `crates/domovoi-engine/src/cards.rs` | unchanged behaviour; the plan tag text says which family, from one constant |
 | `crates/domovoi-hub/src/auth/approval.rs` | provenance assembly next to the constructors |
-| `crates/domovoi-hub/src/api/actions.rs`, `dto.rs` | `Authorization::Human` wrapping, provenance, DTO fields |
+| `crates/domovoi-hub/src/api/actions.rs`, `dto.rs` | `Authorization::human(..)` wrapping, provenance, DTO fields |
 | `crates/domovoi-hub/src/auth/interactions/buttons.rs` | unchanged prefix binding; the approve call gains the provenance |
-| `xtask/src/arch/rules.rs` | `POLICY_PERMIT_ALLOWED_PREFIXES`, `AUTHORIZATION_ALLOWED_PREFIXES`, `PLAN_HASH_V2_ALLOWED_PREFIXES` and their doc comments |
+| `xtask/src/arch/rules.rs` | `POLICY_PERMIT_ALLOWED_PREFIXES`, `AUTHORIZATION_HUMAN_ALLOWED_PREFIXES`, `AUTHORIZATION_POLICY_ALLOWED_PREFIXES`, `PLAN_HASH_V2_ALLOWED_PREFIXES` and their doc comments |
 | `xtask/src/arch/scan.rs` | the two new scan rules and their unit tests |
 | `docs/adr/00NN-plan-hash-v2-and-authorization.md` (new) | required because `rules.rs` changed (`git.rs:82-95`); NN read from `docs/adr/` at branch cut |
 | `web/src/features/approvals/ActionCard.tsx` | the plan tag shows `v2` or `v1 binding`; text from one constant; `InfoTip` explains what v2 covers and what it does not |
@@ -537,9 +632,10 @@ Rules:
 ### 8.3 Columns this prompt deliberately does not add
 
 - **Permit columns** (`decision_id`, `rule_ids`, `policy_version`, `issued_at`, `ceiling_hash`,
-  `safety_identity`): M1 issues no permit, so the columns would have no writer, no reader and no test.
-  `authorization_kind` is the discriminator M1 needs; 45 adds the permit columns with the issuer, and 26
-  moves the whole set to the execution detail (`03 RW-11`, `04 §8.1`). Record this deferral in the PR.
+  `safety_identity`): M1 issues no permit operationally — the only `PolicyPermit::issue` call in the product
+  is absent, and a test builds one solely to prove the refusal — so the columns would have no writer and no
+  reader. `authorization_kind` is the discriminator M1 needs; 45 adds the permit columns with the issuer, and
+  26 moves the whole set to the execution detail (`03 RW-11`, `04 §8.1`). Record this deferral in the PR.
 - **A plan version column**: presence of `plan_hash_v2` is the version (5.3).
 - **`plan_target`**: the target is derived from data the row already has (host, and the incident's
   `check`/`target`), so it needs no column and cannot drift from the args and incident it is computed
@@ -564,8 +660,9 @@ prompt produces. A "wire change" here would be a coordinated `03 RW-42` decision
 - **It does not prove**: that the process computing the hash is honest. A compromised hub can compute any
   hash it likes. Runtime limits remain dispatch recomputation, the agent's local checks, the ceiling, the
   helper allowlist and the audit chain (`03 RW-11` "Honesty", `04 §8.4`).
-- **It does not prove** which script bytes run (5.4) and, at M1, resolves the target only as far as the
-  incident subject (5.5). Say both in the PR, in the DTO doc comments and in the UI tooltip.
+- **It does not prove** which script bytes run: §5.4 is an **open owner decision**, and until it is accepted
+  the hash binds the manifest only. At M1 it also resolves the target only as far as the incident subject
+  (5.5). Say both in the PR, in the DTO doc comments and in the UI tooltip.
 
 ### 9.2 The enforcement mechanism that exists, and what this prompt adds
 
@@ -586,18 +683,23 @@ This prompt extends the same mechanism, in the same place:
    style of the existing four. The permit and policy prefixes have no caller until 45, and are recorded now
    so the ownership is fixed before the issuer exists rather than edited into a security rule later.
 2. **`scan.rs`** reports a violation when a non-comment line outside the allowed prefixes contains
-   `PolicyPermit::issue(`, `Authorization::human(` or `Authorization::policy(`, and when a line outside
-   `crates/domovoi-core/src/action/` contains the literal `plan:v2`. Test paths keep their existing
-   exemption (`scan.rs:51-53`); that is deliberate, because tests must be able to build the values.
+   `PolicyPermit::issue(`, `Authorization::human(` or `Authorization::policy(`; when a line outside
+   `crates/domovoi-core/src/action/` contains the literal `plan:v2`; and when any line outside
+   `crates/domovoi-core/src/action/authorization.rs` contains `pub enum Authorization`, which would reopen
+   the direct-construction hole this design closes. Test paths keep their existing exemption
+   (`scan.rs:51-53`); that is deliberate, because tests must be able to build the values — including the
+   `PolicyPermit::issue(..)` fixture §10.2 needs.
 3. **Unit tests in `scan.rs`**, next to `human_approval_outside_auth_is_rejected`: one that rejects each
-   constructor in a hub transport, in the engine and in the store, and accepts it in the allowed prefix
-   and in a test file; one that rejects a second `plan:v2` implementation outside core.
+   factory in a hub transport, in the engine and in the store, and accepts it in the allowed prefix and in a
+   test file; one that rejects a second `plan:v2` implementation outside core; one that rejects a
+   `pub enum Authorization` outside its own module.
 4. **`crates/domovoi-core/tests/gates.rs`** keeps `no_approval_without_human` (`:67`) and extends it: an
-   `Authorization` can only reach `Approved` through its `Human` arm at M1. Extend
+   `Authorization` can only reach `Approved` through `human_approval()` at M1. Extend
    `approvals_and_actions_cannot_be_deserialized` (`:153`) so `Authorization` and `PolicyPermit` are covered
    by the same "not deserialisable" assertion, rather than adding a second copy of the trait trick.
 5. **An ADR** at `docs/adr/`, because `xtask/src/arch/rules.rs` changed (`git.rs:82-95`). It records the
-   two new ownership rules and why they are text scans.
+   ownership rules, the wrapper-with-private-internals decision (and why a public enum was rejected), and
+   why they are text scans.
 
 What this prompt does **not** add: a `clippy.toml` `disallowed-methods` entry for the constructors. Adding
 one would require `#[allow(clippy::disallowed_methods)]` at the legitimate call sites, and
@@ -609,8 +711,9 @@ force a weakening of an existing rule. Record that reasoning in the ADR.
 | Route | Why it does not bypass the binding |
 |---|---|
 | Another constructor | `PlanHash::compute_v2` takes `PlanContract`, `ImplHash`, `PlanTarget`, `ValidatedArgs`, `ExecutionId`; all but the last are only obtainable through validating constructors. A second encoder is caught by the `plan:v2` scan rule |
-| Deserialisation | neither `Authorization` nor `PolicyPermit` derives `Deserialize`, and `planned` fields are private, so no transport can decode one |
-| `Default` | neither type implements it |
+| A public `Authorization` variant | the type is a wrapper with a private internal enum, so `Authorization::Human(..)` and `Authorization::Policy(..)` do not exist; the two factories are the only paths and the scan covers both. A `pub enum Authorization` reappearing is a scan violation |
+| Deserialisation | neither `Authorization` nor `PolicyPermit` derives `Deserialize`, and all their fields are private, so no transport can decode one |
+| `Default` | neither type implements it, and `ApprovalProvenance` has no default session |
 | Testkit | dev-only (`rules.rs:157`); it cannot appear in a shipped binary |
 | A different approve endpoint | there is one approve path (`writer::approve`) and one dispatch path; 23 owns making that structural, and this prompt must not add a second |
 | A hand-written row | writing to `hub.db` is in the threat model as an accepted v1 limitation (`04 §8.4`); a forged row is caught only by the audit chain and dispatch recomputation, and a forged hash that matches a forged plan is still limited by the agent's local checks |
@@ -623,7 +726,8 @@ force a weakening of an existing rule. Record that reasoning in the ADR.
 |---|---|
 | `plan_hash` missing or not 64 hex | 400, nothing changes (as today) |
 | `plan_hash` from another plan | `PlanChanged` → 409, action still `Proposed`, no audit entry |
-| a `Policy` authorization | `NotYetSupported`, nothing written, logged at debug |
+| a policy authorization | `NotYetSupported`, nothing written, logged at debug |
+| approval expired before dispatch | `Approved → NotRun` with `action.not_run` (prompt 21), never sent; not `Rejected` |
 | plan changed between approve and dispatch | `Approved → Rejected` with the existing reason, one audit entry |
 | target subject changed | as above, from the recomputed target |
 | incident gone or resolved | existing `Stale` reasons, unchanged |
@@ -647,14 +751,18 @@ Name tests after the behaviour. Keep the exact names marked **(required)**; they
 - `plan_hash_v2_rejects_a_non_canonical_contract_id`: uppercase, empty, over-long and `@`-containing ids.
 - `plan_hash_v2_rejects_a_non_canonical_target`: a target with control characters or surrounding
   whitespace never reaches the encoder, because `TargetKey` refuses it.
-- `impl_hash_records_an_absent_entry_digest`: the `impl:v1` string with `entry:absent`, and with a digest
-  when one is supplied.
+- `impl_hash_records_an_absent_entry_digest`: the `impl:v1` string with `entry:absent`, and with a
+  `ScriptDigest` when one is supplied — the entry half is a script digest, never a `PlanHash`.
 - **`approval_bound_to_displayed_plan_hash`** **(required)**: a `PlanBinding::Full` of the displayed hash
   matches that plan and nothing else; a prefix of 3 bytes matches, 2 bytes does not (extend the existing
   `plan_binding_*` tests rather than duplicating them).
 - `execution_id_for_an_action_equals_the_action_id`: `ExecutionId::from_action(id).as_action() == id`.
-- `no_approval_without_human` (existing gate, `tests/gates.rs:67`, extended): only `Authorization::Human`
-  can approve at M1.
+- `plan_target_of_incident_takes_the_incidents_host`: `PlanTarget::of_incident(&incident).canonical()`
+  names `incident.host()`, so a plan cannot be computed for a different host than the incident's.
+- `no_approval_without_human` (existing gate, `tests/gates.rs:67`, extended): only the `human_approval()`
+  case can approve at M1.
+- `authorization_has_no_public_variants`: the authorization module exposes no `pub enum Authorization`, and
+  the only public ways to obtain a value are `human(..)` and `policy(..)`.
 
 ### 10.2 Engine (`crates/domovoi-engine`)
 
@@ -676,8 +784,10 @@ Name tests after the behaviour. Keep the exact names marked **(required)**; they
   reports `plan_binding = v1`.
 - `v1_action_dispatch_recomputes_the_v1_hash`: the existing recomputation test still passes and is named
   here rather than duplicated.
-- `policy_authorization_is_refused_at_m1`: a `Dispatch`/`Approve` carrying `Authorization::Policy` returns
-  `NotYetSupported` and writes nothing.
+- `policy_authorization_is_refused_at_m1`: build a real one — `PolicyPermit::issue(..)` with valid
+  arguments (test paths are exempt from the call-site scan), wrap it with `Authorization::policy(..)`, and
+  assert that both `Approve` and `Dispatch` return `NotYetSupported`, write nothing, and reach no agent.
+  Do not assert this with a value the type cannot produce.
 
 ### 10.3 Store (`crates/domovoi-store`)
 
@@ -698,18 +808,20 @@ Name tests after the behaviour. Keep the exact names marked **(required)**; they
 
 ### 10.5 Architecture (`xtask/src/arch/scan.rs`)
 
-- **`authorization_constructors_are_confined`** (required, the rule covering both constructors):
+- **`authorization_constructors_are_confined`** (required, the rule covering every constructor):
   `HumanApproval::new`, `HumanApproval::restore`, `PolicyPermit::issue`, `Authorization::human` and
   `Authorization::policy` are each rejected outside their allowed prefix and accepted inside it and in a
   test file.
 - `plan_hash_v2_has_one_implementation`: the `plan:v2` literal outside `crates/domovoi-core/src/action/`
   is a violation.
+- `authorization_is_not_a_public_enum`: a `pub enum Authorization` outside
+  `crates/domovoi-core/src/action/authorization.rs` is a violation.
 
 ### 10.6 Acceptance criteria
 
 1. A plan hash v2 exists, is computed by one function, and covers exactly the five inputs of 5.1.
-2. The encoding is length-prefixed, has one canonical byte form, and rejects non-canonical inputs in its
-   constructors.
+2. The encoding is length-prefixed, has one canonical byte form, and rejects non-canonical input in the one
+   constructor that takes raw text; the constructors that take validated types are infallible and say so.
 3. An approval is bound to the hash the surface displayed, for both families, and the value is stored as
    `approved_plan_hash`.
 4. Dispatch recomputes the hash of the action's own family and never dispatches a mismatched plan.
@@ -717,17 +829,21 @@ Name tests after the behaviour. Keep the exact names marked **(required)**; they
    approval, each with a named test.
 6. Legacy v1 actions keep v1 semantics end to end, are labelled `v1 binding`, and are never recomputed
    under v2.
-7. `Authorization` exists with both variants, only `Human` can approve, and `Policy` is refused with a
+7. `Authorization` is a wrapper with private internals: there are no public variants, the two factories are
+   the only construction paths, only `human_approval()` can approve, and the policy case is refused with a
    named error.
-8. `PolicyPermit` is a type with the fields of `04 §8.1`, no public constructor, no `Default`, no
-   `Deserialize`, and no issuer exists.
+8. `PolicyPermit` has the fields of `04 §8.1`, private fields, no `Default`, no `Deserialize`, and its only
+   constructor is the restricted `issue` factory. No `PermitIssuer` and no policy evaluation exist.
 9. `ExecutionId` exists, equals the `ActionId` at M1, and the id is never rewritten.
-10. The architecture scan covers both authorization constructors and the single `plan:v2` implementation,
-    with unit tests, and the ADR that the rules change requires is in the same PR.
+10. The architecture scan covers every authorization constructor, the single `plan:v2` implementation and
+    the absence of a public `Authorization` enum, with unit tests, and the ADR that the rules change
+    requires is in the same PR.
 11. The migration exists with the columns of 8.1, chosen by reading the directory, and no permit column is
     added.
 12. No wire change, no protocol bump, no second execution path, no reconciliation change, no policy
     evaluation.
+13. The §5.4 entry-script decision is recorded as **accepted by the owner**, with the option named; if it is
+    not, this prompt does not start.
 
 ## 11. Documentation and architecture updates
 
@@ -737,10 +853,12 @@ Name tests after the behaviour. Keep the exact names marked **(required)**; they
   `HumanApproval::new` remains hub-auth-only. State plainly that the scan is textual.
 - **`docs/book`**: the action/approval page says what an approval binds (v2: contract and version,
   implementation digest as far as the agent reports it, target subject, arguments, execution id) and what
-  it does not (script bytes while `entry:absent`, any proof against a compromised hub). No prompt
-  numbers, no build-plan references.
-- **ADR** `docs/adr/00NN-plan-hash-v2-and-authorization.md`: the two ownership rules, the text-scan
-  mechanism and its limits, why no `clippy.toml` entry is used, and the version-presence scheme.
+  it does not (script bytes until the §5.4 decision closes the gap, any proof against a compromised hub).
+  No prompt numbers, no build-plan references.
+- **ADR** `docs/adr/00NN-plan-hash-v2-and-authorization.md`: the ownership rules, the wrapper-with-private-
+  internals decision, the text-scan mechanism and its limits, why no `clippy.toml` entry is used, and the
+  version-presence scheme. If the accepted §5.4 option is B, the ADR records the exception, its follow-up
+  owner and its acceptance gate.
 - **`docs/rework/`**: nothing. The planning documents are not edited by an implementation prompt.
 - **Generated files**: `web/src/api/openapi.json` and `web/src/api/schema.d.ts` regenerated; `cargo xtask
   docs-config` only if a config value is added (it is not).
@@ -748,18 +866,19 @@ Name tests after the behaviour. Keep the exact names marked **(required)**; they
 ## 12. Implementation order and completion requirements
 
 1. **Read the merged prerequisites.** 18's approve-time binding, 20's frozen 1.2 wire and 21's
-   reconciliation rules, as merged. Confirm the four discrepancies in section 4 and report any new one
-   before editing.
+   reconciliation and expiry rules, as merged. Confirm the four discrepancies in section 4 and report any new
+   one before editing. **Stop here if the §5.4 decision is not accepted**: it is a gate, not a step.
 2. **List the migrations directory** and write down the number you will take, and the ADR number from
    `docs/adr/`.
-3. **Core, encoding first:** `PlanContract`, `PlanTarget`, `ImplHash`, the encoder, `compute_v2` and the
-   encoding tests. Nothing else depends on the store or the writer, so this is self-contained.
+3. **Core, encoding first:** `PlanContract`, `PlanTarget`, `ImplHash`, `ScriptDigest`, the encoder,
+   `compute_v2` and the encoding tests. Nothing else depends on the store or the writer, so this is
+   self-contained.
 4. **Core, types:** `ExecutionId`, `Authorization`, `PolicyPermit`, `ApprovalProvenance`, then the
    `ActionRequest` fields and `approve`/`plan_hash_for_approval`. Update `lib.rs` re-exports.
 5. **Store:** the migration, then the row mapping.
 6. **Engine:** writer command and approve, the family-specific hash in the executor, the single incident
    read shared with `freshness`.
-7. **Hub:** `Authorization::Human` wrapping, provenance, DTO fields, then regenerate the OpenAPI types.
+7. **Hub:** `Authorization::human(..)` wrapping, provenance, DTO fields, then regenerate the OpenAPI types.
 8. **Web:** the binding label and its tooltip; the fixture and the dev demo.
 9. **xtask and ADR:** rules, scan rules, scan unit tests, the ADR. Run `cargo xtask arch-check` and
    `cargo xtask arch-check --base origin/overhaul-investigation`.
@@ -777,8 +896,10 @@ Completion requirements:
 - Non-test source files at or under 500 lines; `plan.rs` and `authorization.rs` are separate modules for
   that reason.
 - The migration number and the ADR number were read from the directories, not copied from this brief.
-- `PolicyPermit` has no constructor, no `Default`, no `Deserialize`, and no `PermitIssuer` exists
-  anywhere in the diff.
+- `PolicyPermit` has private fields, no `Default`, no `Deserialize`, and only the restricted `issue`
+  constructor; no `PermitIssuer` and no policy evaluation exist anywhere in the diff.
+- The §5.4 decision is quoted in the PR description as accepted by the owner, with the option named; if it
+  is not accepted, the branch was not started.
 - No `run_capability`, protocol, agent or `hello` change appears in the diff.
 - Every deferral in 8.3 and every gap in 5.4/5.5 is stated in the PR description as unfinished, not as
   done.

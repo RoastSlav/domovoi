@@ -13,16 +13,17 @@
 
 ## 1. Objective
 
-Make "there is exactly one way to run something and exactly one way to read something from a host" true in
-the code and enforceable in CI, without changing what the hub does:
+Make "there is exactly one way to *run* something, and exactly one way to read a host's *tool output*" true
+in the code and enforceable in CI, without changing what the hub does:
 
 1. **One execution boundary.** `execute(AuthorizedExecution)` in the engine is the only function that
    decides to dispatch and the only caller of `AgentLink::run_skill`. `AuthorizedExecution` exists only as
    that function's precondition and is never persisted (`04 §8.1`).
-2. **One read boundary.** `collect_evidence` is the only caller of `AgentLink::run_tool`, for the model,
+2. **One read boundary.** `collect_evidence` is the single path to `AgentLink::run_tool`, for the model,
    profile collection and the Operator alike (`03 RW-08`). It applies the registry checks that exist at
    M1 — enablement, availability, host scope — and is where prompt 25's registry replaces the structural
-   ones.
+   ones. It is **not** the only way to obtain information about a host: `AgentAdmin` host metadata reads the
+   registry, and verification's `run_check` stays separate by design (§5.2, §7.2).
 3. **Transports stop at the use case.** A hub transport may call an `ActionHandle`/service method; it may
    not name `AgentLink`, hold one, or call a link method.
 4. **The two rules are enforced the way this repository enforces rules:** constants in
@@ -100,8 +101,9 @@ first and this brief is written to land on top of it.
 | Enforcement | `scan.rs` covers process spawning, shells, pure-crate I/O, file size, crate docs and approval constructors | four constants and their scans: `run_tool`, `run_skill`/`run_capability`, `run_check`, and naming `AgentLink` in a transport | 29 adds the hub module-edge rule |
 
 **Dependency on 22's document.** This brief needs four things from it and takes them as given:
-`ExecutionId` (`= ActionId` at M1, `ExecutionId::from_action`/`as_action`), `Authorization` with its two
-arms, `ActionRequest::plan_hash_for_approval()` as the single family selector, and `ApprovalError`
+`ExecutionId` (`= ActionId` at M1, `ExecutionId::from_action`/`as_action`), `Authorization` as a wrapper with
+private internals plus its `human_approval()`/`policy_permit()` accessors,
+`ActionRequest::plan_hash_for_approval()` as the single family selector, and `ApprovalError`
 carrying `PlanChanged` and `NotYetSupported`. If 22's merged code settles a different name or a different
 selector, follow the merged code and report the difference; do not add a compatibility path.
 
@@ -180,8 +182,9 @@ pub enum ExecuteError { /* NotAuthorized, NotYetSupported, Expired, PlanChanged,
 Rules:
 
 1. `AuthorizedExecution::of` is `pub(crate)` and is called in exactly one place: `actions/executor.rs`,
-   immediately before `execute`, and nowhere else. `execute` takes the value by reference and never builds
-   one. No field is public, and the type is never serialised or persisted.
+   immediately before `execute`, and nowhere else. `execute` takes the value **by value**, so it owns it for
+   the run's lifetime, and `execute` never builds one. No field is public, and the type is never serialised
+   or persisted.
 2. `execute` is called from exactly one place: the per-action run task in `actions/executor.rs`
    (`run`, `:248`). It is not a port method, not a trait method and not reachable from a transport.
 3. `execute` is the only caller of `AgentLink::run_skill`. It queues the one dispatch transition
@@ -201,8 +204,9 @@ Rules:
 
 ### 5.2 The one read boundary
 
-`collect_evidence` lives in a new `crates/domovoi-engine/src/evidence/mod.rs` and is the only caller of
-`AgentLink::run_tool`.
+`collect_evidence` lives in a new `crates/domovoi-engine/src/evidence/mod.rs` and is the single path to
+`AgentLink::run_tool`. Host metadata read through `AgentAdmin` and verification's `run_check` do not go
+through it, by design (§7.2 rules `EXEC-3` and `EXEC-4`).
 
 ```rust
 // evidence/mod.rs
@@ -307,7 +311,7 @@ Rules:
 | Type | Crate / module | Owns | Never does |
 |---|---|---|---|
 | `AuthorizedExecution`, `ExecuteError`, `execute()` | engine `actions/execute.rs` | being the single dispatch path | persist itself, hold a link, or be public outside the crate |
-| `Evidence`, `EvidenceRequest`, `EvidenceScope`, `EvidenceError`, `collect_evidence` | engine `evidence/` | being the single read path and the host-scope check | store, redact, format, or expose the link |
+| `Evidence`, `EvidenceRequest`, `EvidenceScope`, `EvidenceError`, `collect_evidence` | engine `evidence/` | being the single `run_tool` path and the host-scope check | store, redact, format, expose the link, or become the only way to read host metadata |
 | `Authorization`, `PolicyPermit`, `ExecutionId`, plan hash v1/v2 | 22, consumed unchanged | authorization and plan identity | — |
 | `AgentLink` | core `ports/agent_link.rs`, unchanged | the transport port | gain a method in this prompt |
 
@@ -316,7 +320,7 @@ No table, no column, no DTO, no endpoint and no message is added or changed.
 ### 6.2 Call-flow rules
 
 ```text
-web/API transport ── ActionHandle::approve(Authorization::Human(..), binding, provenance) ──▶ writer (22)
+web/API transport ── ActionHandle::approve(Authorization::human(..), binding, provenance) ──▶ writer (22)
 web/API/chat transport ── ActionHandle::deny/expire/… ──▶ writer
 approved action ── executor::run ──▶ execute(AuthorizedExecution) ──▶ WriteCommand::Dispatch ──▶ writer
                                                         └── on Dispatched ── AgentLink::run_skill
@@ -337,8 +341,8 @@ api host pages ──▶ AgentAdmin ──▶ AgentServer inherent methods ─�
 | Situation | Behaviour |
 |---|---|
 | action has no stored approval at dispatch (`approved_by` is `None`) | `ExecuteError::NotAuthorized`; the action stays as it is and the run stops. Unreachable for an `Approved` row; it is the precondition's own guard |
-| authorization is `Policy` | `ExecuteError::NotYetSupported`, nothing written — the same answer prompt 22's writer gives |
-| approval expired | the existing `Stale::Expired` rejection path, unchanged; `execute` returns `Expired` |
+| authorization is a policy permit | `ExecuteError::NotYetSupported`, nothing written — the same answer prompt 22's writer gives |
+| approval expired | `Approved → NotRun` written by the writer with `action.not_run` (prompt 21, §5.6); `execute` returns `Expired` and does not call `run_skill`. Not `Rejected` |
 | plan hash differs at the instant of dispatch | `WriteCommand::Dispatch` answers `Rejected`; `execute` returns `PlanChanged` and does not call `run_skill` |
 | writer closing during dispatch | `ExecuteError::NotDispatched`; nothing was sent |
 | host `Unknown`/`Absent` at a read | `EvidenceError::NotConnected`, no link call |
@@ -458,7 +462,7 @@ Do not touch: `crates/domovoi-proto/**`, `crates/domovoi-agent/**`, `crates/domo
   the rule; the runtime limits remain dispatch recomputation, the agent's local checks, the ceiling, the
   helper allowlist and the audit chain (`03 RW-11`, `04 §8.4`).
 - **It does not add authority.** No approval, permit or authorization value is created, widened or
-  restored here. `Authorization::Policy` stays refused (`NotYetSupported`), and `HumanApproval` stays
+  restored here. A policy authorization stays refused (`NotYetSupported`), and `HumanApproval` stays
   hub-auth-only and store-restored (`03 RW-11`).
 - **It does not make a read safe by itself.** `collect_evidence` serves the same closed read-tool set the
   model already had, and the same redacted agent output. Its value is that enablement, availability and
@@ -497,10 +501,11 @@ cite them.
   `action_writes_go_through_the_unit_of_work` (`tests/gates.rs:19-56`), including its comment-line skip.
 - `execute_refuses_an_action_without_authorization`: a row with no stored approval returns
   `ExecuteError::NotAuthorized` and nothing reaches the agent.
-- `execute_refuses_a_policy_authorization`: `Authorization::Policy` at M1 returns `NotYetSupported` and
-  writes nothing (the engine half of 22's rule).
-- `execute_refuses_an_expired_approval`: the existing `Stale::Expired` rejection still fires and no
-  `run_skill` is attempted.
+- `execute_refuses_a_policy_authorization`: a `PolicyPermit::issue(..)` fixture wrapped with
+  `Authorization::policy(..)` returns `NotYetSupported` and writes nothing (the engine half of 22's rule).
+- `execute_refuses_an_expired_approval`: the row becomes `NotRun` with `action.not_run` and prompt 21's
+  expiry reason, `execute` returns `Expired`, and no `run_skill` is attempted. Assert `NotRun`, not
+  `Rejected`: the canonical outcome for expiry before dispatch is `NotRun` (`04 §3.2`, `04 §3.3`).
 - `execute_does_not_run_a_skill_the_writer_did_not_dispatch`: a plan that changed between approval and
   dispatch leaves the action `Rejected` and the recording link sees no call.
 - `evidence_collect_uses_the_scope_host`: a request built from an incident reads that incident's host, and
@@ -542,9 +547,10 @@ These are the proof that the consolidation did not change behaviour; run them at
 
 1. `execute(AuthorizedExecution)` exists in the engine's action-writer module, is `pub(crate)`, and is the
    only caller of `run_skill`.
-2. `AuthorizedExecution` has one crate-private constructor used only by `execute`, is never persisted, and
-   carries the action and its `ExecutionId`.
-3. `collect_evidence` exists, is the only caller of `run_tool`, and serves the model, the Operator, the
+2. `AuthorizedExecution` has one crate-private constructor, called at exactly one call site —
+   `actions/executor.rs`, immediately before `execute` — is never persisted, and carries the action and its
+   `ExecutionId`.
+3. `collect_evidence` exists, is the single path to `run_tool`, and serves the model, the Operator, the
    triage context and profile collection.
 4. Enablement (structural at M1), availability and host scope are checked inside `collect_evidence`, and
    its errors keep today's text.

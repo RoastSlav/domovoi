@@ -126,8 +126,8 @@ contract that 23 consumes.
 
 | ID | Work the prompt must specify | Owns / migration | Key existing code | Named validation |
 |---|---|---|---|---|
-| 21 | `OutcomeUnknown` as a terminal outcome; reconcile on `hello`; epoch change, `not_found`, orphan and journal-lost rules; never auto-fail a `Dispatched` execution | Outcome representation; **no migration** — verified: `actions.status` is unconstrained TEXT holding the status as JSON (`repos/actions.rs:123`, filtered by `json_extract(status, '$.type')`), so a new variant and a field inside it need no column; `investigations/D-protocol.md:175` is superseded. The epoch lives in the status JSON with `#[serde(default)]` for old rows | `agent_server`, `actions/executor.rs`, `actions/recover.rs` | `crash_after_accepted_is_outcome_unknown`, `crash_after_started_is_outcome_unknown`, `finished_durable_reply_lost_reconciles`, `hub_crash_before_commit_reconciles_from_journal`, `epoch_change_is_outcome_unknown`, `not_found_with_matching_epoch_is_not_run` |
-| 22 | Plan hash v2 (contract+version, `impl_hash`, canonical target identity, canonical args, `execution_id`); approval binding columns; `Authorization{Human,Policy}` with `PolicyPermit` type only; CI enforcement of both constructors | `ExecutionId`, `Authorization`, plan hash v2, binding columns; **migration** (`05:110`) | `core/src/action/approval.rs` (`PlanBinding` v1), hub `auth/`, `clippy.toml`, `xtask/src/arch/` | `approval_bound_to_displayed_plan_hash`, `v1_actions_keep_v1_binding_after_upgrade`; arch rule; v1 actions labelled |
+| 21 | `OutcomeUnknown` as a terminal outcome; reconcile on `hello`; epoch change, `not_found`, orphan and journal-lost rules; never auto-fail a `Dispatched` execution; `Approved → NotRun` when an approval expires before dispatch | Outcome representation; **no migration** — verified: `actions.status` is unconstrained TEXT holding the status as JSON (`repos/actions.rs:123`, filtered by `json_extract(status, '$.type')`), so a new variant and a field inside it need no column; `investigations/D-protocol.md:175` is superseded. The epoch lives in the status JSON with `#[serde(default)]` for old rows | `agent_server`, `actions/{executor,writer,freshness,recover}.rs` | `crash_after_accepted_is_outcome_unknown`, `crash_after_started_is_outcome_unknown`, `finished_durable_reply_lost_reconciles`, `hub_crash_before_commit_reconciles_from_journal`, `epoch_change_is_outcome_unknown`, `not_found_with_matching_epoch_is_not_run`, `approved_expiry_before_dispatch_is_not_run` |
+| 22 | Plan hash v2 (contract+version, `impl_hash`, canonical target identity, canonical args, `execution_id`); approval binding columns; `Authorization` wrapper with private internals and two factories, `PolicyPermit` with a restricted `issue`; CI enforcement of every constructor | `ExecutionId`, `Authorization`, plan hash v2, binding columns; **migration** (`05:110`); **launch gate: owner decision on the entry-script digest (`22 §5.4`)** | `core/src/action/approval.rs` (`PlanBinding` v1), hub `auth/`, `clippy.toml`, `xtask/src/arch/` | `approval_bound_to_displayed_plan_hash`, `v1_actions_keep_v1_binding_after_upgrade`; arch rule; v1 actions labelled |
 | 23 | One `execute(AuthorizedExecution)` path; one `collect_evidence` read boundary; arch rules that stop transports reaching `AgentLink` | No contract, **no migration** | `engine/actions/{executor,writer}.rs`, `core/ports/agent_link.rs`, hub transports | `cargo xtask arch-check`; existing action/evidence suites |
 
 **Consumers.** 22 → 23, 26, 45 (`07 §4`). 23 → 24 (ordering only), 25, 26. 21 → 22, which depends on it;
@@ -135,7 +135,8 @@ contract that 23 consumes.
 **File overlap.** 22 and 23 both edit `engine/src/actions/*` (22: `writer`, `executor`, `freshness`, `mod`;
 23: `executor`, `mod` and the new `execute.rs`); 23 does not touch `core/src/action/*`, which 22 owns. Run 22
 before 23.
-**Blockers.** None beyond 20. Type: implementation. Model: 21 M, 22 **L**, 23 M.
+**Blockers.** None beyond 20, plus 22's own gate: its entry-script digest decision (`22 §5.4`) must be
+accepted by the owner before 22 is launched. Type: implementation. Model: 21 M, 22 **L**, 23 M.
 
 ## 5. Wave G — M2 and the evaluator (24, 25, 39)
 
@@ -353,15 +354,22 @@ breaker, no containment, and no helper protocol until 20 defines it and 47 imple
 
 | ID | Work | Gate |
 |---|---|---|
-| 45 | `PermitIssuer`, hard limits, guardrails, circuit breaker, global pause, first L2 contracts `unit.restart` and `container.restart`; authorization attribution and pause switch in the UI | **R-8 accepted; H1 complete; 44's Docker-write ADR accepted**; deps 32, 40, 47 |
+| 45 | `PermitIssuer`, hard limits, guardrails, circuit breaker, global pause, the unresolved-`OutcomeUnknown` unattended-reuse guard that 21 defines, first L2 contracts `unit.restart` and `container.restart`; authorization attribution and pause switch in the UI | **R-8 accepted; H1 complete; 44's Docker-write ADR accepted**; deps 32, 40, 47 |
 | 46 | `firewall.block_source` with kernel timeout, two-step apply with 30 s confirmation, verified and unverified human paths, management-path exclusions, reconciliation, drills | **R-2, R-10 accepted**; deps 45, 34, 47 |
 
 **Named validation.** 45: `no_permit_without_policy_allow`,
 `agent_refuses_policy_dispatch_outside_ceiling`, `circuit_breaker_suspends_rule`,
 `pause_blocks_new_permits`, `unit_restart_refused_when_unit_not_in_helper_allowlist`,
-`unit_config_change_invalidates_approval`, injection drill. 46: the `04 §9.1` drills and
+`unit_config_change_invalidates_approval`, `outcome_unknown_blocks_unattended_dispatch`,
+injection drill. 46: the `04 §9.1` drills and
 `block_expires_with_agent_stopped`, `unconfirmed_block_expires_in_30s`, `excluded_address_refused`,
 `model_cannot_trigger_containment`, `active_containment_reconciled_after_agent_restart`.
+
+`outcome_unknown_blocks_unattended_dispatch` is 45's because 21 cannot enforce the rule: M1 has no
+policy-authorized unattended dispatch to gate, and the hourly loop guard is a different check (21 §1, §12).
+45 must refuse an unattended dispatch when an unresolved `OutcomeUnknown` exists for the same contract and
+target, and must keep refusing it until a person resolves the uncertainty or verification establishes the
+state.
 
 **D-24 and `container.restart`.** The Docker-write helper ADR is an output of 44 (see §10), so 45 does not
 author one and does not grant generic Docker write access. `container.restart` may be launched only after

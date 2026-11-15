@@ -36,8 +36,14 @@ of four facts, never a guess:
 1. it finished, and the recorded result is committed;
 2. it is still running in this agent instance, so the hub keeps waiting for it;
 3. it never reached the agent, so it is `NotRun`;
-4. its outcome cannot be established, so it is `OutcomeUnknown`, terminal, and blocks unattended reuse of the
-   same contract on the same target until a person resolves it or a verification proves the state.
+4. its outcome cannot be established, so it is `OutcomeUnknown`, terminal, and it must block unattended reuse
+   of the same contract on the same target until a person resolves it or a verification proves the state.
+
+This prompt records that requirement and the outcome that satisfies it; it does **not** enforce the blocking
+rule, because M1 has no unattended dispatch for it to gate. The `RAN_STATUSES` change below feeds only the
+existing hourly host-and-skill loop guard, which is not the same check and must not be described as one. The
+enforcement, and its test, belong to prompt 45 with the first policy-authorized unattended dispatch (`§12`,
+`22 §2`).
 
 The single rule: uncertainty is never converted into success or failure.
 
@@ -46,10 +52,11 @@ The single rule: uncertainty is never converted into success or failure.
 This prompt owns:
 
 - `domovoi-core`: `JournalEpoch`, `ActionStatus::OutcomeUnknown`, `ActionStatus::NotRun`, the two new
-  transitions, the epoch recorded at dispatch, `RAN_STATUSES`, and the `HostReconciler` and
-  `AgentLink::action_status` / `AgentLink::journal_epoch` contracts.
+  transitions (including `Approved → NotRun` on expiry), the epoch recorded at dispatch, `RAN_STATUSES`, and
+  the `HostReconciler` and `AgentLink::action_status` / `AgentLink::journal_epoch` contracts.
 - `domovoi-engine`: the reconciliation pass (`actions/reconcile.rs`), the reconcile write command, the two
-  audit kinds, removal of the restart failure, and the tests for every crash window in `04` §15.2.
+  audit kinds, the expiry path that resolves an approved action to `NotRun`, removal of the restart failure,
+  and the tests for every crash window in `04` §15.2 plus the expiry case.
 - `domovoi-hub`: triggering the pass after an authenticated `hello`, the `WsAgentLink` implementations of the
   two new port methods, `PolicyLink` forwarding, and the DTO's reason text.
 - `domovoi-testkit`: scripted journal answers on `FakeAgentLink`, and a recording `HostReconciler`.
@@ -77,8 +84,10 @@ Consequences:
   the host and, if the work is still needed, approving a new action through the existing path.
 - Do not add a capability, a permit, a policy decision or an availability model. Reconciliation records an
   outcome; it authorises nothing.
-- Do not touch `dispatch`, the loop guard, `expire_due`, verification or the approval paths, beyond the epoch
-  argument that `dispatch` now takes.
+- Do not touch `dispatch`'s transition rules, the loop guard, verification or the approval paths, beyond the
+  epoch argument that `dispatch` now takes and the expiry outcome in §5.6. **The one expiry change this
+  prompt owns** is `Approved → NotRun` when the approval expires before dispatch; the `Proposed → Expired`
+  sweep, the incident-gone and incident-resolved rejections, and everything after dispatch stay as they are.
 - Row 8 of `04` §15.2 (active containment) is not implemented here. The pass ignores containment because the
   1.2 journal carries no containment record; do not invent one.
 
@@ -241,7 +250,12 @@ AGENT_RESTARTED_REASON "the agent restarted while this ran; check the host befor
 JOURNAL_LOST_REASON    "the agent lost its record of this run; check the host before running it again"
 EPOCH_CHANGED_REASON   "the agent's journal was reset since this ran; the result cannot be recovered"
 EPOCH_UNKNOWN_REASON   "this ran before the agent kept a journal; the result cannot be recovered"
+EXPIRED_REASON         "the approval expired before the action was dispatched"
 ```
+
+`EXPIRED_REASON` is `NotRun`'s second source (§5.6) and reuses today's sentence, so no rendered text changes.
+It is not a journal token: the `outcome_reason` extra carries `expired` for it, and the tokens above for the
+journal path.
 
 The journal payload also carries the machine-readable reason token (`no_start_record`, `agent_restarted`,
 `journal_lost`, `epoch_changed`, `epoch_unknown`) through `commit_action`'s `extra` field as
@@ -256,7 +270,7 @@ No column is added for it.
 | `Dispatched`, agent epoch differs | `OutcomeUnknown { EpochChanged }`, no query |
 | `Dispatched`, host `Incompatible` | nothing: there is no authenticated 1.2 session, so no pass runs. The row stays `Dispatched` ("awaiting compatible agent"). If that agent later connects with a different epoch, it becomes `OutcomeUnknown` then |
 | `Dispatched`, agent never reconnects | stays `Dispatched` forever. `agent_wait_limit` / `offline_wait` applies to `Approved` work that was never dispatched, not to this |
-| `Approved`, not dispatched | unchanged: prompt 14's freshness check and host wait, then dispatch or `Rejected` |
+| `Approved`, not dispatched | prompt 14's freshness check and host wait, then dispatch; **expired → `NotRun`** (§5.6); plan or target changed, incident gone or resolved → `Rejected` as today |
 | `Proposed` | unchanged: the expiry sweep |
 | early `hello` (agent connects before the action service is ready) | the pass finds nothing, or queues behind the writer; both are safe |
 | duplicate `hello` (reconnect, or a second session replacing the first) | a fresh idempotent pass; already-terminal rows are no longer `Dispatched` and are skipped |
@@ -276,13 +290,49 @@ Crash windows (`04` §15.2), as the hub sees them:
 | 8 | agent restarts with active containment | containment records | **not this prompt**: prompt 46 updates containment state |
 | - | request never reached the agent | `not_found` with a matching epoch | `NotRun` |
 
+### 5.6 Expiry before dispatch: `Approved → NotRun`
+
+`04 §3.2` places "its authorization or approval expired before dispatch" inside `NotRun`; `04 §3.3` and
+`04 §15.1` say the same for an authorized execution that never dispatched. Today that case becomes
+`Rejected` with "the approval expired before the action was dispatched" (`freshness.rs:31`, reached from
+`writer::dispatch` at `:340-346` and from the executor's pre-dispatch check). That is the wrong vocabulary:
+nothing was attempted. This prompt changes that one outcome.
+
+Two trigger points, one outcome:
+
+1. **At dispatch.** `freshness::check` still returns `Stale::Expired`. `writer::dispatch` sends that one
+   reason through `never_ran` (7.3) instead of `reject::stop`. `IncidentGone` and `IncidentResolved` keep the
+   `Rejected` path unchanged.
+2. **Without a dispatch attempt.** `expire_due` (`writer.rs:408-453`) sweeps `status = "proposed"` today.
+   Add a second pass over `status = "approved"` with the same `expires_before` filter: each row takes
+   `Approved → NotRun`, the audit entry below, and the guarded write on `"approved"`. Without it, an approval
+   whose host never returns sits `Approved` for ever, because nothing else looks at the row.
+
+Rules:
+
+- The outcome is `NotRun { reason }` with `EXPIRED_REASON`, reusing today's sentence so no user-visible text
+  changes: "the approval expired before the action was dispatched".
+- The audit kind is `action.not_run` — the kind this prompt adds — **not** `action.expired`.
+  `action.expired` stays the `Proposed` sweep's kind and `action.rejected` stays the incident-gone path's.
+- `NotRun` is terminal: the row is never dispatched, retried or re-approved afterwards. A person who still
+  wants the work approves a new action.
+- Nothing is sent to the agent, and the row never enters `RAN_STATUSES`.
+- The DTO already carries the reason (7.6) and the web status set already treats `not_run` as terminal, so no
+  new API or UI shape appears for this path.
+- Keep the sweep idempotent and race-safe as it is: the filter picks the rows, the transition checks the
+  status, the guarded write refuses a row decided meanwhile, and a `Conflict` is logged and skipped.
+- The host-availability rows of `04 §15.1` are **out of scope here**: do not change the offline-timeout
+  outcome, and do not call it `Unavailable` until the prompt that owns `Unavailable` exists. Only the expiry
+  outcome moves.
+
 ## 6. Behavioural invariants
 
 1. **Uncertainty is terminal and never resolved by guessing.** `OutcomeUnknown` is not retried, not
    re-dispatched, not converted to `Failed`, and never to `Succeeded`. Only a person or a later verification
    resolves it.
-2. **Only positive evidence produces `NotRun`.** `not_found` from a matching, unpruned journal is the sole
-   source. A missing answer, a timeout, an error frame, an `unsupported` reply or a missing session is none.
+2. **Only positive evidence produces `NotRun`.** Its sources are exactly two: `not_found` from a matching,
+   unpruned journal, and an approval that expired before dispatch. A missing answer, a timeout, an error
+   frame, an `unsupported` reply or a missing session is none.
 3. **A dispatch is never failed because the hub restarted.** The restart path writes nothing about
    `Dispatched` rows.
 4. **A dispatch is never failed because the agent restarted.** That is `OutcomeUnknown`.
@@ -298,6 +348,10 @@ Crash windows (`04` §15.2), as the hub sees them:
     constructor reserved for a human.
 11. **The agent's journal is evidence; the hub's action row is the record.** The hub never treats the journal
     as its own state, never writes to it, and never reports a journal fact the answer did not contain.
+12. **Expiry before dispatch is `NotRun`, never `Rejected`, `Failed` or `Succeeded`.** It is positive evidence
+    the run never started, so it must not be grouped with an attempted-and-failed run or with a refusal.
+13. **`NotRun` is terminal on both paths.** Neither a matching-epoch `not_found` nor an expired approval is
+    later dispatched, retried or overwritten.
 
 ## 7. Data model, interfaces and state transitions
 
@@ -358,9 +412,14 @@ In `crates/domovoi-core/src/action/transition.rs`, two methods with the same sha
 /// `Dispatched → OutcomeUnknown`, when the agent cannot establish what became of the run.
 pub fn outcome_unknown(&mut self, reason: String, now: Timestamp) -> Result<ActionChange, ActionError>;
 
-/// `Dispatched → NotRun`, when the agent has positive evidence the run never arrived.
+/// `Dispatched | Approved → NotRun`: positive evidence the run never started, either because the
+/// agent's journal has no record of it or because its approval expired before it was dispatched.
 pub fn never_ran(&mut self, reason: String, now: Timestamp) -> Result<ActionChange, ActionError>;
 ```
+
+`never_ran` accepts two source states because both are positive evidence of never starting, and the outcome
+is the same one `04 §3.2` defines. It refuses any other source with `NotAllowed`, including `Proposed` —
+expiry of a proposal stays `Expired` (§5.6).
 
 `dispatch` gains the epoch:
 
@@ -467,6 +526,15 @@ in `domovoi-hub`.
   builds the audit entry, and commits with `ActionGuard::Status("dispatched".to_owned())` and
   `extra = Some(("outcome_reason", wire_reason))`. The pass awaits the reply, logs a refused commit at debug
   and never retries it.
+- The reason constants, the answer → outcome mapping, and `never_ran`'s expiry use live in `reconcile.rs`
+  beside the journal reasons, so there is one place that says why something did not run.
+- `writer::dispatch` maps `Stale::Expired` to `not_run::expire(...)` (`never_ran` + `action.not_run` +
+  `EXPIRED_REASON`, guarded on `"approved"`) instead of `reject::stop`; `IncidentGone` and `IncidentResolved`
+  keep `reject::stop` unchanged (§5.6).
+- `writer::expire_due` gains the second pass over `status = "approved"` described in §5.6: same
+  `expires_before` deadline, `never_ran` with `EXPIRED_REASON`, `audit::not_run`, guard `"approved"`. The
+  `proposed` pass keeps `action.expired` and `ExpireDue`'s existing reply count; return the total so the
+  caller's count still means "rows resolved".
 - `impl HostReconciler for ActionHandle`, delegating to `reconcile::host(shared, host)`.
 - `writer::run` no longer calls `fail_abandoned`; `recover::fail_abandoned` and `RESTART_REASON` are deleted.
   `recover::scan`, `scanned`, `approved` and `dispatch_history` stay, because the catch-up and the loop guard
@@ -531,6 +599,7 @@ New:
 - `crates/domovoi-core/src/ports/reconcile.rs` — `HostReconciler`, re-exported from `ports/mod.rs`.
 - `crates/domovoi-engine/tests/services/reconciliation.rs` — the hub-side crash-window suite, registered in
   `tests/services/main.rs`.
+- `crates/domovoi-engine/tests/services/expiry.rs` — the §5.6 suite, registered in `tests/services/main.rs`.
 - `crates/domovoi-hub/tests/hub/reconciliation.rs` — the trigger, authentication and no-reconnect cases,
   registered in `tests/hub/main.rs`.
 
@@ -538,8 +607,10 @@ Changed:
 
 - `crates/domovoi-core/src/action/{mod,request,transition}.rs`, `src/lib.rs`, `src/ports/agent_link.rs`,
   `src/ports/repos/actions.rs`.
-- `crates/domovoi-engine/src/actions/{mod,writer,recover}.rs` (settings, command, transition call, delete the
-  restart failure and the `recovered` watch), `src/actions/executor.rs` (drop the `recovered` wait).
+- `crates/domovoi-engine/src/actions/{mod,writer,recover}.rs` (settings, command, transition call, expiry
+  mapping and sweep, delete the restart failure and the `recovered` watch), `src/actions/executor.rs` (drop
+  the `recovered` wait, send an expired action through the `NotRun` path), `src/actions/freshness.rs` (no
+  signature change; its `Expired` reason now selects `NotRun` at both call sites).
 - `crates/domovoi-hub/src/agent_server/{mod,session,link,registry,skill_policy}.rs`,
   `src/runtime/mod.rs`, `src/admin/mod.rs`, `src/api/dto.rs`.
 - `crates/domovoi-testkit/src/link.rs`.
@@ -618,6 +689,8 @@ crate changed; `domovoi-proto` itself is not edited.
 | two passes for one host at once | every commit is guarded; the loser's commits are refused and dropped |
 | the epoch changes during a pass | the pass stops before the next round |
 | the writer queue is closed (shutdown) | the outcome is not committed; the row stays `Dispatched`, which is correct |
+| an approved action expires while the hub is down | the next `expire_due` resolves it to `NotRun` (§5.6); no agent is contacted |
+| an approved action expires while its run waits for the host | the pre-dispatch freshness check resolves it to `NotRun`, not `Rejected` |
 
 ## 12. Named tests and acceptance criteria
 
@@ -656,9 +729,10 @@ comment.
 - `stale_answers_from_another_epoch_are_outcome_unknown` — the answer echoes a different epoch.
 - `reconcile_query_batches_at_sixty_four_ids` — 65 matching ids produce two queries of 64 and 1, each with
   the recorded epoch.
-- `outcome_unknown_blocks_unattended_reuse` — the same contract and target cannot be proposed unattended
-  again until a person resolves it or a verification proves otherwise; today this is documentation plus the
-  existing approval gate, so assert what actually holds and mark the rest `unfinished`. Do not fake it.
+- `outcome_unknown_is_not_the_loop_guard` — the loop guard (`dispatch_history`, rolling hour, host + skill)
+  and `RAN_STATUSES` are unchanged in what they enforce; a test asserts that adding `outcome_unknown` to
+  `RAN_STATUSES` does not by itself block a proposal, so nobody mistakes the two rules for each other. The
+  full unattended-reuse block is prompt 45's and is not asserted here.
 - `startup_no_longer_fails_dispatched_actions` — replaces the assertion in `startup_recovery_runs_before_catch_up`
   (`tests/services/recovery.rs`): after a restart the row is still `Dispatched`, with no audit row and no
   `Failed`. Keep the rest of that test's coverage.
@@ -666,6 +740,18 @@ comment.
   `crash_after_started_is_outcome_unknown`. Do not duplicate the agent test.
 - `active_containment_reconciled_after_agent_restart` — prompt 46. Not implemented, not tested, not claimed
   here.
+
+`crates/domovoi-engine/tests/services/expiry.rs` (new), for §5.6:
+
+- **`approved_expiry_before_dispatch_is_not_run`** — approve an action, advance the fake clock past
+  `expires_at`, run the executor: the row is `NotRun` with `EXPIRED_REASON`, exactly one `action.not_run`
+  entry, no `action.rejected` and no `action.failed`, and the recording link saw no call.
+- `expiry_sweep_resolves_an_approved_action_without_a_host` — an approved action whose host never appears is
+  swept to `NotRun` by `expire_due` when its window closes, with no agent call and the same audit kind.
+- `proposed_expiry_stays_expired` — a `Proposed` action still becomes `Expired` with `action.expired`; the
+  sweep's first pass and its count are unchanged.
+- `incident_resolved_before_dispatch_stays_rejected` — the incident-gone and incident-resolved paths still
+  yield `Rejected`, proving the change is limited to expiry.
 
 `crates/domovoi-hub/tests/hub/reconciliation.rs` (new):
 
@@ -701,6 +787,11 @@ Acceptance criteria:
 7. Nothing is reconciled for an unauthenticated client, and nothing is persisted for a host with no session.
 8. No new wire type, no protocol version change, no migration file, no new crate, no new dependency.
 9. The old stored status shape loads and reconciles as `OutcomeUnknown`, proven by a test.
+10. An approved action whose window closes before dispatch is `NotRun` on both trigger points, with one
+    `action.not_run` entry, no agent call, and no `action.rejected` or `action.failed`; `Proposed` expiry and
+    the incident-gone rejection are unchanged.
+11. The unattended-reuse rule is recorded as prompt 45's, and this prompt does not claim the loop guard
+    enforces it.
 
 ## 13. Documentation and architecture updates
 
@@ -710,9 +801,9 @@ Acceptance criteria:
   specific: "Result unknown — it was sent to the host and may have run", "Never ran — the agent has no
   record of it".
 - `ARCHITECTURE.md:160-172`: extend the action state diagram with `Dispatched --> OutcomeUnknown: journal
-  lost / epoch changed / agent restarted mid-run` and `Dispatched --> NotRun: not_found with matching epoch`,
-  and keep `Dispatched --> Failed: the agent reported a failure`. Update the status list if the file
-  enumerates it. Do not restate `04` §15.2 there.
+  lost / epoch changed / agent restarted mid-run`, `Dispatched --> NotRun: not_found with matching epoch` and
+  `Approved --> NotRun: approval expired before dispatch`, and keep `Dispatched --> Failed: the agent
+  reported a failure`. Update the status list if the file enumerates it. Do not restate `04` §15.2 there.
 - `web/DESIGN.md` needs no change: the two statuses use existing tones and the existing `actionVocab` table.
 - No `docs/rework/` document is edited by the implementation. If this brief is wrong, the completion report
   says so.
@@ -720,14 +811,17 @@ Acceptance criteria:
 
 ## 14. Implementation order and completion requirements
 
-1. `domovoi-core`: `JournalEpoch`, the two statuses with `serde(default)` on the epoch, the two transitions,
-   the `dispatch` signature, `RAN_STATUSES`, the new port types. Compile the workspace and fix call sites
-   (`writer::dispatch` passes `None` for now).
+1. `domovoi-core`: `JournalEpoch`, the two statuses with `serde(default)` on the epoch, the two transitions
+   (with `never_ran` accepting `Approved`), the `dispatch` signature, `RAN_STATUSES`, the new port types.
+   Compile the workspace and fix call sites (`writer::dispatch` passes `None` for now).
 2. `domovoi-store`: the old-row test. Nothing else; no migration.
 3. `domovoi-testkit`: scripted epochs and answers, the recording reconciler.
-4. `domovoi-engine`: the pass, the mapping, the write command, the audit kinds; then delete `fail_abandoned`,
-   `RESTART_REASON` and the `recovered` watch, and rewrite the recovery test.
-5. `domovoi-engine` tests: the crash-window suite.
+4. `domovoi-engine`: the expiry path first — `never_ran` in `writer::dispatch`, the `approved` pass in
+   `expire_due`, `EXPIRED_REASON` and `audit::not_run` — then the pass, the mapping, the write command and the
+   remaining audit kind; then delete `fail_abandoned`, `RESTART_REASON` and the `recovered` watch, and rewrite
+   the recovery test. Do the expiry path first because it is the smallest change that touches the same
+   transition and audit code the reconciliation mapping also uses.
+5. `domovoi-engine` tests: the §5.6 expiry suite, then the crash-window suite.
 6. `domovoi-hub`: `WsAgentLink`, `PolicyLink`, the trigger in `run_session`, `AgentServerDeps`, the DTO
    reason, the hub tests.
 7. `web/`: the two statuses and the status sets, with their tests.
