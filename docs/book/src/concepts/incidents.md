@@ -61,6 +61,8 @@ Open an incident and look at its **Triage** section. With a report, **Run triage
 
 A run deferred by the hourly cap may re-run on its own once a run slot frees, as long as the incident is still open, unmuted, and not already triaged by a newer request. A failed run retries after an hour; retries for one incident stop after three failed runs, and once the triage-degraded advisory is up, newly failed runs are not deferred at all. Muted incidents are never retried; acknowledged ones still are. Pending retries live in memory, so they are dropped when the hub restarts.
 
+A restart queues incidents that were open but never triaged, so an incident that opened while the hub was down, or just before it stopped, is still read. Only `Open` incidents are queued: an incident a person acknowledged or muted was already handled, by a person or by a rule, and is left alone. The pending triage retries above are the exception, since they are still in memory and are lost on restart.
+
 ## In the web UI
 
 The **Incidents** page opens with one line that says what needs you ("2 need action", "3 to monitor", "1 pending"), then sorts every incident into one group by what it asks of you, the most urgent first:

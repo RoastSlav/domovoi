@@ -39,9 +39,15 @@ The hub keeps its state in one SQLite database in WAL mode, under `[hub] data_di
 | `settings` | Hub settings changed from the UI, as JSON values. |
 | `notify_state` | Per incident: where its card and thread are on each chat platform, when it was last reminded about, folded repeats not yet mentioned, and an alert held for the end of quiet hours. |
 | `journal` | The operational record: typed events in commit order, with a global sequence number, the aggregate they belong to and when they happened. |
-| `effects` | The work outbox: pending side effects with their kind, payload, attempts, claim token and lease. |
+| `effects` | The work outbox: side effects that must happen later, such as a verification re-check, with their due time, attempts, claim and lease. See [The effects table](#the-effects-table). |
 | `schema_compat` | One row naming the lowest Domovoi version that can read this schema. |
 | `audit_anchor` | One row committing to the audit history written before the hash chain existed: an install id, the highest legacy sequence number, the row count and a SHA-256 digest. It is append-only too. |
+
+### The effects table
+
+`effects` is the work outbox: work that must happen later, such as the re-check after an action, is stored here in the same commit as the change that asked for it. A row has `kind`, `aggregate_type`, `aggregate_id`, `payload`, `status`, `not_before`, `attempt`, `max_attempts`, `dedup_key`, `claim_token`, `claim_generation`, `lease_until`, `runner_id`, `last_error`, `created_at` and `completed_at`.
+
+A row is `pending` until it is due, `claimed` while a runner holds it under its lease, and then `done`. It becomes `dead` after its last attempt, which raises an advisory, or `cancelled` when the work no longer applies.
 
 ### Legacy and chained audit history
 

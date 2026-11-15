@@ -68,6 +68,10 @@ The host named after the hub is its own machine, shown as "Hub only, no agent" w
 
 **A `cli` provider fails under systemd.** The CLI runs as the `domovoi` user and needs its own login: `sudo -u domovoi -H claude login`. Claude Code also needs `MemoryDenyWriteExecute=no`; see [Binary and systemd](install/binary.md#the-units).
 
+## Advisories
+
+**The advisory says a background task failed permanently.** It is kind `effect_dead`: an effect, such as the re-check after an action, used up its attempts and stopped. The advisory's detail names the effect, its aggregate and the last error, and the hub's log carries the same failures. If it was a verification re-check, the action is recorded as verification failed: check the host and the agent, then run the check by hand or run triage again.
+
 ## Still stuck
 
 Search the [issues](https://github.com/RoastSlav/domovoi/issues), or open one with the version (`domovoi version`), what you did, and the relevant log lines. Remove secrets from logs before you paste them.
