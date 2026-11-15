@@ -175,7 +175,7 @@ ip -n dv-sender   link set vs up
 ip -n dv-router   link set vr1 up
 ip -n dv-router   link set vr2 up
 ip -n dv-receiver link set vrecv up
-ip -n dv-router   sysctl -w net.ipv4.ip_forward=1
+ip netns exec dv-router sysctl -w net.ipv4.ip_forward=1
 
 # Routes: each endpoint reaches the other subnet through the router.
 ip -n dv-sender   route add default via 10.99.0.2
