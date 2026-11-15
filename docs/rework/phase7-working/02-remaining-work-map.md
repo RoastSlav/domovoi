@@ -397,7 +397,7 @@ implementations launch later, one at a time, only when their merged dependencies
 |---|---|---|---|---|
 | R-0a | 53, 54, 56 | nothing | WSL2 environment available; no other gate | scoped preliminary research; an environment closes nothing |
 | R-0b | 55 | nothing | nothing (no environment gate) | security-sensitive; needs particularly careful review |
-| EF-1 | 20 | nothing (`03 RW-42` is the contract) | 15 merged (#136) | wire 1.2 and the agent journal are one contract |
+| EF-1 | 20 | nothing (`03 RW-42` is the contract) | 13, 14, 15, 16, 17, 18, 19 all merged (13 #116 and 15 #136 are merged; 14, 16, 17, 18, 19 are not) | wire 1.2 and the agent journal are one contract |
 | EF-2 | 21, 22 | 20 | 20 merged; 22 also after 21 merged | hub-side M1 consumers of the journal |
 | EF-3 | 23 | 22 | 22 merged | boundary rules against the final authorization types |
 | GH-1 | 25, 39 | 24 (exists), 20 | 23 and 24 merged; 25 also after 20 merged | registry and evaluator, independent of each other |
