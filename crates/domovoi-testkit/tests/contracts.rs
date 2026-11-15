@@ -53,6 +53,17 @@ contract_tests! {
     in_memory_effect_id_must_be_unique => effect_id_must_be_unique,
     in_memory_effects_are_listed_in_insertion_order => effects_are_listed_in_insertion_order,
     in_memory_failed_effect_completion_rolls_back_every_stage => failed_effect_completion_rolls_back_every_stage,
+    in_memory_claim_sets_token_generation_lease_and_attempt => claim_sets_token_generation_lease_and_attempt,
+    in_memory_claim_skips_effects_not_yet_due_and_other_kinds => claim_skips_effects_not_yet_due_and_other_kinds,
+    in_memory_claimed_effect_reclaimed_after_lease_expiry => claimed_effect_reclaimed_after_lease_expiry,
+    in_memory_stale_lease_holder_cannot_complete_reclaimed_effect => stale_lease_holder_cannot_complete_reclaimed_effect,
+    in_memory_stale_holder_cannot_reschedule_or_dead_letter => stale_holder_cannot_reschedule_or_dead_letter,
+    in_memory_reschedule_returns_effect_to_pending_with_backoff_time => reschedule_returns_effect_to_pending_with_backoff_time,
+    in_memory_attempt_limit_dead_letters_at_claim => attempt_limit_dead_letters_at_claim,
+    in_memory_expired_lease_beyond_attempt_limit_dies_instead_of_reclaim => expired_lease_beyond_attempt_limit_dies_instead_of_reclaim,
+    in_memory_dispatch_effects_are_never_reclaimed_after_lease_expiry => dispatch_effects_are_never_reclaimed_after_lease_expiry,
+    in_memory_restart_reverts_claimed_effects_except_dispatch => restart_reverts_claimed_effects_except_dispatch,
+    in_memory_dedup_key_blocks_a_second_pending_effect => dedup_key_blocks_a_second_pending_effect,
 }
 
 #[tokio::test]

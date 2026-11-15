@@ -2,9 +2,9 @@
 
 use async_trait::async_trait;
 use domovoi_core::ports::{
-    AggregateRef, CommitError, CommitReceipt, EffectCompletion, EffectDraft, EffectRead,
-    EffectRecord, EffectStatus, JournalDraft, JournalEntry, JournalRead, StoreError, Transaction,
-    UnitOfWork, Versioned, VersionedRead,
+    AggregateRef, ClaimToken, CommitError, CommitReceipt, EffectCompletion, EffectDeath,
+    EffectDraft, EffectRead, EffectRecord, EffectReschedule, EffectStatus, JournalDraft,
+    JournalEntry, JournalRead, StoreError, Transaction, UnitOfWork, Versioned, VersionedRead,
 };
 use domovoi_core::{EffectId, Incident, IncidentId, Note, NoteId};
 
@@ -92,6 +92,43 @@ fn complete_effect(state: &mut State, completion: &EffectCompletion) -> Result<(
     Ok(())
 }
 
+/// The stored effect `id`, if it is claimed under `token`; a stale holder gets `StaleEffect`.
+fn held_effect(
+    state: &mut State,
+    id: EffectId,
+    token: ClaimToken,
+) -> Result<&mut EffectRecord, CommitError> {
+    let Some(effect) = state.effects.get_mut(&id) else {
+        return Err(CommitError::StaleEffect { effect: id });
+    };
+    if effect.status != EffectStatus::Claimed.as_str() || effect.claim_token != Some(token) {
+        return Err(CommitError::StaleEffect { effect: id });
+    }
+    Ok(effect)
+}
+
+fn reschedule_effect(state: &mut State, reschedule: &EffectReschedule) -> Result<(), CommitError> {
+    let effect = held_effect(state, reschedule.id, reschedule.claim_token)?;
+    effect.status = EffectStatus::Pending.as_str().to_owned();
+    effect.not_before = reschedule.not_before;
+    effect.last_error = Some(reschedule.error.clone());
+    effect.claim_token = None;
+    effect.lease_until = None;
+    effect.runner_id = None;
+    Ok(())
+}
+
+fn kill_effect(state: &mut State, death: &EffectDeath) -> Result<(), CommitError> {
+    let effect = held_effect(state, death.id, death.claim_token)?;
+    effect.status = EffectStatus::Dead.as_str().to_owned();
+    effect.last_error = Some(death.error.clone());
+    effect.completed_at = Some(death.at);
+    effect.claim_token = None;
+    effect.lease_until = None;
+    effect.runner_id = None;
+    Ok(())
+}
+
 impl InMemoryStore {
     /// Test seam: claims a pending effect as the effect runner will, bumping its generation.
     pub fn claim_effect(
@@ -146,6 +183,12 @@ impl UnitOfWork for InMemoryStore {
         }
         for completion in &tx.completed_effects {
             complete_effect(&mut draft, completion)?;
+        }
+        for reschedule in &tx.rescheduled_effects {
+            reschedule_effect(&mut draft, reschedule)?;
+        }
+        for death in &tx.dead_effects {
+            kill_effect(&mut draft, death)?;
         }
         *state = draft;
         Ok(receipt)

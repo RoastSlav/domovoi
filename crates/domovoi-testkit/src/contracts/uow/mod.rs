@@ -2,6 +2,8 @@
 
 mod effects;
 mod journal;
+mod lifecycle;
+mod lifecycle_retry;
 mod rollback;
 mod states;
 
@@ -16,6 +18,18 @@ pub use journal::{
     incident_event_is_mirrored_into_the_journal_with_its_original_time,
     journal_sequence_follows_commit_order,
 };
+pub use lifecycle::{
+    claim_sets_token_generation_lease_and_attempt, claim_skips_effects_not_yet_due_and_other_kinds,
+    claimed_effect_reclaimed_after_lease_expiry, dedup_key_blocks_a_second_pending_effect,
+    dispatch_effects_are_never_reclaimed_after_lease_expiry,
+    restart_reverts_claimed_effects_except_dispatch, stale_holder_cannot_reschedule_or_dead_letter,
+    stale_lease_holder_cannot_complete_reclaimed_effect,
+};
+pub use lifecycle_retry::{
+    attempt_limit_dead_letters_at_claim,
+    expired_lease_beyond_attempt_limit_dies_instead_of_reclaim,
+    reschedule_returns_effect_to_pending_with_backoff_time,
+};
 pub use rollback::failed_effect_completion_rolls_back_every_stage;
 pub use states::{
     action_guard_refuses_a_changed_status, chat_token_hash_must_be_unique_across_actions,
@@ -29,8 +43,8 @@ pub use states::{
 use async_trait::async_trait;
 use domovoi_core::EffectId;
 use domovoi_core::ports::{
-    ActionRepo, AuditLog, ClaimToken, EffectRead, IncidentRepo, JournalRead, NoteRepo, SignalRepo,
-    UnitOfWork, VersionedRead,
+    ActionRepo, AuditLog, ClaimToken, EffectQueue, EffectRead, IncidentRepo, JournalRead, NoteRepo,
+    SignalRepo, UnitOfWork, VersionedRead,
 };
 use jiff::Timestamp;
 
@@ -59,6 +73,8 @@ pub trait UowSubject: Send + Sync {
     fn notes(&self) -> &dyn NoteRepo;
     /// The audit log.
     fn audit(&self) -> &dyn AuditLog;
+    /// Claiming and recovering effects: the queue the runner works from.
+    fn queue(&self) -> &dyn EffectQueue;
 
     /// Test seam: puts a pending effect into `claimed` under `token`, as the effect runner will.
     async fn force_claim(
@@ -104,6 +120,10 @@ impl UowSubject for InMemoryStore {
     }
 
     fn audit(&self) -> &dyn AuditLog {
+        self
+    }
+
+    fn queue(&self) -> &dyn EffectQueue {
         self
     }
 
