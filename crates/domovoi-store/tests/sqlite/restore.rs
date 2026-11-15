@@ -185,12 +185,90 @@ async fn a_rollback_that_cannot_finish_is_reported_as_incomplete() {
 #[tokio::test]
 async fn a_partial_sidecar_move_while_keeping_the_failed_copy_is_undone() {
     let dir = tempfile::tempdir().unwrap();
-    let backup_store = Fresh::in_dir(dir.path().join("backup"));
     let live = database_with(dir.path(), "live-theme").await;
-    let _ = backup_store;
+    let broken = broken_backup(dir.path()).await;
+    let before = std::fs::read(&live).unwrap();
 
-    // A backup that verifies but will not migrate, whose opened copy leaves sidecars.
-    let broken_dir = dir.path().join("broken");
+    // The seam writes a sidecar beside the temporary copy, the sidecar move runs for real,
+    // and only the database move fails. The rollback therefore covers a move that
+    // happened, not one SQLite was assumed to have left behind.
+    let err = restore_from_backup_failing_at(&live, &broken, at(60), "failed-database-with-wal")
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(err, RestoreError::Open(_)),
+        "the open error stays the reported failure: {err}"
+    );
+    assert_eq!(
+        std::fs::read(&live).unwrap(),
+        before,
+        "the live database did not move"
+    );
+    assert_eq!(theme_of(&live).await, Some(serde_json::json!("live-theme")));
+
+    let listed = names(dir.path());
+    let stranded: Vec<&String> = listed
+        .iter()
+        .filter(|name| name.contains(".failed-restore-"))
+        .collect();
+    assert!(
+        stranded.is_empty(),
+        "the rollback put the sidecar back, nothing stayed split: {stranded:?}"
+    );
+    assert!(
+        std::fs::metadata(dir.path().join("hub.db.restore-tmp")).is_ok_and(|meta| meta.len() > 0),
+        "the temporary copy is intact: {listed:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_sidecar_that_moved_is_never_left_split_from_its_copy() {
+    let dir = tempfile::tempdir().unwrap();
+    let live = database_with(dir.path(), "live-theme").await;
+    let broken = broken_backup(dir.path()).await;
+
+    // The seam writes a sidecar and then the database move fails. Whether the rollback can
+    // finish or not, the sidecar must never end up at the failed name while the database
+    // it belongs to is somewhere else: that would be the split this test forbids.
+    for step in ["failed-database-with-wal", "failed-database-with-wal-stuck"] {
+        let err = restore_from_backup_failing_at(&live, &broken, at(60), step)
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, RestoreError::Open(_)),
+            "{step}: the open error is what is reported: {err}"
+        );
+        assert_eq!(
+            theme_of(&live).await,
+            Some(serde_json::json!("live-theme")),
+            "{step}: the live database is untouched"
+        );
+
+        let listed = names(dir.path());
+        let has_temporary_database = listed.iter().any(|name| name.ends_with(".restore-tmp"));
+        let failed_sidecars: Vec<&String> = listed
+            .iter()
+            .filter(|name| {
+                name.contains(".failed-restore-")
+                    && (name.ends_with("-wal") || name.ends_with("-shm"))
+            })
+            .collect();
+        assert!(
+            has_temporary_database || failed_sidecars.is_empty(),
+            "{step}: a sidecar is split from the copy it belongs to: {listed:?}"
+        );
+        // Whichever way the rollback went, no data-bearing file was deleted.
+        assert!(
+            listed.iter().any(|name| name.ends_with(".restore-tmp"))
+                || listed.iter().any(|name| name.contains(".failed-restore-")),
+            "{step}: the prepared copy is kept somewhere: {listed:?}"
+        );
+    }
+}
+
+/// A backup that verifies as a Domovoi database but cannot be migrated.
+async fn broken_backup(dir: &std::path::Path) -> std::path::PathBuf {
+    let broken_dir = dir.join("broken");
     std::fs::create_dir_all(&broken_dir).unwrap();
     let broken = broken_dir.join("backup.db");
     let connect = sqlx::sqlite::SqliteConnectOptions::new()
@@ -207,50 +285,7 @@ async fn a_partial_sidecar_move_while_keeping_the_failed_copy_is_undone() {
         .await
         .unwrap();
     pool.close().await;
-    let before = std::fs::read(&live).unwrap();
-
-    // The sidecars move first, then moving the database fails, so the rollback has
-    // something to put back.
-    let err = restore_from_backup_failing_at(&live, &broken, at(60), "failed-database")
-        .await
-        .unwrap_err();
-    assert!(
-        matches!(err, RestoreError::Open(_)),
-        "the open error stays the reported failure: {err}"
-    );
-
-    // The live database never moved and holds the same bytes.
-    assert_eq!(std::fs::read(&live).unwrap(), before);
-    assert_eq!(theme_of(&live).await, Some(serde_json::json!("live-theme")));
-
-    let listed = names(dir.path());
-    // The temporary copy and every sidecar are together again at the temporary name: no
-    // file was left split at the `.failed-restore-*` name.
-    let temporary: Vec<&String> = listed
-        .iter()
-        .filter(|name| name.starts_with("hub.db.restore-tmp"))
-        .collect();
-    assert!(
-        temporary.iter().any(|name| name.ends_with(".restore-tmp")),
-        "the temporary database is still there: {listed:?}"
-    );
-    assert!(
-        !listed.iter().any(|name| name.contains(".failed-restore-")
-            && !name.ends_with("-wal")
-            && !name.ends_with("-shm")),
-        "no data file is left at the failed name: {listed:?}"
-    );
-    // No sidecar was deleted, and none was left orphaned under the failed name.
-    let failed_sidecars: Vec<&String> = listed
-        .iter()
-        .filter(|name| {
-            name.contains(".failed-restore-") && (name.ends_with("-wal") || name.ends_with("-shm"))
-        })
-        .collect();
-    assert!(
-        failed_sidecars.is_empty(),
-        "no sidecar is left split at the failed name: {listed:?}"
-    );
+    broken
 }
 
 #[tokio::test]
@@ -684,4 +719,162 @@ async fn restore_names_its_pre_migration_copy_with_the_supplied_clock() {
         "the pre-migration copy is named for the supplied time: {:?}",
         names(&live_dir.join("backups"))
     );
+}
+
+#[tokio::test]
+async fn restore_keeps_a_zero_byte_previous_database() {
+    let dir = tempfile::tempdir().unwrap();
+    let backup_store = Fresh::in_dir(dir.path().join("backup"));
+    let backup_path = backup_store.write("from-backup").await;
+    // A real database that happens to be empty: a hub that was started and never wrote.
+    let live = dir.path().join("hub.db");
+    std::fs::write(&live, b"").unwrap();
+
+    let report = restore_from_backup(&live, &backup_path, at(60))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        theme_of(&live).await,
+        Some(serde_json::json!("from-backup")),
+        "the backup is installed"
+    );
+    let previous = report.previous.expect("the previous database is preserved");
+    assert!(
+        previous.exists(),
+        "a zero-byte database is still a database: {} is gone",
+        previous.display()
+    );
+    assert_eq!(
+        std::fs::metadata(&previous).unwrap().len(),
+        0,
+        "it is preserved as it was"
+    );
+    assert_eq!(
+        previous.file_name().unwrap().to_string_lossy(),
+        "hub.db.before-restore-20231114T221420Z"
+    );
+}
+
+#[tokio::test]
+async fn restore_keeps_a_zero_byte_database_with_its_wal() {
+    let dir = tempfile::tempdir().unwrap();
+    let backup_store = Fresh::in_dir(dir.path().join("backup"));
+    let backup_path = backup_store.write("from-backup").await;
+    let live = dir.path().join("hub.db");
+    std::fs::write(&live, b"").unwrap();
+    std::fs::write(dir.path().join("hub.db-wal"), b"pending-write").unwrap();
+
+    let report = restore_from_backup(&live, &backup_path, at(60))
+        .await
+        .unwrap();
+
+    let previous = report.previous.expect("the previous database is preserved");
+    assert_eq!(
+        std::fs::metadata(&previous).unwrap().len(),
+        0,
+        "the empty database is still there: {}",
+        previous.display()
+    );
+    let mut wal = previous.as_os_str().to_owned();
+    wal.push("-wal");
+    let wal = std::path::PathBuf::from(wal);
+    assert_eq!(
+        std::fs::read(&wal).unwrap(),
+        b"pending-write",
+        "the write-ahead log moved with it and was not overwritten"
+    );
+    assert!(
+        !dir.path().join("hub.db-wal").exists(),
+        "the live sidecar moved with the database"
+    );
+}
+
+#[tokio::test]
+async fn an_incomplete_rollback_keeps_a_zero_byte_database_where_it_says() {
+    let dir = tempfile::tempdir().unwrap();
+    let backup_store = Fresh::in_dir(dir.path().join("backup"));
+    let backup_path = backup_store.write("from-backup").await;
+    let live = dir.path().join("hub.db");
+    std::fs::write(&live, b"").unwrap();
+    std::fs::write(dir.path().join("hub.db-wal"), b"pending-write").unwrap();
+
+    let err = restore_from_backup_failing_at(&live, &backup_path, at(60), "undo-database")
+        .await
+        .unwrap_err();
+    let RestoreError::RecoveryIncomplete { reason, recovery } = &err else {
+        panic!("expected RecoveryIncomplete, got {err:?}");
+    };
+    assert!(
+        reason.contains("cannot install it"),
+        "the original failure is named: {reason}"
+    );
+
+    // The rollback undoes the newest move first: the WAL cannot go back, so it stays at
+    // the preserved name and the error names it. The database itself moved back, so it is
+    // at the live path — either way, zero bytes and never deleted.
+    let misplaced: Vec<std::path::PathBuf> = names(dir.path())
+        .into_iter()
+        .filter(|name| name.contains(".before-restore-"))
+        .map(|name| dir.path().join(name))
+        .collect();
+    assert_eq!(
+        misplaced.len(),
+        1,
+        "exactly the WAL stayed misplaced: {misplaced:?}"
+    );
+    assert!(
+        misplaced[0].to_string_lossy().ends_with("-wal"),
+        "the misplaced file is the WAL: {}",
+        misplaced[0].display()
+    );
+    assert_eq!(std::fs::read(&misplaced[0]).unwrap(), b"pending-write");
+    assert!(
+        recovery.contains(&misplaced[0].display().to_string()),
+        "the error names where the WAL remains: {recovery}"
+    );
+    // The database was moved back and was not deleted as an "empty placeholder".
+    assert!(live.exists(), "the database is back at its live path");
+    assert_eq!(
+        std::fs::metadata(&live).unwrap().len(),
+        0,
+        "still zero bytes, still present"
+    );
+}
+
+#[tokio::test]
+async fn an_incomplete_rollback_never_deletes_the_previous_database() {
+    let dir = tempfile::tempdir().unwrap();
+    let backup_store = Fresh::in_dir(dir.path().join("backup"));
+    let backup_path = backup_store.write("from-backup").await;
+    // A zero-byte database and no sidecar: the only file that moves is the database.
+    let live = dir.path().join("hub.db");
+    std::fs::write(&live, b"").unwrap();
+
+    let err = restore_from_backup_failing_at(&live, &backup_path, at(60), "undo-database")
+        .await
+        .unwrap_err();
+    let RestoreError::RecoveryIncomplete { recovery, .. } = &err else {
+        panic!("expected RecoveryIncomplete, got {err:?}");
+    };
+
+    // The database could not be moved back, so it stays at the preserved name and the
+    // error names that exact path. It must not have been treated as an empty placeholder.
+    let misplaced: Vec<std::path::PathBuf> = names(dir.path())
+        .into_iter()
+        .filter(|name| name.contains(".before-restore-"))
+        .map(|name| dir.path().join(name))
+        .collect();
+    assert_eq!(misplaced.len(), 1, "{misplaced:?}");
+    assert_eq!(
+        std::fs::metadata(&misplaced[0]).unwrap().len(),
+        0,
+        "the zero-byte database is preserved: {}",
+        misplaced[0].display()
+    );
+    assert!(
+        recovery.contains(&misplaced[0].display().to_string()),
+        "the error names where it remains: {recovery}"
+    );
+    assert!(!live.exists(), "it is not in two places at once");
 }

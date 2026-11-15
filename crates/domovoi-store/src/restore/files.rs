@@ -54,9 +54,8 @@ fn numbered(base: &Path, attempt: u32) -> PathBuf {
 /// timestamp cannot take the same name and an earlier artifact is never replaced. A name
 /// whose `-wal` or `-shm` is already there is skipped too: an interrupted restore may have
 /// left those behind. The caller holds the data-directory lock, so nothing competes for
-/// the name afterwards, and the rename that fills it replaces only this run's empty
-/// placeholder.
-pub(super) fn reserve(base: &Path) -> Result<PathBuf, RestoreError> {
+/// the name afterwards.
+pub(super) fn reserve(base: &Path) -> Result<Reservation, RestoreError> {
     for attempt in 0..NAMES_TRIED {
         let candidate = numbered(base, attempt);
         match std::fs::OpenOptions::new()
@@ -69,7 +68,10 @@ pub(super) fn reserve(base: &Path) -> Result<PathBuf, RestoreError> {
                     let _ = std::fs::remove_file(&candidate);
                     continue;
                 }
-                return Ok(candidate);
+                return Ok(Reservation {
+                    path: candidate,
+                    own: true,
+                });
             }
             Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(err) => {
@@ -86,11 +88,54 @@ pub(super) fn reserve(base: &Path) -> Result<PathBuf, RestoreError> {
     })
 }
 
-/// Removes `path` when it is the empty placeholder a reservation made. A file holding
-/// anything is never removed.
-pub(super) fn remove_if_empty(path: &Path) {
-    if std::fs::metadata(path).is_ok_and(|meta| meta.len() == 0) {
-        let _ = std::fs::remove_file(path);
+/// A name claimed by [`reserve`], and whether what sits there is still this run's own file.
+///
+/// The placeholder is empty when it is created, and only this run writes to the name until
+/// a move fills it: `reserve` refuses a name that already exists. `own` is cleared the
+/// moment a real file is renamed over the placeholder, so cleanup never has to guess from
+/// a file's size — a real database may be zero bytes, and deleting it would destroy the
+/// only copy of what the operator had.
+pub(super) struct Reservation {
+    path: PathBuf,
+    /// True while `path` holds only what this run put there: an empty placeholder or a
+    /// partial copy. Never true once a moved file has been renamed over it.
+    own: bool,
+}
+
+impl Reservation {
+    /// The reserved path.
+    pub(super) fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// The reserved path, owned.
+    pub(super) fn to_path_buf(&self) -> PathBuf {
+        self.path.clone()
+    }
+
+    /// Records that a file was renamed over the placeholder. From now on the path holds
+    /// someone else's data and is never removed as a placeholder.
+    pub(super) fn filled(&mut self) {
+        self.own = false;
+    }
+
+    /// Removes the reserved name, but only while it holds nothing but this run's own
+    /// placeholder or partial copy.
+    pub(super) fn abandon(&mut self) {
+        if self.own {
+            let _ = std::fs::remove_file(&self.path);
+            self.own = false;
+        }
+    }
+
+    /// [`Self::abandon`], and the SQLite sidecars this run's own copy may have left.
+    pub(super) fn discard(&mut self) {
+        if self.own {
+            for tail in ["", "-wal", "-shm"] {
+                let _ = std::fs::remove_file(suffix(&self.path, tail));
+            }
+            self.own = false;
+        }
     }
 }
 
@@ -126,6 +171,14 @@ impl Moves {
     /// Whether `to` is where a move put something.
     pub(super) fn moved_to(&self, to: &Path) -> bool {
         self.done.iter().any(|(_, destination)| destination == to)
+    }
+
+    /// Whether a move that this journal recorded has since been undone.
+    ///
+    /// `undo` pops the entries it reverts, so anything still listed here that is no longer
+    /// at its destination was moved back by a rollback that could not finish.
+    pub(super) fn still_moved_to(&self, to: &Path) -> bool {
+        self.moved_to(to) && to.exists()
     }
 
     /// Reverses every move, newest first. Returns one line per move it could not undo.

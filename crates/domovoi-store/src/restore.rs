@@ -18,9 +18,7 @@ use crate::error::StoreOpenError;
 
 mod files;
 
-use self::files::{
-    Moves, companions, remove_if_empty, reserve, same_file, sidecars_present, suffix,
-};
+use self::files::{Moves, Reservation, companions, reserve, same_file, sidecars_present, suffix};
 
 /// What a restore did.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -92,8 +90,11 @@ pub async fn restore_from_backup(
 /// The same restore with one file-system step forced to fail, so tests can drive the
 /// recovery paths without depending on permissions an elevated run ignores. `step` is one
 /// of `aside-wal`, `aside-shm`, `swap-wal`, `swap-shm`, `swap-database` (a step that
-/// fails, leaving its moves to be undone) or `undo-database` (the install fails and the
-/// rollback of the moved database fails too).
+/// fails, leaving its moves to be undone), `undo-database` (the install fails and the
+/// rollback of the moved database fails too), `failed-database` (keeping a copy that would
+/// not open fails at the database), `failed-database-with-wal` (the same, after writing a
+/// sidecar so the rollback covers a move that really happened) or
+/// `failed-database-with-wal-stuck` (the same, with that rollback forced to fail).
 #[doc(hidden)]
 pub async fn restore_from_backup_failing_at(
     database: &Path,
@@ -118,23 +119,20 @@ async fn restore(
         .file_name()
         .map_or_else(String::new, |name| name.to_string_lossy().into_owned());
     let stamp = stamp(now);
-    let temporary = reserve(&suffix(database, ".restore-tmp"))?;
+    let mut temporary = reserve(&suffix(database, ".restore-tmp"))?;
 
     // Migrate the copy under its temporary name: a backup that cannot be opened leaves
     // the live database exactly as it was.
-    let applied = match prepare(backup, &temporary, now, report.migrations).await {
+    let applied = match prepare(backup, temporary.path(), now, report.migrations).await {
         Ok(applied) => applied,
         Err(PrepareError::Copy(err)) => {
-            // Clean up the placeholder or partial copy: the empty name would otherwise
-            // make the next run skip it.
-            for tail in ["", "-wal", "-shm"] {
-                let _ = std::fs::remove_file(suffix(&temporary, tail));
-            }
+            // The name holds only this run's partial copy; nothing has been moved over it.
+            temporary.discard();
             return Err(err);
         }
         Err(PrepareError::Open(err)) => {
             keep_failed(
-                &temporary,
+                temporary.path(),
                 database,
                 &format!("{name}.failed-restore-{stamp}"),
                 fail_at,
@@ -148,39 +146,52 @@ async fn restore(
     // drop them on the next open, and they may be the only copy of a write in flight. A
     // name is reserved for neither without something to put in it, which would leave an
     // empty `.before-restore-*` file looking like a preserved database.
-    let moving_aside = database.exists() || sidecars_present(database);
-    let before = moving_aside
+    let had_database = database.exists();
+    let moving_aside = had_database || sidecars_present(database);
+    let mut before = moving_aside
         .then(|| database.with_file_name(format!("{name}.before-restore-{stamp}")))
         .map(|base| reserve(&base))
-        .transpose()?
-        .unwrap_or_default();
+        .transpose()?;
     let mut aside = Moves::default();
-    if let Err(err) = move_aside(&mut aside, database, &before, fail_at) {
+    if let Err(err) = move_aside(&mut aside, database, before.as_mut(), fail_at) {
         let stuck = aside.undo(undo_fails(fail_at));
-        if moving_aside {
-            remove_if_empty(&before);
+        // Only a name still holding this run's own placeholder may go; a database that
+        // moved back, or one the rollback could not put back, stays.
+        if let Some(before) = before.as_mut() {
+            before.abandon();
         }
         return Err(recover(err, stuck));
     }
     // Without a database, only its sidecars moved: the reserved name holds nothing and
     // would read as a preserved database, so it goes. The sidecars keep the same prefix,
     // which the log names, so the operator can find what was set aside.
-    if moving_aside {
-        remove_if_empty(&before);
-        if !database.exists() {
-            tracing::info!(
-                preserved = %before.display(),
-                "no database to replace; its SQLite sidecars were moved aside too",
-            );
+    let previous = match before.as_mut() {
+        // `aside` only moved the database itself when it was there to move.
+        Some(before) if aside.still_moved_to(before.path()) => {
+            before.filled();
+            Some(before.to_path_buf())
         }
-    }
+        Some(before) => {
+            // Only sidecars moved, so the bare name holds nothing this run must keep.
+            before.abandon();
+            if !had_database {
+                tracing::info!(
+                    preserved = %before.path().display(),
+                    "no database to replace; its SQLite sidecars were moved aside too",
+                );
+            }
+            None
+        }
+        None => None,
+    };
     let mut swap = Moves::default();
-    if let Err(err) = swap_in(&mut swap, &temporary, database, fail_at) {
+    if let Err(err) = swap_in(&mut swap, temporary.path(), database, fail_at) {
         let mut stuck = swap.undo(undo_fails(fail_at));
         stuck.extend(aside.undo(undo_fails(fail_at)));
         return Err(recover(err, stuck));
     }
-    let previous = aside.moved_to(&before).then_some(before);
+    // The prepared copy is now the live database.
+    temporary.filled();
     Ok(RestoreReport {
         backup: report,
         previous,
@@ -193,7 +204,10 @@ async fn restore(
 /// `undo-database` makes the install fail and then the rollback fail too, which is how a
 /// test reaches [`RestoreError::RecoveryIncomplete`] without depending on permissions.
 fn undo_fails(fail_at: Option<&str>) -> bool {
-    fail_at == Some("undo-database")
+    matches!(
+        fail_at,
+        Some("undo-database" | "failed-database-with-wal-stuck")
+    )
 }
 
 fn stamp(at: Timestamp) -> String {
@@ -212,8 +226,8 @@ fn keep_failed(
     fail_at: Option<&str>,
     undo_fails: bool,
 ) {
-    let failed = match reserve(&database.with_file_name(wanted)) {
-        Ok(path) => path,
+    let mut failed = match reserve(&database.with_file_name(wanted)) {
+        Ok(reserved) => reserved,
         Err(err) => {
             tracing::warn!(
                 kept = %temporary.display(),
@@ -223,26 +237,56 @@ fn keep_failed(
             return;
         }
     };
-    let mut moves = Moves::default();
-    let moved = moves.perform_sidecars(temporary, &failed).and_then(|()| {
-        if fail_at == Some("failed-database") {
-            return Err(RestoreError::Io {
-                path: temporary.to_owned(),
-                reason: "kept for inspection: simulated failure".to_owned(),
-            });
+    // A test can require a sidecar to be there before the moves, so the rollback runs over
+    // one that really happened instead of relying on SQLite to leave one behind.
+    if matches!(
+        fail_at,
+        Some("failed-database-with-wal" | "failed-database-with-wal-stuck")
+    ) {
+        let wal = suffix(temporary, "-wal");
+        if let Err(err) = std::fs::write(&wal, b"preset-sidecar") {
+            tracing::warn!(%err, path = %wal.display(), "could not preset a sidecar");
         }
-        moves.perform(temporary, &failed)
-    });
+    }
+    let mut moves = Moves::default();
+    let moved = moves
+        .perform_sidecars(temporary, failed.path())
+        .and_then(|()| {
+            if matches!(
+                fail_at,
+                Some(
+                    "failed-database"
+                        | "failed-database-with-wal"
+                        | "failed-database-with-wal-stuck"
+                )
+            ) {
+                return Err(RestoreError::Io {
+                    path: temporary.to_owned(),
+                    reason: "kept for inspection: simulated failure".to_owned(),
+                });
+            }
+            moves.perform(temporary, failed.path())
+        });
     match moved {
-        Ok(()) => tracing::warn!(
-            failed = %failed.display(),
-            "the restored database did not open; it is kept for inspection",
-        ),
+        Ok(()) => {
+            // The name now holds the copy that would not open, so it is never removed as
+            // a placeholder, even though a sidecar may be all that landed there.
+            failed.filled();
+            tracing::warn!(
+                failed = %failed.path().display(),
+                "the restored database did not open; it is kept for inspection",
+            );
+        }
         Err(err) => {
-            // Put back whatever moved, so no file is left split from the database. The
-            // placeholder is still empty: the database only moves last.
+            // Put back whatever moved, so no file is left split from the database. A move
+            // that stayed put means the name holds data; the placeholder goes only when
+            // the rollback left nothing of this run's copy behind.
             let stuck = moves.undo(undo_fails);
-            remove_if_empty(&failed);
+            if stuck.is_empty() && !moves.moved_to(failed.path()) {
+                failed.abandon();
+            } else {
+                failed.filled();
+            }
             if stuck.is_empty() {
                 tracing::warn!(
                     kept = %temporary.display(),
@@ -312,7 +356,7 @@ async fn prepare(
 fn move_aside(
     moves: &mut Moves,
     database: &Path,
-    before: &Path,
+    mut before: Option<&mut Reservation>,
     fail_at: Option<&str>,
 ) -> Result<(), RestoreError> {
     for (source, tail) in companions(database) {
@@ -325,7 +369,20 @@ fn move_aside(
                 reason: "cannot move it aside: simulated failure".to_owned(),
             });
         }
-        moves.perform(&source, &suffix(before, tail))?;
+        let Some(before) = before.as_deref_mut() else {
+            return Err(RestoreError::Io {
+                path: source,
+                reason: "no preserved name was reserved".to_owned(),
+            });
+        };
+        let destination = suffix(before.path(), tail);
+        moves.perform(&source, &destination)?;
+        if tail.is_empty() {
+            // The real database has taken the name. From here it is never a placeholder,
+            // however the restore turns out, so a rollback that cannot finish leaves it
+            // where it is instead of deleting it.
+            before.filled();
+        }
     }
     Ok(())
 }
