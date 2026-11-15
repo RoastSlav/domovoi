@@ -579,17 +579,17 @@ impl Harness {
     }
 }
 
-/// Waits for a service task without sleeping.
+/// Waits for a service task, bounded so a stuck task fails the test instead of hanging.
+///
+/// This awaits the task rather than spinning on yields: a loaded runner can keep the task
+/// from being scheduled within a fixed number of yields even though it is about to stop.
 async fn join(task: Option<JoinHandle<()>>) {
     let Some(task) = task else {
         return;
     };
-    for _ in 0..10_000 {
-        if task.is_finished() {
-            let _ = task.await;
-            return;
-        }
-        tokio::task::yield_now().await;
+    match tokio::time::timeout(std::time::Duration::from_secs(10), task).await {
+        Ok(Ok(())) => {}
+        Ok(Err(err)) => panic!("a service task failed: {err}"),
+        Err(_) => panic!("services did not stop"),
     }
-    panic!("services did not stop");
 }
