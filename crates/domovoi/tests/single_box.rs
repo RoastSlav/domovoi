@@ -53,6 +53,16 @@ mod tests {
             if local_agent {
                 let root = dir.join("root");
                 std::fs::create_dir_all(root.join("proc")).unwrap();
+                let state = dir.join("agent-state");
+                if !state.join("action-journal.json").exists() {
+                    domovoi_agent::Journal::init(
+                        &state,
+                        jiff::Timestamp::UNIX_EPOCH,
+                        "test-boot",
+                        1,
+                    )
+                    .unwrap();
+                }
                 let agent = dir.join("agent.toml");
                 std::fs::write(
                     &agent,
