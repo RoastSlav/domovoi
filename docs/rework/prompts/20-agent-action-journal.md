@@ -559,10 +559,66 @@ Under `agent.state_dir`:
 | File | Content |
 |---|---|
 | `action-journal.bin` | append-only framed records |
-| `action-journal.json` | `{ "format": 1, "epoch": "<uuid>", "pruned": false }`, written atomically, mode 0600 |
+| `action-journal.json` | metadata, defined below, mode 0600 |
 
-`action-journal.json` is created together with the journal, before the first record. A missing meta file
-with a non-empty journal is corruption, not a new epoch (see 10.6).
+The metadata object is the single source of truth for the epoch, the pruning marker and the
+current boot's first-load time:
+
+```json
+{
+  "format": 1,
+  "epoch": "018f3c1e-7a2b-7c3d-8e4f-5a6b7c8d9e0f",
+  "pruned": false,
+  "boot": {
+    "boot_id": "5f0c2c6a-1f4e-4a1b-9d3e-2b7c8a9d0e11",
+    "first_load_mono_ns": 1845000000
+  }
+}
+```
+
+- `format` is the metadata schema version, `1`. An unsupported value is corruption: fail closed.
+- `epoch` is the journal epoch (10.2).
+- `pruned` is the sticky pruning marker (10.6). It is `false` at creation and becomes `true`
+  permanently on the first prune, until an explicit local reset starts a new journal with a new epoch.
+- `boot` is the boot-load state `11.3` requires. `boot_id` is the value from
+  `/proc/sys/kernel/random/boot_id`, and `first_load_mono_ns` is `/proc/uptime` in nanoseconds at the
+  moment this agent process first loaded the journal on that boot.
+  - It is written when the journal is created, and again only when the current `boot_id` differs from
+    the stored one, at the first load of that boot.
+  - An ordinary process restart on the same boot leaves it untouched, so a restart inside the
+    reboot-recovery window cannot restart the window.
+  - It survives the restart because it lives in this file, not in memory.
+- Every metadata writer produces the complete object from the in-memory state. Never patch a single
+  key on disk and never write a literal `false` for `pruned`: a boot-load update must carry the
+  current sticky value forward.
+
+**Atomic, durable write procedure.** All metadata updates use exactly this sequence, in this order:
+
+1. serialise the complete metadata object;
+2. create `action-journal.json.tmp` in the same directory with mode 0600 and write the bytes;
+3. `fsync` the temporary file;
+4. `rename` it over `action-journal.json`;
+5. `fsync` the parent directory, so the rename itself is durable;
+6. only now treat the update as committed.
+
+`fs_atomic::write_atomic` already does the temporary file and rename; extend it (or add a
+`write_atomic_durable` used only by the journal) to `fsync` the directory after the rename, without
+changing the behaviour of existing callers. A metadata update that fails at any step is not committed:
+report the error and keep the previous file.
+
+**Corrupt metadata.** Missing, malformed, unsupported `format`, wrong field type, a `pruned` value that
+is not a boolean, or unreadable bytes are corruption:
+
+- fail closed exactly as 10.6 describes: refuse mutations with `refused{code: journal_corrupt}`,
+  keep reads working, and require the explicit local reset;
+- answer `outcome_unknown{journal_lost}` for every absent execution id, because the pruning marker
+  cannot be trusted;
+- never regenerate the epoch, never clear `pruned`, never fall back to an in-memory default, and never
+  delete the file.
+
+A fresh install is the only case where a new metadata file and epoch are created: both files absent,
+or the journal file absent or zero-length with no records to lose. A missing metadata file beside a
+non-empty journal is corruption, not a new epoch (10.6).
 
 ### 10.2 Epoch
 
@@ -571,6 +627,8 @@ with a non-empty journal is corruption, not a new epoch (see 10.6).
 - It changes only when the journal is explicitly reset (`domovoi agent journal reset`) or irrecoverably
   replaced by that same local action.
 - It never changes on restart, upgrade, corruption or a failed write.
+- It lives only in `action-journal.json` (10.1). Missing or corrupt metadata never produces a new
+  epoch; only the explicit local reset does.
 - A query whose `expected_epoch` differs from the journal's is answered `outcome_unknown{journal_lost}`
   for every id. It is **never** `not_found`.
 
@@ -622,20 +680,35 @@ Ordering rules:
 
 ### 10.5 Crash windows
 
-Preserve every row of `04 15.2` exactly. The agent's answers and the hub outcome column are the
-contract; prompt 21 consumes the hub column.
+Reproduce `04 15.2` in full, including its **Hub outcome** column. The agent's answers and the hub
+column are the contract: prompt 20 implements the agent column, prompt 21 consumes the hub column, and
+prompt 46 owns row 8. Do not replace any expected behaviour with a different answer.
 
-| # | Scenario | Journal after restart | Answer |
-|---|---|---|---|
-| 1 | `accepted` durable, crash before launch | `accepted` | `outcome_unknown{no_start_record}` |
-| 2 | launched, crash before `started` durable | `accepted` | `outcome_unknown{no_start_record}` |
-| 3 | running, agent crashes | `accepted`, `started` | pid check, kill group if it matches, then `outcome_unknown{agent_restarted}` |
-| 4 | finished, crash before `finished` durable | `accepted`, `started` | same as 3 |
-| 5 | `finished` durable, hub lost the reply | `finished` | `finished(result)` |
-| 6 | hub received the result, crashed before commit | `finished` | `finished(result)` |
-| 7 | journal corrupt, replaced or id older than retention | - | `outcome_unknown{journal_lost}` |
-| 8 | agent restarts with active containment | containment records | not this prompt; leave the seam |
-| 9 | request never reached the agent | none | `not_found` |
+| # | Scenario | Agent journal after restart | `action_status` answer | Hub outcome |
+|---|---|---|---|---|
+| 1 | `accepted` durable, crash before launch | `accepted` only | `outcome_unknown{no_start_record}` | OutcomeUnknown (indistinguishable from #2) |
+| 2 | launched, crash before `started` durable | `accepted` only | `outcome_unknown{no_start_record}` | OutcomeUnknown |
+| 3 | running, agent crashes | `accepted`, `started{pid,t0}` | agent checks pid + start time: alive orphan -> kill group, record `abandoned`; either way `outcome_unknown{agent_restarted}` | OutcomeUnknown |
+| 4 | process finished, crash before `finished` durable | `accepted`, `started` | same as #3 | OutcomeUnknown |
+| 5 | `finished` durable, hub lost reply | `finished{result}` | `finished(result)` | result committed |
+| 6 | hub received result, crashed before commit | `finished{result}` | `finished(result)` (within retention) | result committed |
+| 7 | journal corrupt, replaced (new epoch) or id older than retention | - | `outcome_unknown{journal_lost}` / epoch mismatch | OutcomeUnknown |
+| 8 | agent restarts with active containment | containment records | agent lists nft elements, reconciles, reports active set | hub updates containment state; kernel timeouts unaffected |
+| - | request never reached agent | no record, epoch matches | `not_found` | NotRun |
+
+- Row 8 is the expected contract, not work in this prompt. Prompt 46 owns containment reconciliation
+  and its test; prompt 20 neither implements nor tests it.
+- Row 6's "within retention" means the `finished` record is still present. If pruning removed it, the
+  answer is `outcome_unknown{journal_lost}` and the hub outcome is OutcomeUnknown (G13); that is the
+  conservative reading of the same row, not a different behaviour.
+- The last row is `not_found` only while the journal has never pruned (10.6); after pruning it becomes
+  `outcome_unknown{journal_lost}` and the hub outcome becomes OutcomeUnknown.
+
+`04 15.2` adds the precise meaning of `running`, and it applies here unchanged: `running` is returned
+only by the agent instance that started the execution and still holds its connection to the skill
+runner or helper. When the agent restarts, the skill runner sees EOF and kills the skill's process
+group (RW-39), so under D-29 the orphan case in row 3 cannot occur for skills; the pid check remains
+for legacy root installs.
 
 ### 10.6 Persistence, framing and recovery
 
@@ -673,6 +746,38 @@ payload := UTF-8 JSON object with "kind" and "format": 1
   `accepted`-without-`finished` set. Pruning is allowed, but it permanently sets `meta.pruned` to
   `true` until a reset, because a pruned journal can no longer prove that a hub-generated id was never
   accepted.
+
+**Pruning ordering (crash-safe).** One `Mutex<JournalState>` guards every journal operation, reads and
+writes. `action_status`, acceptance, recovery and pruning all take that same mutex; there is no second
+lock and no lock-free read path. Pruning holds it for the whole sequence below, so an `action_status`
+query cannot observe a state where records have gone but `pruned` is still false.
+
+1. Acquire the journal mutex.
+2. Re-read the metadata from disk, or use the in-memory copy that was loaded under the same mutex.
+3. If `pruned` is already `true`, skip the marker write.
+4. Otherwise write `meta.pruned = true` with the complete metadata object, using the atomic, durable
+   procedure in 10.1 (temporary file, `fsync`, rename, directory `fsync`).
+5. Do not delete, truncate or compact a single record until step 4 has returned after the directory
+   `fsync`. A failure at any point in step 4 aborts pruning: keep every record, keep the previous
+   metadata, and report the error. Never delete first and mark afterwards.
+6. Only now remove records, by rewriting the kept records into a temporary journal file, `fsync`ing it,
+   renaming it over `action-journal.bin`, and `fsync`ing the directory. A crash before the rename
+   leaves the old file intact; a crash after it leaves the kept records.
+7. Release the mutex.
+8. `meta.pruned` stays `true` for the life of this epoch. Only `domovoi agent journal reset` (11.6)
+   starts a new epoch with `pruned = false`.
+
+Crash semantics: a crash after step 4 and before step 6 completes leaves `pruned = true` with some or
+all records still present. That is safe and intended: the next startup answers
+`outcome_unknown{journal_lost}` for every absent id, even though nothing was removed. A little
+unnecessary `OutcomeUnknown` is acceptable; a false `NotRun` is not. A restart in that state never
+clears the marker; only the local reset does.
+
+`action_status` and pruning share the mutex, so the last observable states are only "not pruned" or
+"pruned", never a mix. If a query is already holding the mutex, pruning waits for it, and the query
+sees the pre-prune journal; if pruning holds it, the query sees the post-prune state. Both are
+consistent.
+
 - `not_found` requires a matching epoch and `meta.pruned == false`. In that state the journal has
   recorded every acceptance since its creation, so an absent id is positive evidence that the request
   never arrived. Once `pruned` is true, every absent id with a matching epoch answers
@@ -739,9 +844,11 @@ dependency; the `nix` workspace dependency would need its `time` feature, which 
 - Same `boot_id`: age = `mono_now - mono_ns`. Negative age is corruption of the clock, not a fresh
   window; treat it as age 0 and log once.
 - Different `boot_id`: age is unknown. The entry counts until the current boot's monotonic clock shows
-  one full window elapsed **since the agent first loaded it after this boot**. Persist that load time
-  in the journal meta (one field, updated on the first load of a boot) so a restart during the window
-  does not reset it.
+  one full window elapsed **since the agent first loaded it after this boot**. That load time is
+  `meta.boot.first_load_mono_ns`, written with `meta.boot.boot_id` exactly once per boot (10.1), so a
+  restart during the window does not reset it. An ordinary process restart on the same boot finds the
+  stored `boot_id` equal and leaves both fields untouched. A failed or corrupt metadata write is
+  corruption: no mutation proceeds and no absent id becomes `not_found`.
 - A reboot therefore never opens an unrestricted window, and a pre-reboot entry is retained for at
   least a full window.
 - Wall time is diagnostics only. Roll it back, forward or freeze it: the limiter does not move.
@@ -902,6 +1009,17 @@ Name tests after the behaviour. Keep the exact names below where they are given 
 - `interior_checksum_mismatch_fails_closed`
 - `not_found_requires_an_unpruned_journal`
 - `not_found_is_unavailable_after_pruning`
+- `crash_after_prune_marker_before_record_removal_is_safe`
+- `crash_during_record_pruning_after_marker_is_safe`
+- `metadata_write_failure_prevents_pruning`
+- `action_status_cannot_race_a_prune`
+- `restart_after_prune_crash_never_returns_false_not_found`
+- `metadata_round_trips_boot_load_state`
+- `boot_load_state_survives_process_restart`
+- `boot_load_state_written_once_per_boot`
+- `metadata_update_preserves_pruned_flag`
+- `corrupt_metadata_fails_closed`
+- `failed_metadata_write_never_enables_not_found`
 - `journal_reset_starts_a_new_epoch`
 - `journal_reset_is_local_only`
 - `signal_spool_is_independent_of_the_action_journal`
@@ -988,7 +1106,14 @@ CI runs the full suite; do not run the whole workspace locally by default.
 - `hello` and `agent_status` carry every extension with honest values: `absent`, `None`, empty, and
   `runs_as_root` from the real uid.
 - The journal is durable, framed, epoch-scoped, idempotent and restart-safe, and every crash window in
-  `04 15.2` (except row 8) has a passing named test.
+  `04 15.2` (except row 8) has a passing named test. The full five-column table is reproduced in
+  10.5; row 8's implementation and test belong to prompt 46.
+- The metadata file carries `format`, `epoch`, the sticky `pruned` marker and the current boot's
+  `boot_id` + `first_load_mono_ns`. Every update uses the one atomic, durable procedure and preserves
+  `pruned`; corrupt metadata fails closed and never regenerates the epoch.
+- Pruning durably sets `pruned = true` before any record is removed, under the journal mutex, and a
+  crash at either point never produces a false `not_found`. No record path can remove records while
+  the marker is still false on disk.
 - Only a physically incomplete final frame is truncated. A complete frame with a bad checksum, invalid
   JSON, an unsupported format or invalid ordering fails closed and needs a local reset, at the end of
   the file as anywhere else.
