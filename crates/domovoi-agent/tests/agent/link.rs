@@ -349,7 +349,8 @@ async fn welcome_from_any_hub_release_is_accepted() {
         None,
     )
     .await;
-    let (first, _) = advancing(&clock, SignedDuration::from_secs(1), conn.expect()).await;
+    // The hub initiates the heartbeat, so answer without advancing the clock.
+    let first = guard(conn.expect()).await;
     assert!(
         matches!(first.message, Message::Pong(_)),
         "the session starts and answers the hub's heartbeat"
@@ -399,7 +400,8 @@ async fn unparsable_hub_release_still_connects() {
         None,
     )
     .await;
-    let (first, _) = advancing(&clock, SignedDuration::from_secs(1), conn.expect()).await;
+    // The hub initiates the heartbeat, so answer without advancing the clock.
+    let first = guard(conn.expect()).await;
     let kind = first.message;
     assert!(
         matches!(kind, Message::Pong(_)),
@@ -484,7 +486,8 @@ async fn heartbeat_drops_link_after_three_missed_pongs() {
         None,
     )
     .await;
-    let (pong, _) = advancing(&clock, SignedDuration::from_secs(1), conn.expect()).await;
+    // The hub initiates the heartbeat, so answer without advancing the clock.
+    let pong = guard(conn.expect()).await;
     assert!(matches!(pong.message, Message::Pong(_)));
 
     // With no hub ping for three intervals, the agent treats the link as dead and closes it.
