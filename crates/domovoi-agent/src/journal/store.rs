@@ -366,13 +366,9 @@ pub(super) fn kill_process_group(pid: u32) {
     use nix::sys::signal::{Signal, killpg};
     use nix::unistd::Pid;
     let group = Pid::from_raw(pid as i32);
+    // Signal the whole group to stop, then stop it outright. A grace period would need a
+    // clock the journal does not own, and the shipped unit's cgroup already reaps leftovers.
     let _ = killpg(group, Signal::SIGTERM);
-    for _ in 0..20 {
-        std::thread::sleep(std::time::Duration::from_millis(100));
-        if !std::path::Path::new(&format!("/proc/{pid}")).exists() {
-            return;
-        }
-    }
     let _ = killpg(group, Signal::SIGKILL);
 }
 

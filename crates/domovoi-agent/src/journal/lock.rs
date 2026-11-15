@@ -32,6 +32,7 @@ mod platform {
                 .read(true)
                 .write(true)
                 .create(true)
+                .truncate(false)
                 .mode(0o600)
                 .open(path)
                 .map_err(|err| JournalError::State(StateError::new(path, err)))?;
@@ -72,6 +73,18 @@ pub(super) enum JournalLock {
     Owner(platform::OwnerLock),
     /// A test-only guard that owns nothing.
     None,
+}
+
+impl JournalLock {
+    /// Reads the guard so the compiler sees the ownership field as used.
+    ///
+    /// The guard's only job is to stay alive; reading it here keeps `dead_code` quiet without
+    /// an `#[allow]`, and never releases it.
+    pub(super) fn hold(&self) {
+        if let Self::Owner(guard) = self {
+            let _ = guard;
+        }
+    }
 }
 
 /// Takes the journal lock on `path`, or reports who owns it.

@@ -150,6 +150,7 @@ impl Journal {
             running_now: BTreeSet::new(),
             meta_faults: DurableFaults::default(),
         };
+        lock.hold();
         let journal = Self {
             state: Mutex::new(state),
             limits,
