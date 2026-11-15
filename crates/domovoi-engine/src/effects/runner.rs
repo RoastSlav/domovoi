@@ -91,9 +91,9 @@ impl EffectRunner {
         let mut in_flight = JoinSet::new();
         // Which effect each running handler task holds, so a task that dies without a result
         // can be named in the log.
-        let mut running: BTreeMap<EffectId, TaskId> = BTreeMap::new();
+        let mut running = Running::default();
         while !self.deps.shutdown.is_cancelled() {
-            while let Some(finished) = in_flight.try_join_next() {
+            while let Some(finished) = in_flight.try_join_next_with_id() {
                 joined(finished, &mut running);
             }
             let now = self.deps.clock.now();
@@ -117,6 +117,10 @@ impl EffectRunner {
                     continue;
                 }
             };
+            // The claim pass spends its limit on selected candidates, whether it claimed them
+            // or dead-lettered them, so both count towards a full batch.
+            let processed = batch.claimed.len() + batch.dead.len();
+            let full = processed >= usize::from(self.settings.batch);
             for record in batch.dead {
                 let error = record
                     .last_error
@@ -124,7 +128,6 @@ impl EffectRunner {
                     .unwrap_or_else(|| "attempt limit reached".to_owned());
                 self.raise(&record, &error, now).await;
             }
-            let full = batch.claimed.len() >= usize::from(self.settings.batch);
             for claimed in batch.claimed {
                 let Some(handler) = EffectKind::parse(&claimed.record.kind)
                     .and_then(|kind| self.handlers.get(&kind))
@@ -142,16 +145,15 @@ impl EffectRunner {
                 let task = in_flight.spawn(async move {
                     let outcome = handler.handle(&record, claimed.token).await;
                     apply(&deps, record, claimed.token, outcome).await;
-                    id
                 });
-                running.insert(id, task.id());
+                running.start(task.id(), id);
             }
             if full {
                 continue;
             }
             self.wait(self.settings.poll).await;
         }
-        while let Some(finished) = in_flight.join_next().await {
+        while let Some(finished) = in_flight.join_next_with_id().await {
             joined(finished, &mut running);
         }
     }
@@ -177,24 +179,45 @@ impl EffectRunner {
     }
 }
 
+/// Which effect each running handler task holds.
+///
+/// Keyed by task, never by effect: a handler that outlives its lease leaves one generation in
+/// flight while the runner reclaims the effect and starts another, so the same effect can have
+/// two tasks at once. Finishing one must never drop the other one's identity.
+#[derive(Default)]
+pub(super) struct Running(BTreeMap<TaskId, EffectId>);
+
+impl Running {
+    /// Records that `task` is handling `effect`.
+    pub(super) fn start(&mut self, task: TaskId, effect: EffectId) {
+        self.0.insert(task, effect);
+    }
+
+    /// Forgets exactly this task and returns the effect it held, if it was tracked.
+    pub(super) fn finish(&mut self, task: TaskId) -> Option<EffectId> {
+        self.0.remove(&task)
+    }
+
+    /// How many task generations are still in flight.
+    #[cfg(test)]
+    pub(super) fn len(&self) -> usize {
+        self.0.len()
+    }
+}
+
 /// Consumes one finished handler task.
 ///
 /// A handler that panicked, or that was cancelled, produced no outcome: its effect stays
 /// claimed exactly as it was, and only the lease expiry or the next start may reclaim it.
-/// The failure is logged at error level so it is not silently discarded.
-fn joined(result: Result<EffectId, JoinError>, running: &mut BTreeMap<EffectId, TaskId>) {
+/// The failure is logged at error level so it is not silently discarded, naming the effect
+/// that this exact task held.
+fn joined(result: Result<(TaskId, ()), JoinError>, running: &mut Running) {
     match result {
-        Ok(effect) => {
-            running.remove(&effect);
+        Ok((task, ())) => {
+            running.finish(task);
         }
         Err(err) => {
-            let held = running
-                .iter()
-                .find(|(_, task)| **task == err.id())
-                .map(|(effect, _)| *effect);
-            if let Some(effect) = held {
-                running.remove(&effect);
-            }
+            let held = running.finish(err.id());
             if err.is_cancelled() {
                 tracing::error!(
                     effect = ?held,
