@@ -336,6 +336,8 @@ pub enum RefusalCode {
     PolicyRequiresVerifiedSafety,
     ContractUnknown,
     ContractVersionUnsupported,
+    /// The action journal is corrupt; only a local owner reset recovers (11.5).
+    JournalCorrupt,
 }
 
 pub enum RefusalScope {
@@ -347,6 +349,9 @@ pub enum RefusalScope {
 `03 RW-42` lists `refused{code, detail, retry_after?}` and `03 RW-38` requires `scope` on a rate-limit
 refusal. `scope` is therefore an additive optional field; see G6. A refusal ends that execution and
 must not end the session.
+
+`JournalCorrupt` exists because `03 RW-38` names `journal_corrupt` as a refusal the agent sends; the
+serialised value is `journal_corrupt`, and `Open<RefusalCode>` keeps any later code decodable.
 
 ### 8.2 `action_status`
 
@@ -479,9 +484,20 @@ largest report in `04b` is far below that and the cap keeps a hostile peer from 
 
 ### 8.6 `unsupported`
 
-Already exists as `Unsupported { kind: String }`. `03 RW-42` writes `unsupported{type}`. Keep the
-existing field name `kind`, because it is already in the 1.1 golden frames and matches the envelope's
-`kind`; record the discrepancy in the PR description rather than renaming a shipped field. See G10.
+Protocol 1.2 carries `unsupported{type}`. That is the authoritative field name in both `03 RW-42` and
+`04 12`; 1.1 shipped `Unsupported { kind }`, and that name is not carried forward.
+
+- `type` is a Rust keyword, so the Rust field is named `type_name` and renamed on the wire:
+  `pub struct Unsupported { #[serde(rename = "type")] pub type_name: String }`. The golden frame pins
+  the wire name `type`, not the Rust identifier.
+- 1.2 is one coordinated exact-version upgrade: a 1.1 agent is rejected by the 1.2 hub (`04 12`), so
+  there is no peer that still sends `kind` and no compatibility reason to keep it. Do not add a serde
+  alias that accepts both; one field name per protocol version.
+- Preserve the 1.1 golden frames unchanged as historical fixtures. They stop being generated from the
+  live sample set: move the 1.1 frames to literal JSON fixtures under
+  `crates/domovoi-proto/tests/protocol/fixtures/1_1/`, assert them byte for byte in
+  `golden_frames_stay_at_1_1`, and leave them untouched by the 1.2 type changes. `samples::all()` and
+  `every_message_kind_matches_its_wire_snapshot` become the 1.2 suite. See G10.
 
 ### 8.7 `ping`
 
@@ -505,7 +521,7 @@ beyond the ping source, stop and report instead of half-implementing it.
 
 ## 9. Tolerant decoding, `Open<T>` and the session
 
-1. Keep `Message::Unknown` for an unknown `kind`, and keep answering `unsupported{kind}`.
+1. Keep `Message::Unknown` for an unknown `kind`, and keep answering `unsupported{type}`.
 2. The session continues after an unsupported request. A test proves it (`unsupported_message_does_not_end_session`).
 3. Add `Open<T>` in `domovoi-proto`:
 
@@ -543,7 +559,7 @@ Under `agent.state_dir`:
 | File | Content |
 |---|---|
 | `action-journal.bin` | append-only framed records |
-| `action-journal.json` | `{ "format": 1, "epoch": "<uuid>", "retained_from": "<uuid>", "boot_id_written": "<uuid?>" }`, written atomically, mode 0600 |
+| `action-journal.json` | `{ "format": 1, "epoch": "<uuid>", "pruned": false }`, written atomically, mode 0600 |
 
 `action-journal.json` is created together with the journal, before the first record. A missing meta file
 with a non-empty journal is corruption, not a new epoch (see 10.6).
@@ -580,23 +596,29 @@ Ordering rules:
 - `finished` is durable before the reply is written. A reply that was lost is recoverable from the
   journal; a result that was never recorded is not a result.
 - Never infer success from a process exit. Only a durable `finished` record is success.
-- Never infer `NotRun` from an empty journal unless the epoch matches and the id is inside retention.
+- Never infer `NotRun` from an empty journal unless the epoch matches and the journal has never pruned
+  (10.6).
 
 ### 10.4 `action_status` semantics
 
 | Journal state | Same process | After restart | Answer |
 |---|---|---|---|
-| `finished` | any | any, inside retention | `finished(result)` |
+| `finished` | any | any, record present | `finished(result)` |
 | `accepted`, no `started` | holds child? no | yes | `outcome_unknown{no_start_record}` |
 | `started`, no `finished` | holds the child handle | - | `running` |
 | `started`, no `finished` | - | yes | pid check, then `outcome_unknown{agent_restarted}` |
-| absent, epoch matches, inside retention | - | - | `not_found` |
-| absent, epoch differs or id below `retained_from` | - | - | `outcome_unknown{journal_lost}` |
+| absent, epoch matches, journal has never pruned | - | - | `not_found` |
+| absent, epoch matches, journal has pruned | - | - | `outcome_unknown{journal_lost}` |
+| absent, epoch differs | - | - | `outcome_unknown{journal_lost}` |
 
 - `running` is never returned after a restart, even when the recorded pid is alive.
 - An unknown id and an id outside retention are different answers. Collapsing them into `not_found`
   would turn "may have run" into "never ran", which is the exact failure this prompt exists to prevent.
 - `not_found` is positive evidence: the request never reached this journal.
+- The only positive evidence available today is "epoch matches and this journal has recorded every
+  acceptance since it was created". That holds only while the journal has never pruned. See 10.6 and
+  G13: the design provides no shared watermark that could prove membership for a hub-generated id
+  after pruning, so a pruned journal answers `outcome_unknown{journal_lost}` for every absent id.
 
 ### 10.5 Crash windows
 
@@ -624,26 +646,43 @@ record := u32_be(payload_len) || sha256(payload)[32] || payload
 payload := UTF-8 JSON object with "kind" and "format": 1
 ```
 
-- Maximum `payload_len`: 1 MiB. A larger declared length is corruption.
+- Maximum `payload_len`: 1 MiB. A declared length above that is corruption, never an incomplete frame.
 - Append with one write per record, then `fsync` the file before the step that depends on it. Keep a
   single writer; the journal is not shared across tasks without a mutex.
-- Startup: read sequentially. A final record that is short, or whose SHA-256 does not match, is a torn
-  tail: truncate to the last complete record and continue. That is safe precisely because `accepted` is
-  fsynced before the reply and the spawn, so a torn `accepted` was never acknowledged or started.
-- Any other inconsistency (bad magic by way of an unparseable length, wrong hash before the last
-  record, unknown `format`, a record that violates the ordering above) is corruption:
-  - stop accepting mutations, answer `refused{code: journal_corrupt}`;
+- Startup parses sequentially. A frame is either physically complete (the declared payload is fully
+  present) or it is not. Two outcomes follow:
+  - **Physically incomplete final frame.** Only these may be discarded: fewer than 4 bytes remain for
+    the length prefix, fewer than 32 bytes remain for the checksum, or fewer bytes remain for the
+    payload than the declared length. Truncate to the last complete frame and continue. That is safe
+    because `accepted` is fsynced before the reply and the spawn, so a record that was never fully
+    written was never acknowledged or started.
+  - **Everything else is corruption**, including a complete final frame whose SHA-256 does not match.
+    A complete frame with invalid JSON, an unsupported `format`, a missing or unknown `kind`, invalid
+    fields, or an ordering that breaks the lifecycle is corruption too. Never truncate a complete
+    record, including a final one: the bytes are all there, so a mismatch means damage, not a torn
+    write.
+- Corruption fails closed:
+  - stop accepting mutations and answer `refused{code: journal_corrupt, detail}`;
   - keep serving read-only requests;
   - report the journal state in `agent_status`/`hello` (add a `journal_state` field only if RW-42
     already implies one; otherwise report it through the existing `refused` detail and logs, and record
     the choice);
-  - never auto-repair, auto-truncate mid-file or start a new epoch.
-- Retention: keep at least 10 000 executions, and never drop an unresolved `accepted`-without-`finished`
-  set. Pruning advances `meta.retained_from` to the id of the oldest kept record. `retained_from` is
-  initialised to a fresh UUIDv7 at journal creation.
-- `not_found` requires `id >= retained_from` and a matching epoch. UUIDv7 ids sort chronologically, so
-  this is a sound "the journal existed before this id could have been dispatched and still holds the
-  window" check. Do not use wall-clock age for it.
+  - never auto-repair, never truncate at or before a complete frame, and never start a new epoch;
+  - recovery requires the explicit local `domovoi agent journal reset` (11.6).
+- Retention: keep at least 10 000 executions and never drop an unresolved
+  `accepted`-without-`finished` set. Pruning is allowed, but it permanently sets `meta.pruned` to
+  `true` until a reset, because a pruned journal can no longer prove that a hub-generated id was never
+  accepted.
+- `not_found` requires a matching epoch and `meta.pruned == false`. In that state the journal has
+  recorded every acceptance since its creation, so an absent id is positive evidence that the request
+  never arrived. Once `pruned` is true, every absent id with a matching epoch answers
+  `outcome_unknown{journal_lost}`; an absent id with a different epoch does the same.
+- Do not infer retention membership from wall time, monotonic time or UUID ordering. Execution ids are
+  generated by the hub, the epoch and any agent-side watermark are generated by the agent, and the
+  contracts guarantee neither synchronised clocks nor a shared generation order. See G13: if a future
+  contract supplies a hub-generated retention watermark, this rule may be relaxed; until then, no such
+  proof exists and the conservative answer stands. If a test or a reviewer asks for `not_found` after
+  pruning, stop and report rather than weakening this rule.
 - A record's `boot_id` mismatch on the same `mono_ns` is normal after a reboot; it never invalidates a
   record.
 
@@ -726,8 +765,10 @@ The design does not settle this (G6). Use this narrow rule:
 
 ### 11.5 Corruption
 
-- A torn tail record is discarded (10.6).
-- Any other corruption fails closed: every mutating request is refused
+- Only a physically incomplete final frame is discarded (10.6). That is the tail a crash can leave.
+- A complete final frame whose checksum does not match is corruption, not a torn tail. Never truncate
+  it. A complete frame with invalid JSON, an unsupported `format` or invalid fields is corruption too.
+- Any such corruption fails closed: every mutating request is refused
   (`refused{code: journal_corrupt, detail}`), read-only requests still work, and no reset happens
   automatically.
 - The condition is reported to the hub in the refusal detail and in local logs. Do not invent a new
@@ -760,15 +801,20 @@ implementer must do if the choice does not hold.
 | G1 | `run_capability` result shape and all new result payloads are unspecified | `03 RW-42`, `04 12` | 7.3's `CapabilityResult` with `outputs: BTreeMap<String, String>` | 24's contract needs typed non-string outputs and cannot express them as canonical strings |
 | G2 | `args`, `target`, `contract`, `version` encodings are unspecified | `03 RW-42` vs `work.rs` `RunSkill` | `BTreeMap<String, String>`, `TargetKey`, `String` (`<family>.<verb>`), `u32` | an existing type cannot represent a required target (for example a CIDR) without change |
 | G3 | `Open<T>` does not exist; which enums are open is unstated | `03 RW-17`, `03 RW-42` | 9.3: open data enums, closed authority/state enums | a closed enum later needs to accept values from a package |
-| G4 | journal framing, retention bound and compaction are unspecified | `03 RW-09`, `03 RW-38` | 10.6: length + SHA-256 framing, 10 000 executions, `retained_from` watermark | 10 000 is too small for a real host, or `retained_from` cannot be maintained without deleting unresolved records |
+| G4 | journal framing, retention bound and compaction are unspecified | `03 RW-09`, `03 RW-38` | 10.6: length + SHA-256 framing, 10 000 executions, a permanent `pruned` flag | 10 000 is too small for a real host, or retention cannot avoid dropping unresolved records |
 | G5 | no monotonic nanosecond source that survives a process restart | `03 RW-38` | `/proc/uptime` through `HostFs` | 10 ms resolution breaks a test or a `retry_after` bound |
 | G6 | `per_hour` vs `per_capability` aggregation and `retry_after` are unspecified; RW-42's `refused` has no `scope` while RW-38 requires one | `03 RW-38`, `03 RW-42` | 11.4, plus `scope: Option<RefusalScope>` | the owner states a different aggregation rule |
 | G7 | `retry_after` for earlier-boot entries is unspecified | `03 RW-38` | 11.4.4 | an entry's age cannot be bounded to one window |
 | G8 | RW-42 lists `hello.boot_id` although `HostFacts.boot_id` already exists | `03 RW-42`, `handshake.rs:65` | reuse `HostFacts.boot_id`; add no second field | a later consumer needs a boot id outside facts, in which case propose a 1.3 field |
 | G9 | RW-42 says `ping` is hub -> agent; 1.1 is agent -> hub | `03 RW-42`, `link/mod.rs:294-322` | 8.7: reverse the direction, both ends keep detection | the change spreads into prompt 14's availability or the presence state machine |
-| G10 | RW-42 writes `unsupported{type}`; 1.1 ships `Unsupported{kind}` | `03 RW-42`, `stream.rs:68` | keep `kind`; note the naming difference in the PR | a canonical document requires the literal `type` field |
+| G10 | RW-42 writes `unsupported{type}`; 1.1 ships `Unsupported{kind}` | `03 RW-42`, `04 12`, `stream.rs:68` | 1.2 uses the wire field `type` (Rust `type_name`); the 1.1 frames become frozen literal fixtures | a canonical document contradicts `type`, or a 1.1/1.2 interop requirement appears (there is none under the exact rule) |
 | G11 | RW-42 lists `hello.features` while 1.1 ships `capabilities: Vec<String>` | `03 RW-42`, `handshake.rs:164` | add `features`; leave `capabilities` in place for now, both empty | a consumer requires one field to be removed, which is a 1.3 change |
 | G12 | `agent_status`'s "report `journal_corrupt`" has no field | `03 RW-38`, `04 8.3` | report through the refusal detail and logs; no new field | a UI requirement needs it in `agent_status`; then add it to the frozen shape before 1.2 ships |
+| G13 | nothing proves a hub-generated execution id is inside the retention window after pruning: ids come from the hub, any watermark comes from the agent, and no shared clock or ordering is guaranteed | `03 RW-09` ("only when the epoch matches and the id is inside the journal retention window"), `04 15.2` | 10.6: `not_found` only while `meta.pruned == false`; after pruning every absent id is `outcome_unknown{journal_lost}` | a later contract supplies a hub-generated retention watermark, or the owner requires `not_found` after pruning |
+
+G13 is the reason this brief never claims retention membership is proven by UUID order or timestamps.
+The conservative answer is deliberate: `OutcomeUnknown` is recoverable by a human, a wrong `NotRun` is
+not. Do not "fix" it by adding a clock assumption.
 
 Do not resolve any of these by editing `03`, `04`, `04b`, `06`, `07` or `99`.
 
@@ -824,6 +870,8 @@ Name tests after the behaviour. Keep the exact names below where they are given 
 - `malformed_expected_safety_refused`
 - `unknown_enum_value_preserved`
 - `unsupported_message_does_not_end_session`
+- `unsupported_uses_type_field_in_1_2`
+- `unsupported_1_1_fixture_is_unchanged`
 - `attestation_roundtrip_over_wire`
 - `helper_identity_rejects_wrong_key_length`
 - `transfer_chunk_rejects_oversized_payload`
@@ -849,6 +897,11 @@ Name tests after the behaviour. Keep the exact names below where they are given 
 - `journal_reloads_after_restart`
 - `corrupt_journal_refuses_mutations`
 - `torn_tail_record_is_discarded_safely`
+- `truncated_final_record_is_discarded`
+- `complete_final_record_checksum_mismatch_fails_closed`
+- `interior_checksum_mismatch_fails_closed`
+- `not_found_requires_an_unpruned_journal`
+- `not_found_is_unavailable_after_pruning`
 - `journal_reset_starts_a_new_epoch`
 - `journal_reset_is_local_only`
 - `signal_spool_is_independent_of_the_action_journal`
@@ -865,6 +918,10 @@ Keep the exact RW-38 names:
 - `corrupt_journal_refuses_mutations`
 - `torn_tail_record_is_discarded_safely`
 
+`torn_tail_record_is_discarded_safely` is RW-38's name for the physically incomplete final frame. The
+three framing tests in 14.2 are the finer-grained cases: truncated tail discarded, complete checksum
+mismatch refused, interior checksum mismatch refused.
+
 Add:
 
 - `default_limit_is_thirty_per_hour`
@@ -880,13 +937,13 @@ Add:
 
 - Use a fault-injecting journal and a fake runner that can crash between steps, as `04 15.2` requires.
 - Extend `crates/domovoi-agent/tests/gates.rs`; never weaken it.
-- Review every accepted `insta` snapshot. A 1.1 snapshot must not be edited to look like 1.2.
+- Review every accepted `insta` snapshot. A 1.1 fixture must not be edited to look like 1.2.
 - If a public protocol type changes, run `cargo nextest run -E 'rdeps(domovoi-proto)'`.
 
 ## 15. Implementation order
 
 1. `domovoi-proto`: `Open<T>`, `Base64Bytes`, the new message types, the version constant.
-2. Protocol tests: 1.1 snapshots untouched, new 1.2 samples and snapshots, round-trip and tolerant
+2. Protocol tests: 1.1 fixtures untouched, new 1.2 samples and snapshots, round-trip and tolerant
    decoding tests.
 3. `domovoi-config`: `[mutation_limits]` and its schema test.
 4. `domovoi-agent`: journal module (epoch, framing, recovery, retention) with unit tests that do not
@@ -926,11 +983,20 @@ CI runs the full suite; do not run the whole workspace locally by default.
 
 - `PROTOCOL_VERSION` is `1.2`, the exact rule is unchanged, and the 1.1 fixtures still pass as history.
 - Every message family in `03 RW-42` exists, round-trips, and has a 1.2 golden frame.
+- 1.2 `unsupported` carries `type` on the wire, and the 1.1 fixtures are literal JSON that the type
+  changes did not touch.
 - `hello` and `agent_status` carry every extension with honest values: `absent`, `None`, empty, and
   `runs_as_root` from the real uid.
 - The journal is durable, framed, epoch-scoped, idempotent and restart-safe, and every crash window in
   `04 15.2` (except row 8) has a passing named test.
-- `action_status` never turns "may have run" into `not_found`.
+- Only a physically incomplete final frame is truncated. A complete frame with a bad checksum, invalid
+  JSON, an unsupported format or invalid ordering fails closed and needs a local reset, at the end of
+  the file as anywhere else.
+- `action_status` never turns "may have run" into `not_found`: absent ids are `not_found` only with a
+  matching epoch and an unpruned journal, and `outcome_unknown{journal_lost}` otherwise. No UUID
+  ordering or clock assumption is used as a retention proof.
+- `RefusalCode` contains `JournalCorrupt`, and every corruption path emits
+  `refused{code: journal_corrupt, detail}`.
 - The mutation limiter holds across restart, reboot and wall-clock rollback, fails closed on corruption,
   and is reset only by the local owner action.
 - No hub reconciliation, capability registry, policy engine, helper, containment or install workflow
