@@ -20,7 +20,7 @@ authoring standard).
 | Canonical docs | `07` carries the prompt 15 status correction from the previous task; this task changes only this map |
 | Migrations | `0001`–`0010`; next free number is `0011`, read from the directory at branch cut (`07 §7`) |
 | Protocol | `PROTOCOL_VERSION = 1.1` (`crates/domovoi-proto/src/version.rs:17`) |
-| Prompt documents | 18 of 51; 17 are waves A–F (`08`–`23` and `57`), plus `24-capability-contracts.md` |
+| Prompt documents | 20 of 51; waves A–F (`08`–`23` and `57`), plus `24-capability-contracts.md`, `25-capability-registry.md` and `39-policy-evaluator.md` |
 | Prompt 15 | merged into `overhaul-investigation` as #136 (`bca079d`); no migration (its columns came with `0006`) |
 
 **Delta: none material.** No inventory finding needs refreshing. Prompt 15 merged after Prompt 00 (#136),
@@ -153,16 +153,22 @@ identity resolution; a pure policy evaluator with locked Deny and hard limits.
 `CapabilityContract`, the index, ceiling summary, built-ins and the skill floor. It adds no table, no
 migration and no wire (`24:510-519`). Its dependency on 23 is ordering only (`24:7`). **Preserve it.**
 
+**25 and 39 exist.** `prompts/25-capability-registry.md` owns `Availability`, the registry and target
+libraries and the read-only inventory; `prompts/39-policy-evaluator.md` owns the pure evaluator, its
+publication helpers and the simulator. Each consumes 24's types and defines none of them again.
+
 **Already in code.** `ReadTool` (38 files), `PolicyLink` (5 files), skills manifests, `settings` table.
 `core/src/capability/` does not exist; no registry, no availability states, no evaluator.
 
 | ID | Remaining work | Owns / migration | Consumers | Named validation |
 |---|---|---|---|---|
-| 25 | Registry: availability (`Unavailable(helper_missing)`, `HostIncompatible`), catalogue from `get_catalog`, replace `PolicyLink` at the boundary, target identity resolution, read-only inventory UI, skill floor in `settings` | capability registry and `Availability`; no new table named (floor in `settings`) | 26, 41, 49 (index deps) | `disabled_capability_refused_at_boundary`, `target_identity_change_refused`, `container_name_grammar_enforced`; R-7 test |
+| 25 | Registry: availability (all eight states, `HostIncompatible`, `Unavailable(helper_missing)`), catalogue from `get_catalog` **plus the agent's answering handler and `hello.catalog_hash`**, replace `PolicyLink` at both boundaries, target identity resolution (`container:` full id; units refuse while R-8 is open), read-only inventory UI, skill floor under `host.<name>.floors` | capability registry, `Availability`, `TargetResolver` port; no new table (both switches in `settings`) | 26, 41, 49 (index deps) | `disabled_capability_refused_at_boundary`, `target_identity_change_refused`, `container_name_grammar_enforced`; R-7 test |
 | 39 | `domovoi_engine::policy::{evaluate, Decision, Rule}`: specificity order, locked Deny, hard limits, publication helpers, simulator entry point | evaluator API; **no migration** (40 stores versions) | 40, 43, 45 | all 22 tests of `04 §7.7` |
 
-**Dependencies.** 25 needs 23 + 24 + wire 1.2; 39 needs 24. Order between 25 and 39 is free (`07 §3`).
-**Components.** New `core/src/capability/`, `engine/src/policy/`, hub registry service, `web/src/features`
+**Dependencies.** 25 needs 23 + 24 + wire 1.2; 39 needs 24. Order between 25 and 39 is free (`07 §3`):
+39 does not depend on the registry, and 25 does not evaluate policy.
+**Components.** New `core/src/capability/`, `core/src/ports/{capability,target}.rs`, `engine/src/policy/`,
+`engine/src/targets/`, the hub registry service and the agent's catalogue handler, `web/src/features`
 inventory view; no new crate (`04 §1`).
 **Blockers.** None. Type: implementation. Model: 25 **L**, 39 **L** (security judgement), 24 M.
 
@@ -387,12 +393,15 @@ unattended use. `unit.restart` is not affected by this ADR.
 
 ## 12. Definitive document work list
 
-**Draft (33).** 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46,
+**Draft (31).** 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 40, 41, 42, 43, 44, 45, 46,
 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 58. No new IDs are needed: every remaining item already has an ID
-in `07 §2`. (38 IDs are planned for waves E–M; 24, 20, 21, 22 and 23 exist, so 33 are missing.)
+in `07 §2`. (38 IDs are planned for waves E–M; 20, 21, 22, 23, 24, 25 and 39 exist, so 31 are missing.)
 
 **Preserve unchanged (1).** `prompts/24-capability-contracts.md` — complete, correct dependency (23,
 ordering only), no schema or wire.
+
+**New in GH-1 (2).** `prompts/25-capability-registry.md` and `prompts/39-policy-evaluator.md` are
+written and reviewed against 24 and against each other; do not reopen their ownership boundaries.
 
 **Reconcile (0).** No E–M prompt document exists to reconcile, and Prompt 17 is already reconciled.
 
@@ -423,7 +432,7 @@ implementations launch later, one at a time, only when their merged dependencies
 | EF-1 | 20 | nothing (`03 RW-42` is the contract) | 13, 14, 15, 16, 17, 18, 19 all merged (13 #116 and 15 #136 are merged; 14, 16, 17, 18, 19 are not) | wire 1.2 and the agent journal are one contract |
 | EF-2 | 21, 22 | 20 | 20 merged; 22 also after 21 merged | hub-side M1 consumers of the journal |
 | EF-3 | 23 | 22 | 22 merged | boundary rules against the final authorization types |
-| GH-1 | 25, 39 | 24 (exists), 20 | 23 and 24 merged; 25 also after 20 merged | registry and evaluator, independent of each other |
+| GH-1 | 25, 39 (written) | 24 and 20 (25); 24 (39) | 39 after 24 merged; 25 after 23 and 24 merged (the wire 1.2 dependency arrives through the upstream chain) | registry and evaluator, independent of each other |
 | GH-2 | 26 | 22, 25 | 22 and 25 merged | needs `ExecutionId` and the registry |
 | GH-3 | 27 | 26 | 26 merged | Investigate operation and step approvals |
 | GH-4 | 28, 29 | 26 | 26 merged | SSE and use-case layer share hub wiring, not files |

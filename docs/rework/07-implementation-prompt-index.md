@@ -4,8 +4,8 @@ Each prompt is one branch and one pull request. The prompt files live in `prompt
 They are self-contained: copy one into a local coding model working in this repository.
 Shared-contract ownership and the standard blocks are in `prompts/README.md` and `prompts/_blocks.md`.
 
-**Status: partly written.** 18 of the 51 prompts in §2 have a prompt document: `08`–`24` and `57`.
-The other 33 are planned only; §6 classifies them and they must not be launched. A row in §2 is a plan,
+**Status: partly written.** 20 of the 51 prompts in §2 have a prompt document: `08`–`25`, `39` and `57`.
+The other 31 are planned only; §6 classifies them and they must not be launched. A row in §2 is a plan,
 not a brief: only an ID with a file under `prompts/` can be implemented. Gated prompts must not be
 launched until their gate is met. Readiness per milestone is in `06` (Readiness).
 
@@ -200,6 +200,7 @@ does not suspend the migration rule (§7) or the shared-file order (§1).
 | `ScriptDigest`, `SkillSummary::entry_script_digest` | 20 | 22, 25 |
 | `ExecutionId`, `Authorization`, plan hash v2 (manifest hash + entry digest) | 22 | 23, 26, 45 |
 | capability contract types | 24 | 25, 31, 39 |
+| capability registry, `Availability`, target identity | 25 | 26, 41, 49 |
 | trace schema (Rust and web fixtures) | 26 | 28, 30, 38, 52 |
 | SSE contract | 28 | 30, 36, 51 |
 | ContextSource port | 31 | 32, 35 |
@@ -253,7 +254,7 @@ Deferred items (`06`, "Deferred and after-v1") get no prompts.
 Every one of the 51 prompt IDs in §2 appears in exactly one group below. A row in §2 is a plan, not a
 brief: an ID without a file in `prompts/` cannot be launched, whatever its dependencies say.
 
-### 6.1 Written prompts (18)
+### 6.1 Written prompts (20)
 
 These have a file. A prompt here is launchable when the prompts in its **Depends on** column are merged
 into `overhaul-investigation` (§1 step 2) and its gate is met; having the file alone is not enough. The
@@ -281,13 +282,15 @@ row as pending or as still to be implemented.
 | 22 | `22-plan-hash-v2-and-authorization.md` | waiting: 20 and 21; consumes 20's `ScriptDigest` and `SkillSummary::entry_script_digest`; adds a migration, so take the next free number (§7) |
 | 23 | `23-single-execution-boundary.md` | waiting: 22; adds no migration |
 | 24 | `24-capability-contracts.md` | waiting: 23 to merge; the dependency is ordering only and adds no migration |
+| 25 | `25-capability-registry.md` | waiting: 23 and 24; consumes 20's 1.2 catalogue wire and `hello.catalog_hash`, owns `Availability`, replaces `PolicyLink`, adds no migration |
+| 39 | `39-policy-evaluator.md` | waiting: 24 only; the pure evaluator, its publication helpers and its simulator, with no migration and no wire change |
 
-### 6.2 Unwritten implementation prompts (25)
+### 6.2 Unwritten implementation prompts (23)
 
 No file yet. Each must be authored before its planned wave, and only then launched; its §2 row is a
 plan, not a brief.
 
-25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 48, 49, 50, 51, 52, 58.
+26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 40, 41, 42, 43, 48, 49, 50, 51, 52, 58.
 
 Prompt 33 is also a spike, but it is planned like the rest of this group: author it before its wave. Its
 only dependency is prompt 30, and it needs no environment of its own.
@@ -336,7 +339,7 @@ launchable until the gate below is satisfied.
 - **47** (`three-identities-helper-and-skill-runner`): needs O-30 answered and R-3, R-9 and R-10
   accepted.
 
-Counts: 18 written + 25 unwritten implementation + 4 research + 4 downstream = 51.
+Counts: 20 written + 23 unwritten implementation + 4 research + 4 downstream = 51.
 
 ## 7. Migration numbering
 
