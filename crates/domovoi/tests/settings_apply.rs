@@ -374,12 +374,14 @@ mod tests {
         wait_restarted(&hub.client, &hub.base).await;
 
         // Valid as settings, but the CLI model cannot be built: the preset's default
-        // program is not an absolute path.
+        // program is not an absolute path. The CLI settings need the password again, so
+        // this is a step-up save; what it tests is what happens to a config that cannot
+        // start, which comes after the password check.
         let broken = json!({
             "llm": { "primary": { "kind": "cli", "cli": { "preset": "claude" } } },
             "triage": { "enabled": true }
         });
-        let (status, body) = hub.save(broken, false).await;
+        let (status, body) = hub.save(broken, true).await;
         assert_eq!(status, 400, "{body}");
         assert!(
             body["message"]

@@ -2,8 +2,8 @@
 
 use axum::Json;
 use axum::extract::State;
-use axum::http::{StatusCode, header};
-use axum::response::IntoResponse;
+use axum::http::{HeaderMap, StatusCode, header};
+use axum::response::{IntoResponse, Response};
 use domovoi_core::ports::OutboundMessage;
 
 use super::dto_admin::{AdvisoryDto, DigestHostDto, DigestPreview};
@@ -134,19 +134,39 @@ pub(super) async fn healthz() -> &'static str {
     "ok"
 }
 
-/// Prometheus metrics.
+/// Prometheus metrics: readable by a logged-in session, or by a scraper holding the
+/// configured bearer token. Without either, 401.
 #[utoipa::path(
     get, path = "/metrics", operation_id = "metrics", tag = "system",
-    responses((status = 200, description = "Prometheus text format", body = String, content_type = "text/plain"))
+    responses(
+        (status = 200, description = "Prometheus text format", body = String, content_type = "text/plain"),
+        (status = 401, description = "No session and no valid bearer token", body = ErrorBody),
+    )
 )]
-pub(super) async fn metrics(State(state): State<ApiState>) -> impl IntoResponse {
+pub(super) async fn metrics(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    auth: Result<Authed, ApiError>,
+) -> Result<Response, ApiError> {
+    let token_ok = state
+        .deps
+        .config
+        .metrics
+        .token
+        .as_ref()
+        .is_some_and(|token| {
+            crate::ingest::auth::verify_bearer(token.value(), headers.get(header::AUTHORIZATION))
+        });
+    if !token_ok {
+        auth?;
+    }
     let body = state
         .deps
         .metrics
         .as_ref()
         .map(|render| render())
         .unwrap_or_default();
-    (
+    Ok((
         StatusCode::OK,
         [(
             header::CONTENT_TYPE,
@@ -154,4 +174,5 @@ pub(super) async fn metrics(State(state): State<ApiState>) -> impl IntoResponse 
         )],
         body,
     )
+        .into_response())
 }

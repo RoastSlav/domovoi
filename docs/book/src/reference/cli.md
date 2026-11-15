@@ -178,6 +178,50 @@ domovoi audit verify --config /etc/domovoi/hub.toml
 domovoi audit verify --last 1000
 ```
 
+### `domovoi restore <backup>`
+
+Installs a backup as the hub's database. It needs the hub stopped: the command takes the data directory's lock and refuses with `a hub is running on <dir>; stop it before restoring` while one holds it. It is an offline command; the web UI cannot restore.
+
+```sh
+domovoi restore /var/lib/domovoi/backups/domovoi-20261114T040000Z.db          # describe only
+domovoi restore /var/lib/domovoi/backups/domovoi-20261114T040000Z.db --yes    # do it
+```
+
+Without `--yes` it verifies the file in full and prints what would happen, then exits with code 2: nothing changes.
+
+With `--yes` it prepares the backup before touching the live database, and only then installs it:
+
+1. verifies the backup in full;
+2. copies it beside the database as `hub.db.restore-tmp`;
+3. makes the copy owner-only on Unix, and syncs the file and, on Unix, its directory;
+4. opens the copy and runs any pending migrations on it, so a backup older than this release is brought up to date before it becomes live;
+5. moves the current `hub.db` and its `-wal` and `-shm` to `hub.db.before-restore-<time>`;
+6. renames the prepared copy into place.
+
+A backup that cannot be opened or migrated therefore leaves the live database untouched. The previous database is never deleted. If installing the prepared copy fails, every move is reversed; if that reversal cannot finish, the command fails with an error naming each file that is still out of place.
+
+A rename is only durable once its directory is flushed, so on Unix the command flushes the directory three times: after preparing the copy, after moving the previous database aside, and after installing the new one. A failed flush is an error, and the stage it belongs to is undone — the backup is never installed when the previous database could not be recorded as moved aside, and the previous database is put back if the install could not be recorded. If the flush that would record the rollback fails too, the command says the result is not durable rather than reporting a clean failure.
+
+On Windows there is no portable directory fsync, so those flushes cannot run and do not fail; the final rename is not durable against a power loss, and the preserved `hub.db.before-restore-<time>` is what to fall back to. A database that will not open is kept as `hub.db.failed-restore-<time>`, or at `hub.db.restore-tmp` on Windows where the failed open still holds it.
+
+The restore is not crash-atomic. What it guarantees is that no failure deletes your previous database, and that any uncertain state is named in the error.
+
+| Argument | Meaning |
+| --- | --- |
+| `<BACKUP>` | The backup file to install. |
+| `--config <path>` | The hub's `hub.toml`; only its data directory is used. It defaults like every other command. |
+| `--yes` | Restore without asking. |
+
+It refuses a file that is damaged, is not a Domovoi database, has a migration that did not finish, was written by a newer release, or records a schema version newer than this binary can read. It changes nothing in that case.
+
+| Exit code | Meaning |
+| --- | --- |
+| 0 | Restored. |
+| 1 | Refused or failed; nothing changed, or the previous database was put back. |
+| 2 | Not confirmed: run again with `--yes`. |
+
+Afterwards, restore `secret.key` and `tls/` from the same time if they were lost, start the hub, and run `domovoi audit verify`.
+
 ### `domovoi audit head`
 
 Prints the newest chained audit row's sequence number and hash, or `no chained rows yet` when the chain has not started.
@@ -205,7 +249,25 @@ Builds from a source archive without `.git` print `unknown` as the commit, unles
 
 ## Metrics
 
-`GET /metrics` on the hub's web listener serves Prometheus text, with no login needed:
+`GET /metrics` on the hub's web listener serves Prometheus text. It needs a logged-in web session, or a bearer token configured in `hub.toml`:
+
+```toml
+[metrics]
+token = { env = "DOMOVOI_METRICS_TOKEN" }
+```
+
+The token is a secret like any other, so it comes from the environment or a file, never inline, and changing it in the web UI needs the admin's password again. Without a token, only a session reads the page; with one, a scraper sends it as `Authorization: Bearer <token>`. Anything else gets `401` with no metrics text.
+
+```yaml
+scrape_configs:
+  - job_name: domovoi
+    scheme: https
+    static_configs:
+      - targets: ["domovoi.example.net:7420"]
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/domovoi-metrics-token
+```
 
 | Metric | Labels | Meaning |
 | --- | --- | --- |
@@ -220,3 +282,4 @@ Builds from a source archive without `.git` print `unknown` as the commit, unles
 | `domovoi_notify_state_errors_total` | `op` | Notification state reads and writes that failed (`read`, `write`) |
 | `domovoi_event_bus_lagged_total` | `consumer` | Times a consumer fell behind the event bus |
 | `domovoi_incident_flaps_total` | | Incidents that resolved and fired again quickly |
+| `domovoi_backup_last_success_timestamp_seconds` | | When the nightly backup last succeeded |

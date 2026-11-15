@@ -3261,7 +3261,7 @@
         "tags": [
           "system"
         ],
-        "summary": "Prometheus metrics.",
+        "summary": "Prometheus metrics: readable by a logged-in session, or by a scraper holding the\nconfigured bearer token. Without either, 401.",
         "operationId": "metrics",
         "responses": {
           "200": {
@@ -3270,6 +3270,47 @@
               "text/plain": {
                 "schema": {
                   "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid bearer token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/readyz": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Readiness: 200 when the hub can do its job, 503 naming what it cannot.",
+        "operationId": "readyz",
+        "responses": {
+          "200": {
+            "description": "Ready",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadyzBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Not ready; the body names the failing checks",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadyzBody"
                 }
               }
             }
@@ -5072,6 +5113,27 @@
           "skill": {
             "type": "string",
             "description": "Skill name."
+          }
+        }
+      },
+      "ReadyzBody": {
+        "type": "object",
+        "description": "The body of `/readyz`.",
+        "required": [
+          "ready",
+          "failing"
+        ],
+        "properties": {
+          "failing": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The names of the checks that failed, in a fixed order; empty when ready."
+          },
+          "ready": {
+            "type": "boolean",
+            "description": "True when no check failed."
           }
         }
       },

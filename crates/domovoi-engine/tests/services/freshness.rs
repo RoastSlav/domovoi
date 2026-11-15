@@ -461,7 +461,7 @@ fn slow_service(world: &Seeded, settings: ActionSettings) -> Actions {
     });
     let shutdown = world.shutdown.child_token();
     let events = world.bus.subscribe();
-    let (service, _task) = ActionService::spawn(
+    let (service, action_task) = ActionService::spawn(
         ActionDeps {
             actions: world.store.clone(),
             incidents: world.store.clone(),
@@ -487,6 +487,7 @@ fn slow_service(world: &Seeded, settings: ActionSettings) -> Actions {
         bus: world.bus.clone(),
         incident: world.incident.clone(),
         shutdown,
+        action_task,
     }
 }
 

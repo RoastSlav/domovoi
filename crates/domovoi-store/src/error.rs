@@ -38,6 +38,14 @@ pub enum StoreOpenError {
     /// The database failed its integrity check.
     #[error("the database failed its integrity check ({0}); restore a backup")]
     Integrity(String),
+    /// A new backup did not verify and was removed; older backups are untouched.
+    #[error("{}: {reason}", path.display())]
+    Verify {
+        /// The backup that failed.
+        path: PathBuf,
+        /// What the check found.
+        reason: String,
+    },
 }
 
 /// Maps a query error: unique violations are conflicts, everything else is a backend error.

@@ -36,6 +36,8 @@ pub struct Actions {
     pub bus: broadcast::Sender<DomainEvent>,
     pub incident: Incident,
     pub shutdown: CancellationToken,
+    /// The action service's task, so a test can stop it as a crash would.
+    pub action_task: tokio::task::JoinHandle<()>,
 }
 
 impl Drop for Actions {
@@ -91,6 +93,8 @@ pub struct Seeded {
     pub shutdown: CancellationToken,
     pub incident: Incident,
     pub manager: ManagerHandle,
+    /// The manager's task, so a test can stop it as a crash would.
+    pub manager_task: tokio::task::JoinHandle<()>,
 }
 
 /// A world over a fresh in-memory store, with the service not started yet.
@@ -115,7 +119,7 @@ async fn seeded_over(store: Arc<InMemoryStore>) -> Seeded {
     IncidentRepo::insert(&*store, &incident).await.unwrap();
     let (bus, _events) = broadcast::channel(256);
     let shutdown = CancellationToken::new();
-    let (manager, _task) = IncidentManager::spawn(ManagerDeps {
+    let (manager, manager_task) = IncidentManager::spawn(ManagerDeps {
         incidents: store.clone(),
         uow: store.clone(),
         versions: store.clone(),
@@ -134,6 +138,7 @@ async fn seeded_over(store: Arc<InMemoryStore>) -> Seeded {
         shutdown,
         incident,
         manager,
+        manager_task,
     }
 }
 
@@ -158,7 +163,7 @@ impl Seeded {
             bus: self.bus.clone(),
             shutdown: shutdown.clone(),
         };
-        let (service, _task) = ActionService::spawn(deps, settings);
+        let (service, action_task) = ActionService::spawn(deps, settings);
         Actions {
             store: self.store.clone(),
             clock: self.clock.clone(),
@@ -168,6 +173,7 @@ impl Seeded {
             bus: self.bus.clone(),
             incident: self.incident.clone(),
             shutdown,
+            action_task,
         }
     }
 }

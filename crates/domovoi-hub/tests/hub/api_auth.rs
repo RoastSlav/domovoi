@@ -1,8 +1,82 @@
+use std::sync::Arc;
+
+use axum::Router;
+use axum::body::Body;
+use axum::extract::connect_info::MockConnectInfo;
 use axum::http::{Method, StatusCode, header};
+use domovoi_config::MapEnv;
+use domovoi_hub::api::ApiState;
+use domovoi_hub::router::router;
 use jiff::SignedDuration;
 use serde_json::json;
+use tower::ServiceExt;
 
-use crate::api_harness::{PASSWORD, USERNAME, api, login_of};
+use crate::api_harness::{PASSWORD, USERNAME, api, login_of, peer};
+
+/// The harness's app with `[metrics] token = { env = "DOMOVOI_METRICS_TOKEN" }` set to
+/// `token` through the environment.
+async fn with_metrics_token(a: &crate::api_harness::Api, token: &str) -> Router {
+    const TEXT: &str = "[metrics]\ntoken = { env = \"DOMOVOI_METRICS_TOKEN\" }\n";
+    let env = MapEnv::new().with("DOMOVOI_METRICS_TOKEN", token);
+    let mut config = domovoi_config::parse::<domovoi_config::HubConfig>(TEXT, &env)
+        .unwrap()
+        .0;
+    config.hub = a.state.deps().config.hub.clone();
+    let mut deps = a.state.deps().as_ref().clone();
+    deps.config = Arc::new(config);
+    router(
+        ApiState::new(deps, a.state.auth().clone()).with_shutdown(a.shutdown.clone()),
+        None,
+    )
+    .layer(MockConnectInfo(peer()))
+}
+
+async fn scrape(app: Router, token: Option<&str>) -> (StatusCode, String) {
+    let mut req = axum::http::Request::builder()
+        .method(Method::GET)
+        .uri("/metrics");
+    if let Some(token) = token {
+        req = req.header(header::AUTHORIZATION, format!("Bearer {token}"));
+    }
+    let response = app.oneshot(req.body(Body::empty()).unwrap()).await.unwrap();
+    let status = response.status();
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    (status, String::from_utf8_lossy(&bytes).into_owned())
+}
+
+#[tokio::test]
+async fn metrics_requires_a_session_or_the_bearer_token() {
+    let a = api().await;
+
+    // No token configured: a session works, a bearer header is ignored.
+    let session = a.admin().await;
+    assert_eq!(
+        a.get("/metrics", &session).await.status,
+        StatusCode::OK,
+        "a session reads metrics"
+    );
+    let (status, body) = scrape(a.app.clone(), Some("anything")).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "no token is configured");
+    assert!(!body.contains("domovoi_up"), "{body}");
+    assert_eq!(
+        a.send(Method::GET, "/metrics", None, None).await.status,
+        StatusCode::UNAUTHORIZED
+    );
+
+    // A token configured: the right one works without a session, a wrong one never does.
+    let app = with_metrics_token(&a, "scrape-secret").await;
+    let (status, body) = scrape(app.clone(), Some("scrape-secret")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("domovoi_up 1"), "{body}");
+    let (status, body) = scrape(app.clone(), Some("wrong")).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert!(!body.contains("domovoi_up"), "{body}");
+    let (status, body) = scrape(app.clone(), None).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert!(!body.contains("domovoi_up"), "{body}");
+}
 
 #[tokio::test]
 async fn setup_token_is_single_use_and_creates_admin() {

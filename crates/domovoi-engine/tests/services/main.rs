@@ -31,6 +31,8 @@ mod harness;
 #[cfg(test)]
 mod limits;
 #[cfg(test)]
+mod liveness;
+#[cfg(test)]
 mod plan_binding;
 #[cfg(test)]
 mod profile;

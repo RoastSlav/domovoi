@@ -4,6 +4,7 @@ mod accounts;
 mod actions;
 mod admission;
 mod audit;
+mod health;
 mod hosts;
 mod incidents;
 mod knowledge;

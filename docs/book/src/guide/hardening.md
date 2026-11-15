@@ -10,6 +10,26 @@ Domovoi's defaults are safe on a home network. Before you expose the web UI beyo
 - **Use a long password.** After five failed logins in a minute an address is locked out, and each further lockout doubles, up to 15 minutes.
 - Do not put the UI on the open internet without something in front of it, such as a VPN, Tailscale, or your proxy's single sign-on.
 
+## Settings that need the password again
+
+A stolen session is not enough to widen what the hub trusts. Saving a change to any of these asks for the admin's password again, even while logged in:
+
+| Setting | Why |
+| --- | --- |
+| `discord.allowed_user_ids` | Widens who can approve actions from chat. |
+| `web.trusted_proxies` | Changes which client addresses the hub trusts. |
+| `webhooks` and anything under it | Webhook secrets and sources decide who can raise incidents. |
+| `llm.<slot>.cli` (preset, command, args) | The program, and its arguments, the hub runs as the model. A stolen session could otherwise point it at any binary. |
+| `metrics` and anything under it | Who can read the hub's metrics, including the scraper token. |
+| `retention` and anything under it | How long data is kept. |
+| Any secret, set or cleared | Bot tokens, API keys, webhook secrets, heartbeat URLs and the metrics token. |
+
+A wrong password shares the login rate limit, so repeated attempts lock the address out as logins do. Publishing a policy version, enabling a capability package, starting an installation and turning autonomy back on will ask for the password too, once those features exist.
+
+## Reading metrics
+
+`GET /metrics` used to be open to anyone who could reach the web port. It now needs a web session or a bearer token from `[metrics] token`. A Prometheus scraper needs the token; see the [CLI reference](../reference/cli.md#metrics).
+
 A minimal Caddy site:
 
 ```text

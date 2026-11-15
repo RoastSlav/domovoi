@@ -7,6 +7,7 @@ mod digest;
 mod hub;
 mod hub_run;
 mod notify;
+mod restore;
 mod selftest;
 mod upgrade;
 mod version;
@@ -61,6 +62,8 @@ pub enum Command {
         #[arg(value_enum)]
         file: SchemaFile,
     },
+    /// Install a backup as the hub's database, offline.
+    Restore(restore::RestoreArgs),
     /// Replace this binary with a release and say what to restart.
     Upgrade(upgrade::UpgradeArgs),
     /// Print version and build information.
@@ -110,6 +113,7 @@ pub fn run(command: Command, logs: Arc<LogRing>) -> anyhow::Result<ExitCode> {
         Command::Selftest(args) => block_on(selftest::run(args)),
         Command::Digest(command) => block_on(digest::run(command)),
         Command::Audit(command) => block_on(audit::run(command)),
+        Command::Restore(args) => block_on(restore::run(args)),
         Command::Upgrade(args) => block_on(upgrade::run(args)),
     }
 }

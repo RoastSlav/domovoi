@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 use domovoi_config::HubConfig;
-use domovoi_core::ports::{AdvisoryRepo, BaselineRepo, Clock, HostRepo, SettingsRepo};
+use domovoi_core::ports::{AdvisoryRepo, BaselineRepo, Clock, HostRepo, Redactor, SettingsRepo};
 use domovoi_core::{AdvisoryKind, DigestFact};
 use domovoi_engine::ActionHandle;
 use domovoi_engine::advisories::{AdvisoryInputs, AgentVersion, HeartbeatStatus, evaluate};
@@ -46,18 +46,34 @@ pub(crate) struct Schedulers {
     updates: UpdateChecker,
     /// After a failed digest, when to try again.
     digest_retry_at: Arc<Mutex<Option<Timestamp>>>,
+    /// Removes configured secrets from text before it is logged or stored.
+    redactor: Arc<dyn Redactor>,
+}
+
+/// What every job shares beyond the configuration: time, the store, and the redactor.
+pub(crate) struct RuntimeContext {
+    /// Time for every schedule and every timestamp a job records.
+    pub(crate) clock: Arc<dyn Clock>,
+    /// The store the jobs read and write.
+    pub(crate) store: Arc<Store>,
+    /// Removes configured secrets from text before it is logged or stored.
+    pub(crate) redactor: Arc<dyn Redactor>,
 }
 
 impl Schedulers {
     pub(crate) fn new(
         config: Arc<HubConfig>,
-        clock: Arc<dyn Clock>,
-        store: Arc<Store>,
+        context: RuntimeContext,
         actions: ActionHandle,
         dispatcher: Dispatcher,
         digest: DigestDeps,
         updates: UpdateChecker,
     ) -> Self {
+        let RuntimeContext {
+            clock,
+            store,
+            redactor,
+        } = context;
         let heartbeat = HeartbeatStatus {
             configured: config.heartbeat.is_some(),
             failing_since: None,
@@ -79,6 +95,7 @@ impl Schedulers {
             http,
             updates,
             digest_retry_at: Arc::new(Mutex::new(None)),
+            redactor,
         }
     }
 
@@ -241,6 +258,7 @@ impl Schedulers {
                             | AdvisoryKind::DeliveryFailed
                             | AdvisoryKind::StoredSecretUnreadable
                             | AdvisoryKind::SettingsApplyFailed
+                            | AdvisoryKind::BackupFailed
                     )
                 })
         });
@@ -362,9 +380,13 @@ fn spawn_daily(
                         .dir
                         .clone()
                         .unwrap_or_else(|| runtime.config.hub.data_dir.join("backups"));
-                    if let Err(err) = runtime.store.backup_to(&dir, now).await {
-                        tracing::warn!(%err, "nightly backup failed");
-                    }
+                    super::backup_job::record_backup_result(
+                        &*runtime.store,
+                        &*runtime.redactor,
+                        now,
+                        runtime.store.backup_to(&dir, now).await,
+                    )
+                    .await;
                 }
             }
         }

@@ -178,6 +178,13 @@ impl ManagerHandle {
         self.send(Command::ClearFollowUps { incident, by }).await
     }
 
+    /// Whether the manager's task is still receiving commands. A closed queue means the
+    /// task ended, so commands sent now would be refused.
+    #[must_use]
+    pub fn is_alive(&self) -> bool {
+        !self.tx.is_closed()
+    }
+
     /// Pending incidents dropped before confirmation since the manager started.
     #[must_use]
     pub fn flaps(&self) -> u64 {
