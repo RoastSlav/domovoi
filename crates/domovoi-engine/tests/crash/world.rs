@@ -9,8 +9,8 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use domovoi_core::ports::{
-    ActionFilter, ActionRepo, AdvisoryRepo, CheckRecheck, Clock, EffectQueue, IncidentFilter,
-    IncidentRepo, Page, Presence, SkillOutput,
+    ActionFilter, ActionRepo, AdvisoryRepo, CheckRecheck, Clock, EffectQueue, EffectRead,
+    EffectStatus, IncidentFilter, IncidentRepo, Page, Presence, SkillOutput,
 };
 use domovoi_core::{
     ActionId, ActionRequest, ActionStatus, CheckKey, Evidence, HostId, Incident, IncidentId,
@@ -356,12 +356,14 @@ impl<S: SweepStore> World<S> {
                 self.service.expire_due().await.is_ok(),
                 "the writer stopped while waiting for it to go quiet"
             );
-            let moving = self.all_actions().await.iter().any(|action| {
-                matches!(
-                    action.status(),
-                    ActionStatus::Approved | ActionStatus::Dispatched
-                )
-            });
+            let verified = self.verification_pending().await;
+            let moving = verified
+                || self.all_actions().await.iter().any(|action| {
+                    matches!(
+                        action.status(),
+                        ActionStatus::Approved | ActionStatus::Dispatched
+                    )
+                });
             quiet = if moving { 0 } else { quiet + 1 };
             if quiet >= 15 {
                 return;
@@ -369,6 +371,24 @@ impl<S: SweepStore> World<S> {
             self.advance(1);
         }
         panic!("the services never went quiet");
+    }
+
+    /// Whether a verification is still to come: a wake effect that is claimed now, or due to
+    /// be claimed. The verdict it writes is a later commit, so services are not quiet yet.
+    async fn verification_pending(&self) -> bool {
+        let now = self.now();
+        for status in [EffectStatus::Claimed, EffectStatus::Pending] {
+            let Ok(rows) = EffectRead::effects_with_status(&*self.store, status, 500).await else {
+                return true;
+            };
+            if rows.iter().any(|row| {
+                row.kind == "wake"
+                    && (row.status == EffectStatus::Claimed.as_str() || row.not_before <= now)
+            }) {
+                return true;
+            }
+        }
+        false
     }
 
     /// Every stored action.

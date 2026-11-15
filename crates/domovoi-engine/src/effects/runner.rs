@@ -3,6 +3,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use domovoi_core::EffectId;
 use domovoi_core::ports::repos::AdvisoryRepo;
 use domovoi_core::ports::{
     ClaimToken, Clock, EffectDeath, EffectKind, EffectQueue, EffectRecord, EffectReschedule,
@@ -10,7 +11,7 @@ use domovoi_core::ports::{
 };
 use jiff::{SignedDuration, Timestamp};
 use tokio::sync::Notify;
-use tokio::task::JoinSet;
+use tokio::task::{Id as TaskId, JoinError, JoinSet};
 use tokio_util::sync::CancellationToken;
 
 use super::{EffectHandler, EffectOutcome, EffectSettings, backoff};
@@ -88,21 +89,27 @@ impl EffectRunner {
             return;
         }
         let mut in_flight = JoinSet::new();
+        // Which effect each running handler task holds, so a task that dies without a result
+        // can be named in the log.
+        let mut running: BTreeMap<EffectId, TaskId> = BTreeMap::new();
         while !self.deps.shutdown.is_cancelled() {
-            while in_flight.try_join_next().is_some() {}
+            while let Some(finished) = in_flight.try_join_next() {
+                joined(finished, &mut running);
+            }
             let now = self.deps.clock.now();
-            let batch = match self
-                .deps
-                .queue
-                .claim_due(
+            // A stopping hub stops claiming at once rather than waiting out a store call;
+            // anything already claimed is put back at the next start.
+            let claimed = tokio::select! {
+                () = self.deps.shutdown.cancelled() => break,
+                claimed = self.deps.queue.claim_due(
                     &self.runner_id,
                     &kinds,
                     now,
                     self.settings.lease,
                     self.settings.batch,
-                )
-                .await
-            {
+                ) => claimed,
+            };
+            let batch = match claimed {
                 Ok(batch) => batch,
                 Err(err) => {
                     tracing::warn!(%err, "could not claim due effects; trying again after the poll");
@@ -131,17 +138,22 @@ impl EffectRunner {
                 };
                 let deps = self.deps.clone();
                 let record = claimed.record;
-                in_flight.spawn(async move {
+                let id = record.id;
+                let task = in_flight.spawn(async move {
                     let outcome = handler.handle(&record, claimed.token).await;
                     apply(&deps, record, claimed.token, outcome).await;
+                    id
                 });
+                running.insert(id, task.id());
             }
             if full {
                 continue;
             }
             self.wait(self.settings.poll).await;
         }
-        while in_flight.join_next().await.is_some() {}
+        while let Some(finished) = in_flight.join_next().await {
+            joined(finished, &mut running);
+        }
     }
 
     /// Sleeps for `poll`, waking early on a nudge or shutdown.
@@ -161,6 +173,41 @@ impl EffectRunner {
         let advisory = effect_dead(record, error, now);
         if let Err(err) = self.deps.advisories.upsert(&advisory).await {
             tracing::warn!(%err, effect = %record.id, "could not raise the dead-effect advisory");
+        }
+    }
+}
+
+/// Consumes one finished handler task.
+///
+/// A handler that panicked, or that was cancelled, produced no outcome: its effect stays
+/// claimed exactly as it was, and only the lease expiry or the next start may reclaim it.
+/// The failure is logged at error level so it is not silently discarded.
+fn joined(result: Result<EffectId, JoinError>, running: &mut BTreeMap<EffectId, TaskId>) {
+    match result {
+        Ok(effect) => {
+            running.remove(&effect);
+        }
+        Err(err) => {
+            let held = running
+                .iter()
+                .find(|(_, task)| **task == err.id())
+                .map(|(effect, _)| *effect);
+            if let Some(effect) = held {
+                running.remove(&effect);
+            }
+            if err.is_cancelled() {
+                tracing::error!(
+                    effect = ?held,
+                    task = %err.id(),
+                    "an effect handler task was cancelled without a result; its effect stays claimed",
+                );
+            } else {
+                tracing::error!(
+                    effect = ?held,
+                    task = %err.id(),
+                    "an effect handler failed without a result; its effect stays claimed until its lease expires",
+                );
+            }
         }
     }
 }

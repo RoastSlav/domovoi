@@ -332,6 +332,97 @@ impl EffectHandler for Terminal {
     }
 }
 
+/// Panics every time it runs, so the effect can only leave `claimed` by its lease expiring.
+#[derive(Default)]
+struct Panics {
+    calls: AtomicU32,
+}
+
+#[async_trait]
+impl EffectHandler for Panics {
+    async fn handle(&self, _effect: &EffectRecord, _claim: ClaimToken) -> EffectOutcome {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        panic!("the handler blew up");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_handler_panic_leaves_the_effect_claimed_and_the_runner_running() {
+    let store = Arc::new(InMemoryStore::new());
+    let clock = Arc::new(FakeClock::new(T0));
+    let nudge = Arc::new(Notify::new());
+    let shutdown = CancellationToken::new();
+    let panicking = seed(&store, EffectKind::Wake, 3, T0).await;
+    let other = seed(&store, EffectKind::Notify, 3, T0).await;
+    let handler = Arc::new(Panics::default());
+    let mut runner = EffectRunner::new(
+        deps(store.clone(), &store, &clock, &nudge, &shutdown),
+        settings(SignedDuration::from_secs(1)),
+    );
+    runner.register(EffectKind::Wake, handler.clone());
+    runner.register(EffectKind::Notify, Arc::new(Terminal));
+    let task = task_of(runner);
+
+    // The other kind is still processed in the same pass as the panic: the runner survives it.
+    let mut dead = false;
+    for _ in 0..600 {
+        settle().await;
+        if row(&store, other).await.status == "dead" {
+            dead = true;
+            break;
+        }
+        clock.advance(SignedDuration::from_secs(1));
+    }
+    assert!(dead, "the runner kept claiming after a handler panicked");
+    // The panicking task may be polled after its sibling finished, so wait for it to run.
+    for _ in 0..200 {
+        settle().await;
+        if handler.calls.load(Ordering::SeqCst) >= 1 {
+            break;
+        }
+    }
+    assert_eq!(handler.calls.load(Ordering::SeqCst), 1);
+
+    let claimed = row(&store, panicking).await;
+    assert_eq!(
+        claimed.status, "claimed",
+        "a panic never marks the effect done"
+    );
+    assert_eq!(claimed.attempt, 1);
+    assert!(claimed.completed_at.is_none());
+
+    // Its lease expiry is the only way back: the next pass reclaims it under a new token.
+    clock.advance(SignedDuration::from_secs(301));
+    let mut reclaimed = false;
+    for _ in 0..600 {
+        settle().await;
+        if row(&store, panicking).await.attempt == 2 && handler.calls.load(Ordering::SeqCst) >= 2 {
+            reclaimed = true;
+            break;
+        }
+        clock.advance(SignedDuration::from_secs(1));
+    }
+    assert!(
+        reclaimed,
+        "the lease expiry made the panicked effect claimable"
+    );
+    assert_eq!(
+        row(&store, panicking).await.status,
+        "claimed",
+        "the second attempt panicked too, so the effect is claimed again"
+    );
+    assert!(row(&store, panicking).await.completed_at.is_none());
+
+    shutdown.cancel();
+    task.await
+        .expect("the runner stops after its handler panicked");
+}
+
+/// Runs a runner as a task the way the action service does.
+fn task_of(runner: EffectRunner) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(runner.run())
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn dead_effect_raises_advisory() {
     let store = Arc::new(InMemoryStore::new());
