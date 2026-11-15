@@ -20,7 +20,7 @@ authoring standard).
 | Canonical docs | `07` carries the prompt 15 status correction from the previous task; this task changes only this map |
 | Migrations | `0001`–`0010`; next free number is `0011`, read from the directory at branch cut (`07 §7`) |
 | Protocol | `PROTOCOL_VERSION = 1.1` (`crates/domovoi-proto/src/version.rs:17`) |
-| Prompt documents | 14 of 51; 13 are A–D, plus `24-capability-contracts.md` |
+| Prompt documents | 18 of 51; 17 are waves A–F (`08`–`23` and `57`), plus `24-capability-contracts.md` |
 | Prompt 15 | merged into `overhaul-investigation` as #136 (`bca079d`); no migration (its columns came with `0006`) |
 
 **Delta: none material.** No inventory finding needs refreshing. Prompt 15 merged after Prompt 00 (#136),
@@ -88,7 +88,9 @@ containment) should be reviewed before the prompt is launched, not after.
 **Roadmap objective (06 §M1).** One coordinated protocol 1.1 → 1.2 upgrade; agent journal with epoch;
 `action_status`; mutation rate limiter; the 1.2 fields the later milestones need.
 
-**Documents.** None; `07 §6.2` lists 20 as unwritten.
+**Documents.** `20-agent-action-journal.md` exists and `07 §6.1` lists it as written. Prompts 21 and 22
+consume it: their documents cite its `hello` extensions, `action_status` types and journal semantics rather
+than restating them.
 
 **Already in code.** Protocol 1.1 and the message modules (`messages/{handshake,work,stream}.rs`); agent
 spool (`crates/domovoi-agent/src/{spool.rs,production.rs,local.rs}`); hub `agent_server/{mod,compat}.rs`;
@@ -117,15 +119,22 @@ available model.
 
 ## 4. Wave F — M1 finish (prompts 21, 22, 23)
 
+**Documents.** All three exist: `21-outcome-unknown-reconcile.md`,
+`22-plan-hash-v2-and-authorization.md` and `23-single-execution-boundary.md`. Wave F is fully drafted;
+the implementation launch order stays 21 → 22 → 23, because 22 owns the authorization and plan-hash
+contract that 23 consumes.
+
 | ID | Work the prompt must specify | Owns / migration | Key existing code | Named validation |
 |---|---|---|---|---|
-| 21 | `OutcomeUnknown` as a terminal outcome; reconcile on `hello`; epoch change, `not_found`, orphan and journal-lost rules; never auto-fail a `Dispatched` execution | Outcome representation; **migration expected** — `investigations/D-protocol.md:175` names a store text column, `03`/`04` do not. Verify, do not invent | `runtime/dispatcher.rs`, `agent_server`, `actions/executor.rs`, `actions/recover.rs` | `crash_after_accepted_is_outcome_unknown`, `crash_after_started_is_outcome_unknown`, `finished_durable_reply_lost_reconciles`, `hub_crash_before_commit_reconciles_from_journal`, `epoch_change_is_outcome_unknown`, `not_found_with_matching_epoch_is_not_run` |
+| 21 | `OutcomeUnknown` as a terminal outcome; reconcile on `hello`; epoch change, `not_found`, orphan and journal-lost rules; never auto-fail a `Dispatched` execution | Outcome representation; **no migration** — verified: `actions.status` is unconstrained TEXT holding the status as JSON (`repos/actions.rs:123`, filtered by `json_extract(status, '$.type')`), so a new variant and a field inside it need no column; `investigations/D-protocol.md:175` is superseded. The epoch lives in the status JSON with `#[serde(default)]` for old rows | `agent_server`, `actions/executor.rs`, `actions/recover.rs` | `crash_after_accepted_is_outcome_unknown`, `crash_after_started_is_outcome_unknown`, `finished_durable_reply_lost_reconciles`, `hub_crash_before_commit_reconciles_from_journal`, `epoch_change_is_outcome_unknown`, `not_found_with_matching_epoch_is_not_run` |
 | 22 | Plan hash v2 (contract+version, `impl_hash`, canonical target identity, canonical args, `execution_id`); approval binding columns; `Authorization{Human,Policy}` with `PolicyPermit` type only; CI enforcement of both constructors | `ExecutionId`, `Authorization`, plan hash v2, binding columns; **migration** (`05:110`) | `core/src/action/approval.rs` (`PlanBinding` v1), hub `auth/`, `clippy.toml`, `xtask/src/arch/` | `approval_bound_to_displayed_plan_hash`, `v1_actions_keep_v1_binding_after_upgrade`; arch rule; v1 actions labelled |
 | 23 | One `execute(AuthorizedExecution)` path; one `collect_evidence` read boundary; arch rules that stop transports reaching `AgentLink` | No contract, **no migration** | `engine/actions/{executor,writer}.rs`, `core/ports/agent_link.rs`, hub transports | `cargo xtask arch-check`; existing action/evidence suites |
 
 **Consumers.** 22 → 23, 26, 45 (`07 §4`). 23 → 24 (ordering only), 25, 26. 21 → 22, which depends on it;
 26 reuses its reconcile rules for `Dispatch` rather than owning them again.
-**File overlap.** 22 and 23 both edit `engine/src/actions/*` and `core/src/action/*`; run 22 before 23.
+**File overlap.** 22 and 23 both edit `engine/src/actions/*` (22: `writer`, `executor`, `freshness`, `mod`;
+23: `executor`, `mod` and the new `execute.rs`); 23 does not touch `core/src/action/*`, which 22 owns. Run 22
+before 23.
 **Blockers.** None beyond 20. Type: implementation. Model: 21 M, 22 **L**, 23 M.
 
 ## 5. Wave G — M2 and the evaluator (24, 25, 39)
@@ -364,9 +373,9 @@ unattended use. `unit.restart` is not affected by this ADR.
 
 ## 12. Definitive document work list
 
-**Draft (37).** 20, 21, 22, 23, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42,
-43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 58. No new IDs are needed: every remaining item
-already has an ID in `07 §2`. (38 IDs are planned for waves E–M; 24 exists, so 37 are missing.)
+**Draft (33).** 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46,
+47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 58. No new IDs are needed: every remaining item already has an ID
+in `07 §2`. (38 IDs are planned for waves E–M; 24, 20, 21, 22 and 23 exist, so 33 are missing.)
 
 **Preserve unchanged (1).** `prompts/24-capability-contracts.md` — complete, correct dependency (23,
 ordering only), no schema or wire.
@@ -465,13 +474,18 @@ evidence first: 33's evidence for 38, 54/55 for 44, and 47's document for 48/49.
 Facts that are stated loosely in the canonical documents and must be verified in code at drafting time,
 not invented:
 
-1. **OutcomeUnknown persistence (21).** `03`/`04` define the outcome; the store column and migration
-   appear only in `investigations/D-protocol.md:175`. Check the current schema before writing 21.
-2. **Migration presence.** Named or implied: 21 (status), 22 (binding columns), 26 (five tables), 28
+1. **OutcomeUnknown persistence (21) — settled.** `03`/`04` define the outcome and the older
+   `investigations/D-protocol.md:175` named a store text column. The schema needs no column: `actions.status`
+   is `TEXT NOT NULL` without a CHECK (`0001_init.sql:116`), the value is the serialised status as JSON
+   (`repos/actions.rs:123`, read back with `from_json`, filtered by `json_extract(status, '$.type')`), so a
+   new variant and the dispatch epoch inside it need no migration. Prompt 21 records this and replaces the
+   missing migration with a `#[serde(default)]` compatibility rule and an old-row test. Re-verify only if
+   `actions.status` gains a CHECK or an execution-epoch column appears.
+2. **Migration presence.** Named or implied: 22 (binding columns), 26 (five tables), 28
    (`incident_events` copy), 34 (knowledge tables, `metric_samples`), 35 (summary fields/FTS), 36
-   (`conversations`, `messages`), 40 (`policy_versions`, decisions), 42 (`install_jobs`). Not named: 20,
-   23, 25, 27, 29, 30, 31, 32, 33, 37, 38, 39, 41, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 58. Treat
-   "not named" as "verify", never as "no schema change".
+   (`conversations`, `messages`), 40 (`policy_versions`, decisions), 42 (`install_jobs`). Checked and not
+   needed: 21 (see item 1). Not named: 20, 23, 25, 27, 29, 30, 31, 32, 33, 37, 38, 39, 41, 43, 44, 45, 46,
+   47, 48, 49, 50, 51, 52, 58. Treat "not named" as "verify", never as "no schema change".
 3. **Wire 1.2 field list (20).** `03 RW-42` is authoritative; the index scope is a summary. Golden
    frames freeze it, and any later change is a coordinated RW-42 decision.
 4. **47's split boundaries** are not defined anywhere; choose them at drafting.

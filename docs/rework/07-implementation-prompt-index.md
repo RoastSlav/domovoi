@@ -4,8 +4,8 @@ Each prompt is one branch and one pull request. The prompt files live in `prompt
 They are self-contained: copy one into a local coding model working in this repository.
 Shared-contract ownership and the standard blocks are in `prompts/README.md` and `prompts/_blocks.md`.
 
-**Status: partly written.** 14 of the 51 prompts in §2 have a prompt document: `08`–`19`, `24` and `57`.
-The other 37 are planned only; §6 classifies them and they must not be launched. A row in §2 is a plan,
+**Status: partly written.** 18 of the 51 prompts in §2 have a prompt document: `08`–`24` and `57`.
+The other 33 are planned only; §6 classifies them and they must not be launched. A row in §2 is a plan,
 not a brief: only an ID with a file under `prompts/` can be implemented. Gated prompts must not be
 launched until their gate is met. Readiness per milestone is in `06` (Readiness).
 
@@ -252,7 +252,7 @@ Deferred items (`06`, "Deferred and after-v1") get no prompts.
 Every one of the 51 prompt IDs in §2 appears in exactly one group below. A row in §2 is a plan, not a
 brief: an ID without a file in `prompts/` cannot be launched, whatever its dependencies say.
 
-### 6.1 Written prompts (14)
+### 6.1 Written prompts (18)
 
 These have a file. A prompt here is launchable when the prompts in its **Depends on** column are merged
 into `overhaul-investigation` (§1 step 2) and its gate is met; having the file alone is not enough. The
@@ -275,15 +275,18 @@ row as pending or as still to be implemented.
 | 14 | `14-recovery-order.md` | ready: 10 is merged; adds no migration |
 | 15 | `15-durable-timers.md` | merged into `overhaul-investigation` (#136, `bca079d`; no migration; the effect columns came with `0006`) |
 | 18 | `18-structured-approvals.md` | ready: 10 is merged; adds no migration |
-| 24 | `24-capability-contracts.md` | waiting: 23, which is unwritten (§6.2) |
+| 20 | `20-agent-action-journal.md` | ready: 13 and 15 are merged and 14 and 16–19 are ready to land before it; carries the protocol 1.2 bump and the agent-side journal, and adds no hub migration |
+| 21 | `21-outcome-unknown-reconcile.md` | waiting: 20; adds no migration — `OutcomeUnknown` lives in the existing JSON `status` column |
+| 22 | `22-plan-hash-v2-and-authorization.md` | waiting: 20 and 21; adds a migration, so take the next free number (§7) |
+| 23 | `23-single-execution-boundary.md` | waiting: 22; adds no migration |
+| 24 | `24-capability-contracts.md` | waiting: 23 to merge; the dependency is ordering only and adds no migration |
 
-### 6.2 Unwritten implementation prompts (29)
+### 6.2 Unwritten implementation prompts (25)
 
 No file yet. Each must be authored before its planned wave, and only then launched; its §2 row is a
 plan, not a brief.
 
-20, 21, 22, 23, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 48, 49, 50,
-51, 52, 58.
+25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 48, 49, 50, 51, 52, 58.
 
 Prompt 33 is also a spike, but it is planned like the rest of this group: author it before its wave. Its
 only dependency is prompt 30, and it needs no environment of its own.
@@ -332,7 +335,7 @@ launchable until the gate below is satisfied.
 - **47** (`three-identities-helper-and-skill-runner`): needs O-30 answered and R-3, R-9 and R-10
   accepted.
 
-Counts: 14 written + 29 unwritten implementation + 4 research + 4 downstream = 51.
+Counts: 18 written + 25 unwritten implementation + 4 research + 4 downstream = 51.
 
 ## 7. Migration numbering
 
