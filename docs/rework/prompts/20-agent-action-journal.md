@@ -560,6 +560,11 @@ Under `agent.state_dir`:
 |---|---|
 | `action-journal.bin` | append-only framed records |
 | `action-journal.json` | metadata, defined below, mode 0600 |
+| `action-journal.lock` | the OS advisory lock that owns the journal; empty, 0600 on Unix, stable for the life of the installation |
+
+`action-journal.lock` is not journal state and is not part of any epoch. It is the cross-process
+ownership file described below and is never renamed, archived, deleted or replaced by `journal init`,
+`journal reset`, pruning or startup.
 
 The metadata object is the single source of truth for the epoch, the pruning marker and the
 current boot's first-load time:
@@ -676,6 +681,41 @@ treats absent files as a fresh install.
   exists), by startup (which creates nothing), or by a boot-state update (which carries the value
   forward). Only `journal reset` starts a new epoch, and it does so by archiving the old pair, not by
   clearing the marker in place.
+
+**Cross-process ownership.** One `Mutex<JournalState>` serialises tasks inside one process. It does
+nothing across processes, and `journal init`/`journal reset` are separate local CLI processes that can
+run while the daemon is up. The journal therefore has one OS advisory lock over the stable file
+`action-journal.lock`, and it is the authority on who owns the journal's files.
+
+- Mechanism: `flock(2)` in exclusive, non-blocking mode. `nix` 0.31 is already a workspace dependency
+  with the `fs` feature, which provides `nix::fcntl::flock` and `FlockArg::LockExclusiveNonblock`;
+  add `nix = { workspace = true }` to `domovoi-agent` and call it directly. That is not a new crate and
+  not a new workspace dependency. Do not add `fs2`, `fs4`, `fd-lock` or `rustix` for this.
+- Creation: open the lock file with create, read/write and mode 0600 on Unix, then `flock` the open
+  descriptor. The lock is advisory and belongs to the descriptor, so the owner keeps the descriptor
+  open for as long as it owns the journal; `flock` is released when that descriptor is closed, when the
+  process exits, and by the kernel when the process dies or is killed.
+- The daemon takes the lock **before** it reads, creates or validates either journal file, and holds
+  it for the whole lifetime in which it owns the journal state. Nothing in the journal module may read
+  or write `action-journal.bin` or `action-journal.json` before the lock is held.
+- `journal init` and `journal reset` take the same lock on the same file, non-blocking, before they
+  inspect, archive, create or replace anything, and hold it for the whole operation.
+- If the lock is already held, `init` and `reset` exit non-zero without touching any journal or
+  metadata file and print: the agent owns the journal; stop the service
+  (`systemctl stop domovoi-agent`), run the command, then start it again. They never stop, start or
+  restart a systemd unit themselves, and never delete the lock file to get past it.
+- A second agent process that cannot take the lock must not start serving with the same journal; it
+  reports the conflict and exits. It must not fall back to reading without the lock.
+- The OS lock and the in-process mutex have distinct jobs and both are required: the lock decides
+  which process owns the files, the mutex serialises acceptance, `action_status`, recovery and pruning
+  inside that process. Holding the lock is not proof that the contents are valid; acquiring it is
+  always followed by the normal metadata and pair validation above.
+- The lock file is never archived, renamed or replaced, including by `reset`: it survives every epoch,
+  so two processes always contend on the same inode. `reset` archives only the journal and metadata
+  pair.
+- Non-Unix: the lock module returns a distinct error and the journal refuses to run. `domovoi-agent`
+  is a Linux program; a Windows build may compile, but it must never silently fall back to the
+  in-process mutex or an unlocked journal. Stop and report if the required semantics are unavailable.
 
 ### 10.2 Epoch
 
@@ -822,10 +862,12 @@ payload := UTF-8 JSON object with "kind" and "format": 1
   `true` until a reset, because a pruned journal can no longer prove that a hub-generated id was never
   accepted.
 
-**Pruning ordering (crash-safe).** One `Mutex<JournalState>` guards every journal operation, reads and
-writes. `action_status`, acceptance, recovery and pruning all take that same mutex; there is no second
-lock and no lock-free read path. Pruning holds it for the whole sequence below, so an `action_status`
-query cannot observe a state where records have gone but `pruned` is still false.
+**Pruning ordering (crash-safe).** The pruning process must already hold the exclusive OS lock from
+10.1; it releases it only after step 7. Inside the process, one `Mutex<JournalState>` guards every
+journal operation, reads and writes. `action_status`, acceptance, recovery and pruning all take that
+same mutex; there is no second lock and no lock-free read path. Pruning holds it for the whole sequence
+below, so an `action_status` query cannot observe a state where records have gone but `pruned` is still
+false.
 
 1. Acquire the journal mutex.
 2. Re-read the metadata from disk, or use the in-memory copy that was loaded under the same mutex.
@@ -877,6 +919,8 @@ consistent.
 
 ### 10.7 Recovery and orphans
 
+- Startup recovery runs after the OS lock is held and after the metadata/pair validation in 10.1; a
+  process that could not take the lock never reaches this step.
 - On startup, for each `started` without `finished`:
   1. read `/proc/<pid>/stat` field 22 (`starttime`, in clock ticks since boot);
   2. if it exists and equals the recorded `proc_start_time`, the process group is the original one:
@@ -976,6 +1020,9 @@ Two local owner commands, both in the agent binary. Neither is reachable from th
 
 - it runs locally under the owner privilege that owns `state_dir`, once, from the installer or the
   upgrade procedure;
+- it takes the `action-journal.lock` exclusive, non-blocking lock (10.1) before inspecting anything and
+  holds it for the whole operation. If the lock is held, it exits non-zero, changes nothing and tells
+  the owner to stop `domovoi-agent` first; it never stops or starts the service itself;
 - it refuses if either `action-journal.bin` or `action-journal.json` exists, whatever their content,
   so it can never overwrite or clear an existing state or a committed `pruned = true`;
 - it writes the empty journal with `journal_created` as its first record, then the metadata with a new
@@ -987,9 +1034,13 @@ Two local owner commands, both in the agent binary. Neither is reachable from th
 existing installation:
 
 - it runs locally, under the owner privilege that owns `state_dir`;
+- it takes the same `action-journal.lock` exclusive, non-blocking lock (10.1) before inspecting or
+  renaming anything and holds it for the whole operation. If the daemon owns the lock it exits
+  non-zero, changes nothing and prints the stop-run-start instruction; it never stops or starts the
+  service itself, and never removes the lock file;
 - it archives whatever pair exists by renaming it (for example `action-journal.bin.<old-epoch>` and
   `action-journal.json.<old-epoch>`) instead of deleting it silently, including a corrupt, fenced or
-  partial pair;
+  partial pair. The lock file itself is never archived, renamed or replaced;
 - it then writes a new journal whose first record is `journal_created` with the new epoch and a new
   metadata file with `pruned = false` and the current boot state, using the same procedure as `init`;
 - it logs the action locally with the old and new epoch;
@@ -1023,6 +1074,7 @@ implementer must do if the choice does not hold.
 | G12 | `agent_status`'s "report `journal_corrupt`" has no field | `03 RW-38`, `04 8.3` | report through the refusal detail and logs; no new field | a UI requirement needs it in `agent_status`; then add it to the frozen shape before 1.2 ships |
 | G13 | nothing proves a hub-generated execution id is inside the retention window after pruning: ids come from the hub, any watermark comes from the agent, and no shared clock or ordering is guaranteed | `03 RW-09` ("only when the epoch matches and the id is inside the journal retention window"), `04 15.2` | 10.6: `not_found` only while `meta.pruned == false`; after pruning every absent id is `outcome_unknown{journal_lost}` | a later contract supplies a hub-generated retention watermark, or the owner requires `not_found` after pruning |
 | G14 | no durable marker distinguishes a genuine first install from later loss of the journal: `identity.json` records enrollment, and `checks.json`/`spool.json*` may legitimately be absent | `03 RW-09`, `crates/domovoi-agent/src/identity.rs`, `config_file.rs` | 10.1: nothing is created at startup; `journal init` is the only first-time creation, and every partial or missing pair fails closed into `journal reset` | the owner requires automatic first-run creation, or an installation marker that reliably predates the journal |
+| G15 | no cross-process ownership mechanism is specified, while `journal init`/`journal reset` are separate CLI processes that can run beside the daemon | `03 RW-09`, `03 RW-38`, `crates/domovoi-agent/Cargo.toml` | 10.1: exclusive non-blocking `flock(2)` on the stable `action-journal.lock` (`nix`, `fs` feature, already a workspace dependency), held for the lifetime of ownership; the in-process mutex stays | the platform cannot provide advisory exclusive locks with release on process death, or `flock` proves unusable on the target filesystem; stop and report |
 
 G13 is the reason this brief never claims retention membership is proven by UUID order or timestamps.
 The conservative answer is deliberate: `OutcomeUnknown` is recoverable by a human, a wrong `NotRun` is
@@ -1031,6 +1083,11 @@ not. Do not "fix" it by adding a clock assumption.
 G14 is the reason startup never guesses. There is no existing durable installation marker the journal
 can rely on, so the brief does not invent one: the explicit local `journal init` supplies the missing
 proof, and every ambiguous pair is treated as lost state, not as a fresh install.
+
+G15 is the reason ownership is a lock file and not a mutex: the daemon and the two CLI commands are
+separate processes. The chosen mechanism is the narrowest one already supported by the workspace
+(`nix`'s `fs` feature); do not replace it with a broader crate or a "check a pid file" heuristic, which
+races process start and death.
 
 Do not resolve any of these by editing `03`, `04`, `04b`, `06`, `07` or `99`.
 
@@ -1057,8 +1114,9 @@ Repository rules that matter here:
 
 - `domovoi-proto` stays pure: no I/O, no clock, no UUID creation at decode time.
 - Spawning stays exclusively in `domovoi-runner`, with argv vectors, never `sh -c`.
-- No new crates. `nix` is already a workspace dependency but not in `domovoi-agent`; prefer
-  `/proc/uptime`.
+- No new crates. `nix` is already a workspace dependency; add it to `domovoi-agent` for `flock` only
+  (10.1). Do not enable extra `nix` features. Prefer `/proc/uptime` over `nix`'s `time` feature for
+  monotonic time.
 - Time-dependent tests use the `Clock` port and `domovoi-testkit`; no sleeps.
 - No `unwrap`, `expect`, `panic!`, `todo!` or `dbg!` in library code; no new `#[allow(...)]`.
 - Non-test source files stay at or under 500 lines. The journal and the limiter each deserve their own
@@ -1132,6 +1190,14 @@ Name tests after the behaviour. Keep the exact names below where they are given 
 - `no_not_found_after_indeterminate_metadata_write`
 - `journal_reset_starts_a_new_epoch`
 - `journal_reset_is_local_only`
+- `running_agent_holds_exclusive_journal_process_lock`
+- `journal_init_refuses_when_agent_process_owns_lock`
+- `journal_reset_refuses_when_agent_process_owns_lock`
+- `second_agent_process_cannot_own_same_journal`
+- `journal_reset_succeeds_after_agent_releases_lock`
+- `journal_init_and_reset_cannot_race_each_other`
+- `process_death_releases_lock_and_startup_still_validates_journal`
+- `lock_file_is_never_archived_or_replaced`
 - `journal_init_creates_journal_and_epoch`
 - `journal_init_refuses_when_either_file_exists`
 - `missing_journal_with_existing_metadata_fails_closed`
@@ -1180,6 +1246,11 @@ Add:
   `fsync`, the `rename` and the directory `fsync`, so each of 10.1's three outcomes is exercised.
 - A crash or a failed write in any test must be followed by a real restart path, not by an in-memory
   reset, so the assertions describe what a fresh process would do.
+- The eight `*_process_lock*`, `lock_*` and `*_releases_lock_*` tests in 14.2 are genuinely
+  cross-process: spawn separate `domovoi`/`domovoi-agent` processes against a temporary `state_dir`
+  and real `flock` acquisition, not two tasks sharing one mutex. Coordinate them with pipes, barrier
+  files or child exit status; never `sleep`. They are Unix-only, like the other real-`flock` tests, and
+  must be skipped explicitly rather than weakened on a platform without `flock`.
 - Extend `crates/domovoi-agent/tests/gates.rs`; never weaken it.
 - Review every accepted `insta` snapshot. A 1.1 fixture must not be edited to look like 1.2.
 - If a public protocol type changes, run `cargo nextest run -E 'rdeps(domovoi-proto)'`.
@@ -1190,12 +1261,14 @@ Add:
 2. Protocol tests: 1.1 fixtures untouched, new 1.2 samples and snapshots, round-trip and tolerant
    decoding tests.
 3. `domovoi-config`: `[mutation_limits]` and its schema test.
-4. `domovoi-agent`: journal module (metadata, epoch, initialization, framing, recovery, retention) with
-   unit tests that do not need a hub. Build the durable metadata writer and the startup validation
-   pair-check before anything writes a journal.
+4. `domovoi-agent`: the `action-journal.lock` module (`flock` via `nix`, held for process lifetime)
+   and the journal module (metadata, epoch, initialization, framing, recovery, retention) with unit
+   tests that do not need a hub. Build the durable metadata writer, the lock and the startup
+   validation pair-check before anything writes a journal.
 5. `domovoi-agent`: journal-backed acceptance in the request handler, `action_status`, duplicate
-   handling.
-6. `domovoi-agent`: mutation limiter, and the `journal init` / `journal reset` commands.
+   handling, all under the process lock and the `JournalState` mutex.
+6. `domovoi-agent`: mutation limiter, and the `journal init` / `journal reset` commands, each taking
+   the same lock and refusing while the daemon owns it.
 7. `domovoi-hub`: session handling for the new frames, the reversed ping, and the minimum bookkeeping
    needed to keep the workspace compiling.
 8. `hello`/`agent_status` population in the agent, with the honest `absent`/`None` values.
@@ -1246,6 +1319,10 @@ CI runs the full suite; do not run the whole workspace locally by default.
 - A post-rename directory-`fsync` failure is handled as an indeterminate outcome: no record is
   removed, the journal is fenced, a stale in-memory `pruned = false` can never overwrite a visible
   `pruned = true`, and the next load validates whichever file is present.
+- `action-journal.lock` is the one cross-process owner: the daemon holds `flock` for its whole
+  lifetime, `journal init` and `journal reset` take the same lock and refuse while it is held, a
+  second agent does not serve, and the lock file is never archived, renamed or deleted. The
+  `Mutex<JournalState>` still serialises tasks inside the owner.
 - Pruning durably sets `pruned = true` before any record is removed, under the journal mutex, and a
   crash at either point never produces a false `not_found`. No record path can remove records while
   the marker is still false on disk.
