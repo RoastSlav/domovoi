@@ -603,8 +603,37 @@ current boot's first-load time:
 
 `fs_atomic::write_atomic` already does the temporary file and rename; extend it (or add a
 `write_atomic_durable` used only by the journal) to `fsync` the directory after the rename, without
-changing the behaviour of existing callers. A metadata update that fails at any step is not committed:
-report the error and keep the previous file.
+changing the behaviour of existing callers.
+
+The three outcomes are different and must be handled differently:
+
+| Failure point | On-disk result | Required handling |
+|---|---|---|
+| steps 1-3 (serialise, temp write, temp `fsync`) | nothing visible; the previous metadata is authoritative | abort the update, keep the previous file, report the error |
+| step 4 (`rename`) | the previous metadata is authoritative | abort the update, keep the previous file, report the error |
+| step 5 (directory `fsync` after a successful `rename`) | **indeterminate durability**: the new file may be visible and may survive, or the rename may be lost on power failure | fence and reload, as below |
+
+A directory-`fsync` failure does **not** mean the previous file is still there, and it does not mean the
+update was rolled back. Do not claim either. The journal enters a fenced state:
+
+1. remove, truncate, compact and rewrite nothing;
+2. refuse to write metadata again from the in-memory copy, which may already be stale;
+3. keep the journal fenced until the metadata is re-read and validated, or the process restarts and
+   runs normal startup validation;
+4. reload `action-journal.json` and validate it under the journal mutex. If it parses, adopt it,
+   including `pruned = true` when present, and clear the fence. If it does not parse or validate, stay
+   fenced and fail closed;
+5. if the reloaded file is the old metadata with `pruned = false`, that is safe only because no record
+   was removed in this transition, so the journal is still complete; continue unpruned;
+6. if the marker being written was a pruning marker, a failed or indeterminate outcome means pruning
+   does not happen at all. Never follow an unconfirmed marker write with record removal.
+
+While fenced, mutations are refused with `refused{code: journal_corrupt}` and absent ids answer
+`outcome_unknown{journal_lost}`. A restart validates whichever file is visible and behaves normally,
+with `pruned` taken from that file never from memory.
+
+Boot-state updates use this same procedure and the same complete-object rule, so an indeterminate
+outcome can never clear a committed `pruned = true`.
 
 **Corrupt metadata.** Missing, malformed, unsupported `format`, wrong field type, a `pruned` value that
 is not a boolean, or unreadable bytes are corruption:
@@ -616,28 +645,60 @@ is not a boolean, or unreadable bytes are corruption:
 - never regenerate the epoch, never clear `pruned`, never fall back to an in-memory default, and never
   delete the file.
 
-A fresh install is the only case where a new metadata file and epoch are created: both files absent,
-or the journal file absent or zero-length with no records to lose. A missing metadata file beside a
-non-empty journal is corruption, not a new epoch (10.6).
+**Initialization and partial state.** Nothing is created at startup, and there is no heuristic that
+treats absent files as a fresh install.
+
+- The repository has no durable first-install marker for the journal. `identity.json` records
+  enrollment, not journal initialization; it predates this journal and cannot distinguish a host that
+  never had one from a host whose journal was lost. `checks.json`, `spool.json` and `spool.jsonl` may
+  legitimately be absent. Do not use any of them as a freshness proof.
+- The only genuine first-time initialization is the explicit local `domovoi agent journal init`,
+  run once by the installer or the upgrade procedure under the owner privilege. It refuses when
+  either journal file exists, writes the empty journal and its `journal_created` record, then writes
+  metadata with a new epoch, `pruned = false` and the current boot state, using the procedure above.
+  Only this command and `journal reset` create an epoch.
+- Startup validates the pair and never repairs it:
+
+| Metadata | Journal | Startup behaviour |
+|---|---|---|
+| valid | present and begins with a `journal_created` record whose epoch equals the metadata epoch | normal |
+| valid | missing, empty, or without a matching `journal_created` record | fenced: keep the metadata epoch, serve reads, refuse mutations with `journal_corrupt`, answer `outcome_unknown{journal_lost}` for every id, create nothing; recovery is `journal reset` |
+| missing or invalid | present or absent | startup error and no epoch reported; create nothing, clear nothing; name `journal reset` in the error |
+| absent | absent | startup error naming `domovoi agent journal init`; create nothing |
+
+- An interrupted initialization (crash between the journal file and the metadata file) therefore
+  always lands in a fail-closed row: journal present with metadata missing is a startup error, and
+  metadata present with the journal missing or empty is fenced. Recovery is the explicit local
+  `journal reset`, which archives whatever exists and starts a new epoch. Never invent a new epoch, and
+  never treat a partial pair as a fresh install. `journal init` is not a recovery path: it refuses once
+  any file exists.
+- A valid metadata file with `pruned = true` is never replaced by `init` (which refuses when it
+  exists), by startup (which creates nothing), or by a boot-state update (which carries the value
+  forward). Only `journal reset` starts a new epoch, and it does so by archiving the old pair, not by
+  clearing the marker in place.
 
 ### 10.2 Epoch
 
 - A random UUIDv7 created with the journal, persisted in the meta file, reported as `hello.journal_epoch`
   and echoed by every `action_status` answer.
-- It changes only when the journal is explicitly reset (`domovoi agent journal reset`) or irrecoverably
-  replaced by that same local action.
-- It never changes on restart, upgrade, corruption or a failed write.
-- It lives only in `action-journal.json` (10.1). Missing or corrupt metadata never produces a new
-  epoch; only the explicit local reset does.
+- It is created in exactly two places, both explicit local owner actions: the first-time
+  initialization `domovoi agent journal init` (10.1) and `domovoi agent journal reset` (11.6).
+- It changes only when the journal is explicitly reset, and that command archives the old pair rather
+  than reusing or patching the epoch in place.
+- It never changes on restart, upgrade, corruption, a failed write or a partial initialization.
+- It lives only in `action-journal.json` (10.1). Missing, corrupt or partial state never produces a new
+  epoch; startup creates and repairs nothing.
+- Only the new epoch's `journal_created` record (10.3) links the metadata epoch to the record file.
 - A query whose `expected_epoch` differs from the journal's is answered `outcome_unknown{journal_lost}`
   for every id. It is **never** `not_found`.
 
 ### 10.3 Records
 
-Four record kinds, each fsynced before the next step proceeds:
+Five record kinds, each fsynced before the next step proceeds:
 
 | Record | Written | Fields |
 |---|---|---|
+| `journal_created` | as the first record of a new epoch, by `journal init` or `journal reset`, before any other record | `execution_id` is absent; `epoch`, `wall_time`, `boot_id`, `mono_ns` |
 | `accepted` | before replying to the hub and before spawning | `execution_id`, `contract`, `version`, `target`, `plan_hash`, `authorization_kind`, `wall_time`, `boot_id`, `mono_ns`, `mutating: bool` |
 | `started` | immediately after spawn, before the child may be reported running | `execution_id`, `pid`, `proc_start_time` |
 | `finished` | when the child completes, before the reply is sent | `execution_id`, `result` |
@@ -645,6 +706,12 @@ Four record kinds, each fsynced before the next step proceeds:
 
 Ordering rules:
 
+- A journal whose first record is not `journal_created`, whose `journal_created.epoch` differs from
+  `action-journal.json`'s `epoch`, or which has more than one `journal_created` record is corruption
+  (10.6). It is the only evidence that binds the metadata epoch to the record file, so startup refuses
+  to serve normally without it.
+- `journal_created` is never removed by pruning (10.6) and never rewritten. It disappears only when
+  `journal reset` archives the whole pair.
 - `accepted` durability is the acknowledgement. If the fsync fails, do not reply, do not spawn, and
   return an error frame.
 - A duplicate `execution_id` never spawns again. Look it up first; answer from the record set:
@@ -668,11 +735,18 @@ Ordering rules:
 | absent, epoch matches, journal has never pruned | - | - | `not_found` |
 | absent, epoch matches, journal has pruned | - | - | `outcome_unknown{journal_lost}` |
 | absent, epoch differs | - | - | `outcome_unknown{journal_lost}` |
+| absent, journal fenced (corrupt metadata, partial pair, indeterminate metadata write) | - | - | `outcome_unknown{journal_lost}` |
 
 - `running` is never returned after a restart, even when the recorded pid is alive.
 - An unknown id and an id outside retention are different answers. Collapsing them into `not_found`
   would turn "may have run" into "never ran", which is the exact failure this prompt exists to prevent.
 - `not_found` is positive evidence: the request never reached this journal.
+- A fenced journal (10.1: partial initialization, corrupt metadata, or an indeterminate metadata
+  write) never answers `not_found`, even with a matching epoch and `pruned = false`. While fenced the
+  journal is not trusted to have recorded every acceptance, so every absent id is
+  `outcome_unknown{journal_lost}` and every mutation is refused with `journal_corrupt`.
+- `pruned = false` alone is not enough if the journal is missing, empty, or starts with a
+  `journal_created` record whose epoch does not match the metadata. Those are fenced, not fresh.
 - The only positive evidence available today is "epoch matches and this journal has recorded every
   acceptance since it was created". That holds only while the journal has never pruned. See 10.6 and
   G13: the design provides no shared watermark that could prove membership for a hub-generated id
@@ -731,9 +805,10 @@ payload := UTF-8 JSON object with "kind" and "format": 1
     written was never acknowledged or started.
   - **Everything else is corruption**, including a complete final frame whose SHA-256 does not match.
     A complete frame with invalid JSON, an unsupported `format`, a missing or unknown `kind`, invalid
-    fields, or an ordering that breaks the lifecycle is corruption too. Never truncate a complete
-    record, including a final one: the bytes are all there, so a mismatch means damage, not a torn
-    write.
+    fields, or an ordering that breaks the lifecycle is corruption too. So is a journal whose first
+    record is not `journal_created`, or whose `journal_created.epoch` differs from the metadata epoch
+    (10.3). Never truncate a complete record, including a final one: the bytes are all there, so a
+    mismatch means damage, not a torn write.
 - Corruption fails closed:
   - stop accepting mutations and answer `refused{code: journal_corrupt, detail}`;
   - keep serving read-only requests;
@@ -757,12 +832,19 @@ query cannot observe a state where records have gone but `pruned` is still false
 3. If `pruned` is already `true`, skip the marker write.
 4. Otherwise write `meta.pruned = true` with the complete metadata object, using the atomic, durable
    procedure in 10.1 (temporary file, `fsync`, rename, directory `fsync`).
-5. Do not delete, truncate or compact a single record until step 4 has returned after the directory
-   `fsync`. A failure at any point in step 4 aborts pruning: keep every record, keep the previous
-   metadata, and report the error. Never delete first and mark afterwards.
+5. Do not delete, truncate or compact a single record until step 4 has reported a confirmed commit,
+   that is, until the directory `fsync` returned success. Two failures are distinct:
+   - before or at the rename, the previous metadata is authoritative: abort pruning, keep every
+     record and the previous metadata, and report the error;
+   - directory `fsync` after a successful rename, the outcome is indeterminate (10.1): abort pruning,
+     remove nothing, enter the fenced state described in 10.1, and reload the metadata before any
+     further write. An unconfirmed marker never leads to record removal.
+   Never delete first and mark afterwards, and never treat an unconfirmed marker as set or as absent.
 6. Only now remove records, by rewriting the kept records into a temporary journal file, `fsync`ing it,
    renaming it over `action-journal.bin`, and `fsync`ing the directory. A crash before the rename
-   leaves the old file intact; a crash after it leaves the kept records.
+   leaves the old file intact; a crash after it leaves the kept records. The `journal_created` record
+   is always kept: it is the first record of the rewritten file and is copied verbatim, never
+   renumbered, so the epoch binding (10.3) survives every prune.
 7. Release the mutex.
 8. `meta.pruned` stays `true` for the life of this epoch. Only `domovoi agent journal reset` (11.6)
    starts a new epoch with `pruned = false`.
@@ -778,10 +860,12 @@ clears the marker; only the local reset does.
 sees the pre-prune journal; if pruning holds it, the query sees the post-prune state. Both are
 consistent.
 
-- `not_found` requires a matching epoch and `meta.pruned == false`. In that state the journal has
-  recorded every acceptance since its creation, so an absent id is positive evidence that the request
-  never arrived. Once `pruned` is true, every absent id with a matching epoch answers
-  `outcome_unknown{journal_lost}`; an absent id with a different epoch does the same.
+- `not_found` requires a matching epoch, `meta.pruned == false`, and an unfenced journal whose first
+  record is `journal_created` with that same epoch. In that state the journal has recorded every
+  acceptance since its creation, so an absent id is positive evidence that the request never arrived.
+  Once `pruned` is true, every absent id with a matching epoch answers
+  `outcome_unknown{journal_lost}`; an absent id with a different epoch, or one served from a fenced
+  journal, does the same.
 - Do not infer retention membership from wall time, monotonic time or UUID ordering. Execution ids are
   generated by the hub, the epoch and any agent-side watermark are generated by the agent, and the
   contracts guarantee neither synchronised clocks nor a shared generation order. See G13: if a future
@@ -878,16 +962,36 @@ The design does not settle this (G6). Use this narrow rule:
 - Any such corruption fails closed: every mutating request is refused
   (`refused{code: journal_corrupt, detail}`), read-only requests still work, and no reset happens
   automatically.
+- The same refusal applies to a fenced journal (10.1): a partial pair, corrupt metadata, or an
+  indeterminate metadata write. Fencing is corruption of the state, not of the bytes, and is recovered
+  only by `journal reset`.
 - The condition is reported to the hub in the refusal detail and in local logs. Do not invent a new
   wire field for it unless section 8's `agent_status` already has a natural place; record the choice.
 
-### 11.6 Explicit reset
+### 11.6 Explicit initialization and reset
 
-Add `domovoi agent journal reset` to the agent binary:
+Two local owner commands, both in the agent binary. Neither is reachable from the hub.
+
+`domovoi agent journal init` is the only genuine first-time initialization (10.1):
+
+- it runs locally under the owner privilege that owns `state_dir`, once, from the installer or the
+  upgrade procedure;
+- it refuses if either `action-journal.bin` or `action-journal.json` exists, whatever their content,
+  so it can never overwrite or clear an existing state or a committed `pruned = true`;
+- it writes the empty journal with `journal_created` as its first record, then the metadata with a new
+  epoch, `pruned = false` and the current boot state, using the durable procedure in 10.1;
+- if it is interrupted between the two files, the pair is partial and every startup path fails closed
+  (10.1). Re-running `init` refuses, because a file already exists; recovery is `journal reset`.
+
+`domovoi agent journal reset` is the only recovery path that intentionally creates a new epoch for an
+existing installation:
 
 - it runs locally, under the owner privilege that owns `state_dir`;
-- it writes a new journal with a new epoch, leaving the old file renamed for local forensics rather
-  than deleting it silently;
+- it archives whatever pair exists by renaming it (for example `action-journal.bin.<old-epoch>` and
+  `action-journal.json.<old-epoch>`) instead of deleting it silently, including a corrupt, fenced or
+  partial pair;
+- it then writes a new journal whose first record is `journal_created` with the new epoch and a new
+  metadata file with `pruned = false` and the current boot state, using the same procedure as `init`;
 - it logs the action locally with the old and new epoch;
 - it reports the new epoch to the hub through the next `hello`/`agent_status`, not through a new
   hub-controlled message;
@@ -918,10 +1022,15 @@ implementer must do if the choice does not hold.
 | G11 | RW-42 lists `hello.features` while 1.1 ships `capabilities: Vec<String>` | `03 RW-42`, `handshake.rs:164` | add `features`; leave `capabilities` in place for now, both empty | a consumer requires one field to be removed, which is a 1.3 change |
 | G12 | `agent_status`'s "report `journal_corrupt`" has no field | `03 RW-38`, `04 8.3` | report through the refusal detail and logs; no new field | a UI requirement needs it in `agent_status`; then add it to the frozen shape before 1.2 ships |
 | G13 | nothing proves a hub-generated execution id is inside the retention window after pruning: ids come from the hub, any watermark comes from the agent, and no shared clock or ordering is guaranteed | `03 RW-09` ("only when the epoch matches and the id is inside the journal retention window"), `04 15.2` | 10.6: `not_found` only while `meta.pruned == false`; after pruning every absent id is `outcome_unknown{journal_lost}` | a later contract supplies a hub-generated retention watermark, or the owner requires `not_found` after pruning |
+| G14 | no durable marker distinguishes a genuine first install from later loss of the journal: `identity.json` records enrollment, and `checks.json`/`spool.json*` may legitimately be absent | `03 RW-09`, `crates/domovoi-agent/src/identity.rs`, `config_file.rs` | 10.1: nothing is created at startup; `journal init` is the only first-time creation, and every partial or missing pair fails closed into `journal reset` | the owner requires automatic first-run creation, or an installation marker that reliably predates the journal |
 
 G13 is the reason this brief never claims retention membership is proven by UUID order or timestamps.
 The conservative answer is deliberate: `OutcomeUnknown` is recoverable by a human, a wrong `NotRun` is
 not. Do not "fix" it by adding a clock assumption.
+
+G14 is the reason startup never guesses. There is no existing durable installation marker the journal
+can rely on, so the brief does not invent one: the explicit local `journal init` supplies the missing
+proof, and every ambiguous pair is treated as lost state, not as a fresh install.
 
 Do not resolve any of these by editing `03`, `04`, `04b`, `06`, `07` or `99`.
 
@@ -1020,8 +1129,21 @@ Name tests after the behaviour. Keep the exact names below where they are given 
 - `metadata_update_preserves_pruned_flag`
 - `corrupt_metadata_fails_closed`
 - `failed_metadata_write_never_enables_not_found`
+- `no_not_found_after_indeterminate_metadata_write`
 - `journal_reset_starts_a_new_epoch`
 - `journal_reset_is_local_only`
+- `journal_init_creates_journal_and_epoch`
+- `journal_init_refuses_when_either_file_exists`
+- `missing_journal_with_existing_metadata_fails_closed`
+- `empty_journal_with_existing_metadata_fails_closed`
+- `missing_metadata_with_existing_journal_fails_closed`
+- `partial_initialization_does_not_regenerate_epoch`
+- `existing_pruned_metadata_is_never_reset_by_startup`
+- `journal_without_matching_created_record_fails_closed`
+- `metadata_rename_failure_preserves_previous_state`
+- `directory_fsync_failure_after_rename_prevents_pruning`
+- `stale_metadata_write_cannot_clear_pruned`
+- `restart_after_indeterminate_metadata_write_is_safe`
 - `signal_spool_is_independent_of_the_action_journal`
 - `existing_spool_tests_still_pass` (run, do not rename)
 
@@ -1054,6 +1176,10 @@ Add:
 ### 14.4 Gate and harness rules
 
 - Use a fault-injecting journal and a fake runner that can crash between steps, as `04 15.2` requires.
+- Use a fault-injecting metadata writer too, with independent injection points for the temporary-file
+  `fsync`, the `rename` and the directory `fsync`, so each of 10.1's three outcomes is exercised.
+- A crash or a failed write in any test must be followed by a real restart path, not by an in-memory
+  reset, so the assertions describe what a fresh process would do.
 - Extend `crates/domovoi-agent/tests/gates.rs`; never weaken it.
 - Review every accepted `insta` snapshot. A 1.1 fixture must not be edited to look like 1.2.
 - If a public protocol type changes, run `cargo nextest run -E 'rdeps(domovoi-proto)'`.
@@ -1064,11 +1190,12 @@ Add:
 2. Protocol tests: 1.1 fixtures untouched, new 1.2 samples and snapshots, round-trip and tolerant
    decoding tests.
 3. `domovoi-config`: `[mutation_limits]` and its schema test.
-4. `domovoi-agent`: journal module (epoch, framing, recovery, retention) with unit tests that do not
-   need a hub.
+4. `domovoi-agent`: journal module (metadata, epoch, initialization, framing, recovery, retention) with
+   unit tests that do not need a hub. Build the durable metadata writer and the startup validation
+   pair-check before anything writes a journal.
 5. `domovoi-agent`: journal-backed acceptance in the request handler, `action_status`, duplicate
    handling.
-6. `domovoi-agent`: mutation limiter and the reset command.
+6. `domovoi-agent`: mutation limiter, and the `journal init` / `journal reset` commands.
 7. `domovoi-hub`: session handling for the new frames, the reversed ping, and the minimum bookkeeping
    needed to keep the workspace compiling.
 8. `hello`/`agent_status` population in the agent, with the honest `absent`/`None` values.
@@ -1111,6 +1238,14 @@ CI runs the full suite; do not run the whole workspace locally by default.
 - The metadata file carries `format`, `epoch`, the sticky `pruned` marker and the current boot's
   `boot_id` + `first_load_mono_ns`. Every update uses the one atomic, durable procedure and preserves
   `pruned`; corrupt metadata fails closed and never regenerates the epoch.
+- Nothing is created at startup. A new epoch comes only from `journal init` (first install, refuses if
+  either file exists) or `journal reset` (archives the existing pair). A missing or empty journal with
+  valid metadata, a missing metadata with an existing journal, and an interrupted initialization all
+  fail closed — either as a startup error or as a fenced journal refused with `journal_corrupt` — and
+  none regenerates an epoch or clears `pruned`.
+- A post-rename directory-`fsync` failure is handled as an indeterminate outcome: no record is
+  removed, the journal is fenced, a stale in-memory `pruned = false` can never overwrite a visible
+  `pruned = true`, and the next load validates whichever file is present.
 - Pruning durably sets `pruned = true` before any record is removed, under the journal mutex, and a
   crash at either point never produces a false `not_found`. No record path can remove records while
   the marker is still false on disk.
