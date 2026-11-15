@@ -17,8 +17,7 @@ pub mod updates;
 
 use std::sync::Arc;
 
-use domovoi_config::Secrets;
-use domovoi_config::hub::HubConfig;
+use domovoi_config::{Secrets, hub::HubConfig};
 use domovoi_core::ports::{
     AgentLink, ChatGateway, Clock, HostRepo, InteractionSink, LogSource, Notifier, ProcessExecutor,
 };
