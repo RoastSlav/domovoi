@@ -46,13 +46,13 @@ the planned names.
 | Host availability | 14 | `HostAvailability { Known, Unknown, Absent, Incompatible }` |
 | Effect lifecycle with lease fencing | 15 | `effects.claim_token`, `claim_generation`, `lease_until` |
 | Wire 1.2: complete v1 contract (RW-42) | 20 | `hello` extensions, `agent_status`, `run_capability`, `refused`, `action_status`, `get_catalog`, `transfer_*`, `attest_safety`, `safety_attestation`, `unsupported`, `Open<T>` |
-| `ExecutionId`, plan hash v2, `Authorization`, `PolicyPermit` | 22 | `domovoi_core::action::{Authorization, PolicyPermit, PlanHash}`, `ExecutionId` |
+| `ExecutionId`, plan hash v2, `Authorization`, `PolicyPermit`, `KeyFingerprint` | 22 | `domovoi_core::action::{Authorization, PolicyPermit, PlanHash}`, `ExecutionId`, `domovoi_core::host::KeyFingerprint` |
 | Capability contracts | 24 | `domovoi_core::capability::{ContractId, EffectClass, CapabilityContract}` |
-| Capability registry and availability | 25 | `Availability` |
+| Capability registry, availability and target identity | 25 | `domovoi_core::capability::Availability`; ports `domovoi_core::ports::{CapabilityRegistry, TargetResolver}`; `TargetQuery`, `ResolvedTarget`, `CatalogueState`, `canonical_host_identity` |
 | Operation aggregate and trace schema | 26 | `Operation`, `OperationStatus`, `Step`, `StepKind`, `StepOutcome`, `StepEdge`, `EdgeKind`; trace JSON golden fixtures |
 | Journal-backed SSE | 28 | SSE `id` = journal `seq`; topics; `as_of_seq` |
 | Context retrieval port | 31 | `ContextSource` (planned) |
-| Policy evaluator | 39 | `domovoi_engine::policy::{evaluate, Decision, Rule}` |
+| Policy evaluator | 39 | `domovoi_engine::policy::{evaluate, evaluate_shadow, Decision, Rule, simulate, validate_publication}`; `EvaluateRequest`, `Outcome`, `PublicationReport`, `PolicyError` |
 | Visibility categories | 37 | `useVisibility(category)`; categories `P0` to `P3` |
 | Helper protocol and safety attestation | 47 | helper socket request and response types; `SafetyIdentity`, `ExpectedSafety` (RW-37) |
 

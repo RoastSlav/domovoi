@@ -958,6 +958,15 @@ uninstalled, key-untrusted detected.
 There is no window, no adapter and no release-number floor (`MIN_AGENT_VERSION`/`MIN_HUB_VERSION`
 are removed in F3).
 
+**1.2 skill summaries.** Every element of `hello.skills[]` carries a required `entry_script_digest`: the
+SHA-256 of the raw bytes of the agent's canonical resolved entry executable, 64 lowercase hex on the wire,
+with no absent form and no default. It is what lets plan hash v2 bind the entry-script bytes (RW-08, RW-11):
+`impl_hash` is the manifest hash plus this digest. The agent recomputes the digest from the resolved file and
+compares it with the one it loaded before every run, refusing on a mismatch or a read failure. It covers the
+manifest and the entry executable, not transitive dependencies, interpreters or other files. This is part of
+the single coordinated M1 upgrade 1.1 → 1.2, not a later version, and the exact major/minor rule is
+unchanged.
+
 **Handshake order (hub):**
 1. `hello`;
 2. agent lookup (`UnknownAgent` / `Revoked`, not persisted);
