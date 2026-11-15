@@ -176,8 +176,8 @@ does not suspend the migration rule (§7) or the shared-file order (§1).
 2. **Wave B:** 09, after 13 has merged, so its audit migration takes the next number.
 3. **Wave C:** 10 ∥ 11.
 4. **Wave D:** 12 ∥ 14 ∥ 16 ∥ 18 ∥ 57, then 17, then 19: 17 and 19 each add a migration and run one at
-   a time (§7). Then 15, after 14: both edit `engine/src/actions/{executor,writer,mod}.rs`, and 15 adds
-   the last migration of this wave.
+   a time (§7). Then 15, after 14: both edit `engine/src/actions/{executor,writer,mod}.rs`; 15 adds no
+   migration.
 5. **Wave E, protocol bump:** 20. This is a coordinated hub and agent upgrade.
 6. **Wave F:** 21, then 22, then 23.
 7. **Wave G:** 24, then 25 ∥ 39.
@@ -273,7 +273,7 @@ row as pending or as still to be implemented.
 | 11 | `11-atomic-incident-writes.md` | ready: 09 is merged; adds no migration |
 | 12 | `12-crash-harness.md` | waiting: 11 (10 is merged) |
 | 14 | `14-recovery-order.md` | ready: 10 is merged; adds no migration |
-| 15 | `15-durable-timers.md` | waiting: 14 (08 and 10 are merged); adds a migration, so take the next free number when it runs |
+| 15 | `15-durable-timers.md` | merged into `overhaul-investigation` (#136, `bca079d`; no migration; the effect columns came with `0006`) |
 | 18 | `18-structured-approvals.md` | ready: 10 is merged; adds no migration |
 | 24 | `24-capability-contracts.md` | waiting: 23, which is unwritten (§6.2) |
 
@@ -366,7 +366,7 @@ Rules for every prompt that adds a migration:
    (`_agent_protocol_report`, `_audit_chain`, ...). Its number is not part of the contract, and tests are
    named after the behaviour, not after a file number.
 5. **One at a time.** Migration-adding prompts run sequentially, never in parallel with each other. In
-   the recommended order of §3 they are 13, then 09, then 17 and 19 in wave D, then 15. On a branch
+   the recommended order of §3 they are 13, then 09, then 17 and 19 in wave D. On a branch
    that contains prompt 08 that sequence started at `0008`; the numbers it uses next depend on what has
    already merged. That sequence is an illustration of the rule, not a promise: verify the directory
    before every one of them.
