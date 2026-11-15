@@ -12,6 +12,8 @@ use jiff::{SignedDuration, Timestamp};
 
 use super::{Shared, tools};
 
+pub(crate) use super::complete::complete;
+
 /// Sent once the budget is spent, with the last tool results.
 pub const BUDGET_EXHAUSTED: &str = "Budget exhausted. Reply now with the JSON report.";
 
@@ -229,77 +231,6 @@ pub(crate) fn text_of(parts: &[Part]) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
-}
-
-/// Runs one model turn, bounded by `deadline`, and records its usage.
-///
-/// The deadline covers the whole request, streamed or not: a provider that never answers,
-/// or keeps streaming, is dropped when the run's time is up. Every attempt, including a
-/// retry, records its usage, so retries count towards the monthly budget.
-pub(crate) async fn complete(
-    shared: &Shared,
-    provider: &Arc<dyn LlmProvider>,
-    req: LlmRequest,
-    deadline: Timestamp,
-) -> Result<LlmResponse, LlmError> {
-    let left = deadline.duration_since(shared.deps.clock.now());
-    if left <= SignedDuration::ZERO {
-        return Err(LlmError::Unavailable(
-            "the run deadline passed before the model was asked; raise [triage] per_run.seconds"
-                .to_owned(),
-        ));
-    }
-    let response = tokio::time::timeout(left.unsigned_abs(), provider.complete(req))
-        .await
-        .map_err(|_| {
-            LlmError::Unavailable(
-                "the run deadline passed while the model was answering; \
-                 raise [triage] per_run.seconds"
-                    .to_owned(),
-            )
-        })??;
-    let usage = response.usage;
-    crate::telemetry::record_llm(
-        provider.id(),
-        usage.input_tokens,
-        usage.output_tokens,
-        usage.cost_micros,
-    );
-    // A monthly budget in dollars cannot count a turn whose price is unknown, and an
-    // unpriced turn must never be written down as free. Admission stops an unpriced
-    // provider before its request; reaching this is an adapter that contradicted itself.
-    match usage.cost_micros {
-        Some(cost) => {
-            if let Err(err) = shared
-                .deps
-                .usage
-                .record(
-                    provider.id(),
-                    u64::from(usage.input_tokens),
-                    u64::from(usage.output_tokens),
-                    cost,
-                    shared.deps.clock.now(),
-                )
-                .await
-            {
-                tracing::warn!(%err, "could not record model usage");
-            }
-        }
-        None if shared.settings.monthly_budget_micros.is_some() => {
-            return Err(LlmError::Unavailable(format!(
-                "{} did not price this turn, so the monthly model budget cannot count it; \
-                 set a price for it (0 for a free model) or remove the monthly budget",
-                super::run::provider_name(provider),
-            )));
-        }
-        None => {
-            tracing::debug!(
-                provider = provider.id(),
-                "usage without a price is not recorded",
-            );
-        }
-    }
-    Ok(response)
 }
 
 /// The failure a run ends with when its time is gone.

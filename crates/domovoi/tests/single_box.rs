@@ -220,6 +220,7 @@ mod tests {
 
         let metrics = client
             .get(format!("{base}/metrics"))
+            .header(reqwest::header::COOKIE, cookie)
             .send()
             .await
             .unwrap()

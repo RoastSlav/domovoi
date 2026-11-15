@@ -917,8 +917,28 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Prometheus metrics. */
+        /**
+         * Prometheus metrics: readable by a logged-in session, or by a scraper holding the
+         *     configured bearer token. Without either, 401.
+         */
         get: operations["metrics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/readyz": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Readiness: 200 when the hub can do its job, 503 naming what it cannot. */
+        get: operations["readyz"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1635,6 +1655,13 @@ export interface components {
             reason: string;
             /** @description Skill name. */
             skill: string;
+        };
+        /** @description The body of `/readyz`. */
+        ReadyzBody: {
+            /** @description The names of the checks that failed, in a fixed order; empty when ready. */
+            failing: string[];
+            /** @description True when no check failed. */
+            ready: boolean;
         };
         /** @description A triage report. */
         ReportDto: {
@@ -4569,6 +4596,44 @@ export interface operations {
                 };
                 content: {
                     "text/plain": string;
+                };
+            };
+            /** @description No session and no valid bearer token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    readyz: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Ready */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReadyzBody"];
+                };
+            };
+            /** @description Not ready; the body names the failing checks */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReadyzBody"];
                 };
             };
         };

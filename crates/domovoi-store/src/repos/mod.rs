@@ -2,6 +2,7 @@
 
 mod accounts;
 mod actions;
+mod admission;
 mod audit;
 mod hosts;
 mod incidents;

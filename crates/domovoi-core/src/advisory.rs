@@ -29,6 +29,9 @@ pub enum AdvisoryKind {
     StoredSecretUnreadable,
     /// Saved settings could not be applied; the hub went back to the previous ones.
     SettingsApplyFailed,
+    /// The nightly backup failed or did not verify; the newest good backup is older than
+    /// expected.
+    BackupFailed,
     /// A background effect failed permanently and was dead-lettered.
     EffectDead,
 }

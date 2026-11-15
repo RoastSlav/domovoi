@@ -13,6 +13,7 @@ pub mod logs;
 pub mod process;
 pub mod redact;
 pub mod repos;
+pub mod store_health;
 pub mod uow;
 
 pub use agent_link::{
@@ -32,4 +33,5 @@ pub use logs::{LogLine, LogSource};
 pub use process::{ProcessError, ProcessExecutor, ProcessOutput, ProcessSpec};
 pub use redact::Redactor;
 pub use repos::*;
+pub use store_health::StoreHealth;
 pub use uow::*;

@@ -142,7 +142,7 @@ async fn restarted_with(
         bus: bus.clone(),
         shutdown: shutdown.clone(),
     });
-    let (service, _task) = ActionService::spawn(
+    let (service, action_task) = ActionService::spawn(
         ActionDeps {
             actions: store.clone(),
             incidents: store.clone(),
@@ -171,6 +171,7 @@ async fn restarted_with(
             bus,
             incident,
             shutdown,
+            action_task,
         },
         ids,
     )

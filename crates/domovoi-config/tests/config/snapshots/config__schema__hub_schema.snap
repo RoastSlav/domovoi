@@ -1,5 +1,6 @@
 ---
 source: crates/domovoi-config/tests/config/schema.rs
+assertion_line: 5
 expression: "HubConfig::json_schema()"
 ---
 {
@@ -49,6 +50,10 @@ expression: "HubConfig::json_schema()"
     "llm": {
       "description": "Language model providers used by triage.",
       "$ref": "#/$defs/LlmSection"
+    },
+    "metrics": {
+      "description": "Who may read `/metrics`.",
+      "$ref": "#/$defs/MetricsSection"
     },
     "notify": {
       "description": "When people are notified.",
@@ -383,6 +388,17 @@ expression: "HubConfig::json_schema()"
           "format": "uri",
           "default": null
         },
+        "call_deadline": {
+          "description": "The longest one model call may take in total, such as `5m`, even while it keeps\nstreaming. Default `5m`.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Duration"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "cli": {
           "description": "How to run a local CLI. Required for `cli`.",
           "anyOf": [
@@ -475,6 +491,24 @@ expression: "HubConfig::json_schema()"
       "description": "A 24-hour time of day such as \"09:00\".",
       "type": "string",
       "pattern": "^[0-2][0-9]:[0-5][0-9]$"
+    },
+    "MetricsSection": {
+      "description": "`[metrics]`.",
+      "type": "object",
+      "properties": {
+        "token": {
+          "description": "Bearer token a Prometheus scraper sends as `Authorization: Bearer <token>`.\nWithout it, only a logged-in web session can read `/metrics`.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Secret"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
     },
     "NotifySection": {
       "description": "`[notify]`.",
@@ -741,6 +775,13 @@ expression: "HubConfig::json_schema()"
           "type": "integer",
           "format": "uint32",
           "default": 2000,
+          "minimum": 0
+        },
+        "prompt_bytes": {
+          "description": "Largest prompt sent in one model call, in bytes. Old tool results are shortened\nfirst to fit. Default 131072 (128 KiB).",
+          "type": "integer",
+          "format": "uint32",
+          "default": 131072,
           "minimum": 0
         },
         "seconds": {

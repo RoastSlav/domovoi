@@ -326,22 +326,45 @@ async fn timeline(repo: &dyn IncidentRepo) -> ContractResult {
 
 async fn search(repo: &dyn IncidentRepo) -> ContractResult {
     let host = HostId::new();
+    let other = HostId::new();
     let older = Incident::new_pending(&signal(host, "zfs.pool_degraded", None)?, T0);
     let newer = Incident::new_pending(&signal(host, "zfs.scrub_errors", None)?, at(10));
+    let elsewhere = Incident::new_pending(&signal(other, "zfs.scrub_errors", None)?, at(20));
     repo.insert(&older).await?;
     repo.insert(&newer).await?;
+    repo.insert(&elsewhere).await?;
     // Builder titles read "<check> firing", for example "zfs.scrub_errors firing".
 
     let ids = |hits: Vec<Incident>| hits.into_iter().map(|i| i.id()).collect::<Vec<_>>();
-    assert_eq!(ids(repo.search("ZFS", 10).await?), [newer.id(), older.id()]);
-    assert_eq!(ids(repo.search("zfs FIRING", 1).await?), [newer.id()]);
     assert_eq!(
-        ids(repo.search("pool_degraded zfs", 10).await?),
+        ids(repo.search("ZFS", None, 10).await?),
+        [elsewhere.id(), newer.id(), older.id()]
+    );
+    assert_eq!(
+        ids(repo.search("ZFS", Some(host), 10).await?),
+        [newer.id(), older.id()],
+        "only the asked host's incidents match"
+    );
+    assert_eq!(
+        ids(repo.search("ZFS", Some(other), 10).await?),
+        [elsewhere.id()]
+    );
+    assert_eq!(
+        ids(repo.search("ZFS", Some(host), 1).await?),
+        [newer.id()],
+        "the limit applies after the host filter"
+    );
+    assert_eq!(
+        ids(repo.search("zfs FIRING", None, 1).await?),
+        [elsewhere.id()]
+    );
+    assert_eq!(
+        ids(repo.search("pool_degraded zfs", None, 10).await?),
         [older.id()]
     );
     for query in ["zf", "zfs missing", "", "  "] {
         assert!(
-            repo.search(query, 10).await?.is_empty(),
+            repo.search(query, None, 10).await?.is_empty(),
             "`{query}` matched"
         );
     }

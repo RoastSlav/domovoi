@@ -59,7 +59,7 @@ async fn fts_search_ranks_title_matches_first_and_sanitises_operators() {
     ] {
         let notes = NoteRepo::search(store, query, None, 10).await;
         assert!(notes.is_ok(), "{query}: {notes:?}");
-        let incidents = IncidentRepo::search(store, query, 10).await;
+        let incidents = IncidentRepo::search(store, query, None, 10).await;
         assert!(incidents.is_ok(), "{query}: {incidents:?}");
     }
     // `OR` is a word to find, not an operator, so nothing has all of these words.
@@ -82,7 +82,7 @@ async fn fts_search_ranks_title_matches_first_and_sanitises_operators() {
         .unwrap();
     assert!(filtered.is_empty(), "\"title\" is a word to match");
     assert_eq!(
-        IncidentRepo::search(store, "pool_degraded", 10)
+        IncidentRepo::search(store, "pool_degraded", None, 10)
             .await
             .unwrap()[0]
             .id(),

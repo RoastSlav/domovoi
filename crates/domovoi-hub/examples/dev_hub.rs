@@ -512,6 +512,7 @@ async fn main() -> Result<()> {
         config: Arc::new(config),
         notifier: None,
         metrics: None,
+        store_health: store.clone(),
         settings: None,
         audit: store.clone(),
         logs: Some(Arc::new(CannedLogSource::new(dev_logs()))),

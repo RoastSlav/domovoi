@@ -106,16 +106,12 @@ pub fn apply(
 
 /// Whether changing `path` widens who can act or what is trusted, so the admin must
 /// enter their password again.
+///
+/// Every stored secret counts, whatever its path; everything else is decided by
+/// [`super::step_up::STEP_UP_SETTINGS`].
 #[must_use]
 pub fn is_sensitive(change: &Change) -> bool {
-    let path = change.path();
-    matches!(change, Change::Secret { .. })
-        || path == "discord.allowed_user_ids"
-        || path == "web.trusted_proxies"
-        || path == "webhooks"
-        || path.starts_with("webhooks.")
-        || path == "retention"
-        || path.starts_with("retention.")
+    matches!(change, Change::Secret { .. }) || super::step_up::path_needs_step_up(change.path())
 }
 
 fn join(prefix: &str, key: &str) -> String {

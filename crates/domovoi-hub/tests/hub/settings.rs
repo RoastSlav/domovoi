@@ -233,6 +233,72 @@ async fn sensitive_change_requires_password_and_shares_login_rate_limit() {
 }
 
 #[tokio::test]
+async fn llm_cli_change_requires_step_up() {
+    let a = api().await;
+    let login = a.admin().await;
+    let changes = [
+        json!({ "llm": { "secondary": { "cli": { "command": "/usr/local/bin/other" } } } }),
+        json!({ "llm": { "secondary": { "cli": { "args": ["--dangerously-skip-permissions"] } } } }),
+        json!({ "llm": { "secondary": { "cli": { "preset": "codex" } } } }),
+        // The whole CLI table at once, which the harness leaves absent: the leaf is the
+        // table itself, so the path rule still applies.
+        json!({ "llm": { "secondary": { "cli": { "preset": "claude", "args": ["-p"] } } } }),
+    ];
+    for change in &changes {
+        let missing = patch(&a, &login, 0, change.clone(), None).await;
+        assert_eq!(missing.status, StatusCode::FORBIDDEN, "{}", missing.text);
+        assert!(
+            missing.body["message"]
+                .as_str()
+                .unwrap()
+                .contains("password"),
+            "{}",
+            missing.text
+        );
+        assert_eq!(
+            SettingsRepo::get(&*a.store, "config").await.unwrap(),
+            None,
+            "a refused change stores nothing"
+        );
+    }
+    // The API agrees the primary slot's CLI settings are sensitive too.
+    let a2 = api().await;
+    let login2 = a2.admin().await;
+    let primary = json!({ "llm": { "primary": { "cli": {
+        "preset": "claude",
+        "command": "/usr/local/bin/claude"
+    } } } });
+    assert_eq!(
+        patch(&a2, &login2, 0, primary, None).await.status,
+        StatusCode::FORBIDDEN
+    );
+}
+
+#[tokio::test]
+async fn metrics_token_is_a_secret_and_needs_step_up() {
+    let a = api().await;
+    let login = a.admin().await;
+    let change = json!({ "metrics": { "token": { "set": "scrape-secret-value" } } });
+    let missing = patch(&a, &login, 0, change.clone(), None).await;
+    assert_eq!(missing.status, StatusCode::FORBIDDEN, "{}", missing.text);
+    assert_eq!(
+        patch(&a, &login, 0, change, Some(PASSWORD)).await.status,
+        StatusCode::OK
+    );
+    let filter = AuditFilter {
+        kind: Some("settings.changed".to_owned()),
+        ..AuditFilter::default()
+    };
+    let events = AuditLog::list(&*a.store, &filter, &Page::first(10))
+        .await
+        .unwrap()
+        .items;
+    let detail = events[0].detail.to_string();
+    assert!(!detail.contains("scrape-secret-value"), "{detail}");
+    assert!(detail.contains("metrics.token"), "{detail}");
+}
+
+#[tokio::test]
 async fn settings_change_writes_audit_with_paths_and_no_secret_values() {
     let a = api().await;
     let login = a.admin().await;

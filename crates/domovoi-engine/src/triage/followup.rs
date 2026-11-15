@@ -78,7 +78,7 @@ pub(crate) fn provider_failure(redactor: &dyn Redactor, reasons: &[String]) -> T
 /// over [`TURN_BUDGET_CHARS`] the oldest are dropped, so a long history cannot crowd out
 /// the new question. A single turn longer than the budget is still kept.
 #[must_use]
-fn remembered(turns: Vec<Turn>) -> Vec<LlmMessage> {
+fn remembered(redactor: &dyn Redactor, turns: Vec<Turn>) -> Vec<LlmMessage> {
     let mut kept: Vec<Turn> = Vec::new();
     let mut size = 0;
     for turn in turns.iter().rev() {
@@ -97,11 +97,11 @@ fn remembered(turns: Vec<Turn>) -> Vec<LlmMessage> {
     for turn in &kept {
         messages.push(LlmMessage {
             role: Role::User,
-            parts: vec![Part::Text(turn.question.clone())],
+            parts: vec![Part::Text(redactor.redact(&turn.question))],
         });
         messages.push(LlmMessage {
             role: Role::Assistant,
-            parts: vec![Part::Text(turn.answer.clone())],
+            parts: vec![Part::Text(redactor.redact(&turn.answer))],
         });
     }
     messages
@@ -168,6 +168,7 @@ pub(crate) async fn answer(
             Refusal::BudgetSpent => TriageError::BudgetSpent,
             Refusal::Unpriced { provider } => TriageError::Provider(unpriced_text(&provider)),
             Refusal::Hourly { retry_at } => TriageError::Busy { retry_at },
+            Refusal::Unverifiable => TriageError::AdmissionUnavailable,
         });
     }
     let skills = deps.link.skills(incident.host());
@@ -195,7 +196,7 @@ pub(crate) async fn answer(
     };
     let opening = deps.redactor.redact(&opening_text);
     let question = deps.redactor.redact(question);
-    let chat_turns = remembered(turns);
+    let chat_turns = remembered(deps.redactor.as_ref(), turns);
     let chain = shared.chain();
     let mut text = None;
     let mut reasons: Vec<String> = Vec::new();
@@ -373,26 +374,31 @@ mod tests {
     #[test]
     fn remembered_turns_come_back_as_question_and_answer_messages() {
         let at = Timestamp::constant(0, 0);
+        let redactor = domovoi_testkit::ListRedactor::new(["s3cret"]);
         let turns = vec![Turn {
-            question: "Which container flaps?".to_owned(),
-            answer: "nginx, every few minutes.".to_owned(),
+            question: "Which container flaps? token s3cret".to_owned(),
+            answer: "nginx, every few minutes; key s3cret.".to_owned(),
             asked_by: "user:1".to_owned(),
             at,
             asked_at: at,
         }];
         assert_eq!(
-            remembered(turns),
+            remembered(&redactor, turns),
             vec![
                 LlmMessage {
                     role: Role::User,
-                    parts: vec![Part::Text("Which container flaps?".to_owned())],
+                    parts: vec![Part::Text(
+                        "Which container flaps? token [REDACTED]".to_owned()
+                    )],
                 },
                 LlmMessage {
                     role: Role::Assistant,
-                    parts: vec![Part::Text("nginx, every few minutes.".to_owned())],
+                    parts: vec![Part::Text(
+                        "nginx, every few minutes; key [REDACTED].".to_owned()
+                    )],
                 },
             ],
-            "the earlier question and answer come back in order",
+            "the earlier question and answer come back in order, with secrets removed",
         );
     }
 

@@ -207,3 +207,57 @@ async fn chat_without_triage_is_503() {
         reply.text
     );
 }
+
+#[tokio::test]
+async fn chat_and_follow_up_answer_503_when_the_limits_cannot_be_checked() {
+    use domovoi_core::ports::{CallOutcome, UsageEntry, UsageRepo, UsageSource};
+    use domovoi_engine::TriageSettings;
+
+    use crate::api_harness::{api_with_triage_settings, t0};
+
+    let settings = TriageSettings {
+        monthly_budget_micros: Some(1_000_000),
+        ..TriageSettings::default()
+    };
+    let a = api_with_triage_settings(settings).await;
+    let login = a.admin().await;
+    // A successful response whose price is unknown makes the month's spend unmeasurable.
+    UsageRepo::record_call(
+        &*a.store,
+        &UsageEntry {
+            provider: "anthropic",
+            model: None,
+            outcome: CallOutcome::Ok,
+            tokens_in: 1,
+            tokens_out: 1,
+            cost_micros: None,
+            usage_source: Some(UsageSource::Unknown),
+            latency_ms: 1,
+            at: t0(),
+        },
+    )
+    .await
+    .unwrap();
+
+    let chat = a
+        .post("/api/v1/chat", &login, json!({ "question": "Why?" }))
+        .await;
+    assert_eq!(
+        chat.status,
+        StatusCode::SERVICE_UNAVAILABLE,
+        "{}",
+        chat.text
+    );
+    assert!(chat.text.contains("could not be checked"), "{}", chat.text);
+
+    let ask = a
+        .post(
+            &format!("/api/v1/incidents/{}/ask", a.incident.id()),
+            &login,
+            json!({ "question": "Why?" }),
+        )
+        .await;
+    assert_eq!(ask.status, StatusCode::SERVICE_UNAVAILABLE, "{}", ask.text);
+    assert!(ask.text.contains("could not be checked"), "{}", ask.text);
+    assert!(a.llm.requests().is_empty(), "no model call was made");
+}

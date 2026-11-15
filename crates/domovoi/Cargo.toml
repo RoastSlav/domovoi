@@ -57,6 +57,7 @@ jiff = { workspace = true }
 assert_cmd = { workspace = true }
 domovoi-checks = { workspace = true, features = ["host"] }
 domovoi-proto = { workspace = true }
+domovoi-store = { workspace = true }
 domovoi-testkit = { workspace = true }
 predicates = { workspace = true }
 secrecy = { workspace = true }

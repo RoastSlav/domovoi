@@ -9,7 +9,7 @@ use jiff::Timestamp;
 use tokio::sync::{Notify, broadcast};
 use tokio::task::JoinSet;
 
-use super::admission::{free_slots, next_slot, slot_after};
+use super::admission::{ADMISSION_RETRY, free_slots, next_slot, slot_after};
 use super::{FAILED_RETRY_LIMIT, RetryReason, Shared, run};
 use crate::events::{DomainEvent, EventKind};
 
@@ -111,16 +111,45 @@ async fn retry_deferred(shared: Arc<Shared>) {
             return;
         }
         let now = shared.deps.clock.now();
-        let mut free = free_slots(&shared, now);
-        for (id, reason) in take_due(&shared, now) {
-            if free == 0 {
-                if let Some(at) = next_slot(&shared).or(slot_after(now)) {
-                    shared.defer(id, at, reason);
+        match free_slots(&shared, now).await {
+            Ok(mut free) => {
+                let mut next: Option<Timestamp> = None;
+                for (id, reason) in take_due(&shared, now) {
+                    if free == 0 {
+                        if next.is_none() {
+                            next = match next_slot(&shared).await {
+                                Ok(at) => at.or_else(|| slot_after(now)),
+                                Err(err) => {
+                                    tracing::warn!(
+                                        %err,
+                                        "could not read the model run window; deferring every retry",
+                                    );
+                                    now.checked_add(ADMISSION_RETRY).ok()
+                                }
+                            };
+                        }
+                        if let Some(at) = next {
+                            shared.defer(id, at, reason);
+                        }
+                        continue;
+                    }
+                    if retry(&shared, id, reason).await {
+                        free -= 1;
+                    }
                 }
-                continue;
             }
-            if retry(&shared, id, reason).await {
-                free -= 1;
+            Err(err) => {
+                // An unreadable window is not a free hour: every due retry waits again.
+                tracing::warn!(
+                    %err,
+                    "could not read the model run window; deferring every retry",
+                );
+                let at = now.checked_add(ADMISSION_RETRY).ok();
+                for (id, reason) in take_due(&shared, now) {
+                    if let Some(at) = at {
+                        shared.defer(id, at, reason);
+                    }
+                }
             }
         }
         match earliest(&shared) {

@@ -114,6 +114,12 @@ pub trait IncidentRepo: Send + Sync {
 
     /// Up to `limit` incidents, newest first, whose title contains every word of `text` as
     /// a whole word, ignoring case. Words are runs of letters and digits; a query with no
-    /// words matches nothing.
-    async fn search(&self, text: &str, limit: u16) -> Result<Vec<Incident>, StoreError>;
+    /// words matches nothing. With `Some(host)` only that host's incidents match; the limit
+    /// applies after the host filter.
+    async fn search(
+        &self,
+        text: &str,
+        host: Option<HostId>,
+        limit: u16,
+    ) -> Result<Vec<Incident>, StoreError>;
 }

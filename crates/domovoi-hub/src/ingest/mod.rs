@@ -1,6 +1,6 @@
 //! Signed webhook ingest for generic, Alertmanager and Uptime Kuma payloads.
 
-mod auth;
+pub(crate) mod auth;
 mod handler;
 mod limit;
 

@@ -20,6 +20,7 @@ use crate::lock;
 #[derive(Debug)]
 pub struct ScriptedLlm {
     id: String,
+    model: Option<String>,
     supports_tools: bool,
     prices: bool,
     script: Mutex<VecDeque<Result<LlmResponse, LlmError>>>,
@@ -36,6 +37,7 @@ impl ScriptedLlm {
     pub fn new() -> Self {
         Self {
             id: "scripted".to_owned(),
+            model: None,
             supports_tools: true,
             prices: true,
             script: Mutex::new(VecDeque::new()),
@@ -49,6 +51,13 @@ impl ScriptedLlm {
     #[must_use]
     pub fn without_tools(mut self) -> Self {
         self.supports_tools = false;
+        self
+    }
+
+    /// Gives the provider a model name, as a configured adapter reports.
+    #[must_use]
+    pub fn with_model(mut self, model: impl Into<String>) -> Self {
+        self.model = Some(model.into());
         self
     }
 
@@ -128,6 +137,10 @@ impl Default for ScriptedLlm {
 impl LlmProvider for ScriptedLlm {
     fn id(&self) -> &str {
         &self.id
+    }
+
+    fn model(&self) -> Option<&str> {
+        self.model.as_deref()
     }
 
     fn supports_tools(&self) -> bool {

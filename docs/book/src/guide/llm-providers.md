@@ -160,6 +160,21 @@ calls its answer makes, and no model call starts without passing this check. The
 `monthly_budget_usd` is checked in the same place, before every model call, together with
 the requirement that every provider has a price.
 
+The hour is kept on disk, so restarting the hub, or saving settings (which restarts the
+runtime), does not empty it. A repeat incident answered from the triage cache never takes a
+run and never reads the monthly budget. If the limits cannot be read — the spending total or
+the saved window — no model call is made at all: questions and chat answer 503, and triage
+leaves the alert it already sent and tries again in a few minutes.
+
+## Prompt size and call deadlines
+
+Two limits bound each call beyond the run budget. `[triage.per_run] prompt_bytes` is the
+largest prompt one call may send, 131072 bytes (128 KiB) by default; when a conversation grows
+past it, older tool output is replaced by a short note and then the newest tool output is cut,
+so the incident's opening context is never dropped. `call_deadline` on a provider is the
+longest one call may take in total, 5 minutes by default, even if it keeps streaming; a call
+past it fails as a timeout and the chain moves on as for any other provider failure.
+
 ## Failures
 
 A provider request is cut off after 120 seconds without any data; the timer restarts whenever data arrives, including streamed bytes. Connecting has a 10-second limit. Separately, one triage, follow-up or chat run has a total wall-clock deadline (`triage.per_run.seconds`, 90 seconds by default) that no retry or provider fallback can extend. A failed turn is reported as one of:

@@ -29,6 +29,7 @@ contract_tests! {
     in_memory_fact_repo_satisfies_contract => fact_repo_contract,
     in_memory_triage_cache_repo_satisfies_contract => triage_cache_repo_contract,
     in_memory_usage_repo_satisfies_contract => usage_repo_contract,
+    in_memory_admission_repo_satisfies_contract => admission_repo_contract,
     in_memory_settings_repo_satisfies_contract => settings_repo_contract,
     in_memory_user_repo_satisfies_contract => user_repo_contract,
     in_memory_session_repo_satisfies_contract => session_repo_contract,

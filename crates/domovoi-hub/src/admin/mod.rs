@@ -19,6 +19,7 @@ use domovoi_core::{HostKind, HostName, Signal, User, UserId};
 use domovoi_store::Store;
 use jiff::{SignedDuration, Timestamp};
 
+pub use domovoi_store::{BackupReport, Depth, RestoreError, RestoreReport, verify_backup};
 pub(crate) use notify::test_card;
 pub use notify::{NotifyOutcome, notify_test};
 
@@ -53,6 +54,9 @@ pub enum AdminError {
     /// Nothing to send through, or sending failed.
     #[error("{0}")]
     Delivery(String),
+    /// The backup could not be installed; the previous database is where it was.
+    #[error(transparent)]
+    Restore(#[from] RestoreError),
 }
 
 impl From<LockError> for AdminError {
@@ -62,6 +66,21 @@ impl From<LockError> for AdminError {
             other => Self::Lock(other),
         }
     }
+}
+
+/// Installs `backup` as `data_dir`'s database, refusing while a hub holds the directory.
+///
+/// This is the offline operator's restore; it is never reachable from the running hub or
+/// the web UI. The backup is verified in full first, and the database it replaces is
+/// kept beside it.
+pub async fn restore(
+    data_dir: &std::path::Path,
+    backup: &std::path::Path,
+    now: Timestamp,
+) -> Result<RestoreReport, AdminError> {
+    let _lock = HubLock::acquire(data_dir)?;
+    let report = domovoi_store::restore_from_backup(&data_dir.join("hub.db"), backup, now).await?;
+    Ok(report)
 }
 
 /// One row of `domovoi hub agent list`. Without a running hub nothing is connected, so

@@ -334,6 +334,7 @@ async fn security_headers_present_on_api_and_healthz() {
         a.send(Method::GET, "/api/v1/session", None, None).await,
         a.get("/api/v1/incidents", &login).await,
         a.send(Method::GET, "/metrics", None, None).await,
+        a.send(Method::GET, "/readyz", None, None).await,
         a.send(Method::GET, "/incidents", None, None).await,
         a.send(Method::GET, "/api/v1/nope", None, None).await,
     ];
@@ -493,8 +494,9 @@ async fn advisories_digest_and_metrics() {
         "no notifier configured"
     );
     assert_eq!(
-        a.send(Method::GET, "/metrics", None, None).await.text,
-        "domovoi_up 1\n"
+        a.get("/metrics", &login).await.text,
+        "domovoi_up 1\n",
+        "a session reads metrics"
     );
 }
 

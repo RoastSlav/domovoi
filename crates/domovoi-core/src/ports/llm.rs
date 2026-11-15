@@ -110,6 +110,18 @@ pub enum UsageSource {
     Unknown,
 }
 
+impl UsageSource {
+    /// The stored name, `reported`, `estimated` or `unknown`.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Reported => "reported",
+            Self::Estimated => "estimated",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
 /// Tokens used by one turn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Usage {
@@ -187,6 +199,12 @@ pub enum LlmError {
     /// The credentials were refused; retrying will not help.
     #[error("authentication failed")]
     Auth,
+    /// The call did not finish within the hard per-call deadline.
+    #[error("no answer within {after}")]
+    Timeout {
+        /// How long the call was allowed to take.
+        after: SignedDuration,
+    },
     /// The provider answered with something that could not be parsed.
     #[error("invalid response: {0}")]
     InvalidResponse(String),

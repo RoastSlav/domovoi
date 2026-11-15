@@ -2,7 +2,9 @@
 
 mod accounts;
 mod actions;
+mod admission;
 mod audit;
+mod health;
 mod hosts;
 mod incidents;
 mod knowledge;
@@ -16,8 +18,8 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::{Mutex, MutexGuard};
 
 use domovoi_core::ports::{
-    AggregateRef, AuditEvent, EffectRecord, EnrollmentToken, IncidentTimelineEntry, JournalEntry,
-    Page, Paged, StoreError,
+    AdmissionPurpose, AggregateRef, AuditEvent, CallOutcome, EffectRecord, EnrollmentToken,
+    IncidentTimelineEntry, JournalEntry, Page, Paged, StoreError, UsageSource,
 };
 use domovoi_core::{
     AckRule, AckRuleId, ActionId, ActionRequest, Advisory, AdvisoryId, AgentId, AgentIdentity,
@@ -29,8 +31,29 @@ use serde_json::Value;
 
 use crate::lock;
 
-/// A usage record: provider, tokens in, tokens out, cost, time.
-type UsageRow = (String, u64, u64, u64, Timestamp);
+/// One stored model call, as the in-memory usage repository keeps it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UsageRow {
+    /// Provider id.
+    pub provider: String,
+    /// Configured model name, when known.
+    pub model: Option<String>,
+    /// How the call ended.
+    pub outcome: CallOutcome,
+    /// Prompt tokens.
+    pub tokens_in: u64,
+    /// Generated tokens.
+    pub tokens_out: u64,
+    /// Cost in millionths of a dollar; `None` when the price is unknown.
+    pub cost_micros: Option<u64>,
+    /// Whether the response's usage was reported, estimated or unknown; `None` for a call
+    /// that produced no response.
+    pub usage_source: Option<UsageSource>,
+    /// How long the call took, in milliseconds.
+    pub latency_ms: u64,
+    /// When the call started.
+    pub at: Timestamp,
+}
 
 #[derive(Default, Clone)]
 struct State {
@@ -56,6 +79,7 @@ struct State {
     facts: Vec<DigestFact>,
     triage_cache: BTreeMap<(Fingerprint, [u8; 32]), (TriageReport, Timestamp)>,
     usage: Vec<UsageRow>,
+    admissions: Vec<(AdmissionPurpose, Timestamp)>,
     settings: BTreeMap<String, Value>,
     users: BTreeMap<UserId, User>,
     sessions: BTreeMap<[u8; 32], Session>,
@@ -105,6 +129,12 @@ impl InMemoryStore {
     /// anything.
     pub fn fail_next(&self, error: StoreError) {
         lock(&self.failures).push_back(error);
+    }
+
+    /// Every stored model call, oldest first.
+    #[must_use]
+    pub fn usage_rows(&self) -> Vec<UsageRow> {
+        lock(&self.state).usage.clone()
     }
 
     /// Takes the next injected failure or locks the state.

@@ -43,7 +43,7 @@ An agent from this release that the hub rejects as incompatible does not exit an
 
 **Expected incompatible** means the hub was upgraded and an agent has not reconnected since. It will show as incompatible if it still speaks the old protocol, and as compatible once it reconnects. See [the agent protocol](../reference/protocol.md).
 
-Before a new release changes the database, the hub copies `hub.db` into `backups/`. `secret.key` and the agent certificate in `tls/` carry over unchanged, so saved secrets keep working and agents stay enrolled.
+Before a new release changes the database, the hub copies `hub.db` into `backups/` as `pre-migrate-<time>.db`. Only the three newest of those copies are kept (`backup.keep_pre_migrate`), so an upgrade can no longer push out a pre-migration copy you still wanted. `secret.key` and the agent certificate in `tls/` carry over unchanged, so saved secrets keep working and agents stay enrolled.
 
 To go back a version, stop the hub, restore the backup taken before the upgrade (see [Backups](../reference/backup.md)), and install the older release with `--version`.
 

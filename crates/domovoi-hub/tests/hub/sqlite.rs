@@ -187,8 +187,13 @@ impl IncidentRepo for SqliteStore {
         IncidentRepo::timeline(&*self.0, id).await
     }
 
-    async fn search(&self, text: &str, limit: u16) -> Result<Vec<Incident>, StoreError> {
-        IncidentRepo::search(&*self.0, text, limit).await
+    async fn search(
+        &self,
+        text: &str,
+        host: Option<HostId>,
+        limit: u16,
+    ) -> Result<Vec<Incident>, StoreError> {
+        IncidentRepo::search(&*self.0, text, host, limit).await
     }
 }
 
