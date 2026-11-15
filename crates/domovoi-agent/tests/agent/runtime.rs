@@ -77,7 +77,7 @@ async fn runtime_shuts_down_within_two_seconds_on_cancel() {
 #[cfg(target_os = "linux")]
 #[tokio::test]
 async fn runtime_refuses_to_start_when_another_agent_owns_the_journal() {
-    let mut hub = TestHub::start().await;
+    let hub = TestHub::start().await;
     let dir = tempfile::tempdir().unwrap();
     let identity = identity(&hub);
     identity.save(dir.path()).unwrap();
