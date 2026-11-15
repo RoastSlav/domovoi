@@ -7,6 +7,7 @@
 
 use std::collections::BTreeSet;
 
+use domovoi_core::ports::EffectRecord;
 use domovoi_core::{
     Advisory, AdvisoryId, AdvisoryKind, BaselineEntry, DigestFact, FactValue, HostId,
 };
@@ -88,6 +89,24 @@ pub fn triage_degraded(reason: &str, now: Timestamp) -> Advisory {
         host: None,
         title: "Triage is degraded".to_owned(),
         detail: format!("{reason}. Alerts still go out without triage."),
+        created_at: now,
+        resolved_at: None,
+    }
+}
+
+/// The `EffectDead` advisory for a background effect that was dead-lettered. `error` is the
+/// last failure, already redacted; payload contents never go in it.
+#[must_use]
+pub fn effect_dead(record: &EffectRecord, error: &str, now: Timestamp) -> Advisory {
+    Advisory {
+        id: advisory_id(AdvisoryKind::EffectDead, None, &record.id.to_string()),
+        kind: AdvisoryKind::EffectDead,
+        host: None,
+        title: format!("A background task failed permanently ({})", record.kind),
+        detail: format!(
+            "{} on {}: {} (after {} attempts)",
+            record.kind, record.aggregate, error, record.attempt
+        ),
         created_at: now,
         resolved_at: None,
     }

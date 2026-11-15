@@ -148,6 +148,8 @@ async fn restarted_with(
             incidents: store.clone(),
             audit: store.clone(),
             uow: store.clone(),
+            effects: store.clone(),
+            advisories: store.clone(),
             link: link.clone(),
             redactor: Arc::new(PatternRedactor::new([SecretString::from(
                 SECRET.to_owned(),

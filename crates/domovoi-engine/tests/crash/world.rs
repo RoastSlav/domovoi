@@ -9,8 +9,8 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use domovoi_core::ports::{
-    ActionFilter, ActionRepo, CheckRecheck, Clock, IncidentFilter, IncidentRepo, Page, Presence,
-    SkillOutput,
+    ActionFilter, ActionRepo, AdvisoryRepo, CheckRecheck, Clock, EffectQueue, IncidentFilter,
+    IncidentRepo, Page, Presence, SkillOutput,
 };
 use domovoi_core::{
     ActionId, ActionRequest, ActionStatus, CheckKey, Evidence, HostId, Incident, IncidentId,
@@ -236,7 +236,7 @@ impl<S: SweepStore> Drop for World<S> {
     }
 }
 
-impl<S: SweepStore> World<S> {
+impl<S: SweepStore + EffectQueue + AdvisoryRepo> World<S> {
     /// A world over a fresh store, with one open container incident already stored.
     pub async fn new(store: Arc<S>) -> Self {
         let incident = open_incident(host_id(), "docker.container", Some("nginx"))
@@ -277,6 +277,8 @@ impl<S: SweepStore> World<S> {
                 incidents: store.clone(),
                 audit: store.clone(),
                 uow: crashing.clone(),
+                effects: store.clone(),
+                advisories: store.clone(),
                 link: link.clone(),
                 redactor: Arc::new(PatternRedactor::default()),
                 clock: clock.clone(),
@@ -298,7 +300,9 @@ impl<S: SweepStore> World<S> {
             action_task: Some(action_task),
         }
     }
+}
 
+impl<S: SweepStore> World<S> {
     /// The fake clock's reading.
     pub fn now(&self) -> Timestamp {
         Clock::now(&*self.clock)

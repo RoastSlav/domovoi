@@ -21,7 +21,7 @@ use super::Shared;
 use super::audit::RunRecord;
 use super::freshness;
 use super::host_wait::{self, HostWait};
-use super::recheck::verify;
+use super::recheck::verify_after;
 use super::recover::approved;
 use super::writer::{Decision, WriteCommand};
 use crate::events::{DomainEvent, EventKind};
@@ -215,12 +215,13 @@ async fn ask_reject(
     .await
 }
 
-/// Queues the agent's answer for a run.
+/// Queues the agent's answer for a run, with the delay the verification owes if it succeeded.
 async fn ask_complete(
     shared: &Shared,
     id: ActionId,
     outcome: Result<(), String>,
     record: Option<RunRecord>,
+    verify_after: Option<SignedDuration>,
 ) -> Option<ActionRequest> {
     let (reply, answer) = oneshot::channel();
     ask(
@@ -231,6 +232,7 @@ async fn ask_complete(
             id,
             result: outcome,
             record,
+            verify_after,
             reply,
         },
         answer,
@@ -340,13 +342,17 @@ pub(crate) async fn run(shared: &Shared, id: ActionId, pool: Option<Arc<Semaphor
                 None => Err("the skill was killed".to_owned()),
             };
             let ok = outcome.is_ok();
-            let _ = ask_complete(shared, id, outcome, Some(record)).await;
-            if ok {
-                verify(shared, &action, &skill).await;
-            }
+            // The re-check is a durable effect created with the success transition, so the
+            // writer needs the delay now; the runner fires it when the delay has passed.
+            let delay = if ok {
+                verify_after(shared, &action, &skill).await
+            } else {
+                None
+            };
+            let _ = ask_complete(shared, id, outcome, Some(record), delay).await;
         }
         Err(err) => {
-            let _ = ask_complete(shared, id, Err(err.to_string()), None).await;
+            let _ = ask_complete(shared, id, Err(err.to_string()), None, None).await;
         }
     }
 }

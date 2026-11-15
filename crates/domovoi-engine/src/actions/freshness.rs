@@ -70,7 +70,7 @@ mod tests {
     use domovoi_testkit::build::{T0, manifest, open_incident};
     use domovoi_testkit::{FakeAgentLink, FakeClock, InMemoryStore};
     use jiff::SignedDuration;
-    use tokio::sync::{broadcast, oneshot, watch};
+    use tokio::sync::{Notify, broadcast, oneshot, watch};
     use tokio_util::sync::CancellationToken;
 
     use crate::EnginePolicy;
@@ -118,6 +118,8 @@ mod tests {
                     incidents: store.clone(),
                     audit: store.clone(),
                     uow: store.clone(),
+                    effects: store.clone(),
+                    advisories: store.clone(),
                     link: link.clone(),
                     redactor: Arc::new(PatternRedactor::default()),
                     clock: clock.clone(),
@@ -131,6 +133,7 @@ mod tests {
                 writer: commands.clone(),
                 recovered,
                 catch_up_slots: Arc::new(tokio::sync::Semaphore::new(MAX_CATCH_UP_RUNS)),
+                effects_nudge: Arc::new(Notify::new()),
             });
             tokio::spawn(writer::run(shared.clone(), incoming));
             Writer {

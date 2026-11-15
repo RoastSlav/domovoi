@@ -149,6 +149,8 @@ impl Seeded {
             incidents: self.store.clone(),
             audit: self.store.clone(),
             uow,
+            effects: self.store.clone(),
+            advisories: self.store.clone(),
             link: self.link.clone(),
             redactor: Arc::new(PatternRedactor::new([SecretString::from(
                 SECRET.to_owned(),

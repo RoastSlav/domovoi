@@ -20,6 +20,10 @@ mod chat;
 #[cfg(test)]
 mod conversation;
 #[cfg(test)]
+mod effects;
+#[cfg(test)]
+mod effects_triage;
+#[cfg(test)]
 mod execute;
 #[cfg(test)]
 mod freshness;

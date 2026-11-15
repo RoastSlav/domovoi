@@ -72,6 +72,7 @@ pub(crate) async fn serve(shared: Arc<Shared>, mut events: broadcast::Receiver<D
         workers.spawn(worker(shared.clone()));
     }
     workers.spawn(retry_deferred(shared.clone()));
+    reload_at_start(&shared).await;
     let shutdown = shared.deps.shutdown.clone();
     loop {
         let event = tokio::select! {
@@ -89,7 +90,7 @@ pub(crate) async fn serve(shared: Arc<Shared>, mut events: broadcast::Receiver<D
                 metrics::counter!("domovoi_event_bus_lagged_total", "consumer" => "triage")
                     .increment(missed);
                 tracing::warn!(missed, "triage missed events; reloading active incidents");
-                reload(&shared).await;
+                reload(&shared, false).await;
             }
             Err(broadcast::error::RecvError::Closed) => break,
         }
@@ -224,22 +225,41 @@ async fn retry(shared: &Arc<Shared>, id: IncidentId, reason: RetryReason) -> boo
     true
 }
 
-async fn reload(shared: &Arc<Shared>) {
+/// Queues the incidents a restart left untriaged. Only `Open` incidents are queued: an
+/// `Acked` or `Muted` one was already handled by a person or a rule, and a maintenance
+/// window is not stored, so this pass must not triage on their behalf.
+async fn reload_at_start(shared: &Arc<Shared>) {
+    let queued = reload(shared, true).await;
+    if queued > 0 {
+        tracing::info!(
+            count = queued,
+            "incidents left open without a triage report were queued again",
+        );
+    }
+}
+
+/// Re-queues active incidents that have no triage timeline entry yet. With `only_open`,
+/// only incidents still `Open` are queued; the lag-triggered reload queues the rest too.
+async fn reload(shared: &Arc<Shared>, only_open: bool) -> usize {
     let filter = IncidentFilter {
         active: Some(true),
         ..IncidentFilter::default()
     };
     let mut page = Page::first(Page::MAX_LIMIT);
+    let mut queued = 0;
     loop {
         let got = match shared.deps.incidents.list(&filter, &page).await {
             Ok(got) => got,
             Err(err) => {
                 tracing::warn!(%err, "could not reload incidents for triage");
-                return;
+                return queued;
             }
         };
         for incident in got.items {
             if incident.status() == IncidentStatus::Pending {
+                continue;
+            }
+            if only_open && incident.status() != IncidentStatus::Open {
                 continue;
             }
             let completed = match shared.deps.incidents.timeline(incident.id()).await {
@@ -254,8 +274,12 @@ async fn reload(shared: &Arc<Shared>) {
                     continue;
                 }
             };
-            if !completed && let Some(dropped) = shared.queue.push(incident) {
-                skip_dropped(shared, &dropped).await;
+            if !completed {
+                if let Some(dropped) = shared.queue.push(incident) {
+                    skip_dropped(shared, &dropped).await;
+                } else {
+                    queued += 1;
+                }
             }
         }
         match got.next_cursor {
@@ -263,6 +287,7 @@ async fn reload(shared: &Arc<Shared>) {
             None => break,
         }
     }
+    queued
 }
 
 async fn skip_dropped(shared: &Shared, dropped: &Incident) {
