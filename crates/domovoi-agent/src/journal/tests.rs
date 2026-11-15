@@ -1486,3 +1486,25 @@ fn pruning_cannot_race_action_status_queries() {
     reader.join().expect("the reader finishes");
     pruner.join().expect("the pruner finishes");
 }
+
+#[test]
+fn metadata_epoch_mismatch_fences_the_journal() {
+    let dir = TempDir::new().unwrap();
+    init(dir.path());
+    let mut meta = super::Metadata::load(dir.path()).unwrap().unwrap();
+    let new_epoch = Uuid::now_v7();
+    meta.epoch = new_epoch;
+    meta.write(dir.path(), DurableFaults::default()).unwrap();
+    let journal = open(dir.path());
+    assert_eq!(journal.epoch(), new_epoch, "the visible epoch is preserved");
+    assert!(
+        journal.corruption().is_some(),
+        "the journal no longer matches the metadata epoch"
+    );
+    assert!(matches!(
+        state_of(&journal, Uuid::now_v7()),
+        ActionState::OutcomeUnknown {
+            reason
+        } if reason.known() == Some(&OutcomeUnknownReason::JournalLost)
+    ));
+}
