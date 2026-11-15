@@ -21,7 +21,13 @@ disagree, both are recorded.
 
 `durable-timers` commits after the merge `96b46ea`: `3323cff`, `7ebe448`, `b059bdf`, `c5d898f`,
 `291a370`, `b55f1b0`, `e4165f2`, and after the merge `eca740a`, `7f82e4c`, `4c436bf`, `9e7a2d3`,
-`acf3278`. These are prompt 15 work in progress, unmerged.
+`acf3278`. These were prompt 15 work in progress; it merged into `overhaul-investigation` as #136
+(`bca079d`) after this report was written.
+
+**Update after this report.** `origin/overhaul-investigation` is now `bca079d` (`feat(engine): run
+verification as a durable effect with lease fencing (#136)`). Prompt 15 is merged, migrations still end at
+`0010_llm_admission.sql`, and the current checkout is `phase7-inventory` with this inventory and
+`02-remaining-work-map.md`. The table above describes the checkout the inventory was written in.
 
 ## 2. Canonical documents used
 
@@ -75,7 +81,7 @@ Wave membership (index `07 §3`):
 | 57 | Configurable retention | `prompts/57-configurable-retention.md` | F4 | D | complete | implemented (#133) | 08 | `[retention]` / `RETENTION_KEYS`, `RetentionPolicy`, `backup.keep_pre_migrate` | preserve |
 | 17 | LLM reliability | `prompts/17-llm-reliability.md` | F4 | D | complete, **reconciled** | implemented (#134; migration 0010) | 08 + integrated LLM work | `AdmissionRepo`, `llm_admission`, `LlmError::Timeout`, `prompt_bytes` | preserve; status only |
 | 19 | Operations readiness | `prompts/19-ops-readiness.md` | F4 | D | complete | implemented (#135) | 08 | `settings/step_up.rs`, `StoreHealth`, `/readyz`, `verify_backup`, `restore_from_backup` | preserve; status only |
-| 15 | Durable timers and the effect lifecycle with lease fencing | `prompts/15-durable-timers.md` | F2 | D | complete | **implemented on `durable-timers`, unmerged**; needs no migration (0006 pre-created the columns) | 08, 10 (14 ordering) | effect lifecycle and lease fencing | preserve; finish current branch |
+| 15 | Durable timers and the effect lifecycle with lease fencing | `prompts/15-durable-timers.md` | F2 | D | complete | **implemented (#136)**; needs no migration (0006 pre-created the columns) | 08, 10 (14 ordering) | effect lifecycle and lease fencing | preserve; merged |
 
 ### Waves E–M (not implemented; author only what is missing)
 
@@ -127,7 +133,7 @@ Wave membership (index `07 §3`):
 | A | 08, 13 (+ 53–56 research window) | 08, 13 complete; 53–56 missing | 08, 13 implemented; research not started |
 | B | 09 | complete | implemented |
 | C | 10, 11 | complete | implemented |
-| D | 12, 14, 16, 18, 57, 17, 19, 15 | all 8 complete | 12, 14, 16, 18, 57, 17, 19 merged; 15 in progress on this branch |
+| D | 12, 14, 16, 18, 57, 17, 19, 15 | all 8 complete | all 8 merged; 15 merged as #136 |
 | E | 20 | missing | not started; protocol constant is still `1.1` |
 | F | 21, 22, 23 | missing | not started |
 | G | 24, 25, 39 | 24 complete; 25, 39 missing | not started |
@@ -149,8 +155,8 @@ Counts: 51 prompt IDs in `07 §2`; 14 documents exist; 37 do not. 13 of the 14 d
   17 #134 `958dc40`; 19 #135 `55ab5b7`. Migrations present: `0006_unit_of_work.sql`,
   `0007_advisories_kind_unchecked.sql`, `0008_agent_protocol_report.sql`, `0009_audit_chain.sql`,
   `0010_llm_admission.sql`. Names match the migrations the prompts specify.
-- **Prompt 15 is the only wave D item not merged.** Its work is the current branch, not a missing
-  implementation. Nothing in the docs contradicts that.
+- **Prompt 15 merged as #136 (`bca079d`)** after this report was written; waves A–D are now all merged.
+  It is the same work this report inspected on `durable-timers`, now on the base line.
 
 Implementation evidence (paths and named tests, read in this checkout):
 
@@ -195,13 +201,14 @@ None of these change a decision, a scope or an accepted architecture. They are i
 that have moved on:
 
 1. `07:267-277` — §6.1 "Launch state" rows still say 11, 12, 14, 16, 18, 17, 19 are `ready`/`waiting`.
-   All seven are merged (#120, #121, #122, #124, #132, #134, #135). Prompt 15's row is accurate.
-2. `07:178-180` — wave D says "17 and 19 each add a migration … 15 adds the last migration of this
-   wave". Prompt 19 states **no migration** (`prompts/19-ops-readiness.md:248`: Rust-only
-   `AdvisoryKind::BackupFailed`) and prompt 15 states **no migration**
-   (`prompts/15-durable-timers.md:418`, `:611`). Only 17 added one (`0010_llm_admission.sql`), which is
-   why no `0011` exists: `0006_unit_of_work.sql` already created the effect columns and marks the
-   lifecycle as implemented later. Same claim repeated at `07:269` and `07:276`.
+   All seven are merged (#120, #121, #122, #124, #132, #134, #135). Prompt 15's row now reads merged
+   (#136) after the correction made with the remaining-work map.
+2. `07:178-180` — wave D says "17 and 19 each add a migration". Prompt 19 states **no migration**
+   (`prompts/19-ops-readiness.md:248`: Rust-only `AdvisoryKind::BackupFailed`). Prompt 15 states **no
+   migration** too (`prompts/15-durable-timers.md:418`, `:611`); that separate claim has been corrected in
+   `07` with the remaining-work map. Only 17 added one (`0010_llm_admission.sql`), which is why no `0011`
+   exists: `0006_unit_of_work.sql` already created the effect columns and marks the lifecycle as
+   implemented later. The 19 claim is repeated at `07:269`.
 3. `07:20-24` — "it currently ends at `0009`". The directory ends at `0010_llm_admission.sql`. The
    surrounding text already instructs readers to read the directory, so this is a snapshot, not a rule.
 4. `07:7` and `07:255` — "14 of 51 written" / "Written prompts (14)" is still **accurate**; do not
@@ -221,10 +228,10 @@ No contradiction was found between the prompts and `ARCHITECTURE.md` that would 
 | R-2, R-10 open | `99:55`, `99:59` | 46; 53 and 55 produce the evidence |
 | R-3, R-9 open | `99:56`, `99:58` | 47; 54 produces the evidence |
 | R-8 open | `99:57` | 45; 56 produces the evidence |
-| Prompt 15 unmerged | branch `durable-timers`, HEAD `acf3278` | 20 (wave E depends on 15) |
 
 Nothing blocks authoring 20–23, 25, 26–29, 30–37, 39–43, 48–52, 58 as documents; only their launch gates
-are sequenced. 53–56 can be authored and launched now.
+are sequenced. 53–56 can be authored and launched now. Prompt 15's merge (#136) removed the last
+implementation prerequisite in wave D, so 20 is launchable once its brief exists.
 
 ## 9. Canonical paths
 
