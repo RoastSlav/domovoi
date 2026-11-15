@@ -109,8 +109,9 @@ Mandatory:
 
 1. Never run an experiment against the default network namespace's ruleset. Start with
    `sudo unshare --net bash`, or a disposable `ip netns` namespace created for this prompt.
-2. Never flush, delete or modify an existing table, chain, set or rule you did not create. Prefix every
-   table with `domovoi_probe_`.
+2. Never flush, delete or modify an existing table, chain, set or rule you did not create. Every
+   experimental table name starts with `domovoi_probe`: the bare `domovoi_probe` is the stand-in, and a
+   second table uses a suffix such as `domovoi_probe_kernel`.
 3. Never test with addresses that could affect the owner's connectivity, and never touch the WSL2 host,
    Hyper-V Firewall or Windows firewall. Use `198.51.100.0/24` (TEST-NET-2), `203.0.113.0/24`
    (TEST-NET-3) and `10.99.0.0/24` inside namespaces.
@@ -130,18 +131,95 @@ Run every row. `E1`–`E13` are the minimum; add rows when an observation raises
 | ID | Question | Method | What to record | What it can and cannot establish |
 |---|---|---|---|---|
 | E1 | What is the baseline environment and ruleset? | `uname -r`; `nft --version`; `systemctl --version`; `sudo nft list ruleset`; `sudo nft list tables`; inside `unshare --net`, repeat | Exact versions; whether the default namespace has tables; what a fresh namespace contains | Baseline only. An empty WSL2 ruleset is not a conventional host. |
-| E2 | Can `table inet domovoi` be created and populated without touching other tables? | Create the table and an IPv4 set with `flags timeout` inside a namespace; list all tables; delete only your table | Table/set listing; whether other tables changed | Table isolation, not packet path. |
-| E3 | Where should base chains sit (hooks and priorities), and do packets traverse them? | Two namespaces connected by veth (`10.99.0.0/24`); base chains with `counter` on `output` (sender), `input` (receiver) and `forward` (a routing middle namespace); send ICMP/UDP; read counters | Which chain counters move for each traffic direction; whether a `forward` chain sees routed traffic at all | Traversal in this topology. Not physical NICs, bridges, NAT or Hyper-V Firewall. |
+| E2 | Can a disposable table be created and populated without touching other tables? | Create `table inet domovoi_probe` and an IPv4 set with `flags timeout` inside a namespace; list all tables; delete only your table. `domovoi_probe` is the test stand-in for the proposed production table `inet domovoi`; never create a production-named table | Table/set listing; whether other tables changed; the exact table names used | Table isolation for the stand-in only. It says nothing about the production table's name or coexistence. |
+| E3 | Where should base chains sit (hooks and priorities), and do packets traverse them? | Three namespaces — sender, router (forwarding enabled) and receiver — connected by two veth pairs, as specified in §7.1; base chains with `counter` on sender `output`, router `forward` and receiver `input`; send ICMP/UDP from the sender to the receiver | Which counters move in each direction; whether the `forward` chain sees routed traffic; the forwarding and route configuration used | Traversal in this exact topology with `domovoi_probe` tables. Not physical NICs, bridges, NAT or Hyper-V Firewall. |
 | E4 | Does a `drop` in one base chain override an `accept` in another at the same hook? | Two base chains on `input`, priorities `0` and `10`; one accepts, one drops the test source; observe delivery | Whether the packet is delivered; counter deltas; ordering effect when the priorities are swapped | Same-hook base-chain ordering in this kernel. Not firewalld's real chains. |
-| E5 | Does an element in a set actually block traffic at the intended hook? | Add the sender's address to the set referenced by an `input` rule with `drop`; send traffic again | Loss and counters before/after | A rule matched a packet in this topology. Not coexistence with an existing filter policy. |
+| E5 | Does an element in a set actually block traffic at the intended hook? | In `inet domovoi_probe`, add the sender's address to the set referenced by an `input` rule with `drop`; send traffic again | Loss and counters before/after | A rule matched a packet in this topology. Not coexistence with an existing filter policy. |
 | E6 | What are the set size and resource limits? | Create sets with `size 2`, `size 1000`, `size 10000`; fill to capacity; add past capacity; measure time and memory with `/usr/bin/time -v` if it is installed, otherwise use `time` and `/proc/<pid>/status` | The exact error and exit status at capacity; throughput for 1k and 10k inserts; whether expiry frees slots | Limits on this kernel/nft version. Not the production `max_elements` value. |
 | E7 | What TTL syntax is accepted, and what is refused? | `timeout 0s`, `-1s`, `1h30m`, `1000000s`, a non-numeric value, an element without the set's `timeout` flag; use `nft -c` and a real add | Accepted grammar; exact refusal messages; whether 0 means "never" | Validation behaviour, not expiry accuracy under load. |
-| E8 | Is per-element timeout expiry reliable and independent of user processes? | Add an element with a 3-second timeout in a persistent namespace; exit the shell; inspect after 4 seconds with a new `ip netns exec`; also observe a 30-second element | `expires` values and disappearance time; state after the creating process exits | Kernel expiry independence from a process. Not reboot behaviour. |
-| E9 | Does delete-and-add replace the timeout atomically, and what happens if the element already expired? | Re-run H §3.3's replacement probe; then add a 1-second element, wait 2 seconds, and run the same batch | Remaining TTL on success; exact failure message and exit status when the element is gone; whether the add silently re-creates it | Transaction result, not that no packet saw an intermediate state. |
-| E10 | Is a kernel-rejected batch rolled back in full? | Re-run H §3.4's capacity-overflow probe in your own table; confirm the delete did not stick and neither add committed | Exit status, netlink diagnostic, final `count` and elements | Rollback of the tested failure. Other failure modes remain untested. |
-| E11 | Can the helper enforce management-path exclusions through nftables alone? | Add a `10.99.0.0/24` element representing a management path; add an overlapping `10.99.0.42` element that a compromised caller might request; test overlap; test whether a higher-priority `drop` protects the management CIDR even when the element exists | Whether nftables refuses the overlap (expected: no); whether ordering can protect it; what the helper must check itself | That nftables does not encode the exclusion policy; helper-side recomputation is required. Not the helper's implementation. |
-| E12 | Are apply and rollback idempotent and concurrency-safe? | Add the same element twice; delete twice; run two batches simultaneously adding the same element; run a delete-and-add while another batch adds | Error codes and resulting membership | Idempotency of the operations tested. Not the journal-based reconcile logic. |
+| E8 | Is per-element timeout expiry reliable and independent of user processes? | Add an element with a 3-second timeout to a set in `inet domovoi_probe` in a persistent namespace (`ip netns add domovoi_probe_persist`); exit the shell; inspect after 4 seconds with a new `ip netns exec`; also observe a 30-second element | `expires` values and disappearance time; state after the creating process exits | Kernel expiry independence from a process. Not reboot behaviour. |
+| E9 | Does delete-and-add replace the timeout atomically, and what happens if the element already expired? | Re-run H §3.3's replacement probe, adapted to your own `domovoi_probe` table; then add a 1-second element, wait 2 seconds, and run the same batch | Remaining TTL on success; exact failure message and exit status when the element is gone; whether the add silently re-creates it | Transaction result, not that no packet saw an intermediate state. |
+| E10 | Is a kernel-rejected batch rolled back in full? | Re-run H §3.4's capacity-overflow probe in a table prefixed `domovoi_probe_` (H uses `domovoi_probe_kernel`); confirm the delete did not stick and neither add committed | Exit status, netlink diagnostic, final `count` and elements | Rollback of the tested failure. Other failure modes remain untested. |
+| E11 | Can the helper enforce management-path exclusions through nftables alone? | In `inet domovoi_probe`, add a `10.99.0.0/24` element representing a management path; add an overlapping `10.99.0.42` element that a compromised caller might request; test overlap; test whether a higher-priority `drop` protects the management CIDR even when the element exists | Whether nftables refuses the overlap (expected: no); whether ordering can protect it; what the helper must check itself | That nftables does not encode the exclusion policy; helper-side recomputation is required. Not the helper's implementation. |
+| E12 | Are apply and rollback idempotent and concurrency-safe? | In `inet domovoi_probe`, add the same element twice; delete twice; run two batches simultaneously adding the same element; run a delete-and-add while another batch adds | Error codes and resulting membership | Idempotency of the operations tested. Not the journal-based reconcile logic. |
 | E13 | What changes after a reboot or a WSL2 restart? | Do **not** reboot. Record the question as untested, and state what the process-death test did and did not cover | — | Nothing beyond E8. Reboot stays for conventional Linux. |
+
+### 7.1 E3 topology (three namespaces, two veth pairs)
+
+Reference sequence; verify syntax and interface availability before running it. Everything below stays
+inside the three disposable namespaces. The host namespace and its firewall are never touched.
+
+```bash
+# Namespaces and links (root).
+ip netns add dv-sender
+ip netns add dv-router
+ip netns add dv-receiver
+ip link add vs type veth peer name vr1
+ip link set vs netns dv-sender
+ip link set vr1 netns dv-router
+ip link add vr2 type veth peer name vrecv
+ip link set vr2 netns dv-router
+ip link set vrecv netns dv-receiver
+
+# Addresses inside 10.99.0.0/24 only.
+ip -n dv-sender   addr add 10.99.0.1/30 dev vs
+ip -n dv-router   addr add 10.99.0.2/30 dev vr1
+ip -n dv-router   addr add 10.99.0.5/30 dev vr2
+ip -n dv-receiver addr add 10.99.0.6/30 dev vrecv
+
+# Links and loopback; forwarding only in the router.
+for ns in dv-sender dv-router dv-receiver; do
+  ip -n "$ns" link set lo up
+done
+ip -n dv-sender   link set vs up
+ip -n dv-router   link set vr1 up
+ip -n dv-router   link set vr2 up
+ip -n dv-receiver link set vrecv up
+ip -n dv-router   sysctl -w net.ipv4.ip_forward=1
+
+# Routes: each endpoint reaches the other subnet through the router.
+ip -n dv-sender   route add default via 10.99.0.2
+ip -n dv-receiver route add default via 10.99.0.5
+```
+
+Each namespace has an independent ruleset. Create the stand-in table and one counting base chain per
+namespace:
+
+```bash
+ip netns exec dv-sender nft 'add table inet domovoi_probe'
+ip netns exec dv-sender nft 'add chain inet domovoi_probe out { type filter hook output priority 0; policy accept; }'
+ip netns exec dv-sender nft 'add rule inet domovoi_probe out counter'
+
+ip netns exec dv-router nft 'add table inet domovoi_probe'
+ip netns exec dv-router nft 'add chain inet domovoi_probe fwd { type filter hook forward priority 0; policy accept; }'
+ip netns exec dv-router nft 'add rule inet domovoi_probe fwd counter'
+
+ip netns exec dv-receiver nft 'add table inet domovoi_probe'
+ip netns exec dv-receiver nft 'add chain inet domovoi_probe in { type filter hook input priority 0; policy accept; }'
+ip netns exec dv-receiver nft 'add rule inet domovoi_probe in counter'
+```
+
+Send three ICMP requests from the sender to the receiver, then read all three counters. Expected shape,
+to be confirmed: the sender's `output` counter sees the three requests (and the receiver's `input` sees
+three); the router's `forward` chain sees both directions, so it should count six. Record the actual
+numbers, including any asymmetry or unexpected drop.
+
+Repeat with the drop rule that E5 needs: on the receiver, add a set `blocked4` and a rule
+`ip saddr @blocked4 drop` in the `in` chain, insert `10.99.0.1`, and send three more requests. Expected:
+the sender's `output` and the router's `forward` counters still increment for the requests, the receiver's
+`input` counter increments and drops them, and no reply returns. Record the exact counters. A second
+variant that drops in the router's `fwd` chain may be run as well; label which chain dropped the packet.
+
+Cleanup deletes the namespaces and with them both veth pairs:
+
+```bash
+ip netns del dv-sender
+ip netns del dv-router
+ip netns del dv-receiver
+```
+
+If `ip netns` cannot be used in this environment, stop and report; do not substitute host interfaces or a
+different topology, because the chain responsibility being measured would change.
 
 ## 8. Failure and recovery scenarios
 
@@ -172,7 +250,7 @@ be re-added.
    `04 §7.3` hard limits, `99` R-2, and `H-wsl2-research-environment.md` §3.
 3. **Establish the baseline (E1).** Confirm nftables works and the default namespace will not be touched.
 4. **Start an isolated namespace.** `sudo unshare --net bash`, or create `ip netns` namespaces for the
-   tests that need two endpoints. Record which you used.
+   tests that need multiple endpoints (E3 uses three, as specified in §7.1). Record which you used.
 5. **Run E2–E6 first.** Table isolation, hooks, traversal, ordering, packet drop, limits.
 6. **Run E7–E12.** TTL grammar, expiry independence, replacement, rollback, exclusions, idempotency.
 7. **Record evidence as you go.** For every command: purpose, exact command, raw output excerpt, exit
@@ -193,9 +271,12 @@ Required sections:
 2. **Safety statement** — what namespaces were used and confirmation that the host ruleset was untouched.
 3. **Findings by experiment** — one subsection per `E` row: question, command, observed output, label
    (**demonstrated on WSL2** / **not demonstrated** / **requiring conventional Linux validation**), and
-   what it does not establish.
+   what it does not establish. Name every table exactly; every experimental table name starts with
+   `domovoi_probe`.
 4. **Table, hook and priority recommendation** — a proposal with the evidence behind it and the evidence
-   still missing. This is a recommendation to the owner/ADR, not an accepted design.
+   still missing. State explicitly that the measurements describe the stand-in table `inet domovoi_probe`,
+   not a production table, and that no experiment created or modified a table named `inet domovoi`. This
+   is a recommendation to the owner/ADR, not an accepted design.
 5. **Exclusion enforcement** — what nftables can and cannot guarantee; what the helper must recompute.
 6. **Failure and recovery** — the §8 scenarios, each with its observed result.
 7. **Limits and resources** — measured numbers and the conditions they were measured under.
@@ -214,6 +295,8 @@ The prompt is complete when:
 
 - every `E1`–`E13` row is attempted or explicitly marked not demonstrated with a reason;
 - the report exists at the required path with every finding labelled;
+- every table named in the report starts with `domovoi_probe`, and the report distinguishes the
+  stand-in `inet domovoi_probe` from the proposed production table `inet domovoi`;
 - at least the success, rollback, expiry-independence and expired-element failure cases are reproduced
   and shown with commands and outputs;
 - the exclusion question is answered as "nftables alone cannot enforce it" or the opposite, with
