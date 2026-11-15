@@ -1172,6 +1172,24 @@ fn second_execution_of_a_finished_id_is_a_duplicate() {
 // ---- Cross-process ownership -----------------------------------------------
 
 #[cfg(target_os = "linux")]
+async fn wait_for_pid_async(path: &Path) -> u32 {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        // Existence is not enough: the shell creates the file before writing to it.
+        if let Ok(text) = std::fs::read_to_string(path)
+            && let Ok(pid) = text.trim().parse::<u32>()
+        {
+            return pid;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the child process did not report its pid"
+        );
+        tokio::task::yield_now().await;
+    }
+}
+
+#[cfg(target_os = "linux")]
 async fn wait_for_file_async(path: &Path) {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
     while !path.exists() {
@@ -1330,12 +1348,7 @@ async fn orphan_process_group_is_terminated_after_the_grace_interval() {
         run_as: None,
     };
     let running = tokio::spawn(async move { executor.run(spec).await });
-    wait_for_file_async(&dir.path().join("pid")).await;
-    let pid: u32 = std::fs::read_to_string(dir.path().join("pid"))
-        .unwrap()
-        .trim()
-        .parse()
-        .unwrap();
+    let pid = wait_for_pid_async(&dir.path().join("pid")).await;
     let start_time = super::recovery::current_start_time(pid).expect("the child is running");
     let id = Uuid::now_v7();
     {
