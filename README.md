@@ -78,9 +78,7 @@ Domovoi is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE). P
 
 ### Who needs a commercial license
 
-As an additional permission under the license, commercial use is free while **you and your company together earned less than €100,000 in the last twelve months**. That covers a side project that earns a little, a homelab whose servers happen to run something profitable, and a project that is paying one or two people. There is no limit on hosts, users or monitored servers, and nothing in Domovoi counts or reports them.
-
-€100,000 is about two median full-time salaries in the United States and most of Europe. The line is meant to be that simple: while the project still needs someone to fund it, using Domovoi on it is free; once it comfortably pays the people running it, a license is one of its running costs.
+As an additional permission under the license, commercial use is free while **you and your company together earned less than €100,000 in the last twelve months**. There is no limit on hosts, users or monitored servers, and nothing in Domovoi counts or reports them.
 
 A commercial license is needed when any of these is true:
 
