@@ -1,6 +1,8 @@
 //! Creating and completing effects inside the transaction.
 
-use domovoi_core::ports::{CommitError, EffectCompletion, EffectDraft};
+use domovoi_core::ports::{
+    CommitError, EffectCompletion, EffectDeath, EffectDraft, EffectReschedule,
+};
 use sqlx::SqliteConnection;
 
 use crate::codec::ms;
@@ -85,6 +87,47 @@ pub(super) async fn complete(
         return Err(CommitError::StaleEffect {
             effect: completion.id,
         });
+    }
+    Ok(())
+}
+
+/// Puts a claimed effect back to `pending` for a later attempt, fenced by its claim token.
+pub(super) async fn reschedule(
+    conn: &mut SqliteConnection,
+    r: &EffectReschedule,
+) -> Result<(), CommitError> {
+    const SQL: &str = "UPDATE effects SET status = 'pending', not_before = ?, last_error = ?, \
+         claim_token = NULL, lease_until = NULL, runner_id = NULL \
+         WHERE id = ? AND claim_token = ? AND status = 'claimed'";
+    let done = sqlx::query(SQL)
+        .bind(ms(r.not_before))
+        .bind(&r.error)
+        .bind(r.id.to_string())
+        .bind(r.claim_token.to_string())
+        .execute(&mut *conn)
+        .await
+        .map_err(backend)?;
+    if done.rows_affected() == 0 {
+        return Err(CommitError::StaleEffect { effect: r.id });
+    }
+    Ok(())
+}
+
+/// Dead-letters a claimed effect, fenced by its claim token.
+pub(super) async fn kill(conn: &mut SqliteConnection, d: &EffectDeath) -> Result<(), CommitError> {
+    const SQL: &str = "UPDATE effects SET status = 'dead', last_error = ?, completed_at = ?, \
+         claim_token = NULL, lease_until = NULL, runner_id = NULL \
+         WHERE id = ? AND claim_token = ? AND status = 'claimed'";
+    let done = sqlx::query(SQL)
+        .bind(&d.error)
+        .bind(ms(d.at))
+        .bind(d.id.to_string())
+        .bind(d.claim_token.to_string())
+        .execute(&mut *conn)
+        .await
+        .map_err(backend)?;
+    if done.rows_affected() == 0 {
+        return Err(CommitError::StaleEffect { effect: d.id });
     }
     Ok(())
 }
