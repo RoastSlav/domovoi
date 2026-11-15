@@ -19,6 +19,7 @@ pub use journal::{
     journal_sequence_follows_commit_order,
 };
 pub use lifecycle::{
+    claim_prioritizes_pending_effects_before_expired_claims,
     claim_sets_token_generation_lease_and_attempt, claim_skips_effects_not_yet_due_and_other_kinds,
     claimed_effect_reclaimed_after_lease_expiry, dedup_key_blocks_a_second_pending_effect,
     dispatch_effects_are_never_reclaimed_after_lease_expiry,

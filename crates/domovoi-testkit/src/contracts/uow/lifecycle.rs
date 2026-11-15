@@ -120,6 +120,64 @@ pub async fn claim_skips_effects_not_yet_due_and_other_kinds(
     Ok(())
 }
 
+/// Due pending work comes before work whose claim expired, however old that claim's due time.
+pub async fn claim_prioritizes_pending_effects_before_expired_claims(
+    subject: &dyn UowSubject,
+) -> ContractResult {
+    // A is due first and is claimed under a short lease, so its claim expires early.
+    let expired = store(subject, draft(EffectKind::Wake, 0)).await?;
+    let first = subject
+        .queue()
+        .claim_due(
+            "r1",
+            &[EffectKind::Wake],
+            at(0),
+            SignedDuration::from_secs(5),
+            10,
+        )
+        .await?;
+    assert_eq!(first.claimed.len(), 1);
+    let stale = first.claimed[0].token;
+
+    // B becomes due later than A was, but it has never been claimed.
+    let pending = store(subject, draft(EffectKind::Wake, 10)).await?;
+
+    // One slot at a time: the pending effect takes it, and the expired claim waits.
+    let one = subject
+        .queue()
+        .claim_due(
+            "r2",
+            &[EffectKind::Wake],
+            at(11),
+            SignedDuration::from_secs(LEASE),
+            1,
+        )
+        .await?;
+    assert_eq!(one.dead.len(), 0);
+    assert_eq!(one.claimed.len(), 1);
+    assert_eq!(
+        one.claimed[0].record.id, pending,
+        "the due pending effect is claimed before the expired claim"
+    );
+    let kept = fetch(subject, expired).await?;
+    assert_eq!(kept.status, "claimed", "the expired claim is left alone");
+    assert_eq!(kept.claim_token, Some(stale));
+    assert_eq!(kept.attempt, 1);
+
+    // With room for both, the expired claim is reclaimed under a new token and generation.
+    let both = claim(subject, "r2", &[EffectKind::Wake], at(11)).await?;
+    let reclaimed = both
+        .claimed
+        .iter()
+        .find(|claimed| claimed.record.id == expired)
+        .ok_or_else(|| ContractError::Setup("the expired claim was not reclaimed".to_owned()))?;
+    assert_ne!(reclaimed.token, stale, "the reclaim uses a fresh token");
+    let record = fetch(subject, expired).await?;
+    assert_eq!(record.claim_generation, 2);
+    assert_eq!(record.attempt, 2);
+    Ok(())
+}
+
 /// After its lease expires, a claimed effect is reclaimed under a fresh token and generation.
 pub async fn claimed_effect_reclaimed_after_lease_expiry(
     subject: &dyn UowSubject,

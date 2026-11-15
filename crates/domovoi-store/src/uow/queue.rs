@@ -51,12 +51,15 @@ impl EffectQueue for Store {
             return Ok(ClaimBatch::default());
         }
         let list = placeholders(kinds.len());
+        // Due pending effects come first, expired claims second: a stale claim waits behind
+        // work that has never started, even when its original due time is older. Each group is
+        // ordered by due time and then insertion, and `limit` applies across both.
         let sql = format!(
             "SELECT id, status FROM effects \
              WHERE (status = 'pending' AND not_before <= ? AND kind IN ({list})) \
                 OR (status = 'claimed' AND lease_until IS NOT NULL AND lease_until <= ? \
                     AND kind <> 'dispatch' AND kind IN ({list})) \
-             ORDER BY not_before, seq LIMIT ?"
+             ORDER BY CASE WHEN status = 'pending' THEN 0 ELSE 1 END, not_before, seq LIMIT ?"
         );
         let lease_until = now.checked_add(lease).unwrap_or(now);
         let mut dbtx = self.write.begin_with("BEGIN IMMEDIATE").await.map_err(db)?;

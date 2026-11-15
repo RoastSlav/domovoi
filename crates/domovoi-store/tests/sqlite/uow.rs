@@ -119,6 +119,18 @@ uow_contract_tests! {
     sqlite_effect_id_must_be_unique => effect_id_must_be_unique,
     sqlite_effects_are_listed_in_insertion_order => effects_are_listed_in_insertion_order,
     sqlite_failed_effect_completion_rolls_back_every_stage => failed_effect_completion_rolls_back_every_stage,
+    sqlite_claim_prioritizes_pending_effects_before_expired_claims => claim_prioritizes_pending_effects_before_expired_claims,
+    sqlite_claim_sets_token_generation_lease_and_attempt => claim_sets_token_generation_lease_and_attempt,
+    sqlite_claim_skips_effects_not_yet_due_and_other_kinds => claim_skips_effects_not_yet_due_and_other_kinds,
+    sqlite_claimed_effect_reclaimed_after_lease_expiry => claimed_effect_reclaimed_after_lease_expiry,
+    sqlite_stale_lease_holder_cannot_complete_reclaimed_effect => stale_lease_holder_cannot_complete_reclaimed_effect,
+    sqlite_stale_holder_cannot_reschedule_or_dead_letter => stale_holder_cannot_reschedule_or_dead_letter,
+    sqlite_dispatch_effects_are_never_reclaimed_after_lease_expiry => dispatch_effects_are_never_reclaimed_after_lease_expiry,
+    sqlite_restart_reverts_claimed_effects_except_dispatch => restart_reverts_claimed_effects_except_dispatch,
+    sqlite_dedup_key_blocks_a_second_pending_effect => dedup_key_blocks_a_second_pending_effect,
+    sqlite_reschedule_returns_effect_to_pending_with_backoff_time => reschedule_returns_effect_to_pending_with_backoff_time,
+    sqlite_attempt_limit_dead_letters_at_claim => attempt_limit_dead_letters_at_claim,
+    sqlite_expired_lease_beyond_attempt_limit_dies_instead_of_reclaim => expired_lease_beyond_attempt_limit_dies_instead_of_reclaim,
 }
 
 #[tokio::test]

@@ -54,6 +54,7 @@ contract_tests! {
     in_memory_effect_id_must_be_unique => effect_id_must_be_unique,
     in_memory_effects_are_listed_in_insertion_order => effects_are_listed_in_insertion_order,
     in_memory_failed_effect_completion_rolls_back_every_stage => failed_effect_completion_rolls_back_every_stage,
+    in_memory_claim_prioritizes_pending_effects_before_expired_claims => claim_prioritizes_pending_effects_before_expired_claims,
     in_memory_claim_sets_token_generation_lease_and_attempt => claim_sets_token_generation_lease_and_attempt,
     in_memory_claim_skips_effects_not_yet_due_and_other_kinds => claim_skips_effects_not_yet_due_and_other_kinds,
     in_memory_claimed_effect_reclaimed_after_lease_expiry => claimed_effect_reclaimed_after_lease_expiry,
