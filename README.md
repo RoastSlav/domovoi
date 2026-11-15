@@ -6,7 +6,7 @@ Named after the Slavic household spirit that quietly keeps a home in order.
 
 [![CI](https://github.com/RoastSlav/domovoi/actions/workflows/ci.yml/badge.svg)](https://github.com/RoastSlav/domovoi/actions/workflows/ci.yml)
 [![Docs](https://img.shields.io/badge/docs-book-blue)](https://RoastSlav.github.io/domovoi)
-[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](#license)
+[![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/license-PolyForm%20Noncommercial--1.0.0-orange)](#license)
 
 > **Status: v0.1, before its first release.** Everything below works and is tested; expect rough edges until the first tagged release.
 
@@ -74,6 +74,22 @@ Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) first; it exp
 
 ## License
 
-Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or [MIT license](LICENSE-MIT) at your option.
+Domovoi is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE). Personal use is free: at home, in a homelab, for study, hobby projects and research, and by charities, schools, public research bodies, public safety and health bodies and government institutions.
 
-Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in Domovoi by you, as defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.
+### Who needs a commercial license
+
+As an additional permission under the license, commercial use is free while **you and your company together earned less than €100,000 in the last twelve months**. That covers a side project that earns a little, a homelab whose servers happen to run something profitable, and a project that is paying one or two people. There is no limit on hosts, users or monitored servers, and nothing in Domovoi counts or reports them.
+
+€100,000 is about two median full-time salaries in the United States and most of Europe. The line is meant to be that simple: while the project still needs someone to fund it, using Domovoi on it is free; once it comfortably pays the people running it, a license is one of its running costs.
+
+A commercial license is needed when any of these is true:
+
+- You and your company together earned €100,000 or more in the last twelve months.
+- You offer Domovoi, or a product built on it, to other organisations as a hosted or managed service. This is the only case with no size limit, because that is reselling Domovoi itself.
+- You need a signed license for a procurement, security or compliance review, at any size.
+
+Crossing the threshold is not retroactive: a business that crosses it mid-year stays covered until the end of that calendar year, and everything done under the threshold stays licensed. Nor is there a trial, a phone-home check or an audit clause; the license is the whole mechanism.
+
+Commercial licenses and questions about which side of the line you are on: <raikov0411@gmail.com>.
+
+Contributions are accepted under the [contributor license agreement](docs/CLA.md), so that the maintainer can offer those commercial licenses.

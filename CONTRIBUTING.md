@@ -41,7 +41,7 @@ Optional but recommended: `cargo install cargo-nextest cargo-deny cargo-insta --
 
 ## Commit sign-off and licensing
 
-By contributing you agree your contribution is dual licensed under MIT OR Apache-2.0, as stated in the README.
+Domovoi is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE): free for personal and other noncommercial use, and free for commercial use below the revenue threshold in the README. So that commercial licenses can be offered, contributions are accepted under the [contributor license agreement](docs/CLA.md), which grants the maintainer the right to license your contribution on other terms as well. Say so in the pull request if you do not accept it, and the change will not be merged.
 
 ## Maintainers
 

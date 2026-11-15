@@ -29,7 +29,7 @@ An ADR records one decision that shapes the codebase: the context, the decision 
 | [0009](0009-llm-provider-port.md) | LLM providers behind one port; CLI provider via injected executor | Accepted |
 | [0010](0010-discord-first.md) | Discord is the first interactive chat gateway | Accepted |
 | [0011](0011-single-writer-incident-manager.md) | Incident state has a single writer | Accepted |
-| [0012](0012-license.md) | License: MIT OR Apache-2.0 | Accepted |
+| [0012](0012-license.md) | License: MIT OR Apache-2.0 | Superseded by [0020](0020-license-polyform-noncommercial.md) |
 | [0013](0013-config-error-paths.md) | Config errors carry their TOML path via serde_path_to_error | Accepted |
 | [0014](0014-rehydrating-stored-approvals.md) | Only the store may rebuild a stored approval | Accepted |
 | [0015](0015-user-editable-message-templates.md) | Let users edit routine message templates | Proposed |
@@ -37,3 +37,4 @@ An ADR records one decision that shapes the codebase: the context, the decision 
 | [0017](0017-settings-managed-from-the-web-ui.md) | Manage settings from the web UI | Accepted |
 | [0018](0018-detect-the-container-runtime.md) | Detect the container runtime and let the hub switch it | Accepted |
 | [0019](0019-single-writer-for-actions.md) | Action decisions have a single writer, and the store refuses stale writes | Accepted |
+| [0020](0020-license-polyform-noncommercial.md) | License: PolyForm Noncommercial 1.0.0; commercial use paid above €100k revenue | Accepted |
