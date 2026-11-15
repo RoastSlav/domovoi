@@ -8,6 +8,8 @@ use domovoi_proto::messages::{
     ActionState, ActionStatusQuery, AuthorizationKind, CapabilityOutcome, CapabilityResult,
     OutcomeUnknownReason, RefusalCode,
 };
+#[cfg(target_os = "linux")]
+use jiff::SignedDuration;
 use jiff::Timestamp;
 use sha2::Digest as _;
 use tempfile::TempDir;
@@ -1165,4 +1167,322 @@ fn second_execution_of_a_finished_id_is_a_duplicate() {
             .unwrap(),
         AcceptOutcome::Duplicate(_)
     ));
+}
+
+// ---- Cross-process ownership -----------------------------------------------
+
+#[cfg(target_os = "linux")]
+async fn wait_for_file_async(path: &Path) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while !path.exists() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the child process did not signal"
+        );
+        tokio::task::yield_now().await;
+    }
+}
+
+/// The child half of the cross-process ownership test; a no-op when not spawned by it.
+#[cfg(target_os = "linux")]
+#[test]
+fn journal_lock_child() {
+    let Ok(dir) = std::env::var("DOMOVOI_JOURNAL_CHILD_DIR") else {
+        return;
+    };
+    let dir = Path::new(&dir);
+    let journal = Journal::open(dir, BOOT, MONO, limits()).expect("the child owns the journal");
+    std::fs::write(dir.join("hold"), b"held").unwrap();
+    let release = dir.join("release");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while !release.exists() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the parent did not release the child"
+        );
+        std::thread::yield_now();
+    }
+    drop(journal);
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn another_process_holding_the_journal_blocks_startup_and_local_commands() {
+    use std::sync::Arc;
+
+    use domovoi_core::ports::{ProcessExecutor as _, ProcessSpec};
+
+    let dir = TempDir::new().unwrap();
+    init(dir.path());
+    let executor =
+        domovoi_runner::SandboxExecutor::new(Arc::new(domovoi_testkit::ListRedactor::new(Vec::<
+            String,
+        >::new(
+        ))));
+    let spec = ProcessSpec {
+        program: std::env::current_exe().unwrap().display().to_string(),
+        args: vec![
+            "--exact".to_owned(),
+            "journal::tests::journal_lock_child".to_owned(),
+            "--nocapture".to_owned(),
+        ],
+        env: BTreeMap::from([(
+            "DOMOVOI_JOURNAL_CHILD_DIR".to_owned(),
+            dir.path().display().to_string(),
+        )]),
+        cwd: Some(dir.path().display().to_string()),
+        stdin: None,
+        timeout: SignedDuration::from_secs(60),
+        max_output_bytes: 4096,
+        run_as: None,
+    };
+    let child = tokio::spawn(async move { executor.run(spec).await });
+    wait_for_file_async(&dir.path().join("hold")).await;
+
+    assert!(matches!(
+        Journal::open(dir.path(), BOOT, MONO, limits()),
+        Err(JournalError::Locked(_))
+    ));
+    assert!(matches!(
+        Journal::init(dir.path(), T0, BOOT, MONO),
+        Err(JournalError::Locked(_))
+    ));
+    assert!(matches!(
+        Journal::reset(dir.path(), T0, BOOT, MONO),
+        Err(JournalError::Locked(_))
+    ));
+
+    std::fs::write(dir.path().join("release"), b"go").unwrap();
+    let output = child.await.expect("the child task joins");
+    assert!(
+        output.as_ref().is_ok(),
+        "the child exits cleanly: {output:?}"
+    );
+    assert!(Journal::open(dir.path(), BOOT, MONO, limits()).is_ok());
+}
+
+// ---- Orphan recovery (Linux process groups) --------------------------------
+
+#[cfg(target_os = "linux")]
+struct RecordingClock {
+    now: Timestamp,
+    slept: std::sync::Mutex<Vec<Timestamp>>,
+}
+
+#[cfg(target_os = "linux")]
+#[async_trait::async_trait]
+impl domovoi_core::ports::Clock for RecordingClock {
+    fn now(&self) -> Timestamp {
+        self.now
+    }
+
+    async fn sleep_until(&self, at: Timestamp) {
+        self.slept.lock().unwrap().push(at);
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn records_for(dir: &Path, id: Uuid) -> Vec<Record> {
+    let epoch = super::Metadata::load(dir).unwrap().unwrap().epoch;
+    let bytes = std::fs::read(dir.join(JOURNAL_FILE)).unwrap();
+    super::record::parse(&bytes, epoch)
+        .unwrap()
+        .records
+        .into_iter()
+        .filter(|record| record.execution_id() == Some(id))
+        .collect()
+}
+
+#[cfg(target_os = "linux")]
+fn start_orphan(journal: &Journal, id: Uuid, pid: u32, proc_start_time: u64) {
+    journal
+        .accept(&request(id, "container.restart", true), T0, BOOT, MONO)
+        .unwrap();
+    journal.started(id, pid, proc_start_time).unwrap();
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn orphan_process_group_is_terminated_after_the_grace_interval() {
+    use std::os::unix::fs::PermissionsExt as _;
+    use std::sync::Arc;
+
+    use domovoi_core::ports::{ProcessExecutor as _, ProcessSpec};
+
+    let dir = TempDir::new().unwrap();
+    init(dir.path());
+    let script = dir.path().join("orphan.sh");
+    std::fs::write(&script, "#!/bin/sh\necho $$ > pid\nsleep 300\n").unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let executor =
+        domovoi_runner::SandboxExecutor::new(Arc::new(domovoi_testkit::ListRedactor::new(Vec::<
+            String,
+        >::new(
+        ))));
+    let spec = ProcessSpec {
+        program: script.display().to_string(),
+        args: Vec::new(),
+        env: BTreeMap::new(),
+        cwd: Some(dir.path().display().to_string()),
+        stdin: None,
+        timeout: SignedDuration::from_secs(60),
+        max_output_bytes: 4096,
+        run_as: None,
+    };
+    let running = tokio::spawn(async move { executor.run(spec).await });
+    wait_for_file_async(&dir.path().join("pid")).await;
+    let pid: u32 = std::fs::read_to_string(dir.path().join("pid"))
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    let start_time = super::recovery::current_start_time(pid).expect("the child is running");
+    let id = Uuid::now_v7();
+    {
+        let journal = open(dir.path());
+        start_orphan(&journal, id, pid, start_time);
+    }
+    // A fresh open is a restart: nothing is running in this instance.
+    let journal = open(dir.path());
+
+    let clock = RecordingClock {
+        now: T0,
+        slept: std::sync::Mutex::new(Vec::new()),
+    };
+    journal.recover_orphans(&clock).await;
+
+    let output = running.await.expect("the executor task joins");
+    assert!(
+        output.is_err() || output.as_ref().is_ok_and(|out| out.signal.is_some()),
+        "the child was signalled: {output:?}"
+    );
+    let slept = clock.slept.lock().unwrap().clone();
+    assert_eq!(slept.len(), 1, "exactly one grace interval");
+    assert_eq!(
+        slept[0],
+        T0 + SignedDuration::from_secs(2),
+        "SIGKILL comes after two seconds"
+    );
+    assert_eq!(
+        records_for(dir.path(), id)
+            .into_iter()
+            .filter(|record| matches!(record, Record::Abandoned { .. }))
+            .count(),
+        1,
+        "the recovery is recorded durably"
+    );
+    assert!(matches!(
+        state_of(&journal, id),
+        ActionState::OutcomeUnknown {
+            reason
+        } if reason.known() == Some(&OutcomeUnknownReason::AgentRestarted)
+    ));
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn pid_reuse_never_signals_an_unrelated_process() {
+    let dir = TempDir::new().unwrap();
+    init(dir.path());
+    let journal = open(dir.path());
+    let id = Uuid::now_v7();
+    // Our own PID exists but its recorded start time is wrong, so it is not the original.
+    start_orphan(&journal, id, std::process::id(), 0);
+
+    let clock = RecordingClock {
+        now: T0,
+        slept: std::sync::Mutex::new(Vec::new()),
+    };
+    journal.recover_orphans(&clock).await;
+
+    assert!(
+        clock.slept.lock().unwrap().is_empty(),
+        "nothing was signalled"
+    );
+    assert!(
+        records_for(dir.path(), id)
+            .iter()
+            .all(|record| !matches!(record, Record::Abandoned { .. })),
+        "no abandoned record for a reused PID"
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn missing_process_produces_outcome_unknown_without_a_record() {
+    let dir = TempDir::new().unwrap();
+    init(dir.path());
+    let id = Uuid::now_v7();
+    // No process can own this PID.
+    let pid = u32::MAX;
+    {
+        let journal = open(dir.path());
+        start_orphan(&journal, id, pid, 1);
+    }
+    let journal = open(dir.path());
+
+    let clock = RecordingClock {
+        now: T0,
+        slept: std::sync::Mutex::new(Vec::new()),
+    };
+    journal.recover_orphans(&clock).await;
+
+    assert!(clock.slept.lock().unwrap().is_empty());
+    assert!(matches!(
+        state_of(&journal, id),
+        ActionState::OutcomeUnknown {
+            reason
+        } if reason.known() == Some(&OutcomeUnknownReason::AgentRestarted)
+    ));
+}
+
+#[test]
+fn more_than_ten_thousand_active_records_are_retained() {
+    let dir = TempDir::new().unwrap();
+    let epoch = init(dir.path());
+    let first = Uuid::now_v7();
+    let mut records = vec![created(epoch), accepted(first)];
+    for _ in 1..10_001 {
+        records.push(accepted(Uuid::now_v7()));
+    }
+    write_records(dir.path(), &records);
+    let journal = open(dir.path());
+    assert!(
+        !journal.prune(0, MONO, BOOT).unwrap(),
+        "active limiter evidence cannot be removed to satisfy a size policy"
+    );
+    assert!(matches!(
+        state_of(&journal, first),
+        ActionState::OutcomeUnknown {
+            reason
+        } if reason.known() == Some(&OutcomeUnknownReason::NoStartRecord)
+    ));
+}
+
+#[test]
+fn pruning_cannot_race_action_status_queries() {
+    use std::sync::Arc;
+
+    let dir = TempDir::new().unwrap();
+    init(dir.path());
+    let journal = Arc::new(open(dir.path()));
+    finished_execution(&journal, Uuid::now_v7());
+    let reader = {
+        let journal = journal.clone();
+        std::thread::spawn(move || {
+            for _ in 0..200 {
+                let _ = journal.action_status(&query(journal.epoch(), Uuid::now_v7()));
+            }
+        })
+    };
+    let pruner = {
+        let journal = journal.clone();
+        std::thread::spawn(move || {
+            for _ in 0..50 {
+                let _ = journal.prune(0, MONO + super::limiter::WINDOW_NS + 1, BOOT);
+            }
+        })
+    };
+    reader.join().expect("the reader finishes");
+    pruner.join().expect("the pruner finishes");
 }

@@ -372,6 +372,26 @@ mod skills {
     }
 
     #[tokio::test]
+    async fn destructive_skill_fails_closed_even_when_policy_allows_it() {
+        let fixture = Fixture::new();
+        install(&fixture.skills(), "wipe_cache", "destructive");
+        let ctx = fixture.ctx(
+            vec![Risk::Read, Risk::Write, Risk::Destructive],
+            None,
+            Vec::new(),
+        );
+        let request = request(&fixture, &ctx, "wipe_cache", "plex");
+        assert_eq!(
+            code(run_skill(&ctx, &request).await),
+            SkillFailureCode::Exec
+        );
+        assert!(
+            fixture.exec.calls().is_empty(),
+            "a destructive skill ran without a journal-backed path"
+        );
+    }
+
+    #[tokio::test]
     async fn run_read_skill_tool_refuses_write_skills() {
         let fixture = Fixture::new();
         install(&fixture.skills(), "restart_app", "write");

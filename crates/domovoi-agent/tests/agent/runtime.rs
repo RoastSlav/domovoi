@@ -45,7 +45,7 @@ async fn runtime_shuts_down_within_two_seconds_on_cancel() {
     let dir = tempfile::tempdir().unwrap();
     let identity = identity(&hub);
     identity.save(dir.path()).unwrap();
-    domovoi_agent::Journal::init(
+    let epoch = domovoi_agent::Journal::init(
         dir.path(),
         jiff::Timestamp::constant(1_700_000_000, 0),
         "test-boot",
@@ -60,6 +60,10 @@ async fn runtime_shuts_down_within_two_seconds_on_cancel() {
     let task = tokio::spawn(runtime.run(shutdown.clone()));
     let mut conn = hub.accept().await;
     let hello = conn.welcome(&identity, 10).await;
+    assert_eq!(
+        hello.journal_epoch, epoch,
+        "a running agent reports its real journal epoch"
+    );
     let announced: Vec<&str> = hello.skills.iter().map(|s| s.name.as_str()).collect();
     // Skills load on Unix only; elsewhere the catalogue is empty.
     let expected: &[&str] = if cfg!(unix) { &["restart_app"] } else { &[] };
