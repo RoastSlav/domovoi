@@ -204,6 +204,12 @@ Rules:
    added, removed or reordered. The executor keeps everything before it (`executor.rs:248-300`: freshness, the
    host wait, the pool, the second freshness check, the revalidate call), so the incident is still read once,
    the approval hash is still recomputed once and the commit is still one.
+   **The recomputation re-reads the host's enrolled key.** `compute_v2`'s target text carries the
+   `HostId` and the `KeyFingerprint` prompt 22 defines, so `execute` loads
+   `HostRepo::live_agent(host)`, derives `KeyFingerprint::of_public_key(&agent.public_key)` and builds the
+   `PlanTarget` from it; it never reuses a fingerprint from the DTO, the action row or an earlier pass. No
+   live agent means no canonical identity, which takes the stale path (refuse, no `run_skill`), never a hash
+   without the key.
    `execute` additionally guards the precondition `03 RW-08` names and nothing else checks: the stored
    authorization exists and has not expired. That is a check, not a new phase.
 5. **Two hashes, kept apart (22 §6.5).** `execute` computes the approval-family hash for

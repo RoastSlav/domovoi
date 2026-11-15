@@ -7,7 +7,7 @@
 | Scope | Plan hash v2 (contract + version, `impl_hash`, canonical target identity, canonical arguments, `execution_id`); the approval binding columns; `Authorization` as a wrapper with private internals; `PolicyPermit` with a restricted `issue` factory; the architecture rules that cover every authorization constructor |
 | Depends on (must be merged into `overhaul-investigation` before implementation) | 18, 20, 21 |
 | Parallel with | none; 23 depends on this one |
-| Produces | `ExecutionId`, `Authorization`, plan hash v2, the approval binding columns |
+| Produces | `ExecutionId`, `KeyFingerprint`, `Authorization`, plan hash v2, the approval binding columns |
 | Gate | none beyond the listed implementation dependencies (18, 20, 21) |
 | Suggested model | large |
 
@@ -37,9 +37,9 @@ consumes them; 26 and 45 consume them later. Their names and shapes are fixed he
 
 This prompt owns:
 
-- `domovoi-core`: `PlanHash::compute_v2`, `PlanContract`, `PlanTarget`, `ImplHash`, `ExecutionId`,
-  `Authorization`, `PolicyPermit`, `ApprovalProvenance`, `PlanBinding` (unchanged) and the version
-  selector that lets an action carry one hash family or the other.
+- `domovoi-core`: `PlanHash::compute_v2`, `PlanContract`, `PlanTarget`, `KeyFingerprint`, `ImplHash`,
+  `ExecutionId`, `Authorization`, `PolicyPermit`, `ApprovalProvenance`, `PlanBinding` (unchanged) and the
+  version selector that lets an action carry one hash family or the other.
 - `domovoi-store`: one migration adding the binding columns, and the row mapping that reads and writes
   them.
 - `domovoi-engine`: the action writer's approve path takes an `Authorization` and records the binding;
@@ -125,6 +125,7 @@ and stop if it changes the design.
 | hash newtype | `crates/domovoi-core/src/sha256.rs` | `sha256_newtype!` `:4-60`: `digest` is `pub(crate)`, `Display` is 64 lowercase hex, `FromStr` parses 64 hex, `Serialize` writes a string, `Deserialize` parses one |
 | ids | `crates/domovoi-core/src/id.rs` | `define_id!` `:8-58` (UUIDv7, `new`, `from_uuid`, `Display`, `FromStr`, serde transparent); `ActionId` `:76-79`; **no `ExecutionId` exists** |
 | target identity | `crates/domovoi-core/src/signal/keys.rs` | `TargetKey` `:75-107`: trimmed, 1–128 chars, no control characters, validated at construction |
+| enrolled agent key | `crates/domovoi-core/src/host.rs` | `AgentIdentity { agent, host, public_key: [u8; 32], version, enrolled_at, revoked_at }`; `HostRepo::live_agent(host) -> Option<AgentIdentity>` is the single non-revoked agent of a host. **No key-fingerprint type exists**: `KeyFingerprint` is new in this prompt |
 | incident subject | `crates/domovoi-core/src/incident/state.rs` | `Incident` `:77-102` holds `host`, `check: CheckKey`, `target: Option<TargetKey>`; accessor `target()` `:213` |
 | approval construction | `crates/domovoi-hub/src/auth/approval.rs` | `web_approval` `:13-22` and `chat_approval` `:26-41`; the only two `HumanApproval::new` call sites in the product code |
 | web approve handler | `crates/domovoi-hub/src/api/actions.rs` | `:107-137` loads the action first, requires a 64-hex `plan_hash` (400 otherwise) and passes `PlanBinding::Full` |
@@ -173,7 +174,7 @@ Plan hash v2 is SHA-256 over a canonical encoding of exactly five inputs, in thi
 |---|---|---|---|
 | 1 | capability contract id and version | `PlanContract` | the plan. At M1 the skill adapter supplies the skill name and the contract version `1`; 24 replaces the source, not the field |
 | 2 | implementation hash | `ImplHash` | the manifest hash the hub holds plus the required `entry_script_digest` of that same skill summary, both from `hello.skills` (5.4) |
-| 3 | canonical target identity | `PlanTarget` | the action's host plus the linked incident's `CheckKey` and `TargetKey` at propose time; 25 replaces the producer |
+| 3 | canonical target identity | `PlanTarget` | the action's host, **its enrolled agent key fingerprint** and the linked incident's `CheckKey` and `TargetKey` at propose time (5.5); 25 replaces the producer, not the shape |
 | 4 | canonical arguments | `ValidatedArgs::canonical()` | already stored on the action as a map, re-validated from the manifest |
 | 5 | execution identity | `ExecutionId` | `= ActionId` at M1 (`03 RW-36`) |
 
@@ -181,6 +182,10 @@ Nothing else is in the hash. In particular **not**: the incident id, the propose
 expiry, the approval time, the plan's short form, the entry path, the skill's `run_as`, or any UI text.
 Each of those can change without invalidating an approval, and adding one would silently widen the
 binding in a later change.
+
+**The enrolled key fingerprint is not optional.** `03 RW-34` binds a host to `HostId` **plus** the
+enrolled agent key fingerprint, and names re-enrolment as a change that invalidates a bound plan. A hash
+that covered only `HostId` would survive a re-enrolment, which is the exact defect this input closes.
 
 ### 5.2 Canonical encoding
 
@@ -210,17 +215,19 @@ Rules, all enforced by construction rather than by a parser:
 4. **One byte form per value.** UTF-8, `\n` only (never CRLF), no BOM, no trailing spaces, no empty
    fields, no extra blank line, exactly one trailing `\n`. Case is lower except where the value is a
    user-supplied identifier whose own type already fixed it.
-5. **The target text** is itself `host:{uuid}\ncheck:{n}:{check}\ntarget:{n}:{target}` with `target`
-   omitted entirely when the incident carries none — written as the literal `target:absent`. That keeps
-   "no target" distinct from "empty target" and is the reason `PlanTarget` is a type rather than a
-   `String`.
+5. **The target text** is itself `host:{uuid}/{fingerprint}\ncheck:{n}:{check}\ntarget:{n}:{target}`
+   with `target` omitted entirely when the incident carries none — written as the literal `target:absent`.
+   `{fingerprint}` is the enrolled agent key's SHA-256 (64 lowercase hex) and is **always present**;
+   there is no `key:absent` form. That keeps "no target" distinct from "empty target" and is the reason
+   `PlanTarget` is a type rather than a `String`.
 6. **Rejection of non-canonical input is part of the constructors**, not of the hashing function.
    `PlanContract::new` takes a raw `&str` and returns an error for an id outside the grammar, so that check
    has one home. `PlanTarget::new` and `ImplHash::from_parts` are **infallible**: every argument is already a
-   validated type (`HostId`, `CheckKey`, `TargetKey`, `ManifestHash`, `ScriptDigest`), so there is nothing
-   left to reject and the canonical text is produced by construction rather than by parsing. Do not give
-   either of them a `&str` overload and do not make them return `Result` for symmetry. `PlanHash::compute_v2`
-   takes the typed values, so a caller cannot hand it a raw string; a hash function that returned `Result`
+   validated type (`HostId`, `KeyFingerprint`, `CheckKey`, `TargetKey`, `ManifestHash`, `ScriptDigest`), so
+   there is nothing left to reject and the canonical text is produced by construction rather than by parsing.
+   Do not give either of them a `&str` overload and do not make them return `Result` for symmetry.
+   `PlanHash::compute_v2` takes the typed values, so a caller cannot hand it a raw string; a hash function
+   that returned `Result`
    would push the same checks into every call site and leave the unvalidated path open.
 
 `PlanHash::compute_v2(contract, impl_hash, target, args, execution)` is `#[must_use]` and takes the five
@@ -276,25 +283,73 @@ placeholder and no fallback.
 
 ### 5.5 Target identity at M1
 
-`PlanTarget` holds the host and the subject the plan names: `host`, `check` (`CheckKey`), `target`
-(`Option<TargetKey>`), taken from the linked incident. Both key types are already validated at
-construction (`signal/keys.rs:75-107`), so the text is canonical by construction.
+`PlanTarget` holds the host, the host's **enrolled agent key fingerprint** and the subject the plan names:
+`host` (`HostId`), `host_key` (`KeyFingerprint`), `check` (`CheckKey`), `target`
+(`Option<TargetKey>`), taken from the linked incident and the host's enrolment record. Both key types are
+already validated at construction (`signal/keys.rs:75-107`), so the text is canonical by construction.
 
+**`KeyFingerprint` is this prompt's type**, because prompt 22 lands first and prompt 25 consumes it. It
+lives in `crates/domovoi-core/src/host.rs`, next to `AgentIdentity`, whose `public_key: [u8; 32]`
+(`host.rs`) is the only input:
+
+```rust
+sha256_newtype!(
+    /// SHA-256 over an agent's enrolled ed25519 public key bytes: the hub-computed half of a host's
+    /// canonical identity (03 RW-34). Exactly 64 lowercase hex on the wire and in display.
+    KeyFingerprint
+);
+
+impl KeyFingerprint {
+    /// Hashes the 32 raw public-key bytes. The hub computes this from its own enrolled record;
+    /// it is never accepted from an agent message, an incident or a client.
+    #[must_use]
+    pub fn of_public_key(public_key: &[u8; 32]) -> Self;
+}
+
+/// The canonical host identity text: `host:{host_id}/{fingerprint}`.
+///
+/// This is the **only** place the format is written. `PlanTarget::canonical()` uses it, and prompt 25's
+/// registry parses it into a `TargetIdentity` for the values it reports, so a plan hash and a registry
+/// resolution cannot drift apart. Infallible: both inputs are validated types.
+#[must_use]
+pub fn host_target_text(host: HostId, key: &KeyFingerprint) -> String;
+```
+
+- **Where the value comes from.** `HostRepo::live_agent(host)` (`core/src/ports/repos/hosts.rs`) returns
+  `Option<AgentIdentity>` for the one non-revoked agent of that host; take `public_key` and hash it. There
+  is no second key store, no new table, and no host-key type besides `KeyFingerprint`.
+- **It is re-read, never remembered.** A propose-time value is what the human saw; the dispatch guard
+  re-reads `live_agent(host)` and takes the fingerprint again. A display object, a cached DTO or the
+  action row is never the source of the value at dispatch.
+- **No enrolled agent, no v2 plan.** `live_agent(host) == None` (never enrolled, revoked, or the record is
+  gone) means the host has no canonical identity: proposing a v2 action returns
+  `PlanError::NoEnrolledKey`, and dispatch refuses. Do not hash a placeholder, a zero fingerprint, or
+  `HostId` alone.
+- **Re-enrolment invalidates the plan.** A new enrolment writes a new `AgentIdentity` with a new
+  `public_key`, so the fingerprint and therefore `PlanTarget::canonical()` and the v2 hash change. An
+  approval taken before it is `Rejected` at dispatch as `PlanChanged`, which is exactly `03 RW-34`'s
+  "re-enrolment" invalidation row.
+- **The host comes from the incident, not from a second argument.**
+  `PlanTarget::of_incident(incident, host_key)` takes the incident and the already-derived fingerprint; it
+  derives the host and the subject from the incident itself, so a caller cannot approve a plan on host A
+  that names incident B. `PlanTarget::new(host, host_key, check, target)` exists for a caller that already
+  holds a host and no incident — at M1 only tests — and it is not a shortcut around that rule.
 - Recomputing it at dispatch needs the incident, which the writer already reads in `freshness::check`
   (`freshness.rs:42-57`). Read the incident once and pass it to both checks; do not read it twice.
-- **The host comes from the incident, not from a second argument.** `PlanTarget::of_incident(incident)` takes
-  only the incident and derives both the host and the subject from it, so a caller cannot approve a plan on
-  host A that names incident B. `PlanTarget::new(host, check, target)` exists for a caller that already holds
-  a host and no incident — at M1 only tests — and it is not a shortcut around that rule.
 - An incident that vanished or was resolved is already a rejection (`Stale::IncidentGone`,
   `Stale::IncidentResolved`). An incident whose target changed now also changes the hash and becomes
   `Rejected`.
 - Prompt 25 replaces this producer with a registry-resolved identity: host, capability, canonical target
-  kind and value. The **field, its position and its encoding do not change**; only the text inside it
-  does. That is why this is a producer change and not a hash-version change.
+  kind and value, where a container identity embeds the same host identity text. The **field, its
+  position and its encoding do not change**; only the text inside it does. That is why this is a producer
+  change and not a hash-version change.
 - Approvals created before 25 lands, and approved under the M1 producer, mismatch after it and are
   rejected at dispatch. Record that consequence in the PR description; do not add a compatibility shim
   that recomputes the old text.
+- **Consumers.** Prompts 26 (operation/execution detail) and 45 (permit issuance) bind this same target
+  text. When either is implemented it must take the `TargetIdentity` value and revalidate it at its own
+  boundary — the stored text is evidence of what was approved, never a substitute for reading the
+  current enrolment. Do not add a second resolver or a second identity format.
 
 ### 5.6 Behavioural invariants
 
@@ -334,14 +389,15 @@ impl PlanContract {
     pub fn version(&self) -> u32;
 }
 
-pub struct PlanTarget { /* host: HostId, check: CheckKey, target: Option<TargetKey> */ }
+pub struct PlanTarget { /* host: HostId, host_key: KeyFingerprint, check: CheckKey, target: Option<TargetKey> */ }
 impl PlanTarget {
-    /// Infallible: all three arguments are already validated types, so the canonical text is
+    /// Infallible: all four arguments are already validated types, so the canonical text is
     /// produced by construction. Do not add a `&str` form and do not make it return `Result`.
-    pub fn new(host: HostId, check: CheckKey, target: Option<TargetKey>) -> Self;
-    /// Both the host and the subject come from `incident`; there is no separate host argument.
-    pub fn of_incident(incident: &Incident) -> Self;
-    pub fn canonical(&self) -> String;
+    pub fn new(host: HostId, host_key: KeyFingerprint, check: CheckKey, target: Option<TargetKey>) -> Self;
+    /// The host, the subject and the key fingerprint all come from `incident` and `host_key`; there is no
+    /// separate host argument. `host_key` is `KeyFingerprint::of_public_key(&live_agent(incident.host()).public_key)`.
+    pub fn of_incident(incident: &Incident, host_key: KeyFingerprint) -> Self;
+    pub fn canonical(&self) -> String;   // host_target_text(host, &host_key)\ncheck:...\ntarget:...
 }
 
 sha256_newtype!(/* docs */ ImplHash);
@@ -454,8 +510,13 @@ impl ExecutionId {
   **request's** binding (not from the plan) and `authorization_kind` from the authorization. The state
   machine (`Proposed → Approved`) and `ActionError` are unchanged.
 - `ActionRequest::propose` gains the canonical target, because v2 binds it and the current signature takes
-  only `incident: IncidentId`. Take the incident (`&Incident`) or a `PlanTarget` and say which in the
-  report; do not read the incident inside `domovoi-core`, which does no I/O.
+  only `incident: IncidentId`. Take a `PlanTarget` (built by the caller from the incident **and the host's
+  `KeyFingerprint`**) and say so in the report; do not read the incident or the enrolment inside
+  `domovoi-core`, which does no I/O. `propose` returns `Err(PlanError::NoEnrolledKey)` rather than
+  inventing a target when the caller has no fingerprint to pass.
+- `PlanError` gains `NoEnrolledKey` with the message "the host has no enrolled agent key; a v2 plan cannot
+  bind its identity". It is the only new variant, and it is a propose-time refusal: dispatch treats a
+  missing key as a stale plan, not as an error to report to the approver.
 - `Transition::dispatch` keeps the signature prompt 21 leaves, including its epoch argument, and still
   compares exactly one hash. The caller passes the hash of the action's own family.
 
@@ -491,6 +552,13 @@ Nothing about the queue, the recovery handshake or the guarded write changes.
 action, `compute` for a v1 action — and the writer keeps rejecting on mismatch. The executor must never
 compute v1 for a v2 action's guard or the reverse: derive the family from the action, never from a feature
 flag. This is a different value from the one sent to the agent in `run_skill`; see 6.5.
+
+**A v2 guard re-reads the enrolled key.** Before computing `compute_v2`, the executor loads
+`HostRepo::live_agent(action.host())` and takes `KeyFingerprint::of_public_key(&agent.public_key)`. It does
+not reuse a fingerprint from the DTO, the action row or its own earlier pass: the whole point is that a
+re-enrolment between approval and dispatch changes the value. `None` from `live_agent` (revoked, removed,
+never enrolled) cannot produce a hash, so the action takes the existing stale path — `Rejected` with the
+plan-changed reason, no agent call — instead of hashing without the key.
 
 `ApprovalError` gains `NotYetSupported` (a policy authorization at M1) and keeps `PlanChanged`. Both are
 logged at debug by `refused()` (`writer.rs:251-264`).
@@ -566,7 +634,8 @@ Rules:
 
 | Path | Change |
 |---|---|
-| `crates/domovoi-core/src/action/plan.rs` (new) | `PlanContract`, `PlanTarget`, `ImplHash` (from prompt 20's `ScriptDigest`), the canonical encoder, `PlanHash::compute_v2`, `PlanError`, tests |
+| `crates/domovoi-core/src/host.rs` | `KeyFingerprint` (a `sha256_newtype!` over the enrolled public key) and `host_target_text`, beside `AgentIdentity` |
+| `crates/domovoi-core/src/action/plan.rs` (new) | `PlanContract`, `PlanTarget` (including the host key fingerprint), `ImplHash` (from prompt 20's `ScriptDigest`), the canonical encoder, `PlanHash::compute_v2`, `PlanError`, tests |
 | `crates/domovoi-core/src/action/authorization.rs` (new) | `Authorization`, `PolicyPermit`, `AuthorizationKind`, tests |
 | `crates/domovoi-core/src/action/approval.rs` | `ApprovalProvenance`; doc comment on v1 stating it is the legacy family; no behavioural change |
 | `crates/domovoi-core/src/action/request.rs` | new fields, `propose` computes v2, `approve` takes the authorization and provenance, `plan_hash_for_approval()`, `plan_hash_v2()`, `approved_plan_hash()`, `authorization_kind()` |
@@ -578,7 +647,7 @@ Rules:
 | `crates/domovoi-store/src/repos/actions.rs` | columns, `Bound`, insert and update, `from_stored` mapping |
 | `crates/domovoi-store/src/rows/action.rs` (if it holds the mapping) | the same fields |
 | `crates/domovoi-engine/src/actions/writer.rs` | `WriteCommand::Approve`, `approve`, `ApprovalError::NotYetSupported`, dispatch wiring |
-| `crates/domovoi-engine/src/actions/executor.rs` | compute two separately named values: the approval-family hash for `ask_dispatch` and the always-v1 `runskill_plan_hash` for `SkillDispatch` (6.5); pass the incident it already loaded |
+| `crates/domovoi-engine/src/actions/executor.rs` | compute two separately named values: the approval-family hash for `ask_dispatch` and the always-v1 `runskill_plan_hash` for `SkillDispatch` (6.5); load `live_agent` and pass the incident and the key fingerprint it already reads |
 | `crates/domovoi-engine/src/actions/freshness.rs` | return the incident (or take it as an argument) so the target can be recomputed from one read |
 | `crates/domovoi-engine/src/actions/mod.rs` | `ActionHandle::approve` signature |
 | `crates/domovoi-engine/src/cards.rs` | unchanged behaviour; the plan tag text says which family, from one constant |
@@ -685,8 +754,12 @@ prompt produces. A "wire change" here would be a coordinated `03 RW-42` decision
 - **It does prove which entry executable was approved**, to the extent the agent's report is honest: the
   digest is over the resolved file's bytes, so a replaced or edited entry invalidates the approval. It says
   nothing about transitive dependencies, interpreters or other files, and the PR must not imply otherwise.
-- At M1 it resolves the target only as far as the incident subject (5.5); say that in the DTO doc comments
-  and the UI tooltip.
+- **It does prove which host and enrolled agent key were approved**: the target text carries `HostId` and the
+  hub-computed fingerprint of the enrolled public key, so re-enrolment invalidates the approval. It does not
+  prove the agent still controls that key at execution time; the handshake's signature check does that, and
+  the agent's own local checks remain the last line.
+- At M1 it resolves the target only as far as the incident subject and the host identity (5.5); say that in
+  the DTO doc comments and the UI tooltip.
 
 ### 9.2 The enforcement mechanism that exists, and what this prompt adds
 
@@ -783,8 +856,20 @@ Name tests after the behaviour. Keep the exact names marked **(required)**; they
   matches that plan and nothing else; a prefix of 3 bytes matches, 2 bytes does not (extend the existing
   `plan_binding_*` tests rather than duplicating them).
 - `execution_id_for_an_action_equals_the_action_id`: `ExecutionId::from_action(id).as_action() == id`.
-- `plan_target_of_incident_takes_the_incidents_host`: `PlanTarget::of_incident(&incident).canonical()`
-  names `incident.host()`, so a plan cannot be computed for a different host than the incident's.
+- `plan_target_of_incident_takes_the_incidents_host`: `PlanTarget::of_incident(&incident, key).canonical()`
+  names `incident.host()` and the key, so a plan cannot be computed for a different host than the incident's.
+- **`plan_hash_changes_when_enrolled_agent_key_changes`**: one incident, one host, two `KeyFingerprint`
+  values; `compute_v2` differs, and the encoded target text differs only in the `host:` field. The two
+  fingerprints are both 64 lowercase hex, so the difference is in the value hashed, not in its length.
+- **`target_text_embeds_the_fingerprint`**: `PlanTarget::canonical()` begins with
+  `host_target_text(host, &key)` and contains no other fingerprint position; a `PlanTarget` cannot be
+  built without one, and `host_target_text` is the only function that writes `host:{uuid}/{fingerprint}`.
+- **`key_fingerprint_is_sha256_of_the_public_key`**: `KeyFingerprint::of_public_key(&key)` equals a
+  SHA-256 over those 32 bytes, displays as 64 lowercase hex, and rejects a non-hex parse.
+- **`host_target_text_is_the_only_formatter`**: `host_target_text(host, &key)` is
+  `host:{uuid}/{64 hex}`, and `PlanTarget::canonical()` starts with exactly that string followed by `\n`;
+  changing the key changes both, and nothing else in the crate writes the `host:` prefix.
+- **`propose_refuses_a_host_without_an_enrolled_key`**: `PlanError::NoEnrolledKey`, and no v2 hash is stored.
 - `no_approval_without_human` (existing gate, `tests/gates.rs:67`, extended): only the `human_approval()`
   case can approve at M1.
 - `authorization_has_no_public_variants`: the authorization module exposes no `pub enum Authorization`, and
@@ -799,6 +884,12 @@ Name tests after the behaviour. Keep the exact names marked **(required)**; they
 - **`approval_bound_to_displayed_plan_hash`** (engine half): an approval carrying the hash of the plan
   displayed succeeds; one carrying a stale hash does not.
 - **`changed_args_invalidate_approval`**: approve, change one argument in the store, dispatch → `Rejected`.
+- **`dispatch_refuses_after_host_reenrollment`**: approve a v2 action, then replace the host's
+  `AgentIdentity` with one whose `public_key` differs (the real `put_agent` path, not a test-only field
+  write), dispatch → `Rejected`, no agent request. Replacing it back with the original key does not
+  resurrect the approval: the row is terminal.
+- **`dispatch_refuses_when_the_host_has_no_live_agent`**: revoke the agent after approval; dispatch cannot
+  recompute a target, so it refuses on the stale path and sends nothing.
 - **`changed_target_invalidates_approval`** (`04 §8.1` gate name): approve, change the incident's `target`,
   dispatch → `Rejected`, and the reason names the plan.
 - **`dispatch_rejects_a_mismatched_plan_hash`**: a dispatch whose recomputed hash differs leaves the action
@@ -810,6 +901,10 @@ Name tests after the behaviour. Keep the exact names marked **(required)**; they
   reports `plan_binding = v1`.
 - `v1_action_dispatch_recomputes_the_v1_hash`: the existing recomputation test still passes and is named
   here rather than duplicated.
+- **`legacy_v1_binding_remains_unchanged`**: the v1 text stays exactly `plan:v1\n{skill}\n{manifest}\n{host}\n`
+  plus the canonical args, with **no** key fingerprint and no target identity. Build the same action before
+  and after the host is re-enrolled: the v1 hash is byte-identical both times, while the v2 hash of the same
+  plan changes. This is the test that proves the fingerprint was added to v2 only.
 - `policy_authorization_is_refused_at_m1`: build a real one — `PolicyPermit::issue(..)` with valid
   arguments (test paths are exempt from the call-site scan), wrap it with `Authorization::policy(..)`, and
   assert that both `Approve` and `Dispatch` return `NotYetSupported`, write nothing, and reach no agent.
@@ -859,24 +954,27 @@ Name tests after the behaviour. Keep the exact names marked **(required)**; they
 3. An approval is bound to the hash the surface displayed, for both families, and the value is stored as
    `approved_plan_hash`.
 4. Dispatch recomputes the hash of the action's own family and never dispatches a mismatched plan.
-5. A changed contract, implementation, target subject, argument or execution identity invalidates an
-   approval, each with a named test.
-6. Legacy v1 actions keep v1 semantics end to end, are labelled `v1 binding`, and are never recomputed
-   under v2.
-7. `Authorization` is a wrapper with private internals: there are no public variants, the two factories are
+5. A changed contract, implementation, target subject, **enrolled agent key**, argument or execution
+   identity invalidates an approval, each with a named test. The key fingerprint is part of the value
+   hashed, not only of the DTO.
+6. A host with no enrolled agent key cannot produce a v2 plan (`PlanError::NoEnrolledKey`), and dispatch
+   with no live agent refuses on the stale path.
+7. Legacy v1 actions keep v1 semantics end to end, are labelled `v1 binding`, and are never recomputed
+   under v2 — proven by `legacy_v1_binding_remains_unchanged` across a re-enrolment.
+8. `Authorization` is a wrapper with private internals: there are no public variants, the two factories are
    the only construction paths, only `human_approval()` can approve, and the policy case is refused with a
    named error.
-8. `PolicyPermit` has the fields of `04 §8.1`, private fields, no `Default`, no `Deserialize`, and its only
+9. `PolicyPermit` has the fields of `04 §8.1`, private fields, no `Default`, no `Deserialize`, and its only
    constructor is the restricted `issue` factory. No `PermitIssuer` and no policy evaluation exist.
-9. `ExecutionId` exists, equals the `ActionId` at M1, and the id is never rewritten.
-10. The architecture scan covers every authorization constructor, the single `plan:v2` implementation and
+10. `ExecutionId` exists, equals the `ActionId` at M1, and the id is never rewritten.
+11. The architecture scan covers every authorization constructor, the single `plan:v2` implementation and
     the absence of a public `Authorization` enum, with unit tests, and the ADR that the rules change
     requires is in the same PR.
-11. The migration exists with the columns of 8.1, chosen by reading the directory, and no permit column is
+12. The migration exists with the columns of 8.1, chosen by reading the directory, and no permit column is
     added.
-12. No wire change, no protocol bump, no second execution path, no reconciliation change, no policy
+13. No wire change, no protocol bump, no second execution path, no reconciliation change, no policy
     evaluation.
-13. A v2 action uses the v2 hash for the human approval and the hub's dispatch guard, while the M1
+14. A v2 action uses the v2 hash for the human approval and the hub's dispatch guard, while the M1
     `run_skill` request carries the v1 local-check hash, and the two are distinct named values at every call
     site.
 
@@ -904,19 +1002,20 @@ Name tests after the behaviour. Keep the exact names marked **(required)**; they
    discrepancies in section 4 and report any new one before editing.
 2. **List the migrations directory** and write down the number you will take, and the ADR number from
    `docs/adr/`.
-3. **Core, encoding first:** `PlanContract`, `PlanTarget`, `ImplHash` (consuming prompt 20's `ScriptDigest`),
-   the encoder, `compute_v2` and the encoding tests. Nothing else depends on the store or the writer, so this
-   is self-contained.
-4. **Core, types:** `ExecutionId`, `Authorization`, `PolicyPermit`, `ApprovalProvenance`, then the
+3. **Core, types first:** `KeyFingerprint` in `host.rs` and its unit tests.
+4. **Core, encoding:** `PlanContract`, `PlanTarget` (with the key), `ImplHash` (consuming prompt 20's
+   `ScriptDigest`), the encoder, `compute_v2` and the encoding tests. Nothing else depends on the store or
+   the writer, so this is self-contained.
+5. **Core, authority types:** `ExecutionId`, `Authorization`, `PolicyPermit`, `ApprovalProvenance`, then the
    `ActionRequest` fields and `approve`/`plan_hash_for_approval`. Update `lib.rs` re-exports.
-5. **Store:** the migration, then the row mapping.
-6. **Engine:** writer command and approve, the family-specific hash in the executor, the single incident
-   read shared with `freshness`.
-7. **Hub:** `Authorization::human(..)` wrapping, provenance, DTO fields, then regenerate the OpenAPI types.
-8. **Web:** the binding label and its tooltip; the fixture and the dev demo.
-9. **xtask and ADR:** rules, scan rules, scan unit tests, the ADR. Run `cargo xtask arch-check` and
-   `cargo xtask arch-check --base origin/overhaul-investigation`.
-10. **Tests and checks** for what changed: `cargo fmt --all`; `cargo clippy -p domovoi-core -p
+6. **Store:** the migration, then the row mapping.
+7. **Engine:** writer command and approve, the family-specific hash in the executor with the `live_agent`
+   key read, the single incident read shared with `freshness`.
+8. **Hub:** `Authorization::human(..)` wrapping, provenance, DTO fields, then regenerate the OpenAPI types.
+9. **Web:** the binding label and its tooltip; the fixture and the dev demo.
+10. **xtask and ADR:** rules, scan rules, scan unit tests, the ADR. Run `cargo xtask arch-check` and
+    `cargo xtask arch-check --base origin/overhaul-investigation`.
+11. **Tests and checks** for what changed: `cargo fmt --all`; `cargo clippy -p domovoi-core -p
     domovoi-store -p domovoi-engine -p domovoi-hub -p xtask --all-targets -- -D warnings`; `cargo nextest
     run -p domovoi-core`, `-p domovoi-store`, `-p domovoi-engine`, `-p domovoi-hub`, `-p xtask`; for the
     web area `npm run lint`, `npm run typecheck` and the approvals vitest file. Rustdoc for every new

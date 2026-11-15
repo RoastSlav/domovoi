@@ -162,11 +162,12 @@ publication helpers and the simulator. Each consumes 24's types and defines none
 
 | ID | Remaining work | Owns / migration | Consumers | Named validation |
 |---|---|---|---|---|
-| 25 | Registry: availability (all eight states, `HostIncompatible`, `Unavailable(helper_missing)`), catalogue from `get_catalog` **plus the agent's answering handler and `hello.catalog_hash`**, replace `PolicyLink` at both boundaries, target identity resolution (`container:` full id; units refuse while R-8 is open), read-only inventory UI, skill floor under `host.<name>.floors` | capability registry, `Availability`, `TargetResolver` port; no new table (both switches in `settings`) | 26, 41, 49 (index deps) | `disabled_capability_refused_at_boundary`, `target_identity_change_refused`, `container_name_grammar_enforced`; R-7 test |
-| 39 | `domovoi_engine::policy::{evaluate, Decision, Rule}`: specificity order, locked Deny, hard limits, publication helpers, simulator entry point | evaluator API; **no migration** (40 stores versions) | 40, 43, 45 | all 22 tests of `04 §7.7` |
+| 25 | Registry: availability per `ExecutionPath`, catalogue from `get_catalog` **plus the agent's answering handler and `hello.catalog_hash`**, the `hello.skills` ↔ catalogue consistency rules, replace `PolicyLink` at both boundaries, target identity resolution (host identity carries the enrolled key fingerprint; container identity embeds it; units refuse while R-8 is open), read-only inventory UI, skill floor under `host.<name>.floors` | capability registry, `Availability`, `TargetResolver` port; no new table (both switches in `settings`) | 26, 41, 49 (index deps) | `disabled_capability_refused_at_boundary`, `target_identity_change_refused`, `container_name_grammar_enforced`; R-7 test |
+| 39 | `domovoi_engine::policy::{evaluate, Decision, Rule}`: specificity order, locked Deny, hard limits (monotonic severity), publication helpers, simulator entry point, overridden-rule trace | evaluator API; **no migration** (40 stores versions); **launch gate: `O-31` answered** (`TimeWindow` timezone) | 40, 43, 45 | all 22 tests of `04 §7.7` |
 
-**Dependencies.** 25 needs 23 + 24 + wire 1.2; 39 needs 24. Order between 25 and 39 is free (`07 §3`):
-39 does not depend on the registry, and 25 does not evaluate policy.
+**Dependencies.** 25 needs 23 + 24 + wire 1.2; 39 needs 24 **and an answer to `O-31`** (the `TimeWindow`
+timezone). Order between 25 and 39 is free (`07 §3`): 39 does not depend on the registry, and 25 does not
+evaluate policy.
 **Components.** New `core/src/capability/`, `core/src/ports/{capability,target}.rs`, `engine/src/policy/`,
 `engine/src/targets/`, the hub registry service and the agent's catalogue handler, `web/src/features`
 inventory view; no new crate (`04 §1`).
@@ -432,7 +433,7 @@ implementations launch later, one at a time, only when their merged dependencies
 | EF-1 | 20 | nothing (`03 RW-42` is the contract) | 13, 14, 15, 16, 17, 18, 19 all merged (13 #116 and 15 #136 are merged; 14, 16, 17, 18, 19 are not) | wire 1.2 and the agent journal are one contract |
 | EF-2 | 21, 22 | 20 | 20 merged; 22 also after 21 merged | hub-side M1 consumers of the journal |
 | EF-3 | 23 | 22 | 22 merged | boundary rules against the final authorization types |
-| GH-1 | 25, 39 (written) | 24 and 20 (25); 24 (39) | 39 after 24 merged; 25 after 23 and 24 merged (the wire 1.2 dependency arrives through the upstream chain) | registry and evaluator, independent of each other |
+| GH-1 | 25, 39 (written) | 24 and 20 (25); 24 (39) | 39 after 24 merged **and `O-31` answered**; 25 after 23 and 24 merged (the wire 1.2 dependency arrives through the upstream chain) | registry and evaluator, independent of each other |
 | GH-2 | 26 | 22, 25 | 22 and 25 merged | needs `ExecutionId` and the registry |
 | GH-3 | 27 | 26 | 26 merged | Investigate operation and step approvals |
 | GH-4 | 28, 29 | 26 | 26 merged | SSE and use-case layer share hub wiring, not files |

@@ -7,7 +7,7 @@
 | Depends on (must be merged) | `24` |
 | Parallel with | `26–37` (order-flexible; never concurrent) |
 | Produces | `domovoi_engine::policy::{evaluate, Decision, Rule}` plus pure publication-validation and simulator helpers |
-| Launch gate | none beyond prompt 24 |
+| Launch gate | none beyond prompt 24, **except `O-31` (policy `TimeWindow` timezone) must be answered before implementation starts** |
 | Suggested model | large |
 
 ## 1. Objective
@@ -348,7 +348,7 @@ pub struct Rule {
 ### 6.3 `Condition` (`condition.rs`) **fixed**
 
 ```rust
-/// A time of day in UTC, no date, no zone.
+/// A time of day, no date. **The zone is an open owner decision (O-31)**; the proposal is UTC.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct TimeOfDay { pub hour: u8, pub minute: u8 }   // hour 0..=23, minute 0..=59
 
@@ -359,7 +359,8 @@ pub struct TimeOfDay { pub hour: u8, pub minute: u8 }   // hour 0..=23, minute 0
 pub enum Condition {
     /// The canonical argument `arg` is an integer satisfying `value <op> n`.
     ArgConstraint { arg: String, op: ConstraintKind, value: i64 },
-    /// The wall clock of `request.now`, in UTC, is inside `[start, end)`.
+    /// The wall clock of `request.now`, inside `[start, end)`. The zone is O-31's answer; the proposal
+    /// is UTC.
     TimeWindow { start: TimeOfDay, end: TimeOfDay },
     /// The fact `fact` is `Known` and equal to `expected`.
     RequiresFact { fact: FactId, expected: bool },
@@ -375,7 +376,7 @@ Exact match semantics, one clause each:
 | Condition | Matches when | Does not match when |
 |---|---|---|
 | `ArgConstraint` | `args.get(arg)` parses as `i64` and `ConstraintKind::satisfied(n, value)` holds: `IntAtLeast` → `n >= value`, `IntAtMost` → `n <= value` | the argument is absent, empty, non-numeric, out of `i64` range, or the canonical line is malformed |
-| `TimeWindow` | `start < end` and `start <= t < end`; or `start > end` (wrap) and `t >= start || t < end` | `start == end` (an empty window; `validate_rules` rejects it as a dead rule) |
+| `TimeWindow` | `start < end` and `start <= t < end`; or `start > end` (wrap) and `t >= start || t < end`; `t` per O-31 (proposed UTC) | `start == end` (an empty window; `validate_rules` rejects it as a dead rule) |
 | `RequiresFact` | `facts.get(fact) == Some(&FactState::Known(*expected))` | absent, `Unknown`, `Stale`, `Disputed`, or `Known` with the other value |
 | `MaxRate` | `requested_rate_per_hour` is `Some(r)` with `r <= max_per_hour`, **or** `None` | `Some(r)` with `r > max_per_hour` |
 | `MaxTtl` | `requested_ttl` is `Some(t)` with `t <= max_ttl`, **or** `None` | `Some(t)` with `t > max_ttl` |
@@ -383,10 +384,21 @@ Exact match semantics, one clause each:
 - **`ConstraintKind` is prompt 24's** (`IntAtLeast | IntAtMost`, `24` §6.3). Do not define a second
   operator enum; the ceiling reads its bound through the same two variants (`24` §6.5), so the
   operator means the same thing in both places.
-- `t` is `request.now` formatted as `HH:MM` **in UTC only**: `now.to_zoned(TimeZone::UTC)` and read
-  the hour and minute. No DST, no locale, no configured zone, no `Clock`. Wrap-around
-  (`22:00`–`06:00`) is supported by the second clause; a window is `[start, end)`, so `22:00`–`06:00`
-  does not include `06:00`.
+- **`TimeWindow`'s zone is an open owner decision, `O-31`.** `04 §7.1` defines the condition without
+  stating a zone, so this brief cannot settle it. The proposal is **UTC** for v1 — deterministic across
+  hosts, no DST ambiguity, replay reproduces the same decision, and no per-host timezone configuration is
+  needed. The owner has not accepted it yet. Implement nothing until `99` O-31 is answered, then apply the
+  answer exactly; the default reading of this brief is:
+
+  ```text
+  t = request.now formatted as HH:MM in UTC (now.to_zoned(TimeZone::UTC))
+  a window is [start, end); 22:00–06:00 wraps and does not include 06:00
+  ```
+
+  If the owner picks a configured zone instead, the *only* change is where `t` comes from: an explicit
+  field on `EvaluateRequest` (never a clock or a host lookup inside the evaluator), and the UI must label
+  the zone. Do not add a timezone config key, do not read host local time, and do not claim UTC is
+  accepted.
 - `MaxRate`/`MaxTtl` with `None` on the request match: nothing is being requested that could exceed
   the bound. They still contribute a constraint on an `Allow` (§6.9 stage 5), so the permit is
   capped at the rule's bound either way.
@@ -516,7 +528,8 @@ pub struct EvaluateRequest {
     pub runs_as_root: bool,
     pub containment: ContainmentInput,
     pub autonomy: AutonomyState,
-    /// The evaluation instant, UTC. The only time input; there is no `Clock` here.
+    /// The evaluation instant. The only time input; there is no `Clock` here. Its zone reading for
+    /// `TimeWindow` is O-31's answer (proposal: UTC).
     pub now: Timestamp,
     /// Opaque tag of the policy version being evaluated (prompt 40 owns the table).
     pub policy_version: Option<Uuid>,
@@ -564,6 +577,10 @@ Field notes that must survive implementation:
 ```rust
 /// What the policy says about one request. Three authorization outcomes (D-23) plus the
 /// hard-limit outcome, which authorizes nothing.
+///
+/// The declaration order **is** the severity order the hard limits rely on:
+/// `Allow < RequireApproval < Unavailable < Deny`. Rust's derived `Ord` follows declaration order, so
+/// moving a variant silently changes hard-limit monotonicity. Do not reorder these four.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "reason", rename_all = "snake_case")]
 pub enum Outcome {
@@ -571,17 +588,24 @@ pub enum Outcome {
     Allow,
     /// Offered to the owner.
     RequireApproval,
-    /// Not offered. The owner must change the policy (D-23). No bypass.
-    Deny,
     /// The evaluator could not establish a safety precondition. Nothing may execute and nothing is
     /// offered: this is not an authorization outcome.
     Unavailable(UnavailableReason),
+    /// Not offered. The owner must change the policy (D-23). No bypass.
+    Deny,
 }
 ```
 
-- Declaration order is the severity order used by the hard limits: `Allow < RequireApproval <
-  Unavailable < Deny`. `Outcome`'s derived `Ord` therefore already sorts that way; do not reorder the
-  variants.
+- **Severity is `Allow < RequireApproval < Unavailable < Deny`, and that is the declaration order.** The
+  derived `Ord` is the one the hard limits use: `max(current, limit_outcome)` must never lower a result.
+  `outcome_severity_order_is_allow_approval_unavailable_deny` asserts all six pairwise relations, so a
+  reordering fails a test rather than silently weakening a limit.
+- If the implementation prefers an explicit `severity_rank() -> u8` instead of the derived `Ord`, it must
+  then **stop relying on derived ordering anywhere** (no `<`/`>`/`max` on `Outcome`), use the function at
+  every hard-limit site, and test the function directly. The corrected declaration order is the simpler
+  answer and is what this brief expects; say which you chose in the report.
+- Serde names and meanings are unchanged: `allow`, `require_approval`, `unavailable`, `deny`. `Unavailable`
+  carries its reason as the `reason` field; the other three serialize without one.
 - `D-23`'s three outcomes keep exactly their meanings. `Unavailable` is **not** a fourth
   authorization: `Outcome::Unavailable(_)` is never converted into a permit, never shown as
   approvable, and there is no rule outcome that produces it.
@@ -692,8 +716,9 @@ pub struct Decision {
     pub winners: Vec<RuleId>,
     /// Every matching locked rule, sorted by id. Non-empty implies `LockedDeny`.
     pub locked: Vec<RuleId>,
-    /// Broader rules beaten by a more specific winner with a different outcome, sorted by
-    /// `(broader, by)`.
+    /// Broader rules beaten by a more specific winner, sorted by `(broader, by)`. Recorded for every
+    /// strict domination, whether or not the outcomes match; only the warning below is
+    /// outcome-specific.
     pub overridden: Vec<Overridden>,
     /// The ordinary resolution (stages 3-6) with no hard limits, present exactly when the final
     /// outcome differs from it. Its own `would_have_been` is always `None`.
@@ -853,8 +878,8 @@ matched rule, all with their `FactStatus`).
 - If `L` is non-empty: the ordinary resolution of stages 3–6 is still computed and stored as
   `would_have_been`; the result is `outcome = Deny`, `reason = LockedDeny`, `locked` = every id in
   `L` sorted, `winners = []`, `overridden` = `(winner, locked)` for every ordinary winner and every
-  locked rule, sorted. Then stage 7 runs in "record only" mode: no limit may weaken a `Deny`, so
-  `hard_limits_applied` stays empty. Return.
+  locked rule, sorted. Stage 7 is **not run**: a lock is already a hard prohibition, so no limit may be
+  applied or recorded and `hard_limits_applied` stays empty. Return.
 - Otherwise continue.
 
 **Stage 3 — default.** If `M` is empty, the outcome is the effect-class default and `reason =
@@ -873,8 +898,10 @@ hard limits — target pinning, facts, ceiling, autonomy, root).
 **Stage 4 — winners.** `W` = the maximal elements of `M`: every `(a, b)` in `M` with
 `is_strictly_more_specific(b.scope, a.scope)` removes `a`. Two rules with equal resolved scopes are
 both maximal. Record `winners` (sorted ids) and `overridden`: `(broader, by)` for every `broader ∈ M`
-that some `by ∈ W` is strictly more specific than, **where their `outcome`s differ**. Equal scopes
-never appear as overrides.
+that some `by ∈ W` is strictly more specific than, **whatever their outcomes**. A broader `Allow` that
+loses to a narrower `Allow` is still an override and is still shown (`04` §7.5 lists "every overridden
+broader rule", not only the ones that disagree). Equal scopes never appear as overrides, because
+"strictly more specific" is false for them.
 
 **Stage 5 — one outcome.** If every rule in `W` has the same `outcome`, that is the result, with
 `reason = SingleWinner`.
@@ -910,9 +937,56 @@ property-tested (`evaluation_is_order_independent`).
 
 ### 6.10 The ten hard limits **fixed**
 
-Applied in this order, after stage 6, to the outcome produced by stages 3–6. "Applies" means the
-precondition holds **and** the outcome is not already at least as severe. Each applied limit is
-recorded by its enum variant, which is declared in this order:
+Applied in this order, after stage 6, to the outcome produced by stages 3–6. Each limit computes a
+`candidate` outcome and a `record` decision; the result is then combined by one monotonic rule, never by
+assignment:
+
+```rust
+// The one rule every limit uses. `record` is separate from `raise` because a limit can be worth
+// recording even when the outcome is already at least as severe.
+fn apply_limit(state: &mut LimitState, limit: HardLimit, candidate: Outcome, record: bool) {
+    if record {
+        state.recorded.push(limit);          // pushed in HardLimit declaration order, never duplicated
+    }
+    if candidate > state.outcome {           // `Outcome`'s derived Ord: Allow < Approval < Unavailable < Deny
+        state.outcome = candidate;
+    }
+    // never an assignment that could lower the outcome
+}
+```
+
+- **`candidate > current`, never `current = candidate`.** A limit therefore cannot turn `Deny` into
+  `RequireApproval`, cannot turn `Unavailable` into `RequireApproval` or `Allow`, and cannot turn
+  `RequireApproval` back into `Allow`. Assert it with the table-driven monotonicity tests below rather than
+  by inspection.
+- **"outcome is `Allow`" in the table means the stage 3–6 outcome**, not the running one. Otherwise limit 1
+  would silently disable limits 2–4 and the trace would show only the first. A limit whose stage 3–6
+  outcome was `Allow` is evaluated and recorded even when an earlier limit already raised the result; the
+  combination still cannot lower it.
+- **`record` is independent of `raise`.** A limit whose precondition holds is recorded in
+  `hard_limits_applied` even when the outcome is already more severe (limits 5 and 6 set typed confirmation
+  and warnings on an existing `RequireApproval`; limit 4 is worth showing on an existing `Unavailable`), and
+  even when it would not change the outcome. Recording never changes the severity; it only explains.
+- **No limit is recorded when its precondition is false**, and no limit is recorded twice.
+- **`would_have_been`** is `Some(ordinary)` exactly when the final outcome differs from the stage 3–6
+  outcome. A limit that only adds a warning or a typed confirmation does not set it.
+- **`typed_confirmation`** is `Typed` when the outcome is `RequireApproval` and either the effect is
+  `Destructive` or limit 5 or 6 fired (recorded), even if the outcome reached `RequireApproval` earlier.
+  `Deny` and `Unavailable` never carry `Typed`.
+- **Limit 7 is the only limit that can produce `Deny`**, and it does so from any lesser outcome because
+  `Deny` is the maximum. It also holds when the request is human-authorized: the evaluator does not know
+  who approved, and containment over the verified exclusion set is refused for everyone.
+- **Limit 8 produces `Unavailable(SafetyUnknown)` only when the outcome is lesser.** If a limit 7 already
+  produced `Deny`, the `Deny` stands; `HelperSafetyIncomplete` is still recorded, because the helper's
+  inability to compute its set is a fact the trace must show.
+- **Limits 9 and 10 can only raise to `RequireApproval`**, so they are no-ops on `Deny` and `Unavailable`
+  (recorded, not applied in severity terms).
+- **The locked stage is outside this table.** Stage 2 returns `Deny` before stage 7, and stage 7 is not
+  run for a `LockedDeny` decision: the lock is already the reason, no limit may weaken it, and
+  `hard_limits_applied` is empty. `would_have_been` holds the ordinary resolution so the UI can show what
+  the lock overrode. See §6.9 stage 2.
+
+Each applied limit is recorded by its enum variant, which is declared in this order:
 
 ```rust
 /// The hard limits of 04 §7.3, in application order. Declaration order is the trace order.
@@ -947,6 +1021,8 @@ pub enum HardLimit {
 
 Details that must be implemented exactly:
 
+- **`Effect` in the table is the candidate**, not an assignment. Each row's candidate is combined by
+  `apply_limit` above, so a more severe current outcome always survives.
 - **Limit 2 target set.** The union is the pinned identities plus the resolutions, for *this*
   request, of the target names named by the winning `Allow` rules (`request.rule_targets`). A name
   with no resolution contributes nothing, so an unresolvable rule target cannot widen anything. With
@@ -970,14 +1046,15 @@ Details that must be implemented exactly:
 - **Limit 7 and 8 only for `Contain`.** They read `request.containment`. A request whose contract is
   not `Contain` must carry `ContainmentInput::not_applicable()`; a populated one is
   `PolicyError::ContainmentOnNonContain` at stage 0.
-- **Limits 5 and 6 add `Typed` even when the outcome is already `RequireApproval`** (stage 3's
-  default for `Contain`, or D-19's fallback), and are still recorded: the trace must show that the
-  unattended path was blocked by the safety posture rather than by the rules.
-- **Limit 9 records when it fires on an outcome that is already `RequireApproval`**, and never
-  applies to `Deny` or `Unavailable`.
+- **Limits 5 and 6 set `Typed` and their warning even when the outcome is already `RequireApproval`**
+  (stage 3's default for `Contain`, or D-19's fallback), and are recorded: the trace must show that the
+  unattended path was blocked by the safety posture rather than by the rules. They never touch `Deny` or
+  `Unavailable`.
+- **Limit 9 records when it fires on an outcome that is already `RequireApproval`**, and never raises
+  `Deny` or `Unavailable` (it cannot: they are more severe).
 - **No limit ever produces `Allow`**, and no limit converts `Deny` into anything else; limit 7 is
-  the only one that can produce `Deny` from `Allow`/`RequireApproval`, and it wins over limit 8
-  because it comes first.
+  the only one that can produce `Deny`, and because it precedes limit 8 a `Deny` from limit 7 survives a
+  simultaneous `HelperSafetyIncomplete`.
 
 ### 6.11 Publication validation (`publish.rs`) **fixed**
 
@@ -1147,6 +1224,8 @@ Each step compiles and has its own tests. Do them in this order.
    `effect_of_category`, `CeilingSummary`, `CeilingEntry`, `CeilingTargets`, `ConstraintKind`,
    `TargetName`, `TargetIdentity`'s actual definitions; confirm no `Authorization`/`PolicyPermit`
    exists. If `capability` is missing, **stop** and report.
+   **Check `99` O-31 first.** If the `TimeWindow` timezone question is still open, stop before writing
+   code and report it: the brief is complete, but the branch is not launchable.
 2. `error.rs`: `PolicyError` and its messages.
 3. `outcome.rs`: `Outcome`, `UnavailableReason`, `ConfirmationRequirement`,
    `OutcomeReason`, `HardLimit`. Unit test the severity order and the serde shape.
@@ -1163,11 +1242,11 @@ Each step compiles and has its own tests. Do them in this order.
 9. `evaluate.rs`, stages 0–3: guard, match, locked `Deny`, default. Tests
    `no_match_uses_effect_default`, `locked_deny_beats_narrower_allow`,
    `multiple_locked_denies_one_deny_all_reasons`, `locked_deny_records_would_have_been`.
-10. `evaluate.rs`, stages 4–6: winners, one outcome (with constraint intersection and the empty
-    intersection), mixed outcomes. Tests for the decision table rows 2–10 and the `overridden` and
-    `Warning::DangerousException` behaviour.
-11. `evaluate.rs`, stage 7: the ten limits, `ceiling_covers`, `typed_confirmation`. Tests for
-    decision-table rows 11–17 and every limit.
+10. `evaluate.rs`, stages 4–6: winners (recording **every** strict domination in `overridden`), one
+    outcome with constraint intersection, mixed outcomes. Tests for the decision table rows 2–10 and the
+    `overridden` and `Warning::DangerousException` behaviour.
+11. `evaluate.rs`, stage 7: `apply_limit`, the ten limits, `ceiling_covers`, `typed_confirmation`.
+    Tests for decision-table rows 11–17, every limit, and the monotonicity table.
 12. `publish.rs`: `validate_publication` and its four finding kinds.
 13. `simulate.rs`: `simulate`.
 14. `policy.rs`: the `mod` lines, the `pub use`s, the module doc. Then `cargo xtask arch-check`
@@ -1237,13 +1316,17 @@ Each of these is implemented somewhere above and tested by a named test in §12.
 10. **No rule order and no rule id influences a result.** Both are property-tested. Ids sort the
     trace; they never break a tie, and there is no tie to break (§2).
 11. **The trace explains every override, including the dangerous one.** `overridden` lists every
-    broader rule a more specific winner beat when the outcomes differ, and
+    broader rule a more specific winner strictly beat, whether or not the outcomes match, and
     `Warning::DangerousException { allow, deny }` marks the specific-`Allow`-over-broad-`Deny` case
-    so the UI can style it as dangerous. A silent override would defeat the purpose of D-05.
-12. **The trace carries no observed fact values.** `facts_used` holds `FactStatus` only, never the
+    so the UI can style it as dangerous. A silent override would defeat the purpose of D-05, and an
+    invisible same-outcome override would make the trace disagree with `04 §7.5`.
+12. **A hard limit never lowers severity.** All ten go through one monotonic combination
+    (`Allow < RequireApproval < Unavailable < Deny`), a limit may be recorded without changing the
+    outcome, and a locked `Deny` survives every limit.
+13. **The trace carries no observed fact values.** `facts_used` holds `FactStatus` only, never the
     `Known(bool)` value the hub observed. A rule's own `RequiresFact { expected }` is echoed inside
     `constraints.conditions` because the owner wrote it; that is configuration, not observation.
-13. **No I/O, so no attack surface.** No store, no clock, no HTTP, no audit log, no filesystem, no
+14. **No I/O, so no attack surface.** No store, no clock, no HTTP, no audit log, no filesystem, no
     environment, no random. The engine's R2 restrictions are met by construction.
 
 ## 11. Error and recovery behaviour
@@ -1356,6 +1439,16 @@ Unit tests, in the file that defines the behaviour:
 | `allow_intersection_always_contains_the_requests_target` | `proptest`: for any rule set `evaluate` accepts and any matching request, an `Allow`'s `targets` is `None` or contains `request.target`; the intersection is never empty |
 | `empty_target_intersection_is_unrepresentable` | a rule with `TargetScope::Exact(BTreeSet::new())` is refused by `validate_rules` (`EmptyTargetSet`) and never reaches the matcher; two `Allow` winners whose `Exact` sets are disjoint cannot both match one request, so the case has no decision to test |
 | `several_hard_limits_apply_in_trace_order` | one request that trips limits 1, 3, 4, 9, 10 → `hard_limits_applied` is exactly `[DestructiveNeverAllowed, SafetyFactUnknown, CeilingDoesNotCover, AutonomyInactive, AgentRunsAsRoot]` in that order regardless of input order |
+| `outcome_severity_order_is_allow_approval_unavailable_deny` | assert all six pairwise relations: `Allow < RequireApproval < Unavailable(SafetyUnknown) < Deny`, and that `Ord`/`max` on `Outcome` returns the more severe of each pair |
+| `hard_limits_never_lower_severity` | table-driven over the four starting outcomes × the containment, `helper_incomplete`, autonomy and root-agent inputs: `final >= ordinary` in every cell, and `final` is `Deny` whenever the cell starts at `Deny` |
+| `deny_survives_helper_incomplete_and_autonomy_limits` | a request where limit 7 produced `Deny` and `helper_incomplete`, `paused` and `runs_as_root` are all set: `Deny`, and `hard_limits_applied` contains `ContainmentTargetExcluded` and `HelperSafetyIncomplete` in declaration order |
+| `unavailable_survives_later_require_approval_limits` | limit 8 produced `Unavailable(SafetyUnknown)`, then the autonomy and root-agent limits also hold: the outcome stays `Unavailable`, both limits are recorded, and `would_have_been` is the ordinary result |
+| `typed_confirmation_survives_a_more_severe_start` | ordinary outcome `RequireApproval` from a `Contain` default, limits 5 and 6 both fire: `Typed`, both warnings present, outcome still `RequireApproval`, `would_have_been` `None` |
+| `locked_deny_survives_every_hard_limit` | a locked `Any/Any/Any → Deny` plus a request that trips all ten limit preconditions: `Deny`/`LockedDeny`, every locked rule listed, `would_have_been` the ordinary result, `hard_limits_applied` empty |
+| `overridden_trace_includes_same_outcome_broader_rule` | `All / Any / Any → Allow` and `media / container.restart / {plex} → Allow`: `overridden = [(broad, narrow)]` even though both are `Allow`, and `warnings` does **not** contain `DangerousException` |
+| `specific_allow_over_broad_deny_emits_dangerous_exception` | the same pair with the broad rule `Deny`: `overridden = [(broad, narrow)]` **and** `warnings` contains `DangerousException { allow: narrow, deny: broad }` |
+| `equal_scope_rules_are_not_overrides` | two rules with identical scopes and different outcomes: `winners` holds both and `overridden` is empty |
+| `overridden_trace_is_order_independent` | shuffle the input rules: `overridden` is identical and sorted by `(broader, by)` |
 | `locked_deny_records_would_have_been` | the inner decision has `would_have_been == None`, empty `hard_limits_applied`, and the lock's `overridden` pairs are sorted |
 | `publish_reports_rules_ineffective_under_a_lock` | a locked `Any/Any/Any → Deny` plus an enabled `Allow` → one `IneffectiveUnderLock` per rule, `requires_acknowledgement = true` |
 | `publish_notes_allows_outside_every_ceiling` | an `Allow` naming a target no supplied ceiling covers → a `TargetOutsideEveryCeiling` finding with `requires_acknowledgement = false`; an empty `ceilings` map → no finding |
@@ -1394,25 +1487,35 @@ test in `tests/engine/policy.rs`, so nothing shared is touched.
 7. Equal-scope winners with different outcomes give `Deny`; incomparable winners give `Deny` if any
    winner is `Deny`, else `RequireApproval`; neither ever inspects rule order or ids.
 8. A matching locked `Deny` gives `Deny`/`LockedDeny` with every locked rule listed and the ordinary
-   resolution in `would_have_been`.
-9. The five `OutcomeReason` values are exactly `04` §7.5's, with no sixth; an `Allow`'s target set is
-   `None` or contains the request's target, so the intersection is never empty.
-10. `evaluate` never returns `Allow` for: a `Destructive` contract, a target outside `pinned` ∪ the
+   resolution in `would_have_been`; no hard limit can weaken it, and `hard_limits_applied` is empty for
+   that decision.
+9. `Outcome`'s declaration order is `Allow, RequireApproval, Unavailable, Deny`; its severity is
+   `Allow < RequireApproval < Unavailable < Deny`, asserted by
+   `outcome_severity_order_is_allow_approval_unavailable_deny`; and every hard limit combines by
+   `candidate > current`, so no limit lowers severity and every limit that applies is recorded.
+10. `Decision.overridden` lists every broader rule a winning rule is strictly more specific than,
+    whether or not the outcomes match, sorted by `(broader, by)`; equal scopes never appear; and
+    `Warning::DangerousException` is emitted only for a specific `Allow` over a broader `Deny`.
+11. The five `OutcomeReason` values are exactly `04` §7.5's, with no sixth; an `Allow`'s target set is
+    `None` or contains the request's target, so the intersection is never empty.
+12. `evaluate` never returns `Allow` for: a `Destructive` contract, a target outside `pinned` ∪ the
     winners' resolved targets, an unknown/stale/disputed declared safety fact, an uncovered or
     unverifiable ceiling, or a root agent; and a malformed rule set or request returns
     `Err(PolicyError)`, so it produces no `Decision` to act on.
-11. No type in the module constructs, names or returns `HumanApproval`, `PolicyPermit` or
+13. `TimeWindow` implements `O-31`'s answer. Until the owner answers it, the branch is not started; the
+    code contains no host-timezone read, no config key and no clock call.
+14. No type in the module constructs, names or returns `HumanApproval`, `PolicyPermit` or
     `Authorization`; `crates/domovoi-hub/src/auth/` is untouched.
-12. `validate_publication` reports equal-scope and incomparable conflicts with their resolution, and
+15. `validate_publication` reports equal-scope and incomparable conflicts with their resolution, and
     marks which findings need an acknowledgement; shuffle-invariant and sorted.
-13. `simulate` returns exactly `evaluate` per request, in order, with the same length.
-14. All 22 tests of `04` §7.7 exist under their exact names, in that order, plus the extra coverage of
+16. `simulate` returns exactly `evaluate` per request, in order, with the same length.
+17. All 22 tests of `04` §7.7 exist under their exact names, in that order, plus the extra coverage of
     §12.2; every property test is a real `proptest` property over permutations or generated inputs.
-15. `cargo fmt --all`, `cargo clippy -p domovoi-engine --all-targets -- -D warnings`,
+18. `cargo fmt --all`, `cargo clippy -p domovoi-engine --all-targets -- -D warnings`,
     `cargo nextest run -p domovoi-engine` and `cargo xtask arch-check` pass. No other crate is
     edited.
-16. Every public item has a doc comment stating what it is for; every file is at or below 500 lines.
-17. No dependency, no migration, no wire type, no endpoint, no config key, no OpenAPI document and no
+19. Every public item has a doc comment stating what it is for; every file is at or below 500 lines.
+20. No dependency, no migration, no wire type, no endpoint, no config key, no OpenAPI document and no
     `ARCHITECTURE.md` line changed.
 
 ## 14. Documentation requirements

@@ -124,10 +124,10 @@ dependency forcing an order (§1): it is not permission to run them at the same 
 | 57 | `configurable-retention` | F4 | D-21 retention config and pruning for existing data | 08 | 17, 18, 19 | retention config | — | S |
 | 20 | `agent-action-journal` | M1 | **protocol 1.1 → 1.2** (complete v1 wire, incl. `hello.skills[].entry_script_digest`), agent journal, `action_status`, mutation limiter | 13, 14, 15, 16, 17, 18, 19 | - (21 depends on it) | wire 1.2, `ScriptDigest` | - | L |
 | 21 | `outcome-unknown-reconcile` | M1 | OutcomeUnknown, reconcile on hello | 14, 20 | — | — | — | M |
-| 22 | `plan-hash-v2-and-authorization` | M1 | plan hash v2 (manifest hash + the 1.2 entry-script digest), approval binding columns, `Authorization` wrapper, `PolicyPermit` with a restricted `issue`, CI enforcement | 18, 20, 21 | - | ExecutionId, Authorization | - | L |
+| 22 | `plan-hash-v2-and-authorization` | M1 | plan hash v2 (manifest hash + the 1.2 entry-script digest, and the canonical target incl. the enrolled key fingerprint), approval binding columns, `Authorization` wrapper, `PolicyPermit` with a restricted `issue`, CI enforcement | 18, 20, 21 | - | ExecutionId, Authorization, KeyFingerprint | - | L |
 | 23 | `single-execution-boundary` | M1 | one execute path, one read boundary, arch rules; keeps the v2 approval hash and the v1 `run_skill` local check apart | 22 | - | - | - | M |
 | 24 | `capability-contracts` | M2 | contract types, built-ins, skill adapter + floor | 23 | 53–56 | contract types | — | M |
-| 25 | `capability-registry` | M2 | availability, catalogue, replace PolicyLink, target identity, inventory UI | 23, 24 | 39 | registry | — | L |
+| 25 | `capability-registry` | M2 | availability (per `ExecutionPath`), agent catalogue + `hello.skills` consistency, replace `PolicyLink`, target identity incl. the enrolled key fingerprint, inventory UI | 23, 24 | 39 | registry | — | L |
 | 26 | `operation-aggregate` | M3 | operations/steps/edges/executions, writer, decide, effect runner, simulator, trace schema | 23, 25 | 39 | Operation model, trace schema | — | L |
 | 27 | `investigate-operation` | M3 | triage as Investigate operation (flag), parity suite, legacy projection, step approvals | 26 | 28, 29 | — | — | L |
 | 28 | `journal-sse` | M3 | SSE ids/replay/reset, `as_of_seq`, `incident_events` copy | 26 | 27, 29 | SSE contract | — | M |
@@ -140,7 +140,7 @@ dependency forcing an order (§1): it is not permission to run them at the same 
 | 35 | `experience-search` | M5 | resolution summary fields, FTS, `search_experience`, similar operations | 27, 31, 34 | 32 | — | — | M |
 | 36 | `operator-conversations` | M6 | conversation aggregate, streaming, panel + workspace | 28 | 31, 32, 34 | — | — | M |
 | 37 | `visibility-profiles` | U3 | visibility categories, profiles, preferences endpoint | 30 | 31–36 | visibility categories | — | M |
-| 39 | `policy-evaluator` | M7 | pure evaluator incl. locked Deny, hard limits, publication helpers | 24 | 26–37 | evaluator API | — | L |
+| 39 | `policy-evaluator` | M7 | pure evaluator incl. locked Deny, hard limits, publication helpers | 24 | 26–37 | evaluator API | **O-31 answered (policy `TimeWindow` timezone)** | L |
 | 40 | `policy-shadow` | M7 | policy versions, shadow decisions, simulator, publication report, step-up | 27, 39 | 35, 36 | — | — | M |
 | 41 | `packages-agent` | P1 | agent package verification/install/uninstall over `transfer_*` | 20, 25 | 26–40 | — | — | L |
 | 42 | `packages-hub` | P1 | index, owner import, store, relay, jobs, audit | 41 | 26–40 | — | — | M |
@@ -283,7 +283,7 @@ row as pending or as still to be implemented.
 | 23 | `23-single-execution-boundary.md` | waiting: 22; adds no migration |
 | 24 | `24-capability-contracts.md` | waiting: 23 to merge; the dependency is ordering only and adds no migration |
 | 25 | `25-capability-registry.md` | waiting: 23 and 24; consumes 20's 1.2 catalogue wire and `hello.catalog_hash`, owns `Availability`, replaces `PolicyLink`, adds no migration |
-| 39 | `39-policy-evaluator.md` | waiting: 24 only; the pure evaluator, its publication helpers and its simulator, with no migration and no wire change |
+| 39 | `39-policy-evaluator.md` | waiting: 24, **and `O-31` answered** (the `TimeWindow` timezone decision); the pure evaluator, its publication helpers and its simulator, with no migration and no wire change |
 
 ### 6.2 Unwritten implementation prompts (23)
 

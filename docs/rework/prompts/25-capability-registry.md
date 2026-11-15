@@ -27,8 +27,10 @@ The registry is the single place where five kinds of fact are combined:
    fields (`skill_runner_status`, `helper_status`, `runs_as_root`, `ceiling_summary`).
 4. **Hub enablement** — the existing `host.<name>.skills` setting, unchanged, now read by the registry
    instead of by a link wrapper, and the new raise-only skill floor `host.<name>.floors`.
-5. **Target identity** — resolving a target *name* (`plex`) to the canonical identity a plan binds
-   (`container:{host}/{full container id}`), per RW-34.
+5. **Target identity** - resolving a target *name* (`plex`) to the canonical identity a plan binds
+   (`host:{host_id}/{fingerprint}` for a host, `container:{host_id}/{fingerprint}/{container_id}` for a
+   container), per RW-34. The enrolled agent key fingerprint is part of the identity, not a side field, so
+   a re-enrolment invalidates a bound plan.
 
 After this prompt the hub can answer `availability(host, contract)` for every contract in the index,
 enforce hub enablement at the one execution boundary and the one read boundary rather than in a wrapper,
@@ -46,7 +48,11 @@ fact, computed from the agent's own report plus hub state, never accepted ready-
 **RW-34 — stable target identity.** Policy rules name targets by name; permits and plan hashes bind a
 canonical identity. This prompt owns the resolver that maps one to the other, the container-name grammar
 check that must happen *before* resolution (`[a-zA-Z0-9][a-zA-Z0-9_.-]+`), and the rule that a rename
-keeps identity while a recreate (new container id) changes it.
+keeps identity while a recreate (new container id) changes it. RW-34's host row is `HostId` **plus the
+enrolled agent key fingerprint**, and this prompt therefore puts that fingerprint inside every canonical
+identity it produces — a host identity is `host:{host_id}/{fingerprint}`, and a container identity embeds
+the same host identity before the container id. Prompt 22 hashes that value into `plan:v2`, so
+re-enrolment invalidates a bound plan.
 
 **RW-39 — three identities (D-24, D-29).** The control agent, the isolated skill runner and the root
 helper do not exist as separate identities yet (`H1`, prompt 47). Their 1.2 status fields are reported
@@ -184,7 +190,7 @@ No new crate, no new protocol message, no migration, no new table.
 |---|---|
 | `crates/domovoi-core/src/capability/availability.rs` | **(new)** `Availability`, `NotAllowedOnHost`, `UnavailableReason`, `AvailabilityEntry`, `code()`, `describe()` |
 | `crates/domovoi-core/src/capability/catalog.rs` | **(new)** `CatalogueState`, `CatalogueGap`, `CatalogSnapshot`, `CatalogImplementation`, `CatalogQuery`, `CatalogPageData` |
-| `crates/domovoi-core/src/capability/target.rs` | **(new)** `ContainerId`, `TargetQuery`, `ResolvedTarget`, `TargetError`, `TargetUnresolved`, `validate_container_name` |
+| `crates/domovoi-core/src/capability/target.rs` | **(new)** `ContainerId`, `TargetQuery`, `ResolvedTarget`, `TargetError`, `TargetUnresolved`, `validate_container_name`, `canonical_host_identity` |
 | `crates/domovoi-core/src/capability/mod.rs` | add the three modules and their re-exports; keep prompt 24's items untouched |
 | `crates/domovoi-core/src/capability/tests.rs` | add the unit tests of section 12 (new file if 24's file is already near 500 lines; otherwise a sibling `tests_registry.rs`) |
 | `crates/domovoi-core/src/ports/capability.rs` | **(new)** the `CapabilityRegistry` port (read-only, section 6.2) |
@@ -233,19 +239,19 @@ Nothing else in `domovoi-core` changes. In particular `ReadTool`, `ReadToolCall`
 | `crates/domovoi-engine/src/triage/followup.rs` | `:174` likewise |
 | `crates/domovoi-engine/src/triage/chat.rs` | `:170` likewise |
 | `crates/domovoi-engine/src/lib.rs` or the deps structs | carry `Arc<dyn CapabilityRegistry>` into the action and triage dependencies |
-| `crates/domovoi-engine/src/targets/mod.rs` | **(new)** `TargetService`, the `TargetResolver` port's implementation: grammar, `docker_ps`/`docker_inspect` through `collect_evidence`, host identity, unit refusal (section 6.3) |
+| `crates/domovoi-engine/src/targets/mod.rs` | **(new)** `TargetService`, the `TargetResolver` port's implementation: grammar, `docker_ps`/`docker_inspect` through `collect_evidence`, host identity from `HostRepo::live_agent` plus `canonical_host_identity`, unit refusal (section 6.3) |
 
 ### 4.4 `domovoi-agent` and `domovoi-testkit` — the catalogue the page walk reads
 
 The registry can only be complete if some agent answers `get_catalog` and announces
 `hello.catalog_hash`. Prompt 20 froze both on the 1.2 wire and assigned `catalog_hash` to this prompt
-(`20:142`); an agent that never answers would leave every agent-executed contract
+(`20:142`); an agent that never answers would leave every `ExecutionPath::Agent` contract
 `Unavailable(CatalogueIncomplete)` for ever. This prompt therefore owns the agent's side of that contract.
 It adds **no new message and no version change**: only the handler for the message 1.2 already defines.
 
 | File | Change |
 |---|---|
-| `crates/domovoi-agent/src/requests/catalog.rs` | **(new)** `catalog_entries()` over the loaded skill catalogue and `ReadTool::ALL`, and `page(entries, query)` |
+| `crates/domovoi-agent/src/requests/catalog.rs` | **(new)** `catalog_entries()` over prompt 24's `builtin_contracts()` filtered to `ExecutionPath::Agent`, plus the loaded skills, and `page(entries, query)` |
 | `crates/domovoi-agent/src/requests/mod.rs` | dispatch `Message::GetCatalog` to the handler; answer `catalog_page`; an unknown page shape is `invalid` |
 | `crates/domovoi-agent/src/link/handshake.rs` | build `hello.catalog_hash` from the same entry list, so the announced hash and the pages can never disagree |
 | `crates/domovoi-core/src/capability/catalog.rs` | the pure `catalog_hash(&BTreeMap<ContractId, ContractVersion>) -> String` used by the agent (and by a hub test to check a page set) |
@@ -256,9 +262,16 @@ It adds **no new message and no version change**: only the handler for the messa
 
 Rules for the agent side, all in section 6.4.1:
 
-- The entry list is exactly: every `ReadTool` for which prompt 24's `contract_id_of` returns `Some`
-  (the ten non-skill tools), plus `ContractId::skill(name)` version 1 for every skill the loaded
-  catalogue reports in `summaries()`. Nothing else. A tool without a contract id is not listed.
+- **The built-in half is derived, never listed.** Take prompt 24's `builtin_contracts()` and keep only the
+  entries whose `execution == ExecutionPath::Agent`. That is exactly **eight** contracts — `container.list`,
+  `container.logs`, `container.inspect`, `container.events`, `host.overview`, `system.journal`,
+  `network.listening_ports` and `disk.smart_report` — because `incident.history` and `notes.search` are
+  `ExecutionPath::Hub`, answered inside the hub from its own store, and `RunReadSkill` is a dispatch entry
+  point with no contract at all. Do **not** write an eight-id constant, a `ReadTool` match or a hand-kept
+  list: the filter over `builtin_contracts()` is the only definition, so a change to 24's table changes the
+  catalogue automatically.
+- The skill half is `ContractId::skill(name)` version 1 for every skill the loaded catalogue reports in
+  `summaries()`, and nothing else.
 - Entries are sorted by contract id and paged by index, so two calls with the same `(page, page_size)`
   always return the same slice and `next_page` is `None` on the last page.
 - `catalog_hash` is `SHA-256` over the canonical text of that sorted list (section 6.4.1), lower-case
@@ -394,6 +407,8 @@ pub enum UnavailableReason {
     CatalogueHashMismatch,
     /// The catalogue belongs to a hash the agent no longer announces.
     CatalogueStale,
+    /// A complete catalogue and `hello.skills` do not name the same skill set (section 6.4.2).
+    CatalogueInconsistent,
     /// A container-targeted contract on a host whose agent reports no usable container runtime.
     ContainerRuntimeUnavailable,
 }
@@ -418,7 +433,7 @@ impl Availability {
 | Variant | Means | Produced from |
 |---|---|---|
 | `Available` | The hub would offer it here | everything below says nothing is missing |
-| `NotInstalled` | The agent does not implement it | a **complete** catalogue missing the id, or `hello.skills` missing a `skill.<name>` |
+| `NotInstalled` | the host does not implement it | **`ExecutionPath::Agent` only**: the id is absent from a **complete** catalogue. Never for `Hub`, `SkillRunner` or `Helper` contracts |
 | `DisabledByHub` | the owner switched it off in the hub | `host.<name>.skills` containing the skill, for `skill.*` only |
 | `NotAllowedOnHost` | the host's own rules refuse it | `ceiling_summary` (non-`Read` only); `AllowRisk` is defined but not produced in M2 |
 | `Unavailable` | it is here but cannot run now | runner/helper status, catalogue state, container runtime |
@@ -427,7 +442,8 @@ impl Availability {
 | `HostIncompatible` | wrong protocol | `HostAvailability::Incompatible` |
 
 **Precedence table** — evaluate top to bottom, first match wins. This order is fixed; a later prompt may
-add inputs but may not reorder the rows.
+add inputs but may not reorder the rows. It is applied **per contract**, and the row that applies depends on
+that contract's `ExecutionPath` (prompt 24):
 
 | # | Condition | Result |
 |---|---|---|
@@ -435,14 +451,31 @@ add inputs but may not reorder the rows.
 | 2 | `link.availability(host)` is `Absent { since }` | `HostAbsent { since }` |
 | 3 | `link.availability(host)` is `Incompatible { reported }` | `HostIncompatible { reported }` |
 | 4 | `contract.id.is_skill()` and `enablement.is_disabled(host, skill)` | `DisabledByHub` |
-| 5 | the catalogue state for `host` is not `Complete` and the contract is agent-executed (see 6.4) | `Unavailable(CatalogueIncomplete)` or `Unavailable(CatalogueHashMismatch)` or `Unavailable(CatalogueStale)`, for the gap |
-| 6 | the contract is not in this host's implementation list (complete catalogue, or `hello.skills` for skills) | `NotInstalled` |
-| 7 | `contract.effect != EffectClass::Read` and the ceiling is absent, disabled or has no entry for the contract | `NotAllowedOnHost(CeilingAbsent)` / `NotAllowedOnHost(CeilingEntryMissing)` |
-| 8 | a runner/helper/container-runtime input of section 6.8 refuses it | `Unavailable(reason)` |
-| 9 | otherwise | `Available` |
+| 5 | `ExecutionPath::Agent` and the catalogue for `host` is not `Complete` | `Unavailable(CatalogueIncomplete \| CatalogueHashMismatch \| CatalogueStale)` for the gap |
+| 6 | `ExecutionPath::Agent` and a `Complete` catalogue does not name the id | `NotInstalled` |
+| 7 | `ExecutionPath::Hub` | implementation comes from the hub's own registry; no catalogue input is consulted. Continue at row 11 |
+| 8 | `ExecutionPath::SkillRunner` and `hello.skills` has no summary for the skill | `NotInstalled` |
+| 9 | `ExecutionPath::SkillRunner`, a `Complete` catalogue and `hello.skills` disagree (6.4.2 rules 3 and 5) | `Unavailable(CatalogueInconsistent)` |
+| 10 | `ExecutionPath::Helper` and the helper advertises no operation for the contract (no M2 contract is `Helper`) | `Unavailable(HelperMissing)` |
+| 11 | `contract.effect != EffectClass::Read` and the ceiling is absent, disabled or has no entry for the contract | `NotAllowedOnHost(CeilingAbsent)` / `NotAllowedOnHost(CeilingEntryMissing)` |
+| 12 | a runner/helper/container-runtime input of section 6.8 refuses it | `Unavailable(reason)` |
+| 13 | otherwise | `Available` |
 
-Note on rows 5 and 6: row 5 precedes row 6 deliberately. An incomplete catalogue can never prove
-`NotInstalled`, and a partial catalogue is never `Available`.
+Notes on the table:
+
+- Row 5 precedes row 6 deliberately: an incomplete catalogue can never prove `NotInstalled`, and a partial
+  catalogue is never `Available`.
+- Rows 5–6 apply to **`ExecutionPath::Agent` only**. A `Hub` contract (`incident.history`, `notes.search`)
+  never depends on the agent catalogue: its implementation is the hub's own code, so a partial or failed
+  walk cannot make it unavailable, and it is never `NotInstalled`.
+- Rows 8–9 are the skill family. `hello.skills` is authoritative for the description (6.4.2); the catalogue
+  echo is an integrity check, so a complete catalogue that disagrees with hello makes the skill
+  `Unavailable(CatalogueInconsistent)` rather than `Available`.
+- Row 10 exists so the `Helper` path has an answer without this prompt introducing a helper operation. No
+  contract in prompt 24's index is `Helper`, so in M2 it is unreachable; do not create one to exercise it.
+- A missing `hello.skills` summary is **not** a licence to build a contract from an id: see 6.4.2 rule 2.
+- Never report a `Hub` contract as "installed on the agent", and never report an `Agent` contract as
+  available from a partial catalogue.
 
 **Which states the boundaries refuse on.** Only these, and only here:
 
@@ -478,6 +511,9 @@ pub struct AvailabilityEntry {
     pub catalogue: CatalogueState,
     /// `hello.runs_as_root`: a label, never a refusal (section 6.8).
     pub root_agent: bool,
+    /// `hello.skill_runner_status == Ok { .. }`: the isolated runner exists. Independent of `execution`,
+    /// which is only the path the contract is designed for (section 6.8).
+    pub runner_installed: bool,
     /// True when the implementation came from `hello.skills[]` rather than a catalogue page.
     pub from_hello_skills: bool,
 }
@@ -616,13 +652,17 @@ pub enum TargetQuery {
 /// The identity a plan binds, plus what the caller needs to display and explain it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedTarget {
+    /// The complete canonical identity. `host:{host_id}/{fingerprint}` or
+    /// `container:{host_id}/{fingerprint}/{container_id}`: the enrolled key is **inside** the string,
+    /// because a plan hash binds this value and a re-enrolment must change it (RW-34).
     pub identity: TargetIdentity,
-    /// The name the owner typed or the agent reported. Display only.
+    /// The name the owner typed or the agent reported. Display only, never bound.
     pub name: TargetName,
     pub kind: TargetKind,
-    /// The enrolled agent key's fingerprint, lowercase hex, computed by the hub from the enrolled
-    /// public key. Never sent by the agent. `None` when the host has no enrolled agent.
-    pub host_key_fingerprint: Option<String>,
+    /// The same fingerprint that appears in `identity`, as a typed value for display and comparison.
+    /// Computed by the hub from its enrolled record (`HostRepo::live_agent` → `public_key`), never sent
+    /// by an agent, and never read from the caller's own copy of an older resolution.
+    pub host_key: KeyFingerprint,
 }
 
 pub enum TargetError {
@@ -640,26 +680,54 @@ pub enum TargetUnresolved {
     ContainerVanished,
     /// The inspect document carried no full id: identity is not provable, so nothing is bound.
     ContainerIdentityUnproven,
+    /// The host has no usable enrolled agent key, so it has no canonical identity (section 6.3.1).
+    HostIdentityUnproven,
     /// **R-8 is open.** Always returned for units in this milestone (section 6.3.3).
     UnitIdentityUnproven,
 }
 
 /// RW-34's container-name grammar, anchored: `[a-zA-Z0-9][a-zA-Z0-9_.-]+`, full match.
 pub fn validate_container_name(text: &str) -> Result<TargetName, ValidationError>;
+
+/// The canonical host identity text **both this prompt and prompt 22 use**:
+/// `host:{host_id}/{fingerprint}`. It parses prompt 22's `domovoi_core::host::host_target_text` into the
+/// validated `TargetIdentity`, so a plan hash and a registry resolution cannot disagree about the format.
+pub fn canonical_host_identity(host: HostId, key: &KeyFingerprint) -> TargetIdentity;
 ```
+
+`KeyFingerprint` and `host_target_text(host, key) -> String` are **prompt 22's types**
+(`domovoi_core::host`). Import them; do not define a second fingerprint type, a second formatter, a
+`String` alias or a host-key newtype here. Prompt 22 lands before this prompt, so both exist when this one
+is implemented.
 
 #### 6.3.1 Host
 
-Identity is `TargetIdentity` `host:{HostId}` — the existing `HostId`, not a new type. The enrolled agent
-key fingerprint is returned alongside (`host_key_fingerprint`) so a plan-hash binding has both halves of
-RW-34's row without a second host identity model. The fingerprint is SHA-256 over the enrolled public key's
-32 raw bytes, lowercase hex, computed in the hub (`capability/targets.rs`), never accepted from an agent.
-Re-enrolment therefore changes the fingerprint and invalidates a bound plan; that invalidation is applied
-by prompt 22's plan hash and prompt 26's reconciliation, not here — this prompt only reports both values.
+Identity is `host:{HostId}/{fingerprint}` — the existing `HostId`, not a new type, plus the SHA-256 of the
+host's enrolled ed25519 public key (`03 RW-34`, "host | `HostId` + enrolled agent key fingerprint"). This is
+the value prompt 22 hashes into `plan:v2`; both documents build the text with prompt 22's
+`domovoi_core::host::host_target_text`, and `canonical_host_identity` only parses that text into a
+`TargetIdentity`, so the registry's identity and the plan hash's target text are one format, not two that
+happen to look alike.
 
-`TargetQuery::Host` cannot fail while the host exists in the store; a host whose agent is `HostUnknown` is
-still resolvable (the identity does not depend on a session), and `HostUnavailable` is only returned for
-container and unit queries.
+1. **Read the enrolment, not a session.** `HostRepo::live_agent(host)` returns the host's one non-revoked
+   `AgentIdentity`; take `public_key` and compute `KeyFingerprint::of_public_key`. A **disconnected** host
+   still resolves: `live_agent` is the enrolment record, and identity does not need a live connection.
+2. **No usable key, no identity.** `None` (never enrolled, revoked, or no record) means the host cannot be
+   bound: `TargetError::Unresolved { reason: HostIdentityUnproven }`. Do not return `host:{id}` alone, a
+   zero fingerprint, an empty string or an `Option` inside the identity.
+3. **Re-enrolment changes it.** A new `AgentIdentity` has a new `public_key`, so the fingerprint and the
+   identity change, and prompt 22's dispatch guard refuses the old approval. That invalidation is applied by
+   22's plan hash and 26's reconciliation; this prompt produces the value and nothing else.
+4. **Container identities embed it.** A container target's identity contains the same
+   `host:{id}/{fingerprint}` text (section 6.3.2), so re-enrolling a host also invalidates a
+   container-targeted approval. A container identity that carried only `HostId` would survive re-enrolment
+   and violate RW-34.
+5. **Never accept a fingerprint from outside.** It is computed here from the enrolled record. An agent, a
+   DTO, an incident or a caller-supplied string is not a source of this value.
+
+`TargetQuery::Host` therefore fails only when the enrolment is missing (`HostIdentityUnproven`), not when
+the agent is offline; `HostUnavailable` remains for container and unit queries, which need a session to
+read inventory.
 
 #### 6.3.2 Container
 
@@ -669,7 +737,10 @@ container and unit queries.
    two characters, so a one-character name is refused; do not "fix" that here.
 2. Names come from `inventory::parse_ps` over the `docker_ps` result; ids from
    `inventory::parse_inspect_id` over one `docker_inspect` result per candidate name.
-3. Exactly one match → `identity = container:{host_id}/{full id}`, `name` keeps what the caller typed.
+3. Exactly one match →
+   `identity = container:{host_id}/{fingerprint}/{full id}` — that is RW-34's
+   `container:{host}/{container_id}` with `{host}` expanded to the canonical host identity of 6.3.1, so the
+   enrolled key is bound here too. `name` keeps what the caller typed.
 4. No match, or an inspect document with no valid full id → `Unresolved(ContainerVanished |
    ContainerIdentityUnproven)`. Never fall back to the name, never bind a short id.
 5. More than one match → `Ambiguous`. Never pick one.
@@ -679,6 +750,8 @@ container and unit queries.
    `EvidenceScope::Host(host)`), never through `AgentLink::run_tool` directly.
 8. No caching at M2: a resolution is one `docker_ps` plus one `docker_inspect` per candidate, on demand,
    and nothing is refreshed on a timer. (A cache is prompt 45's problem, with its own freshness rule.)
+9. The resulting string is within `TargetIdentity`'s 310-character limit: `container:` + 36 (UUID) + 1 + 64
+   (fingerprint) + 1 + 64 (container id) = 175 characters. Assert that in a test rather than assuming it.
 
 #### 6.3.3 Unit — deliberately unresolved
 
@@ -790,25 +863,22 @@ pub struct CatalogSnapshot {
 ```
 
 **How `hello.skills` reconciles with `get_catalog`.** They answer different halves of one question and
-must not be merged into one list:
+must not be merged into one list. Section 6.4.2 is the authoritative rule set; this is the short form:
 
 | Source | Authoritative for | Fields it supplies |
 |---|---|---|
-| `hello.skills[]` | the `skill.<name>` family: which skills exist and how to build their contract | `SkillSummary` (name, description, `risk`, params, timeout, `manifest_hash`, `entry_script_digest`) |
-| `get_catalog` pages | non-skill implementations plus descriptors: which non-skill contract ids the agent implements | id + version (descriptor ignored) |
+| `hello.skills[]` | the `skill.<name>` family: the full description, and how to build the contract | `SkillSummary` (name, description, `risk`, params, timeout, `manifest_hash`, `entry_script_digest`) |
+| `get_catalog` pages | which implementation ids the agent has, and their versions | id + version (descriptor ignored) |
 
 Rules:
 
-1. A `skill.<name>` contract is `NotInstalled` when `hello.skills` has no such name, **unless** a complete
-   catalogue names it; the catalogue wins only for ids outside the `skill.` family, because the hub builds
-   a skill's contract from `SkillSummary` and cannot build one from an id alone.
-2. A catalogue page that names a `skill.<name>` id is recorded as an unknown/diagnostic entry, not as an
-   implementation: it carries no summary, so the hub cannot describe the skill and must not offer it.
+1. A `skill.<name>` contract is built **only** from the matching `hello.skills` summary; a catalogue entry
+   is an integrity echo and never a definition.
+2. A catalogue entry for `skill.<name>` with no hello summary is recorded in `unknown` and is never offered.
 3. A non-skill contract id that the hub's `ContractIndex` does not contain goes into `unknown` and into the
    diagnostic list. It never creates a contract, never appears as a row, and never becomes `Available`.
-4. Section 6.1 row 5 (catalogue incomplete) applies only to **agent-executed** contracts. Hub-executed
-   contracts (`ExecutionPath::Hub`: `incident.history`, `notes.search`) are answered from the hub's own
-   store and are never gated on the catalogue; skill contracts are gated on `hello.skills`, not on pages.
+4. Section 6.1's table is per `ExecutionPath`: rows 5–6 gate `Agent` contracts on the catalogue, rows 8–9
+   gate skills on `hello.skills` and its echo, and a `Hub` contract never consults the catalogue at all.
 
 #### 6.4.1 The agent side of the catalogue
 
@@ -818,8 +888,9 @@ agent's half. It is not a new message: `get_catalog`, `catalog_page`, `CatalogEn
 
 ```rust
 // crates/domovoi-agent/src/requests/catalog.rs (new)
-/// Every implementation this agent offers: the ten contract-bearing read tools, then every skill
-/// the loaded catalogue reports. Sorted by id; version 1 for skills.
+/// Every implementation this agent offers: the built-in contracts prompt 24 marks
+/// `ExecutionPath::Agent`, then every skill the loaded catalogue reports. Sorted by id;
+/// version 1 for skills.
 pub fn catalog_entries(catalog: &SkillCatalog) -> BTreeMap<ContractId, ContractVersion>;
 
 /// One page of `entries`, or `None` when `page` is past the end.
@@ -829,32 +900,77 @@ pub fn page(entries: &BTreeMap<ContractId, ContractVersion>, query: &GetCatalog)
     -> CatalogPage;
 ```
 
-1. **Which ids.** `ReadTool::ALL` filtered through prompt 24's `contract_id_of` (so `RunReadSkill` is
-   absent and the ten built-ins are present), union `ContractId::skill(&summary.name)` version 1 for
-   every entry of `SkillCatalog::summaries()`. Do not invent an id, do not enumerate a contract the hub
-   does not compile, and do not list a skill that failed a load check.
-2. **Paging.** `CatalogPage { entries, next_page }` over the sorted vector: `start = page * page_size`,
+1. **Which built-in ids.** `domovoi_core::capability::builtin::builtin_contracts()`, filtered to
+   `execution == ExecutionPath::Agent`, projected to `(id, version)`. Eight contracts result (section 4.4
+   lists them). `incident.history` and `notes.search` are `Hub` and must not appear; `RunReadSkill` has no
+   contract and is not in `builtin_contracts()` at all. A hand-written id list, a `ReadTool` match or a
+   count constant is a defect even if it happens to be right today.
+2. **Which skill ids.** `ContractId::skill(&summary.name)` version 1 for every entry of
+   `SkillCatalog::summaries()`. Do not list a skill that failed a load check, and do not attempt to carry
+   any skill metadata here: `hello.skills` owns it (section 6.4.2).
+3. **Paging.** `CatalogPage { entries, next_page }` over the sorted vector: `start = page * page_size`,
    the slice `start..min(start + page_size, len)`, and `next_page = Some(page + 1)` only when more
    entries remain. A `page` past the end returns an empty `entries` and `next_page: None` — that is not
    an error, and the hub treats it as the end of the walk. The handler never reorders between pages: it
    rebuilds the same sorted list on every call, so a concurrent skill reload can only produce a hash
    mismatch, never a silently different set.
-3. **Descriptor.** `serde_json::json!({})` for every entry. The hub ignores the field
+4. **Descriptor.** `serde_json::json!({})` for every entry. The hub ignores the field
    (`CatalogEntry.descriptor`, section 6.4), and filling it would be an agent describing its own
    authority.
-4. **`hello.catalog_hash`.** `ring`/`sha2` over the canonical text
+5. **`hello.catalog_hash`.** `ring`/`sha2` over the canonical text
    `for (id, version) in entries: format!("{id}\t{version}\n")` in the `BTreeMap`'s order, lower-case
    hex, 64 characters, carried through prompt 20's `Sha256Bytes`. Build the entry list **once** in the
    handshake and once per `get_catalog` call from the same live catalogue, and compute the hash from
    the identical list each time. Compute it in `domovoi-core` (`catalog_hash`) so the agent and a hub
-   test cannot disagree about the encoding.
-5. **Failure.** A catalogue that cannot be read (the same error paths `summaries()` already has) is not
+   test cannot disagree about the encoding. The hashed list includes the `skill.<name>` echoes, so a skill
+   appearing or disappearing changes the hash.
+6. **Failure.** A catalogue that cannot be read (the same error paths `summaries()` already has) is not
    served as a short list: the handler answers the request with `Message::Error`, the page fails, and
    the hub marks the walk `Partial`. Never serve a partial list under the full hash.
-6. **Compatibility.** The agent's `hello.catalog_hash` is `None` only when no contract exists at all,
-   which cannot happen: the ten built-ins are compiled in. A 1.2 agent built before this prompt answers
-   `unsupported` and is reported as `Partial(unsupported)`; that is the backward case section 9
-   describes, and it resolves when the agent is upgraded, not by the hub guessing.
+7. **Compatibility.** The agent's `hello.catalog_hash` is `None` only when no contract exists at all,
+   which cannot happen: the eight agent-path built-ins are compiled in. A 1.2 agent built before this
+   prompt answers `unsupported` and is reported as `Partial(unsupported)`; that is the backward case
+   section 9 describes, and it resolves when the agent is upgraded, not by the hub guessing.
+
+#### 6.4.2 `hello.skills` and the catalogue: one implementation set, two sources
+
+The two sources answer different questions and neither may stand in for the other:
+
+| Source | Authoritative for | Supplies | Never supplies |
+|---|---|---|---|
+| `hello.skills[]` | the full description of a loaded skill | name, `manifest_hash`, `entry_script_digest`, params, declared `risk`, description, timeout, verify | an implementation list for non-skill ids |
+| `get_catalog` pages | which implementation ids the agent has, and their versions | `(ContractId, ContractVersion)` pairs, plus the opaque descriptor the hub ignores | skill metadata, risk, params, authority |
+
+Rules, in the order the registry applies them:
+
+1. **A skill contract is always built from the hello summary.** `skill_contract(&summary, floor)` and
+   `effective_effect(declared, floor)` (prompt 24) are the only constructors; the catalogue contributes
+   nothing but the id/version echo.
+2. **A catalogue entry alone never creates a skill contract.** An entry for `skill.x` with no matching
+   `hello.skills[]` summary is recorded in `unknown` as a diagnostic and is never offered. The hub cannot
+   describe a skill it has no summary for, and must not invent one.
+3. **A hello skill missing from a complete catalogue is an inconsistency, not `NotInstalled`.** The agent
+   derives both lists from the same live `SkillCatalog`, so under a `Complete` snapshot they must agree.
+   When they do not, the affected skill is `Unavailable(CatalogueInconsistent)` — never `Available` and
+   never `NotInstalled`, because the hub cannot tell which source is stale.
+4. **A partial catalogue proves nothing about installation.** With `Partial`/`Stale`, an agent contract is
+   `Unavailable(CatalogueIncomplete)` or the specific gap; a missing entry is never read as `NotInstalled`,
+   and a present entry never makes an agent contract `Available`.
+5. **One set, both ways.** Under `Complete`, the catalogue's `skill.<name>` echoes and the hello summaries
+   must name exactly the same skill set; a hello skill with no echo and an echo with no hello summary are
+   both inconsistencies, and neither is reported `Available`.
+6. **The hash covers exactly what is served.** `hello.catalog_hash` is computed over the ID/version list
+   `get_catalog` pages through, skill echoes included (section 6.4.1 item 4). A walk that ends `Complete`
+   has therefore walked the same list the agent hashed.
+7. **`NotInstalled` is a complete-catalogue answer only.** It means "this host's complete implementation
+   list does not contain a hub-known contract this host would otherwise run".
+8. **Nothing here changes the wire.** 1.2 carries the same fields it always did; these are the hub's
+   consistency rules for interpreting them (RW-42 does not state them, so this section is their narrow
+   home). Do not add a message, a field, an alias or a version.
+
+`UnavailableReason` therefore gains one variant, `CatalogueInconsistent`, with `reason_code`
+`catalogue_inconsistent` and the owner-facing sentence "the agent's skill list and its catalogue disagree".
+It is produced only by rules 3 and 5.
 
 ### 6.5 Skill floor persistence **fixed**
 
@@ -943,7 +1059,7 @@ pub fn covers(ceiling: &CeilingSummary, contract: &ContractId) -> bool;
 Rules:
 
 1. `None`, `""`, `null` → `Absent`. `[unattended].enabled = false` inside a valid summary is also
-   `Absent` for the purpose of section 6.1 row 7.
+   `Absent` for the purpose of section 6.1 row 11.
 2. Deserialisation goes through prompt 24's `CeilingSummary` (`Deserialize` is derived there). A parse
    error, an unknown contract id inside an entry, a target set that fails `TargetName`, or a negative
    rate is `Malformed`: the registry then reports `NotAllowedOnHost(CeilingAbsent)` for every non-`Read`
@@ -966,23 +1082,38 @@ Rules:
 
 | Wire input | Value | Effect on availability |
 |---|---|---|
-| `runs_as_root` | `true` (today's shipped unit) | **A label only** (`AvailabilityEntry.root_agent = true`). Skills stay `Available`. Never `Unavailable`, because that would claim the working labelled-root path is broken |
+| `runs_as_root` | `true` (today's shipped unit) | **A label only** (`AvailabilityEntry.root_agent = true`). Skills stay `Available` because the legacy agent process still executes them. Never `Unavailable`, because that would claim a working path is broken |
 | `runs_as_root` | `false` | No effect by itself; it only enables the runner rule below and it is the value prompt 45 uses for the root hard limit |
-| `skill_runner_status` | `Ok { .. }` | Skills keep whatever rule 6.1 reached; `Available` |
-| `skill_runner_status` | `Absent` **and** `runs_as_root == true` | Skills `Available`: the agent runs them itself, as it does today. Nothing is claimed about the runner |
+| `skill_runner_status` | `Ok { .. }` | Skills keep whatever the earlier rows reached; `Available`. The isolated runner is genuinely usable, and the DTO may say so |
+| `skill_runner_status` | `Absent` **and** `runs_as_root == true` | Skills `Available` **through the legacy agent process**. The isolated runner does not exist: `AvailabilityEntry.runner_installed = false` and no string, tooltip or DTO field may call the runner available |
 | `skill_runner_status` | `Absent` **and** `runs_as_root == false` | Skills `Unavailable(SkillRunnerMissing)`: an unprivileged agent with no runner has nowhere to run them |
 | `skill_runner_status` | `Unsupported { .. }` / `Error { .. }` **and** `runs_as_root == false` | `Unavailable(SkillRunnerUnsupported)` / `Unavailable(SkillRunnerError)` |
-| `skill_runner_status` | `Unsupported`/`Error` **and** `runs_as_root == true` | Skills stay `Available` with `root_agent = true`; the runner problem is a diagnostic sentence, because the root path still works |
-| `helper_status` | any value | No effect in M2: no contract in the index has `ExecutionPath::Helper`. When prompt 47 adds one, `Absent` → `Unavailable(HelperMissing)`, `Error` → `Unavailable(HelperError)`, `Ok { ops }` → available only for a contract whose id is in `ops` |
+| `skill_runner_status` | `Unsupported`/`Error` **and** `runs_as_root == true` | Skills stay `Available` through the legacy process, `runner_installed = false`; the runner problem is a separate diagnostic sentence, never a capability claim |
+| `helper_status` | any value | No effect in M2: no contract in the index has `ExecutionPath::Helper`. When prompt 47 adds one, `Absent` → `Unavailable(HelperMissing)` (section 6.1 row 10), `Error` → `Unavailable(HelperError)`, `Ok { ops }` → available only for a contract whose id is in `ops` |
 | `DockerReport.available` | `false` | Container-targeted contracts get `Unavailable(ContainerRuntimeUnavailable)`; container resolution returns `TargetError::HostUnavailable` |
 | `allow_risk` | never on the wire | `NotAllowedOnHost(AllowRisk)` is defined and **never produced in M2**; do not invent a wire field and do not guess from the manifest `risk` |
+
+**The execution path and the runner's existence are different facts.** `ExecutionPath::SkillRunner` says
+where a skill contract is *supposed* to execute; it is not evidence that the isolated runner has been
+installed, and M2 predates H1 entirely. So:
+
+- `AvailabilityEntry` carries the two separately: `execution` (the contract's declared path) and
+  `runner_installed: bool` (`skill_runner_status == Ok { .. }`). `root_agent` is a third, independent label.
+  The DTO exposes all three; the definition is not duplicated in the API layer.
+- A skill on a root-installed host is reported `Available` because it is currently executable through the
+  legacy agent process. The same row says `runner_installed = false`. The UI sentence is "runs through the
+  control agent today; the isolated skill runner is not installed" — never "skill runner: available".
+- An unprivileged agent with no usable runner is `Unavailable(SkillRunnerMissing |
+  SkillRunnerUnsupported | SkillRunnerError)`; that is a real refusal, not a label.
+- Do not implement the H1 runner, its socket, its selftest or its report. This prompt only reports what the
+  1.2 status field already says.
 
 Two paragraphs, because they are the places where a small model can get this wrong:
 
 - **Never claim helper or skill-runner operations work before H1.** No string in the UI, the API, the book
-  or a doc comment may say a privileged operation is "available", "ready" or "enabled" because a helper
-  status is `Ok`. In M2 a helper status changes nothing at all, and the inventory shows it as a diagnostic
-  fact about the agent, not as capability availability.
+  or a doc comment may say a privileged operation is "available", "ready" or "enabled" because a helper or
+  runner status is `Ok`-shaped. In M2 a helper status changes nothing at all, and the inventory shows it as
+  a diagnostic fact about the agent, not as capability availability.
 - **`runs_as_root` is not a refusal.** D-29 is not in effect; the shipped unit runs the agent as root
   (`03 RW-39`, FACT). Making it `Unavailable` would report every skill on every real host as broken, and
   04 §12 calls it "root-install labelling". The hard limit that actually uses it (unattended execution on a
@@ -1000,10 +1131,12 @@ Each step is small enough to finish and test on its own. Do not start a step who
    `UnavailableReason`, `AvailabilityEntry`, `code()`, `reason_code()`, `describe()`, `is_available()`.
    Unit tests for the codes and the `ALL` array.
 3. **Core types, part 2.** `capability/catalog.rs`: `CatalogQuery`, `CatalogPageData`,
-   `CatalogImplementation`, `CatalogueState`, `CatalogueGap`, `CatalogSnapshot`. Serde round-trip test.
+   `CatalogImplementation`, `CatalogueState`, `CatalogueGap`, `CatalogSnapshot`, `catalog_hash`.
+   Serde round-trip test.
 4. **Core types, part 3.** `capability/target.rs`: `ContainerId`, `TargetQuery`, `ResolvedTarget`,
-   `TargetError`, `TargetUnresolved`, `validate_container_name`, and the `ContainerId` grammars.
-   Unit tests for every accept and reject case.
+   `TargetError`, `TargetUnresolved`, `canonical_host_identity`, `validate_container_name`, and the
+   `ContainerId` grammars. Unit tests for every accept and reject case, including the identity length.
+   It imports prompt 22's `KeyFingerprint`; do not define a second one.
 5. **Core ports and the agent catalogue.** `ports/capability.rs` (`CapabilityRegistry`) and
    `ports/target.rs` (`TargetResolver`); re-export both from `ports/mod.rs`; add the `get_catalog`
    default method to `AgentLink`; add `catalog_hash` to `capability/catalog.rs`.
@@ -1027,9 +1160,9 @@ Each step is small enough to finish and test on its own. Do not start a step who
 13. **Engine: the boundaries.** `Evidence::new(link, registry)` and the enablement check inside
     `collect_evidence`; the enablement check in `execute`; the four `skills()` call sites through
     `enabled_skills`. Keep every existing error text.
-14. **Engine: targets.** `targets/mod.rs` (`TargetService`) over `Evidence`, with the grammar check first,
-    the container identity from the full id, and the unit refusal. Wire it in `runtime/mod.rs` after
-    `Evidence`.
+14. **Engine: targets.** `targets/mod.rs` (`TargetService`) over `Evidence` and `HostRepo`, with the grammar
+    check first, the host identity from `live_agent` → `KeyFingerprint` → `canonical_host_identity`, the
+    container identity embedding it, and the unit refusal. Wire it in `runtime/mod.rs` after `Evidence`.
 15. **API.** `api/capability.rs` (`list_capabilities`), `ApiDeps.capabilities`, `hosts.rs`'s `enabled`
     flag, `settings_write.rs`'s switch; `cargo xtask openapi` then `cd web && npm run gen:api`.
 16. **Web.** `useCapabilities`, the vocabulary row, the icon, nav/page/route, the read-only page and its
@@ -1074,9 +1207,9 @@ Each step is small enough to finish and test on its own. Do not start a step who
 - **An incompatible agent.** Same: `HostIncompatible { reported }`, and the inventory links to the upgrade
   advice (`04 §12`). Nothing is written by the registry for such a host, and no `get_catalog` is attempted.
 - **A 1.2 agent that does not answer `get_catalog`** (a build that predates this prompt): `unsupported`
-  or a timeout, catalogue `Partial`, agent-executed contracts `Unavailable(CatalogueIncomplete)`. Reads
-  keep working (section 6.1). This prompt ships the answering handler (§6.4.1), so the case disappears
-  when the agent is upgraded; do not add a hub-side fallback list.
+  or a timeout, catalogue `Partial`, `ExecutionPath::Agent` contracts `Unavailable(CatalogueIncomplete)`.
+  Reads keep working (section 6.1). This prompt ships the answering handler (§6.4.1), so the case
+  disappears when the agent is upgraded; do not add a hub-side fallback list.
 - **Missing-field rules are prompt 20's**, not this prompt's: `entry_script_digest` is required in 1.2 and a
   summary without it does not decode, so a skill summary that reaches this code always has one. Do not
   add tolerances here.
@@ -1094,26 +1227,33 @@ Each step is small enough to finish and test on its own. Do not start a step who
 | **No `Contain` from skills** | no code here constructs an effect class; a `contain` floor word is a validation error and is never stored | `floor_rejects_contain` |
 | **Disable enforced at the boundary** | `collect_evidence`, `execute` and `enabled_skills`; not only the inventory | `disabled_capability_refused_at_boundary`, `disabled_skill_hidden_from_enabled_skills` |
 | **Unknown contract ids ignored** | an id outside the index goes to `unknown`, is never a row and can never be `Available` | `unknown_contract_is_recorded_and_never_offered` |
-| **Failed or partial catalogue fails closed** | `NotInstalled` requires `Complete`; a partial snapshot can only produce `Unavailable`; a malformed page fails the whole walk | `partial_catalogue_is_never_available` |
+| **Failed or partial catalogue fails closed** | `NotInstalled` requires `Complete` and only for `ExecutionPath::Agent`; a partial snapshot can only produce `Unavailable`; a malformed page fails the whole walk | `partial_catalogue_is_never_available` |
+| **Hub-executed contracts are never agent-gated** | `incident.history` and `notes.search` are `ExecutionPath::Hub`: no catalogue input is consulted, so a failed walk cannot fabricate their presence or absence | `hub_executed_contracts_are_not_in_agent_catalogue`, `hub_executed_contracts_ignore_the_catalogue` |
+| **Skill authority comes only from `hello.skills`** | a contract is built by `skill_contract(&summary, floor)`; a catalogue-only skill id is diagnostic and never becomes a contract; a complete catalogue that disagrees with hello yields `CatalogueInconsistent`, not `Available` | `skill_catalogue_entry_without_hello_summary_is_diagnostic_only`, `hello_skill_missing_from_complete_catalogue_is_unavailable`, `matching_hello_skill_and_catalogue_echo_produces_skill_contract` |
+| **Host identity binds the enrolled key** | `canonical_host_identity` puts the hub-computed `KeyFingerprint` inside the `TargetIdentity`; container identities embed it; nothing accepts a fingerprint from a caller, an agent or a stored DTO | `host_target_identity_includes_enrolled_key_fingerprint`, `host_reenrollment_changes_target_identity`, `container_target_identity_changes_on_host_reenrollment` |
 | **No secrets** | nothing here touches a secret; the ceiling summary and status fields are not secrets; the redactor is not bypassed because no text is rendered from agent input except ids and names, which are validated | `capability_dto_contains_no_secret_source` |
 | **Nothing can approve or execute** | no `HumanApproval`, `Authorization`, `PolicyPermit`, `expected_safety` or `Contain` construction; the only agent calls are `get_catalog` and the two reads inside `collect_evidence` | `capability_module_constructs_no_authority` (source gate) |
 | **No container write path (D-24)** | resolution reads `docker_ps` and `docker_inspect` only; nothing calls a mutating Docker operation | gate: no new `run_skill`/`run_tool` call site outside the boundaries |
 | **Container name grammar before resolution** | `validate_container_name` runs first and is anchored | `container_name_grammar_enforced` |
 | **Identity changes are refused, not absorbed** | identity is the full id; a new id or a vanished name is `Unresolved`; nothing rewrites a bound identity | `target_identity_change_refused` |
 | **No optimistic unit identity** | units always `Unresolved(UnitIdentityUnproven)` while R-8 is open | `unit_identity_is_never_claimed` |
+| **Root and runner status are labels, not claims** | `execution`, `root_agent` and `runner_installed` are three separate fields; a root-installed host's skills stay `Available` through the legacy process while `runner_installed = false`, and no surface may call the isolated runner available | `root_agent_without_a_runner_keeps_skills_available`, `unprivileged_agent_without_a_runner_cannot_run_skills` |
 | **No second execution path** | the registry never dispatches; `AgentLink::run_skill` and `run_tool` keep their single call sites | `cargo xtask arch-check` plus prompt 23's gate |
 
 ## 11. Error and recovery behaviour
 
 | Situation | Behaviour |
 |---|---|
-| A catalogue page fails (`Timeout`, `Transport`, `Rejected`, malformed entry) | snapshot `Partial(PageFailed{page})`/`Partial(PageMalformed{page})`; the previous snapshot is discarded, not merged; agent-executed contracts `Unavailable(CatalogueIncomplete)`; one `tracing::warn!` with host and page |
+| A catalogue page fails (`Timeout`, `Transport`, `Rejected`, malformed entry) | snapshot `Partial(PageFailed{page})`/`Partial(PageMalformed{page})`; the previous snapshot is discarded, not merged; `ExecutionPath::Agent` contracts `Unavailable(CatalogueIncomplete)`; one `tracing::warn!` with host and page |
 | `next_page` repeats or goes backwards | `Partial(CursorNotAdvancing{page})`; the walk stops; nothing loops |
 | More than 50 pages | `Partial(TooManyPages)`; the walk stops; the inventory says the catalogue is too large to verify |
 | The announced hash and the walked pages disagree | `Partial(HashMismatch)` → `Unavailable(CatalogueHashMismatch)`; never `Available` |
 | The announced hash changed after the walk | cached snapshot `Stale`; the next `catalog()` re-walks; until it finishes, `Unavailable(CatalogueStale)` |
 | Disconnect mid-catalogue | `Partial(Disconnected{after_page})`; `HostAbsent`/`HostUnknown` then outranks every contract state |
 | Unknown contract id in a page | recorded in `unknown` and in the diagnostic list; one `tracing::info!`; no row, never `Available`, never an error page |
+| A page names `skill.<name>` with no matching `hello.skills` summary | diagnostic only (6.4.2 rule 2): no row, no contract, no state change for anything else |
+| `hello.skills` names a skill a `Complete` catalogue does not echo | that skill is `Unavailable(CatalogueInconsistent)`; never `Available`, never `NotInstalled` |
+| A `Hub` contract while the catalogue is partial or unsupported | its state is unaffected: `Available` unless a later row refuses it; the catalogue is not consulted for it |
 | Malformed settings value (`host.<name>.floors`) | the whole entry is dropped with a warning and treated as absent; startup succeeds; the other entries still load |
 | Malformed settings value (`host.<name>.skills`) | existing behaviour is kept: invalid names are filtered out and the rest load (`skill_policy.rs:63-66`) |
 | Malformed ceiling summary | `CeilingParse::Malformed`; non-`Read` contracts `NotAllowedOnHost(CeilingAbsent)`; one warning; never a permissive default |
@@ -1121,11 +1261,12 @@ Each step is small enough to finish and test on its own. Do not start a step who
 | Container name resolves to nothing | `TargetError::Unresolved(ContainerVanished)`; no fallback to the name |
 | Container inspect has no valid full id | `TargetError::Unresolved(ContainerIdentityUnproven)` |
 | Two containers with one name | `TargetError::Ambiguous`; nothing is chosen |
+| Host has no usable enrolled key (none, revoked, removed) | `TargetError::Unresolved(HostIdentityUnproven)` for every target kind on that host; no `host:{id}` fallback, no hash without the key |
 | Unit target | `TargetError::Unresolved(UnitIdentityUnproven)`, always (R-8 open) |
 | Store write fails (`Enablement::set`, `Floors::set`) | the error is returned; memory and store are unchanged; the API answers with `describeError`'s text (`StoreError`) and the switch visibly stays where it was |
 | Host reconnects with a different catalogue hash | the snapshot is replaced on the next walk; entries computed from the old snapshot are never served as `Complete`; `unknown` is rebuilt, not appended to |
 | Host disconnects while the inventory page is open | the next poll shows `HostUnknown`/`HostAbsent` per contract; the page keeps the last rows readable and says the host is offline |
-| A skill disappears from `hello.skills` after a restart | it becomes `NotInstalled` (its contract row stays, because the index is compiled); a stored floor for it stays in the settings and is ignored until the skill returns |
+| A skill disappears from `hello.skills` after a restart | its contract row stays (the index is compiled); under a `Complete` catalogue the missing echo makes it `Unavailable(CatalogueInconsistent)`; a stored floor for it stays in the settings and is ignored until the skill returns |
 
 ## 12. Testing requirements
 
@@ -1142,7 +1283,7 @@ Fakes come from `domovoi-testkit` (`FakeAgentLink` with `set_presence`/`set_skil
 | `container_name_grammar_enforced` | accept `plex`, `my-container`, `a.b_c`, `Plex`; reject ``, `p`, `-plex`, `_plex`, `.plex`, `plex `, ` plex`, `plex/1`, `a b`, 129 chars |
 | `container_id_requires_64_lowercase_hex` | accept 64 hex chars; reject a 12-character short id, uppercase, 63, 65, empty, `0x`-prefixed |
 | `catalogue_state_serde_round_trip` | `Complete`, three `Partial` gaps and `Stale` round-trip |
-| `target_query_host_identity_shape` | `host:{HostId}` parses as a `TargetIdentity` and carries the fingerprint field |
+| `target_query_host_identity_shape` | `canonical_host_identity(host, &key)` parses as a `TargetIdentity`, is `host_target_text(host, &key)`, is `host:{uuid}/{64 hex}`, and carries the same `KeyFingerprint` the identity embeds |
 | `unit_identity_is_never_claimed` | `TargetQuery::Unit` construction is fine; the resolver contract asserts `Unresolved(UnitIdentityUnproven)` (implemented in the engine test below; here: the variant's `describe()` says identity is unproven) |
 
 ### 12.2 Hub registry
@@ -1164,9 +1305,14 @@ Fakes come from `domovoi-testkit` (`FakeAgentLink` with `set_presence`/`set_skil
 | `precedence_host_state_outranks_everything` | host `Absent` **and** a disabled skill **and** a partial catalogue: skill → `HostAbsent` |
 | `precedence_disable_outranks_not_installed` | a disabled skill missing from `hello.skills` → `DisabledByHub` |
 | `precedence_not_installed_outranks_ceiling` | missing from a complete catalogue and no ceiling → `NotInstalled` |
-| `partial_catalogue_is_never_available` | `Partial` in each of its gaps; no agent-executed contract is `Available` |
+| `partial_catalogue_is_never_available` | `Partial` in each of its gaps; no `ExecutionPath::Agent` contract is `Available`; a missing entry is never `NotInstalled` |
 | `unknown_contract_is_recorded_and_never_offered` | page names `container.destroy`; `unknown_contracts(host)` contains it; no `AvailabilityEntry` has that id |
-| `skill_contract_comes_from_hello_skills` | a skill in a catalogue page but not in `hello.skills` is unknown/diagnostic, not a row; a skill in `hello.skills` only is `Available` |
+| `matching_hello_skill_and_catalogue_echo_produces_skill_contract` | a `Complete` catalogue with `skill.prune_logs` and a `hello.skills` summary of the same name: one row, its contract built by `skill_contract(&summary, floor)`, metadata equal to the summary's (params, manifest hash, risk) — not to anything in the page |
+| `skill_catalogue_entry_without_hello_summary_is_diagnostic_only` | a page naming `skill.ghost` with no hello summary: it appears in `unknown_contracts`, no row exists, no contract is created, and the state of every other contract is unchanged |
+| `hello_skill_missing_from_complete_catalogue_is_unavailable` | a `Complete` catalogue without `skill.prune_logs` while `hello.skills` announces it → `Unavailable(CatalogueInconsistent)`, never `Available` and never `NotInstalled` |
+| `hub_executed_contracts_are_not_in_agent_catalogue` | `builtin_contracts()` filtered to `ExecutionPath::Hub` is exactly `{incident.history, notes.search}`; neither appears in the agent's `catalog_entries()`, and both are `Available` from the hub with a `Partial` catalogue on a connected host |
+| `agent_catalogue_contains_exactly_eight_builtin_read_contracts` | `catalog_entries()` with an empty skill catalogue has exactly eight ids; the set equals prompt 24's `builtin_contracts()` filtered by `ExecutionPath::Agent`, and `run_read_skill` is absent |
+| `catalogue_hash_changes_when_a_skill_appears_or_disappears` | hash A with one skill; load a second → hash B ≠ A and the served list contains both; remove it → hash A again (deterministic over the same set) |
 | `hub_executed_contracts_ignore_the_catalogue` | `incident.history` is `Available` with a `Partial` catalogue |
 | `agent_catalogue_cannot_create_a_contract` | pages name ids outside the index; `contracts().len()` is unchanged |
 | `disabled_capability_refused_at_boundary` | registry with `prune_logs` disabled; `collect_evidence` for `RunReadSkill{prune_logs}` and `execute` for `prune_logs` both return the refusal carrying `DISABLED_REASON`, and `FakeAgentLink::requests()` is empty |
@@ -1190,22 +1336,27 @@ Fakes come from `domovoi-testkit` (`FakeAgentLink` with `set_presence`/`set_skil
 | `ambiguous_container_name_is_not_chosen` | two inspect results for one name → `Ambiguous` |
 | `vanished_container_is_unresolved` | name absent from `docker_ps` → `Unresolved(ContainerVanished)` |
 | `unit_target_is_unresolved` | `resolve_target(Unit{..})` → `Unresolved(UnitIdentityUnproven)`; nothing was requested from the agent |
-| `host_target_carries_the_enrolled_key_fingerprint` | store has an agent; `resolve_target(Host{..})` → `host:{id}` plus a 64-hex fingerprint |
+| `host_target_identity_includes_enrolled_key_fingerprint` | store has an agent; `resolve_target(Host{..})` → `host:{uuid}/{fingerprint}` where the fingerprint equals `KeyFingerprint::of_public_key(&agent.public_key)`, and `host_key` is the same value |
+| `host_reenrollment_changes_target_identity` | resolve, `put_agent` a new `AgentIdentity` with a different `public_key`, resolve again: a different identity; re-enrolling the original key again returns the original identity |
+| `container_target_identity_changes_on_host_reenrollment` | same container id and name before and after re-enrolment: a different `container:` identity, because the embedded host text changed |
+| `host_target_without_enrolled_identity_is_unresolved` | no agent, and an agent revoked: `Unresolved(HostIdentityUnproven)`; no `host:{id}` fallback and no agent call |
+| `host_target_resolves_while_the_agent_is_disconnected` | presence absent, enrolment present: identity resolves unchanged (the record, not the session) |
 | `parse_ps_reads_the_agent_table` | the exact header and three rows; three names, order preserved; a line with no tab is skipped, not fatal |
 | `parse_inspect_id_reads_the_full_id` | a real Docker inspect document (fixture with `"Id"`); the id; a document without `Id` → error |
 
-The six target-resolution rows from `container_name_is_validated_before_any_agent_call` to
-`host_target_carries_the_enrolled_key_fingerprint` are **engine** tests, in
-`crates/domovoi-engine/tests/services/targets.rs` (registered in `tests/services/main.rs` like its
-neighbours), because `TargetService` lives in the engine and needs `Evidence`. Every one of them drives a
-scripted `FakeAgentLink` and asserts that the only calls it saw were `docker_ps`/`docker_inspect` through
-`collect_evidence` — never `run_tool` from the test.
+The target-resolution rows from `container_name_is_validated_before_any_agent_call` to
+`host_target_resolves_while_the_agent_is_disconnected`, and the two re-enrolment rows above them, are
+**engine** tests, in `crates/domovoi-engine/tests/services/targets.rs` (registered in
+`tests/services/main.rs` like its neighbours), because `TargetService` lives in the engine and needs
+`Evidence` and `HostRepo`. Every one of them drives a scripted `FakeAgentLink` and asserts that the only
+calls it saw were `docker_ps`/`docker_inspect` through `collect_evidence` — never `run_tool` from the test.
+The `parse_ps`/`parse_inspect_id` rows stay in the hub, where those parsers live.
 
 ### 12.3 Hub API and web
 
 | Test | Setup, action, expected |
 |---|---|
-| `capability_dto_covers_every_field` | `GET /api/v1/hosts/nas/capabilities` → every row has contract, title, category, effect, state, catalogue, target kind, execution, `root_agent`; `state` is one of the eight codes |
+| `capability_dto_covers_every_field` | `GET /api/v1/hosts/nas/capabilities` → every row has contract, title, category, effect, state, catalogue, target kind, execution, `root_agent` and `runner_installed`; `state` is one of the eight codes |
 | `capability_endpoint_requires_auth` | no session → 401 |
 | `capability_endpoint_404s_on_an_unknown_host` | `GET /hosts/nope/capabilities` → 404 |
 | `capability_endpoint_reports_unknown_contracts` | a page naming an unknown id → it appears in `unknown_contracts`, not in `entries` |
@@ -1228,13 +1379,13 @@ In `crates/domovoi-agent/src/requests/catalog.rs`'s test module, plus one hub te
 
 | Test | Setup, action, expected |
 |---|---|
-| `catalog_lists_every_contract_bearing_read_tool` | a catalogue with no skills: exactly the ten `contract_id_of` ids, version 1, `skill.`-free, `run_read_skill` absent |
+| `catalog_lists_exactly_the_eight_agent_builtins` | a catalogue with no skills: exactly the eight `ExecutionPath::Agent` contract ids of prompt 24, version 1, `skill.`-free, with `incident.history`, `notes.search` and `run_read_skill` absent |
 | `catalog_lists_every_loaded_skill` | three loaded skills: `skill.<name>` version 1 for each, in id order, and no skill that failed a load check |
 | `catalog_pages_are_deterministic_and_end_with_none` | 250 entries, `page_size = 100`: pages 0, 1, 2 with 100/100/50 entries, `next_page` `Some(1)`, `Some(2)`, `None`; repeating a call returns the identical slice |
 | `catalog_page_beyond_the_end_is_empty_not_an_error` | `page = 9`: empty `entries`, `next_page: None`, no error |
 | `catalog_page_size_is_clamped` | `page_size = 0` → 100; `page_size = 1000` → 100 |
 | `catalog_hash_matches_the_served_entries` | the `catalog_hash` the agent reports equals `catalog_hash(&catalog_entries(..))`, and re-walking the pages through a `FakeAgentLink` gives the same map |
-| `catalog_hash_changes_when_a_skill_appears` | same catalogue plus one skill → a different hash; the rest of the list unchanged |
+| `catalog_hash_changes_when_a_skill_is_added` | same catalogue plus one skill → a different hash; the rest of the list unchanged |
 
 The hub-side half is a single test in `crates/domovoi-hub/tests/hub/capability.rs`:
 `a_real_agent_catalogue_walks_to_complete` — build the agent's list with the real function (the agent crate
@@ -1245,42 +1396,51 @@ agree on the encoding; the per-side equality tests above prove each side alone.
 ## 13. Acceptance criteria
 
 1. `domovoi_core::capability` gains `Availability` (eight variants), `AvailabilityEntry`,
-   `CatalogueState`, `CatalogSnapshot`, `TargetQuery`, `ResolvedTarget`, `TargetError`, `ContainerId` and
-   `validate_container_name`, all documented, with prompt 24's items unchanged.
+   `CatalogueState`, `CatalogSnapshot`, `TargetQuery`, `ResolvedTarget`, `TargetError`, `ContainerId`,
+   `canonical_host_identity` and `validate_container_name`, all documented, with prompt 24's items
+   unchanged; `KeyFingerprint` comes from prompt 22 and is not redefined.
 2. `domovoi_core::ports::CapabilityRegistry` exists with the six methods of section 6.2,
    `domovoi_core::ports::TargetResolver` exists with its one method, and `AgentLink::get_catalog` exists
    with a default that fails closed.
-3. The agent answers `get_catalog` from the list of `contract_id_of` ids plus the loaded skills, pages it
-   deterministically, and reports the matching `hello.catalog_hash`; a skill appearing or disappearing
-   changes that hash (section 6.4.1).
-4. `HubRegistry` answers the precedence table of section 6.1 in that exact order, proven by the four
-   `precedence_*` tests.
-5. `PolicyLink` and `AgentServer`'s `skill_policy` module are gone; grep finds no `PolicyLink` and exactly
+3. The agent answers `get_catalog` from prompt 24's `builtin_contracts()` filtered to
+   `ExecutionPath::Agent` (exactly eight contracts) plus the loaded skills, pages it deterministically, and
+   reports the matching `hello.catalog_hash`; a skill appearing or disappearing changes that hash (6.4.1).
+4. `HubRegistry` answers the per-`ExecutionPath` precedence table of section 6.1 in that exact order,
+   proven by the `precedence_*` tests: a `Hub` contract never consults the catalogue, an `Agent` contract
+   needs a complete one, a skill needs `hello.skills`, and a partial catalogue produces neither
+   `NotInstalled` nor `Available`.
+5. The `hello.skills`/catalogue consistency rules of 6.4.2 hold: a skill contract is built only from the
+   hello summary, a catalogue-only skill is diagnostic, and a complete catalogue that disagrees with hello
+   yields `Unavailable(CatalogueInconsistent)` rather than `Available` or `NotInstalled`.
+6. `PolicyLink` and `AgentServer`'s `skill_policy` module are gone; grep finds no `PolicyLink` and exactly
    one `host.<name>.skills` reader.
-6. `collect_evidence` and `execute` both refuse a disabled skill with `DISABLED_REASON`, and the four
+7. `collect_evidence` and `execute` both refuse a disabled skill with `DISABLED_REASON`, and the four
    engine `link.skills` call sites use `enabled_skills`.
-7. `host.<name>.skills` and its endpoint behave exactly as before; `crates/domovoi-hub/tests/hub/skills.rs`
+8. `host.<name>.skills` and its endpoint behave exactly as before; `crates/domovoi-hub/tests/hub/skills.rs`
    passes unchanged.
-8. `host.<name>.floors` stores the JSON of section 6.5, refuses a lowering write and a `contain` class, and
+9. `host.<name>.floors` stores the JSON of section 6.5, refuses a lowering write and a `contain` class, and
    treats malformed entries as absent.
-9. A ceiling that is absent, disabled or has no exact entry for a non-`Read` contract yields
-   `NotAllowedOnHost`, never `Available`; `Read` contracts are unaffected.
-10. A catalogue that is incomplete, has a cursor problem, a duplicate, an unannounced or mismatched hash, or
+10. A ceiling that is absent, disabled or has no exact entry for a non-`Read` contract yields
+    `NotAllowedOnHost`, never `Available`; `Read` contracts are unaffected.
+11. A catalogue that is incomplete, has a cursor problem, a duplicate, an unannounced or mismatched hash, or
     was cut by a disconnect yields `Partial`/`Stale` and never `Available` or `NotInstalled`.
-11. An id the hub does not know is recorded in `unknown_contracts` and never appears as a row.
-12. Container targets resolve by full id after the grammar check; a recreate changes the identity, a
-    rename does not; units are always `Unresolved(UnitIdentityUnproven)`. The resolver is the engine's
+12. An id the hub does not know is recorded in `unknown_contracts` and never appears as a row.
+13. A **host** canonical identity is `host:{host_id}/{fingerprint}` with the fingerprint inside the
+    `TargetIdentity`, computed from `HostRepo::live_agent`; re-enrolment changes it; a host with no usable
+    enrolled key is `Unresolved(HostIdentityUnproven)`; a container identity embeds the same host text
+    before the full container id, so re-enrolment invalidates it too. The resolver is the engine's
     `TargetService` behind `domovoi_core::ports::TargetResolver`, and its reads go through `collect_evidence`.
-13. `GET /api/v1/hosts/{name}/capabilities` serves the read-only inventory; `web/src/api/openapi.json` and
-    `web/src/api/schema.d.ts` are regenerated, and the DTO contains no secret.
-14. `/capabilities` is reachable from the `Fleet` group and renders the inventory in both themes; `/skills`
+14. `GET /api/v1/hosts/{name}/capabilities` serves the read-only inventory, exposes `execution`,
+    `root_agent` and `runner_installed` separately, and never describes the isolated runner as available;
+    `web/src/api/openapi.json` and `web/src/api/schema.d.ts` are regenerated, and the DTO contains no secret.
+15. `/capabilities` is reachable from the `Fleet` group and renders the inventory in both themes; `/skills`
     and its switch are unchanged.
-15. No migration, no new table, no new crate, no new protocol message, no protocol version change.
-16. `cargo fmt --all`, `cargo clippy -p domovoi-core -p domovoi-hub -p domovoi-engine -p domovoi-agent
+16. No migration, no new table, no new crate, no new protocol message, no protocol version change.
+17. `cargo fmt --all`, `cargo clippy -p domovoi-core -p domovoi-hub -p domovoi-engine -p domovoi-agent
     -p domovoi-testkit --all-targets -- -D warnings`, `cargo nextest run -p domovoi-core -p domovoi-hub
     -p domovoi-agent -p domovoi-testkit`, `cargo nextest run -E 'rdeps(domovoi-core)'`,
     `cargo xtask arch-check` and `cargo xtask docs-links` are green.
-17. The new tests exist under the names in section 12 and pass.
+18. The new tests exist under the names in section 12 and pass.
 
 ## 14. Documentation requirements
 
