@@ -13,7 +13,7 @@ COPY --chmod=0755 dist/bin-${TARGETARCH}/domovoi /usr/local/bin/domovoi
 
 LABEL org.opencontainers.image.title="Domovoi agent" \
       org.opencontainers.image.description="The Domovoi agent, for hosts that run everything in containers" \
-      org.opencontainers.image.licenses="MIT OR Apache-2.0"
+      org.opencontainers.image.licenses="PolyForm-Noncommercial-1.0.0"
 
 # `agent enroll` writes agent.toml here, next to the agent's key, so the volume keeps both.
 ENV DOMOVOI_AGENT_CONFIG=/var/lib/domovoi-agent/agent.toml

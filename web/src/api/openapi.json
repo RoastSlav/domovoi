@@ -4,8 +4,8 @@
     "title": "Domovoi hub API",
     "description": "The hub's JSON API. Log in with `POST /api/v1/auth/login`; the session is a cookie. Send the session's `csrf_token` as `X-CSRF-Token` on every unsafe request.",
     "license": {
-      "name": "MIT OR Apache-2.0",
-      "identifier": "MIT OR Apache-2.0"
+      "name": "PolyForm-Noncommercial-1.0.0",
+      "identifier": "PolyForm-Noncommercial-1.0.0"
     },
     "version": "0.0.10"
   },

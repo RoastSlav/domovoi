@@ -1,5 +1,6 @@
 # cargo-deny configuration. Run with `cargo deny check`.
-# ARCHITECTURE.md R11: licenses must be compatible with MIT OR Apache-2.0, no OpenSSL.
+# ARCHITECTURE.md R11: dependencies must stay permissive enough to ship under the
+# project's own PolyForm Noncommercial license, no OpenSSL.
 
 [graph]
 all-features = false
@@ -34,6 +35,9 @@ allow = [
     "Unicode-DFS-2016",
     "CDLA-Permissive-2.0",
     "MPL-2.0",
+    # The workspace crates' own license. It is not a dependency license, but
+    # `cargo deny` checks every crate in the graph, including these.
+    "PolyForm-Noncommercial-1.0.0",
 ]
 
 [bans]

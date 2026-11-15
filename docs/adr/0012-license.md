@@ -1,6 +1,6 @@
 # 0012. License: MIT OR Apache-2.0
 
-- Status: Accepted
+- Status: Superseded by [0020](0020-license-polyform-noncommercial.md)
 - Date: 2026-10-31
 
 ## Context

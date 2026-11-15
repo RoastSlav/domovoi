@@ -2605,8 +2605,8 @@ expression: spec
   "info": {
     "description": "The hub's JSON API. Log in with `POST /api/v1/auth/login`; the session is a cookie. Send the session's `csrf_token` as `X-CSRF-Token` on every unsafe request.",
     "license": {
-      "identifier": "MIT OR Apache-2.0",
-      "name": "MIT OR Apache-2.0"
+      "identifier": "PolyForm-Noncommercial-1.0.0",
+      "name": "PolyForm-Noncommercial-1.0.0"
     },
     "title": "Domovoi hub API",
     "version": "0.0.0"

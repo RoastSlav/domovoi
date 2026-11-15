@@ -12,7 +12,7 @@ COPY --from=data --chown=65532:65532 /out/var/lib/domovoi /var/lib/domovoi
 
 LABEL org.opencontainers.image.title="Domovoi" \
       org.opencontainers.image.description="Self-hosted server overseer with AI triage and human-approved actions" \
-      org.opencontainers.image.licenses="MIT OR Apache-2.0"
+      org.opencontainers.image.licenses="PolyForm-Noncommercial-1.0.0"
 
 # No config file is needed; open the setup link from the logs. A hub.toml mounted at
 # /etc/domovoi/hub.toml, and DOMOVOI_* variables, are read when present.
