@@ -71,8 +71,22 @@ Names never collide: a preserved database takes a numbered suffix (`hub.db.befor
 
 ### What durability the install has
 
-- **Unix:** the prepared copy's data and its directory entry are synced before the live database is moved, so a crash after the swap leaves the restored database in place. Errors from either sync stop the restore before anything moves.
-- **Windows:** there is no portable directory fsync, so the final rename is not made durable against a power loss between it and the next start. The file's own data is synced and the renames are ordered, and the preserved `hub.db.before-restore-<time>` is what to fall back to.
+A rename changes two directory entries, and until the directory itself is flushed a crash can leave the old entry, the new one, or neither. The restore therefore flushes the directory after each group of renames, not only before them.
+
+- **Unix:** the prepared copy's data *and* its directory entry are flushed before the live database is touched. After the previous database and its sidecars are moved aside, the directory is flushed again. After the prepared copy is installed, it is flushed once more. All three failures are errors, never warnings, and all three can be rolled back (see below).
+- **Windows:** there is no portable directory fsync, so none of these flushes can be made durable and none fails. The file's own data is flushed and the renames are ordered, but a power loss between the last rename and the next start can still lose the directory entry. The preserved `hub.db.before-restore-<time>` is what to fall back to.
+
+If a flush fails, the restore undoes that stage's renames and reports what happened:
+
+| Flush that failed | What the restore does | What you see |
+| --- | --- | --- |
+| After moving the previous database aside | Moves everything back; the backup is not installed | The original sync failure; your previous database and data are untouched |
+| After installing the new database | Undoes the install and puts the previous database back | The original sync failure; your previous database and data are untouched |
+| During the rollback | Leaves the files where the renames put them | An error saying the result is not durable, so a crash could still undo the files that appear restored |
+
+When a rollback cannot finish, the error names every file that is still out of place, and says nothing was deleted. Nothing is ever deleted on a failure path, including a database that happens to be zero bytes.
+
+The restore is not crash-atomic: a power loss in the middle of a stage can leave a mix of old and new names. What it guarantees is that no failure deletes your previous database, and that every uncertain state is reported rather than hidden.
 
 Restoring a directory that holds only `hub.db-wal` or `hub.db-shm`, without `hub.db`, moves those sidecars aside too rather than discarding them: they keep the `.before-restore-<time>` prefix and the log names it. A restore with nothing to preserve leaves no empty `.before-restore-*` file.
 

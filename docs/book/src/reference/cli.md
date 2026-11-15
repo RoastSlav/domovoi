@@ -200,7 +200,11 @@ With `--yes` it prepares the backup before touching the live database, and only 
 
 A backup that cannot be opened or migrated therefore leaves the live database untouched. The previous database is never deleted. If installing the prepared copy fails, every move is reversed; if that reversal cannot finish, the command fails with an error naming each file that is still out of place.
 
-On Unix the prepared copy's data and directory entry are synced before the swap. On Windows there is no portable directory fsync, so the final rename is not durable against a power loss; the preserved `hub.db.before-restore-<time>` is what to fall back to. A database that will not open is kept as `hub.db.failed-restore-<time>`, or at `hub.db.restore-tmp` on Windows where the failed open still holds it.
+A rename is only durable once its directory is flushed, so on Unix the command flushes the directory three times: after preparing the copy, after moving the previous database aside, and after installing the new one. A failed flush is an error, and the stage it belongs to is undone — the backup is never installed when the previous database could not be recorded as moved aside, and the previous database is put back if the install could not be recorded. If the flush that would record the rollback fails too, the command says the result is not durable rather than reporting a clean failure.
+
+On Windows there is no portable directory fsync, so those flushes cannot run and do not fail; the final rename is not durable against a power loss, and the preserved `hub.db.before-restore-<time>` is what to fall back to. A database that will not open is kept as `hub.db.failed-restore-<time>`, or at `hub.db.restore-tmp` on Windows where the failed open still holds it.
+
+The restore is not crash-atomic. What it guarantees is that no failure deletes your previous database, and that any uncertain state is named in the error.
 
 | Argument | Meaning |
 | --- | --- |

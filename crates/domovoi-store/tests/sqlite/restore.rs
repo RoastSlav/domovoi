@@ -183,15 +183,14 @@ async fn a_rollback_that_cannot_finish_is_reported_as_incomplete() {
 }
 
 #[tokio::test]
-async fn a_partial_sidecar_move_while_keeping_the_failed_copy_is_undone() {
+async fn a_partial_sidecar_move_is_undone_and_the_copy_kept() {
     let dir = tempfile::tempdir().unwrap();
     let live = database_with(dir.path(), "live-theme").await;
     let broken = broken_backup(dir.path()).await;
     let before = std::fs::read(&live).unwrap();
 
-    // The seam writes a sidecar beside the temporary copy, the sidecar move runs for real,
-    // and only the database move fails. The rollback therefore covers a move that
-    // happened, not one SQLite was assumed to have left behind.
+    // The seam writes a WAL beside the temporary copy, the sidecar move runs for real,
+    // and only the database move fails.
     let err = restore_from_backup_failing_at(&live, &broken, at(60), "failed-database-with-wal")
         .await
         .unwrap_err();
@@ -199,71 +198,71 @@ async fn a_partial_sidecar_move_while_keeping_the_failed_copy_is_undone() {
         matches!(err, RestoreError::Open(_)),
         "the open error stays the reported failure: {err}"
     );
-    assert_eq!(
-        std::fs::read(&live).unwrap(),
-        before,
-        "the live database did not move"
-    );
+
+    // The live database is untouched and readable.
+    assert_eq!(std::fs::read(&live).unwrap(), before);
     assert_eq!(theme_of(&live).await, Some(serde_json::json!("live-theme")));
 
+    // The prepared copy is still at its temporary name, and nothing is stranded at the
+    // failed name: the rollback put the sidecar back beside it.
     let listed = names(dir.path());
+    assert!(
+        listed.iter().any(|name| name == "hub.db.restore-tmp"),
+        "the prepared copy is kept: {listed:?}"
+    );
     let stranded: Vec<&String> = listed
         .iter()
         .filter(|name| name.contains(".failed-restore-"))
         .collect();
     assert!(
         stranded.is_empty(),
-        "the rollback put the sidecar back, nothing stayed split: {stranded:?}"
-    );
-    assert!(
-        std::fs::metadata(dir.path().join("hub.db.restore-tmp")).is_ok_and(|meta| meta.len() > 0),
-        "the temporary copy is intact: {listed:?}"
+        "the rollback left nothing at the failed name: {stranded:?}"
     );
 }
 
 #[tokio::test]
-async fn a_sidecar_that_moved_is_never_left_split_from_its_copy() {
+async fn a_sidecar_that_cannot_move_leaves_the_copy_intact_at_its_temporary_name() {
+    // A fresh directory, so nothing from another test can mask the state.
+    //
+    // Where the failed open still holds its sidecar (Windows), the move fails and the copy
+    // stays together at `.restore-tmp`. Where it does not (Unix), the move succeeds and a
+    // forced rollback failure strands it at the failed name, named by the log. Either way
+    // no file is deleted, and the live database never moves. The rollback journal's own
+    // behaviour is unit-tested in `restore/files.rs`, where both outcomes are exact.
     let dir = tempfile::tempdir().unwrap();
     let live = database_with(dir.path(), "live-theme").await;
     let broken = broken_backup(dir.path()).await;
+    let before = std::fs::read(&live).unwrap();
 
-    // The seam writes a sidecar and then the database move fails. Whether the rollback can
-    // finish or not, the sidecar must never end up at the failed name while the database
-    // it belongs to is somewhere else: that would be the split this test forbids.
-    for step in ["failed-database-with-wal", "failed-database-with-wal-stuck"] {
-        let err = restore_from_backup_failing_at(&live, &broken, at(60), step)
+    let err =
+        restore_from_backup_failing_at(&live, &broken, at(60), "failed-database-with-wal-stuck")
             .await
             .unwrap_err();
-        assert!(
-            matches!(err, RestoreError::Open(_)),
-            "{step}: the open error is what is reported: {err}"
-        );
-        assert_eq!(
-            theme_of(&live).await,
-            Some(serde_json::json!("live-theme")),
-            "{step}: the live database is untouched"
-        );
+    assert!(
+        matches!(err, RestoreError::Open(_)),
+        "the original open error is still what is reported: {err}"
+    );
 
-        let listed = names(dir.path());
-        let has_temporary_database = listed.iter().any(|name| name.ends_with(".restore-tmp"));
-        let failed_sidecars: Vec<&String> = listed
+    let listed = names(dir.path());
+    // The prepared copy is kept somewhere, with no data-bearing file deleted.
+    assert!(
+        listed
             .iter()
-            .filter(|name| {
-                name.contains(".failed-restore-")
-                    && (name.ends_with("-wal") || name.ends_with("-shm"))
-            })
-            .collect();
+            .any(|name| name.starts_with("hub.db.restore-tmp")),
+        "the prepared copy is kept: {listed:?}"
+    );
+    for name in listed
+        .iter()
+        .filter(|name| name.contains(".restore-tmp") || name.contains(".failed-restore-"))
+    {
         assert!(
-            has_temporary_database || failed_sidecars.is_empty(),
-            "{step}: a sidecar is split from the copy it belongs to: {listed:?}"
-        );
-        // Whichever way the rollback went, no data-bearing file was deleted.
-        assert!(
-            listed.iter().any(|name| name.ends_with(".restore-tmp"))
-                || listed.iter().any(|name| name.contains(".failed-restore-")),
-            "{step}: the prepared copy is kept somewhere: {listed:?}"
+            std::fs::read(dir.path().join(name)).is_ok(),
+            "{name} is readable, so nothing was lost"
         );
     }
+    // The live database is intact and readable throughout.
+    assert_eq!(std::fs::read(&live).unwrap(), before);
+    assert_eq!(theme_of(&live).await, Some(serde_json::json!("live-theme")));
 }
 
 /// A backup that verifies as a Domovoi database but cannot be migrated.
@@ -877,4 +876,181 @@ async fn an_incomplete_rollback_never_deletes_the_previous_database() {
         "the error names where it remains: {recovery}"
     );
     assert!(!live.exists(), "it is not in two places at once");
+}
+
+/// A backup that restores cleanly, in its own directory.
+async fn good_backup(dir: &std::path::Path) -> std::path::PathBuf {
+    let source = dir.join("good");
+    std::fs::create_dir_all(&source).unwrap();
+    let path = source.join("backup.db");
+    let store = Store::open(&path, StoreOptions::beside(&path, T0))
+        .await
+        .unwrap();
+    store
+        .set("ui.theme", &serde_json::json!("from-backup"))
+        .await
+        .unwrap();
+    store.close().await;
+    path
+}
+
+/// The `.before-restore-*` names in `dir`, sorted.
+fn preserved_names(dir: &std::path::Path) -> Vec<String> {
+    names(dir)
+        .into_iter()
+        .filter(|name| name.contains(".before-restore-"))
+        .collect()
+}
+
+#[tokio::test]
+async fn a_directory_sync_failure_after_moving_aside_keeps_the_original() {
+    let dir = tempfile::tempdir().unwrap();
+    let live = database_with(dir.path(), "live-theme").await;
+    let backup = good_backup(dir.path()).await;
+    let before = std::fs::read(&live).unwrap();
+
+    // The flush after the aside renames fails for real, through the same helper the
+    // restore uses, so this proves the fence is load-bearing rather than incidental.
+    domovoi_store::fail_next_sync_for_tests(&live, "aside");
+    let err = restore_from_backup(&live, &backup, at(60))
+        .await
+        .unwrap_err();
+    match &err {
+        RestoreError::NotDurable { stage, reason, .. } => {
+            assert!(
+                stage.contains("moving the previous database aside"),
+                "the stage is named: {stage}"
+            );
+            assert!(reason.contains("simulated failure"), "{reason}");
+        }
+        other => panic!("expected NotDurable, got {other:?}"),
+    }
+
+    // The backup was not installed: the live database is the original, untouched.
+    assert_eq!(
+        std::fs::read(&live).unwrap(),
+        before,
+        "the live database is unchanged"
+    );
+    assert_eq!(
+        theme_of(&live).await,
+        Some(serde_json::json!("live-theme")),
+        "the original data is readable"
+    );
+    assert!(
+        preserved_names(dir.path()).is_empty(),
+        "the moved-aside database was put back: {:?}",
+        names(dir.path())
+    );
+}
+
+#[tokio::test]
+async fn a_directory_sync_failure_after_installing_rolls_the_install_back() {
+    let dir = tempfile::tempdir().unwrap();
+    let live = database_with(dir.path(), "live-theme").await;
+    let backup = good_backup(dir.path()).await;
+    let before = std::fs::read(&live).unwrap();
+
+    // Only the install flush fails; the aside flush before it succeeds.
+    domovoi_store::fail_next_sync_for_tests(&live, "install");
+    let err = restore_from_backup(&live, &backup, at(60))
+        .await
+        .unwrap_err();
+    match &err {
+        RestoreError::NotDurable { stage, .. } => {
+            assert!(
+                stage.contains("installing the restored database"),
+                "the install flush is the one that failed: {stage}"
+            );
+        }
+        other => panic!("expected NotDurable, got {other:?}"),
+    }
+
+    // The installation was undone: the previous database is back at the live path.
+    assert_eq!(
+        std::fs::read(&live).unwrap(),
+        before,
+        "the previous database is restored"
+    );
+    assert_eq!(
+        theme_of(&live).await,
+        Some(serde_json::json!("live-theme")),
+        "the previous data is readable, so the backup is not live"
+    );
+    assert!(
+        preserved_names(dir.path()).is_empty(),
+        "no preserved copy is left behind: {:?}",
+        names(dir.path())
+    );
+}
+
+#[tokio::test]
+async fn a_rollback_that_cannot_be_made_durable_is_reported_as_uncertain() {
+    let dir = tempfile::tempdir().unwrap();
+    let live = database_with(dir.path(), "live-theme").await;
+    let backup = good_backup(dir.path()).await;
+    let before = std::fs::read(&live).unwrap();
+
+    // The install fails, and the flush that would record the rollback fails too.
+    let err = restore_from_backup_failing_at(&live, &backup, at(60), "sync-rollback")
+        .await
+        .unwrap_err();
+    match &err {
+        RestoreError::RecoveryIncompleteNotDurable {
+            reason,
+            recovery,
+            durability,
+        } => {
+            assert!(
+                reason.contains("cannot install it"),
+                "the original failure: {reason}"
+            );
+            assert!(recovery.contains("every file moved back"), "{recovery}");
+            assert!(durability.contains("simulated failure"), "{durability}");
+        }
+        other => panic!("expected RecoveryIncompleteNotDurable, got {other:?}"),
+    }
+
+    // The renames themselves went back, so the original data is readable — but the error
+    // already said the result is not durable, which is the point.
+    assert_eq!(
+        std::fs::read(&live).unwrap(),
+        before,
+        "the previous database is back"
+    );
+    assert_eq!(theme_of(&live).await, Some(serde_json::json!("live-theme")));
+    let text = err.to_string();
+    assert!(text.contains("not durable"), "{text}");
+}
+
+#[tokio::test]
+async fn a_failed_rename_and_a_failed_flush_are_both_reported() {
+    let dir = tempfile::tempdir().unwrap();
+    let live = database_with(dir.path(), "live-theme").await;
+    let backup = good_backup(dir.path()).await;
+
+    // The install fails, the rollback of the moved database fails, and so does the flush.
+    let err = restore_from_backup_failing_at(&live, &backup, at(60), "undo-database")
+        .await
+        .unwrap_err();
+
+    let text = err.to_string();
+    // Either the rollback-complete or the incomplete form is right; neither may hide the
+    // original failure, and the file that stayed put must be named.
+    match &err {
+        RestoreError::RecoveryIncomplete { reason, recovery }
+        | RestoreError::RecoveryIncompleteNotDurable {
+            reason, recovery, ..
+        } => {
+            assert!(reason.contains("cannot install it"), "{reason}");
+            assert!(recovery.contains("before-restore"), "{recovery}");
+        }
+        other => panic!("expected incomplete recovery, got {other:?}"),
+    }
+    let misplaced = preserved_names(dir.path());
+    assert_eq!(misplaced.len(), 1, "{misplaced:?}");
+    assert!(
+        text.contains(&misplaced[0]),
+        "the error names the misplaced file: {text}"
+    );
 }

@@ -186,11 +186,23 @@ impl Moves {
     /// `fail_first` makes the first rename fail, which is how the tests reach a rollback
     /// that cannot finish without depending on file permissions.
     pub(super) fn undo(&mut self, fail_first: bool) -> Vec<String> {
+        self.undo_with(fail_first, false)
+    }
+
+    /// [`Self::undo`], with the choice of which move cannot go back:
+    /// `fail_first` gives up on the newest, `fail_sidecar` on the newest sidecar.
+    pub(super) fn undo_with(&mut self, fail_first: bool, fail_sidecar: bool) -> Vec<String> {
         let mut stuck = Vec::new();
         let mut first = fail_first;
+        let mut sidecar = fail_sidecar;
         while let Some((from, to)) = self.done.pop() {
-            let failed = if first {
+            let is_sidecar = to
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.ends_with("-wal") || name.ends_with("-shm"));
+            let failed = if first || (sidecar && is_sidecar) {
                 first = false;
+                sidecar = false;
                 Err(std::io::Error::other("rolled back: simulated failure"))
             } else {
                 std::fs::rename(&to, &from)
@@ -204,5 +216,71 @@ impl Moves {
             }
         }
         stuck
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Moves, suffix};
+
+    /// The journal after moving a database and one sidecar into `to`, then undoing.
+    fn undo_case(
+        dir: &std::path::Path,
+        fail_first: bool,
+        fail_sidecar: bool,
+    ) -> (Vec<String>, bool, bool) {
+        let from = dir.join("prepared.db");
+        let to = dir.join("kept.db");
+        std::fs::write(&from, b"database").unwrap();
+        let from_wal = suffix(&from, "-wal");
+        std::fs::write(&from_wal, b"sidecar").unwrap();
+
+        let mut moves = Moves::default();
+        moves.perform_sidecars(&from, &to).unwrap();
+        moves.perform(&from, &to).unwrap();
+        let stuck = moves.undo_with(fail_first, fail_sidecar);
+        (stuck, from.exists(), suffix(&to, "-wal").exists())
+    }
+
+    #[test]
+    fn a_rollback_that_can_finish_puts_every_file_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let (stuck, database_back, wal_still_kept) = undo_case(dir.path(), false, false);
+        assert!(stuck.is_empty(), "{stuck:?}");
+        assert!(database_back, "the database is back at its old name");
+        assert!(
+            !wal_still_kept,
+            "the sidecar went back with the database, not stranded"
+        );
+    }
+
+    #[test]
+    fn a_sidecar_that_cannot_go_back_is_named_and_keeps_its_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let (stuck, database_back, wal_still_kept) = undo_case(dir.path(), false, true);
+        assert_eq!(stuck.len(), 1, "exactly one file is named: {stuck:?}");
+        assert!(
+            stuck[0].contains("kept.db-wal"),
+            "the moved sidecar is the one named: {stuck:?}"
+        );
+        assert!(database_back, "the database itself went back");
+        assert!(wal_still_kept, "the sidecar stayed where it was kept");
+        assert_eq!(
+            std::fs::read(dir.path().join("kept.db-wal")).unwrap(),
+            b"sidecar",
+            "and it holds its bytes"
+        );
+    }
+
+    #[test]
+    fn the_newest_file_that_cannot_go_back_is_named() {
+        let dir = tempfile::tempdir().unwrap();
+        let (stuck, database_back, _) = undo_case(dir.path(), true, false);
+        assert_eq!(stuck.len(), 1, "{stuck:?}");
+        assert!(
+            stuck[0].contains("kept.db back to"),
+            "the database is named: {stuck:?}"
+        );
+        assert!(!database_back, "it stayed at the kept name");
     }
 }

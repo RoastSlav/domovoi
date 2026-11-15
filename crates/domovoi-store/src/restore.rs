@@ -16,9 +16,16 @@ use crate::backup::{BackupError, BackupReport, Depth, verify_backup};
 use crate::db::{Store, StoreOptions};
 use crate::error::StoreOpenError;
 
+mod durable;
 mod files;
+mod steps;
 
-use self::files::{Moves, Reservation, companions, reserve, same_file, sidecars_present, suffix};
+pub use self::durable::fail_next_sync_for_tests;
+
+use self::steps::{forced, move_aside, roll_back, simulated_not_durable, swap_in, undo_fails};
+
+use self::durable::{Fence, Stage, sync_dir};
+use self::files::{Moves, reserve, same_file, sidecars_present, suffix};
 
 /// What a restore did.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -60,6 +67,31 @@ pub enum RestoreError {
         /// Each file that could not be moved back, and why.
         recovery: String,
     },
+    /// The renames happened but the directory could not be flushed, so a crash could still
+    /// undo them. The restore is rolled back where it can be.
+    #[error("cannot make {stage} durable: {}: {reason}", path.display())]
+    NotDurable {
+        /// The stage whose renames were not recorded.
+        stage: String,
+        /// The directory that could not be flushed.
+        path: PathBuf,
+        /// What the operating system said.
+        reason: String,
+    },
+    /// The restore could not be made durable and putting the files back did not finish
+    /// either. Nothing was deleted; both failures are named.
+    #[error(
+        "{reason}; putting the files back was incomplete ({recovery}); \
+         nothing was deleted, and the result is not durable ({durability})"
+    )]
+    RecoveryIncompleteNotDurable {
+        /// Why the restore failed, including the durability failure.
+        reason: String,
+        /// Each file that could not be moved back, and why.
+        recovery: String,
+        /// The directory flush that failed after the rollback.
+        durability: String,
+    },
 }
 
 fn io_err(path: &Path, err: impl std::fmt::Display) -> RestoreError {
@@ -94,7 +126,8 @@ pub async fn restore_from_backup(
 /// rollback of the moved database fails too), `failed-database` (keeping a copy that would
 /// not open fails at the database), `failed-database-with-wal` (the same, after writing a
 /// sidecar so the rollback covers a move that really happened) or
-/// `failed-database-with-wal-stuck` (the same, with that rollback forced to fail).
+/// `failed-database-with-wal-stuck` (the same, with that rollback forced to fail),
+/// `sync-aside`, `sync-install` or `sync-rollback` (a directory flush fails).
 #[doc(hidden)]
 pub async fn restore_from_backup_failing_at(
     database: &Path,
@@ -153,6 +186,7 @@ async fn restore(
         .map(|base| reserve(&base))
         .transpose()?;
     let mut aside = Moves::default();
+    let aside_fence = Fence::around(database, Stage::Aside);
     if let Err(err) = move_aside(&mut aside, database, before.as_mut(), fail_at) {
         let stuck = aside.undo(undo_fails(fail_at));
         // Only a name still holding this run's own placeholder may go; a database that
@@ -160,7 +194,21 @@ async fn restore(
         if let Some(before) = before.as_mut() {
             before.abandon();
         }
-        return Err(recover(err, stuck));
+        return Err(roll_back(err, stuck, &aside_fence, fail_at));
+    }
+    // The renames that put the previous database aside are only real once the directory
+    // says so. If it cannot be flushed, the new database is not installed at all.
+    let aside_synced = if forced(fail_at, "sync", "aside") {
+        Err(simulated_not_durable(&aside_fence))
+    } else {
+        aside_fence.commit()
+    };
+    if let Err(err) = aside_synced {
+        let stuck = aside.undo(undo_fails(fail_at));
+        if let Some(before) = before.as_mut() {
+            before.abandon();
+        }
+        return Err(roll_back(err, stuck, &aside_fence, fail_at));
     }
     // Without a database, only its sidecars moved: the reserved name holds nothing and
     // would read as a preserved database, so it goes. The sidecars keep the same prefix,
@@ -185,10 +233,24 @@ async fn restore(
         None => None,
     };
     let mut swap = Moves::default();
+    let install_fence = Fence::around(database, Stage::Install);
     if let Err(err) = swap_in(&mut swap, temporary.path(), database, fail_at) {
         let mut stuck = swap.undo(undo_fails(fail_at));
         stuck.extend(aside.undo(undo_fails(fail_at)));
-        return Err(recover(err, stuck));
+        return Err(roll_back(err, stuck, &install_fence, fail_at));
+    }
+    // The installation is only complete once the directory records it. If the flush
+    // fails, everything goes back: a restore that cannot promise the new database is
+    // there must not leave the old one somewhere else.
+    let installed = if forced(fail_at, "sync", "install") {
+        Err(simulated_not_durable(&install_fence))
+    } else {
+        install_fence.commit()
+    };
+    if let Err(err) = installed {
+        let mut stuck = swap.undo(undo_fails(fail_at));
+        stuck.extend(aside.undo(undo_fails(fail_at)));
+        return Err(roll_back(err, stuck, &install_fence, fail_at));
     }
     // The prepared copy is now the live database.
     temporary.filled();
@@ -197,17 +259,6 @@ async fn restore(
         previous,
         migrations_applied_after: applied,
     })
-}
-
-/// Whether the file that first moves aside should fail to move back.
-///
-/// `undo-database` makes the install fail and then the rollback fail too, which is how a
-/// test reaches [`RestoreError::RecoveryIncomplete`] without depending on permissions.
-fn undo_fails(fail_at: Option<&str>) -> bool {
-    matches!(
-        fail_at,
-        Some("undo-database" | "failed-database-with-wal-stuck")
-    )
 }
 
 fn stamp(at: Timestamp) -> String {
@@ -239,13 +290,23 @@ fn keep_failed(
     };
     // A test can require a sidecar to be there before the moves, so the rollback runs over
     // one that really happened instead of relying on SQLite to leave one behind.
+    // The whole point of these two steps is that a sidecar exists to be moved, so failing
+    // to write it is a failure of the test path, not something to log and carry on from.
     if matches!(
         fail_at,
         Some("failed-database-with-wal" | "failed-database-with-wal-stuck")
     ) {
         let wal = suffix(temporary, "-wal");
-        if let Err(err) = std::fs::write(&wal, b"preset-sidecar") {
-            tracing::warn!(%err, path = %wal.display(), "could not preset a sidecar");
+        if std::fs::write(&wal, b"preset-sidecar").is_err()
+            || !wal.is_file()
+            || std::fs::read(&wal).ok().as_deref() != Some(b"preset-sidecar")
+        {
+            failed.filled();
+            tracing::error!(
+                path = %wal.display(),
+                "the test could not place a sidecar; the move it was meant to cover did not run",
+            );
+            return;
         }
     }
     let mut moves = Moves::default();
@@ -281,7 +342,12 @@ fn keep_failed(
             // Put back whatever moved, so no file is left split from the database. A move
             // that stayed put means the name holds data; the placeholder goes only when
             // the rollback left nothing of this run's copy behind.
-            let stuck = moves.undo(undo_fails);
+            // `failed-database-with-wal-stuck` gives up on the sidecar, so a file really
+            // stays at the failed name and the report has to name it.
+            let stuck = moves.undo_with(
+                undo_fails,
+                fail_at == Some("failed-database-with-wal-stuck"),
+            );
             if stuck.is_empty() && !moves.moved_to(failed.path()) {
                 failed.abandon();
             } else {
@@ -339,9 +405,20 @@ async fn prepare(
         synced
     };
     copy().map_err(PrepareError::Copy)?;
-    // The directory entry is made durable here, before the swap, so the swap itself has
-    // no step left that could fail after the live database is replaced.
-    sync_dir(temporary).map_err(PrepareError::Copy)?;
+    // The copy and the entry naming it are flushed here, before the live database is
+    // touched. The renames that follow are flushed by their own fences; this one only
+    // promises the prepared copy is on disk.
+    let directory = temporary
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    sync_dir(directory).map_err(|reason| {
+        PrepareError::Copy(RestoreError::NotDurable {
+            stage: "preparing the restored copy".to_owned(),
+            path: directory.to_path_buf(),
+            reason,
+        })
+    })?;
     let options = StoreOptions::beside(temporary, now);
     let store = Store::open(temporary, options)
         .await
@@ -350,117 +427,4 @@ async fn prepare(
     store.close().await;
     let applied = counted.map_err(|err| PrepareError::Open(RestoreError::Open(err)))?;
     Ok(applied.saturating_sub(installed))
-}
-
-/// Moves the current database and its sidecars to `before`.
-fn move_aside(
-    moves: &mut Moves,
-    database: &Path,
-    mut before: Option<&mut Reservation>,
-    fail_at: Option<&str>,
-) -> Result<(), RestoreError> {
-    for (source, tail) in companions(database) {
-        if !source.exists() {
-            continue;
-        }
-        if forced(fail_at, "aside", tail) {
-            return Err(RestoreError::Io {
-                path: source,
-                reason: "cannot move it aside: simulated failure".to_owned(),
-            });
-        }
-        let Some(before) = before.as_deref_mut() else {
-            return Err(RestoreError::Io {
-                path: source,
-                reason: "no preserved name was reserved".to_owned(),
-            });
-        };
-        let destination = suffix(before.path(), tail);
-        moves.perform(&source, &destination)?;
-        if tail.is_empty() {
-            // The real database has taken the name. From here it is never a placeholder,
-            // however the restore turns out, so a rollback that cannot finish leaves it
-            // where it is instead of deleting it.
-            before.filled();
-        }
-    }
-    Ok(())
-}
-
-/// Moves the prepared copy over `database`, with the SQLite side files its open left.
-fn swap_in(
-    moves: &mut Moves,
-    temporary: &Path,
-    database: &Path,
-    fail_at: Option<&str>,
-) -> Result<(), RestoreError> {
-    for tail in ["-wal", "-shm"] {
-        let side = suffix(temporary, tail);
-        if !side.exists() {
-            continue;
-        }
-        if forced(fail_at, "swap", tail) {
-            return Err(RestoreError::Io {
-                path: side,
-                reason: "cannot install it: simulated failure".to_owned(),
-            });
-        }
-        moves.perform(&side, &suffix(database, tail))?;
-    }
-    if forced(fail_at, "swap", "") {
-        return Err(RestoreError::Io {
-            path: temporary.to_owned(),
-            reason: "cannot install it: simulated failure".to_owned(),
-        });
-    }
-    moves.perform(temporary, database)
-}
-
-/// Whether the step `phase` with sidecar `tail` is the one a test asked to fail.
-fn forced(fail_at: Option<&str>, phase: &str, tail: &str) -> bool {
-    let wanted = match (phase, tail) {
-        ("aside", "-wal") => "aside-wal",
-        ("aside", "-shm") => "aside-shm",
-        ("swap", "-wal") => "swap-wal",
-        ("swap", "-shm") => "swap-shm",
-        ("swap", "") => {
-            // The rollback-failure step installs nothing either.
-            return matches!(fail_at, Some("swap-database" | "undo-database"));
-        }
-        _ => return false,
-    };
-    fail_at == Some(wanted)
-}
-
-/// The error to report after a failed step, naming the moves that could not be undone.
-fn recover(err: RestoreError, stuck: Vec<String>) -> RestoreError {
-    if stuck.is_empty() {
-        err
-    } else {
-        RestoreError::RecoveryIncomplete {
-            reason: err.to_string(),
-            recovery: stuck.join("; "),
-        }
-    }
-}
-
-/// Flushes the directory holding `path`, so a rename there survives a crash. Errors are
-/// propagated: a restore that cannot make its copy durable must not go on to swap it in.
-#[cfg(unix)]
-fn sync_dir(path: &Path) -> Result<(), RestoreError> {
-    let dir = path
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
-    let handle = std::fs::File::open(dir).map_err(|err| io_err(dir, err))?;
-    handle.sync_all().map_err(|err| io_err(dir, err))
-}
-
-/// Windows has no portable directory fsync, so this is a no-op there (see the note).
-#[cfg(not(unix))]
-fn sync_dir(_path: &Path) -> Result<(), RestoreError> {
-    // Windows has no portable directory fsync. The file's own data is synced before the
-    // swap and the renames are ordered, but a crash can still lose the directory entry;
-    // the preserved previous database is what the operator falls back to.
-    Ok(())
 }
