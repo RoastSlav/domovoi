@@ -117,7 +117,8 @@ test; 1.1/1.2 golden frames; a 1.2 hub rejecting a 1.1 agent as `Incompatible`;
 `entry_script_digest_is_hash_of_resolved_file_bytes`,
 `entry_script_digest_is_present_in_every_loaded_skill_summary`,
 `entry_script_change_after_catalog_load_is_refused`, `entry_script_digest_survives_hello_roundtrip`,
-`entry_script_digest_is_not_manifest_hash`, with the 1.1 fixtures untouched. The `04 §15.2` crash-window
+`entry_script_digest_rejects_noncanonical_hex`, `entry_script_digest_is_not_manifest_hash`, with the 1.1
+fixtures untouched. The `04 §15.2` crash-window
 tests belong to 21, which owns the reconcile path they exercise.
 
 **Blockers.** None. Type: implementation, cross-cutting. Model: **L** — careful reviewer, strongest

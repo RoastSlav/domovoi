@@ -196,15 +196,21 @@ Rules:
 pub struct SkillSummary {
     // ... the existing fields, unchanged ...
     /// SHA-256 of the raw bytes of the agent's canonical resolved entry executable.
+    /// Decoded only from exactly 64 ASCII lowercase hexadecimal characters (5.2).
+    #[serde(deserialize_with = "strict_script_digest")]
     pub entry_script_digest: ScriptDigest,
 }
 ```
 
-- The wire value is exactly 64 lowercase hexadecimal characters, serialized as a string. It is a digest of
-  file **bytes**, not of a path, a symlink target, a manifest, a README or the catalogue.
+- The wire value is exactly 64 **lowercase** hexadecimal characters, serialized as a string, and decoding
+  must reject anything else — uppercase, mixed case, a prefix, padding, whitespace, an empty string or any
+  other length. Lowercase serialization alone is not enough: the requirement is a canonical form in both
+  directions, and 5.2 makes the decode strict. It is a digest of file **bytes**, not of a path, a symlink
+  target, a manifest, a README or the catalogue.
 - **Mandatory.** No `Option`, no `entry:absent`, no all-zero sentinel, no fabricated placeholder, no
   `#[serde(default)]`. A 1.2 skill summary without it does not decode, and the hub must never treat such an
-  element as a complete summary. A missing field is a protocol error, not an older agent.
+  element as a complete summary. A missing field is a protocol error, not an older agent. The strict
+  deserializer is not a default: a missing field still fails.
 - This is an addition to an existing element, not a new top-level `hello` field and not a new message. The
   `hello` frame keeps its shape apart from the fields inside `skills[]`.
 - 1.1 historical fixtures stay byte-for-byte unchanged (`8.6`); the 1.2 golden frame pins the digest, and
@@ -228,11 +234,35 @@ impl ScriptDigest {
     #[must_use]
     pub fn of_bytes(bytes: &[u8]) -> Self;
 }
+
+/// Decodes the canonical wire form only: exactly 64 ASCII characters, each `0-9` or `a-f`.
+///
+/// Uppercase, mixed case, a `0x` prefix, whitespace, padding, an empty string and every
+/// other length are refused with a serde error. `sha256_newtype!`'s generated `FromStr`
+/// uses `hex::decode_to_slice`, which accepts uppercase, so the wire path must not reach
+/// it without this check.
+fn strict_script_digest<'de, D>(deserializer: D) -> Result<ScriptDigest, D::Error>
+where
+    D: serde::Deserializer<'de>;
 ```
 
 - `sha256_newtype!` already gives `Copy`, `Debug`, hex `Display`, `FromStr` and serde as a 64-character
-  string; `digest` stays `pub(crate)`, so `of_bytes` is the only public way to construct one and every call
-  site names its intent.
+  string; `digest` stays `pub(crate)`, so `of_bytes` is the only public ordinary way to construct one and
+  every call site names its intent.
+- **Decoding is strict, and only for this field.** `SkillSummary::entry_script_digest` carries
+  `#[serde(deserialize_with = "strict_script_digest")]`: the decoded text must be exactly 64 ASCII
+  characters, each in `0-9` or `a-f`. Anything else is a decode error, not a repaired value. Serialization
+  stays the lowercase hex the macro emits, so a valid value round-trips byte-for-byte.
+- **Do not widen the change.** Leave `sha256_newtype!` and every other newtype (`ManifestHash`, `PlanHash`,
+  `Sha256Bytes`) exactly as they are: their permissive `FromStr` is existing behaviour and not this
+  prompt's. Making the macro strict would change four types and their stored and wire semantics at once; if
+  that is ever wanted, it is a separate change with its own justification and its own tests. The
+  field-specific deserializer is the required default. An equivalently narrow alternative is acceptable only
+  if it is confined to `ScriptDigest` and leaves every other newtype's decode untouched — say which you
+  chose in the completion report.
+- `FromStr` may stay permissive for local convenience, but no wire path may use it unchecked: `SkillSummary`
+  decoding goes through `strict_script_digest`, and no `Deserialize` shortcut, `Default`, alias, fallback or
+  normalizing helper may be added to `ScriptDigest`, `SkillSummary` or `hello`.
 - It is a **distinct type** from `ManifestHash` (canonical manifest JSON) and from `PlanHash` (the plan
   binding). Do not add `From` conversions, do not alias them, do not store one in the other's column or
   field. A test asserts the three never compare equal for the same input.
@@ -1389,8 +1419,14 @@ Add:
 - **`entry_script_digest_survives_hello_roundtrip`** (proto): a 1.2 `Hello` carrying a summary with a digest
   serializes to the 64-hex wire value, parses back unchanged, and is covered by the 1.2 golden frame; a 1.2
   summary without the field is refused rather than defaulted.
+- **`entry_script_digest_rejects_noncanonical_hex`** (proto): a `hello` whose skill summary carries
+  uppercase or mixed-case hex is refused, and so are a 63-character and a 65-character value, an empty
+  string, a `0x` prefix and surrounding whitespace. Exactly 64 lowercase `0-9`/`a-f` characters decode and
+  round-trip unchanged. Lowercase serialization alone does not satisfy this: the decode is strict
+  (`strict_script_digest`, 5.2), and a permissive `FromStr` elsewhere in the crate does not reopen it.
 - Retain every existing catalogue, symlink, permission, runner and protocol test; do not relax a load check
-  to make the digest fit.
+  to make the digest fit, and keep the missing-field rejection from
+  `entry_script_digest_survives_hello_roundtrip`.
 
 ## 15. Implementation order
 
