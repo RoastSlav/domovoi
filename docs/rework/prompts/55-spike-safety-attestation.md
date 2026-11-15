@@ -373,19 +373,21 @@ directly onto the harness, use that name; otherwise name the scratch test after 
 
 | ID | Area | Required coverage | Method | What it establishes |
 |---|---|---|---|---|
-| A1 | Encoding | Every valid C1–C4 vector: exact bytes, length and SHA-256 | Build config lines from the TOML inputs, hash, compare | That the config encoding and hash algorithm reproduce the contract exactly |
-| A2 | Encoding | C2 equivalence: semantically equal TOML, different spelling and order, same hash | Parse both inputs, normalise, hash | That normalisation is value-based, not text-based |
+| A1 | Encoding | Every valid C1–C4 vector: exact bytes, length and SHA-256: `config_hash_matches_vectors` | Build config lines from the TOML inputs, hash, compare | That the config encoding and hash algorithm reproduce the contract exactly |
+| A2 | Encoding | C2 equivalence: semantically equal TOML, different spelling and order, same hash: `equivalent_toml_same_config_hash` | Parse both inputs, normalise, hash | That normalisation is value-based, not text-based |
 | A3 | Encoding | C3 narrowing a CIDR changes the hash; C4 defaults and mandatory units | Hash each, compare with the published vectors | That content changes and defaults behave as specified |
-| A4 | Encoding | R1–R4 route vectors, including the empty route state and the compound selector with a delimiter and space in an interface name | Build route lines, hash, compare | That the route encoding, sorting and percent-encoding reproduce the contract |
-| A5 | Invalid encoding | Every invalid-input example in `04b`: an extra field from a raw pipe byte, lowercase hex, encoded literal byte, CIDR with host bits set, non-RFC-5952 IPv6, duplicate lines, unsorted lines | Feed each to the strict decoder | That invalid input is rejected rather than normalised |
-| A6 | Invalid encoding | Beyond `04b`: missing final LF, CR, BOM, blank line, trailing space, unknown key, missing key, out-of-order key, wrong field count, truncated escape, raw non-ASCII byte, wrong `format` | Parser-level cases, one assertion each | That the parser is strict on boundaries the vectors do not enumerate |
-| B1 | Signature | Raw-byte signing over `domovoi-safety-attest-v1\n` ‖ report bytes, and verification with `verify_strict` | Sign, verify, compare signature length 64 | Domain separation and signature shape |
+| A4 | Encoding | R1–R4 route vectors, including the empty route state and the compound selector with a delimiter and space in an interface name: `route_state_hash_matches_vectors` | Build route lines, hash, compare | That the route encoding, sorting and percent-encoding reproduce the contract |
+| A5 | Invalid encoding | Every invalid-input example in `04b`: an extra field from a raw pipe byte, lowercase hex, encoded literal byte, CIDR with host bits set, non-RFC-5952 IPv6, duplicate lines, unsorted lines: `report_rejects_invalid_encoding_vectors`, `report_parser_rejects_duplicates_unsorted_and_noncanonical` | Feed each to the strict decoder | That invalid input is rejected rather than normalised |
+| A6 | Invalid encoding | Beyond `04b`: missing final LF, CR, BOM, blank line, trailing space, unknown key, missing key, out-of-order key, wrong field count, truncated escape, a raw non-ASCII byte that is valid UTF-8, wrong `format` | Parser-level cases, one assertion each | That the parser is strict on boundaries the vectors do not enumerate |
+| A7 | Invalid encoding | A byte sequence that is not valid UTF-8 at all (for example a lone `0xFF`, or an overlong `0xC0 0x80`) | Feed the raw bytes to the parser before or during UTF-8 decoding; record the exact error | That UTF-8 validity is checked as its own step, separate from percent-encoding. A6's raw non-ASCII byte is valid UTF-8 and must be rejected for lacking percent-encoding; A7 must be rejected for not being UTF-8. Different validation paths, so both are required |
+| B1 | Signature | Raw-byte signing over `domovoi-safety-attest-v1\n` ‖ report bytes, and verification with `verify_strict`: `helper_attestation_signature_verifies` | Sign, verify, compare signature length 64 | Domain separation and signature shape |
 | B2 | Signature | Verification uses the pinned 32 bytes, not `helper_key_id` | Sign with key A, present key id of A with key B, verify | That a key identifier cannot stand in for a key |
-| B3 | Signature | Altered report, altered signature, wrong key and truncated signature are all rejected | Mutate one byte and re-verify | Tamper detection |
+| B3 | Signature | Altered report, altered signature, wrong key and truncated signature are all rejected: `attestation_rejected_for_wrong_key`, `helper_attestation_rejects_forged_report` | Mutate one byte and re-verify | Tamper detection |
 | B4 | Parser | Signature-first ordering: a report that would fail both signature and parse is rejected as a signature failure, and the received bytes are the ones parsed | Instrument the verification path; feed a valid signature over an invalid report and an invalid signature over a valid report | That the hub never reserialises before verifying, and never normalises |
-| C1 | Key enrollment | Public-key exchange: exactly 32 bytes, standard padded base64, other lengths rejected; the hub computes the fingerprint from the bytes | Encode a key, decode, recompute the fingerprint | The exchange format and fingerprint derivation |
+| T1 | Trust acceptance | A report with `complete=false` and a valid `incomplete_reason` is signed over the exact bytes with the pinned key and the domain-separated input, under a valid, outstanding, unexpired nonce for the correct host. Signature and nonce checks must pass, and the report must still not be accepted or stored as verified safety state: `signed_incomplete_report_not_accepted_as_verified`. An unverified report must be rejected as safety state: `hub_rejects_unverified_safety_report` | Assert the signature and nonce results separately from the acceptance result; inspect the stored state and the containment gate | That `complete=true` is a third, independent acceptance condition. It stays an incomplete/unverified report and cannot enable verified-path unattended containment. The unverified human path is governed by RW-37 and is not extended here |
+| C1 | Key enrollment | Public-key exchange: exactly 32 bytes, standard padded base64, other lengths rejected; the hub computes the fingerprint from the bytes: `helper_public_key_exchange_and_fingerprint` | Encode a key, decode, recompute the fingerprint | The exchange format and fingerprint derivation |
 | C2 | Key enrollment | `first_contact_does_not_pin_key`, `key_id_never_used_for_verification`, `key_substitution_by_agent_is_detected` | Simulate an enrollment store with no automatic pin | That trust requires the out-of-band comparison |
-| C3 | Key lifecycle | `init` creates a key and `generation=1` only when nothing exists and refuses to overwrite; `recover` retires and starts at 1; `rotate-key` starts at 1; unpin blocks; re-enrollment replaces the pin | Scripted sequences over a temp directory | The lifecycle rules and their fail-closed edges |
+| C3 | Key lifecycle | `init` creates a key and `generation=1` only when nothing exists and refuses to overwrite; `recover` retires and starts at 1; `rotate-key` starts at 1; unpin blocks; re-enrollment replaces the pin: `helper_state_recovery_requires_explicit_local_action`, `key_rotation_blocks_until_reenrolled`, `key_rotation_invalidates_previous_pin`, `unpin_blocks_containment`, `agent_reenrollment_keeps_helper_pin` | Scripted sequences over a temp directory | The lifecycle rules and their fail-closed edges |
 | D1 | Nonce | 32 random bytes; per-host binding; 60-second validity; single use | Issue, verify, reuse, age past 60 s with an injected clock, present another host's nonce | Nonce semantics without sleeping |
 | D2 | Nonce | `helper_attestation_rejects_replayed_nonce`, `attestation_rejected_for_other_host`, expired and missing nonce | Library calls with explicit timestamps | The replay and freshness guards |
 | E1 | Config hash | Normalisation of CIDRs, mandatory protected units, canonical unit suffixes, de-duplication, defaults `3600`/`0` | Build config lines from varied inputs | That the effective configuration is what is hashed |
@@ -394,28 +396,51 @@ directly onto the harness, use that name; otherwise name the scratch test after 
 | F2 | Route hash | `nondefault_route_change_for_endpoint_changes_generation`, `irrelevant_route_change_keeps_generation`, `route_replacement_and_deletion_detected` | Three fixtures differing in one property each | Which changes matter and which do not |
 | F3 | Route hash | `multiple_tables_and_rules_observed`, `multiple_interfaces_and_gateways_observed`, `vpn_tunnel_route_to_hub_observed` | Fixtures plus, if possible, a read-only live observation | Coverage of non-default topologies |
 | F4 | Route hash | `incomplete_route_data_fails_closed`: a failed lookup, an unreadable table, a partial read | Fixture with an injected read error | That incomplete state never produces a hash |
-| G1 | Generation | Relevant change increments; irrelevant change, containment-set membership change and boot-only change do not; rotation restarts at 1 | State machine over the temp state file | Generation semantics |
+| G1 | Generation | Relevant change increments; irrelevant change, containment-set membership change and boot-only change do not; rotation restarts at 1: `containment_membership_change_keeps_generation` | State machine over the temp state file | Generation semantics |
 | G2 | Generation | `generation_never_decreases_under_same_key`, `hub_rejects_generation_regression` | Restore an older state file; feed the hub simulation | Regression rejection, including after an old state file is restored |
 | H1 | State persistence | Exact state file format, field order, checksum over preceding bytes, `0600` file and `0700` directory | Create, parse, compare bytes | That the format and permissions are as specified |
-| H2 | State persistence | Fail-closed conditions: `state_missing`, `state_corrupt`, `state_key_mismatch`, `key_missing`, `uninitialized` | One case each with its exact `incomplete_reason` | The documented fail-closed set |
-| H3 | State persistence | Atomic write sequence, `fsync` of file and directory, leftover `state.tmp` deleted under the lock at startup, interrupted write leaves the old file intact | Inject a pre-existing `state.tmp`, a partial write, and a child `kill -9` mid-sequence | The write protocol's observable guarantees, and its limits |
+| H2 | State persistence | Fail-closed conditions with their exact reasons: `state_missing`, `state_corrupt`, `state_key_mismatch`, `key_missing`, `uninitialized`: `generation_state_missing_with_key_fails_closed`, `generation_state_corrupt_with_key_fails_closed`, `generation_state_key_mismatch_fails_closed` | One case each with its exact `incomplete_reason` | The documented fail-closed set |
+| H3 | State persistence | Atomic write sequence, `fsync` of file and directory, leftover `state.tmp` deleted under the lock at startup, interrupted write leaves the old file intact: `interrupted_state_write_never_reuses_generation` | Inject a pre-existing `state.tmp`, a partial write, and a child `kill -9` mid-sequence | The write protocol's observable guarantees, and its limits |
 | I1 | Concurrency | Multiple independent processes contending on `flock(LOCK_EX)`, no conflicting generation updates, `concurrent_attestations_serialize_generation_updates` | Spawn N children, each read-recompute-write, then inspect the final state | Interprocess serialisation |
 | I2 | Concurrency | State cannot change between the comparison and the apply within the held lock; a simulated apply sees the state it compared | Instrument the simulated apply | The lock's scope, as specified |
 | J1 | Safety races | `config_change_between_attestation_and_apply_refused`, `network_change_between_attestation_and_apply_refused`, `reboot_between_permit_and_apply_refused`, `generation_change_between_permit_and_apply_refused` | Change one input between the two simulated steps | Refusal `safety_changed` on each mismatch |
 | J2 | Safety races | `helper_fails_closed_when_safety_state_unknown`; a config error mid-apply | Inject an unreadable config and a failed read | `safety_unknown` |
-| K1 | Expected safety | Both tagged forms parse; a missing tag, unknown tag, missing field and extra field are refused `malformed_safety` | Parser cases | The tagged value's shape |
+| K1 | Expected safety | Both tagged forms parse; a missing tag, unknown tag, missing field and extra field are refused `malformed_safety`: `malformed_expected_safety_refused` | Parser cases | The tagged value's shape |
 | K2 | Expected safety | Verified comparison over the full five-field identity, not a subset | Change one field at a time | That every field is compared |
 | K3 | Adversarial agent | `helper_refuses_target_overlapping_exclusion_even_if_agent_requests`, `helper_refuses_overlap_without_expected_safety`, `exclusion_overlap_refused_even_on_unverified_human_path` | Simulated apply with fabricated, omitted and `unverified` expected-safety values | That enforcement is independent of what the request says |
 | K4 | Adversarial agent | `agent_cannot_fabricate_effective_safety_set`: an attestation built from agent-supplied data fails signature verification | Attempt to sign with a different key and to alter relayed bytes | That only the helper's key produces an accepted attestation |
-| L1 | Unverified path | `human_containment_with_no_pinned_key_uses_unverified_path`, `…_with_expired_attestation_…`, `…_with_invalid_signature_…`, `…_with_incomplete_routes_…`; `unattended_containment_refused_in_every_unverified_case`; `agent_refuses_unverified_with_policy_label` | Simulated agent and hub decision functions | The unverified human-only path and the policy refusal |
+| L1 | Unverified path | `human_containment_with_no_pinned_key_uses_unverified_path`, `human_containment_with_expired_attestation_uses_unverified_path`, `human_containment_with_invalid_signature_uses_unverified_path`, `human_containment_with_incomplete_routes_uses_unverified_path`, `unattended_containment_refused_in_every_unverified_case`, `agent_refuses_unverified_with_policy_label` | Simulated agent and hub decision functions | The unverified human-only path and the policy refusal |
 | L2 | Unverified path | `human_approved_containment_shows_uncovered_paths`; a fabricated identity is never present in an `unverified` value | Construct each reason and inspect the value | That `unverified` carries no identity |
+| P1 | Coverage and confirmation | `owner_cannot_confirm_uncovered_management_path`, `new_management_path_requires_local_helper_configuration`, `changed_helper_safety_set_invalidates_confirmation`: the pure coverage rule (a candidate is covered only if its CIDR is a subset of a `cidr` line or equals a `hub_addr` or `link_peer` address, using verified data only) and the stored-identity comparison | Simulated hub coverage and confirmation store over verified attestation data | The pure coverage and confirmation rules. The UI, step-up and audit-trail parts are product behaviour and are **not demonstrated** here |
 | M1 | Limits | `agent_limit_stricter_than_helper_applies`, `agent_limit_above_helper_is_capped`, `helper_active_count_is_authoritative`, mutation limit enforcement | Simulated apply with limit combinations | That helper maxima cannot be widened from above |
 | M2 | Freshness | `stale_attestation_blocks_unattended_containment`, `confirmation_survives_reboot_only_when_identity_otherwise_equal`, `permit_from_before_reboot_refused` | Injected clock and boot id | The 5-minute rule and the reboot exception |
 | N1 | Cost | Cost of recomputing the configuration and route state per request in the scratch harness | Time N repetitions over a fixed fixture; report median, spread, N and the machine | A local measurement with stated limits, not a production threshold |
-| O1 | Live observation | Optional read-only route observation on WSL2 as a contrast to the fixtures | `ip rule show`, `ip route show table all`, `ip -6 route`, `ip addr` | What a live host looks like; not a validation of the hash contract |
+| O1 | Live observation | **Optional and read-only.** A read-only route observation on WSL2 as a contrast to the fixtures | `ip rule show`, `ip route show table all`, `ip -6 route`, `ip addr` | What a live host looks like; not a validation of the hash contract. If it cannot be performed safely or is unavailable, mark it **not demonstrated** with the reason; the mandatory scratch-harness suite is still complete without it |
+
+Every row except O1 is mandatory. O1 is optional and read-only: skipping it leaves the mandatory
+scratch-harness suite complete, but it must be marked **not demonstrated** with the reason, never silently
+omitted. The live-read restrictions in §6 are unchanged.
 
 Rows that reference RW-37 test names must keep those names and state whether the test was reproduced,
 adapted or marked **not demonstrated**.
+
+### 8.1 RW-37 tests this harness cannot demonstrate
+
+The RW-37 test list has entries whose subject is a real process boundary, product path or UI. They stay in
+the matrix scope but are marked **not demonstrated** by this harness, with the missing boundary recorded.
+The scratch harness must not claim to validate a real process-security boundary.
+
+| RW-37 test | Why the scratch harness cannot decide it | Where it must be tested |
+|---|---|---|
+| `helper_attestation_key_not_readable_by_agent_or_skill` | The harness runs in one process tree under one identity; it has no real `domovoi-agent`/`domovoi-skill` separation and no real `/var/lib/domovoi-helper` | Prompt 47's implementation plus the conventional-Linux isolation checks from prompt 54 |
+| `monitoring_unaffected_by_missing_management_paths` | This is an evaluation and product-path behaviour (policy, task selection, UI), not attestation logic | The hub and evaluation implementation, prompts 45–46 and the M9 drills |
+
+The authenticated surface of the unverified path — step-up, typed confirmation and the
+`containment.unverified_approved` audit record — is also outside the harness. L1 demonstrates the decision
+function and the policy refusal, not that surface.
+
+Coverage and confirmation tests that are pure functions are in P1 instead: they are reproducible without a
+real hub, and only their UI and step-up parts are deferred.
 
 ## 9. Ordered instructions for the executor
 
@@ -430,14 +455,16 @@ adapted or marked **not demonstrated**.
    `[workspace]` table; prove with `cargo metadata` that the root workspace membership is unchanged.
 4. **Implement encoding and hash reproduction first** and make A1–A4 pass against the published vectors
    before building anything on top.
-5. **Implement report construction, key handling, signing and the strict parser**, then B1–B4 and A5–A6.
+5. **Implement report construction, key handling, signing and the strict parser**, then B1–B4 and A5–A7.
 6. **Implement nonce issuance, expiry, single-use storage and hub-side pinned-key verification**, then
-   C1–C3 and D1–D2.
+   C1–C3, D1–D2 and T1.
 7. **Implement configuration and route state, generation and safety identity**, then E1–E2, F1–F4, G1–G2.
 8. **Implement persistent state, checksums, atomic writes and interprocess `flock`**, then H1–H3 and I1–I2.
 9. **Implement expected-safety comparison, the simulated apply path and the adversarial scenarios**, then
-   J1–J2, K1–K4, L1–L2 and M1–M2.
-10. **Run the complete matrix**, including the optional live read, and the cost measurement N1.
+   J1–J2, K1–K4, L1–L2 and M1–M2. Add the pure coverage and confirmation checks, P1.
+10. **Run every mandatory row**, plus the cost measurement N1. O1 is optional: run it only if the read-only
+    observation is safe and available, and mark it **not demonstrated** with the reason otherwise. Do not
+    treat a skipped O1 as an incomplete suite, and do not treat it as passing.
 11. **Inspect every failed, skipped and inconclusive result.** A failing test is a finding, not a nuisance:
     decide whether the harness is wrong, the vector is wrong or the design is ambiguous, and report which.
 12. **Write the report** at the path rule in §10 and keep the harness, fixtures and any scripts needed to
@@ -470,7 +497,8 @@ Required sections:
 6. **The `incomplete_reason` conflict** — the `04b` §1 versus RW-37 reading, the options, the consequences
    and what the harness currently does.
 7. **Signature, key and nonce findings** — including the key-id-is-a-label test, substitution, replay and
-   expiry.
+   expiry, and the acceptance boundary where a correctly signed `complete=false` report under a valid nonce
+   is still not verified safety state.
 8. **Route-state findings** — which changes alter `route_state_hash` and which do not, with the fixture
    deltas; the VPN/tunnel case; incomplete reads.
 9. **Generation and identity findings** — the increment rules, the reboot exception and regression
@@ -483,7 +511,8 @@ Required sections:
     list.
 13. **Cost measurement** — method, sample size, results and their limits.
 14. **Test matrix status** — every row from §8 with pass, fail, not demonstrated or requiring conventional
-    Linux validation.
+    Linux validation. State explicitly which RW-37 tests were reproduced, adapted or deferred to §8.1, and
+    mark O1 separately as optional.
 15. **Unresolved ambiguities and contradictions** — each with the evidence and the decision it needs.
 16. **Items requiring conventional Linux validation** — at minimum: live netlink observation on a real
     host with policy routing and a VPN, multiple systemd versions where relevant, a real filesystem's
@@ -495,8 +524,12 @@ Required sections:
 
 - All C1–C4 and R1–R4 vectors reproduced exactly, with lengths and digests, or a reported contradiction
   with the bytes you produced.
-- Every invalid-input case in `04b` rejected, plus the additional boundary cases in A6.
+- Every invalid-input case in `04b` rejected, plus the additional boundary cases in A6, including a
+  non-UTF-8 byte sequence (A7) rejected separately from a valid UTF-8 raw non-ASCII byte.
 - Signature-first verification and strict parsing of the original bytes demonstrated.
+- `signed_incomplete_report_not_accepted_as_verified` demonstrated: a correctly signed report with
+  `complete=false` and a valid nonce under the pinned key is not accepted or stored as verified safety
+  state, and cannot enable verified-path unattended containment.
 - Nonce randomness properties, 60-second expiry, single use and host binding tested without sleeping.
 - Key enrollment, no-automatic-pin, rotation, recovery, unpin and every fail-closed state tested.
 - Route-state behaviour tested with synthetic fixtures, including relevant versus irrelevant changes,
