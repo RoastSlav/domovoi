@@ -5,7 +5,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use clap::{Args, Subcommand};
-use domovoi_agent::{AgentRuntime, EnrollEnv, EnrollToken, enroll, production};
+use domovoi_agent::{
+    AgentRuntime, EnrollEnv, EnrollToken, Journal, JournalError, enroll, production,
+};
+use domovoi_core::ports::Clock as _;
 use domovoi_runner::SandboxExecutor;
 use url::Url;
 
@@ -22,6 +25,18 @@ pub enum AgentCommand {
     Enroll(EnrollArgs),
     /// Show what the link last recorded: connected, reconnecting or incompatible.
     Status(ConfigArg),
+    /// Create, inspect or reset the durable action journal.
+    #[command(subcommand)]
+    Journal(JournalCommand),
+}
+
+/// `agent journal` subcommands. Both are local owner actions and never reachable from the hub.
+#[derive(Debug, Subcommand)]
+pub enum JournalCommand {
+    /// Create the journal for the first time. Refuses if either journal file exists.
+    Init(ConfigArg),
+    /// Archive the existing journal and start a new epoch. Refuses while the agent owns it.
+    Reset(ConfigArg),
 }
 
 /// `--config` for agent commands.
@@ -72,6 +87,47 @@ pub async fn run(command: AgentCommand, logs: Arc<LogRing>) -> anyhow::Result<Ex
             let agent = AgentRuntime::new(config, deps).await?;
             agent.run(init::shutdown_on_signals()).await?;
             Ok(ExitCode::SUCCESS)
+        }
+        AgentCommand::Journal(command) => {
+            let (args, reset) = match command {
+                JournalCommand::Init(args) => (args, false),
+                JournalCommand::Reset(args) => (args, true),
+            };
+            let config = load_agent(&args.config)?;
+            let clock = SystemClock;
+            let fs = production::host_fs(&config);
+            let boot_id = fs
+                .read_to_string("/proc/sys/kernel/random/boot_id")
+                .await
+                .unwrap_or_default()
+                .trim()
+                .to_owned();
+            let mono_ns = domovoi_agent::facts::parse_uptime_ns(
+                &fs.read_to_string("/proc/uptime").await.unwrap_or_default(),
+            );
+            let dir = &config.agent.state_dir;
+            let result = if reset {
+                Journal::reset(dir, clock.now(), &boot_id, mono_ns)
+            } else {
+                Journal::init(dir, clock.now(), &boot_id, mono_ns)
+            };
+            match result {
+                Ok(epoch) => {
+                    println!(
+                        "The action journal at {} now uses epoch {epoch}.",
+                        dir.display()
+                    );
+                    Ok(ExitCode::SUCCESS)
+                }
+                Err(JournalError::Locked(_)) => {
+                    super::warn(
+                        "the agent owns the journal; stop it with `systemctl stop domovoi-agent`, \
+                         run this command, then start it again",
+                    );
+                    Ok(ExitCode::FAILURE)
+                }
+                Err(err) => Err(err.into()),
+            }
         }
         AgentCommand::Status(args) => {
             let config = load_agent(&args.config)?;

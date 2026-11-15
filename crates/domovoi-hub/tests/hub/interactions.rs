@@ -104,7 +104,9 @@ pub async fn proposed(a: &Api, risk: Risk) -> (ActionRequest, String) {
     } else {
         "restart_container"
     };
-    let summary = manifest(name, risk).unwrap().summary();
+    let summary = manifest(name, risk)
+        .unwrap()
+        .summary(domovoi_core::ScriptDigest::of_bytes(b"fixture entry"));
     let args = summary.validate_args(&BTreeMap::new()).unwrap();
     let token = mint_token();
     let action = ActionRequest::propose(

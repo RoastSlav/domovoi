@@ -87,8 +87,28 @@ async fn signals_are_submitted_and_acknowledged_and_facts_recorded() {
         )
         .await;
     assert!(
-        matches!(agent.expect().await.message, Message::Unsupported(u) if u.kind == "telepathy")
+        matches!(agent.expect().await.message, Message::Unsupported(u) if u.type_name == "telepathy")
     );
+}
+
+#[tokio::test]
+async fn unsupported_message_does_not_end_session() {
+    let hub = Hub::start().await;
+    let (_ident, mut agent) = online(&hub, "nas").await;
+    agent
+        .send(
+            Message::Unknown {
+                kind: "telepathy".to_owned(),
+            },
+            None,
+        )
+        .await;
+    assert!(
+        matches!(agent.expect().await.message, Message::Unsupported(u) if u.type_name == "telepathy")
+    );
+    // The same session is still usable afterwards.
+    agent.send(Message::Ping(Ping { at: t0() }), None).await;
+    assert!(matches!(agent.expect().await.message, Message::Pong(_)));
 }
 
 #[tokio::test]
@@ -196,7 +216,7 @@ async fn logs_are_requested_and_answered_or_rejected() {
     agent
         .send(
             Message::Unsupported(Unsupported {
-                kind: "get_logs".to_owned(),
+                type_name: "get_logs".to_owned(),
             }),
             Some(request.id),
         )

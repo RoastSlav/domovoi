@@ -1,0 +1,14 @@
+---
+source: crates/domovoi-proto/tests/protocol/snapshots.rs
+expression: "pretty(&message, reply)"
+---
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "transfer_result",
+  "payload": {
+    "outcome": "stored",
+    "transfer_id": "01900000-0000-7000-8000-0000000000f1"
+  },
+  "reply_to": "01900000-0000-7000-8000-000000000002",
+  "v": 1
+}

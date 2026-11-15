@@ -1,0 +1,22 @@
+---
+source: crates/domovoi-proto/tests/protocol/snapshots.rs
+expression: "pretty(&message, reply)"
+---
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "run_capability",
+  "payload": {
+    "args": {
+      "container": "plex"
+    },
+    "authorization_kind": "human",
+    "contract": "container.restart",
+    "execution_id": "01900000-0000-7000-8000-0000000000f1",
+    "expected_safety": null,
+    "expires_at": "2023-11-14T22:14:50Z",
+    "plan_hash": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+    "target": "container:plex",
+    "version": 1
+  },
+  "v": 1
+}

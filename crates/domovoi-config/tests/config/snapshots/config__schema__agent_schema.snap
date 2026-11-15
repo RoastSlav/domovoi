@@ -72,6 +72,10 @@ expression: "AgentConfig::json_schema()"
           "type": "string",
           "format": "uri"
         },
+        "mutation_limits": {
+          "description": "How many mutating capability executions this agent accepts. Local and root-owned;\nthe hub cannot send, widen or override it.",
+          "$ref": "#/$defs/MutationLimits"
+        },
         "skills_dir": {
           "description": "Where skill manifests are read from. Default `/etc/domovoi/skills`.",
           "type": "string",
@@ -221,6 +225,30 @@ expression: "AgentConfig::json_schema()"
               "type": "null"
             }
           ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "MutationLimits": {
+      "description": "`[mutation_limits]`: the agent-side cap on mutating capability executions.\n\nSeparate from the unattended ceiling and from `[policy] allow_risk`: it limits how often a\nmutation may run, not what may run or who may approve it.",
+      "type": "object",
+      "properties": {
+        "per_capability": {
+          "description": "Per-contract per-hour limits, keyed by contract id; `0` blocks that contract.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "default": {}
+        },
+        "per_hour": {
+          "description": "Mutating executions per rolling hour. Default 30; `0` blocks every mutation.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 30,
+          "minimum": 0
         }
       },
       "additionalProperties": false

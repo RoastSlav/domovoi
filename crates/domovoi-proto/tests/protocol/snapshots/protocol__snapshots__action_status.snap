@@ -1,0 +1,15 @@
+---
+source: crates/domovoi-proto/tests/protocol/snapshots.rs
+expression: "pretty(&message, reply)"
+---
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "action_status",
+  "payload": {
+    "execution_ids": [
+      "01900000-0000-7000-8000-0000000000f1"
+    ],
+    "expected_epoch": "01900000-0000-7000-8000-0000000000f0"
+  },
+  "v": 1
+}

@@ -60,6 +60,7 @@ pub use interaction::{Interaction, InteractionKind, InteractionReply};
 pub use note::Note;
 pub use notify::{ChatRefs, HeldItem, NotifyState};
 pub use severity::Severity;
+pub use sha256::ScriptDigest;
 pub use signal::{
     CheckKey, Evidence, EvidenceValue, Signal, SignalClass, SignalStatus, SourceKind, TargetKey,
 };

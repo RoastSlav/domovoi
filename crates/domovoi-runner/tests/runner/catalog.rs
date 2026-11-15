@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use domovoi_core::{SkillName, ValidatedArgs};
+use domovoi_core::{ScriptDigest, SkillName, ValidatedArgs};
 use domovoi_runner::{RunError, SkillCatalog};
 use domovoi_testkit::FakeProcessExecutor;
 
@@ -31,6 +31,74 @@ fn valid_skills_load_with_hashes() {
     assert_eq!(summaries.len(), 1);
     assert_eq!(summaries[0].manifest_hash, skill.manifest_hash());
     assert!(summaries[0].readme.is_none());
+}
+
+#[test]
+fn entry_script_digest_is_hash_of_resolved_file_bytes() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = install_skill(dir.path(), "echo_args", "echo_args");
+    let bytes = std::fs::read(folder.join("run")).unwrap();
+    let (catalog, issues) = SkillCatalog::load(dir.path());
+    assert!(issues.is_empty(), "{issues:#?}");
+    let skill = catalog.get(&name("echo_args")).unwrap();
+    assert_eq!(skill.entry_script_digest(), ScriptDigest::of_bytes(&bytes));
+
+    // A symlink hashes the resolved target's bytes, never the link text.
+    let linked = tempfile::tempdir().unwrap();
+    let folder = install_skill(linked.path(), "echo_args", "echo_args");
+    let target = folder.join("real_run");
+    std::fs::rename(folder.join("run"), &target).unwrap();
+    std::os::unix::fs::symlink("real_run", folder.join("run")).unwrap();
+    chmod(&folder.join("run"), 0o755);
+    let target_bytes = std::fs::read(&target).unwrap();
+    let (catalog, issues) = SkillCatalog::load(linked.path());
+    assert!(issues.is_empty(), "{issues:#?}");
+    let skill = catalog.get(&name("echo_args")).unwrap();
+    assert_eq!(skill.entry_path(), canonical(&target));
+    assert_eq!(
+        skill.entry_script_digest(),
+        ScriptDigest::of_bytes(&target_bytes)
+    );
+}
+
+#[test]
+fn entry_script_digest_is_present_in_every_loaded_skill_summary() {
+    let dir = tempfile::tempdir().unwrap();
+    install_skill(dir.path(), "echo_args", "echo_args");
+    let second = install_skill(dir.path(), "echo_args", "second");
+    let manifest = std::fs::read_to_string(second.join("skill.toml")).unwrap();
+    std::fs::write(
+        second.join("skill.toml"),
+        manifest.replace("name = \"echo_args\"", "name = \"second\""),
+    )
+    .unwrap();
+    std::fs::write(second.join("run"), "#!/bin/sh\necho second\n").unwrap();
+    chmod(&second.join("run"), 0o755);
+    let (catalog, _) = SkillCatalog::load(dir.path());
+    let summaries = catalog.summaries();
+    assert_eq!(summaries.len(), 2);
+    for summary in &summaries {
+        let skill = catalog.get(&summary.name).unwrap();
+        assert_eq!(
+            summary.entry_script_digest,
+            ScriptDigest::of_bytes(&std::fs::read(skill.entry_path()).unwrap())
+        );
+    }
+    assert_ne!(
+        summaries[0].entry_script_digest,
+        summaries[1].entry_script_digest
+    );
+}
+
+#[test]
+fn unreadable_entry_keeps_the_skill_out_of_the_catalogue() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = install_skill(dir.path(), "echo_args", "echo_args");
+    // Executable but not readable: the entry check passes, the digest cannot.
+    chmod(&folder.join("run"), 0o111);
+    let (catalog, issues) = SkillCatalog::load(dir.path());
+    assert!(catalog.get(&name("echo_args")).is_none());
+    only_issue(&issues, "cannot read the resolved entry");
 }
 
 #[test]
@@ -198,4 +266,33 @@ async fn entry_swapped_after_load_is_refused() {
         other.run_skill(&skill, &args, &executor).await,
         Err(RunError::UnknownSkill(_))
     ));
+}
+
+#[tokio::test]
+async fn entry_script_change_after_catalog_load_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = install_skill(dir.path(), "echo_args", "echo_args");
+    let (catalog, _) = SkillCatalog::load(dir.path());
+    let skill = catalog.get(&name("echo_args")).unwrap().clone();
+    let before = skill.entry_script_digest();
+    let args: ValidatedArgs = skill
+        .manifest()
+        .validate_args(&BTreeMap::from([("first".to_owned(), "x".to_owned())]))
+        .unwrap();
+    let executor = FakeProcessExecutor::new();
+
+    std::fs::write(folder.join("run"), "#!/bin/sh\nexit 7\n").unwrap();
+    chmod(&folder.join("run"), 0o755);
+
+    match catalog.run_skill(&skill, &args, &executor).await {
+        Err(RunError::EntryChanged(message)) => {
+            assert!(message.contains("bytes changed"), "{message}");
+        }
+        other => panic!("expected EntryChanged, got {other:?}"),
+    }
+    assert_eq!(
+        skill.entry_script_digest(),
+        before,
+        "the stored digest never changes"
+    );
 }

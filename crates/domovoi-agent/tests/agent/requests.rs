@@ -7,7 +7,9 @@ use domovoi_agent::requests::{MAX_TOOL_OUTPUT, handle};
 use domovoi_core::ports::LogLine;
 use domovoi_core::{ReadToolCall, Risk, Severity, SignalStatus};
 use domovoi_proto::Message;
-use domovoi_proto::messages::{GetLogs, RunCheck, RunTool, ToolFailureCode, ToolOutcome};
+use domovoi_proto::messages::{
+    ActionStatusQuery, GetLogs, RunCheck, RunTool, ToolFailureCode, ToolOutcome,
+};
 use domovoi_testkit::{CannedLogSource, build::T0};
 use jiff::SignedDuration;
 
@@ -47,6 +49,21 @@ async fn tool_output_is_capped_and_redacted() {
     assert!(success.text.len() <= MAX_TOOL_OUTPUT);
     assert!(!success.text.contains(SECRET));
     assert!(success.text.starts_with("token=[REDACTED]"));
+}
+
+#[tokio::test]
+async fn action_status_rejects_more_than_64_ids() {
+    let fixture = Fixture::new();
+    let ctx = fixture.ctx(vec![Risk::Read], None, Vec::new());
+    let query = ActionStatusQuery {
+        execution_ids: (0..65).map(|_| uuid::Uuid::now_v7()).collect(),
+        expected_epoch: uuid::Uuid::nil(),
+    };
+    let reply = handle(&ctx, &RequestKind::ActionStatus(query)).await;
+    assert!(
+        matches!(&reply, Message::Error(err) if err.code == "bad_request"),
+        "{reply:?}"
+    );
 }
 
 #[tokio::test]

@@ -72,7 +72,7 @@ fn changed_restart() -> SkillSummary {
             max_len: 64,
         },
     }];
-    manifest.summary()
+    manifest.summary(domovoi_core::ScriptDigest::of_bytes(b"fixture entry"))
 }
 
 /// The host is gone and the hub has never heard from it.

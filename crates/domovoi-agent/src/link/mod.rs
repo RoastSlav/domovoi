@@ -22,7 +22,8 @@ use std::sync::Arc;
 use domovoi_core::ports::{Clock, HostFs};
 use domovoi_core::{RequestId, SkillSummary};
 use domovoi_proto::messages::{
-    CheckInfo, GetLogs, Ping, Pong, RunCheck, RunSkill, RunTool, Signals, Unsupported,
+    ActionStatusQuery, CheckInfo, GetLogs, Pong, RunCapability, RunCheck, RunSkill, RunTool,
+    Signals, Unsupported,
 };
 use domovoi_proto::{Decoded, Message, Transport};
 use jiff::SignedDuration;
@@ -30,7 +31,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use self::backoff::{Backoff, STABLE_AFTER};
-use self::handshake::{Announce, STEP_TIMEOUT, handshake, heartbeat};
+use self::handshake::{Announce, HelloExtensions, STEP_TIMEOUT, handshake, heartbeat};
 use self::status::LinkStatus;
 use self::ws::{Connected, Connector};
 use crate::error::LinkError;
@@ -59,6 +60,10 @@ pub enum RequestKind {
     Check(RunCheck),
     /// Send recent log lines.
     Logs(GetLogs),
+    /// Run one capability.
+    Capability(RunCapability),
+    /// Report what the journal knows about executions.
+    ActionStatus(ActionStatusQuery),
 }
 
 /// A request and the id its reply must carry in `reply_to`.
@@ -116,6 +121,8 @@ pub struct LinkParts {
     pub checks: Vec<CheckInfo>,
     /// What the agent found out about the container runtime, announced in `hello`.
     pub docker: Option<domovoi_proto::messages::DockerReport>,
+    /// The rest of the 1.2 `hello` extensions.
+    pub extensions: HelloExtensions,
     /// Where the hub's check overrides take effect; `None` ignores them.
     pub overrides: Option<crate::overrides::EffectiveChecks>,
     /// Signal batches to send and replay.
@@ -266,6 +273,7 @@ impl Link {
             skills: &self.parts.skills,
             checks: &self.parts.checks,
             docker: self.parts.docker.as_ref(),
+            extensions: &self.parts.extensions,
         };
         let shake = handshake(
             transport.as_mut(),
@@ -296,8 +304,9 @@ impl Link {
             overrides.apply_settings(&welcome.config);
         }
         let mut sent = None;
-        let mut missed = 0;
-        let mut next_ping = clock.now().saturating_add(beat).unwrap_or(clock.now());
+        // The hub pings; the agent answers `pong`. A silent link for three intervals is dead.
+        let mut last_activity = clock.now();
+        let mut next_check = clock.now().saturating_add(beat).unwrap_or(clock.now());
         self.flush(transport.as_mut(), &mut sent).await?;
         loop {
             tokio::select! {
@@ -306,20 +315,22 @@ impl Link {
                     let Some(decoded) = frame? else {
                         return Err(LinkError::Lost("the hub closed the connection".to_owned()));
                     };
-                    self.handle(transport.as_mut(), decoded, &mut missed, &mut beat).await?;
+                    last_activity = clock.now();
+                    self.handle(transport.as_mut(), decoded, &mut beat).await?;
                 }
                 Some(out) = self.outbox.recv() => {
                     frame::send(transport.as_mut(), &out.message, out.reply_to).await?;
                 }
                 () = self.parts.spool.pushed() => self.flush(transport.as_mut(), &mut sent).await?,
-                () = clock.sleep_until(next_ping) => {
-                    if missed >= MISSED_PONGS {
-                        return Err(LinkError::Lost(format!("{missed} pings went unanswered")));
+                () = clock.sleep_until(next_check) => {
+                    let silence = clock.now().duration_since(last_activity);
+                    let limit = beat.saturating_mul(i32::try_from(MISSED_PONGS).unwrap_or(3));
+                    if silence >= limit {
+                        return Err(LinkError::Lost(
+                            "the hub went silent for three heartbeat intervals".to_owned(),
+                        ));
                     }
-                    let ping = Message::Ping(Ping { at: clock.now() });
-                    frame::send(transport.as_mut(), &ping, None).await?;
-                    missed += 1;
-                    next_ping = next_ping.saturating_add(beat).unwrap_or(next_ping);
+                    next_check = next_check.saturating_add(beat).unwrap_or(next_check);
                 }
             }
         }
@@ -348,15 +359,11 @@ impl Link {
         &mut self,
         transport: &mut dyn Transport,
         decoded: Decoded,
-        missed: &mut u32,
         beat: &mut SignedDuration,
     ) -> Result<(), LinkError> {
         let id = decoded.id;
         let kind = match decoded.message {
-            Message::Pong(_) => {
-                *missed = 0;
-                return Ok(());
-            }
+            Message::Pong(_) => return Ok(()),
             Message::Ping(_) => {
                 let pong = Message::Pong(Pong {
                     at: self.parts.clock.now(),
@@ -381,8 +388,10 @@ impl Link {
             Message::RunSkill(run) => RequestKind::Skill(run),
             Message::RunCheck(run) => RequestKind::Check(run),
             Message::GetLogs(get) => RequestKind::Logs(get),
+            Message::RunCapability(run) => RequestKind::Capability(run),
+            Message::ActionStatus(query) => RequestKind::ActionStatus(query),
             Message::Unknown { kind } => {
-                let reply = Message::Unsupported(Unsupported { kind });
+                let reply = Message::Unsupported(Unsupported { type_name: kind });
                 frame::send(transport, &reply, Some(id)).await?;
                 return Ok(());
             }

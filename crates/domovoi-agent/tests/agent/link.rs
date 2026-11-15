@@ -318,7 +318,7 @@ async fn idle_incompatible_agent_logs_and_updates_status_hourly() {
     settle().await;
     let before = status::read(dir.path()).unwrap().expect("status written");
     assert_eq!(before.state, "incompatible");
-    assert_eq!(before.agent_protocol.as_deref(), Some("1.1"));
+    assert_eq!(before.agent_protocol.as_deref(), Some("1.2"));
     assert_eq!(before.hub_protocol.as_deref(), Some("2.0"));
     let first = before.last_notice_at.expect("the first notice is timed");
     clock.advance(SignedDuration::from_hours(1));
@@ -342,10 +342,17 @@ async fn welcome_from_any_hub_release_is_accepted() {
     let link = start_link(&hub, &identity, &clock, &dir);
     let mut conn = hub.accept().await;
     conn.welcome_from_release(&identity, 3600, "0.0.1").await;
+    conn.send(
+        Message::Ping(Ping {
+            at: clock_now(&clock),
+        }),
+        None,
+    )
+    .await;
     let (first, _) = advancing(&clock, SignedDuration::from_secs(1), conn.expect()).await;
     assert!(
-        matches!(first.message, Message::Ping(Ping { .. })),
-        "the session starts and heartbeats as usual"
+        matches!(first.message, Message::Pong(_)),
+        "the session starts and answers the hub's heartbeat"
     );
     link.shutdown.cancel();
     assert!(guard(link.task).await.unwrap().is_ok());
@@ -385,11 +392,18 @@ async fn unparsable_hub_release_still_connects() {
     let link = start_link(&hub, &identity, &clock, &dir);
     let mut conn = hub.accept().await;
     conn.welcome_from_release(&identity, 2, "dev").await;
+    conn.send(
+        Message::Ping(Ping {
+            at: clock_now(&clock),
+        }),
+        None,
+    )
+    .await;
     let (first, _) = advancing(&clock, SignedDuration::from_secs(1), conn.expect()).await;
     let kind = first.message;
     assert!(
-        matches!(kind, Message::Ping(Ping { .. })),
-        "an unparsable release is unknown, not old: the agent heartbeats as usual: {kind:?}",
+        matches!(kind, Message::Pong(_)),
+        "an unparsable release is unknown, not old: the agent answers the heartbeat: {kind:?}",
     );
     link.shutdown.cancel();
     assert!(
@@ -461,27 +475,23 @@ async fn heartbeat_drops_link_after_three_missed_pongs() {
     let link = start_link(&hub, &identity, &clock, &dir);
     let mut conn = hub.accept().await;
     conn.welcome(&identity, 10).await;
-    let step = SignedDuration::from_secs(1);
 
-    // An answered ping keeps the link up.
-    let (ping, _) = advancing(&clock, step, conn.expect()).await;
-    assert!(matches!(ping.message, Message::Ping(_)));
+    // A hub ping is answered, and the answer keeps the link alive.
     conn.send(
-        Message::Pong(domovoi_proto::messages::Pong {
+        Message::Ping(Ping {
             at: clock_now(&clock),
         }),
-        Some(ping.id),
+        None,
     )
     .await;
+    let (pong, _) = advancing(&clock, SignedDuration::from_secs(1), conn.expect()).await;
+    assert!(matches!(pong.message, Message::Pong(_)));
 
-    for _ in 0..3 {
-        let (ping, _) = advancing(&clock, step, conn.expect()).await;
-        assert!(matches!(ping.message, Message::Ping(Ping { .. })));
-    }
-    let (closed, _) = advancing(&clock, step, conn.recv()).await;
+    // With no hub ping for three intervals, the agent treats the link as dead and closes it.
+    let (closed, _) = advancing(&clock, SignedDuration::from_secs(1), conn.recv()).await;
     assert!(
         closed.is_none(),
-        "the link should give up after three missed pongs"
+        "the link should give up after three silent heartbeat intervals"
     );
     link.shutdown.cancel();
 }
@@ -525,7 +535,7 @@ async fn link_forwards_requests_and_answers_unknown_kinds() {
     let Message::Unsupported(unsupported) = conn.expect().await.message else {
         panic!("expected unsupported");
     };
-    assert_eq!(unsupported.kind, "teleport");
+    assert_eq!(unsupported.type_name, "teleport");
     link.shutdown.cancel();
     assert!(guard(link.task).await.unwrap().is_ok());
 }

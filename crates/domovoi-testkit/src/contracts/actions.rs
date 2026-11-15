@@ -188,7 +188,8 @@ async fn sent(
     stale_plan: bool,
 ) -> Result<ActionRequest, ContractError> {
     let setup = |e: ActionError| ContractError::Setup(e.to_string());
-    let summary = manifest(skill, Risk::Read)?.summary();
+    let summary = manifest(skill, Risk::Read)?
+        .summary(domovoi_core::ScriptDigest::of_bytes(b"#!/bin/sh\nexit 0\n"));
     let args = summary
         .validate_args(&BTreeMap::new())
         .map_err(BuildError::from)?;

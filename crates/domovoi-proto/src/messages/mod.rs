@@ -5,18 +5,33 @@
 //! sides may send any message. Requests (`run_tool`, `run_skill`, `run_check`, `ping`)
 //! are answered by a frame whose envelope `reply_to` is the request's `id`.
 
+mod actions;
+mod catalog;
 mod handshake;
 mod stream;
+mod transfer;
 mod work;
 
 use serde_json::Value;
 
+pub use actions::{
+    ActionState, ActionStatusAnswer, ActionStatusAnswers, ActionStatusQuery, AuthorizationKind,
+    CapabilityFailureCode, CapabilityOutcome, CapabilityResult, ExpectedSafety,
+    OutcomeUnknownReason, RefusalCode, RefusalScope, Refused, RunCapability,
+};
+pub use catalog::{CatalogEntry, CatalogPage, GetCatalog};
 pub use handshake::{
     AgentSettings, Challenge, ChallengeResponse, CheckInfo, CheckOverride, DockerReport, Enroll,
-    Enrolled, Hello, HostFacts, Reject, RejectReason, SessionId, Welcome,
+    Enrolled, Hello, HelperIdentity, HelperStatus, HostFacts, Reject, RejectReason, SessionId,
+    SkillRunnerStatus, Welcome,
 };
 pub use stream::{
-    ConfigUpdate, DigestFacts, ErrorMessage, Ping, Pong, Signals, SignalsAck, Unsupported,
+    AgentStatus, AttestSafety, ConfigUpdate, DigestFacts, ErrorMessage, Ping, Pong,
+    SafetyAttestation, Signals, SignalsAck, Unsupported,
+};
+pub use transfer::{
+    TransferBegin, TransferChunk, TransferEnd, TransferFailureCode, TransferKind, TransferOutcome,
+    TransferResult,
 };
 pub use work::{
     CheckObservation, CheckResult, GetLogs, Logs, RunCheck, RunSkill, RunTool, SkillFailure,
@@ -122,4 +137,32 @@ messages! {
     Error(ErrorMessage) = "error",
     /// `unsupported`, either side.
     Unsupported(Unsupported) = "unsupported",
+    /// `agent_status`, agent → hub.
+    AgentStatus(AgentStatus) = "agent_status",
+    /// `run_capability`, hub → agent.
+    RunCapability(RunCapability) = "run_capability",
+    /// `capability_result`, agent → hub.
+    CapabilityResult(CapabilityResult) = "capability_result",
+    /// `refused`, agent → hub.
+    Refused(Refused) = "refused",
+    /// `action_status`, hub → agent.
+    ActionStatus(ActionStatusQuery) = "action_status",
+    /// `action_status_answers`, agent → hub.
+    ActionStatusAnswers(ActionStatusAnswers) = "action_status_answers",
+    /// `get_catalog`, hub → agent.
+    GetCatalog(GetCatalog) = "get_catalog",
+    /// `catalog_page`, agent → hub.
+    CatalogPage(CatalogPage) = "catalog_page",
+    /// `transfer_begin`, hub → agent.
+    TransferBegin(TransferBegin) = "transfer_begin",
+    /// `transfer_chunk`, hub → agent.
+    TransferChunk(TransferChunk) = "transfer_chunk",
+    /// `transfer_end`, hub → agent.
+    TransferEnd(TransferEnd) = "transfer_end",
+    /// `transfer_result`, agent → hub.
+    TransferResult(TransferResult) = "transfer_result",
+    /// `attest_safety`, hub → agent.
+    AttestSafety(AttestSafety) = "attest_safety",
+    /// `safety_attestation`, agent → hub.
+    SafetyAttestation(SafetyAttestation) = "safety_attestation",
 }

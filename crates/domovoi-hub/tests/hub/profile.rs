@@ -77,10 +77,12 @@ fn announced() -> Vec<CheckInfo> {
 /// The skills the agent announced: one the hub may run, one it may not.
 fn announced_skills() -> Vec<SkillSummary> {
     [
-        manifest("listening_ports", Risk::Read).unwrap().summary(),
+        manifest("listening_ports", Risk::Read)
+            .unwrap()
+            .summary(domovoi_core::ScriptDigest::of_bytes(b"fixture entry")),
         manifest("restart_container", Risk::Write)
             .unwrap()
-            .summary(),
+            .summary(domovoi_core::ScriptDigest::of_bytes(b"fixture entry")),
     ]
     .to_vec()
 }
@@ -89,7 +91,11 @@ fn announced_skills() -> Vec<SkillSummary> {
 fn announced_many() -> Vec<SkillSummary> {
     ["list_shares", "show_pool", "show_tank", "read_logs"]
         .iter()
-        .map(|name| manifest(name, Risk::Read).unwrap().summary())
+        .map(|name| {
+            manifest(name, Risk::Read)
+                .unwrap()
+                .summary(domovoi_core::ScriptDigest::of_bytes(b"fixture entry"))
+        })
         .collect::<Vec<SkillSummary>>()
 }
 
@@ -190,7 +196,9 @@ async fn the_profile_records_the_agents_own_tools_and_settings() {
 async fn read_skills_that_need_arguments_are_skipped_not_asked_empty() {
     let a = api().await;
     seed(&a, "0.6.0");
-    let mut needed = manifest("disk_usage_top", Risk::Read).unwrap().summary();
+    let mut needed = manifest("disk_usage_top", Risk::Read)
+        .unwrap()
+        .summary(domovoi_core::ScriptDigest::of_bytes(b"fixture entry"));
     needed.params = [ParamSpec {
         name: ParamName::parse("path").unwrap(),
         description: "mount point".to_owned(),
@@ -204,7 +212,9 @@ async fn read_skills_that_need_arguments_are_skipped_not_asked_empty() {
     a.link.set_skills(
         a.nas.id,
         [
-            manifest("listening_ports", Risk::Read).unwrap().summary(),
+            manifest("listening_ports", Risk::Read)
+                .unwrap()
+                .summary(domovoi_core::ScriptDigest::of_bytes(b"fixture entry")),
             needed,
         ]
         .to_vec(),

@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use domovoi_core::SkillManifest;
+use domovoi_core::{ScriptDigest, SkillManifest};
 
 use super::LoadedSkill;
 use crate::error::CatalogIssue;
@@ -92,8 +92,17 @@ fn load_skill(folder: &Path) -> Result<LoadedSkill, String> {
         .map_err(|err| format!("cannot resolve the skill folder: {err}"))?;
     check_folder(&dir)?;
     let entry_path = resolve_entry(&dir, &manifest.entry)?;
+    let entry_bytes = std::fs::read(&entry_path)
+        .map_err(|err| format!("cannot read the resolved entry: {err}"))?;
+    let entry_script_digest = ScriptDigest::of_bytes(&entry_bytes);
     let readme = load_readme(&dir);
-    Ok(LoadedSkill::new(manifest, entry_path, dir, readme))
+    Ok(LoadedSkill::new(
+        manifest,
+        entry_path,
+        dir,
+        entry_script_digest,
+        readme,
+    ))
 }
 
 /// Checks the entry of a loaded skill again, just before running it.
@@ -106,6 +115,14 @@ pub(super) fn recheck_entry(skill: &LoadedSkill) -> Result<(), String> {
             entry.display(),
             skill.entry_path.display()
         ));
+    }
+    let bytes =
+        std::fs::read(&skill.entry_path).map_err(|err| format!("cannot read the entry: {err}"))?;
+    if ScriptDigest::of_bytes(&bytes) != skill.entry_script_digest {
+        return Err(
+            "the entry bytes changed since the catalogue was loaded; reload the catalogue"
+                .to_owned(),
+        );
     }
     Ok(())
 }

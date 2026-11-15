@@ -123,6 +123,50 @@ byte_string!(
     hex_codec
 );
 
+/// Most raw bytes one [`Base64Bytes`] may carry: 64 KiB.
+pub const MAX_BASE64_BYTES: usize = 64 * 1024;
+
+/// Variable-length opaque bytes, standard padded base64, capped at [`MAX_BASE64_BYTES`].
+///
+/// Used for transfer chunks and attestation reports, where the existing fixed-length types do
+/// not fit. Decoding refuses more than the cap so a hostile peer cannot fill a frame.
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub struct Base64Bytes(pub Vec<u8>);
+
+impl Base64Bytes {
+    /// The raw bytes.
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl fmt::Debug for Base64Bytes {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Base64Bytes({} bytes)", self.0.len())
+    }
+}
+
+impl serde::Serialize for Base64Bytes {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&base64_codec::encode(&self.0))
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Base64Bytes {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let text = <String as serde::Deserialize>::deserialize(deserializer)?;
+        let bytes = base64_codec::decode(&text).map_err(serde::de::Error::custom)?;
+        if bytes.len() > MAX_BASE64_BYTES {
+            return Err(serde::de::Error::custom(format!(
+                "expected at most {MAX_BASE64_BYTES} bytes of base64, got {}",
+                bytes.len()
+            )));
+        }
+        Ok(Self(bytes))
+    }
+}
+
 /// A single-use enrollment token. `Debug` never shows the value.
 #[derive(Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(transparent)]

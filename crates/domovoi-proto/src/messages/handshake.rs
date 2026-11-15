@@ -8,7 +8,7 @@ use jiff::Timestamp;
 use serde_json::Value;
 use uuid::Uuid;
 
-use crate::bytes::{CertFingerprint, EnrollToken, Nonce, PublicKey, Signature};
+use crate::bytes::{CertFingerprint, EnrollToken, Nonce, PublicKey, Sha256Bytes, Signature};
 use crate::version::{ProtocolVersion, Release};
 
 /// Identifies one authenticated connection, from `welcome` until it closes.
@@ -157,12 +157,40 @@ pub struct Hello {
     pub protocol: ProtocolVersion,
     /// The agent's version.
     pub agent_version: String,
-    /// Facts about the host.
-    pub facts: HostFacts,
+    /// Facts about the host. Boxed to keep the shared `Message` enum small; the wire shape is
+    /// unchanged.
+    pub facts: Box<HostFacts>,
     /// Optional features, such as `docker` or `journal`.
     #[serde(default)]
     pub capabilities: Vec<String>,
-    /// The skills the agent has, with manifest hashes.
+    /// Protocol features the agent implements, sorted. Empty until a milestone adds one.
+    #[serde(default)]
+    pub features: Vec<String>,
+    /// The action journal's epoch, so the hub can tell a lost journal from a new one.
+    #[serde(default = "default_epoch")]
+    pub journal_epoch: Uuid,
+    /// Hash of the capability catalogue. `None` until the catalogue exists.
+    #[serde(default)]
+    pub catalog_hash: Option<Sha256Bytes>,
+    /// Hash of the unattended ceiling. `None` until it exists.
+    #[serde(default)]
+    pub ceiling_hash: Option<Sha256Bytes>,
+    /// A short description of the unattended ceiling. `None` until it exists.
+    #[serde(default)]
+    pub ceiling_summary: Option<String>,
+    /// What the skill runner reports about itself. `absent` until it exists.
+    #[serde(default)]
+    pub skill_runner_status: SkillRunnerStatus,
+    /// What the helper reports about itself. `absent` until it exists.
+    #[serde(default)]
+    pub helper_status: HelperStatus,
+    /// Whether the agent's effective uid is 0.
+    #[serde(default)]
+    pub runs_as_root: bool,
+    /// The helper's public key when a helper is present. `None` until it exists.
+    #[serde(default)]
+    pub helper_identity: Option<HelperIdentity>,
+    /// The skills the agent has, with manifest and entry-script hashes.
     #[serde(default)]
     pub skills: Vec<SkillSummary>,
     /// Every check the agent knows, with its local settings before any hub override, so
@@ -172,6 +200,66 @@ pub struct Hello {
     /// What the agent found out about the container runtime. `None` from older agents.
     #[serde(default)]
     pub docker: Option<DockerReport>,
+}
+
+fn default_epoch() -> Uuid {
+    Uuid::nil()
+}
+
+/// What the agent knows about the skill runner.
+///
+/// A status says what is true now, not what the product intends. Only the agent produces
+/// these, so the enum is closed.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum SkillRunnerStatus {
+    /// No skill runner is installed or configured.
+    #[default]
+    Absent,
+    /// A runner exists but this host cannot use it.
+    Unsupported {
+        /// Why it cannot be used.
+        reason: String,
+    },
+    /// A runner exists but reported an error.
+    Error {
+        /// What went wrong.
+        reason: String,
+    },
+    /// The runner is present and working.
+    Ok {
+        /// The runner's version.
+        version: String,
+    },
+}
+
+/// What the agent knows about the privileged helper.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum HelperStatus {
+    /// No helper is installed or configured.
+    #[default]
+    Absent,
+    /// The helper is present and offers `ops`.
+    Ok {
+        /// The operations the helper offers.
+        ops: Vec<String>,
+    },
+    /// The helper exists but reported an error.
+    Error {
+        /// What went wrong.
+        reason: String,
+    },
+}
+
+/// The helper's public key, as the agent reports it.
+///
+/// The hub computes the fingerprint itself (SHA-256 of the 32 key bytes) and pins only
+/// through owner enrollment. The agent never sends a fingerprint.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct HelperIdentity {
+    /// Base64 (standard, padded) of exactly 32 raw Ed25519 public-key bytes.
+    pub public_key: PublicKey,
 }
 
 /// One check as the agent's own config sets it.

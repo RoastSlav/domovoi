@@ -55,6 +55,32 @@ pub struct AgentSection {
     /// Default `/`.
     #[serde(default = "default_host_root")]
     pub host_root: PathBuf,
+    /// How many mutating capability executions this agent accepts. Local and root-owned;
+    /// the hub cannot send, widen or override it.
+    #[serde(default)]
+    pub mutation_limits: MutationLimits,
+}
+
+/// `[mutation_limits]`: the agent-side cap on mutating capability executions.
+///
+/// Separate from the unattended ceiling and from `[policy] allow_risk`: it limits how often a
+/// mutation may run, not what may run or who may approve it.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields, default)]
+pub struct MutationLimits {
+    /// Mutating executions per rolling hour. Default 30; `0` blocks every mutation.
+    pub per_hour: u32,
+    /// Per-contract per-hour limits, keyed by contract id; `0` blocks that contract.
+    pub per_capability: BTreeMap<String, u32>,
+}
+
+impl Default for MutationLimits {
+    fn default() -> Self {
+        Self {
+            per_hour: default_mutations_per_hour(),
+            per_capability: BTreeMap::new(),
+        }
+    }
 }
 
 /// `[policy]`.
@@ -277,6 +303,9 @@ fn default_local_bind() -> SocketAddr {
 }
 fn default_true() -> bool {
     true
+}
+fn default_mutations_per_hour() -> u32 {
+    30
 }
 
 impl crate::env::OverrideScope for AgentConfig {

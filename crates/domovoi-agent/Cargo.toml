@@ -38,6 +38,9 @@ tracing = { workspace = true }
 url = { workspace = true }
 uuid = { workspace = true }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+nix = { workspace = true }
+
 [dev-dependencies]
 domovoi-testkit = { workspace = true }
 rcgen = { workspace = true }

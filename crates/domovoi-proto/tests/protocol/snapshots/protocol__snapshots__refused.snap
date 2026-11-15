@@ -1,0 +1,15 @@
+---
+source: crates/domovoi-proto/tests/protocol/snapshots.rs
+expression: "pretty(&message, reply)"
+---
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "refused",
+  "payload": {
+    "code": "rate_limited",
+    "detail": "too many mutations this hour",
+    "retry_after": 30,
+    "scope": "global"
+  },
+  "v": 1
+}

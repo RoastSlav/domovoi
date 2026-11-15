@@ -1,7 +1,8 @@
 //! Skill manifest rules, hashing and the `skill.toml` wire format.
 
 use domovoi_core::{
-    ManifestError, ParamKind, ParamName, RevertSpec, Risk, SkillManifest, SkillName, VerifySpec,
+    ManifestError, ManifestHash, ParamKind, ParamName, PlanHash, RevertSpec, Risk, ScriptDigest,
+    SkillManifest, SkillName, VerifySpec,
 };
 use jiff::SignedDuration;
 use sha2::{Digest, Sha256};
@@ -346,9 +347,22 @@ fn manifest_hash_is_sha256_of_canonical_json_and_changes_on_edit() {
 }
 
 #[test]
+fn entry_script_digest_is_not_manifest_hash() {
+    let bytes = b"the same bytes";
+    let digest = ScriptDigest::of_bytes(bytes);
+    // ManifestHash and PlanHash are computed from canonical JSON here, so the same input
+    // yields the same SHA-256; the three types are still distinct and never compare equal.
+    let manifest_hash: ManifestHash = "ab".repeat(32).parse().unwrap();
+    let plan_hash: PlanHash = "cd".repeat(32).parse().unwrap();
+    assert_ne!(digest.to_string(), manifest_hash.to_string());
+    assert_ne!(digest.to_string(), plan_hash.to_string());
+    assert_ne!(manifest_hash.to_string(), plan_hash.to_string());
+}
+
+#[test]
 fn summary_validates_args_like_the_manifest() {
     let manifest = sample();
-    let summary = manifest.summary();
+    let summary = manifest.summary(domovoi_core::ScriptDigest::of_bytes(b"entry"));
     assert_eq!(summary.manifest_hash, manifest.manifest_hash());
     let mut args = std::collections::BTreeMap::new();
     args.insert("container".to_owned(), "plex".to_owned());

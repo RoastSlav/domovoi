@@ -1,0 +1,13 @@
+---
+source: crates/domovoi-proto/tests/protocol/snapshots.rs
+expression: "pretty(&message, reply)"
+---
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "get_catalog",
+  "payload": {
+    "page": 0,
+    "page_size": 50
+  },
+  "v": 1
+}

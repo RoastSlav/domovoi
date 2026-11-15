@@ -42,9 +42,14 @@ async fn silent_agent_with_reachable_host_raises_agent_down() {
     hub.server.check_presence().await;
     assert_eq!(hub.signals().len(), 1, "raised once per silence");
 
-    // Any frame from the agent resolves it.
+    // Any frame from the agent resolves it. The hub may be sending its own ping, so read
+    // until the answer to ours arrives.
     agent.send(Message::Ping(Ping { at: t0() }), None).await;
-    agent.expect().await;
+    loop {
+        if matches!(agent.expect().await.message, Message::Pong(_)) {
+            break;
+        }
+    }
     hub.server.check_presence().await;
     let signals = hub.signals();
     assert_eq!(signals.len(), 2);

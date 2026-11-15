@@ -84,6 +84,7 @@ pub fn start_link_with(
         skills: Vec::new(),
         checks: Vec::new(),
         docker: None,
+        extensions: Default::default(),
         overrides: None,
         spool,
         jitter: Box::new(|| 1.0),

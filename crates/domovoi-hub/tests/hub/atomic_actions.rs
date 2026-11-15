@@ -44,7 +44,7 @@ async fn audit_failure_rolls_back_transition_on_sqlite() {
     let a = api().await;
     let skill = domovoi_testkit::build::manifest("restart_container", Risk::Write)
         .unwrap()
-        .summary();
+        .summary(domovoi_core::ScriptDigest::of_bytes(b"fixture entry"));
     let args = skill.validate_args(&BTreeMap::new()).unwrap();
     let action = ActionRequest::propose(
         a.incident.id(),

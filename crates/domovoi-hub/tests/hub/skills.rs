@@ -28,8 +28,12 @@ const UNANNOUNCED: &str = "prune_logs";
 
 /// The skills the fake agent announces for `nas`.
 fn announced() -> Vec<SkillSummary> {
-    let hidden = manifest(HIDDEN, Risk::Read).unwrap().summary();
-    let shown = manifest(SHOWN, Risk::Read).unwrap().summary();
+    let hidden = manifest(HIDDEN, Risk::Read)
+        .unwrap()
+        .summary(domovoi_core::ScriptDigest::of_bytes(b"fixture entry"));
+    let shown = manifest(SHOWN, Risk::Read)
+        .unwrap()
+        .summary(domovoi_core::ScriptDigest::of_bytes(b"fixture entry"));
     [hidden, shown].to_vec()
 }
 
@@ -223,7 +227,9 @@ async fn a_skill_name_the_agent_could_not_have_is_refused() {
 /// Stores a request for `skill` on `nas` that the hub sent to the agent `after` the
 /// current instant, and answers with that instant.
 async fn sent(a: &Api, skill: &str, after: SignedDuration) -> jiff::Timestamp {
-    let summary = manifest(skill, Risk::Read).unwrap().summary();
+    let summary = manifest(skill, Risk::Read)
+        .unwrap()
+        .summary(domovoi_core::ScriptDigest::of_bytes(b"fixture entry"));
     let args = summary.validate_args(&BTreeMap::new()).unwrap();
     let mut request = ActionRequest::propose(
         a.incident.id(),

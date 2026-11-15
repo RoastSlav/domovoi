@@ -84,7 +84,7 @@ pub fn restart_skill() -> SkillSummary {
             max_len: 64,
         },
     }];
-    manifest.summary()
+    manifest.summary(domovoi_core::ScriptDigest::of_bytes(b"fixture entry"))
 }
 
 /// `restart_container` that re-checks after 10 s, so a successful run is verified.
@@ -102,7 +102,7 @@ pub fn verified_restart() -> SkillSummary {
 fn runner(name: &str) -> SkillSummary {
     let mut manifest: SkillManifest = manifest(name, Risk::Write).expect("a valid manifest");
     manifest.params = restart_skill().params.clone();
-    manifest.summary()
+    manifest.summary(domovoi_core::ScriptDigest::of_bytes(b"fixture entry"))
 }
 
 /// The skill of the loop-guard step, which has used no slot when the step starts.

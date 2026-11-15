@@ -2,14 +2,55 @@
 
 use domovoi_core::SkillSummary;
 use domovoi_proto::messages::{
-    AgentSettings, ChallengeResponse, CheckInfo, Hello, HostFacts, RejectReason, Welcome,
+    AgentSettings, ChallengeResponse, CheckInfo, Hello, HelperIdentity, HelperStatus, HostFacts,
+    RejectReason, SkillRunnerStatus, Welcome,
 };
-use domovoi_proto::{Message, PROTOCOL_VERSION, Transport, challenge_message};
+use domovoi_proto::{Message, PROTOCOL_VERSION, Sha256Bytes, Transport, challenge_message};
 use jiff::SignedDuration;
+use uuid::Uuid;
 
 use super::frame;
 use crate::error::LinkError;
 use crate::identity::Identity;
+
+/// Values the agent adds to `hello` beyond facts and catalogues.
+#[derive(Debug, Clone)]
+pub struct HelloExtensions {
+    /// Protocol features the agent implements; empty until one exists.
+    pub features: Vec<String>,
+    /// The action journal's epoch.
+    pub journal_epoch: Uuid,
+    /// The capability catalogue's hash; `None` until it exists.
+    pub catalog_hash: Option<Sha256Bytes>,
+    /// The unattended ceiling's hash; `None` until it exists.
+    pub ceiling_hash: Option<Sha256Bytes>,
+    /// A short description of the unattended ceiling; `None` until it exists.
+    pub ceiling_summary: Option<String>,
+    /// What the skill runner reports about itself.
+    pub skill_runner_status: SkillRunnerStatus,
+    /// What the helper reports about itself.
+    pub helper_status: HelperStatus,
+    /// Whether the agent's effective uid is 0.
+    pub runs_as_root: bool,
+    /// The helper's public key when one is present.
+    pub helper_identity: Option<HelperIdentity>,
+}
+
+impl Default for HelloExtensions {
+    fn default() -> Self {
+        Self {
+            features: Vec::new(),
+            journal_epoch: Uuid::nil(),
+            catalog_hash: None,
+            ceiling_hash: None,
+            ceiling_summary: None,
+            skill_runner_status: SkillRunnerStatus::Absent,
+            helper_status: HelperStatus::Absent,
+            runs_as_root: false,
+            helper_identity: None,
+        }
+    }
+}
 
 /// How long each handshake step may take.
 pub const STEP_TIMEOUT: SignedDuration = SignedDuration::from_secs(30);
@@ -24,6 +65,8 @@ pub struct Announce<'a> {
     pub checks: &'a [CheckInfo],
     /// What was found out about the container runtime.
     pub docker: Option<&'a domovoi_proto::messages::DockerReport>,
+    /// The rest of the 1.2 `hello` extensions.
+    pub extensions: &'a HelloExtensions,
 }
 
 /// Runs the handshake on a fresh connection and returns the hub's `welcome`.
@@ -41,8 +84,17 @@ pub async fn handshake(
         agent_id: identity.agent_id,
         protocol: PROTOCOL_VERSION,
         agent_version: release.to_owned(),
-        facts: announce.facts,
+        facts: Box::new(announce.facts),
         capabilities: Vec::new(),
+        features: announce.extensions.features.clone(),
+        journal_epoch: announce.extensions.journal_epoch,
+        catalog_hash: announce.extensions.catalog_hash,
+        ceiling_hash: announce.extensions.ceiling_hash,
+        ceiling_summary: announce.extensions.ceiling_summary.clone(),
+        skill_runner_status: announce.extensions.skill_runner_status.clone(),
+        helper_status: announce.extensions.helper_status.clone(),
+        runs_as_root: announce.extensions.runs_as_root,
+        helper_identity: announce.extensions.helper_identity.clone(),
         skills: announce.skills.to_vec(),
         checks: announce.checks.to_vec(),
         docker: announce.docker.cloned(),

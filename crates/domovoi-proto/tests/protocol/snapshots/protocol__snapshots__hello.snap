@@ -12,6 +12,9 @@ expression: "pretty(&message, reply)"
       "docker",
       "journal"
     ],
+    "catalog_hash": null,
+    "ceiling_hash": null,
+    "ceiling_summary": null,
     "checks": [
       {
         "enabled": true,
@@ -40,9 +43,19 @@ expression: "pretty(&message, reply)"
       "mem_total_bytes": 17179869184,
       "os": "Debian GNU/Linux 13"
     },
+    "features": [],
+    "helper_identity": null,
+    "helper_status": {
+      "state": "absent"
+    },
+    "journal_epoch": "01900000-0000-7000-8000-0000000000f0",
     "protocol": {
       "major": 1,
-      "minor": 1
+      "minor": 2
+    },
+    "runs_as_root": true,
+    "skill_runner_status": {
+      "state": "absent"
     },
     "skills": [
       {
@@ -50,6 +63,7 @@ expression: "pretty(&message, reply)"
           "container.restart_loop"
         ],
         "description": "Restart one container.",
+        "entry_script_digest": "fc07a55ac3f7c7d7ae2b7117459aa0b7e27421c964467ecd6f59c5c24bd1ad0b",
         "manifest_hash": "abababababababababababababababababababababababababababababababab",
         "name": "restart_container",
         "params": [

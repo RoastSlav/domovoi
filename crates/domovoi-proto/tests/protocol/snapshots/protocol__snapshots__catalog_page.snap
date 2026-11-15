@@ -1,0 +1,23 @@
+---
+source: crates/domovoi-proto/tests/protocol/snapshots.rs
+expression: "pretty(&message, reply)"
+---
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "catalog_page",
+  "payload": {
+    "entries": [
+      {
+        "contract": "container.restart",
+        "descriptor": {
+          "family": "container",
+          "verb": "restart"
+        },
+        "version": 1
+      }
+    ],
+    "next_page": null
+  },
+  "reply_to": "01900000-0000-7000-8000-000000000002",
+  "v": 1
+}

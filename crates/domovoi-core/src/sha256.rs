@@ -61,6 +61,22 @@ macro_rules! sha256_newtype {
 
 pub(crate) use sha256_newtype;
 
+sha256_newtype!(
+    /// SHA-256 over the raw bytes of a skill's resolved entry executable.
+    ///
+    /// Not a manifest hash and not a plan hash: it says which file bytes the agent will run.
+    /// Never produced from text that has been normalized, re-encoded or line-ending converted.
+    ScriptDigest
+);
+
+impl ScriptDigest {
+    /// Hashes exactly `bytes`, byte for byte, with no normalization of any kind.
+    #[must_use]
+    pub fn of_bytes(bytes: &[u8]) -> Self {
+        Self::digest(bytes)
+    }
+}
+
 /// Serde helpers for raw 32-byte values written as lowercase hex.
 pub(crate) mod hex32 {
     /// Writes `bytes` as lowercase hex.
