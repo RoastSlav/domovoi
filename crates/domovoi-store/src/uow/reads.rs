@@ -49,8 +49,13 @@ impl JournalRow {
     }
 }
 
+/// The `effects` columns [`EffectRow`] reads, in the order its fields expect.
+pub(super) const EFFECT_COLUMNS: &str = "id, kind, aggregate_type, aggregate_id, payload, status, \
+    not_before, attempt, max_attempts, dedup_key, claim_token, claim_generation, lease_until, \
+    runner_id, last_error, created_at, completed_at";
+
 #[derive(sqlx::FromRow)]
-struct EffectRow {
+pub(super) struct EffectRow {
     id: String,
     kind: String,
     aggregate_type: String,
@@ -71,7 +76,7 @@ struct EffectRow {
 }
 
 impl EffectRow {
-    fn into_record(self) -> Result<EffectRecord, StoreError> {
+    pub(super) fn into_record(self) -> Result<EffectRecord, StoreError> {
         let attempt = u32::try_from(uint(self.attempt))
             .map_err(|_| corrupt("effect attempt", "too large"))?;
         let max_attempts = u32::try_from(uint(self.max_attempts))
@@ -231,11 +236,8 @@ impl JournalRead for Store {
 #[async_trait]
 impl EffectRead for Store {
     async fn effect(&self, id: domovoi_core::EffectId) -> Result<Option<EffectRecord>, StoreError> {
-        const SQL: &str = "SELECT id, kind, aggregate_type, aggregate_id, payload, status, \
-            not_before, attempt, max_attempts, dedup_key, claim_token, claim_generation, \
-            lease_until, runner_id, last_error, created_at, completed_at \
-            FROM effects WHERE id = ?";
-        let row: Option<EffectRow> = sqlx::query_as(SQL)
+        let sql = format!("SELECT {EFFECT_COLUMNS} FROM effects WHERE id = ?");
+        let row: Option<EffectRow> = sqlx::query_as(sqlx::AssertSqlSafe(sql))
             .bind(id.to_string())
             .fetch_optional(&self.read)
             .await
@@ -248,11 +250,9 @@ impl EffectRead for Store {
         status: EffectStatus,
         limit: u16,
     ) -> Result<Vec<EffectRecord>, StoreError> {
-        const SQL: &str = "SELECT id, kind, aggregate_type, aggregate_id, payload, status, \
-            not_before, attempt, max_attempts, dedup_key, claim_token, claim_generation, \
-            lease_until, runner_id, last_error, created_at, completed_at \
-            FROM effects WHERE status = ? ORDER BY seq LIMIT ?";
-        let rows: Vec<EffectRow> = sqlx::query_as(SQL)
+        let sql =
+            format!("SELECT {EFFECT_COLUMNS} FROM effects WHERE status = ? ORDER BY seq LIMIT ?");
+        let rows: Vec<EffectRow> = sqlx::query_as(sqlx::AssertSqlSafe(sql))
             .bind(status.as_str())
             .bind(clamp(limit))
             .fetch_all(&self.read)

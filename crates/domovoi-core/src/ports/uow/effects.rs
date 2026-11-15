@@ -15,7 +15,7 @@ use super::AggregateRef;
 /// The kinds of pending work.
 ///
 /// Stored as snake_case strings and validated in Rust.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum EffectKind {
     /// Gather the context a model needs.
     BuildContext,
@@ -82,8 +82,9 @@ impl EffectKind {
 
 /// Effect lifecycle states.
 ///
-/// Only [`EffectStatus::Pending`] and [`EffectStatus::Done`] are produced by transactions in this
-/// release; a later release owns claiming, retries and dead-lettering.
+/// An owner's transaction creates [`EffectStatus::Pending`] rows and completes them as
+/// [`EffectStatus::Done`]. An [`EffectQueue`](super::EffectQueue) claims them, renews the
+/// generation and leases them, and dead-letters the ones that ran out of attempts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EffectStatus {
     /// Waiting to be claimed.

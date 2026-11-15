@@ -153,6 +153,17 @@ async fn signal(
 async fn open(store: &InMemoryStore, spec: &IncidentSpec, at: Timestamp) -> (Incident, Signal) {
     let incident = open_incident(host_id(), &spec.check, spec.target.as_deref()).unwrap();
     IncidentRepo::insert(store, &incident).await.unwrap();
+    // The drill drives triage itself, so the service's start-up pass must leave every
+    // incident it seeds alone: the entry marks it as already triaged, and its empty detail
+    // is never read as a report.
+    let handled = domovoi_core::ports::IncidentTimelineEntry {
+        incident: incident.id(),
+        at,
+        kind: "triage.cached".to_owned(),
+        summary: "the drill triages its own incident".to_owned(),
+        detail: serde_json::Value::Null,
+    };
+    IncidentRepo::append_event(store, &handled).await.unwrap();
     let first = signal(
         store,
         &incident,
@@ -269,6 +280,8 @@ pub async fn run(drill: &Drill, model: Model) -> Outcome {
             incidents: store.clone(),
             audit: store.clone(),
             uow: store.clone(),
+            effects: store.clone(),
+            advisories: store.clone(),
             link: link.clone(),
             redactor: redactor.clone(),
             clock: clock.clone(),

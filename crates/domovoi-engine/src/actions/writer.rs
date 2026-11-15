@@ -9,9 +9,11 @@
 
 use std::sync::Arc;
 
-use domovoi_core::ports::{ActionFilter, ActionGuard, AuditDraft, CommitError, Observed, Page};
+use domovoi_core::ports::{
+    ActionFilter, ActionGuard, AuditDraft, ClaimToken, CommitError, Observed, Page, Transaction,
+};
 use domovoi_core::{
-    ActionChange, ActionError, ActionId, ActionRequest, ActionStatus, ApprovalChannel,
+    ActionChange, ActionError, ActionId, ActionRequest, ActionStatus, ApprovalChannel, EffectId,
     HumanApproval, PlanBinding, PlanHash,
 };
 use jiff::Timestamp;
@@ -19,6 +21,7 @@ use jiff::Timestamp;
 use super::approvals::{chat_token_ok, load, store};
 use super::audit::{self, RunRecord};
 use super::freshness;
+use super::outcome::{complete, finish_effect, verify};
 use super::recover;
 use super::reject;
 use super::{ApprovalError, Publish, Shared};
@@ -75,13 +78,22 @@ pub(crate) enum WriteCommand {
         id: ActionId,
         result: Result<(), String>,
         record: Option<RunRecord>,
+        /// The wait before the verification re-check, when one is due.
+        verify_after: Option<SignedDuration>,
         reply: oneshot::Sender<Decision>,
     },
     Verified {
         id: ActionId,
         passed: bool,
         summary: String,
+        /// The wake effect this answer belongs to, which is completed in the same commit.
+        effect: Option<(EffectId, ClaimToken)>,
         reply: oneshot::Sender<Decision>,
+    },
+    FinishEffect {
+        effect: EffectId,
+        claim: ClaimToken,
+        reply: oneshot::Sender<Result<(), ApprovalError>>,
     },
 }
 
@@ -220,9 +232,10 @@ async fn process(shared: &Shared, command: WriteCommand) {
             id,
             result: outcome,
             record,
+            verify_after,
             reply,
         } => {
-            let result = complete(shared, id, outcome, record).await;
+            let result = complete(shared, id, outcome, record, verify_after).await;
             if let Err(err) = &result {
                 refused(err, "the answer for a run");
             }
@@ -232,11 +245,23 @@ async fn process(shared: &Shared, command: WriteCommand) {
             id,
             passed,
             summary,
+            effect,
             reply,
         } => {
-            let result = verify(shared, id, passed, summary).await;
+            let result = verify(shared, id, passed, summary, effect).await;
             if let Err(err) = &result {
                 refused(err, "a re-check");
+            }
+            let _ = reply.send(result);
+        }
+        WriteCommand::FinishEffect {
+            effect,
+            claim,
+            reply,
+        } => {
+            let result = finish_effect(shared, effect, claim).await;
+            if let Err(err) = &result {
+                refused(err, "a wake effect");
             }
             let _ = reply.send(result);
         }
@@ -258,6 +283,9 @@ fn refused(err: &ApprovalError, what: &str) {
         ApprovalError::PlanChanged => tracing::debug!("{what} named a different plan"),
         ApprovalError::Refused(reason) => {
             tracing::debug!(%reason, "the action could not take {what}")
+        }
+        ApprovalError::StaleEffect => {
+            tracing::warn!("{what} belonged to a stale lease holder and was discarded")
         }
         ApprovalError::Unavailable => tracing::debug!("{what} did not reach the writer"),
     }
@@ -355,52 +383,6 @@ async fn dispatch(shared: &Shared, id: ActionId, plan: PlanHash) -> Decision {
     Ok(action)
 }
 
-/// The agent's answer for a run: `Dispatched → Succeeded` or `Dispatched → Failed`.
-/// `record` is what the run produced, `None` when the skill never ran.
-async fn complete(
-    shared: &Shared,
-    id: ActionId,
-    outcome: Result<(), String>,
-    record: Option<RunRecord>,
-) -> Decision {
-    let mut action = load(shared, id).await?;
-    let now = shared.deps.clock.now();
-    let ActionChange { from, .. } = action
-        .complete(outcome, now)
-        .map_err(ApprovalError::Refused)?;
-    let entry = match action.status().clone() {
-        ActionStatus::Failed { reason } => {
-            audit::finished(&action, record.as_ref(), Some(&reason), now)
-        }
-        _ => audit::finished(&action, record.as_ref(), None, now),
-    };
-    transition(shared, &action, &from, entry, now)
-        .await
-        .map_err(|err| stale(err, id))?;
-    Ok(action)
-}
-
-/// The re-check of the originating check after a successful run: `Succeeded → Verified`
-/// or `Succeeded → VerifyFailed`. `summary` is what the re-check said, kept in the audit
-/// line so the person can see why the incident is fixed.
-async fn verify(shared: &Shared, id: ActionId, passed: bool, summary: String) -> Decision {
-    let mut action = load(shared, id).await?;
-    let now = shared.deps.clock.now();
-    let ActionChange { from, .. } = action
-        .verified(passed, now)
-        .map_err(ApprovalError::Refused)?;
-    transition(
-        shared,
-        &action,
-        &from,
-        audit::verification(&action, passed, &summary, now),
-        now,
-    )
-    .await
-    .map_err(|err| stale(err, id))?;
-    Ok(action)
-}
-
 /// Expires every still-proposed action whose window has closed and counts them.
 /// The store query does the picking, so an action decided meanwhile never shows
 /// up here; if one was nevertheless read open, the guarded write refuses it and
@@ -460,14 +442,29 @@ pub(crate) async fn transition(
     audit: AuditDraft,
     now: Timestamp,
 ) -> Result<(), CommitError> {
+    transition_with(shared, action, from, audit, now, |tx| tx).await
+}
+
+/// [`transition`] with a hook that adds effects to the same commit.
+pub(crate) async fn transition_with<F>(
+    shared: &Shared,
+    action: &ActionRequest,
+    from: &ActionStatus,
+    audit: AuditDraft,
+    now: Timestamp,
+    with: F,
+) -> Result<(), CommitError>
+where
+    F: FnOnce(Transaction) -> Transaction,
+{
     shared
-        .commit_action(
+        .commit_action_with(
             action,
             ActionGuard::Status(from.name().to_owned()),
             audit,
             now,
-            None,
             Publish::ActionChanged,
+            with,
         )
         .await
 }
@@ -484,6 +481,6 @@ pub(crate) fn stale(err: CommitError, id: ActionId) -> ApprovalError {
         CommitError::Constraint(message) | CommitError::Backend(message) => {
             ApprovalError::Store(message)
         }
-        CommitError::StaleEffect { .. } => ApprovalError::Store("unexpected stale effect".into()),
+        CommitError::StaleEffect { .. } => ApprovalError::StaleEffect,
     }
 }

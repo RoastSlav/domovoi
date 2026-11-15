@@ -2,6 +2,7 @@
 
 mod effects;
 mod journal;
+mod queue;
 mod reads;
 mod writes;
 
@@ -74,6 +75,12 @@ impl UnitOfWork for Store {
         }
         for completion in &tx.completed_effects {
             effects::complete(&mut dbtx, completion).await?;
+        }
+        for reschedule in &tx.rescheduled_effects {
+            effects::reschedule(&mut dbtx, reschedule).await?;
+        }
+        for death in &tx.dead_effects {
+            effects::kill(&mut dbtx, death).await?;
         }
         dbtx.commit().await.map_err(backend)?;
         Ok(receipt)

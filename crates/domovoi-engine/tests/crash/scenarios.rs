@@ -7,10 +7,10 @@
 
 use std::collections::BTreeMap;
 
-use domovoi_core::ports::Presence;
+use domovoi_core::ports::{EffectRead, EffectRecord, EffectStatus, LinkError, Presence};
 use domovoi_core::{
-    ActionStatus, Incident, ManifestHash, PlanBinding, SignalClass, SkillSummary, TriageOutcome,
-    UserId, Verdict,
+    ActionId, ActionStatus, Incident, ManifestHash, PlanBinding, SignalClass, SignalStatus,
+    SkillSummary, TriageOutcome, UserId, Verdict,
 };
 use domovoi_engine::triage::{mint_token, token_hash};
 use domovoi_testkit::approvals::{chat, human};
@@ -428,7 +428,78 @@ pub fn action_lifecycle<S: SweepStore>(world: &mut World<S>) -> BoxFuture<'_, ()
                 ActionStatus::Rejected { .. }
             ))
         );
+
+        // 10. A re-check the agent cannot answer: the effect runner puts the wake back for a
+        // later attempt, which is its own commit, and the next attempt verifies.
+        world.link.set_presence(
+            host_id(),
+            Presence::Connected {
+                since: world.now(),
+                version: "0.1.0".to_owned(),
+            },
+        );
+        world.link.on_check(|_, _, _| Err(LinkError::NotConnected));
+        let (late, _) = step!(
+            world,
+            NAME,
+            world.propose(incident, &verified_restart(), ARGS, HOUR)
+        );
+        step!(
+            world,
+            NAME,
+            world.service.approve(
+                late.id(),
+                human(user),
+                None,
+                PlanBinding::Full(late.plan_hash()),
+            )
+        );
+        step!(world, NAME, wait_for_rescheduled(world, late.id()));
+        world
+            .link
+            .on_check(|_, _, _| Ok(check(SignalStatus::Resolved)));
+        step!(
+            world,
+            NAME,
+            world.wait_for(late.id(), |status| matches!(status, ActionStatus::Verified))
+        );
     })
+}
+
+/// Waits until the wake effect of `action` has been put back for a later attempt after a
+/// transport failure, which is the effect runner's own retry commit.
+async fn wait_for_rescheduled<S: SweepStore>(
+    world: &World<S>,
+    action: ActionId,
+) -> Result<(), String> {
+    let wanted = format!("verify:{action}");
+    for _ in 0..600 {
+        if world.crashing.crashed() {
+            return Err("the process is down before the wake was put back".to_owned());
+        }
+        world.let_services_work().await;
+        for status in [
+            EffectStatus::Pending,
+            EffectStatus::Claimed,
+            EffectStatus::Done,
+        ] {
+            let rows = EffectRead::effects_with_status(&*world.store, status, 200)
+                .await
+                .map_err(|err| err.to_string())?;
+            let found: Option<&EffectRecord> = rows
+                .iter()
+                .find(|row| row.dedup_key.as_deref() == Some(wanted.as_str()));
+            if let Some(row) = found
+                && row.status == "pending"
+                && row.attempt == 1
+                && row.last_error.is_some()
+            {
+                return Ok(());
+            }
+        }
+        world.advance(1);
+    }
+    Err("the wake was never put back for a later attempt".to_owned())
 }
 
 /// A skill whose plan hash no longer matches what a proposal bound to.

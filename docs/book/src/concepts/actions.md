@@ -54,7 +54,7 @@ The **Approvals** page lists what is **Waiting for you**, the soonest to expire 
 - **The loop guard limits repeat runs.** The same skill runs at most three times per host in any hour. A fourth approval is blocked, and the thread says so.
 - **An offline agent holds the action.** If the host's agent is not reachable, Domovoi waits for it for up to thirty minutes before rejecting the action with "agent offline"; an agent this hub rejected as incompatible is rejected at once. Waiting happens before the action takes a place in the catch-up pool, so one missing host does not keep another host's runs from starting.
 - **Runs are bounded.** The agent runs the skill directly, with no shell, as the skill's user and within the skill's timeout.
-- **Results are verified.** A skill with a `verify` section is checked again after its delay. A write skill that applies to the incident's check is checked after 30 seconds.
+- **Results are verified.** A skill with a `verify` section is checked again after its delay. A write skill that applies to the incident's check is checked after 30 seconds. The re-check is scheduled durably, in the same commit that records the run, so a hub restart between the run and the re-check does not skip it. A re-check that cannot reach the host is retried with growing delays, 30 seconds doubling up to one hour, five attempts in all, and is then recorded as verification failed with the reason that the re-check could not run.
 
 ## Audit trail
 

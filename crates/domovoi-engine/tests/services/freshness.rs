@@ -467,6 +467,8 @@ fn slow_service(world: &Seeded, settings: ActionSettings) -> Actions {
             incidents: world.store.clone(),
             audit: world.store.clone(),
             uow: world.store.clone(),
+            effects: world.store.clone(),
+            advisories: world.store.clone(),
             link,
             redactor: Arc::new(PatternRedactor::new([SecretString::from(
                 SECRET.to_owned(),

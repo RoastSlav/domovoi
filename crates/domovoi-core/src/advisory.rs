@@ -32,6 +32,8 @@ pub enum AdvisoryKind {
     /// The nightly backup failed or did not verify; the newest good backup is older than
     /// expected.
     BackupFailed,
+    /// A background effect failed permanently and was dead-lettered.
+    EffectDead,
 }
 
 /// One hygiene finding.

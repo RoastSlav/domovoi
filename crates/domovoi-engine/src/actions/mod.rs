@@ -9,12 +9,15 @@
 
 mod approvals;
 pub mod audit;
+mod commit;
 mod executor;
 mod freshness;
 mod host_wait;
+mod outcome;
 mod recheck;
 mod recover;
 mod reject;
+mod verify_wake;
 mod writer;
 mod writer_propose;
 
@@ -22,16 +25,16 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::{Arc, Mutex};
 
 use domovoi_core::ports::{
-    ActionGuard, ActionRepo, AgentLink, AggregateRef, AuditDraft, AuditLog, Clock, CommitError,
-    IncidentRepo, JournalDraft, JournalKind, Redactor, StateWrite, Transaction, UnitOfWork,
+    ActionRepo, AdvisoryRepo, AgentLink, AuditLog, Clock, EffectKind, EffectQueue, IncidentRepo,
+    Redactor, UnitOfWork,
 };
 use domovoi_core::{ActionError, ActionId, ActionRequest, HostId, HumanApproval, PlanBinding};
 use jiff::{SignedDuration, Timestamp};
-use serde_json::{Value, json};
-use tokio::sync::{broadcast, oneshot};
+use tokio::sync::{Notify, broadcast, oneshot};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
+use crate::effects::{EffectRunner, EffectRunnerDeps, EffectSettings};
 use crate::events::{DomainEvent, EventKind};
 use crate::manager::ManagerHandle;
 
@@ -73,6 +76,10 @@ pub struct ActionDeps {
     pub audit: Arc<dyn AuditLog>,
     /// One atomic commit for an action write, its audit entry and its journal entry.
     pub uow: Arc<dyn UnitOfWork>,
+    /// Claims and recovers durable effects.
+    pub effects: Arc<dyn EffectQueue>,
+    /// Where a dead effect is reported.
+    pub advisories: Arc<dyn AdvisoryRepo>,
     /// Skill catalogues, dispatch and re-checks.
     pub link: Arc<dyn AgentLink>,
     /// Runs on skill output before it is stored.
@@ -105,6 +112,10 @@ pub enum ApprovalError {
     /// a typed confirmation on the web.
     #[error("{0}")]
     Refused(ActionError),
+    /// Another runner holds the effect this write was fenced by: the lease expired and the
+    /// effect was reclaimed. Nothing changed.
+    #[error("the effect was claimed by someone else")]
+    StaleEffect,
     /// The store failed.
     #[error("store error: {0}")]
     Store(String),
@@ -144,74 +155,12 @@ pub(crate) struct Shared {
     /// Limits the runs started from the store at once. Shared across catch-ups, so a
     /// reload after the event bus fell behind does not open a second set of runs.
     pub(crate) catch_up_slots: Arc<tokio::sync::Semaphore>,
+    /// Wakes the effect runner as soon as a writer commits an effect that is due, so a
+    /// verification does not wait for the runner's next poll.
+    pub(crate) effects_nudge: Arc<Notify>,
 }
 
 impl Shared {
-    /// Commits one action write together with its audit and journal entries, then records
-    /// the status-change metric (only when the status actually changed) and publishes the
-    /// event. Nothing is recorded or published when the commit fails, so a store error can
-    /// never leave an action in a new status without its audit and journal rows. The
-    /// journal's `from` is the status the guard names; it is `null` for a creation.
-    pub(crate) async fn commit_action(
-        &self,
-        action: &ActionRequest,
-        guard: ActionGuard,
-        audit: AuditDraft,
-        now: Timestamp,
-        extra: Option<(&str, &str)>,
-        publish: Publish,
-    ) -> Result<(), CommitError> {
-        let (from, changed) = match &guard {
-            ActionGuard::New => (None, true),
-            ActionGuard::Status(status) => (
-                Some(status.as_str()),
-                status.as_str() != action.status().name(),
-            ),
-        };
-        let mut payload = json!({
-            "action": action.id().to_string(),
-            "incident": action.incident().to_string(),
-            "host": action.host().to_string(),
-            "skill": action.skill().as_str(),
-            "from": from,
-            "to": action.status().name(),
-            "plan_hash": action.plan_hash().to_string(),
-        });
-        if let (Value::Object(fields), Some((key, value))) = (&mut payload, extra) {
-            fields.insert(key.to_owned(), json!(value));
-        }
-        let journal = JournalDraft {
-            aggregate: AggregateRef::action(action.id()),
-            kind: JournalKind::ActionTransition,
-            payload_v: 1,
-            payload,
-            actor: audit.actor.clone(),
-            occurred_at: now,
-        };
-        let tx = Transaction::new()
-            .write(StateWrite::Action {
-                action: action.clone(),
-                expected: guard,
-            })
-            .audit(audit)
-            .journal(journal);
-        self.deps.uow.commit(tx).await?;
-        if changed {
-            crate::telemetry::record_action(action.status());
-        }
-        if publish == Publish::ActionChanged {
-            self.publish(
-                action,
-                EventKind::ActionChanged {
-                    action: action.id(),
-                    status: action.status().clone(),
-                },
-            )
-            .await;
-        }
-        Ok(())
-    }
-
     /// Publishes `kind` for the incident `action` belongs to.
     pub(crate) async fn publish(&self, action: &ActionRequest, kind: EventKind) {
         match self.deps.incidents.get(action.incident()).await {
@@ -254,6 +203,7 @@ impl ActionService {
         let events = deps.bus.subscribe();
         let (writer, incoming) = writer::queue();
         let (recovered, _recovered_rx) = tokio::sync::watch::channel(false);
+        let effects_nudge = Arc::new(Notify::new());
         let shared = Arc::new(Shared {
             deps,
             settings,
@@ -262,7 +212,23 @@ impl ActionService {
             writer: writer.clone(),
             recovered,
             catch_up_slots: Arc::new(tokio::sync::Semaphore::new(executor::MAX_CATCH_UP_RUNS)),
+            effects_nudge: effects_nudge.clone(),
         });
+        let mut runner = EffectRunner::new(
+            EffectRunnerDeps {
+                queue: shared.deps.effects.clone(),
+                uow: shared.deps.uow.clone(),
+                clock: shared.deps.clock.clone(),
+                advisories: shared.deps.advisories.clone(),
+                nudge: effects_nudge,
+                shutdown: shared.deps.shutdown.clone(),
+            },
+            EffectSettings::default(),
+        );
+        runner.register(
+            EffectKind::Wake,
+            Arc::new(verify_wake::VerifyWake::new(shared.clone())),
+        );
         let writer_shared = shared.clone();
         let executor_shared = shared.clone();
         let task = tokio::spawn(async {
@@ -290,10 +256,13 @@ impl ActionService {
             // dispatched and then signals `recovered`; the executor waits for that
             // signal before it reads the store for approvals. The hub starts its agent
             // server before this service, so each host's availability is already
-            // answerable when the executor asks.
+            // answerable when the executor asks. The effect runner starts with them: it
+            // returns what a previous session left claimed to pending before it claims
+            // anything, so a verification due across a restart still runs.
             let _ = tokio::join!(
                 writer::run(writer_shared, incoming),
                 executor::serve(executor_shared, events),
+                runner.run(),
             );
         });
         (ActionHandle { shared, writer }, task)

@@ -4,8 +4,8 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use domovoi_core::ports::{
-    ActionFilter, ActionRepo, Clock, LlmProvider, LlmResponse, NoteRepo, Page, Part, Presence,
-    SignalRepo, StopReason, ToolOutput, UnitOfWork, Usage,
+    ActionFilter, ActionRepo, Clock, IncidentTimelineEntry, LlmProvider, LlmResponse, NoteRepo,
+    Page, Part, Presence, SignalRepo, StopReason, ToolOutput, UnitOfWork, Usage,
 };
 use domovoi_core::{
     ActionRequest, CheckKey, Evidence, EvidenceValue, HostId, Incident, Note, NoteId, ParamKind,
@@ -169,6 +169,20 @@ pub async fn world_over(
         })
     });
     let incident = incident_with(&store, setup.evidence).await;
+    // The world's own incident stands for one a test drives by hand: it counts as already
+    // triaged, so the service's start-up pass leaves it alone and the test decides when
+    // triage runs. The entry has no detail, so nothing reads it as a report, and it is
+    // written through the repository, so no event is published for it.
+    let handled = IncidentTimelineEntry {
+        incident: incident.id(),
+        at: T0,
+        kind: "triage.cached".to_owned(),
+        summary: "the incident this world was built around is triaged by its test".to_owned(),
+        detail: serde_json::Value::Null,
+    };
+    domovoi_core::ports::IncidentRepo::append_event(&*store, &handled)
+        .await
+        .unwrap();
     let (bus, events) = broadcast::channel(256);
     let shutdown = CancellationToken::new();
     let redactor = Arc::new(PatternRedactor::new([SecretString::from(
@@ -210,6 +224,8 @@ pub async fn world_over(
             incidents: store.clone(),
             audit: store.clone(),
             uow,
+            effects: store.clone(),
+            advisories: store.clone(),
             link: link.clone(),
             redactor: redactor.clone(),
             clock: clock.clone(),
@@ -241,6 +257,13 @@ pub async fn world_over(
     let usage = deps.usage.clone();
     let admission = deps.admission.clone();
     let (triage, _task) = TriageService::spawn(deps, setup.settings);
+    // Give the spawned service the scheduler before handing the world over: its start-up
+    // pass reads the store once, and a world whose incidents are created afterwards must
+    // not have them swept up by a pass that runs in the middle of the test. The in-memory
+    // store answers every read without waiting, so one poll finishes the pass.
+    for _ in 0..64 {
+        tokio::task::yield_now().await;
+    }
     World {
         store,
         clock,

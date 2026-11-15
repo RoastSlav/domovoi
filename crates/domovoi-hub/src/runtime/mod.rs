@@ -17,8 +17,7 @@ pub mod updates;
 
 use std::sync::Arc;
 
-use domovoi_config::Secrets;
-use domovoi_config::hub::HubConfig;
+use domovoi_config::{Secrets, hub::HubConfig};
 use domovoi_core::ports::{
     AgentLink, ChatGateway, Clock, HostRepo, InteractionSink, LogSource, Notifier, ProcessExecutor,
 };
@@ -227,6 +226,8 @@ impl HubRuntime {
                 incidents: store.clone(),
                 audit: store.clone(),
                 uow: store.clone(),
+                effects: store.clone(),
+                advisories: store.clone(),
                 link: policy_link.clone(),
                 redactor: redactor.clone(),
                 clock: clock.clone(),

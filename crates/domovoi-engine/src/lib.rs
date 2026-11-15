@@ -23,6 +23,7 @@ pub mod advisories;
 pub mod cards;
 pub mod correlate;
 pub mod digest;
+pub mod effects;
 pub mod events;
 pub mod manager;
 pub mod notify;
@@ -34,6 +35,7 @@ pub mod telemetry;
 pub mod triage;
 
 pub use actions::{ActionDeps, ActionHandle, ActionService, ActionSettings, ApprovalError};
+pub use effects::{EffectHandler, EffectOutcome, EffectRunner, EffectRunnerDeps, EffectSettings};
 pub use events::{DomainEvent, EventKind};
 pub use manager::{Command, CommandError, IncidentManager, ManagerDeps, ManagerHandle};
 pub use policy::EnginePolicy;

@@ -12,6 +12,7 @@ mod notify;
 mod triage;
 mod uow;
 mod uow_apply;
+mod uow_queue;
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::{Mutex, MutexGuard};

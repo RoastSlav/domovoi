@@ -12,18 +12,19 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use domovoi_core::ports::{
-    AckRepo, ActionFilter, ActionRepo, AggregateRef, AuditEvent, AuditFilter, AuditLog,
-    CommitError, CommitReceipt, EffectRead, EffectRecord, EffectStatus, IncidentFilter,
-    IncidentRepo, IncidentTimelineEntry, JournalEntry, JournalRead, Page, Paged, SignalRepo,
-    StoreError, Transaction, UnitOfWork, Versioned, VersionedRead,
+    AckRepo, ActionFilter, ActionRepo, AdvisoryRepo, AggregateRef, AuditEvent, AuditFilter,
+    AuditLog, ClaimBatch, CommitError, CommitReceipt, EffectKind, EffectQueue, EffectRead,
+    EffectRecord, EffectStatus, IncidentFilter, IncidentRepo, IncidentTimelineEntry, JournalEntry,
+    JournalRead, Page, Paged, SignalRepo, StoreError, Transaction, UnitOfWork, Versioned,
+    VersionedRead,
 };
 use domovoi_core::{
-    AckRule, AckRuleId, ActionId, ActionRequest, Fingerprint, HostId, Incident, IncidentId,
-    MaintenanceWindow, Note, NoteId, Signal, SkillName,
+    AckRule, AckRuleId, ActionId, ActionRequest, Advisory, AdvisoryId, Fingerprint, HostId,
+    Incident, IncidentId, MaintenanceWindow, Note, NoteId, Signal, SkillName,
 };
 use domovoi_store::Store;
 use domovoi_testkit::crash::{IntegrityRead, Orphan, OrphanStorage, check_invariants};
-use jiff::Timestamp;
+use jiff::{SignedDuration, Timestamp};
 
 /// A SQLite store seen through every port, plus the references the ports cannot show.
 #[derive(Clone)]
@@ -101,6 +102,39 @@ impl EffectRead for SqliteStore {
         limit: u16,
     ) -> Result<Vec<EffectRecord>, StoreError> {
         EffectRead::effects_with_status(&*self.0, status, limit).await
+    }
+}
+
+#[async_trait]
+impl EffectQueue for SqliteStore {
+    async fn claim_due(
+        &self,
+        runner: &str,
+        kinds: &[EffectKind],
+        now: Timestamp,
+        lease: SignedDuration,
+        limit: u16,
+    ) -> Result<ClaimBatch, StoreError> {
+        EffectQueue::claim_due(&*self.0, runner, kinds, now, lease, limit).await
+    }
+
+    async fn revert_claimed_at_start(&self) -> Result<u64, StoreError> {
+        EffectQueue::revert_claimed_at_start(&*self.0).await
+    }
+}
+
+#[async_trait]
+impl AdvisoryRepo for SqliteStore {
+    async fn upsert(&self, advisory: &Advisory) -> Result<(), StoreError> {
+        AdvisoryRepo::upsert(&*self.0, advisory).await
+    }
+
+    async fn list_open(&self) -> Result<Vec<Advisory>, StoreError> {
+        AdvisoryRepo::list_open(&*self.0).await
+    }
+
+    async fn resolve(&self, id: AdvisoryId, at: Timestamp) -> Result<(), StoreError> {
+        AdvisoryRepo::resolve(&*self.0, id, at).await
     }
 }
 

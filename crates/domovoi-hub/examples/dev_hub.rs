@@ -449,6 +449,8 @@ async fn main() -> Result<()> {
             incidents: store.clone(),
             audit: store.clone(),
             uow: store.clone(),
+            effects: store.clone(),
+            advisories: store.clone(),
             link: link.clone(),
             redactor: Arc::new(PatternRedactor::default()),
             clock: clock.clone(),
