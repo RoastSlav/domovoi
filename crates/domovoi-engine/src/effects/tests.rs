@@ -219,9 +219,10 @@ async fn runner_wakes_on_nudge_before_poll() {
     );
 }
 
-#[derive(Default)]
 struct Gated {
     calls: AtomicU32,
+    /// Fires once per handler entry, so a test can wait for an attempt instead of polling.
+    entered: mpsc::UnboundedSender<()>,
     first: Notify,
     second: Notify,
 }
@@ -229,7 +230,11 @@ struct Gated {
 #[async_trait]
 impl EffectHandler for Gated {
     async fn handle(&self, _effect: &EffectRecord, _claim: ClaimToken) -> EffectOutcome {
-        match self.calls.fetch_add(1, Ordering::SeqCst) {
+        let call = self.calls.fetch_add(1, Ordering::SeqCst);
+        // Report the entry before blocking, so a test waits for this handler instead of
+        // polling for it: the claim has happened by the time the signal arrives.
+        let _ = self.entered.send(());
+        match call {
             0 => self.first.notified().await,
             _ => self.second.notified().await,
         }
@@ -246,7 +251,13 @@ async fn runner_discards_stale_handler_result() {
     let nudge = Arc::new(Notify::new());
     let shutdown = CancellationToken::new();
     let id = seed(&store, EffectKind::Wake, 5, T0).await;
-    let handler = Arc::new(Gated::default());
+    let (entered, mut entries) = mpsc::unbounded_channel();
+    let handler = Arc::new(Gated {
+        calls: AtomicU32::new(0),
+        entered,
+        first: Notify::new(),
+        second: Notify::new(),
+    });
     let mut runner = EffectRunner::new(
         deps(store.clone(), &store, &clock, &nudge, &shutdown),
         settings(SignedDuration::from_secs(1)),
@@ -254,34 +265,33 @@ async fn runner_discards_stale_handler_result() {
     runner.register(EffectKind::Wake, handler.clone());
     let task = tokio::spawn(runner.run());
 
-    for _ in 0..200 {
-        settle().await;
-        if handler.calls.load(Ordering::SeqCst) == 1 {
-            break;
-        }
-    }
-    settle().await;
+    entries
+        .recv()
+        .await
+        .expect("the first claim reaches the handler");
     let first = row(&store, id).await;
     assert_eq!(first.attempt, 1);
 
     clock.advance(SignedDuration::from_secs(301));
-    for _ in 0..200 {
-        settle().await;
-        if handler.calls.load(Ordering::SeqCst) == 2 {
-            break;
-        }
-    }
-    settle().await;
+    entries
+        .recv()
+        .await
+        .expect("the expired lease is reclaimed");
     let second = row(&store, id).await;
     assert_eq!(second.attempt, 2, "the expired lease is reclaimed");
     assert_ne!(second.claim_token, first.claim_token);
 
+    // The first holder now reports a retry it no longer owns: nothing may change while its
+    // fenced commit is refused.
     handler.first.notify_one();
-    settle().await;
-    let after = row(&store, id).await;
-    assert_eq!(after.status, "claimed", "the stale result changed nothing");
-    assert_eq!(after.claim_token, second.claim_token);
-    assert_eq!(after.attempt, 2);
+    for _ in 0..200 {
+        settle().await;
+        let after = row(&store, id).await;
+        assert_eq!(after.status, "claimed", "the stale result changed nothing");
+        assert_eq!(after.claim_token, second.claim_token);
+        assert_eq!(after.attempt, 2);
+        clock.advance(SignedDuration::from_secs(1));
+    }
 
     handler.second.notify_one();
     shutdown.cancel();
