@@ -12,7 +12,15 @@ If the prompt and `ARCHITECTURE.md` disagree, stop and say so. Do not pick one s
 
 ## Commands
 
-[`TESTING.md`](TESTING.md) is the full reference: prerequisites, every CI job and its local command, partial test runs, running the hub, agents and web UI by hand, and troubleshooting. CI runs on Linux; the hub and agent are Linux programs, so on Windows run them inside WSL 2. This machine's WSL has no Rust or Node, so run checks on Windows and treat CI as the final word.
+[`TESTING.md`](TESTING.md) is the full reference: prerequisites, every CI job and its local command, partial test runs, running the hub, agents and web UI by hand, and troubleshooting. CI runs on Linux; the hub and agent are Linux programs, so on Windows run them inside WSL 2. The `Ubuntu` distro has Rust and a working C compiler; the default `docker-desktop` distro has no shell, so always name it: `wsl.exe -d Ubuntu -- …`.
+
+WSL notes:
+
+- WSL is where the Unix-only tests run. `tests/single_box.rs` and `tests/settings_apply.rs` are `#![cfg(unix)]` and silently do nothing on Windows; native Windows checks still cover everything else.
+- `/tmp` is a 950 MB tmpfs, so point `CARGO_TARGET_DIR` at the disk (`$HOME/domovoi-target`); a full build there fails with `No space left on device`.
+- There is no system `cc` and `sudo` needs a password. `~/bin/cc` and `~/bin/c++` wrap `~/zig/zig cc|c++` and translate Rust's `--target=x86_64-unknown-linux-gnu` into Zig's `x86_64-linux-gnu`; keep `$HOME/bin` first on `PATH`.
+- From Git Bash, prefix `wsl.exe` with `MSYS_NO_PATHCONV=1`, or `/mnt/c/...` arguments are rewritten into Windows paths.
+- Build from WSL against the Windows checkout on `/mnt/c`; edit from Windows.
 
 | Task | Command |
 | --- | --- |
