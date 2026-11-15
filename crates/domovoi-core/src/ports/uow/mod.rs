@@ -2,6 +2,7 @@
 
 mod effects;
 mod journal;
+mod lifecycle;
 mod transaction;
 
 pub use effects::{
@@ -10,6 +11,7 @@ pub use effects::{
 pub use journal::{
     AuditDraft, JournalDraft, JournalEntry, JournalKind, JournalRead, timeline_journal,
 };
+pub use lifecycle::{ClaimBatch, ClaimedEffect, EffectDeath, EffectQueue, EffectReschedule};
 pub use transaction::{
     ActionGuard, AggregateKind, AggregateRef, CommitError, CommitReceipt, Expectation, Expected,
     Observed, StateWrite, Transaction, Versioned,

@@ -6,7 +6,9 @@ use crate::id::{ActionId, EffectId, IncidentId, NoteId};
 use crate::ports::repos::IncidentTimelineEntry;
 use crate::{ActionRequest, Incident, Note, Signal};
 
-use super::{AuditDraft, EffectCompletion, EffectDraft, JournalDraft};
+use super::{
+    AuditDraft, EffectCompletion, EffectDeath, EffectDraft, EffectReschedule, JournalDraft,
+};
 
 /// Which kind of aggregate a write, journal entry or effect belongs to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -202,7 +204,7 @@ pub enum StateWrite {
 /// Everything one business event changes.
 ///
 /// Applied in this order: `writes`, then the mirrored and explicit journal rows, then `audit`,
-/// then `new_effects`, then `completed_effects`.
+/// then `new_effects`, `completed_effects`, `rescheduled_effects` and `dead_effects`.
 #[derive(Debug, Clone, Default)]
 pub struct Transaction {
     /// State changes, applied in order.
@@ -215,6 +217,10 @@ pub struct Transaction {
     pub new_effects: Vec<EffectDraft>,
     /// Effects to complete.
     pub completed_effects: Vec<EffectCompletion>,
+    /// Claimed effects to put back for a later attempt.
+    pub rescheduled_effects: Vec<EffectReschedule>,
+    /// Claimed effects to dead-letter.
+    pub dead_effects: Vec<EffectDeath>,
 }
 
 impl Transaction {
@@ -232,6 +238,8 @@ impl Transaction {
             && self.audit.is_empty()
             && self.new_effects.is_empty()
             && self.completed_effects.is_empty()
+            && self.rescheduled_effects.is_empty()
+            && self.dead_effects.is_empty()
     }
 
     /// Adds one state write.
@@ -266,6 +274,20 @@ impl Transaction {
     #[must_use]
     pub fn complete(mut self, completion: EffectCompletion) -> Self {
         self.completed_effects.push(completion);
+        self
+    }
+
+    /// Adds one fenced reschedule of a claimed effect.
+    #[must_use]
+    pub fn reschedule(mut self, reschedule: EffectReschedule) -> Self {
+        self.rescheduled_effects.push(reschedule);
+        self
+    }
+
+    /// Adds one fenced dead-lettering of a claimed effect.
+    #[must_use]
+    pub fn kill(mut self, death: EffectDeath) -> Self {
+        self.dead_effects.push(death);
         self
     }
 }
@@ -312,6 +334,9 @@ pub enum CommitError {
 
 #[cfg(test)]
 mod tests {
+    use jiff::Timestamp;
+
+    use super::super::ClaimToken;
     use super::*;
 
     #[test]
@@ -343,6 +368,32 @@ mod tests {
                 .write(StateWrite::DiscardPendingIncident {
                     id: IncidentId::new(),
                     expected: 1,
+                })
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn a_transaction_with_only_effect_lifecycle_rows_is_not_empty() {
+        let token = ClaimToken::new();
+        assert!(
+            !Transaction::new()
+                .reschedule(EffectReschedule {
+                    id: EffectId::new(),
+                    claim_token: token,
+                    not_before: Timestamp::constant(1_700_000_000, 0),
+                    error: "offline".to_owned(),
+                    at: Timestamp::constant(1_700_000_000, 0),
+                })
+                .is_empty()
+        );
+        assert!(
+            !Transaction::new()
+                .kill(EffectDeath {
+                    id: EffectId::new(),
+                    claim_token: token,
+                    error: "gave up".to_owned(),
+                    at: Timestamp::constant(1_700_000_000, 0),
                 })
                 .is_empty()
         );

@@ -29,6 +29,8 @@ pub enum AdvisoryKind {
     StoredSecretUnreadable,
     /// Saved settings could not be applied; the hub went back to the previous ones.
     SettingsApplyFailed,
+    /// A background effect failed permanently and was dead-lettered.
+    EffectDead,
 }
 
 /// One hygiene finding.
