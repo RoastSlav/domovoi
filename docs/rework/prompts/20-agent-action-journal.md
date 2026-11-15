@@ -687,14 +687,22 @@ nothing across processes, and `journal init`/`journal reset` are separate local 
 run while the daemon is up. The journal therefore has one OS advisory lock over the stable file
 `action-journal.lock`, and it is the authority on who owns the journal's files.
 
-- Mechanism: `flock(2)` in exclusive, non-blocking mode. `nix` 0.31 is already a workspace dependency
-  with the `fs` feature, which provides `nix::fcntl::flock` and `FlockArg::LockExclusiveNonblock`;
-  add `nix = { workspace = true }` to `domovoi-agent` and call it directly. That is not a new crate and
-  not a new workspace dependency. Do not add `fs2`, `fs4`, `fd-lock` or `rustix` for this.
-- Creation: open the lock file with create, read/write and mode 0600 on Unix, then `flock` the open
-  descriptor. The lock is advisory and belongs to the descriptor, so the owner keeps the descriptor
-  open for as long as it owns the journal; `flock` is released when that descriptor is closed, when the
-  process exits, and by the kernel when the process dies or is killed.
+- Mechanism: the owned `nix::fcntl::Flock` guard, not the deprecated `nix::fcntl::flock` function
+  (`flock` has been deprecated since nix 0.28.0 and must not be called, and no
+  `#[allow(deprecated)]` may be added). `nix` 0.31.3 is already a workspace dependency with the `fs`
+  feature; add `nix = { workspace = true }` to `domovoi-agent`. That is not a new crate and not a new
+  workspace dependency. Do not add `fs2`, `fs4`, `fd-lock` or `rustix` for this.
+- Acquisition: open the lock file as a `std::fs::File` with
+  `OpenOptions::new().read(true).write(true).create(true)` and mode 0600 on Unix, then call
+  `Flock::lock(file, FlockArg::LockExclusiveNonblock)`. It returns
+  `Result<Flock<File>, (File, Errno)>`: the guard on success, the file back with the error on failure.
+  `EWOULDBLOCK`/`EAGAIN` means another process owns the lock; any other `Errno` is a real acquisition
+  error. Keep the error text and the errno, and drop the returned file so a failed attempt leaks
+  nothing. Never retry by deleting the lock file.
+- Lifetime: the guard owns the lock and unlocks on drop, including when the process dies. The daemon
+  stores the `Flock<File>` in the journal owner held by its runtime state, so it cannot be dropped
+  while the daemon still uses the journal; it is never unlocked by hand while ownership is active.
+  `journal init` and `journal reset` keep their guard alive until the command has completely finished.
 - The daemon takes the lock **before** it reads, creates or validates either journal file, and holds
   it for the whole lifetime in which it owns the journal state. Nothing in the journal module may read
   or write `action-journal.bin` or `action-journal.json` before the lock is held.
@@ -713,9 +721,13 @@ run while the daemon is up. The journal therefore has one OS advisory lock over 
 - The lock file is never archived, renamed or replaced, including by `reset`: it survives every epoch,
   so two processes always contend on the same inode. `reset` archives only the journal and metadata
   pair.
-- Non-Unix: the lock module returns a distinct error and the journal refuses to run. `domovoi-agent`
-  is a Linux program; a Windows build may compile, but it must never silently fall back to the
-  in-process mutex or an unlocked journal. Stop and report if the required semantics are unavailable.
+- Platform: the implementation is `#[cfg(target_os = "linux")]`, the target `domovoi-agent` actually
+  supports. Do not use a broad `cfg(unix)` or `cfg(not(windows))` for it: nix gates `Flock`, its
+  `File` impl and `Flock::lock` on `not(any(target_os = "redox", target_os = "solaris"))`, so a wider
+  cfg would reference items that do not exist there. Every other target compiles the lock module's
+  unsupported branch, which returns a distinct `UnsupportedLock` error and makes the journal refuse to
+  run. It never silently falls back to the in-process mutex or an unlocked journal. Stop and report if
+  the required semantics are unavailable.
 
 ### 10.2 Epoch
 
@@ -1074,7 +1086,7 @@ implementer must do if the choice does not hold.
 | G12 | `agent_status`'s "report `journal_corrupt`" has no field | `03 RW-38`, `04 8.3` | report through the refusal detail and logs; no new field | a UI requirement needs it in `agent_status`; then add it to the frozen shape before 1.2 ships |
 | G13 | nothing proves a hub-generated execution id is inside the retention window after pruning: ids come from the hub, any watermark comes from the agent, and no shared clock or ordering is guaranteed | `03 RW-09` ("only when the epoch matches and the id is inside the journal retention window"), `04 15.2` | 10.6: `not_found` only while `meta.pruned == false`; after pruning every absent id is `outcome_unknown{journal_lost}` | a later contract supplies a hub-generated retention watermark, or the owner requires `not_found` after pruning |
 | G14 | no durable marker distinguishes a genuine first install from later loss of the journal: `identity.json` records enrollment, and `checks.json`/`spool.json*` may legitimately be absent | `03 RW-09`, `crates/domovoi-agent/src/identity.rs`, `config_file.rs` | 10.1: nothing is created at startup; `journal init` is the only first-time creation, and every partial or missing pair fails closed into `journal reset` | the owner requires automatic first-run creation, or an installation marker that reliably predates the journal |
-| G15 | no cross-process ownership mechanism is specified, while `journal init`/`journal reset` are separate CLI processes that can run beside the daemon | `03 RW-09`, `03 RW-38`, `crates/domovoi-agent/Cargo.toml` | 10.1: exclusive non-blocking `flock(2)` on the stable `action-journal.lock` (`nix`, `fs` feature, already a workspace dependency), held for the lifetime of ownership; the in-process mutex stays | the platform cannot provide advisory exclusive locks with release on process death, or `flock` proves unusable on the target filesystem; stop and report |
+| G15 | no cross-process ownership mechanism is specified, while `journal init`/`journal reset` are separate CLI processes that can run beside the daemon | `03 RW-09`, `03 RW-38`, `crates/domovoi-agent/Cargo.toml` | 10.1: exclusive non-blocking `Flock::lock(file, FlockArg::LockExclusiveNonblock)` guard on the stable `action-journal.lock` (`nix`, `fs` feature, already a workspace dependency), held for the lifetime of ownership; the in-process mutex stays | the platform cannot provide advisory exclusive locks with release on process death, or the `nix` `Flock` guard proves unusable on the target filesystem; stop and report |
 
 G13 is the reason this brief never claims retention membership is proven by UUID order or timestamps.
 The conservative answer is deliberate: `OutcomeUnknown` is recoverable by a human, a wrong `NotRun` is
@@ -1114,9 +1126,9 @@ Repository rules that matter here:
 
 - `domovoi-proto` stays pure: no I/O, no clock, no UUID creation at decode time.
 - Spawning stays exclusively in `domovoi-runner`, with argv vectors, never `sh -c`.
-- No new crates. `nix` is already a workspace dependency; add it to `domovoi-agent` for `flock` only
-  (10.1). Do not enable extra `nix` features. Prefer `/proc/uptime` over `nix`'s `time` feature for
-  monotonic time.
+- No new crates. `nix` is already a workspace dependency; add it to `domovoi-agent` for the `Flock`
+  guard only (10.1). Do not enable extra `nix` features. Prefer `/proc/uptime` over `nix`'s `time`
+  feature for monotonic time.
 - Time-dependent tests use the `Clock` port and `domovoi-testkit`; no sleeps.
 - No `unwrap`, `expect`, `panic!`, `todo!` or `dbg!` in library code; no new `#[allow(...)]`.
 - Non-test source files stay at or under 500 lines. The journal and the limiter each deserve their own
@@ -1248,9 +1260,10 @@ Add:
   reset, so the assertions describe what a fresh process would do.
 - The eight `*_process_lock*`, `lock_*` and `*_releases_lock_*` tests in 14.2 are genuinely
   cross-process: spawn separate `domovoi`/`domovoi-agent` processes against a temporary `state_dir`
-  and real `flock` acquisition, not two tasks sharing one mutex. Coordinate them with pipes, barrier
-  files or child exit status; never `sleep`. They are Unix-only, like the other real-`flock` tests, and
-  must be skipped explicitly rather than weakened on a platform without `flock`.
+  and real OS lock acquisition, not two tasks sharing one mutex. Coordinate them with pipes, barrier
+  files or child exit status; never `sleep`. They are Linux-only, matching the lock module's
+  `cfg(target_os = "linux")`, and must be skipped explicitly rather than weakened on any other
+  target.
 - Extend `crates/domovoi-agent/tests/gates.rs`; never weaken it.
 - Review every accepted `insta` snapshot. A 1.1 fixture must not be edited to look like 1.2.
 - If a public protocol type changes, run `cargo nextest run -E 'rdeps(domovoi-proto)'`.
@@ -1261,10 +1274,10 @@ Add:
 2. Protocol tests: 1.1 fixtures untouched, new 1.2 samples and snapshots, round-trip and tolerant
    decoding tests.
 3. `domovoi-config`: `[mutation_limits]` and its schema test.
-4. `domovoi-agent`: the `action-journal.lock` module (`flock` via `nix`, held for process lifetime)
-   and the journal module (metadata, epoch, initialization, framing, recovery, retention) with unit
-   tests that do not need a hub. Build the durable metadata writer, the lock and the startup
-   validation pair-check before anything writes a journal.
+4. `domovoi-agent`: the `action-journal.lock` module (owned `Flock<File>` guard via `nix`, held in the
+   journal owner for the process lifetime) and the journal module (metadata, epoch, initialization,
+   framing, recovery, retention) with unit tests that do not need a hub. Build the durable metadata
+   writer, the lock and the startup validation pair-check before anything writes a journal.
 5. `domovoi-agent`: journal-backed acceptance in the request handler, `action_status`, duplicate
    handling, all under the process lock and the `JournalState` mutex.
 6. `domovoi-agent`: mutation limiter, and the `journal init` / `journal reset` commands, each taking
@@ -1319,9 +1332,9 @@ CI runs the full suite; do not run the whole workspace locally by default.
 - A post-rename directory-`fsync` failure is handled as an indeterminate outcome: no record is
   removed, the journal is fenced, a stale in-memory `pruned = false` can never overwrite a visible
   `pruned = true`, and the next load validates whichever file is present.
-- `action-journal.lock` is the one cross-process owner: the daemon holds `flock` for its whole
-  lifetime, `journal init` and `journal reset` take the same lock and refuse while it is held, a
-  second agent does not serve, and the lock file is never archived, renamed or deleted. The
+- `action-journal.lock` is the one cross-process owner: the daemon holds the `Flock<File>` guard for
+  its whole lifetime, `journal init` and `journal reset` take the same lock and refuse while it is
+  held, a second agent does not serve, and the lock file is never archived, renamed or deleted. The
   `Mutex<JournalState>` still serialises tasks inside the owner.
 - Pruning durably sets `pruned = true` before any record is removed, under the journal mutex, and a
   crash at either point never produces a false `not_found`. No record path can remove records while
