@@ -14,10 +14,10 @@ authoring standard).
 
 | | |
 |---|---|
-| Branch / HEAD | `phase7-inventory` at `f8acfb8` ("docs: record the prompt-pack inventory for the remaining waves") |
+| Branch / HEAD | `phase7-inventory`; this map is collected in PR #137, so HEAD moves with each pushed correction |
 | Base | `origin/overhaul-investigation` `bca079d` (durable effects #136); the map was first written against `55ab5b7` |
 | Worktree | only untracked `pr-body.md` (pre-existing); no staged or unstaged change |
-| Canonical docs | no commit between Prompt 00 and Prompt 01 changes them; the prompt 15 status rows in `07` are corrected with this map (status only) |
+| Canonical docs | `07` carries the prompt 15 status correction from the previous task; this task changes only this map |
 | Migrations | `0001`–`0010`; next free number is `0011`, read from the directory at branch cut (`07 §7`) |
 | Protocol | `PROTOCOL_VERSION = 1.1` (`crates/domovoi-proto/src/version.rs:17`) |
 | Prompt documents | 14 of 51; 13 are A–D, plus `24-capability-contracts.md` |
@@ -37,6 +37,27 @@ all exist (`crates/domovoi-llm/src/{anthropic,openai,cli}.rs`, `crates/domovoi-l
 reconciled list in `prompts/17-llm-reliability.md:26-36` matches. Only prompts 31, 32, 35 and 36 read
 LLM code; if the owner's separate integration process lands more, only those four briefs need a factual
 refresh.
+
+## 1a. Drafting prerequisites versus launch prerequisites
+
+Two different gates apply to a prompt, and this map keeps them apart from here on.
+
+**Drafting the document (Phase 7, now).** Every prompt document is being collected in PR #137. A document
+is drafted from the approved architecture (`03`/`04`/`04b`), the implementation already in the
+repository, and the contract that an earlier prompt **document** defines. Its upstream implementation
+does **not** need to be merged to write it, and the owner does not have to implement half of Domovoi
+before the prompt pack can be finished. Where a prompt owns a shared contract, the consumer's document is
+drafted after the owner's document exists, so both cite the same names and rules.
+
+**Launching the implementation (after Phase 7).** The dependencies in `07 §2` must be merged into
+`overhaul-investigation`, the prompt's gate must be met, and the coding model must read the merged
+implementation rather than trust the planned names in the brief. Launches stay strictly one prompt at a
+time.
+
+The batch table in §13 therefore has two separate columns: **Draft after** lists prompt documents and
+evidence, and **Launch after** lists merged implementations and gates. Nothing in a *Draft after* column
+requires a merge. The wave sections in §3–§12 use "depends on" and "dependencies" for launch unless they
+say otherwise.
 
 ## 2. Waves versus milestones
 
@@ -227,7 +248,8 @@ evidence, not a library opinion.
 **Dependencies.** 32 needs 31; 35 needs 27 + 31 + 34; 37 needs 30; 42 needs 41; 33 needs 30. 35 before
 48; 32/35/37/42/33 have no forced order among themselves. 37 must land before any page that consumes
 visibility.
-**Blockers.** R-1 is open and only 33 resolves it; 38 and 52 must not be drafted as if accepted.
+**Blockers.** R-1 is open and only 33 resolves it. 38 is drafted after 33's evidence and launched only after
+R-1 is accepted; 52 follows 38. Neither may assume a library before the evidence exists.
 Type: implementation (32, 35, 37, 42), research/validation (33). Model: 32 M, 35 M, 37 M, 42 M, 33 M.
 
 ## 9. Wave K — U4 pages and U2 canvas/playback (43, 48, 49, 50, 51, 38, 52)
@@ -242,8 +264,8 @@ patterns. No policy, knowledge, capability, audit or graph routes (`web/src/app/
 | ID | Remaining work | Depends on | Notes |
 |---|---|---|---|
 | 43 | Policy editor, effective-policy explanation, simulator UI, publication report | 37, 40 | locked-rule styling; step-up flows already in 19's `settings/step_up.rs` |
-| 48 | Knowledge browser/detail, proposals, management paths view | 37, 34, 35 | the management-path **coverage** view needs 47 (index `§4` lists 48 as a 47 consumer) |
-| 49 | Capability Center, owner import, install wizard, ceiling and helper views, key-enrollment screen | 37, 25, 42 | ceiling/helper/key-enrollment views need 47 (index `§4` lists 49 as a 47 consumer) |
+| 48 | Knowledge browser/detail, proposals, management paths view | 37, 34, 35 | the management-path **coverage** view needs 47: draft after 47's document, launch only after 47 merges (index `§4` lists 48 as a 47 consumer) |
+| 49 | Capability Center, owner import, install wizard, ceiling and helper views, key-enrollment screen | 37, 25, 42 | ceiling/helper/key-enrollment views need 47: draft after 47's document, launch only after 47 merges (index `§4` lists 49 as a 47 consumer) |
 | 50 | Audit page (legacy and chained) and retention settings | 37, 09, 57 | smallest prompt; 09 and 57 are merged |
 | 51 | Control Room, attention centre, global search | 37, 28, 30 | consumes SSE contract and the shell |
 | 38 | Graph canvas: interactive trace graph, keyboard model, motion, reduced motion | 33, 37; **gate R-1 accepted** | moves `web/DESIGN.md` planned tokens into the kit in the same PR |
@@ -254,12 +276,17 @@ patterns. No policy, knowledge, capability, audit or graph routes (`web/src/app/
 limit, no inline style/raw button. 38/52 additionally: keyboard model, reduced motion, at most five nodes
 animated per burst (`DESIGN.md:380-388`).
 
-**Blockers and one ordering inconsistency.** 38 needs R-1 accepted. 48 and 49 are listed in `07 §4` as
-first consumers of 47's helper protocol and `SafetyIdentity`, but `07 §3` places them in wave K, before
-wave L's 47. Resolve before drafting those two: either (a) move 47 ahead of the helper-dependent page
-slice, (b) split 48/49 into a first slice without helper/safety views and a follow-up that consumes 47,
-or (c) record an explicit deferral of those views. This map does not reorder the index; it flags the
-mismatch as the only material ordering conflict found.
+**Launch-order exceptions (47 before 48 and 49).** `07 §4` lists 48 and 49 as first consumers of 47's
+helper protocol and `SafetyIdentity`, while `07 §3` places them in wave K, before wave L's 47. The wave IDs
+stay as they are; the resolution is:
+
+- draft 47's document **before** the 48 and 49 documents, so both can consume the helper protocol,
+  `SafetyIdentity`, attestation and coverage contracts it defines;
+- launch 48 and 49 **only after 47 is implemented, tested and merged** — never against placeholder or
+  invented contracts;
+- 43, 50 and 51 do not consume 47 and keep their normal wave K order.
+
+This is a launch-order exception; all of these documents can still be drafted in PR #137.
 
 ## 10. Wave L — H1 three identities (44, 47)
 
@@ -272,8 +299,8 @@ runner, no enrollment, no attestation.
 
 | ID | Work | Gate | Kind |
 |---|---|---|---|
-| 44 | ADRs for the three identities and for helper attestation; record every item 54/55 left unproven | 54 and 55 evidence, or unproven items recorded (`07 §6.4`) | documentation |
-| 47 | `domovoi helper serve` (socket activation, peer-uid, typed groups incl. no pause, `[safety]`, key lifecycle, state files, `safety.attest` in the `04b` encoding); `domovoi skill-runner` as `domovoi-skill`; agent routing of skills and privileged work; hub key enrollment, attestation verification, covered/uncovered view; unit sandbox; installer migration; selftest; O-30 behaviour | **O-30 answered; R-3, R-9, R-10 accepted**; 20, 22, 44 merged | implementation |
+| 44 | ADRs for the three identities, for helper attestation, and for the narrow D-24 Docker-write helper; record every item 54/55 left unproven | 54 and 55 evidence, or unproven items recorded (`07 §6.4`); the owner accepts the ADRs | documentation |
+| 47 | `domovoi helper serve` (socket activation, peer-uid, typed groups incl. no pause, `[safety]`, key lifecycle, state files, `safety.attest` in the `04b` encoding); `domovoi skill-runner` as `domovoi-skill`; agent routing of skills and privileged work; hub key enrollment, attestation verification, covered/uncovered view; unit sandbox; installer migration; selftest; O-30 behaviour | **O-30 answered by the owner; R-3, R-9, R-10 accepted; 44's ADRs accepted**; 20, 22 merged | implementation |
 
 **Named validation.** All RW-37 and RW-39 tests (`helper_attestation_signature_verifies`,
 `report_parser_rejects_duplicates_unsorted_and_noncanonical`, `config_hash_matches_vectors`,
@@ -286,9 +313,26 @@ acceptance conditions of `06 §H1`.
 Choose them at drafting (candidate seams: helper process + attestation; skill runner + agent routing;
 installer + hub enrollment), and keep O-30/R-3/R-9/R-10 as the gate for whichever slice needs them.
 
-**Blockers.** O-30 open; R-3, R-9, R-10 open; 54 and 55 must produce evidence first. R-10 stays a
-validation gate until 47's implementation and tests exist — attestation is not "validated" by design
-text (`03:858-859`).
+**D-24 Docker-write helper ADR (an explicit output of 44).** D-24 (`99:35`) forbids general Docker socket
+write access for the agent and requires a narrow first-party helper with its own ADR; Docker-write
+capabilities stay unavailable for unattended use until the design and authorization requirements are met.
+The identity ADRs alone do not satisfy that. Prompt 44 must therefore produce a second, narrowly scoped
+ADR for the Docker-write helper, covering only what D-24 permits: no generic Docker API, no direct socket
+access for the agent, and no unattended Docker write before the ADR, the helper implementation and the
+authorization conditions exist. This is a documentation requirement; it does not widen the helper's
+implementation scope, and prompt 45 must not invent the ADR itself. `07 §2` row 44 lists only the identity
+and attestation ADRs; this map records the D-24 ADR as an additional explicit output, and the index row is
+brought into line in the later status-only pass rather than here.
+
+**O-30 stays open.** The register's recommendation is option (a) — a skill whose manifest sets `run_as`
+to another user reports `Unavailable(run_as_unsupported)` (`99:46`) — but it is still an open owner
+decision, so the map records it as a recommendation, not an accepted decision. Drafting 47 may describe
+both the gate and the behaviour under option (a); launching 47 waits for the owner to answer O-30
+explicitly. Do not mark O-30 resolved anywhere.
+
+**Blockers.** O-30 open; R-3, R-9 and R-10 open; 54 and 55 must produce evidence before 44's ADRs are
+accepted and 47 is launched. R-10 stays a validation gate until 47's implementation and tests exist —
+attestation is not "validated" by design text (`03:858-859`). None of this blocks drafting the documents.
 
 ## 11. Wave M — M8 and M9 (45, 46)
 
@@ -300,7 +344,7 @@ breaker, no containment, and no helper protocol until 20 defines it and 47 imple
 
 | ID | Work | Gate |
 |---|---|---|
-| 45 | `PermitIssuer`, hard limits, guardrails, circuit breaker, global pause, first L2 contracts `unit.restart` and `container.restart`; authorization attribution and pause switch in the UI | **R-8 accepted; H1 complete**; deps 32, 40, 47 |
+| 45 | `PermitIssuer`, hard limits, guardrails, circuit breaker, global pause, first L2 contracts `unit.restart` and `container.restart`; authorization attribution and pause switch in the UI | **R-8 accepted; H1 complete; 44's Docker-write ADR accepted**; deps 32, 40, 47 |
 | 46 | `firewall.block_source` with kernel timeout, two-step apply with 30 s confirmation, verified and unverified human paths, management-path exclusions, reconciliation, drills | **R-2, R-10 accepted**; deps 45, 34, 47 |
 
 **Named validation.** 45: `no_permit_without_policy_allow`,
@@ -310,10 +354,10 @@ breaker, no containment, and no helper protocol until 20 defines it and 47 imple
 `block_expires_with_agent_stopped`, `unconfirmed_block_expires_in_30s`, `excluded_address_refused`,
 `model_cannot_trigger_containment`, `active_containment_reconciled_after_agent_restart`.
 
-**Planning question to settle before drafting 45.** `container.restart` needs helper `docker.write`, and
-D-24 requires a narrow helper with its own ADR; index row 44 names only the identity and attestation
-ADRs. Either 44 covers the Docker-write helper or 45 excludes `container.restart`. Do not invent the ADR
-inside 45.
+**D-24 and `container.restart`.** The Docker-write helper ADR is an output of 44 (see §10), so 45 does not
+author one and does not grant generic Docker write access. `container.restart` may be launched only after
+that ADR is accepted and the helper implementation from 47 exists; until then it stays unavailable for
+unattended use. `unit.restart` is not affected by this ADR.
 
 **Blockers.** R-8 (45), R-2 and R-10 (46). Unattended containment stays disabled until the drills pass
 (D-22); none of this may be described as production-ready before evidence exists.
@@ -341,53 +385,82 @@ containment candidates, protocol support for older agent generations, the revoke
 multi-user/RBAC, advanced audit anchoring, customizable Control Room widgets, integrations and providers,
 and vector/graph databases.
 
-## 13. Execution order and drafting batches
+## 13. Drafting batches and launch order
 
-Launch order is a single sequence; the slashes below are order-flexible, not concurrent. Each batch is at
-most three briefs, and each brief may only be written against the merged work named as its prerequisite.
+Drafting and launching are separate (see §1a). Documents are written now, in batches of at most three;
+implementations launch later, one at a time, only when their merged dependencies and gates are satisfied.
+`∥` below means no forced order; it never means concurrent work.
 
-| Batch | Prompts | Write after (merged) | Why grouped |
-|---|---|---|---|
-| R-0 | 53, 54, 55, 56 | nothing | research prompts; writable now; they gate L and M |
-| EF-1 | 20 | 15 (merged, #136) | wire 1.2 and agent journal are one contract |
-| EF-2 | 21, 22 | 20 | both hub-side M1 consumers of the journal; 22 after 21 |
-| EF-3 | 23 | 22 | boundary rules against the final authorization types |
-| GH-1 | 25, 39 | 20, 23, 24 | registry and evaluator; independent, both consume 24 |
-| GH-2 | 26 | 22, 25 | operation aggregate needs ExecutionId and the registry |
-| GH-3 | 27 | 26 | Investigate operation and step approvals |
-| GH-4 | 28, 29 | 26 | SSE and use-case layer share the hub wiring but not files |
-| IJ-1 | 30, 31 | 27, 28 | Operations UI and meta-tools |
-| IJ-2 | 34, 36 | 27, 28 | knowledge facts and durable conversations |
-| IJ-3 | 40, 58 | 27, 39 and a green parity suite | shadow policy; legacy removal |
-| IJ-4 | 41, 42 | 20, 25 (and 41 for 42's brief) | package agent side, then hub side |
-| IJ-5 | 32, 35 | 31, 34 | layered context and experience search |
-| IJ-6 | 37, 33 | 30 | visibility categories and the R-1 spike |
-| KM-1 | 43, 48, 50 | 37, 40, 34, 35 | policy, knowledge, audit/retention pages |
-| KM-2 | 49, 51 | 37, 25, 42, 28, 30 | capability centre and control room |
-| KM-3 | 38, 52 | 33 accepted, 37 | graph canvas, then playback |
-| KM-4 | 44 | 54, 55 evidence | ADRs |
-| KM-5 | 47 (or 47a/b/c) | 20, 22, 44, O-30, R-3/R-9/R-10 | identity work |
-| KM-6 | 45 | 32, 40, 47, R-8 | autonomy |
-| KM-7 | 46 | 45, 34, 47, R-2, R-10 | containment |
+### 13.1 Drafting batches
 
-Adjustments to the proposed E–F / G–H / I–J / K–M grouping, and why: E–F is four prompts, so it splits
-into three batches; G–H is five (24 exists) and splits by contract owner; I–J is twelve and splits by
-consumer cluster; K–M is thirteen and splits by gate. R-0 sits outside the waves because 53–56 are
-writable now and must not wait for E.
+| Batch | Documents | Draft after (prompt documents / evidence) | Launch after (merged implementations and gates) | Why grouped |
+|---|---|---|---|---|
+| R-0a | 53, 54, 56 | nothing | WSL2 environment available; no other gate | scoped preliminary research; an environment closes nothing |
+| R-0b | 55 | nothing | nothing (no environment gate) | security-sensitive; needs particularly careful review |
+| EF-1 | 20 | nothing (`03 RW-42` is the contract) | 15 merged (#136) | wire 1.2 and the agent journal are one contract |
+| EF-2 | 21, 22 | 20 | 20 merged; 22 also after 21 merged | hub-side M1 consumers of the journal |
+| EF-3 | 23 | 22 | 22 merged | boundary rules against the final authorization types |
+| GH-1 | 25, 39 | 24 (exists), 20 | 23 and 24 merged; 25 also after 20 merged | registry and evaluator, independent of each other |
+| GH-2 | 26 | 22, 25 | 22 and 25 merged | needs `ExecutionId` and the registry |
+| GH-3 | 27 | 26 | 26 merged | Investigate operation and step approvals |
+| GH-4 | 28, 29 | 26 | 26 merged | SSE and use-case layer share hub wiring, not files |
+| IJ-1 | 30, 31 | 26 (trace schema), 27, 28 | 27 and 28 merged | Operations UI and meta-tools |
+| IJ-2 | 34, 36 | 27, 28 | 34 after 11 and 27 merged; 36 after 28 merged | knowledge facts and durable conversations |
+| IJ-3 | 40 | 27, 39 | 27 and 39 merged | policy shadow; consumes the evaluator API |
+| IJ-4 | 58 | 27, 28 | 27 and 28 merged, parity suite green | legacy removal, independent of 39 |
+| IJ-5 | 41, 42 | 20, 25, 41 | 20 and 25 merged; 42 after 41 merged | package agent side, then hub side |
+| IJ-6 | 32, 35 | 31, 34 | 31 and 34 merged | layered context and experience search |
+| IJ-7 | 37, 33 | 30 | 30 merged | visibility categories and the R-1 spike |
+| KM-1 | 43, 50 | 37 and 40 (43); 37 (50) | 43 after 37 and 40 merged; 50 after 37 merged | policy and audit/retention pages |
+| KM-2 | 51 | 28, 30, 37 | 37, 28 and 30 merged | Control Room, attention centre, search |
+| KM-3 | 38, 52 | 33's evidence | 33 and 37 merged; R-1 accepted; 52 after 38 merged | graph canvas, then playback |
+| KM-4 | 44 | research documents 54, 55 | 54 and 55 evidence (or unproven items recorded); owner accepts the ADRs | ADRs, including the D-24 Docker-write helper |
+| KM-5 | 47 (or 47a/b/c) | 20, 22, 44 | 20 and 22 merged; 44's ADRs accepted; **O-30 answered**; R-3, R-9, R-10 accepted | identity work |
+| KM-6 | 48, 49 | **47** (and 34, 35 for 48; 25, 42 for 49) | 37, 34, 35 and **47 merged** (48); 37, 25, 42 and **47 merged** (49) | helper and coverage views; the wave K/L exception |
+| KM-7 | 45 | 32, 40, 47, 44 | 32, 40 and 47 merged; 44's Docker-write ADR accepted; R-8 accepted; H1 complete | autonomy |
+| KM-8 | 46 | 45, 34, 47 | 45, 34 and 47 merged; R-2 and R-10 accepted | containment |
+
+### 13.2 Recommended implementation launch order
+
+This is the later execution sequence, not the drafting order. Two adjacent items may be taken in either
+order, never together.
+
+1. 20 → 21 → 22 → 23.
+2. 25 ∥ 39 → 26 → (27 ∥ 28 ∥ 29).
+3. 30 ∥ 31 ∥ 34 ∥ 36 ∥ 40 ∥ 41.
+4. 58, once the parity suite is green.
+5. 32 ∥ 35 ∥ 37 ∥ 42 ∥ 33.
+6. 43 ∥ 50 ∥ 51 (the helper-independent wave K work).
+7. 38 (R-1 accepted) → 52.
+8. 44 → 47 → (48 ∥ 49). **48 and 49 never launch before 47 is merged.**
+9. 45 → 46.
+
+Steps 6 and 7 are independent of 8 and may be taken before or after it; the only forced deviation from
+the wave order is 48/49 after 47. Research 53–56 may be launched at any point, and must not be treated as
+accepting R-2, R-3, R-8, R-9 or R-10.
+
+**Why the proposed E–F / G–H / I–J / K–M grouping was adjusted.** E–F has four prompts, so it splits into
+three batches; G–H has five documents, so it splits by contract owner; I–J has twelve and splits by
+consumer cluster, with 40 and 58 separated because their dependencies differ; K–M has thirteen and splits
+by gate and by the 47 exception. The four research prompts are split into two batches of three and one,
+and sit outside the wave flow because they are writable now.
 
 ## 14. Blockers, scope of impact, and facts to refresh at drafting time
 
-| Gate / open item | Source | Blocks only |
+| Gate / open item | Source | Blocks only (launch, unless stated) |
 |---|---|---|
 | Parity suite not yet green | 06 §M3 acceptance | 58 |
-| O-30 open | `99:42-46` | 47's skill-runner refusal rule and selftest; P1 package guidance |
-| R-1 open | `99:54` | 38, then 52 — not 33 |
-| R-3, R-9 open | `99:56`, `99:58` | 47 acceptance |
-| R-10 open | `99:59` | 47 acceptance and 46; stays open until tests exist |
-| R-8 open | `99:57` | 45 |
-| R-2 open | `99:55` | 46 |
-| 47 before 48/49 (index §4 consumers vs §3 order) | `07:207` vs `07:188` | drafting of 48 and 49 helper/safety views |
-| D-24 Docker-write helper ADR | `99:35`, `06 §M8` | `container.restart` in 45 |
+| O-30 open (recommendation (a), **not accepted**) | `99:42-46` | launch of 47; drafting 47 may describe the gate and the recommended behaviour. It also leaves the package `run_as` guidance in 41/42 provisional, though the index does not gate either prompt on it |
+| R-1 open | `99:54` | launch of 38, then 52 — not 33 |
+| R-3, R-9 open | `99:56`, `99:58` | launch of 47 |
+| R-10 open | `99:59` | launch of 47 and 46; stays open until tests exist |
+| R-8 open | `99:57` | launch of 45 |
+| R-2 open | `99:55` | launch of 46 |
+| 47 before 48/49 | `07:207` consumers vs `07:188` order | launch of 48 and 49; drafting order is 47 first |
+| D-24 Docker-write helper ADR | `99:35`, `06 §M8` | 44's ADR output; launch of `container.restart` in 45 |
+
+Every row blocks launch only. Drafting is blocked only where a document needs another document or
+evidence first: 33's evidence for 38, 54/55 for 44, and 47's document for 48/49.
 
 Facts that are stated loosely in the canonical documents and must be verified in code at drafting time,
 not invented:
@@ -411,6 +484,7 @@ not invented:
 ## 15. Scope of this document
 
 No prompt was drafted, no canonical document was edited, no source, test, migration or design-pack file
-was touched. The only change is this file. Before drafting begins, the owner should settle the two
-planning questions in §14 (48/49 versus 47, and the Docker-write ADR for `container.restart`) and decide
-whether 53–56 are written now.
+was touched. The only change is this file. The two former planning questions are resolved in this map:
+48/49 are drafted after 47 and launched only after 47 merges (§9), and the D-24 Docker-write helper ADR is
+an output of 44 that gates `container.restart` in 45 (§10, §11). The owner still decides when to draft
+53–56 and, separately, must answer O-30 before 47 can launch.
