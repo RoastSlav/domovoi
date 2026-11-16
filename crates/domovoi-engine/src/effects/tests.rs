@@ -90,6 +90,23 @@ async fn until(
     row(store, id).await
 }
 
+/// Lets the services make progress until `done` holds, without moving the clock.
+async fn wait_until(
+    store: &InMemoryStore,
+    id: EffectId,
+    done: impl Fn(&EffectRecord) -> bool,
+) -> EffectRecord {
+    for _ in 0..10_000 {
+        settle().await;
+        let effect = row(store, id).await;
+        if done(&effect) {
+            return effect;
+        }
+    }
+    let effect = row(store, id).await;
+    panic!("effect never reached the expected state: {effect:?}");
+}
+
 async fn row(store: &InMemoryStore, id: EffectId) -> EffectRecord {
     EffectRead::effect(store, id)
         .await
@@ -132,39 +149,27 @@ async fn runner_retries_with_backoff_then_dead_letters() {
     // attempt in between.
     let mut attempts: Vec<(u32, Timestamp)> = Vec::new();
     let mut dead = false;
-    for _ in 0..600 {
-        settle().await;
-        let effect = row(&store, id).await;
-        if effect.status == "pending"
-            && effect.attempt > 0
-            && attempts.last().map(|(attempt, _)| *attempt) != Some(effect.attempt)
-        {
-            attempts.push((effect.attempt, effect.not_before));
-        }
+    for expected in 1..=3u32 {
+        // Wait for this attempt's retry (or the dead letter) to be committed before the
+        // clock moves again. Jumping the clock while a commit is in flight would change
+        // the next backoff's base.
+        let effect = wait_until(&store, id, |effect| {
+            effect.status == "dead" || (effect.status == "pending" && effect.attempt == expected)
+        })
+        .await;
         if effect.status == "dead" {
             dead = true;
             break;
         }
-        if effect.status == "claimed" {
-            // The runner has claimed the effect and is committing the retry. Let it
-            // finish before deciding whether the clock may move; advancing now would
-            // change the retry's backoff base.
-            for _ in 0..100 {
-                settle().await;
-                if row(&store, id).await.status != "claimed" {
-                    break;
-                }
-            }
-            continue;
-        }
-        if effect.not_before > Clock::now(&*clock) {
-            clock.set(effect.not_before);
-        } else {
-            clock.advance(SignedDuration::from_secs(1));
-        }
-        // The runner may be waiting on its poll timer rather than the clock change; the
-        // nudge is the test's deterministic way to wake it.
+        attempts.push((effect.attempt, effect.not_before));
+        clock.set(effect.not_before);
         nudge.notify_one();
+    }
+    if !dead {
+        dead = wait_until(&store, id, |effect| effect.status == "dead")
+            .await
+            .status
+            == "dead";
     }
     shutdown.cancel();
     task.await.expect("the runner stops");
