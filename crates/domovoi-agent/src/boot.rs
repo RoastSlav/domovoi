@@ -87,6 +87,9 @@ pub(crate) fn parse_uptime_ns(text: &str) -> Result<u64, String> {
         return Err(format!("`{first}` is negative"));
     }
     let (whole, fraction) = first.split_once('.').unwrap_or((first, ""));
+    if first.contains('.') && fraction.is_empty() {
+        return Err(format!("`{first}` ends with a decimal point"));
+    }
     if whole.is_empty() || !whole.bytes().all(|b| b.is_ascii_digit()) {
         return Err(format!("`{first}` has an invalid whole part"));
     }
@@ -154,6 +157,7 @@ mod tests {
             "abc.00",
             "1.xx",
             "-1.00",
+            "1.",
             "1.234",
             "99999999999999999999",
         ] {

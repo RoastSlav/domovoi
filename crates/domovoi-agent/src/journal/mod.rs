@@ -10,6 +10,7 @@ mod lock;
 mod meta;
 mod record;
 mod recovery;
+mod reset;
 mod store;
 
 use std::collections::BTreeSet;
@@ -29,8 +30,8 @@ use crate::fs_atomic::{DurableFaults, DurableWriteError};
 use append::append_locked;
 use lock::JournalLock;
 use store::{
-    Fence, JournalState, Phase, absent_locked, acceptances_locked, answer_locked, create_epoch,
-    journal_corrupt, load_records, outcome_unknown, phase_locked, reset_locked,
+    Fence, JournalState, Phase, absent_locked, acceptances_locked, answer_locked, journal_corrupt,
+    load_records, outcome_unknown, phase_locked,
 };
 
 /// A one-shot append failure a test can inject. Never set in production.
@@ -110,7 +111,14 @@ impl Journal {
         // it, then take the lock before inspecting either journal file.
         std::fs::create_dir_all(dir).map_err(|err| StateError::new(dir, err))?;
         let lock = lock::acquire(&dir.join(lock::LOCK_FILE))?;
-        Self::open_with_lock(dir, lock, boot_id, mono_ns, limits)
+        Self::open_with_lock(
+            dir,
+            lock,
+            boot_id,
+            mono_ns,
+            limits,
+            DurableFaults::default(),
+        )
     }
 
     /// Opens without the OS lock. Test-only; production always uses [`Journal::open`].
@@ -121,7 +129,26 @@ impl Journal {
         mono_ns: u64,
         limits: MutationLimits,
     ) -> Result<Self, JournalError> {
-        Self::open_with_lock(dir, lock::unlocked(), boot_id, mono_ns, limits)
+        Self::open_with_lock(
+            dir,
+            lock::unlocked(),
+            boot_id,
+            mono_ns,
+            limits,
+            DurableFaults::default(),
+        )
+    }
+
+    /// Opens without the OS lock and injects the boot metadata write's failures. Test-only.
+    #[cfg(test)]
+    pub(crate) fn open_unlocked_with_boot_faults(
+        dir: &Path,
+        boot_id: &str,
+        mono_ns: u64,
+        limits: MutationLimits,
+        faults: DurableFaults,
+    ) -> Result<Self, JournalError> {
+        Self::open_with_lock(dir, lock::unlocked(), boot_id, mono_ns, limits, faults)
     }
 
     fn open_with_lock(
@@ -130,6 +157,7 @@ impl Journal {
         boot_id: &str,
         mono_ns: u64,
         limits: MutationLimits,
+        boot_faults: DurableFaults,
     ) -> Result<Self, JournalError> {
         if dir.join(store::RESET_INTENT_FILE).exists() {
             return Err(JournalError::State(StateError::new(
@@ -137,6 +165,7 @@ impl Journal {
                 "an interrupted journal reset; run `domovoi agent journal reset`",
             )));
         }
+        append::recover_marker(dir)?;
         let mut meta = match Metadata::load(dir)? {
             Some(meta) => meta,
             None => {
@@ -163,15 +192,31 @@ impl Journal {
                 },
                 ..meta.clone()
             };
-            match next.write(dir, DurableFaults::default()) {
+            match next.write(dir, boot_faults) {
                 Ok(()) => meta = next,
                 Err(DurableWriteError::BeforeCommit(err)) => {
                     return Err(JournalError::State(err));
                 }
                 Err(DurableWriteError::Indeterminate(err)) => {
-                    fenced = Some(Fence::metadata(err.to_string()));
+                    // A rename may or may not be durable. Confirm the file and its directory
+                    // entry before adopting anything; a parseable journal alone is not proof.
+                    let meta_path = dir.join(META_FILE);
+                    let durable = std::fs::OpenOptions::new()
+                        .write(true)
+                        .open(&meta_path)
+                        .and_then(|file| file.sync_all())
+                        .and_then(|()| crate::fs_atomic::sync_dir(dir));
+                    if let Err(sync_err) = durable {
+                        return Err(JournalError::Corrupt(format!(
+                            "the boot metadata's durability is unknown: {sync_err}"
+                        )));
+                    }
                     match Metadata::load(dir) {
-                        Ok(Some(loaded)) if loaded.epoch == meta.epoch => {
+                        Ok(Some(loaded))
+                            if loaded.epoch == meta.epoch
+                                && loaded.boot == next.boot
+                                && loaded.pruned == next.pruned =>
+                        {
                             match load_records(dir, &loaded) {
                                 Ok((kept, len, fence)) => {
                                     meta = loaded;
@@ -185,11 +230,16 @@ impl Journal {
                             }
                         }
                         Ok(Some(_)) => {
-                            fenced =
-                                Some(Fence::metadata("metadata epoch changed during the write"));
+                            return Err(JournalError::Corrupt(format!(
+                                "the boot metadata change is not durably visible: {err}"
+                            )));
                         }
-                        Ok(None) => {}
-                        Err(load_err) => fenced = Some(Fence::metadata(load_err.to_string())),
+                        Ok(None) => {
+                            return Err(JournalError::Corrupt(
+                                "the boot metadata disappeared during its write".to_owned(),
+                            ));
+                        }
+                        Err(load_err) => return Err(load_err),
                     }
                 }
             }
@@ -203,6 +253,8 @@ impl Journal {
             running_now: BTreeSet::new(),
             meta_faults: DurableFaults::default(),
             append_fault: AppendFault::default(),
+            recovery_sync_fails: false,
+            truncate_fails: false,
             rewrite_dir_sync_fault: false,
         };
         lock.hold();
@@ -213,69 +265,6 @@ impl Journal {
             limits,
             _lock: lock,
         })
-    }
-
-    /// Creates the journal for the first time, refusing if either journal file exists.
-    pub fn init(
-        dir: &Path,
-        now: Timestamp,
-        boot_id: &str,
-        mono_ns: u64,
-    ) -> Result<Uuid, JournalError> {
-        std::fs::create_dir_all(dir).map_err(|err| StateError::new(dir, err))?;
-        let lock = lock::acquire(&dir.join(lock::LOCK_FILE))?;
-        Self::init_with_lock(dir, lock, now, boot_id, mono_ns)
-    }
-
-    /// Creates the journal without the OS lock. Test-only; production uses [`Journal::init`].
-    #[cfg(test)]
-    pub(crate) fn init_unlocked(
-        dir: &Path,
-        now: Timestamp,
-        boot_id: &str,
-        mono_ns: u64,
-    ) -> Result<Uuid, JournalError> {
-        Self::init_with_lock(dir, lock::unlocked(), now, boot_id, mono_ns)
-    }
-
-    fn init_with_lock(
-        dir: &Path,
-        lock: JournalLock,
-        now: Timestamp,
-        boot_id: &str,
-        mono_ns: u64,
-    ) -> Result<Uuid, JournalError> {
-        let _lock = lock;
-        if dir.join(JOURNAL_FILE).exists()
-            || dir.join(META_FILE).exists()
-            || dir.join(store::RESET_INTENT_FILE).exists()
-        {
-            return Err(JournalError::AlreadyExists);
-        }
-        create_epoch(dir, now, boot_id, mono_ns)
-    }
-
-    /// Archives the existing pair and starts a new epoch, without the OS lock. Test-only.
-    #[cfg(test)]
-    pub(crate) fn reset_unlocked(
-        dir: &Path,
-        now: Timestamp,
-        boot_id: &str,
-        mono_ns: u64,
-    ) -> Result<Uuid, JournalError> {
-        let _lock = lock::unlocked();
-        reset_locked(dir, now, boot_id, mono_ns)
-    }
-
-    /// Archives the existing pair and starts a new epoch.
-    pub fn reset(
-        dir: &Path,
-        now: Timestamp,
-        boot_id: &str,
-        mono_ns: u64,
-    ) -> Result<Uuid, JournalError> {
-        let _lock = lock::acquire(&dir.join(lock::LOCK_FILE))?;
-        reset_locked(dir, now, boot_id, mono_ns)
     }
 
     /// The journal's epoch. Immutable for this owner, so a poisoned state mutex cannot

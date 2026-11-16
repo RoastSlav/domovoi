@@ -882,11 +882,11 @@ fn successful_recovery_sync_makes_finished_durable() {
 }
 
 #[test]
-fn partial_truncation_failure_fences_and_refuses_more_appends() {
+fn unconfirmed_complete_frame_truncation_failure_fences_and_refuses_more_appends() {
     let dir = TempDir::new().unwrap();
     init(dir.path());
     let journal = open(dir.path());
-    journal.inject_append_fault(AppendFault::PartialTruncate);
+    journal.inject_append_fault(AppendFault::RecoverySyncTruncateFail);
     assert!(
         journal
             .accept(
@@ -1449,11 +1449,10 @@ async fn orphan_process_group_is_terminated_after_the_grace_interval() {
         "the child was signalled: {output:?}"
     );
     let slept = clock.slept.lock().unwrap().clone();
-    assert_eq!(slept.len(), 1, "exactly one grace interval");
     assert_eq!(
-        slept[0],
-        T0 + SignedDuration::from_secs(2),
-        "SIGKILL comes after two seconds"
+        slept.first(),
+        Some(&(T0 + SignedDuration::from_secs(2))),
+        "the grace interval is two seconds before the first post-grace probe"
     );
     assert_eq!(
         records_for(dir.path(), id)
@@ -1748,7 +1747,7 @@ fn an_interrupted_reset_can_be_resumed() {
     init(dir.path());
     std::fs::write(
         dir.path().join(super::store::RESET_INTENT_FILE),
-        b"interrupted",
+        br#"{"stage":"archiving","generation":"g","epoch":null}"#,
     )
     .unwrap();
     std::fs::remove_file(dir.path().join(JOURNAL_FILE)).unwrap();
@@ -1800,4 +1799,187 @@ fn a_poisoned_state_mutex_cannot_hide_the_epoch() {
             .action_status(&query(epoch, Uuid::now_v7()))
             .is_err()
     );
+}
+
+#[test]
+fn unconfirmed_finished_frame_is_not_adopted_after_restart() {
+    let dir = TempDir::new().unwrap();
+    init(dir.path());
+    let id = Uuid::now_v7();
+    {
+        let journal = open(dir.path());
+        journal
+            .accept(&request(id, "container.restart", true), T0, BOOT, MONO)
+            .unwrap();
+        journal.started(id, 1, 1).unwrap();
+        journal.inject_append_fault(AppendFault::RecoverySyncTruncateFail);
+        assert!(journal.finished(id, result()).is_err());
+        assert!(!matches!(
+            state_of(&journal, id),
+            ActionState::Finished { .. }
+        ));
+    }
+    // The durable marker repairs the unconfirmed frame on the next open.
+    assert!(dir.path().join(super::append::APPEND_MARKER_FILE).exists());
+    let reopened = open(dir.path());
+    assert!(!matches!(
+        state_of(&reopened, id),
+        ActionState::Finished { .. }
+    ));
+    assert!(!dir.path().join(super::append::APPEND_MARKER_FILE).exists());
+}
+
+#[test]
+fn unconfirmed_acceptance_does_not_spawn_after_restart() {
+    let dir = TempDir::new().unwrap();
+    init(dir.path());
+    let id = Uuid::now_v7();
+    {
+        let journal = open(dir.path());
+        journal.inject_append_fault(AppendFault::RecoverySyncTruncateFail);
+        assert!(
+            journal
+                .accept(&request(id, "container.restart", true), T0, BOOT, MONO)
+                .is_err()
+        );
+    }
+    let reopened = open(dir.path());
+    assert!(matches!(
+        state_of(&reopened, id),
+        ActionState::NotFound | ActionState::OutcomeUnknown { .. }
+    ));
+}
+
+#[test]
+fn indeterminate_boot_write_is_confirmed_by_recovery_sync() {
+    let dir = TempDir::new().unwrap();
+    let epoch = init(dir.path());
+    let journal = Journal::open_unlocked_with_boot_faults(
+        dir.path(),
+        BOOT_B,
+        5 * MONO,
+        limits(),
+        DurableFaults {
+            dir_sync: true,
+            ..DurableFaults::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(journal.epoch(), epoch);
+    assert!(journal.corruption().is_none());
+    let meta = super::Metadata::load(dir.path()).unwrap().unwrap();
+    assert_eq!(meta.boot.boot_id, BOOT_B);
+    assert_eq!(meta.boot.first_load_mono_ns, 5 * MONO);
+}
+
+#[test]
+fn unconfirmed_boot_write_fails_startup_without_clearing_the_anchor() {
+    let dir = TempDir::new().unwrap();
+    init(dir.path());
+    let result = Journal::open_unlocked_with_boot_faults(
+        dir.path(),
+        BOOT_B,
+        5 * MONO,
+        limits(),
+        DurableFaults {
+            rename: true,
+            ..DurableFaults::default()
+        },
+    );
+    assert!(result.is_err(), "an unconfirmed boot write is not adopted");
+    let meta = super::Metadata::load(dir.path()).unwrap().unwrap();
+    assert_eq!(meta.boot.boot_id, BOOT, "the old anchor is intact");
+    // A later successful open commits the new boot state.
+    let journal = Journal::open_unlocked(dir.path(), BOOT_B, 5 * MONO, limits()).unwrap();
+    assert!(journal.corruption().is_none());
+    let meta = super::Metadata::load(dir.path()).unwrap().unwrap();
+    assert_eq!(meta.boot.boot_id, BOOT_B);
+}
+
+#[test]
+fn reset_after_a_created_epoch_only_finishes_the_intent() {
+    let dir = TempDir::new().unwrap();
+    init(dir.path());
+    let epoch = Journal::reset_unlocked(dir.path(), T0, BOOT, MONO).unwrap();
+    let archives_before = archive_names(dir.path()).len();
+    std::fs::write(
+        dir.path().join(super::store::RESET_INTENT_FILE),
+        serde_json::to_vec(&serde_json::json!({
+            "stage": "created",
+            "generation": "g",
+            "epoch": epoch.to_string(),
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let again = Journal::reset_unlocked(dir.path(), T0, BOOT, MONO).unwrap();
+    assert_eq!(again, epoch, "the created epoch is not rotated");
+    assert_eq!(archive_names(dir.path()).len(), archives_before);
+    assert!(!dir.path().join(super::store::RESET_INTENT_FILE).exists());
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn leader_exits_before_recovery_but_a_descendant_is_still_terminated() {
+    use std::os::unix::fs::PermissionsExt as _;
+    use std::sync::Arc;
+
+    use domovoi_core::ports::{ProcessExecutor as _, ProcessSpec};
+
+    let dir = TempDir::new().unwrap();
+    init(dir.path());
+    let script = dir.path().join("leader-exits.sh");
+    std::fs::write(
+        &script,
+        "#!/bin/sh\n(trap '' TERM; while :; do sleep 1; done) &\necho $! > child\necho $$ > pid\nwhile [ ! -e go ]; do sleep 0.05; done\nexit 0\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let executor =
+        domovoi_runner::SandboxExecutor::new(Arc::new(domovoi_testkit::ListRedactor::new(Vec::<
+            String,
+        >::new(
+        ))));
+    let spec = ProcessSpec {
+        program: script.display().to_string(),
+        args: Vec::new(),
+        env: BTreeMap::new(),
+        cwd: Some(dir.path().display().to_string()),
+        stdin: None,
+        timeout: SignedDuration::from_secs(60),
+        max_output_bytes: 4096,
+        run_as: None,
+    };
+    let running = tokio::spawn(async move { executor.run(spec).await });
+    let pid = wait_for_pid_async(&dir.path().join("pid")).await;
+    let _child = wait_for_pid_async(&dir.path().join("child")).await;
+    let stat = super::recovery::process_stat(pid).expect("the leader is running");
+    let id = Uuid::now_v7();
+    {
+        let journal = open(dir.path());
+        start_orphan(&journal, id, pid, stat.start_time);
+    }
+    std::fs::write(dir.path().join("go"), b"go").unwrap();
+    let _ = running.await.expect("the executor task joins");
+
+    let journal = open(dir.path());
+    let clock = RecordingClock {
+        now: T0,
+        slept: std::sync::Mutex::new(Vec::new()),
+    };
+    journal.recover_orphans(&clock).await;
+
+    assert!(
+        matches!(
+            super::recovery::group_state(pid, stat.session),
+            super::recovery::GroupState::Empty
+        ),
+        "the surviving descendant's group is gone"
+    );
+    assert!(matches!(
+        state_of(&journal, id),
+        ActionState::OutcomeUnknown {
+            reason
+        } if reason.known() == Some(&OutcomeUnknownReason::AgentRestarted)
+    ));
 }

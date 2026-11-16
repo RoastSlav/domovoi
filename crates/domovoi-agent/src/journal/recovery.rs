@@ -12,6 +12,8 @@ use super::store::{Phase, phase_locked};
 /// The identity of a live process, as `/proc/<pid>/stat` reports it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct ProcessStat {
+    /// Field 3: the one-letter process state; `Z` means a zombie, which no longer runs.
+    pub(super) state: char,
     /// Field 22: clock ticks since boot.
     pub(super) start_time: u64,
     /// Field 5: process-group id.
@@ -25,11 +27,12 @@ pub(super) struct StartedExecution {
     execution_id: Uuid,
     pid: u32,
     start_time: u64,
+    pgid: u32,
     session: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum GroupState {
+pub(super) enum GroupState {
     Alive,
     Empty,
     Unknown,
@@ -44,12 +47,14 @@ pub(super) fn started_without_finished(records: &[Record]) -> Vec<StartedExecuti
                 execution_id,
                 pid,
                 proc_start_time,
+                pgid,
                 session,
                 ..
             } => started.push(StartedExecution {
                 execution_id: *execution_id,
                 pid: *pid,
                 start_time: *proc_start_time,
+                pgid: *pgid,
                 session: *session,
             }),
             Record::Finished { execution_id, .. } | Record::Abandoned { execution_id, .. } => {
@@ -70,14 +75,15 @@ pub(super) fn process_stat(pid: u32) -> Option<ProcessStat> {
     let rest = stat.rsplit_once(')')?.1;
     let fields: Vec<&str> = rest.split_whitespace().collect();
     Some(ProcessStat {
+        state: fields.first()?.chars().next()?,
         pgrp: fields.get(2)?.parse().ok()?,
         session: fields.get(3)?.parse().ok()?,
         start_time: fields.get(19)?.parse().ok()?,
     })
 }
 
-/// Whether a process group still has a member in `session`.
-fn group_state(pgid: u32, session: u32) -> GroupState {
+/// Whether a process group still has a live (non-zombie) member in `session`.
+pub(super) fn group_state(pgid: u32, session: u32) -> GroupState {
     let Ok(entries) = std::fs::read_dir("/proc") else {
         return GroupState::Unknown;
     };
@@ -91,7 +97,11 @@ fn group_state(pgid: u32, session: u32) -> GroupState {
             continue;
         };
         match process_stat(pid) {
-            Some(stat) if stat.pgrp == pgid && (session == 0 || stat.session == session) => {
+            Some(stat)
+                if stat.state != 'Z'
+                    && stat.pgrp == pgid
+                    && (session == 0 || stat.session == session) =>
+            {
                 found = true;
             }
             Some(_) => {}
@@ -105,6 +115,25 @@ fn group_state(pgid: u32, session: u32) -> GroupState {
     } else {
         GroupState::Empty
     }
+}
+
+/// Polls until the group is empty, bounded by the fake/real clock.
+async fn wait_empty(clock: &dyn Clock, pgid: u32, session: u32) -> bool {
+    for _ in 0..500 {
+        match group_state(pgid, session) {
+            GroupState::Empty => return true,
+            GroupState::Unknown => return false,
+            GroupState::Alive => {}
+        }
+        let now = clock.now();
+        let next = now
+            .saturating_add(SignedDuration::from_millis(100))
+            .unwrap_or(now);
+        clock.sleep_until(next).await;
+        // With a fake clock the sleep returns at once; let the signal be delivered.
+        tokio::task::yield_now().await;
+    }
+    matches!(group_state(pgid, session), GroupState::Empty)
 }
 
 #[cfg(target_os = "linux")]
@@ -145,50 +174,88 @@ impl Journal {
             _ => return,
         };
         for execution in unresolved {
-            let Some(initial) = process_stat(execution.pid) else {
-                // The original process is gone; the status is already outcome-unknown.
-                continue;
-            };
-            if initial.start_time != execution.start_time || initial.pgrp != execution.pid {
-                // A reused PID, or a process that was not the group leader.
-                continue;
-            }
-            let session = if execution.session == 0 {
-                initial.session
-            } else {
-                execution.session
-            };
-            if !terminate_process_group(execution.pid) {
-                tracing::warn!(pid = execution.pid, "could not send SIGTERM to an orphan");
-                continue;
-            }
-            let now = clock.now();
-            let deadline = now
-                .saturating_add(SignedDuration::from_secs(2))
-                .unwrap_or(now);
-            clock.sleep_until(deadline).await;
-
-            let leader = process_stat(execution.pid).filter(|stat| {
-                stat.start_time == execution.start_time && stat.pgrp == execution.pid
-            });
-            let state = match leader {
-                Some(_) => GroupState::Alive,
-                None => group_state(execution.pid, session),
-            };
-            match state {
-                GroupState::Alive => {
-                    if !kill_process_group(execution.pid) {
-                        tracing::warn!(pid = execution.pid, "could not send SIGKILL to an orphan");
+            let initial = process_stat(execution.pid);
+            let mut already_empty = false;
+            let (pgid, session) = match initial {
+                Some(stat) if stat.start_time == execution.start_time => {
+                    // The runner starts every child as its own process-group leader, so the
+                    // PID is the group id. The start time proves this is the original child.
+                    (
+                        execution.pid,
+                        if execution.session == 0 {
+                            stat.session
+                        } else {
+                            execution.session
+                        },
+                    )
+                }
+                Some(_) => {
+                    // A reused PID, or a process whose recorded identity no longer
+                    // matches. Never fall back to a group scan for this case.
+                    continue;
+                }
+                None => {
+                    // The leader has already exited. Only a persisted group leader
+                    // identity can authorize a signal; a legacy record without one stays
+                    // unresolved, as does a PID that was never a group leader.
+                    if execution.pgid == 0
+                        || execution.pgid != execution.pid
+                        || execution.session == 0
+                    {
                         continue;
                     }
+                    match group_state(execution.pgid, execution.session) {
+                        GroupState::Empty => {
+                            already_empty = true;
+                            (execution.pgid, execution.session)
+                        }
+                        GroupState::Alive => (execution.pgid, execution.session),
+                        GroupState::Unknown => {
+                            tracing::warn!(
+                                pid = execution.pid,
+                                "the orphaned process group's identity is unknown; leaving it unresolved"
+                            );
+                            continue;
+                        }
+                    }
                 }
-                GroupState::Empty => {}
-                GroupState::Unknown => {
-                    tracing::warn!(
-                        pid = execution.pid,
-                        "the orphaned process group's identity is unknown; leaving it unresolved"
-                    );
+            };
+            if !already_empty {
+                if !terminate_process_group(pgid) {
+                    tracing::warn!(pid = execution.pid, "could not send SIGTERM to an orphan");
                     continue;
+                }
+                let now = clock.now();
+                let deadline = now
+                    .saturating_add(SignedDuration::from_secs(2))
+                    .unwrap_or(now);
+                clock.sleep_until(deadline).await;
+
+                match group_state(pgid, session) {
+                    GroupState::Empty => {}
+                    GroupState::Alive => {
+                        if !kill_process_group(pgid) {
+                            tracing::warn!(
+                                pid = execution.pid,
+                                "could not send SIGKILL to an orphan"
+                            );
+                            continue;
+                        }
+                        if !wait_empty(clock, pgid, session).await {
+                            tracing::warn!(
+                                pid = execution.pid,
+                                "the orphaned group is not empty after SIGKILL; leaving it unresolved"
+                            );
+                            continue;
+                        }
+                    }
+                    GroupState::Unknown => {
+                        tracing::warn!(
+                            pid = execution.pid,
+                            "the orphaned process group's identity is unknown; leaving it unresolved"
+                        );
+                        continue;
+                    }
                 }
             }
             match self.lock() {

@@ -26,12 +26,12 @@ pub enum AppendFault {
     Open,
     /// Write only part of the frame.
     Partial,
-    /// Write only part of the frame, and fail the truncation that would repair it.
-    PartialTruncate,
     /// Write the complete frame but fail before syncing it; a recovery sync may succeed.
     Sync,
     /// Write the complete frame, fail its sync, and fail the recovery sync too.
     RecoverySync,
+    /// Write the complete frame, fail both syncs, and fail the repair truncation.
+    RecoverySyncTruncateFail,
     /// Write and sync the frame, then report an uncertain outcome.
     Uncertain,
 }
@@ -89,6 +89,8 @@ pub(super) struct JournalState {
     pub(super) running_now: BTreeSet<Uuid>,
     pub(super) meta_faults: DurableFaults,
     pub(super) append_fault: AppendFault,
+    pub(super) recovery_sync_fails: bool,
+    pub(super) truncate_fails: bool,
     pub(super) rewrite_dir_sync_fault: bool,
 }
 
@@ -130,92 +132,8 @@ pub(super) fn load_records(
     }
 }
 
-/// Marks an in-progress explicit reset so a restart never treats it as history loss.
+/// Marks an in-progress explicit reset so a retry can finish it instead of restarting it.
 pub(super) const RESET_INTENT_FILE: &str = "action-journal.reset";
-
-pub(super) fn reset_locked(
-    dir: &Path,
-    now: Timestamp,
-    boot_id: &str,
-    mono_ns: u64,
-) -> Result<Uuid, JournalError> {
-    let journal = dir.join(JOURNAL_FILE);
-    let meta = dir.join(META_FILE);
-    let intent = dir.join(RESET_INTENT_FILE);
-    let any = journal.exists() || meta.exists();
-    if !any && !intent.exists() {
-        return Err(JournalError::State(StateError::new(
-            dir,
-            "there is no journal to reset; use `journal init` for a new installation",
-        )));
-    }
-    if any {
-        let base = Metadata::load(dir)
-            .ok()
-            .flatten()
-            .map(|meta| meta.epoch.to_string())
-            .unwrap_or_else(|| Uuid::now_v7().to_string());
-        let marker = format!("{base}\n");
-        crate::fs_atomic::write_atomic_durable(&intent, marker.as_bytes(), 0o600)
-            .map_err(|err| StateError::new(&intent, err))?;
-        archive_existing(dir, &base)?;
-    }
-    let epoch = create_epoch(dir, now, boot_id, mono_ns)?;
-    match std::fs::remove_file(&intent) {
-        Err(err) if err.kind() != std::io::ErrorKind::NotFound => {
-            tracing::warn!(%err, "the completed reset intent could not be removed");
-        }
-        _ => {}
-    }
-    Ok(epoch)
-}
-
-/// Hard-links each existing journal file to a unique archive name, then removes the source.
-///
-/// Hard links give no-overwrite semantics: a collision fails rather than replacing the
-/// archive, and every source is removed only after every archive link exists.
-fn archive_existing(dir: &Path, base: &str) -> Result<(), JournalError> {
-    let mut generation = base.to_owned();
-    for _ in 0..10 {
-        let mut created: Vec<(std::path::PathBuf, std::path::PathBuf)> = Vec::new();
-        let mut collision = false;
-        for name in [JOURNAL_FILE, META_FILE] {
-            let from = dir.join(name);
-            if !from.exists() {
-                continue;
-            }
-            let to = dir.join(format!("{name}.{generation}"));
-            match std::fs::hard_link(&from, &to) {
-                Ok(()) => created.push((from, to)),
-                Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
-                    collision = true;
-                    break;
-                }
-                Err(err) => {
-                    for (_, link) in &created {
-                        let _ = std::fs::remove_file(link);
-                    }
-                    return Err(JournalError::State(StateError::new(&from, err)));
-                }
-            }
-        }
-        if collision {
-            for (_, link) in &created {
-                let _ = std::fs::remove_file(link);
-            }
-            generation = format!("{base}-{}", Uuid::now_v7());
-            continue;
-        }
-        for (from, _) in &created {
-            std::fs::remove_file(from).map_err(|err| StateError::new(from, err))?;
-        }
-        return Ok(());
-    }
-    Err(JournalError::State(StateError::new(
-        dir,
-        "could not choose a unique archive name",
-    )))
-}
 
 pub(super) fn create_epoch(
     dir: &Path,
