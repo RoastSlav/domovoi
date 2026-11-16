@@ -3455,6 +3455,7 @@
           "args",
           "status",
           "plan_hash",
+          "plan_binding",
           "proposed_by",
           "expires_at",
           "created_at",
@@ -3498,9 +3499,20 @@
             "type": "string",
             "description": "The incident it is for."
           },
+          "plan_binding": {
+            "type": "string",
+            "description": "Which binding family `plan_hash` belongs to: `v1` or `v2`."
+          },
           "plan_hash": {
             "type": "string",
-            "description": "The v1 plan hash: what an approval covers (skill, manifest version, host,\narguments)."
+            "description": "The plan hash of this action's own family: what an approval covers and what the\ndispatch guard re-checks. New actions use v2; a legacy action keeps v1."
+          },
+          "plan_hash_v1": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The stored legacy v1 plan hash, for audit display."
           },
           "proposed_by": {
             "type": "string",

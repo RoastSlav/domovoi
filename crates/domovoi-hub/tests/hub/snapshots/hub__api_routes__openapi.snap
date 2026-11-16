@@ -1,6 +1,5 @@
 ---
 source: crates/domovoi-hub/tests/hub/api_routes.rs
-assertion_line: 531
 expression: spec
 ---
 {
@@ -168,9 +167,20 @@ expression: spec
             "description": "The incident it is for.",
             "type": "string"
           },
-          "plan_hash": {
-            "description": "The v1 plan hash: what an approval covers (skill, manifest version, host,\narguments).",
+          "plan_binding": {
+            "description": "Which binding family `plan_hash` belongs to: `v1` or `v2`.",
             "type": "string"
+          },
+          "plan_hash": {
+            "description": "The plan hash of this action's own family: what an approval covers and what the\ndispatch guard re-checks. New actions use v2; a legacy action keeps v1.",
+            "type": "string"
+          },
+          "plan_hash_v1": {
+            "description": "The stored legacy v1 plan hash, for audit display.",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "proposed_by": {
             "description": "Who proposed it, for example `system:triage`.",
@@ -209,6 +219,7 @@ expression: spec
           "args",
           "status",
           "plan_hash",
+          "plan_binding",
           "proposed_by",
           "expires_at",
           "created_at",

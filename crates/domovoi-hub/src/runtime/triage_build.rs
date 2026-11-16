@@ -90,6 +90,7 @@ pub(super) async fn build(
             incidents: store.clone(),
             signals: store.clone(),
             notes: store.clone(),
+            hosts: store.clone(),
             actions: store.clone(),
             actions_service: actions,
             cache: store.clone(),

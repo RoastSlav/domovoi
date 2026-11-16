@@ -13,12 +13,12 @@ use domovoi_core::ports::{
     ActionGuard, AuditDraft, ClaimToken, CommitError, Observed, Transaction,
 };
 use domovoi_core::{
-    ActionChange, ActionError, ActionId, ActionRequest, ActionStatus, ApprovalChannel, EffectId,
-    HumanApproval, PlanBinding, PlanHash,
+    ActionChange, ActionError, ActionId, ActionRequest, ActionStatus, ApprovalChannel,
+    ApprovalProvenance, Authorization, EffectId, HumanApproval, PlanBinding, PlanHash,
 };
 use jiff::Timestamp;
 
-use super::approvals::{chat_token_ok, load};
+use super::approvals::{chat_token_ok, load, refused};
 use super::audit::{self, RunRecord};
 use super::expire;
 use super::freshness;
@@ -42,9 +42,10 @@ pub(crate) type Decision = Result<ActionRequest, ApprovalError>;
 pub(crate) enum WriteCommand {
     Approve {
         id: ActionId,
-        approval: HumanApproval,
+        authorization: Authorization,
         chat_token: Option<String>,
         binding: PlanBinding,
+        provenance: ApprovalProvenance,
         reply: oneshot::Sender<Decision>,
     },
     Deny {
@@ -176,12 +177,21 @@ async fn process(shared: &Shared, command: WriteCommand) {
     match command {
         WriteCommand::Approve {
             id,
-            approval,
+            authorization,
             chat_token,
             binding,
+            provenance,
             reply,
         } => {
-            let result = approve(shared, id, approval, chat_token.as_deref(), binding).await;
+            let result = approve(
+                shared,
+                id,
+                authorization,
+                chat_token.as_deref(),
+                binding,
+                provenance,
+            )
+            .await;
             if let Err(err) = &result {
                 refused(err, "an approval");
             }
@@ -301,29 +311,6 @@ async fn process(shared: &Shared, command: WriteCommand) {
     }
 }
 
-/// Logs one refusal at the level it deserves. The caller gets every one of these
-/// back, so a missing action, a used chat token, an action that already has an
-/// outcome and a shutdown are debug: the person sees why nothing happened. A
-/// store failure warns because the answer the caller gets says only that the
-/// store failed, and the reason is worth a line in the log.
-fn refused(err: &ApprovalError, what: &str) {
-    match err {
-        ApprovalError::Store(why) => tracing::warn!(%why, "the store refused {what}"),
-        ApprovalError::NotFound(id) => {
-            tracing::debug!(%id, "{what} asked for an action that is not there")
-        }
-        ApprovalError::BadToken => tracing::debug!("{what} had no working chat token"),
-        ApprovalError::PlanChanged => tracing::debug!("{what} named a different plan"),
-        ApprovalError::Refused(reason) => {
-            tracing::debug!(%reason, "the action could not take {what}")
-        }
-        ApprovalError::StaleEffect => {
-            tracing::warn!("{what} belonged to a stale lease holder and was discarded")
-        }
-        ApprovalError::Unavailable => tracing::debug!("{what} did not reach the writer"),
-    }
-}
-
 /// Approves `id`; the only path that reaches `Approved`. A chat approval must
 /// carry the action's own token, checked here so the answer cannot race with
 /// another decision that is already queued. The binding must name the plan the
@@ -331,23 +318,28 @@ fn refused(err: &ApprovalError, what: &str) {
 async fn approve(
     shared: &Shared,
     id: ActionId,
-    approval: HumanApproval,
+    authorization: Authorization,
     chat_token: Option<&str>,
     binding: PlanBinding,
+    provenance: ApprovalProvenance,
 ) -> Result<ActionRequest, ApprovalError> {
     let mut action = load(shared, id).await?;
+    // M1 has no policy permits: refuse the branch before it can touch anything.
+    let Some(approval) = authorization.human_approval().cloned() else {
+        return Err(ApprovalError::NotYetSupported);
+    };
     if matches!(approval.channel(), ApprovalChannel::Chat { .. })
         && !chat_token_ok(chat_token, &action)
     {
         return Err(ApprovalError::BadToken);
     }
-    if !binding.matches(&action.plan_hash()) {
+    if !binding.matches(&action.plan_hash_for_approval()) {
         return Err(ApprovalError::PlanChanged);
     }
     let now = shared.deps.clock.now();
     let entry_approval = approval.clone();
     let ActionChange { from, .. } = action
-        .approve(approval, now)
+        .approve(authorization, provenance, &binding, now)
         .map_err(ApprovalError::Refused)?;
     action.clear_chat_token_hash();
     transition(
@@ -403,7 +395,7 @@ async fn dispatch(shared: &Shared, id: ActionId, plan: PlanHash) -> Decision {
     let old = freshness::check(shared, &action, now)
         .await
         .map_err(|err| ApprovalError::Store(err.to_string()))?;
-    if let Some(old) = old {
+    if let freshness::Fresh::Stale(old) = old {
         if old == freshness::Stale::Expired {
             return expire::approved_loaded(shared, id, &mut action, now).await;
         }

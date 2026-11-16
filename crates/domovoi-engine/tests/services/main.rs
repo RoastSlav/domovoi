@@ -41,6 +41,8 @@ mod liveness;
 #[cfg(test)]
 mod plan_binding;
 #[cfg(test)]
+mod plan_v2;
+#[cfg(test)]
 mod profile;
 #[cfg(test)]
 mod reconciliation;

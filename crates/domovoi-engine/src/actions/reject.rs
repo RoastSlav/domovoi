@@ -35,7 +35,7 @@ pub(crate) async fn reject(
         let old = freshness::check(shared, &action, now)
             .await
             .map_err(|err| ApprovalError::Store(err.to_string()))?;
-        if let Some(old) = old {
+        if let freshness::Fresh::Stale(old) = old {
             if old == Stale::Expired {
                 return expire::approved_loaded(shared, id, &mut action, now).await;
             }

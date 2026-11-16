@@ -12,7 +12,10 @@ use std::sync::Arc;
 use domovoi_core::ports::{
     ActionGuard, ActionRepo, HostAvailability, Presence, RAN_STATUSES, StateWrite,
 };
-use domovoi_core::{ActionRequest, ActionStatus, IncidentId, Principal, UserId};
+use domovoi_core::{
+    ActionRequest, ActionStatus, ApprovalProvenance, Authorization, CheckKey, HostId, IncidentId,
+    PlanBinding, PlanTarget, Principal, TargetKey, UserId,
+};
 use domovoi_engine::ActionSettings;
 use domovoi_engine::actions::audit;
 use domovoi_testkit::approvals::human;
@@ -35,20 +38,38 @@ fn restart_params() -> BTreeMap<String, String> {
         .collect()
 }
 
+/// The v2 target the harness incident describes: `docker.container` on `nginx`.
+fn plan_target(host: HostId) -> PlanTarget {
+    PlanTarget::new(
+        host,
+        domovoi_testkit::build::key_fingerprint(),
+        CheckKey::parse("docker.container").unwrap(),
+        Some(TargetKey::parse("nginx").unwrap()),
+    )
+}
+
 /// An approved `restart_container` on `incident`, open for `ttl`.
 fn approved_for(incident: IncidentId, ttl: SignedDuration) -> ActionRequest {
     let skill = verified_restart();
     let validated = skill.validate_args(&restart_params()).unwrap();
     let mut action = ActionRequest::propose(
         incident,
-        host_id(),
         &skill,
         &validated,
+        Some(plan_target(host_id())),
         Principal::System("triage".into()),
         ttl,
         T0,
-    );
-    action.approve(human(UserId::new()), T0).unwrap();
+    )
+    .unwrap();
+    action
+        .approve(
+            Authorization::human(human(UserId::new())),
+            ApprovalProvenance::new(None, "test"),
+            &PlanBinding::Full(action.plan_hash_for_approval()),
+            T0,
+        )
+        .unwrap();
     action
 }
 

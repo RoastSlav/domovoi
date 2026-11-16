@@ -5,12 +5,13 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use domovoi_core::ports::{
-    ActionRepo, AggregateRef, AuditFilter, AuditLog, CheckRecheck, Clock, IncidentRepo,
+    ActionRepo, AggregateRef, AuditFilter, AuditLog, CheckRecheck, Clock, HostRepo, IncidentRepo,
     JournalRead, Page, Presence, SkillOutput, UnitOfWork,
 };
 use domovoi_core::{
-    ActionId, ActionRequest, ActionStatus, Evidence, Incident, JournalEpoch, Principal, Risk,
-    SignalStatus, SkillSummary, VerifySpec,
+    ActionId, ActionRequest, ActionStatus, AgentId, AgentIdentity, ApprovalProvenance,
+    Authorization, Evidence, Incident, JournalEpoch, PlanTarget, Principal, Risk, SignalStatus,
+    SkillSummary, VerifySpec,
 };
 use domovoi_engine::actions::audit;
 use domovoi_engine::triage::{mint_token, token_hash};
@@ -122,6 +123,23 @@ async fn seeded_over(store: Arc<InMemoryStore>) -> Seeded {
     link.on_check(|_, _, _| Ok(check(SignalStatus::Resolved)));
     let incident = open_incident(host_id(), "docker.container", Some("nginx")).unwrap();
     IncidentRepo::insert(&*store, &incident).await.unwrap();
+    // The host is registered, with one enrolled agent whose key matches the fixture target.
+    let mut registered = domovoi_testkit::build::host("nas").unwrap();
+    registered.id = host_id();
+    HostRepo::upsert_host(&*store, &registered).await.unwrap();
+    HostRepo::put_agent(
+        &*store,
+        &AgentIdentity {
+            agent: AgentId::new(),
+            host: host_id(),
+            public_key: [7; 32],
+            version: "0.1.0".to_owned(),
+            enrolled_at: T0,
+            revoked_at: None,
+        },
+    )
+    .await
+    .unwrap();
     let (bus, _events) = broadcast::channel(256);
     let shutdown = CancellationToken::new();
     let (manager, manager_task) = IncidentManager::spawn(ManagerDeps {
@@ -171,6 +189,7 @@ impl Seeded {
             effects: self.store.clone(),
             advisories: self.store.clone(),
             link: self.link.clone(),
+            hosts: self.store.clone(),
             redactor: Arc::new(PatternRedactor::new([SecretString::from(
                 SECRET.to_owned(),
             )])),
@@ -261,15 +280,31 @@ impl Actions {
         let token = mint_token();
         let action = ActionRequest::propose(
             self.incident.id(),
-            host_id(),
             skill,
             &validated,
+            Some(PlanTarget::of_incident(
+                &self.incident,
+                domovoi_testkit::build::key_fingerprint(),
+            )),
             Principal::System("triage".into()),
             ttl,
             self.now(),
         )
+        .unwrap()
         .with_chat_token_hash(token_hash(&token));
         (action, token)
+    }
+
+    /// A human authorization and its provenance, for a test that approves through the
+    /// real writer path.
+    pub fn authorization(
+        &self,
+        approval: domovoi_core::HumanApproval,
+    ) -> (Authorization, ApprovalProvenance) {
+        (
+            Authorization::human(approval),
+            ApprovalProvenance::new(None, "test"),
+        )
     }
 
     /// Proposes `restart_container` for `nginx`, open for an hour.
@@ -289,6 +324,7 @@ impl Actions {
     /// Lets the executor run, advancing time a second per step, until `done` holds for the
     /// stored action.
     pub async fn until(&self, id: ActionId, done: impl Fn(&ActionStatus) -> bool) -> ActionRequest {
+        let mut last = self.get(id).await;
         for _ in 0..2000 {
             for _ in 0..20 {
                 tokio::task::yield_now().await;
@@ -297,9 +333,13 @@ impl Actions {
             if done(action.status()) {
                 return action;
             }
+            last = action;
             self.clock.advance(SignedDuration::from_secs(1));
         }
-        panic!("action {id} never reached the expected status");
+        panic!(
+            "action {id} never reached the expected status; last was {:?}",
+            last.status()
+        );
     }
 
     /// Lets queued work run without moving time.

@@ -37,7 +37,9 @@ An action looks the same on the incident's page and on the **Approvals** page: t
 
 ## What an approval covers
 
-Each proposed action has a **plan hash**: a code shown on the card as `Plan a1b2c3d4`. It is computed from the skill's name, the version of its manifest, the host and the exact arguments. The approval request carries the code the card showed; if it no longer matches what is stored for the action, the approval is refused and nothing changes. A stale or substituted card therefore cannot approve a different plan.
+Each proposed action has a **plan hash**: a code shown on the card as `Plan a1b2c3d4`, with a `v2` tag or a `v1 binding` tag. New actions use v2: it binds the capability and its version, the manifest and the SHA-256 of the entry script the agent will run, the host and its enrolled agent key, the incident's check and target, the exact arguments, and the execution id. It does not bind transitive dependencies, interpreters or other files, and it cannot prove the hub itself is honest. Legacy actions, created before v2, keep the older binding for their whole life: the skill, its version, the host and the arguments, with no entry script or enrolled key.
+
+The approval request carries the code the card showed; if it no longer matches what is stored for the action, the approval is refused and nothing changes. A stale or substituted card therefore cannot approve a different plan. At dispatch the hub recomputes the hash in the action's own family, re-reads the host's enrolled key and the incident subject, and rejects the action on any difference; re-enrolment, a replaced entry script, a changed target or a changed argument all invalidate the approval.
 
 The code does **not** cover the contents of the skill's entry script, and it does not name a resolved target on the host: it binds the host, not what the skill will find there. Stronger binding is planned. The runtime limits stay what they were: Domovoi recomputes the plan from the agent's current manifest just before running, the agent applies its own checks, and the audit log records what ran.
 

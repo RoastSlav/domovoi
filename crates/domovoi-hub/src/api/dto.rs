@@ -295,9 +295,13 @@ pub struct ActionDto {
     pub args: BTreeMap<String, String>,
     /// The status name, for example `proposed` or `verified`.
     pub status: String,
-    /// The v1 plan hash: what an approval covers (skill, manifest version, host,
-    /// arguments).
+    /// The plan hash of this action's own family: what an approval covers and what the
+    /// dispatch guard re-checks. New actions use v2; a legacy action keeps v1.
     pub plan_hash: String,
+    /// The stored legacy v1 plan hash, for audit display.
+    pub plan_hash_v1: Option<String>,
+    /// Which binding family `plan_hash` belongs to: `v1` or `v2`.
+    pub plan_binding: String,
     /// Why it was rejected or failed.
     pub reason: Option<String>,
     /// Who proposed it, for example `system:triage`.
@@ -333,7 +337,13 @@ impl From<&ActionRequest> for ActionDto {
             risk,
             args: a.args().clone(),
             status: a.status().name().to_owned(),
-            plan_hash: a.plan_hash().to_string(),
+            plan_hash: a.plan_hash_for_approval().to_string(),
+            plan_hash_v1: Some(a.plan_hash().to_string()),
+            plan_binding: if a.plan_hash_v2().is_some() {
+                "v2".to_owned()
+            } else {
+                "v1".to_owned()
+            },
             reason,
             proposed_by: match a.proposed_by() {
                 Principal::Human(user) => format!("user:{user}"),
@@ -446,8 +456,8 @@ mod tests {
         use domovoi_testkit::build::{T0, action, host};
 
         let mut request = action(IncidentId::new(), host("nas").unwrap().id, Risk::Write).unwrap();
-        request.approve(human(UserId::new()), T0).unwrap();
-        let plan = request.plan_hash();
+        domovoi_testkit::approvals::approve(&mut request, human(UserId::new()), T0).unwrap();
+        let plan = request.plan_hash_for_approval();
         request.dispatch(plan, None, T0).unwrap();
         request
             .complete(

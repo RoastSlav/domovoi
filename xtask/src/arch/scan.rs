@@ -5,8 +5,11 @@ use std::path::Path;
 
 use super::Violation;
 use super::rules::{
-    HUMAN_APPROVAL_ALLOWED_PREFIXES, HUMAN_APPROVAL_RESTORE_ALLOWED_PREFIXES, MAX_FILE_LINES,
-    PROCESS_ALLOWED_PREFIXES, PURE_CRATE_DIRS, PURE_FORBIDDEN_PATHS,
+    AUTHORIZATION_HUMAN_ALLOWED_PREFIXES, AUTHORIZATION_MODULE,
+    AUTHORIZATION_POLICY_ALLOWED_PREFIXES, HUMAN_APPROVAL_ALLOWED_PREFIXES,
+    HUMAN_APPROVAL_RESTORE_ALLOWED_PREFIXES, MAX_FILE_LINES, PLAN_HASH_V2_ALLOWED_PREFIXES,
+    POLICY_PERMIT_ALLOWED_PREFIXES, PROCESS_ALLOWED_PREFIXES, PURE_CRATE_DIRS,
+    PURE_FORBIDDEN_PATHS,
 };
 
 /// Scan every `.rs` file under `crates/`.
@@ -70,6 +73,22 @@ pub fn check_file(rel: &str, text: &str) -> Vec<Violation> {
         || HUMAN_APPROVAL_RESTORE_ALLOWED_PREFIXES
             .iter()
             .any(|p| rel.starts_with(p));
+    let permit_ok = test
+        || POLICY_PERMIT_ALLOWED_PREFIXES
+            .iter()
+            .any(|p| rel.starts_with(p));
+    let authorization_human_ok = test
+        || AUTHORIZATION_HUMAN_ALLOWED_PREFIXES
+            .iter()
+            .any(|p| rel.starts_with(p));
+    let authorization_policy_ok = test
+        || AUTHORIZATION_POLICY_ALLOWED_PREFIXES
+            .iter()
+            .any(|p| rel.starts_with(p));
+    let plan_v2_ok = test
+        || PLAN_HASH_V2_ALLOWED_PREFIXES
+            .iter()
+            .any(|p| rel.starts_with(p));
     let pure = !test && PURE_CRATE_DIRS.iter().any(|p| rel.starts_with(p));
 
     for (i, line) in text.lines().enumerate() {
@@ -114,6 +133,43 @@ pub fn check_file(rel: &str, text: &str) -> Vec<Violation> {
                 "INV-1",
                 &at,
                 "HumanApproval may only be constructed in crates/domovoi-hub/src/auth/",
+            ));
+        }
+        if line.contains("PolicyPermit::issue(") && !permit_ok {
+            out.push(v(
+                "INV-1",
+                &at,
+                "PolicyPermit::issue may only be called in crates/domovoi-hub/src/policy/",
+            ));
+        }
+        if line.contains("Authorization::human(") && !authorization_human_ok {
+            out.push(v(
+                "INV-1",
+                &at,
+                "Authorization::human may only be called in crates/domovoi-hub/src/auth/",
+            ));
+        }
+        if line.contains("Authorization::policy(") && !authorization_policy_ok {
+            out.push(v(
+                "INV-1",
+                &at,
+                "Authorization::policy may only be called in crates/domovoi-hub/src/policy/",
+            ));
+        }
+        if line.contains("plan:v2") && !plan_v2_ok {
+            out.push(v(
+                "INV-1",
+                &at,
+                "the plan:v2 domain line has one implementation, in crates/domovoi-core/src/action/",
+            ));
+        }
+        if (line.contains("pub enum Authorization {") || line.contains("pub enum Authorization{"))
+            && rel != AUTHORIZATION_MODULE
+        {
+            out.push(v(
+                "INV-1",
+                &at,
+                "Authorization is a wrapper with private internals; do not make it a public enum",
             ));
         }
         if pure {
@@ -225,6 +281,63 @@ mod tests {
         );
         assert!(check_file("crates/domovoi-store/src/rows/action.rs", text).is_empty());
         assert!(check_file("crates/domovoi-store/tests/actions.rs", text).is_empty());
+    }
+
+    #[test]
+    fn authorization_constructors_are_confined() {
+        let cases = [
+            ("HumanApproval::new(", "crates/domovoi-hub/src/auth/"),
+            ("HumanApproval::restore(", "crates/domovoi-store/src/"),
+            ("PolicyPermit::issue(", "crates/domovoi-hub/src/policy/"),
+            ("Authorization::human(", "crates/domovoi-hub/src/auth/"),
+            ("Authorization::policy(", "crates/domovoi-hub/src/policy/"),
+        ];
+        for (call, allowed) in cases {
+            let text = format!("let a = {call}value);\n");
+            assert!(
+                check_file("crates/domovoi-engine/src/actions.rs", &text)
+                    .iter()
+                    .any(|x| x.rule == "INV-1"),
+                "{call} was accepted in the engine"
+            );
+            if allowed != "crates/domovoi-store/src/" {
+                assert!(
+                    check_file("crates/domovoi-store/src/repos/actions.rs", &text)
+                        .iter()
+                        .any(|x| x.rule == "INV-1"),
+                    "{call} was accepted in the store"
+                );
+            }
+            assert!(
+                check_file(&format!("{allowed}gate.rs"), &text).is_empty(),
+                "{call} was rejected in its allowed prefix"
+            );
+            assert!(
+                check_file("crates/domovoi-engine/tests/gates.rs", &text).is_empty(),
+                "{call} was rejected in a test file"
+            );
+        }
+    }
+
+    #[test]
+    fn plan_hash_v2_has_one_implementation() {
+        let text = "let text = \"plan:v2\\n\";\n";
+        assert_eq!(
+            check_file("crates/domovoi-engine/src/actions/executor.rs", text)[0].rule,
+            "INV-1"
+        );
+        assert!(check_file("crates/domovoi-core/src/action/plan.rs", text).is_empty());
+        assert!(check_file("crates/domovoi-core/tests/plan_v2.rs", text).is_empty());
+    }
+
+    #[test]
+    fn authorization_is_not_a_public_enum() {
+        let text = "pub enum Authorization { Human, Policy }\n";
+        assert_eq!(
+            check_file("crates/domovoi-core/src/action/mod.rs", text)[0].rule,
+            "INV-1"
+        );
+        assert!(check_file(AUTHORIZATION_MODULE, text).is_empty());
     }
 
     #[test]

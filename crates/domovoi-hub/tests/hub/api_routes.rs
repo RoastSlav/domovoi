@@ -143,7 +143,7 @@ async fn approve_and_deny_flow_through_approval_service() {
         .post(
             &format!("/api/v1/actions/{}/approve", first.id()),
             &login,
-            json!({ "plan_hash": first.plan_hash().to_string() }),
+            json!({ "plan_hash": first.plan_hash_for_approval().to_string() }),
         )
         .await;
     assert_eq!(approved.status, StatusCode::OK, "{}", approved.text);
@@ -158,7 +158,7 @@ async fn approve_and_deny_flow_through_approval_service() {
         .post(
             &format!("/api/v1/actions/{}/approve", first.id()),
             &login,
-            json!({ "plan_hash": first.plan_hash().to_string() }),
+            json!({ "plan_hash": first.plan_hash_for_approval().to_string() }),
         )
         .await;
     assert_eq!(again.status, StatusCode::CONFLICT);
@@ -228,7 +228,7 @@ async fn approve_api_refuses_a_different_plan_hash() {
     let a = api().await;
     let login = a.admin().await;
     let action = a.propose(Risk::Write).await;
-    let mut other = *action.plan_hash().as_bytes();
+    let mut other = *action.plan_hash_for_approval().as_bytes();
     other[0] ^= 0xff;
     let different = hex::encode(other);
 
@@ -259,7 +259,7 @@ async fn approve_api_accepts_the_current_plan_hash() {
         .post(
             &format!("/api/v1/actions/{}/approve", action.id()),
             &login,
-            json!({ "plan_hash": action.plan_hash().to_string() }),
+            json!({ "plan_hash": action.plan_hash_for_approval().to_string() }),
         )
         .await;
 
@@ -267,7 +267,7 @@ async fn approve_api_accepts_the_current_plan_hash() {
     assert_eq!(reply.body["status"], "approved");
     assert_eq!(
         reply.body["plan_hash"],
-        action.plan_hash().to_string(),
+        action.plan_hash_for_approval().to_string(),
         "the DTO carries the v1 plan hash"
     );
 }
@@ -283,7 +283,7 @@ async fn action_list_exposes_the_plan_hash() {
     assert_eq!(listed.status, StatusCode::OK);
     assert_eq!(
         listed.body["items"][0]["plan_hash"],
-        action.plan_hash().to_string()
+        action.plan_hash_for_approval().to_string()
     );
 }
 

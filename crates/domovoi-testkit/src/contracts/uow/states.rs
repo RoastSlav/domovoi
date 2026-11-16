@@ -6,7 +6,10 @@ use domovoi_core::ports::{
     Expectation, Expected, IncidentTimelineEntry, JournalDraft, JournalKind, Observed, Page,
     StateWrite, Transaction,
 };
-use domovoi_core::{EffectId, IncidentId, Note, NoteId, Risk, UserId};
+use domovoi_core::{
+    ApprovalProvenance, Authorization, EffectId, IncidentId, Note, NoteId, PlanBinding, Risk,
+    UserId,
+};
 use serde_json::json;
 
 use super::super::ContractResult;
@@ -391,8 +394,14 @@ pub async fn action_guard_refuses_a_changed_status(subject: &dyn UowSubject) -> 
         .await?;
 
     let mut approved = proposed.clone();
+    let binding = PlanBinding::Full(approved.plan_hash_for_approval());
     approved
-        .approve(crate::approvals::human(UserId::new()), T0)
+        .approve(
+            Authorization::human(crate::approvals::human(UserId::new())),
+            ApprovalProvenance::new(None, "test"),
+            &binding,
+            T0,
+        )
         .map_err(|e| super::super::ContractError::Setup(e.to_string()))?;
     subject
         .uow()

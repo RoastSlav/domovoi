@@ -10,10 +10,12 @@
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
 
-use domovoi_core::ports::{LinkError, SkillDispatch, SkillOutput};
-use domovoi_core::{ActionId, ActionRequest, ActionStatus, PlanHash};
+use domovoi_core::ports::{LinkError, SkillDispatch};
+use domovoi_core::{
+    ActionId, ActionRequest, ActionStatus, ExecutionId, ImplHash, Incident, KeyFingerprint,
+    PlanContract, PlanHash, PlanTarget, SkillSummary, ValidatedArgs,
+};
 use jiff::SignedDuration;
-use sha2::{Digest, Sha256};
 use tokio::sync::{Semaphore, broadcast, oneshot};
 use tokio::task::JoinSet;
 
@@ -22,13 +24,10 @@ use super::audit::RunRecord;
 use super::host_wait::{self, HostWait};
 use super::preflight;
 use super::recheck::verify_after;
+use super::record::run_record;
 use super::recover::approved;
 use super::writer::{Decision, WriteCommand};
 use crate::events::{DomainEvent, EventKind};
-use crate::triage::cut;
-
-/// The largest output excerpt stored, in bytes.
-pub const EXCERPT_BYTES: usize = 4 * 1024;
 
 /// Starts running `action` as a task in `running`, stopping it on shutdown. `pool` holds
 /// the catch-up runs to a limit; an approval that arrives as an event passes `None`.
@@ -254,10 +253,11 @@ pub(crate) async fn run(shared: &Shared, id: ActionId, pool: Option<Arc<Semaphor
     };
     let now = deps.clock.now();
     // Waiting may have taken an hour: the approval and the incident are asked again
-    // before anything is sent.
-    if !preflight::still_current(shared, id, &action, now).await {
+    // before anything is sent. The incident read is kept for the v2 target, so the plan
+    // and the freshness check are computed from one read.
+    let Some(incident) = preflight::current_incident(shared, id, &action, now).await else {
         return;
-    }
+    };
     let (skill, args) = match preflight::revalidate(shared, &action) {
         Ok(found) => found,
         Err(reason) => {
@@ -272,12 +272,21 @@ pub(crate) async fn run(shared: &Shared, id: ActionId, pool: Option<Arc<Semaphor
         let _ = preflight::ask_reject(shared, id, reason, true).await;
         return;
     }
-    let plan = PlanHash::compute(&skill.name, skill.manifest_hash, action.host(), &args);
+    let runskill_plan_hash =
+        PlanHash::compute(&skill.name, skill.manifest_hash, action.host(), &args);
+    let approval_plan_hash = if action.plan_hash_v2().is_some() {
+        let Some(hash) = v2_plan(shared, &action, &skill, &args, &incident).await else {
+            return;
+        };
+        hash
+    } else {
+        PlanHash::compute(&skill.name, skill.manifest_hash, action.host(), &args)
+    };
     // The gate closes the window between the write that says `Dispatched` and the frame
     // reaching the agent's queue: reconciliation takes it before it lists what is pending,
     // so a run that has not been handed over yet can never be in that list.
     let gate = shared.dispatch_gate(action.host()).await;
-    let Some(dispatched) = ask_dispatch(shared, id, plan).await else {
+    let Some(dispatched) = ask_dispatch(shared, id, approval_plan_hash).await else {
         return;
     };
     let (epoch, skill_name, args) = match dispatched.status() {
@@ -334,7 +343,7 @@ pub(crate) async fn run(shared: &Shared, id: ActionId, pool: Option<Arc<Semaphor
         action: id,
         skill: skill_name,
         args,
-        plan_hash: plan,
+        plan_hash: runskill_plan_hash,
     };
     let handoff = match deps
         .link
@@ -401,24 +410,57 @@ pub(crate) async fn run(shared: &Shared, id: ActionId, pool: Option<Arc<Semaphor
     }
 }
 
-fn run_record(shared: &Shared, output: &SkillOutput) -> RunRecord {
-    let mut hash = Sha256::new();
-    hash.update(output.stdout.as_bytes());
-    hash.update([0u8]);
-    hash.update(output.stderr.as_bytes());
-    let text = if output.stderr.trim().is_empty() {
-        output.stdout.clone()
-    } else {
-        format!("{}\n--- stderr ---\n{}", output.stdout, output.stderr)
+/// Recomputes the v2 approval hash for `action` from what the hub has now: the agent's
+/// current enrolled key, the incident's subject, the current manifest and entry digest, the
+/// arguments and the action's execution identity.
+///
+/// The key is re-read, never remembered: re-enrolment between approval and dispatch must
+/// invalidate the approval. No live agent means no canonical host identity, so the action is
+/// rejected on the stale path instead of hashing a placeholder.
+async fn v2_plan(
+    shared: &Shared,
+    action: &ActionRequest,
+    skill: &SkillSummary,
+    args: &ValidatedArgs,
+    incident: &Incident,
+) -> Option<PlanHash> {
+    let agent = match shared.deps.hosts.live_agent(action.host()).await {
+        Ok(Some(agent)) => agent,
+        Ok(None) => {
+            let _ = preflight::ask_reject(
+                shared,
+                action.id(),
+                "the host has no enrolled agent key; the plan can no longer be verified".to_owned(),
+                false,
+            )
+            .await;
+            return None;
+        }
+        Err(err) => {
+            tracing::error!(
+                %err,
+                action = %action.id(),
+                "could not read the host's enrolled agent; the action stays approved",
+            );
+            return None;
+        }
     };
-    RunRecord {
-        exit_code: output.exit_code,
-        argv_hash: hex::encode(output.argv_hash),
-        output_sha256: hex::encode(hash.finalize()),
-        duration_ms: output.duration_ms,
-        truncated: output.truncated,
-        excerpt: cut(&shared.deps.redactor.redact(&text), EXCERPT_BYTES),
-    }
+    let target =
+        PlanTarget::of_incident(incident, KeyFingerprint::of_public_key(&agent.public_key));
+    let contract = match PlanContract::skill(action.skill(), 1) {
+        Ok(contract) => contract,
+        Err(err) => {
+            let _ = preflight::ask_reject(shared, action.id(), err.to_string(), false).await;
+            return None;
+        }
+    };
+    Some(PlanHash::compute_v2(
+        &contract,
+        ImplHash::from_parts(skill.manifest_hash, skill.entry_script_digest),
+        &target,
+        args,
+        ExecutionId::from_action(action.id()),
+    ))
 }
 
 #[cfg(test)]

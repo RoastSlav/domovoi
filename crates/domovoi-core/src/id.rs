@@ -78,6 +78,27 @@ define_id!(
     ActionId
 );
 define_id!(
+    /// The opaque idempotency key of one execution of an action.
+    ///
+    /// At M1 it is the action's [`ActionId`]; later milestones give a step its own id.
+    ExecutionId
+);
+
+impl ExecutionId {
+    /// The execution identity of `action`. At M1 the idempotency key is the action id.
+    #[must_use]
+    pub fn from_action(action: ActionId) -> Self {
+        Self(action.as_uuid())
+    }
+
+    /// The action this execution belongs to, for the M1 dispatch path.
+    #[must_use]
+    pub fn as_action(self) -> ActionId {
+        ActionId::from_uuid(self.as_uuid())
+    }
+}
+
+define_id!(
     /// Identifies a human user.
     UserId
 );

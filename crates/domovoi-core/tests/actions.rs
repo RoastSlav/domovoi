@@ -6,9 +6,11 @@
 use std::collections::BTreeMap;
 
 use domovoi_core::{
-    ActionChange, ActionError, ActionId, ActionRequest, ActionStatus, ApprovalChannel, HostId,
-    HumanApproval, IncidentId, JournalEpoch, ManifestHash, ParamKind, ParamName, ParamSpec,
-    PlanHash, Principal, Risk, SkillName, SkillSummary, UserId, ValidatedArgs,
+    ActionChange, ActionError, ActionId, ActionRequest, ActionStatus, ApprovalChannel,
+    ApprovalProvenance, Authorization, CheckKey, ExecutionId, HostId, HumanApproval, ImplHash,
+    IncidentId, JournalEpoch, KeyFingerprint, ManifestHash, ParamKind, ParamName, ParamSpec,
+    PlanBinding, PlanContract, PlanHash, PlanTarget, Principal, Risk, SkillName, SkillSummary,
+    StoredAction, UserId, ValidatedArgs,
 };
 use jiff::{SignedDuration, Timestamp};
 use uuid::Uuid;
@@ -53,19 +55,47 @@ fn host() -> HostId {
     HostId::from_uuid(Uuid::from_u128(0x0190_0000_0000_7000_8000_0000_0000_0001))
 }
 
+/// A v2 target for `host` with a fixed enrolled key.
+#[cfg(test)]
+fn target(host: HostId) -> PlanTarget {
+    PlanTarget::new(
+        host,
+        KeyFingerprint::of_public_key(&[7u8; 32]),
+        CheckKey::parse("disk.usage").unwrap(),
+        None,
+    )
+}
+
+/// Approves `req` as `approval` did, bound to the plan it currently shows.
+#[cfg(test)]
+fn approve_with(
+    req: &mut ActionRequest,
+    approval: HumanApproval,
+    now: Timestamp,
+) -> Result<ActionChange, ActionError> {
+    let binding = PlanBinding::Full(req.plan_hash_for_approval());
+    req.approve(
+        Authorization::human(approval),
+        ApprovalProvenance::new(None, "test"),
+        &binding,
+        now,
+    )
+}
+
 /// A request proposed at `at(0)` with a one-hour approval window.
 #[cfg(test)]
 fn proposed(risk: Risk) -> ActionRequest {
     let skill = summary(risk);
     ActionRequest::propose(
         IncidentId::from_uuid(Uuid::from_u128(0x0190_0000_0000_7000_8000_0000_0000_0002)),
-        host(),
         &skill,
         &args(&skill, "plex"),
+        Some(target(host())),
         Principal::System("triage".into()),
         SignedDuration::from_hours(1),
         at(0),
     )
+    .unwrap()
 }
 
 fn web(typed: bool) -> HumanApproval {
@@ -92,14 +122,14 @@ fn chat() -> HumanApproval {
 #[cfg(test)]
 fn approved(risk: Risk) -> ActionRequest {
     let mut req = proposed(risk);
-    req.approve(web(true), at(60)).unwrap();
+    approve_with(&mut req, web(true), at(60)).unwrap();
     req
 }
 
 #[cfg(test)]
 fn dispatched() -> ActionRequest {
     let mut req = approved(Risk::Write);
-    let hash = req.plan_hash();
+    let hash = req.plan_hash_for_approval();
     req.dispatch(hash, None, at(120)).unwrap();
     req
 }
@@ -114,7 +144,7 @@ fn succeeded() -> ActionRequest {
 #[test]
 fn proposed_is_approved_by_a_human() {
     let mut req = proposed(Risk::Write);
-    let change = req.approve(web(false), at(60)).unwrap();
+    let change = approve_with(&mut req, web(false), at(60)).unwrap();
     assert_eq!(
         change,
         ActionChange {
@@ -129,7 +159,7 @@ fn proposed_is_approved_by_a_human() {
 #[test]
 fn write_skill_can_be_approved_from_chat() {
     let mut req = proposed(Risk::Write);
-    assert!(req.approve(chat(), at(60)).is_ok());
+    assert!(approve_with(&mut req, chat(), at(60)).is_ok());
 }
 
 #[test]
@@ -151,7 +181,10 @@ fn proposed_expires_after_the_window() {
 fn approve_after_expiry_fails() {
     let mut req = proposed(Risk::Write);
     let before = req.clone();
-    assert_eq!(req.approve(web(true), at(3600)), Err(ActionError::Expired));
+    assert_eq!(
+        approve_with(&mut req, web(true), at(3600)),
+        Err(ActionError::Expired)
+    );
     assert_eq!(req, before);
 }
 
@@ -161,19 +194,19 @@ fn destructive_needs_web_typed_confirmation() {
         let mut req = proposed(Risk::Destructive);
         let before = req.clone();
         assert_eq!(
-            req.approve(approval, at(60)),
+            approve_with(&mut req, approval, at(60)),
             Err(ActionError::DestructiveNeedsTypedConfirmation)
         );
         assert_eq!(req, before);
     }
     let mut req = proposed(Risk::Destructive);
-    assert!(req.approve(web(true), at(60)).is_ok());
+    assert!(approve_with(&mut req, web(true), at(60)).is_ok());
 }
 
 #[test]
 fn approved_dispatches_when_plan_hash_matches() {
     let mut req = approved(Risk::Write);
-    let hash = req.plan_hash();
+    let hash = req.plan_hash_for_approval();
     req.dispatch(hash, None, at(120)).unwrap();
     assert_eq!(
         req.status(),
@@ -229,11 +262,11 @@ fn succeeded_is_verified_or_fails_verification() {
 fn illegal_operations_leave_request_unchanged() {
     type Op = fn(&mut ActionRequest) -> Result<ActionChange, ActionError>;
     let ops: [(&str, Op); 6] = [
-        ("approve", |r| r.approve(web(true), at(60))),
+        ("approve", |r| approve_with(r, web(true), at(60))),
         ("deny", |r| r.deny(at(60))),
         ("expire", |r| r.expire(at(7200))),
         ("dispatch", |r| {
-            let hash = r.plan_hash();
+            let hash = r.plan_hash_for_approval();
             r.dispatch(hash, None, at(60))
         }),
         ("complete", |r| r.complete(Ok(()), at(60))),
@@ -278,7 +311,7 @@ fn illegal_operations_leave_request_unchanged() {
 #[test]
 fn dispatch_records_the_journal_epoch_the_hub_saw() {
     let mut req = approved(Risk::Write);
-    let hash = req.plan_hash();
+    let hash = req.plan_hash_for_approval();
     let epoch = JournalEpoch::from_uuid(uuid::Uuid::nil());
     req.dispatch(hash, Some(epoch), at(120)).unwrap();
     assert_eq!(
@@ -418,9 +451,37 @@ fn propose_copies_risk_and_normalised_args() {
 
 #[test]
 fn action_request_json_snapshot() {
-    let req = approved(Risk::Write).with_id(ActionId::from_uuid(Uuid::from_u128(
-        0x0190_0000_0000_7000_8000_0000_0000_0004,
-    )));
+    let id = ActionId::from_uuid(Uuid::from_u128(0x0190_0000_0000_7000_8000_0000_0000_0004));
+    let skill = summary(Risk::Write);
+    let validated = args(&skill, "plex");
+    let plan_hash = PlanHash::compute(&skill.name, skill.manifest_hash, host(), &validated);
+    let plan_hash_v2 = PlanHash::compute_v2(
+        &PlanContract::skill(&skill.name, 1).unwrap(),
+        ImplHash::from_parts(skill.manifest_hash, skill.entry_script_digest),
+        &target(host()),
+        &validated,
+        ExecutionId::from_action(id),
+    );
+    let req = ActionRequest::from_stored(StoredAction {
+        id,
+        incident: IncidentId::from_uuid(Uuid::from_u128(0x0190_0000_0000_7000_8000_0000_0000_0002)),
+        host: host(),
+        skill: skill.name.clone(),
+        risk: Risk::Write,
+        args: validated.to_map(),
+        plan_hash,
+        plan_hash_v2: Some(plan_hash_v2),
+        approved_plan_hash: Some(plan_hash_v2),
+        provenance: Some(ApprovalProvenance::new(None, "test")),
+        authorization_kind: Some(domovoi_core::AuthorizationKind::Human),
+        status: ActionStatus::Approved,
+        proposed_by: Principal::System("triage".into()),
+        approved_by: Some(web(true)),
+        expires_at: at(3600),
+        created_at: at(0),
+        updated_at: at(60),
+        chat_token_hash: None,
+    });
     insta::assert_json_snapshot!(req);
 }
 

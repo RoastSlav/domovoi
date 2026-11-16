@@ -5,9 +5,11 @@ use std::collections::BTreeMap;
 
 use jiff::{SignedDuration, Timestamp};
 
-use super::approval::{HumanApproval, PlanHash};
+use super::approval::{ApprovalProvenance, HumanApproval, PlanHash};
+use super::authorization::AuthorizationKind;
 use super::epoch::JournalEpoch;
-use crate::id::{ActionId, HostId, IncidentId, UserId};
+use super::plan::{ImplHash, PlanContract, PlanError, PlanTarget};
+use crate::id::{ActionId, ExecutionId, HostId, IncidentId, UserId};
 use crate::skill::{Risk, SkillName, SkillSummary, ValidatedArgs};
 
 /// Where an action is in its life. See `ARCHITECTURE.md` section 5.6.
@@ -126,8 +128,16 @@ pub struct StoredAction {
     pub risk: Risk,
     /// Validated, normalised arguments.
     pub args: BTreeMap<String, String>,
-    /// The plan the approval binds to.
+    /// The plan the approval binds to, in the legacy v1 family.
     pub plan_hash: PlanHash,
+    /// The v2 plan identity; `None` for an action created before v2 existed.
+    pub plan_hash_v2: Option<PlanHash>,
+    /// The exact hash the approval carried, once an approval was given.
+    pub approved_plan_hash: Option<PlanHash>,
+    /// Where the approval was made, once one was given.
+    pub provenance: Option<ApprovalProvenance>,
+    /// Which authorization case approved it, once one did.
+    pub authorization_kind: Option<AuthorizationKind>,
     /// Status when stored.
     pub status: ActionStatus,
     /// Who proposed it.
@@ -158,6 +168,10 @@ pub struct ActionRequest {
     pub(super) risk: Risk,
     pub(super) args: BTreeMap<String, String>,
     pub(super) plan_hash: PlanHash,
+    pub(super) plan_hash_v2: Option<PlanHash>,
+    pub(super) approved_plan_hash: Option<PlanHash>,
+    pub(super) provenance: Option<ApprovalProvenance>,
+    pub(super) authorization_kind: Option<AuthorizationKind>,
     pub(super) status: ActionStatus,
     pub(super) proposed_by: Principal,
     pub(super) approved_by: Option<HumanApproval>,
@@ -170,26 +184,46 @@ pub struct ActionRequest {
 impl ActionRequest {
     /// Proposes running `skill` with already validated `args` on `host`.
     ///
+    /// `target` is the canonical plan target built by the caller from the linked incident and
+    /// the host's enrolled agent key. A host without an enrolled key has no v2 identity, so
+    /// this refuses with [`PlanError::NoEnrolledKey`] rather than hashing a placeholder. The
+    /// v1 hash is still computed and kept for the audit line and the agent's local check.
+    ///
     /// The approval window is `ttl` from `now`. If that overflows the timestamp range the
     /// request expires immediately, which fails closed.
-    #[must_use]
     pub fn propose(
         incident: IncidentId,
-        host: HostId,
         skill: &SkillSummary,
         args: &ValidatedArgs,
+        target: Option<PlanTarget>,
         proposed_by: Principal,
         ttl: SignedDuration,
         now: Timestamp,
-    ) -> Self {
-        Self {
-            id: ActionId::new(),
+    ) -> Result<Self, PlanError> {
+        let host = target.as_ref().ok_or(PlanError::NoEnrolledKey)?.host();
+        let id = ActionId::new();
+        let target = target.ok_or(PlanError::NoEnrolledKey)?;
+        let contract = PlanContract::skill(&skill.name, 1)?;
+        let implementation = ImplHash::from_parts(skill.manifest_hash, skill.entry_script_digest);
+        let plan_hash_v2 = PlanHash::compute_v2(
+            &contract,
+            implementation,
+            &target,
+            args,
+            ExecutionId::from_action(id),
+        );
+        Ok(Self {
+            id,
             incident,
             host,
             skill: skill.name.clone(),
             risk: skill.risk,
             args: args.to_map(),
             plan_hash: PlanHash::compute(&skill.name, skill.manifest_hash, host, args),
+            plan_hash_v2: Some(plan_hash_v2),
+            approved_plan_hash: None,
+            provenance: None,
+            authorization_kind: None,
             status: ActionStatus::Proposed,
             proposed_by,
             approved_by: None,
@@ -197,7 +231,7 @@ impl ActionRequest {
             created_at: now,
             updated_at: now,
             chat_token_hash: None,
-        }
+        })
     }
 
     /// Loads a request the store persisted, unchanged.
@@ -211,6 +245,10 @@ impl ActionRequest {
             risk: stored.risk,
             args: stored.args,
             plan_hash: stored.plan_hash,
+            plan_hash_v2: stored.plan_hash_v2,
+            approved_plan_hash: stored.approved_plan_hash,
+            provenance: stored.provenance,
+            authorization_kind: stored.authorization_kind,
             status: stored.status,
             proposed_by: stored.proposed_by,
             approved_by: stored.approved_by,
@@ -276,10 +314,42 @@ impl ActionRequest {
         &self.args
     }
 
-    /// The plan the approval binds to.
+    /// The plan the approval binds to in the legacy v1 family.
     #[must_use]
     pub fn plan_hash(&self) -> PlanHash {
         self.plan_hash
+    }
+
+    /// The v2 plan identity, when this action was proposed after v2 existed.
+    #[must_use]
+    pub fn plan_hash_v2(&self) -> Option<PlanHash> {
+        self.plan_hash_v2
+    }
+
+    /// The hash of the action's own family: v2 when present, else the legacy v1 hash.
+    ///
+    /// This is the only version selector; the writer and the DTO both use it.
+    #[must_use]
+    pub fn plan_hash_for_approval(&self) -> PlanHash {
+        self.plan_hash_v2.unwrap_or(self.plan_hash)
+    }
+
+    /// The exact hash the approval carried, once one was given.
+    #[must_use]
+    pub fn approved_plan_hash(&self) -> Option<PlanHash> {
+        self.approved_plan_hash
+    }
+
+    /// Where the approval was made, once one was given.
+    #[must_use]
+    pub fn provenance(&self) -> Option<&ApprovalProvenance> {
+        self.provenance.as_ref()
+    }
+
+    /// Which authorization case approved it, once one did.
+    #[must_use]
+    pub fn authorization_kind(&self) -> Option<AuthorizationKind> {
+        self.authorization_kind
     }
 
     /// Current status.

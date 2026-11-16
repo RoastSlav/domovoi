@@ -237,13 +237,13 @@ async fn seed_actions(store: &Store, nas: HostId) -> Result<()> {
         let args = summary.validate_args(&BTreeMap::new())?;
         let action = ActionRequest::propose(
             incident.id(),
-            nas,
             &summary,
             &args,
+            Some(domovoi_testkit::build::plan_target(nas)?),
             Principal::System("triage".into()),
             SignedDuration::from_hours(4),
             Timestamp::now(),
-        );
+        )?;
         ActionRepo::insert(store, &action).await?;
     }
     Ok(())
@@ -456,6 +456,7 @@ async fn main() -> Result<()> {
             effects: store.clone(),
             advisories: store.clone(),
             link: link.clone(),
+            hosts: store.clone(),
             redactor: Arc::new(PatternRedactor::default()),
             clock: clock.clone(),
             manager: manager.clone(),

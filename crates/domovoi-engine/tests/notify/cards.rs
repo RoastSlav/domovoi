@@ -3,13 +3,12 @@
 use std::collections::BTreeMap;
 
 use domovoi_core::{
-    ActionId, ActionRequest, CardButton, Incident, ParamKind, ParamName, ParamSpec, Principal,
+    ActionId, ActionRequest, CardButton, Incident, ParamKind, ParamName, ParamSpec, PlanTarget,
     Risk, Severity, Verdict,
 };
 use domovoi_engine::cards::{CardLinks, build_card};
 use domovoi_engine::render;
-use domovoi_testkit::build::action;
-use jiff::SignedDuration;
+use domovoi_testkit::build::{action, key_fingerprint};
 use uuid::Uuid;
 
 use crate::harness::{host, host_id, open, report, resolve, signal, ts};
@@ -20,13 +19,15 @@ fn action_id(n: u128) -> ActionId {
     ))
 }
 
-/// A proposed `restart_container` write with `pairs` as arguments, proposed at `at`.
+/// A proposed `restart_container` action with `pairs` as arguments, a fixed `id` and `risk`.
 fn proposed_with_args(
     incident: &Incident,
+    id: ActionId,
+    risk: Risk,
     pairs: &[(&str, &str)],
     at: jiff::Timestamp,
 ) -> ActionRequest {
-    let mut manifest = domovoi_testkit::build::manifest("restart_container", Risk::Write).unwrap();
+    let mut manifest = domovoi_testkit::build::manifest("restart_container", risk).unwrap();
     manifest.params = pairs
         .iter()
         .map(|(name, _)| ParamSpec {
@@ -45,20 +46,21 @@ fn proposed_with_args(
         .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
         .collect();
     let args = skill.validate_args(&values).unwrap();
-    ActionRequest::propose(
+    domovoi_testkit::build::action_from(
+        id,
         incident.id(),
         host_id(),
+        PlanTarget::of_incident(incident, key_fingerprint()),
         &skill,
         &args,
-        Principal::System("triage".into()),
-        SignedDuration::from_hours(1),
         at,
     )
+    .unwrap()
 }
 
 /// The first 6 lowercase hex characters of `action`'s plan hash.
 fn plan_prefix(action: &ActionRequest) -> String {
-    hex::encode(&action.plan_hash().as_bytes()[..3])
+    hex::encode(&action.plan_hash_for_approval().as_bytes()[..3])
 }
 
 fn snapshot(name: &str, card: &domovoi_core::Card) {
@@ -112,9 +114,13 @@ fn card_with_monitor_report() {
 #[test]
 fn card_with_write_proposal_has_approve_and_deny() {
     let incident = open(Severity::Warning, ts("2026-10-31T09:00:00Z"));
-    let write = action(incident.id(), host_id(), Risk::Write)
-        .unwrap()
-        .with_id(action_id(1));
+    let write = proposed_with_args(
+        &incident,
+        action_id(1),
+        Risk::Write,
+        &[],
+        ts("2026-10-31T09:00:00Z"),
+    );
     let mut links = CardLinks::default();
     links.tokens.insert(write.id(), "tok_write".to_owned());
     let report = report(Verdict::ActionNeeded);
@@ -144,10 +150,11 @@ fn card_lists_waiting_actions_with_skill_host_args_and_plan() {
     let incident = open(Severity::Warning, ts("2026-10-31T09:00:00Z"));
     let write = proposed_with_args(
         &incident,
+        action_id(3),
+        Risk::Write,
         &[("zeta", "1"), ("alpha", "2")],
         ts("2026-10-31T09:00:00Z"),
-    )
-    .with_id(action_id(3));
+    );
     let mut links = CardLinks::default();
     links.tokens.insert(write.id(), "tok_write".to_owned());
     let card = build_card(
@@ -172,7 +179,7 @@ fn card_lists_waiting_actions_with_skill_host_args_and_plan() {
             ("zeta".to_owned(), "1".to_owned())
         ]
     );
-    assert_eq!(plan.plan_short, write.plan_hash().short());
+    assert_eq!(plan.plan_short, write.plan_hash_for_approval().short());
     assert_eq!(plan.plan_short.len(), 8);
     assert_eq!(plan.expires_at, write.expires_at());
     assert_eq!(
@@ -195,10 +202,11 @@ fn card_with_long_arguments_links_to_the_web_instead_of_chat_buttons() {
     let long = "v".repeat(600);
     let write = proposed_with_args(
         &incident,
+        action_id(4),
+        Risk::Write,
         &[("payload", long.as_str())],
         ts("2026-10-31T09:00:00Z"),
-    )
-    .with_id(action_id(4));
+    );
     let mut links = CardLinks::default();
     links.tokens.insert(write.id(), "tok_write".to_owned());
     let card = build_card(
@@ -239,14 +247,34 @@ fn card_limits_waiting_actions_to_the_three_oldest_proposed() {
     let incident = open(Severity::Warning, ts("2026-10-31T09:00:00Z"));
     // Newest first, and ids in the opposite order to the creation time, so only a sort by
     // `created_at` produces the right waiting list.
-    let newest =
-        proposed_with_args(&incident, &[], ts("2026-10-31T09:04:00Z")).with_id(action_id(5));
-    let third =
-        proposed_with_args(&incident, &[], ts("2026-10-31T09:03:00Z")).with_id(action_id(7));
-    let second =
-        proposed_with_args(&incident, &[], ts("2026-10-31T09:02:00Z")).with_id(action_id(6));
-    let oldest =
-        proposed_with_args(&incident, &[], ts("2026-10-31T09:01:00Z")).with_id(action_id(9));
+    let newest = proposed_with_args(
+        &incident,
+        action_id(5),
+        Risk::Write,
+        &[],
+        ts("2026-10-31T09:04:00Z"),
+    );
+    let third = proposed_with_args(
+        &incident,
+        action_id(7),
+        Risk::Write,
+        &[],
+        ts("2026-10-31T09:03:00Z"),
+    );
+    let second = proposed_with_args(
+        &incident,
+        action_id(6),
+        Risk::Write,
+        &[],
+        ts("2026-10-31T09:02:00Z"),
+    );
+    let oldest = proposed_with_args(
+        &incident,
+        action_id(9),
+        Risk::Write,
+        &[],
+        ts("2026-10-31T09:01:00Z"),
+    );
     let mut links = CardLinks::default();
     for action in [&newest, &third, &second, &oldest] {
         links.tokens.insert(action.id(), "tok_write".to_owned());
@@ -281,9 +309,13 @@ fn card_limits_waiting_actions_to_the_three_oldest_proposed() {
 #[test]
 fn markdown_card_names_the_waiting_action() {
     let incident = open(Severity::Warning, ts("2026-10-31T09:00:00Z"));
-    let write = action(incident.id(), host_id(), Risk::Write)
-        .unwrap()
-        .with_id(action_id(5));
+    let write = proposed_with_args(
+        &incident,
+        action_id(5),
+        Risk::Write,
+        &[],
+        ts("2026-10-31T09:00:00Z"),
+    );
     let mut links = CardLinks::default();
     links.tokens.insert(write.id(), "tok_write".to_owned());
     let card = build_card(
@@ -298,7 +330,7 @@ fn markdown_card_names_the_waiting_action() {
     let rendered = render::card(&card);
     let expected = format!(
         "Waiting: restart_container on nas (write), no arguments · plan {}",
-        write.plan_hash().short()
+        write.plan_hash_for_approval().short()
     );
     let lines: Vec<&str> = rendered.lines().collect();
     let plan_at = lines
@@ -331,9 +363,13 @@ fn markdown_card_names_the_waiting_action() {
 #[test]
 fn destructive_proposal_only_opens_in_web() {
     let incident = open(Severity::Critical, ts("2026-10-31T09:00:00Z"));
-    let wipe = action(incident.id(), host_id(), Risk::Destructive)
-        .unwrap()
-        .with_id(action_id(2));
+    let wipe = proposed_with_args(
+        &incident,
+        action_id(2),
+        Risk::Destructive,
+        &[],
+        ts("2026-10-31T09:00:00Z"),
+    );
     let mut links = CardLinks::default();
     // Even with a token, a destructive action is never approvable from chat (INV-6).
     links.tokens.insert(wipe.id(), "tok_wipe".to_owned());

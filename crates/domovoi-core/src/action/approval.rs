@@ -21,6 +21,9 @@ impl PlanHash {
     }
 
     /// SHA-256 over `"plan:v1\n{skill}\n{manifest_hash}\n{host_id}\n{canonical args}"`.
+    ///
+    /// This is the legacy family. New actions are approved under v2; a stored action whose
+    /// `plan_hash_v2` is `NULL` keeps this hash for its whole life.
     #[must_use]
     pub fn compute(
         skill: &SkillName,
@@ -127,6 +130,40 @@ impl HumanApproval {
     #[must_use]
     pub fn at(&self) -> Timestamp {
         self.at
+    }
+}
+
+/// Where an approval was made: the authenticated surface and a non-reversible session
+/// reference.
+///
+/// `session_ref` is never the session cookie or a token; it is a one-way reference the hub can
+/// use to correlate its own records. `client` is `web` or `chat:<platform>`.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct ApprovalProvenance {
+    session_ref: Option<String>,
+    client: String,
+}
+
+impl ApprovalProvenance {
+    /// Records the provenance of one approval.
+    #[must_use]
+    pub fn new(session_ref: Option<String>, client: impl Into<String>) -> Self {
+        Self {
+            session_ref,
+            client: client.into(),
+        }
+    }
+
+    /// The opaque, non-reversible session reference, when the surface had one.
+    #[must_use]
+    pub fn session_ref(&self) -> Option<&str> {
+        self.session_ref.as_deref()
+    }
+
+    /// The surface: `web`, or `chat:<platform>`.
+    #[must_use]
+    pub fn client(&self) -> &str {
+        &self.client
     }
 }
 

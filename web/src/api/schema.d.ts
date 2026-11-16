@@ -1017,11 +1017,15 @@ export interface components {
             id: string;
             /** @description The incident it is for. */
             incident_id: string;
+            /** @description Which binding family `plan_hash` belongs to: `v1` or `v2`. */
+            plan_binding: string;
             /**
-             * @description The v1 plan hash: what an approval covers (skill, manifest version, host,
-             *     arguments).
+             * @description The plan hash of this action's own family: what an approval covers and what the
+             *     dispatch guard re-checks. New actions use v2; a legacy action keeps v1.
              */
             plan_hash: string;
+            /** @description The stored legacy v1 plan hash, for audit display. */
+            plan_hash_v1?: string | null;
             /** @description Who proposed it, for example `system:triage`. */
             proposed_by: string;
             /** @description Why it was rejected or failed. */

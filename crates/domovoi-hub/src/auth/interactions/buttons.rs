@@ -10,7 +10,7 @@ use serde_json::json;
 
 use super::{Accepted, Actor, InteractionAuthorizer};
 use crate::api::incidents::latest_triage;
-use crate::auth::approval::chat_approval;
+use crate::auth::approval::{chat_approval, chat_authorization};
 
 /// How long the Mute 1h button mutes.
 pub const MUTE_BUTTON: SignedDuration = SignedDuration::from_hours(1);
@@ -51,6 +51,9 @@ pub fn approval_reason(err: &ApprovalError) -> String {
         ApprovalError::BadToken => "This button no longer works".to_owned(),
         ApprovalError::PlanChanged => {
             "This card is out of date; open the incident to review it".to_owned()
+        }
+        ApprovalError::NotYetSupported => {
+            "Policy approvals are not supported yet; a person must approve".to_owned()
         }
         ApprovalError::Refused(ActionError::ChangedMeanwhile) => {
             "Someone already decided this action".to_owned()
@@ -161,7 +164,7 @@ impl InteractionAuthorizer {
             .map(PlanBinding::Prefix)
             .ok_or_else(|| STALE_CARD.to_owned())?;
         let deps = self.api.deps();
-        let approval = chat_approval(
+        let (authorization, provenance) = chat_authorization(
             actor.admin.id,
             actor.platform,
             actor.platform_user,
@@ -169,7 +172,7 @@ impl InteractionAuthorizer {
         );
         let approved = deps
             .actions_service
-            .approve(action, approval, Some(token), binding)
+            .approve(action, authorization, Some(token), binding, provenance)
             .await
             .map_err(|e| approval_reason(&e))?;
         Ok(Accepted::new(

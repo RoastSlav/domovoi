@@ -207,9 +207,10 @@ async fn legacy_action_can_be_approved_after_upgrade() {
         .actions
         .approve(
             proposed.id(),
-            human(UserId::new()),
+            domovoi_testkit::approvals::authorize(human(UserId::new())),
             None,
-            PlanBinding::Full(proposed.plan_hash()),
+            PlanBinding::Full(proposed.plan_hash_for_approval()),
+            domovoi_testkit::approvals::provenance(),
         )
         .await
         .expect("a proposal stored before the rework can be approved");
@@ -277,9 +278,10 @@ async fn audit_verifies_after_upgrade() {
         .actions
         .approve(
             proposed.id(),
-            human(UserId::new()),
+            domovoi_testkit::approvals::authorize(human(UserId::new())),
             None,
-            PlanBinding::Full(proposed.plan_hash()),
+            PlanBinding::Full(proposed.plan_hash_for_approval()),
+            domovoi_testkit::approvals::provenance(),
         )
         .await
         .expect("the approval is stored");
@@ -552,6 +554,7 @@ impl Harness {
                 effects: store.clone(),
                 advisories: store.clone(),
                 link,
+                hosts: store.clone(),
                 redactor: Arc::new(PatternRedactor::default()),
                 clock,
                 manager: manager.clone(),

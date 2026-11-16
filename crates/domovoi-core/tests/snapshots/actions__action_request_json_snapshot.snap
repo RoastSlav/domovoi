@@ -12,6 +12,13 @@ expression: req
     "container": "plex"
   },
   "plan_hash": "5c1114187b66e7b57d72b3485dc2f86462c6a0ac67f167ed6c794373a29477d9",
+  "plan_hash_v2": "0d8ea95007d547f60d999040803494ac65c172ea3c82835a9599142aeca937ff",
+  "approved_plan_hash": "0d8ea95007d547f60d999040803494ac65c172ea3c82835a9599142aeca937ff",
+  "provenance": {
+    "session_ref": null,
+    "client": "test"
+  },
+  "authorization_kind": "human",
   "status": {
     "type": "approved"
   },

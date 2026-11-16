@@ -10,6 +10,7 @@ import { action, detail, nas } from "../../test/fixtures";
 import { renderAt } from "../../test/render";
 import { ActionCard, suggestedBy } from "./ActionCard";
 import { ApprovalsPage } from "./ApprovalsPage";
+import { PLAN_BINDING_V1_LABEL, PLAN_HASH_HINT_V2 } from "./PlanTag";
 
 vi.mock("../../api/client", () => import("../../test/apiMock"));
 
@@ -396,13 +397,20 @@ test("waiting_action_card_shows_the_plan_block", async () => {
   expect(item.getByText("Write")).toBeVisible();
   expect(item.getByText(/^Expires in/)).toBeVisible();
   expect(item.getByText(`Plan ${shown.plan_hash.slice(0, 8)}`)).toBeVisible();
+  expect(item.getByText("v2")).toBeVisible();
 
-  await user.click(item.getByRole("button", { name: "About Plan hash" }));
-  expect(
-    screen.getByText(
-      "This code identifies what you approve: the skill, its version, the host and the arguments shown here. If any of them changed, the approval is refused. It does not cover the skill's script contents.",
-    ),
-  ).toBeVisible();
+  await user.click(item.getByRole("button", { name: "About Plan hash v2" }));
+  expect(screen.getByText(PLAN_HASH_HINT_V2)).toBeVisible();
+});
+
+test("action_card_marks_legacy_actions_as_v1_binding", async () => {
+  const legacy = action({ id: "act-v1", plan_binding: "v1", plan_hash_v1: null });
+  routeActions([legacy]);
+  open();
+
+  const item = within(await card("restart_container"));
+  expect(item.getByText(PLAN_BINDING_V1_LABEL)).toBeVisible();
+  expect(item.queryByText("v2")).toBeNull();
 });
 
 test("model_reason_is_labelled_as_the_models", () => {

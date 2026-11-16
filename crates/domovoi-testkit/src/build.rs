@@ -6,9 +6,10 @@
 use std::collections::BTreeMap;
 
 use domovoi_core::{
-    ActionRequest, ArgError, CheckKey, Host, HostId, HostKind, HostName, Incident, IncidentEvent,
-    IncidentId, IncidentPolicy, Principal, Risk, Severity, Signal, SignalClass, SkillManifest,
-    SkillName, SourceKind, TargetKey, TransitionError, ValidationError, apply,
+    ActionId, ActionRequest, ActionStatus, ArgError, CheckKey, Host, HostId, HostKind, HostName,
+    Incident, IncidentEvent, IncidentId, IncidentPolicy, KeyFingerprint, PlanError, PlanTarget,
+    Principal, Risk, Severity, Signal, SignalClass, SkillManifest, SkillName, SkillSummary,
+    SourceKind, StoredAction, TargetKey, TransitionError, ValidatedArgs, ValidationError, apply,
 };
 use jiff::{SignedDuration, Timestamp};
 
@@ -27,6 +28,9 @@ pub enum BuildError {
     /// An incident event could not be applied.
     #[error(transparent)]
     Transition(#[from] TransitionError),
+    /// A v2 plan could not be built.
+    #[error(transparent)]
+    Plan(#[from] PlanError),
 }
 
 /// [`T0`] plus `secs` seconds (negative goes back). Returns [`T0`] if the result would be
@@ -124,21 +128,82 @@ pub fn manifest(name: &str, risk: Risk) -> Result<SkillManifest, BuildError> {
     })
 }
 
-/// An action proposed by triage at [`T0`] for the [`manifest`] `restart_container` with
-/// `risk`, with a one-hour approval window.
-pub fn action(incident: IncidentId, host: HostId, risk: Risk) -> Result<ActionRequest, BuildError> {
+/// The enrolled key every builder uses: a fixed 32-byte public key.
+#[must_use]
+pub fn key_fingerprint() -> KeyFingerprint {
+    KeyFingerprint::of_public_key(&[7u8; 32])
+}
+
+/// A v2 plan target for `host` with the fixture key and a `disk.usage` check.
+pub fn plan_target(host: HostId) -> Result<PlanTarget, BuildError> {
+    Ok(PlanTarget::new(
+        host,
+        key_fingerprint(),
+        CheckKey::parse("disk.usage")?,
+        None,
+    ))
+}
+
+/// A proposed `restart_container` write with a fixed `id`.
+pub fn action_with_id(
+    id: ActionId,
+    incident: IncidentId,
+    host: HostId,
+    risk: Risk,
+) -> Result<ActionRequest, BuildError> {
     let summary = manifest("restart_container", risk)?
         .summary(domovoi_core::ScriptDigest::of_bytes(b"#!/bin/sh\nexit 0\n"));
     let args = summary.validate_args(&BTreeMap::new())?;
-    Ok(ActionRequest::propose(
+    action_from(id, incident, host, plan_target(host)?, &summary, &args, T0)
+}
+
+/// Builds a proposed action with a fixed id, so a test's hashes stay deterministic.
+pub fn action_from(
+    id: ActionId,
+    incident: IncidentId,
+    host: HostId,
+    target: PlanTarget,
+    skill: &SkillSummary,
+    args: &ValidatedArgs,
+    at: Timestamp,
+) -> Result<ActionRequest, BuildError> {
+    use domovoi_core::{ExecutionId, ImplHash, PlanContract, PlanHash};
+
+    let contract = PlanContract::skill(&skill.name, 1)?;
+    let plan_hash = PlanHash::compute(&skill.name, skill.manifest_hash, host, args);
+    let plan_hash_v2 = PlanHash::compute_v2(
+        &contract,
+        ImplHash::from_parts(skill.manifest_hash, skill.entry_script_digest),
+        &target,
+        args,
+        ExecutionId::from_action(id),
+    );
+    Ok(ActionRequest::from_stored(StoredAction {
+        id,
         incident,
         host,
-        &summary,
-        &args,
-        Principal::System("triage".into()),
-        SignedDuration::from_hours(1),
-        T0,
-    ))
+        skill: skill.name.clone(),
+        risk: skill.risk,
+        args: args.to_map(),
+        plan_hash,
+        plan_hash_v2: Some(plan_hash_v2),
+        approved_plan_hash: None,
+        provenance: None,
+        authorization_kind: None,
+        status: ActionStatus::Proposed,
+        proposed_by: Principal::System("triage".into()),
+        approved_by: None,
+        expires_at: at.checked_add(SignedDuration::from_hours(1)).unwrap_or(at),
+        created_at: at,
+        updated_at: at,
+        chat_token_hash: None,
+    }))
+}
+
+/// An action proposed by triage at [`T0`] for the [`manifest`] `restart_container` with
+/// `risk`, with a one-hour approval window.
+pub fn action(incident: IncidentId, host: HostId, risk: Risk) -> Result<ActionRequest, BuildError> {
+    action_with_id(ActionId::new(), incident, host, risk)
 }
 
 #[cfg(test)]

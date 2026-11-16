@@ -11,8 +11,8 @@ use domovoi_core::ports::{
     UnitOfWork,
 };
 use domovoi_core::{
-    ActionId, ActionRequest, ActionStatus, AdvisoryKind, EffectId, Incident, PlanHash, Principal,
-    UserId, Verdict,
+    ActionId, ActionRequest, ActionStatus, AdvisoryKind, ApprovalProvenance, Authorization,
+    EffectId, Incident, Principal, UserId, Verdict,
 };
 use domovoi_engine::ActionSettings;
 use domovoi_testkit::InMemoryStore;
@@ -37,11 +37,17 @@ fn params() -> BTreeMap<String, String> {
 /// A `Succeeded` action, as the session that ran it left it in the store.
 async fn succeeded_action(store: &InMemoryStore, incident: &Incident) -> ActionRequest {
     let mut action = proposed(incident);
-    action.approve(human(UserId::new()), T0).expect("approved");
-    let skill = verified_restart();
-    let validated = skill.validate_args(&params()).expect("valid arguments");
-    let plan = PlanHash::compute(&skill.name, skill.manifest_hash, action.host(), &validated);
-    action.dispatch(plan, None, T0).expect("dispatched");
+    action
+        .approve(
+            Authorization::human(human(UserId::new())),
+            ApprovalProvenance::new(None, "test"),
+            &domovoi_core::PlanBinding::Full(action.plan_hash_for_approval()),
+            T0,
+        )
+        .expect("approved");
+    action
+        .dispatch(action.plan_hash_for_approval(), None, T0)
+        .expect("dispatched");
     action.complete(Ok(()), T0).expect("succeeded");
     ActionRepo::insert(store, &action)
         .await
@@ -64,13 +70,14 @@ fn proposed(incident: &Incident) -> ActionRequest {
     let validated = skill.validate_args(&params()).expect("valid arguments");
     ActionRequest::propose(
         incident.id(),
-        host_id(),
         &skill,
         &validated,
+        Some(domovoi_testkit::build::plan_target(host_id()).unwrap()),
         Principal::System("triage".into()),
         SignedDuration::from_hours(1),
         T0,
     )
+    .expect("valid plan target")
 }
 
 fn verify_payload(action: ActionId) -> Value {
@@ -176,13 +183,14 @@ async fn verification_effect_is_created_with_the_success_transition() {
     let uow: Arc<dyn UnitOfWork> = recorder.clone();
     let a = actions_with_uow(store.clone(), uow, ActionSettings::default()).await;
     let (action, _) = a.propose().await;
-    let plan = a.get(action.id()).await.plan_hash();
+    let plan = a.get(action.id()).await.plan_hash_for_approval();
     a.service
         .approve(
             action.id(),
-            human(UserId::new()),
+            Authorization::human(human(UserId::new())),
             None,
             domovoi_core::PlanBinding::Full(plan),
+            ApprovalProvenance::new(None, "test"),
         )
         .await
         .unwrap();
@@ -244,13 +252,14 @@ async fn a_failed_success_commit_creates_no_wake() {
     });
     let a = actions_with_uow(store.clone(), uow, ActionSettings::default()).await;
     let (action, _) = a.propose().await;
-    let plan = a.get(action.id()).await.plan_hash();
+    let plan = a.get(action.id()).await.plan_hash_for_approval();
     a.service
         .approve(
             action.id(),
-            human(UserId::new()),
+            Authorization::human(human(UserId::new())),
             None,
             domovoi_core::PlanBinding::Full(plan),
+            ApprovalProvenance::new(None, "test"),
         )
         .await
         .unwrap();
@@ -284,13 +293,14 @@ async fn a_failed_success_commit_creates_no_wake() {
 async fn verification_waits_for_its_delay_without_a_task_sleeping() {
     let a = actions(ActionSettings::default()).await;
     let (action, _) = a.propose().await;
-    let plan = a.get(action.id()).await.plan_hash();
+    let plan = a.get(action.id()).await.plan_hash_for_approval();
     a.service
         .approve(
             action.id(),
-            human(UserId::new()),
+            Authorization::human(human(UserId::new())),
             None,
             domovoi_core::PlanBinding::Full(plan),
+            ApprovalProvenance::new(None, "test"),
         )
         .await
         .unwrap();
@@ -313,13 +323,14 @@ async fn verification_retries_when_agent_is_offline_then_gives_a_result() {
     let a = actions(ActionSettings::default()).await;
     a.link.on_check(|_, _, _| Err(LinkError::NotConnected));
     let (action, _) = a.propose().await;
-    let plan = a.get(action.id()).await.plan_hash();
+    let plan = a.get(action.id()).await.plan_hash_for_approval();
     a.service
         .approve(
             action.id(),
-            human(UserId::new()),
+            Authorization::human(human(UserId::new())),
             None,
             domovoi_core::PlanBinding::Full(plan),
+            ApprovalProvenance::new(None, "test"),
         )
         .await
         .unwrap();

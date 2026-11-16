@@ -48,13 +48,14 @@ async fn audit_failure_rolls_back_transition_on_sqlite() {
     let args = skill.validate_args(&BTreeMap::new()).unwrap();
     let action = ActionRequest::propose(
         a.incident.id(),
-        a.nas.id,
         &skill,
         &args,
+        Some(domovoi_testkit::build::plan_target(a.nas.id).unwrap()),
         Principal::System("triage".into()),
         SignedDuration::from_hours(1),
         a.now(),
     )
+    .unwrap()
     .with_chat_token_hash([0x11; 32]);
     let id = action.id();
     ActionRepo::insert(&*a.store, &action).await.unwrap();
@@ -71,9 +72,10 @@ async fn audit_failure_rolls_back_transition_on_sqlite() {
         .actions_service
         .approve(
             id,
-            human(UserId::new()),
+            domovoi_testkit::approvals::authorize(human(UserId::new())),
             None,
-            PlanBinding::Full(action.plan_hash()),
+            PlanBinding::Full(action.plan_hash_for_approval()),
+            domovoi_testkit::approvals::provenance(),
         )
         .await;
     assert!(
@@ -99,9 +101,10 @@ async fn audit_failure_rolls_back_transition_on_sqlite() {
         .actions_service
         .approve(
             id,
-            human(UserId::new()),
+            domovoi_testkit::approvals::authorize(human(UserId::new())),
             None,
-            PlanBinding::Full(action.plan_hash()),
+            PlanBinding::Full(action.plan_hash_for_approval()),
+            domovoi_testkit::approvals::provenance(),
         )
         .await
         .unwrap();

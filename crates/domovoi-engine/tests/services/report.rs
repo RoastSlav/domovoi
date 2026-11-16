@@ -160,13 +160,14 @@ async fn triage_proposals_use_the_writer() {
     let args = skill.validate_args(&params).unwrap();
     let waiting = ActionRequest::propose(
         w.incident.id(),
-        host_id(),
         &skill,
         &args,
+        Some(domovoi_testkit::build::plan_target(host_id()).unwrap()),
         Principal::System("triage".into()),
         SignedDuration::from_hours(1),
         T0,
-    );
+    )
+    .unwrap();
     let waiting_id = waiting.id();
     ActionRepo::insert(&*w.store, &waiting).await.unwrap();
     let before = waiting.chat_token_hash().copied();

@@ -176,8 +176,8 @@ stateDiagram-v2
   Succeeded --> VerifyFailed
 ```
 
-- `PlanHash = hash(skill name, manifest hash, host, canonical args)`. Approval binds to the plan hash; dispatch recomputes it.
-- `Principal`: `Human(UserId)` or `System(component)`. Only `Human` can approve. The value that carries an approval, `HumanApproval`, may be constructed only in `crates/domovoi-hub/src/auth/`: by the web session layer (session + CSRF verified) and by the chat interaction authorizer (platform user ID on the allowlist). `xtask arch-check` fails if `HumanApproval::new` appears anywhere else.
+- `PlanHash` has two families in one type. **v1** is `hash(skill name, manifest hash, host, canonical args)`; it is the legacy family and is kept for an action created before v2 existed. **v2** is `hash` over a length-prefixed encoding of the capability contract id and version, the implementation (manifest hash plus the entry script's SHA-256), the canonical target (host, enrolled agent key fingerprint, check and optional target), the canonical arguments and the execution id (`=` action id at M1). The domain lines `plan:v1` and `plan:v2` keep them apart. A stored action's family comes from `plan_hash_v2`: `NULL` means v1. `ActionRequest::plan_hash_for_approval` is the only selector. Approval binds to that hash; dispatch recomputes it in the action's own family. The hub sends the always-v1 local-check hash in `run_skill`, which is a different value and never the approval binding.
+- `Principal`: `Human(UserId)` or `System(component)`. Only `Human` can approve. The value that carries an approval, `HumanApproval`, may be constructed only in `crates/domovoi-hub/src/auth/`: by the web session layer (session + CSRF verified) and by the chat interaction authorizer (platform user ID on the allowlist). The engine consumes an `Authorization`, a wrapper with private internals whose only constructors are `Authorization::human` (hub auth, testkit) and `Authorization::policy` (a future policy layer, testkit); the policy case is refused in this milestone. `xtask arch-check` fails if any authorization constructor appears outside its allowed prefix. That check is a line-based text scan, not a compiler seal.
 
 ### 5.7 Output models
 
@@ -325,7 +325,7 @@ flowchart LR
 
 | ID | Invariant | Enforced by |
 | --- | --- | --- |
-| INV-1 | Only a `Human` principal can approve an action. No LLM tool, chat message text, MCP surface or operator can approve. | `ReadTool` closed enum; `HumanApproval::new` call sites restricted by `xtask arch-check`; gate tests in `domovoi-engine/tests/gates.rs` |
+| INV-1 | Only a `Human` principal can approve an action. No LLM tool, chat message text, MCP surface or operator can approve. | `ReadTool` closed enum; `HumanApproval::new` and every authorization constructor restricted by a textual `xtask arch-check` scan; `Authorization` has no public variant; gate tests in `domovoi-core/tests/gates.rs` and `domovoi-engine/tests/gates.rs` |
 | INV-2 | Only `domovoi-runner` spawns processes; argv only; never a shell. | clippy `disallowed_methods`, `xtask arch-check` scan, runner tests |
 | INV-3 | The agent re-validates every request against its local manifests and policy. The hub cannot push scripts. | agent request-handler tests |
 | INV-4 | Approved actions are re-validated at dispatch: plan hash, manifest hash and param validation must still match. | engine action tests |

@@ -8,14 +8,14 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use domovoi_core::ports::{
-    ActionAnswers, ActionRepo, AgentLink, CheckRecheck, Clock, HostAvailability, IncidentRepo,
-    LinkError, Presence, SkillDispatch, SkillOutput, ToolOutput,
+    ActionAnswers, ActionRepo, AgentLink, CheckRecheck, Clock, HostAvailability, HostRepo,
+    IncidentRepo, LinkError, Presence, SkillDispatch, SkillOutput, ToolOutput,
 };
 use domovoi_core::skill::{ParamKind, ParamName, ParamSpec};
 use domovoi_core::{
-    ActionId, ActionRequest, ActionStatus, CheckKey, HostId, IncidentEvent, IncidentId,
-    IncidentPolicy, JournalEpoch, PlanBinding, Principal, ReadToolCall, Risk, SkillSummary,
-    TargetKey, UserId, apply,
+    ActionId, ActionRequest, ActionStatus, AgentId, AgentIdentity, ApprovalProvenance,
+    Authorization, CheckKey, HostId, IncidentEvent, IncidentId, IncidentPolicy, JournalEpoch,
+    PlanBinding, PlanTarget, Principal, ReadToolCall, Risk, SkillSummary, TargetKey, UserId, apply,
 };
 use domovoi_engine::actions::audit;
 use domovoi_engine::{ActionDeps, ActionService, ActionSettings, PatternRedactor};
@@ -37,20 +37,38 @@ fn restart_params() -> BTreeMap<String, String> {
         .collect()
 }
 
+/// The v2 target the harness incident describes: `docker.container` on `nginx`.
+fn plan_target(host: HostId) -> PlanTarget {
+    PlanTarget::new(
+        host,
+        domovoi_testkit::build::key_fingerprint(),
+        CheckKey::parse("docker.container").unwrap(),
+        Some(TargetKey::parse("nginx").unwrap()),
+    )
+}
+
 /// An approved `restart_container` for `host` on `incident`, open for `ttl`.
 fn approved_for(host: HostId, incident: IncidentId, ttl: SignedDuration) -> ActionRequest {
     let skill = verified_restart();
     let validated = skill.validate_args(&restart_params()).unwrap();
     let mut action = ActionRequest::propose(
         incident,
-        host,
         &skill,
         &validated,
+        Some(plan_target(host)),
         Principal::System("triage".into()),
         ttl,
         T0,
-    );
-    action.approve(human(UserId::new()), T0).unwrap();
+    )
+    .unwrap();
+    action
+        .approve(
+            Authorization::human(human(UserId::new())),
+            ApprovalProvenance::new(None, "test"),
+            &PlanBinding::Full(action.plan_hash_for_approval()),
+            T0,
+        )
+        .unwrap();
     action
 }
 
@@ -280,9 +298,10 @@ async fn unknown_host_past_wait_limit_is_rejected_without_dispatch() {
     a.service
         .approve(
             fresh.id(),
-            human(UserId::new()),
+            Authorization::human(human(UserId::new())),
             None,
-            PlanBinding::Full(fresh.plan_hash()),
+            PlanBinding::Full(fresh.plan_hash_for_approval()),
+            ApprovalProvenance::new(None, "test"),
         )
         .await
         .unwrap();
@@ -356,6 +375,24 @@ async fn incompatible_host_is_rejected_immediately() {
 async fn waiting_runs_do_not_starve_other_hosts() {
     let world = seeded().await;
     let other = HostId::new();
+    let mut registered = domovoi_testkit::build::host("other").unwrap();
+    registered.id = other;
+    HostRepo::upsert_host(&*world.store, &registered)
+        .await
+        .unwrap();
+    HostRepo::put_agent(
+        &*world.store,
+        &AgentIdentity {
+            agent: AgentId::new(),
+            host: other,
+            public_key: [7; 32],
+            version: "0.1.0".to_owned(),
+            enrolled_at: T0,
+            revoked_at: None,
+        },
+    )
+    .await
+    .unwrap();
     let other_incident = open_incident(other, "docker.container", Some("nginx")).unwrap();
     IncidentRepo::insert(&*world.store, &other_incident)
         .await
@@ -505,6 +542,7 @@ fn slow_service(world: &Seeded, settings: ActionSettings) -> Actions {
             effects: world.store.clone(),
             advisories: world.store.clone(),
             link,
+            hosts: world.store.clone(),
             redactor: Arc::new(PatternRedactor::new([SecretString::from(
                 SECRET.to_owned(),
             )])),
@@ -588,9 +626,10 @@ async fn approved_action_is_still_started_by_the_event_path_without_the_pool() {
     a.service
         .approve(
             action.id(),
-            human(UserId::new()),
+            Authorization::human(human(UserId::new())),
             None,
-            PlanBinding::Full(action.plan_hash()),
+            PlanBinding::Full(action.plan_hash_for_approval()),
+            ApprovalProvenance::new(None, "test"),
         )
         .await
         .unwrap();

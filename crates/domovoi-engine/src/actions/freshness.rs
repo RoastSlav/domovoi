@@ -8,7 +8,7 @@
 //! error, not a pass: the action stays approved and the next attempt asks again.
 
 use domovoi_core::ports::StoreError;
-use domovoi_core::{ActionRequest, IncidentStatus};
+use domovoi_core::{ActionRequest, Incident, IncidentStatus};
 use jiff::Timestamp;
 
 use super::Shared;
@@ -35,7 +35,17 @@ impl Stale {
     }
 }
 
-/// Why `action` must not be dispatched at `now`, or `None` while it still is.
+/// The incident an approved action is still worth dispatching for, or why it is not.
+pub(crate) enum Fresh {
+    /// Still worth dispatching; the incident read is handed to the caller so a v2 target
+    /// can be recomputed from the same read.
+    Current(Box<Incident>),
+    /// Not worth dispatching any more.
+    Stale(Stale),
+}
+
+/// Whether `action` may still be dispatched at `now`, and the incident it was checked
+/// against when it may.
 ///
 /// The incident is read rather than remembered, so an incident resolved by a signal
 /// while the hub was down is seen here too.
@@ -43,16 +53,16 @@ pub(crate) async fn check(
     shared: &Shared,
     action: &ActionRequest,
     now: Timestamp,
-) -> Result<Option<Stale>, StoreError> {
+) -> Result<Fresh, StoreError> {
     if now >= action.expires_at() {
-        return Ok(Some(Stale::Expired));
+        return Ok(Fresh::Stale(Stale::Expired));
     }
     match shared.deps.incidents.get(action.incident()).await? {
-        None => Ok(Some(Stale::IncidentGone)),
+        None => Ok(Fresh::Stale(Stale::IncidentGone)),
         Some(incident) if incident.status() == IncidentStatus::Resolved => {
-            Ok(Some(Stale::IncidentResolved))
+            Ok(Fresh::Stale(Stale::IncidentResolved))
         }
-        Some(_) => Ok(None),
+        Some(incident) => Ok(Fresh::Current(Box::new(incident))),
     }
 }
 
@@ -63,10 +73,10 @@ mod tests {
 
     use domovoi_core::ports::{ActionRepo, AuditFilter, AuditLog, IncidentRepo, Page};
     use domovoi_core::{
-        ActionRequest, ActionStatus, HostId, IncidentEvent, IncidentPolicy, PlanHash, Principal,
-        Risk, UserId, apply,
+        ActionRequest, ActionStatus, HostId, IncidentEvent, IncidentPolicy, KeyFingerprint,
+        PlanHash, PlanTarget, Principal, Risk, UserId, apply,
     };
-    use domovoi_testkit::approvals::human;
+    use domovoi_testkit::approvals::{approve, human};
     use domovoi_testkit::build::{T0, manifest, open_incident};
     use domovoi_testkit::{FakeAgentLink, FakeClock, InMemoryStore};
     use jiff::SignedDuration;
@@ -121,6 +131,7 @@ mod tests {
                     effects: store.clone(),
                     advisories: store.clone(),
                     link: link.clone(),
+                    hosts: store.clone(),
                     redactor: Arc::new(PatternRedactor::default()),
                     clock: clock.clone(),
                     manager,
@@ -168,16 +179,20 @@ mod tests {
             let args = skill.validate_args(&BTreeMap::new()).unwrap();
             let mut action = ActionRequest::propose(
                 incident.id(),
-                self.host,
                 &skill,
                 &args,
+                Some(PlanTarget::of_incident(
+                    &incident,
+                    KeyFingerprint::of_public_key(&[7u8; 32]),
+                )),
                 Principal::System("triage".into()),
                 SignedDuration::from_hours(1),
                 T0,
-            );
-            action.approve(human(UserId::new()), T0).unwrap();
+            )
+            .unwrap();
+            approve(&mut action, human(UserId::new()), T0).unwrap();
             ActionRepo::insert(&*self.store, &action).await.unwrap();
-            let plan = PlanHash::compute(&skill.name, skill.manifest_hash, self.host, &args);
+            let plan = action.plan_hash_for_approval();
             (action.id(), plan)
         }
 

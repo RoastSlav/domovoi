@@ -1,5 +1,8 @@
 use domovoi_core::ports::{AuditFilter, AuditLog, IncidentRepo, Page, Presence, SkillOutput};
-use domovoi_core::{ActionStatus, ManifestHash, PlanBinding, Risk, SignalStatus, UserId, Verdict};
+use domovoi_core::{
+    ActionStatus, ApprovalProvenance, Authorization, ManifestHash, PlanBinding, Risk, SignalStatus,
+    UserId, Verdict,
+};
 use domovoi_engine::actions::audit;
 use domovoi_engine::notify::{NotifyAction, NotifySettings, plan};
 use domovoi_engine::{ActionSettings, EventKind};
@@ -12,9 +15,15 @@ use crate::actions_harness::{Actions, actions, check, ok_output, verified_restar
 use crate::harness::{SECRET, host_id, restart_skill};
 
 async fn approve(a: &Actions, id: domovoi_core::ActionId) {
-    let plan = a.get(id).await.plan_hash();
+    let plan = a.get(id).await.plan_hash_for_approval();
     a.service
-        .approve(id, human(UserId::new()), None, PlanBinding::Full(plan))
+        .approve(
+            id,
+            Authorization::human(human(UserId::new())),
+            None,
+            PlanBinding::Full(plan),
+            ApprovalProvenance::new(None, "test"),
+        )
         .await
         .unwrap();
 }

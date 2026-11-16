@@ -233,18 +233,20 @@ async fn sent(a: &Api, skill: &str, after: SignedDuration) -> jiff::Timestamp {
     let args = summary.validate_args(&BTreeMap::new()).unwrap();
     let mut request = ActionRequest::propose(
         a.incident.id(),
-        a.nas.id,
         &summary,
         &args,
+        Some(domovoi_testkit::build::plan_target(a.nas.id).unwrap()),
         Principal::System("triage".into()),
         SignedDuration::from_hours(1),
         a.now(),
-    );
-    request
-        .approve(human(domovoi_core::UserId::new()), a.now())
+    )
+    .unwrap();
+    domovoi_testkit::approvals::approve(&mut request, human(domovoi_core::UserId::new()), a.now())
         .unwrap();
     let at = a.now().checked_add(after).unwrap();
-    request.dispatch(request.plan_hash(), None, at).unwrap();
+    request
+        .dispatch(request.plan_hash_for_approval(), None, at)
+        .unwrap();
     ActionRepo::insert(&*a.store, &request).await.unwrap();
     at
 }

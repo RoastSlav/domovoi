@@ -41,6 +41,8 @@ mod harness;
 #[cfg(test)]
 mod interactions;
 #[cfg(test)]
+mod plan_binding;
+#[cfg(test)]
 mod presence;
 #[cfg(test)]
 mod profile;

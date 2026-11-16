@@ -8,12 +8,12 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use domovoi_core::ports::{
-    ActionFilter, ActionRepo, IncidentRepo, LlmError, LlmProvider, LlmRequest, LlmResponse, Page,
-    Part, Presence, SignalRepo, StopReason, ToolOutput, Usage,
+    ActionFilter, ActionRepo, HostRepo, IncidentRepo, LlmError, LlmProvider, LlmRequest,
+    LlmResponse, Page, Part, Presence, SignalRepo, StopReason, ToolOutput, Usage,
 };
 use domovoi_core::{
-    ActionId, ActionRequest, CheckKey, Evidence, HostId, HostName, Incident, Severity, Signal,
-    SkillManifest, SkillSummary, SourceKind, TargetKey, TriageOutcome,
+    ActionId, ActionRequest, AgentId, AgentIdentity, CheckKey, Evidence, HostId, HostName,
+    Incident, Severity, Signal, SkillManifest, SkillSummary, SourceKind, TargetKey, TriageOutcome,
 };
 use domovoi_engine::PatternRedactor;
 use domovoi_engine::triage::{TriageDeps, TriageService, TriageSettings};
@@ -180,6 +180,22 @@ async fn open(store: &InMemoryStore, spec: &IncidentSpec, at: Timestamp) -> (Inc
 /// Runs `drill` once with `model`.
 pub async fn run(drill: &Drill, model: Model) -> Outcome {
     let store = Arc::new(InMemoryStore::new());
+    let mut registered = domovoi_testkit::build::host(HOST).unwrap();
+    registered.id = host_id();
+    HostRepo::upsert_host(&*store, &registered).await.unwrap();
+    HostRepo::put_agent(
+        &*store,
+        &AgentIdentity {
+            agent: AgentId::new(),
+            host: host_id(),
+            public_key: [7; 32],
+            version: "0.1.0".to_owned(),
+            enrolled_at: T0,
+            revoked_at: None,
+        },
+    )
+    .await
+    .unwrap();
     let clock = Arc::new(FakeClock::new(T0));
     let link = Arc::new(FakeAgentLink::new());
     link.set_presence(
@@ -283,6 +299,7 @@ pub async fn run(drill: &Drill, model: Model) -> Outcome {
             effects: store.clone(),
             advisories: store.clone(),
             link: link.clone(),
+            hosts: store.clone(),
             redactor: redactor.clone(),
             clock: clock.clone(),
             manager: manager.clone(),
@@ -298,6 +315,7 @@ pub async fn run(drill: &Drill, model: Model) -> Outcome {
         incidents: store.clone(),
         signals: store.clone(),
         notes: store.clone(),
+        hosts: store.clone(),
         actions: store.clone(),
         actions_service,
         cache: store.clone(),

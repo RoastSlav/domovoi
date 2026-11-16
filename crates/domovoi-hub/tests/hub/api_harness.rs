@@ -320,6 +320,7 @@ async fn build(
             effects: store.clone(),
             advisories: store.clone(),
             link: link.clone(),
+            hosts: store.clone(),
             redactor: Arc::new(PatternRedactor::default()),
             clock: clock.clone(),
             manager: manager.clone(),
@@ -339,6 +340,7 @@ async fn build(
                 incidents: store.clone(),
                 signals: store.clone(),
                 notes: store.clone(),
+                hosts: store.clone(),
                 actions: store.clone(),
                 actions_service: actions_service.clone(),
                 cache: store.clone(),
@@ -562,13 +564,14 @@ impl Api {
         let args = summary.validate_args(&BTreeMap::new()).unwrap();
         let action = ActionRequest::propose(
             self.incident.id(),
-            self.nas.id,
             &summary,
             &args,
+            Some(domovoi_testkit::build::plan_target(self.nas.id).unwrap()),
             Principal::System("triage".into()),
             SignedDuration::from_hours(1),
             self.now(),
-        );
+        )
+        .unwrap();
         ActionRepo::insert(&*self.store, &action).await.unwrap();
         action
     }

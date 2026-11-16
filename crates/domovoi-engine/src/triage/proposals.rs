@@ -7,8 +7,8 @@ use std::fmt::Write as _;
 
 use domovoi_core::ports::{ActionFilter, Page};
 use domovoi_core::{
-    ActionId, ActionProposal, ActionRequest, Incident, Principal, SkillSummary, TriageReport,
-    ValidatedArgs,
+    ActionId, ActionProposal, ActionRequest, Incident, KeyFingerprint, PlanTarget, Principal,
+    SkillSummary, TriageReport, ValidatedArgs,
 };
 use sha2::{Digest, Sha256};
 
@@ -130,16 +130,42 @@ pub(crate) async fn store(
             continue;
         }
         let token = mint_token();
-        let action = ActionRequest::propose(
+        let target = match shared.deps.hosts.live_agent(incident.host()).await {
+            Ok(Some(agent)) => Some(PlanTarget::of_incident(
+                incident,
+                KeyFingerprint::of_public_key(&agent.public_key),
+            )),
+            Ok(None) => {
+                dropped.push(format!(
+                    "{}: the host has no enrolled agent key",
+                    proposal.skill
+                ));
+                continue;
+            }
+            Err(err) => {
+                tracing::warn!(%err, "could not read the host's enrolled agent");
+                dropped.push(format!(
+                    "{}: the host's enrolled agent could not be read",
+                    proposal.skill
+                ));
+                continue;
+            }
+        };
+        let action = match ActionRequest::propose(
             incident.id(),
-            incident.host(),
             skill,
             &args,
+            target,
             Principal::System(PROPOSER.into()),
             PROPOSAL_TTL,
             now,
-        )
-        .with_chat_token_hash(token_hash(&token));
+        ) {
+            Ok(action) => action.with_chat_token_hash(token_hash(&token)),
+            Err(err) => {
+                dropped.push(format!("{}: {err}", proposal.skill));
+                continue;
+            }
+        };
         match shared.deps.actions_service.propose(action).await {
             Ok(stored) => {
                 tokens.insert(stored.id(), token);

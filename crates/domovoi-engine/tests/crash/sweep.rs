@@ -10,7 +10,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use domovoi_core::ports::{AdvisoryRepo, EffectQueue};
+use domovoi_core::ports::{AdvisoryRepo, EffectQueue, HostRepo};
 use domovoi_testkit::crash::{
     CrashPlan, CrashPoint, Reopen, Snapshot, SweepStore, check_invariants,
 };
@@ -48,7 +48,7 @@ pub struct Scenario<S: SweepStore> {
 
 /// Runs `scenario` fault-free, then once per commit and crash point, restarting after each
 /// crash and proving the system recovers.
-pub async fn sweep<S: SweepStore + EffectQueue + AdvisoryRepo>(
+pub async fn sweep<S: SweepStore + EffectQueue + AdvisoryRepo + HostRepo>(
     scenario: &Scenario<S>,
     make: &dyn Fn() -> BoxFuture<'static, Arc<S>>,
     reopen: &dyn Reopen<S>,
@@ -151,7 +151,7 @@ pub async fn sweep<S: SweepStore + EffectQueue + AdvisoryRepo>(
                 );
             }
 
-            let restarted = World::restarted(reopened.clone());
+            let restarted = World::restarted(reopened.clone()).await;
             if let Err(err) = restarted.recover().await {
                 panic!(
                     "scenario {}, commit {at}, {point:?}: the restart did not recover: {err}",

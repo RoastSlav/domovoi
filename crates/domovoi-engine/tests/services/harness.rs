@@ -4,13 +4,13 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use domovoi_core::ports::{
-    ActionFilter, ActionRepo, Clock, IncidentTimelineEntry, LlmProvider, LlmResponse, NoteRepo,
-    Page, Part, Presence, SignalRepo, StopReason, ToolOutput, UnitOfWork, Usage,
+    ActionFilter, ActionRepo, Clock, HostRepo, IncidentTimelineEntry, LlmProvider, LlmResponse,
+    NoteRepo, Page, Part, Presence, SignalRepo, StopReason, ToolOutput, UnitOfWork, Usage,
 };
 use domovoi_core::{
-    ActionRequest, CheckKey, Evidence, EvidenceValue, HostId, Incident, Note, NoteId, ParamKind,
-    ParamName, ParamSpec, Risk, Severity, Signal, SkillSummary, SourceKind, TargetKey,
-    TriageOutcome,
+    ActionRequest, AgentId, AgentIdentity, CheckKey, Evidence, EvidenceValue, HostId, Incident,
+    Note, NoteId, ParamKind, ParamName, ParamSpec, Risk, Severity, Signal, SkillSummary,
+    SourceKind, TargetKey, TriageOutcome,
 };
 use domovoi_engine::triage::{TriageDeps, TriageHandle, TriageService, TriageSettings};
 use domovoi_engine::{
@@ -169,6 +169,23 @@ pub async fn world_over(
         })
     });
     let incident = incident_with(&store, setup.evidence).await;
+    // Triage binds a v2 plan to the host's enrolled key, so the world has one.
+    let mut registered = domovoi_testkit::build::host("nas").unwrap();
+    registered.id = host_id();
+    HostRepo::upsert_host(&*store, &registered).await.unwrap();
+    HostRepo::put_agent(
+        &*store,
+        &AgentIdentity {
+            agent: AgentId::new(),
+            host: host_id(),
+            public_key: [7; 32],
+            version: "0.1.0".to_owned(),
+            enrolled_at: T0,
+            revoked_at: None,
+        },
+    )
+    .await
+    .unwrap();
     // The world's own incident stands for one a test drives by hand: it counts as already
     // triaged, so the service's start-up pass leaves it alone and the test decides when
     // triage runs. The entry has no detail, so nothing reads it as a report, and it is
@@ -227,6 +244,7 @@ pub async fn world_over(
             effects: store.clone(),
             advisories: store.clone(),
             link: link.clone(),
+            hosts: store.clone(),
             redactor: redactor.clone(),
             clock: clock.clone(),
             manager: manager.clone(),
@@ -242,6 +260,7 @@ pub async fn world_over(
         incidents: store.clone(),
         signals: store.clone(),
         notes: store.clone(),
+        hosts: store.clone(),
         actions: store.clone(),
         actions_service: actions_service.clone(),
         cache: store.clone(),
@@ -298,6 +317,7 @@ impl World {
             incidents: self.store.clone(),
             signals: self.store.clone(),
             notes: self.store.clone(),
+            hosts: self.store.clone(),
             actions: self.store.clone(),
             actions_service: self.actions_service.clone(),
             cache: self.store.clone(),
