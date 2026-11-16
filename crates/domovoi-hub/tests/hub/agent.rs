@@ -101,9 +101,20 @@ pub fn hello(agent: AgentId, protocol: ProtocolVersion) -> Message {
 
 /// A hello from an agent whose action journal has `epoch`.
 pub fn hello_with_epoch(agent: AgentId, protocol: ProtocolVersion, epoch: uuid::Uuid) -> Message {
+    hello_with_features(agent, protocol, epoch, Vec::new())
+}
+
+/// A hello from an agent with `epoch` and the protocol features it implements.
+pub fn hello_with_features(
+    agent: AgentId,
+    protocol: ProtocolVersion,
+    epoch: uuid::Uuid,
+    features: Vec<String>,
+) -> Message {
     match hello(agent, protocol) {
         Message::Hello(mut hello) => {
             hello.journal_epoch = epoch;
+            hello.features = features;
             Message::Hello(hello)
         }
         other => other,

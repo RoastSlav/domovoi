@@ -22,7 +22,7 @@ use jiff::Timestamp;
 use tokio::sync::oneshot;
 
 use super::compat::{ProtocolState, protocol_state};
-use super::registry::{Registry, SessionState};
+use super::registry::{Registry, SessionFacts, SessionState};
 
 /// Routes requests to the host's current session. Fails fast with
 /// [`LinkError::NotConnected`] when the host has none, and with [`LinkError::Timeout`]
@@ -114,22 +114,24 @@ impl WsAgentLink {
         message: &Message,
         deadline: Timestamp,
     ) -> Result<Message, LinkError> {
-        self.request_on(host, message, deadline, None).await
+        let (reply, _facts) = self.request_on(host, message, deadline, None).await?;
+        Ok(reply)
     }
 
-    /// One hub request, optionally only to a session that still has `expected`.
+    /// One hub request, optionally only to a session that still has `expected`, with what
+    /// the session that accepted it promised about itself.
     async fn request_on(
         &self,
         host: HostId,
         message: &Message,
         deadline: Timestamp,
         expected: Option<JournalEpoch>,
-    ) -> Result<Message, LinkError> {
+    ) -> Result<(Message, SessionFacts), LinkError> {
         if self.clock.now() >= deadline {
             return Err(LinkError::Timeout);
         }
-        let (id, answer) = match self.registry.dispatch(host, message, expected) {
-            Ok(pair) => pair,
+        let (id, answer, facts) = match self.registry.dispatch(host, message, expected) {
+            Ok(parts) => parts,
             Err(LinkError::NotConnected) => return Err(self.not_connected(host).await),
             Err(err) => return Err(err),
         };
@@ -140,7 +142,7 @@ impl WsAgentLink {
             () = self.clock.sleep_until(deadline) => Err(LinkError::Timeout),
         };
         self.registry.forget(host, id);
-        reply
+        Ok((reply?, facts))
     }
 
     /// The recent log lines of the agent on `host`: waits 10 s for a reply.
@@ -198,8 +200,14 @@ fn unexpected(message: &Message) -> LinkError {
     LinkError::Rejected(format!("the agent answered with {}", message.kind()))
 }
 
-/// The engine's view of the journal's answers.
-fn answers_from(reply: ActionStatusAnswers) -> ActionAnswers {
+/// The engine's view of the journal's answers, mapped against what the answering session
+/// promised.
+///
+/// `not_found` is positive evidence only when the agent records every action execution in
+/// its journal. An older agent, or one that still serves an unjournaled execution path,
+/// can run a request and still have no record of it, so its `not_found` is reported as an
+/// unknowable outcome instead.
+fn answers_from(reply: ActionStatusAnswers, authoritative_absence: bool) -> ActionAnswers {
     ActionAnswers {
         epoch: JournalEpoch::from_uuid(reply.epoch),
         answers: reply
@@ -207,7 +215,7 @@ fn answers_from(reply: ActionStatusAnswers) -> ActionAnswers {
             .into_iter()
             .map(|answer| ActionAnswerEntry {
                 execution: ActionId::from_uuid(answer.execution_id),
-                answer: answer_from(answer.state),
+                answer: answer_from(answer.state, authoritative_absence),
             })
             .collect(),
     }
@@ -215,7 +223,7 @@ fn answers_from(reply: ActionStatusAnswers) -> ActionAnswers {
 
 /// What one journal state means to the engine. A finished run keeps whether it succeeded and
 /// the agent's message; the output itself is not needed to settle an action.
-fn answer_from(state: ActionState) -> ActionAnswer {
+fn answer_from(state: ActionState, authoritative_absence: bool) -> ActionAnswer {
     match state {
         ActionState::Finished { result } => match result.outcome {
             CapabilityOutcome::Succeeded { .. } => ActionAnswer::Finished {
@@ -230,7 +238,16 @@ fn answer_from(state: ActionState) -> ActionAnswer {
             },
         },
         ActionState::Running => ActionAnswer::Running,
-        ActionState::NotFound => ActionAnswer::NotFound,
+        ActionState::NotFound if authoritative_absence => ActionAnswer::NotFound,
+        ActionState::NotFound => {
+            tracing::warn!(
+                "the agent has no record of a run but does not promise that every execution is journaled; \
+                 its absence is not proof the run never happened",
+            );
+            ActionAnswer::Unknown {
+                reason: UnknownReason::JournalLost,
+            }
+        }
         ActionState::OutcomeUnknown { reason } => ActionAnswer::Unknown {
             reason: unknown_reason(&reason),
         },
@@ -318,11 +335,12 @@ impl AgentLink for WsAgentLink {
             return Err(LinkError::Timeout);
         }
         let message = Message::RunSkill(RunSkill::from_dispatch(&req, deadline));
-        let (id, answer) = match self.registry.dispatch(host, &message, Some(expected_epoch)) {
-            Ok(pair) => pair,
-            Err(LinkError::NotConnected) => return Err(self.not_connected(host).await),
-            Err(err) => return Err(err),
-        };
+        let (id, answer, _facts) =
+            match self.registry.dispatch(host, &message, Some(expected_epoch)) {
+                Ok(parts) => parts,
+                Err(LinkError::NotConnected) => return Err(self.not_connected(host).await),
+                Err(err) => return Err(err),
+            };
         self.sends().insert((host, id), answer);
         Ok(SkillHandoff::new(id))
     }
@@ -409,16 +427,18 @@ impl AgentLink for WsAgentLink {
             execution_ids: ids.iter().map(ActionId::as_uuid).collect(),
             expected_epoch: expected_epoch.as_uuid(),
         };
-        match self
+        let (reply, facts) = self
             .request_on(
                 host,
                 &Message::ActionStatus(query),
                 deadline,
                 Some(expected_epoch),
             )
-            .await?
-        {
-            Message::ActionStatusAnswers(reply) => Ok(answers_from(reply)),
+            .await?;
+        match reply {
+            Message::ActionStatusAnswers(reply) => {
+                Ok(answers_from(reply, facts.authoritative_absence))
+            }
             other => Err(LinkError::Indeterminate(format!(
                 "the agent answered with {}",
                 other.kind()

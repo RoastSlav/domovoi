@@ -40,11 +40,22 @@ pub(crate) struct Live {
     pub docker: Option<DockerReport>,
     /// The action journal's epoch the agent announced.
     pub journal_epoch: Uuid,
+    /// Whether this agent promised that every action execution is in its journal, so a
+    /// missing record proves the execution never arrived. Older agents and agents with an
+    /// unjournaled execution path answer no, and their absence is then not proof.
+    pub authoritative_absence: bool,
     /// The last `agent_status` the agent sent, if any.
     pub agent_status: Option<AgentStatus>,
     pub outbox: mpsc::Sender<String>,
     pub pending: HashMap<RequestId, oneshot::Sender<Message>>,
     pub cancel: CancellationToken,
+}
+
+/// What the session that accepted a request promised about itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SessionFacts {
+    /// Whether a journal with no record of a run proves the run never arrived.
+    pub authoritative_absence: bool,
 }
 
 /// What the hub knows about one host's agent.
@@ -128,13 +139,18 @@ impl Registry {
         Self::report(&hosts);
     }
 
-    /// Ends `session` if it is still the host's session, at `at`. Waiting requests fail.
+    /// Ends `session` if it is still the host's session, at `at`. Waiting requests fail and
+    /// the session's reconciliation task is cancelled.
     pub fn end(&self, host: HostId, session: SessionId, at: Timestamp) {
         let mut hosts = self.lock();
         if let Some(entry) = hosts.get_mut(&host)
             && entry.live.as_ref().is_some_and(|l| l.session == session)
         {
-            entry.live = None;
+            if let Some(live) = entry.live.take() {
+                // The session that owned the reconciliation task has ended. Only this
+                // session's token is cancelled: a replacement's token belongs to it.
+                live.cancel.cancel();
+            }
             entry.absent_since = Some(at);
         }
         Self::report(&hosts);
@@ -183,8 +199,8 @@ impl Registry {
         }
     }
 
-    /// Queues `message` for the host's agent and returns the request id and where its
-    /// answer will arrive.
+    /// Queues `message` for the host's agent and returns the request id, where its answer
+    /// will arrive, and what the accepting session promised about itself.
     ///
     /// With `expected_epoch`, the request is only queued when the live session reported that
     /// journal: the check and the queueing are one step under the same lock, so a session
@@ -194,7 +210,7 @@ impl Registry {
         host: HostId,
         message: &Message,
         expected_epoch: Option<JournalEpoch>,
-    ) -> Result<(RequestId, oneshot::Receiver<Message>), LinkError> {
+    ) -> Result<(RequestId, oneshot::Receiver<Message>, SessionFacts), LinkError> {
         let mut hosts = self.lock();
         let live = hosts
             .get_mut(&host)
@@ -203,6 +219,9 @@ impl Registry {
         if expected_epoch.is_some_and(|expected| live.journal_epoch != expected.as_uuid()) {
             return Err(LinkError::SessionChanged);
         }
+        let facts = SessionFacts {
+            authoritative_absence: live.authoritative_absence,
+        };
         if live.pending.len() >= MAX_PENDING {
             return Err(busy());
         }
@@ -215,7 +234,7 @@ impl Registry {
         }
         let (tx, rx) = oneshot::channel();
         live.pending.insert(id, tx);
-        Ok((id, rx))
+        Ok((id, rx, facts))
     }
 
     /// Stops waiting for the answer to `id`.
@@ -326,6 +345,16 @@ impl Registry {
             .filter(|(_, entry)| entry.live.is_some())
             .map(|(host, _)| *host)
             .collect()
+    }
+
+    /// The cancellation token of the host's live session, if it has one. A reconciliation
+    /// task started for an existing session must be tied to it, so the session's end
+    /// cancels the task.
+    pub fn live_cancel(&self, host: HostId) -> Option<CancellationToken> {
+        self.lock()
+            .get(&host)
+            .and_then(|e| e.live.as_ref())
+            .map(|live| live.cancel.clone())
     }
 
     /// The skills the host's agent announced when it connected.

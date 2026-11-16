@@ -148,14 +148,17 @@ impl AgentServer {
     /// runs are reconciled against its journal. The runtime calls this once, after both
     /// services exist; the first reconciler wins, because a second would duplicate work.
     /// An agent that authenticated before the action service existed has runs to settle
-    /// too, so each host that is live now is reconciled straight away.
+    /// too, so each host that is live now is reconciled straight away, bound to that
+    /// session's own cancellation token.
     pub fn set_reconciler(&self, reconciler: Arc<dyn HostReconciler>) {
         if self.inner.reconciler.set(reconciler).is_err() {
             tracing::warn!("the agent server already has a reconciler; keeping the first");
             return;
         }
         for host in self.inner.registry.live_hosts() {
-            session::reconcile(&self.inner, host, None);
+            if let Some(session) = self.inner.registry.live_cancel(host) {
+                session::reconcile(&self.inner, host, &session);
+            }
         }
     }
 

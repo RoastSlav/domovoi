@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use domovoi_core::ports::{ActionAnswer, AgentLink, Clock, LinkError, UnknownReason};
 use domovoi_core::{ActionId, HostId, JournalEpoch};
+use domovoi_proto::messages::AUTHORITATIVE_ABSENCE;
 use domovoi_proto::messages::{
     ActionState, ActionStatusAnswer, ActionStatusAnswers, CapabilityOutcome, CapabilityResult,
     OutcomeUnknownReason, RejectReason,
@@ -14,7 +15,9 @@ use domovoi_proto::{Message, Open, PROTOCOL_VERSION, ProtocolVersion};
 use domovoi_testkit::RecordingReconciler;
 use jiff::SignedDuration;
 
-use crate::agent::{FakeAgent, Ident, enroll, hello_with_epoch, online, rejected};
+use crate::agent::{
+    FakeAgent, Ident, enroll, hello_with_epoch, hello_with_features, online, rejected,
+};
 use crate::harness::{Hub, guard};
 
 /// Authenticates `ident` on a fresh connection announcing journal `epoch`, and returns the
@@ -191,7 +194,9 @@ async fn the_link_asks_the_journal_about_each_run_and_maps_the_answers() {
     let link = hub.server.link();
     let epoch = uuid::Uuid::now_v7();
     let ident = enroll(&hub, "nas").await;
-    let mut agent = authenticate_with(&hub, &ident, epoch).await;
+    // The mapping of all four journal states is about an agent that can prove absence.
+    let mut agent =
+        authenticate_promising(&hub, &ident, epoch, vec![AUTHORITATIVE_ABSENCE.to_owned()]).await;
 
     let finished = ActionId::new();
     let failed = ActionId::new();
@@ -524,6 +529,197 @@ async fn rapid_reconnects_leave_one_pass_at_most() {
         let started: usize = 4;
         let stopped = reconciler.stopped.load(Ordering::SeqCst);
         started.saturating_sub(stopped) <= 1
+    })
+    .await;
+}
+
+/// Authenticates `ident` on a fresh connection promising (or not) that every execution is
+/// journaled, and returns the connection.
+async fn authenticate_promising(
+    hub: &Hub,
+    ident: &Ident,
+    epoch: uuid::Uuid,
+    features: Vec<String>,
+) -> FakeAgent {
+    let mut agent = FakeAgent::connect(hub.addr).await;
+    agent
+        .send(
+            hello_with_features(ident.agent, PROTOCOL_VERSION, epoch, features),
+            None,
+        )
+        .await;
+    let Message::Challenge(challenge) = agent.expect().await.message else {
+        panic!("expected a challenge");
+    };
+    assert!(matches!(
+        agent.answer(&challenge, ident.agent, &ident.key).await,
+        Message::Welcome(_)
+    ));
+    agent
+}
+
+/// Asks the journal about one run and answers with `state`.
+async fn answer_status(
+    hub: &Hub,
+    ident: &Ident,
+    agent: &mut FakeAgent,
+    epoch: uuid::Uuid,
+    state: ActionState,
+) -> domovoi_core::ports::ActionAnswers {
+    let run = ActionId::new();
+    let host = ident.host;
+    let deadline = hub.clock.now() + SignedDuration::from_secs(10);
+    let waiting = tokio::spawn({
+        let link = hub.server.link();
+        async move {
+            link.action_status(host, vec![run], JournalEpoch::from_uuid(epoch), deadline)
+                .await
+        }
+    });
+    let request = agent.expect().await;
+    agent
+        .send(
+            Message::ActionStatusAnswers(ActionStatusAnswers {
+                epoch,
+                answers: vec![ActionStatusAnswer {
+                    execution_id: run.as_uuid(),
+                    state,
+                }],
+            }),
+            Some(request.id),
+        )
+        .await;
+    guard(waiting).await.unwrap().expect("the link answered")
+}
+
+#[tokio::test]
+async fn a_not_found_from_an_agent_without_the_absence_promise_is_unknown() {
+    // The agent speaks this protocol but never promised that every execution is journaled,
+    // so its empty journal is not proof that the run never arrived.
+    let hub = Hub::start().await;
+    let ident = enroll(&hub, "nas").await;
+    let epoch = uuid::Uuid::now_v7();
+    let mut agent = authenticate_promising(&hub, &ident, epoch, Vec::new()).await;
+
+    let answers = answer_status(&hub, &ident, &mut agent, epoch, ActionState::NotFound).await;
+
+    assert_eq!(
+        answers.answers.first().map(|entry| entry.answer.clone()),
+        Some(ActionAnswer::Unknown {
+            reason: UnknownReason::JournalLost,
+        }),
+        "an old agent's empty journal must not become NotRun",
+    );
+}
+
+#[tokio::test]
+async fn a_not_found_from_an_agent_that_promises_absence_is_authoritative() {
+    let hub = Hub::start().await;
+    let ident = enroll(&hub, "nas").await;
+    let epoch = uuid::Uuid::now_v7();
+    let mut agent =
+        authenticate_promising(&hub, &ident, epoch, vec![AUTHORITATIVE_ABSENCE.to_owned()]).await;
+
+    let answers = answer_status(&hub, &ident, &mut agent, epoch, ActionState::NotFound).await;
+
+    assert_eq!(
+        answers.answers.first().map(|entry| entry.answer.clone()),
+        Some(ActionAnswer::NotFound),
+        "an agent that journals every execution can prove a run never arrived",
+    );
+}
+
+#[tokio::test]
+async fn an_unrelated_feature_does_not_make_absence_authoritative() {
+    let hub = Hub::start().await;
+    let ident = enroll(&hub, "nas").await;
+    let epoch = uuid::Uuid::now_v7();
+    let mut agent =
+        authenticate_promising(&hub, &ident, epoch, vec!["some_future_feature".to_owned()]).await;
+
+    let answers = answer_status(&hub, &ident, &mut agent, epoch, ActionState::NotFound).await;
+
+    assert_eq!(
+        answers.answers.first().map(|entry| entry.answer.clone()),
+        Some(ActionAnswer::Unknown {
+            reason: UnknownReason::JournalLost,
+        }),
+        "only the exact promise counts; absent or unknown information fails closed",
+    );
+}
+
+#[tokio::test]
+async fn an_ordinary_disconnect_cancels_the_session_pass() {
+    let hub = Hub::start().await;
+    let reconciler = Arc::new(StoppableReconciler::new());
+    hub.server.set_reconciler(reconciler.clone());
+    let (ident, agent) = online(&hub, "nas").await;
+    guard(reconciler.started.notified()).await;
+
+    drop(agent);
+    until(|| reconciler.stopped.load(std::sync::atomic::Ordering::SeqCst) >= 1).await;
+
+    let _ = ident;
+}
+
+#[tokio::test]
+async fn installing_the_reconciler_binds_the_pass_to_the_live_session() {
+    // The agent connected before the action service existed. Its pass must still belong to
+    // the session, so ending that session ends the pass.
+    let hub = Hub::start().await;
+    let (_, agent) = online(&hub, "nas").await;
+    let reconciler = Arc::new(StoppableReconciler::new());
+    hub.server.set_reconciler(reconciler.clone());
+    guard(reconciler.started.notified()).await;
+
+    drop(agent);
+    until(|| reconciler.stopped.load(std::sync::atomic::Ordering::SeqCst) >= 1).await;
+}
+
+#[tokio::test]
+async fn the_replacement_pass_survives_the_old_session_ending() {
+    use std::sync::atomic::Ordering;
+
+    let hub = Hub::start().await;
+    let reconciler = Arc::new(StoppableReconciler::new());
+    hub.server.set_reconciler(reconciler.clone());
+    let ident = enroll(&hub, "nas").await;
+    let first = authenticate_with(&hub, &ident, uuid::Uuid::now_v7()).await;
+    guard(reconciler.started.notified()).await;
+
+    let second = authenticate_with(&hub, &ident, uuid::Uuid::now_v7()).await;
+    until(|| reconciler.stopped.load(Ordering::SeqCst) >= 1).await;
+    // The first connection ending must not cancel the pass of the session that replaced it.
+    drop(first);
+    for _ in 0..200 {
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(
+        reconciler.stopped.load(Ordering::SeqCst),
+        1,
+        "only the replaced session's pass was cancelled",
+    );
+
+    drop(second);
+    until(|| reconciler.stopped.load(Ordering::SeqCst) >= 2).await;
+}
+
+#[tokio::test]
+async fn a_same_epoch_reconnect_leaves_one_pass_for_the_new_session() {
+    use std::sync::atomic::Ordering;
+
+    let hub = Hub::start().await;
+    let reconciler = Arc::new(StoppableReconciler::new());
+    hub.server.set_reconciler(reconciler.clone());
+    let ident = enroll(&hub, "nas").await;
+    let epoch = uuid::Uuid::now_v7();
+    let _first = authenticate_with(&hub, &ident, epoch).await;
+    guard(reconciler.started.notified()).await;
+    let _second = authenticate_promising(&hub, &ident, epoch, Vec::new()).await;
+
+    until(|| {
+        let started: usize = 2;
+        started.saturating_sub(reconciler.stopped.load(Ordering::SeqCst)) <= 1
     })
     .await;
 }
