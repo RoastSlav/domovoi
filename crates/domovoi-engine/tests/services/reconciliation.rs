@@ -2060,6 +2060,16 @@ async fn a_burst_of_triggers_during_one_pass_runs_one_follow_up_pass() {
     for id in &later {
         a.until(*id, |status| matches!(status, ActionStatus::Succeeded))
             .await;
+        assert_eq!(
+            a.trail(*id).await,
+            [
+                audit::PROPOSED.to_owned(),
+                audit::APPROVED.to_owned(),
+                audit::DISPATCHED.to_owned(),
+                audit::SUCCEEDED.to_owned(),
+            ],
+            "the follow-up pass settles each run once",
+        );
     }
 
     let queries = asked_of(&a, host_id());
