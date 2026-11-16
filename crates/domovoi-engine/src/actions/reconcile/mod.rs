@@ -8,37 +8,20 @@
 //! never turned into success or failure. The same module owns the sentences and audit
 //! reasons for expiry before dispatch, the other positive proof that nothing started.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
-use domovoi_core::ports::{ActionAnswer, ActionFilter, Page, StoreError, UnknownReason};
+use domovoi_core::ports::{ActionFilter, Page, StoreError, UnknownReason};
 use domovoi_core::{ActionId, ActionRequest, ActionStatus, HostId};
 use tokio::sync::{mpsc, oneshot};
 
 use super::Shared;
 use super::writer::{Decision, WriteCommand};
 
-/// Positive evidence the agent's journal never received the request.
-pub(crate) const NOT_RUN_REASON: &str = "the agent has no record of this run; nothing was started";
-/// The journal recorded acceptance but not a start.
-pub(crate) const NO_START_REASON: &str =
-    "the agent recorded this run but not its start; it may not have run";
-/// The agent restarted while the run was recorded as started.
-pub(crate) const AGENT_RESTARTED_REASON: &str =
-    "the agent restarted while this ran; check the host before running it again";
-/// The journal lost its record, or the hub asked under a stale epoch.
-pub(crate) const JOURNAL_LOST_REASON: &str =
-    "the agent lost its record of this run; check the host before running it again";
-/// The journal was reset since the run was dispatched.
-pub(crate) const EPOCH_CHANGED_REASON: &str =
-    "the agent's journal was reset since this ran; the result cannot be recovered";
-/// The run was dispatched before the hub kept an epoch.
-pub(crate) const EPOCH_UNKNOWN_REASON: &str =
-    "this ran before the agent kept a journal; the result cannot be recovered";
-/// The approval window closed before the action was sent.
-pub(crate) const EXPIRED_REASON: &str = "the approval expired before the action was dispatched";
-/// The token for the same, kept in the journal entry's `outcome_reason`.
-pub(crate) const EXPIRED_TOKEN: &str = "expired";
+mod answer;
 
+pub(crate) use answer::{
+    EXPIRED_REASON, EXPIRED_TOKEN, NOT_RUN_REASON, ReconcileOutcome, from_answer, reason_text,
+};
 /// How many times one pass asks again about runs that are still running, after its first
 /// query: one pass makes at most [`RECONCILE_REPEATS`] + 1 queries, about two hours apart at
 /// the default interval. The rows stay `Dispatched` when the bound is reached; they are
@@ -50,67 +33,82 @@ pub(crate) const fn repeats_exhausted(repeats: u32) -> bool {
     repeats >= RECONCILE_REPEATS
 }
 
+/// How many rounds a pass keeps asking after the agent fails to answer its query. A lost
+/// query is not an outcome, but a broken link must not keep a pass alive either.
+pub(crate) const RECONCILE_QUERY_ATTEMPTS: u32 = 3;
+
 /// The most ids one `action_status` request may carry.
 const BATCH: usize = 64;
 
-/// What one journal answer or epoch comparison settles an action to.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum ReconcileOutcome {
-    /// The run finished and the recorded result is authoritative.
-    Finished {
-        /// Whether that result is a success.
-        succeeded: bool,
-        /// The agent's failure message, when it failed.
-        detail: Option<String>,
-    },
-    /// The outcome cannot be established.
-    Unknown(UnknownReason),
-    /// Positive evidence the run never reached the agent.
-    NeverRan,
-}
-
-impl ReconcileOutcome {
-    /// The machine-readable token kept in the journal entry's `outcome_reason`.
-    pub(crate) fn token(&self) -> &'static str {
-        match self {
-            Self::Finished { .. } => "finished",
-            Self::NeverRan => "not_run",
-            Self::Unknown(UnknownReason::NoStartRecord) => "no_start_record",
-            Self::Unknown(UnknownReason::AgentRestarted) => "agent_restarted",
-            Self::Unknown(UnknownReason::JournalLost) => "journal_lost",
-            Self::Unknown(UnknownReason::EpochChanged) => "epoch_changed",
-            Self::Unknown(UnknownReason::EpochUnknown) => "epoch_unknown",
-        }
-    }
-}
-
-/// The sentence for a journal reason the hub decided or the agent reported.
-pub(crate) const fn reason_text(reason: UnknownReason) -> &'static str {
-    match reason {
-        UnknownReason::NoStartRecord => NO_START_REASON,
-        UnknownReason::AgentRestarted => AGENT_RESTARTED_REASON,
-        UnknownReason::JournalLost => JOURNAL_LOST_REASON,
-        UnknownReason::EpochChanged => EPOCH_CHANGED_REASON,
-        UnknownReason::EpochUnknown => EPOCH_UNKNOWN_REASON,
-    }
-}
-
-/// What `answer` settles the run to, or `None` while it is still running and must be asked
-/// about again.
-pub(crate) fn from_answer(answer: ActionAnswer) -> Option<ReconcileOutcome> {
-    match answer {
-        ActionAnswer::Finished { succeeded, detail } => {
-            Some(ReconcileOutcome::Finished { succeeded, detail })
-        }
-        ActionAnswer::Running => None,
-        ActionAnswer::NotFound => Some(ReconcileOutcome::NeverRan),
-        ActionAnswer::Unknown { reason } => Some(ReconcileOutcome::Unknown(reason)),
-    }
-}
-
-/// Reconciles every run dispatched to `host` against its agent's journal. A host with no
-/// live session has no answer, so nothing is read or written for it.
+/// Reconciles every run dispatched to `host` against its agent's journal, waiting for any
+/// pass already running for that host. A host with no live session has no answer, so nothing
+/// is read or written for it.
 pub(crate) async fn host(shared: &Shared, host: HostId) {
+    let _pass = shared.pass_gate(host).await;
+    pass(shared, host).await;
+}
+
+/// Reconciles `host` if no pass is already running for it. A running pass reads the same
+/// pending rows, so a trigger that arrives during one is already covered.
+pub(crate) async fn scheduled(shared: &Shared, host: HostId) {
+    let Some(_pass) = shared.pass_gate_try(host) else {
+        tracing::debug!(
+            %host,
+            "a reconciliation pass is already running for this host; the trigger is covered",
+        );
+        return;
+    };
+    pass(shared, host).await;
+}
+
+/// Serves reconciliation asked for by the action service itself: outcomes that were lost
+/// while the agent stayed connected would otherwise wait for a reconnect that never comes.
+pub(crate) async fn serve(shared: std::sync::Arc<Shared>) {
+    let shutdown = shared.deps.shutdown.clone();
+    loop {
+        tokio::select! {
+            () = shutdown.cancelled() => return,
+            () = shared.reconcile_nudge.notified() => {}
+        }
+        loop {
+            let next = {
+                let mut pending = shared
+                    .reconcile_pending
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                let next = pending.iter().next().copied();
+                if let Some(host) = next {
+                    pending.remove(&host);
+                }
+                next
+            };
+            let Some(host) = next else { break };
+            // A pass may sleep on the clock while it waits for a running run, so shutdown
+            // drops it rather than waiting for the next round.
+            tokio::select! {
+                () = shutdown.cancelled() => return,
+                () = scheduled(&shared, host) => {}
+            }
+            if shutdown.is_cancelled() {
+                return;
+            }
+        }
+    }
+}
+
+/// One reconciliation pass; the caller holds the host's pass gate.
+async fn pass(shared: &Shared, host: HostId) {
+    let mut writes = Vec::new();
+    pass_rows(shared, host, &mut writes).await;
+    // Wait for what was queued, so a caller that asked for the pass sees its effect. The
+    // commands are already handed over, so a cancelled caller loses only this wait.
+    for answer in writes {
+        let _ = answer.await;
+    }
+}
+
+/// The rows a pass settles, collecting where the writer will answer.
+async fn pass_rows(shared: &Shared, host: HostId, writes: &mut Vec<oneshot::Receiver<Decision>>) {
     let Some(epoch) = shared.deps.link.journal_epoch(host) else {
         return;
     };
@@ -145,22 +143,22 @@ pub(crate) async fn host(shared: &Shared, host: HostId) {
     for action in pending {
         match action.status() {
             ActionStatus::Dispatched { agent_epoch: None } => {
-                settle(
+                queue(
                     shared,
+                    writes,
                     action.id(),
                     ReconcileOutcome::Unknown(UnknownReason::EpochUnknown),
-                )
-                .await;
+                );
             }
             ActionStatus::Dispatched {
                 agent_epoch: Some(seen),
             } if *seen != epoch => {
-                settle(
+                queue(
                     shared,
+                    writes,
                     action.id(),
                     ReconcileOutcome::Unknown(UnknownReason::EpochChanged),
-                )
-                .await;
+                );
             }
             _ => remaining.push(action.id()),
         }
@@ -178,56 +176,99 @@ pub(crate) async fn host(shared: &Shared, host: HostId) {
                 );
                 return;
             }
-            let now = shared.deps.clock.now();
-            let deadline = now
-                .checked_add(shared.settings.reconcile_query_timeout)
-                .unwrap_or(now);
-            let answers = match shared
-                .deps
-                .link
-                .action_status(host, batch.to_vec(), epoch, deadline)
-                .await
-            {
-                Ok(answers) => answers,
-                Err(err) => {
-                    tracing::warn!(
-                        %err,
-                        %host,
-                        count = batch.len(),
-                        "could not ask the agent about dispatched runs; they stay dispatched",
-                    );
-                    continue;
+            // A lost query is not an outcome. Try again at once, a bounded number of times,
+            // so a transient failure does not silently use up the only reconciliation
+            // attempt while the session stays connected.
+            let mut tries = 0;
+            let answers = loop {
+                let now = shared.deps.clock.now();
+                let deadline = now
+                    .checked_add(shared.settings.reconcile_query_timeout)
+                    .unwrap_or(now);
+                match shared
+                    .deps
+                    .link
+                    .action_status(host, batch.to_vec(), epoch, deadline)
+                    .await
+                {
+                    Ok(answers) => break Some(answers),
+                    Err(err) => {
+                        tries += 1;
+                        tracing::warn!(
+                            %err,
+                            %host,
+                            count = batch.len(),
+                            attempt = tries,
+                            "could not ask the agent about dispatched runs; they stay dispatched",
+                        );
+                        if tries > RECONCILE_QUERY_ATTEMPTS {
+                            tracing::warn!(
+                                %host,
+                                attempts = tries,
+                                "the agent did not answer about dispatched runs; reconciliation stops asking",
+                            );
+                            break None;
+                        }
+                    }
                 }
             };
+            let Some(answers) = answers else { continue };
             if answers.epoch != epoch {
                 for id in batch {
-                    settle(
+                    queue(
                         shared,
+                        writes,
                         *id,
                         ReconcileOutcome::Unknown(UnknownReason::EpochChanged),
-                    )
-                    .await;
+                    );
                 }
                 continue;
             }
             let asked: BTreeSet<ActionId> = batch.iter().copied().collect();
-            let mut answered: BTreeSet<ActionId> = BTreeSet::new();
-            for entry in answers.answers {
-                if !asked.contains(&entry.execution) {
+            let mut seen: BTreeMap<ActionId, u32> = BTreeMap::new();
+            for entry in &answers.answers {
+                if asked.contains(&entry.execution) {
+                    *seen.entry(entry.execution).or_default() += 1;
+                } else {
                     tracing::warn!(
                         %host,
                         action = %entry.execution,
                         "the agent answered about a run the hub did not ask about; ignored",
                     );
+                }
+            }
+            // One answer per requested id is the protocol. An id answered twice is a
+            // malformed response, and neither entry may settle it: choosing one would make
+            // the outcome depend on the order of the vector.
+            let malformed: BTreeSet<ActionId> = seen
+                .iter()
+                .filter(|(_, count)| **count > 1)
+                .map(|(id, _)| *id)
+                .collect();
+            for id in &malformed {
+                tracing::warn!(
+                    %host,
+                    action = %id,
+                    "the agent answered more than once about a run; the answer is malformed and the run stays dispatched",
+                );
+            }
+            let mut answered: BTreeSet<ActionId> = BTreeSet::new();
+            for entry in answers.answers {
+                if !asked.contains(&entry.execution) || malformed.contains(&entry.execution) {
                     continue;
                 }
                 answered.insert(entry.execution);
                 match from_answer(entry.answer) {
-                    Some(outcome) => settle(shared, entry.execution, outcome).await,
+                    Some(outcome) => queue(shared, writes, entry.execution, outcome),
                     None => running.push(entry.execution),
                 }
             }
             for id in asked.difference(&answered) {
+                if malformed.contains(id) {
+                    // A malformed id is not asked about again in this pass: the agent has
+                    // already shown it cannot answer this batch within the protocol.
+                    continue;
+                }
                 // The protocol answers one per requested id. An agent that says nothing
                 // about a run has given no evidence either way, so it is asked again.
                 tracing::warn!(
@@ -283,12 +324,31 @@ async fn pending(shared: &Shared, host: HostId) -> Result<Vec<ActionRequest>, St
 }
 
 /// Queues one settled outcome for the writer, which commits it under the `dispatched`
-/// guard. A refused write is logged and dropped: the row keeps whatever it now holds.
+/// guard. A refused write is logged by the writer and dropped: the row keeps whatever it
+/// now holds.
 ///
-/// The command is handed over before this awaits anything, so an answer that has already
-/// been received is committed even when the session's replacement cancels this pass. A full
-/// writer queue is handed over by a detached task for the same reason.
-async fn settle(shared: &Shared, id: ActionId, outcome: ReconcileOutcome) {
+/// The hand-over never awaits, so an answer that has already been received is committed even
+/// when the session's replacement cancels this pass. If the writer queue is full the command
+/// goes to one deferred worker instead of a task per answer, which keeps a large batch from
+/// growing a task per row.
+fn queue(
+    shared: &Shared,
+    writes: &mut Vec<oneshot::Receiver<Decision>>,
+    id: ActionId,
+    outcome: ReconcileOutcome,
+) {
+    if let Some(answer) = settle(shared, id, outcome) {
+        writes.push(answer);
+    }
+}
+
+/// Hands one settled outcome to the writer and answers with where its decision lands, when
+/// the writer queue took it directly.
+fn settle(
+    shared: &Shared,
+    id: ActionId,
+    outcome: ReconcileOutcome,
+) -> Option<oneshot::Receiver<Decision>> {
     let wire_reason = outcome.token();
     let (reply, answer) = oneshot::channel();
     let command = WriteCommand::Reconcile {
@@ -297,31 +357,20 @@ async fn settle(shared: &Shared, id: ActionId, outcome: ReconcileOutcome) {
         wire_reason,
         reply,
     };
-    let tx = shared.writer.tx.clone();
-    match tx.try_send(command) {
-        Ok(()) => {}
+    match shared.writer.tx.try_send(command) {
+        Ok(()) => Some(answer),
         Err(mpsc::error::TrySendError::Full(command)) => {
-            tokio::spawn(async move {
-                let _ = tx.send(command).await;
-            });
-            tracing::debug!(
-                action = %id,
-                "the writer queue is full; the settled outcome is handed over in the background",
-            );
-            return;
+            if shared.deferred.send(command).is_err() {
+                tracing::debug!(
+                    action = %id,
+                    "the action service is closing; the run stays dispatched",
+                );
+            }
+            None
         }
         Err(mpsc::error::TrySendError::Closed(_)) => {
             tracing::debug!(action = %id, "the action service is closing; the run stays dispatched");
-            return;
-        }
-    }
-    match answer.await {
-        Ok(Ok(_)) => {}
-        Ok(Err(err)) => {
-            tracing::debug!(action = %id, %err, "reconciliation's write was refused; nothing changed")
-        }
-        Err(_) => {
-            tracing::debug!(action = %id, "the writer stopped before answering reconciliation")
+            None
         }
     }
 }
@@ -390,7 +439,6 @@ pub(crate) async fn write(
         .map_err(|err| super::writer::stale(err, id))?;
     Ok(action)
 }
-
 #[cfg(test)]
 mod tests {
     use super::{RECONCILE_REPEATS, repeats_exhausted};

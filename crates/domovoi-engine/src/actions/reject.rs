@@ -4,15 +4,18 @@
 //! or changed risk, arguments no longer valid, a host whose agent never came back, or an
 //! approval whose incident or window no longer stands. It lands here so the transition,
 //! its audit line and its journal entry are one commit, like every other decision.
+//!
+//! The writer, not the executor, decides which of those is true when the command is
+//! applied: a window that closed while the rejection waited is `NotRun`, because nothing was
+//! attempted, and an incident that went away meanwhile is rejected for that reason.
 
 use domovoi_core::ports::AuditDraft;
-use domovoi_core::{ActionChange, ActionId, ActionRequest};
+use domovoi_core::{ActionChange, ActionId, ActionRequest, ActionStatus};
 use jiff::Timestamp;
 
-use super::Shared;
-use super::approvals::load;
-use super::audit;
+use super::freshness::{self, Stale};
 use super::writer::{Decision, stale, transition};
+use super::{ApprovalError, Shared, approvals::load, audit, expire};
 use crate::events::EventKind;
 
 /// Stops `id` before it runs. `blocked` is the loop guard, which also publishes
@@ -25,6 +28,20 @@ pub(crate) async fn reject(
 ) -> Decision {
     let mut action = load(shared, id).await?;
     let now = shared.deps.clock.now();
+    // The approval may have closed while this rejection waited in the queue, so the writer
+    // asks again. A closed window is proof nothing ran and ends as `NotRun`; a store that
+    // cannot answer leaves the action approved instead of guessing.
+    if action.status() == &ActionStatus::Approved {
+        let old = freshness::check(shared, &action, now)
+            .await
+            .map_err(|err| ApprovalError::Store(err.to_string()))?;
+        if let Some(old) = old {
+            if old == Stale::Expired {
+                return expire::approved_loaded(shared, id, &mut action, now).await;
+            }
+            return stop(shared, id, &mut action, old.reason().to_owned(), false, now).await;
+        }
+    }
     stop(shared, id, &mut action, reason, blocked, now).await
 }
 

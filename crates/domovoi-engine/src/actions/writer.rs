@@ -130,7 +130,6 @@ pub(crate) fn queue() -> (WriterHandle, mpsc::Receiver<WriteCommand>) {
 /// Applies decisions one at a time until shutdown closes the queue or every
 /// handle is dropped, then applies what is still queued, so a hub that waits
 /// for the action service also waits for those writes to reach the store.
-#[must_use]
 pub(crate) async fn run(shared: Arc<Shared>, mut rx: mpsc::Receiver<WriteCommand>) {
     let shutdown = shared.deps.shutdown.clone();
     loop {
@@ -145,6 +144,30 @@ pub(crate) async fn run(shared: Arc<Shared>, mut rx: mpsc::Receiver<WriteCommand
     }
     while let Ok(command) = rx.try_recv() {
         process(&shared, command).await;
+    }
+}
+
+/// Hands outcomes the writer queue could not take to the writer as it frees up.
+///
+/// One worker for the whole service, so a large batch of settled runs cannot grow a task per
+/// row. It ends when the writer closes, which drops whatever is still waiting: those rows
+/// stay `Dispatched` and are reconciled again later.
+pub(crate) async fn feed_deferred(
+    shared: Arc<Shared>,
+    mut incoming: mpsc::UnboundedReceiver<WriteCommand>,
+) {
+    let shutdown = shared.deps.shutdown.clone();
+    loop {
+        let command = tokio::select! {
+            () = shutdown.cancelled() => return,
+            command = incoming.recv() => match command {
+                Some(command) => command,
+                None => return,
+            },
+        };
+        if shared.writer.tx.send(command).await.is_err() {
+            return;
+        }
     }
 }
 

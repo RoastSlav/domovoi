@@ -245,3 +245,29 @@ async fn executor_never_writes_an_expiry_outcome() {
     );
     assert_eq!(commits[0].audit[0].kind, audit::NOT_RUN, "and audited once",);
 }
+
+#[tokio::test]
+async fn a_rejection_queued_after_the_window_closed_is_not_run() {
+    // The agent never came back, so the executor queues its "agent offline" rejection after
+    // waiting out `offline_wait`. By then the approval window has closed: nothing was
+    // attempted, so the writer settles it as a run that never happened.
+    let world = seeded().await;
+    let action = approved_for(world.incident.id(), SignedDuration::from_mins(1));
+    let id = action.id();
+    insert(&world, &action).await;
+    unknown(&world);
+    let settings = ActionSettings {
+        offline_wait: SignedDuration::from_mins(5),
+        ..ActionSettings::default()
+    };
+    let a = world.start(settings, world.store.clone());
+
+    a.until(id, |status| matches!(status, ActionStatus::NotRun { .. }))
+        .await;
+
+    settled_as_not_run(&a, id).await;
+    assert!(
+        !a.trail(id).await.contains(&audit::REJECTED.to_owned()),
+        "the reason the rejection was queued with is not what stopped it",
+    );
+}

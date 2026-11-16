@@ -33,7 +33,7 @@ use domovoi_core::ports::{
 };
 use domovoi_core::{ActionError, ActionId, ActionRequest, HostId, HumanApproval, PlanBinding};
 use jiff::{SignedDuration, Timestamp};
-use tokio::sync::{Notify, broadcast, oneshot};
+use tokio::sync::{Notify, broadcast, mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
@@ -161,6 +161,15 @@ pub(crate) struct Shared {
     /// the host's pending rows. That is what keeps a committed-but-unsent run out of a
     /// reconciliation snapshot, so it can never be mistaken for a run the agent never got.
     pub(crate) dispatch_gates: Mutex<BTreeMap<HostId, Arc<tokio::sync::Mutex<()>>>>,
+    /// One gate per host around a whole reconciliation pass, so a hello-triggered pass and
+    /// one asked for by the executor cannot poll the same host twice at once.
+    pub(crate) reconcile_passes: Mutex<BTreeMap<HostId, Arc<tokio::sync::Mutex<()>>>>,
+    /// Hosts whose reconciliation was asked for while no pass was running for them.
+    pub(crate) reconcile_pending: Mutex<BTreeSet<HostId>>,
+    /// Wakes the reconciliation worker.
+    pub(crate) reconcile_nudge: Arc<Notify>,
+    /// Outcomes that could not be queued on the writer yet; one worker hands them over.
+    pub(crate) deferred: mpsc::UnboundedSender<writer::WriteCommand>,
     /// The queue into the writer task. The executor hands every transition to that
     /// one writer (ADR 0019) rather than writing action state itself.
     pub(crate) writer: writer::WriterHandle,
@@ -187,6 +196,39 @@ impl Shared {
                 .clone()
         };
         gate.lock_owned().await
+    }
+
+    /// The host's whole-pass gate; see [`Shared::reconcile_passes`].
+    pub(crate) async fn pass_gate(&self, host: HostId) -> tokio::sync::OwnedMutexGuard<()> {
+        self.pass_gate_arc(host).lock_owned().await
+    }
+
+    /// [`Shared::pass_gate`], for a caller that skips its pass when one is already running.
+    pub(crate) fn pass_gate_try(&self, host: HostId) -> Option<tokio::sync::OwnedMutexGuard<()>> {
+        self.pass_gate_arc(host).try_lock_owned().ok()
+    }
+
+    /// The host's pass gate, shared so a holder can be chosen.
+    fn pass_gate_arc(&self, host: HostId) -> Arc<tokio::sync::Mutex<()>> {
+        let mut gates = self
+            .reconcile_passes
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        gates
+            .entry(host)
+            .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+            .clone()
+    }
+
+    /// Asks for a reconciliation of `host` soon. Repeated asks for a host that is already
+    /// waiting collapse into one pass; the worker keeps at most one entry per host, so this
+    /// cannot grow into a loop of its own.
+    pub(crate) fn schedule_reconciliation(&self, host: HostId) {
+        self.reconcile_pending
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(host);
+        self.reconcile_nudge.notify_one();
     }
 
     /// Publishes `kind` for the incident `action` belongs to.
@@ -230,13 +272,19 @@ impl ActionService {
     pub fn spawn(deps: ActionDeps, settings: ActionSettings) -> (ActionHandle, JoinHandle<()>) {
         let events = deps.bus.subscribe();
         let (writer, incoming) = writer::queue();
+        let (deferred, deferred_incoming) = mpsc::unbounded_channel();
         let effects_nudge = Arc::new(Notify::new());
+        let reconcile_nudge = Arc::new(Notify::new());
         let shared = Arc::new(Shared {
             deps,
             settings,
             dispatches: Mutex::new(BTreeMap::new()),
             running: Mutex::new(BTreeSet::new()),
             dispatch_gates: Mutex::new(BTreeMap::new()),
+            reconcile_passes: Mutex::new(BTreeMap::new()),
+            reconcile_pending: Mutex::new(BTreeSet::new()),
+            reconcile_nudge: reconcile_nudge.clone(),
+            deferred,
             writer: writer.clone(),
             catch_up_slots: Arc::new(tokio::sync::Semaphore::new(executor::MAX_CATCH_UP_RUNS)),
             effects_nudge: effects_nudge.clone(),
@@ -257,7 +305,9 @@ impl ActionService {
             Arc::new(verify_wake::VerifyWake::new(shared.clone())),
         );
         let writer_shared = shared.clone();
+        let deferred_shared = shared.clone();
         let executor_shared = shared.clone();
+        let reconcile_shared = shared.clone();
         let task = tokio::spawn(async {
             // The loop guard counts runs in a rolling hour, and the runs of the session
             // that just stopped were in its memory, so they are read back from the audit
@@ -289,7 +339,9 @@ impl ActionService {
             // it claims anything, so a verification due across a restart still runs.
             let _ = tokio::join!(
                 writer::run(writer_shared, incoming),
+                writer::feed_deferred(deferred_shared, deferred_incoming),
                 executor::serve(executor_shared, events),
+                reconcile::serve(reconcile_shared),
                 runner.run(),
             );
         });

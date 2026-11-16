@@ -343,13 +343,17 @@ pub(crate) async fn run(shared: &Shared, id: ActionId, pool: Option<Arc<Semaphor
     {
         Ok(handoff) => handoff,
         Err(err) => {
-            // Nothing reached the agent. The row stays dispatched; a later reconciliation
-            // pass settles what the journal says about it.
+            // Nothing reached the agent. The row stays dispatched; if this journal is still
+            // live, ask for a reconciliation now rather than waiting for a reconnect that
+            // may never come. A different epoch is left to its replacement's own pass.
             tracing::warn!(
                 action = %id,
                 %err,
                 "could not hand the run to the agent; it stays dispatched",
             );
+            if deps.link.journal_epoch(action.host()) == Some(epoch) {
+                shared.schedule_reconciliation(action.host());
+            }
             return;
         }
     };
@@ -383,12 +387,17 @@ pub(crate) async fn run(shared: &Shared, id: ActionId, pool: Option<Arc<Semaphor
         Err(err) => {
             // The request was handed over and no usable answer came back. The run may have
             // happened, so it is neither a success nor a failure: it stays dispatched until
-            // the agent's journal can settle it.
+            // the agent's journal can settle it. Ask for that pass now, while the session
+            // that could still remember the run is live; a replacement's own pass covers a
+            // changed journal.
             tracing::warn!(
                 action = %id,
                 %err,
                 "the run's result is unavailable; it stays dispatched for reconciliation",
             );
+            if deps.link.journal_epoch(action.host()) == Some(epoch) {
+                shared.schedule_reconciliation(action.host());
+            }
         }
     }
 }
