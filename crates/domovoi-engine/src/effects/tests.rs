@@ -146,6 +146,15 @@ async fn runner_retries_with_backoff_then_dead_letters() {
             break;
         }
         if effect.status == "claimed" {
+            // The runner has claimed the effect and is committing the retry. Let it
+            // finish before deciding whether the clock may move; advancing now would
+            // change the retry's backoff base.
+            for _ in 0..100 {
+                settle().await;
+                if row(&store, id).await.status != "claimed" {
+                    break;
+                }
+            }
             continue;
         }
         if effect.not_before > Clock::now(&*clock) {
