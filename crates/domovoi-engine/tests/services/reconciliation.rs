@@ -59,12 +59,17 @@ fn restart_params() -> BTreeMap<String, String> {
 /// A `restart_container` sent to the agent under `epoch`, left `Dispatched` by a hub
 /// session that never saw the answer.
 fn dispatched_for(incident: IncidentId, epoch: Option<JournalEpoch>) -> ActionRequest {
+    dispatched_to(incident, host_id(), epoch)
+}
+
+/// [`dispatched_for`] for a named host.
+fn dispatched_to(incident: IncidentId, host: HostId, epoch: Option<JournalEpoch>) -> ActionRequest {
     let skill = verified_restart();
     let validated = skill.validate_args(&restart_params()).unwrap();
-    let plan = PlanHash::compute(&skill.name, skill.manifest_hash, host_id(), &validated);
+    let plan = PlanHash::compute(&skill.name, skill.manifest_hash, host, &validated);
     let mut action = ActionRequest::propose(
         incident,
-        host_id(),
+        host,
         &skill,
         &validated,
         Principal::System("triage".into()),
@@ -2699,4 +2704,70 @@ async fn a_listing_retry_never_classifies_against_the_replacement_epoch() {
         matches!(a.get(id).await.status(), ActionStatus::Dispatched { .. }),
         "the replacement's own pass will settle the run",
     );
+}
+
+#[tokio::test]
+async fn hello_passes_take_the_same_bounded_pool() {
+    // Six sessions ask for a pass at once. The pool bounds them just like the queued ones,
+    // so no more than its size reads a journal at the same time.
+    let world = seeded().await;
+    let mut hosts = Vec::new();
+    let mut actions = Vec::new();
+    for i in 0..6 {
+        let host = if i == 0 { host_id() } else { HostId::new() };
+        if i > 0 {
+            connect_host(&world, host, JournalEpoch::from_uuid(uuid::Uuid::now_v7()));
+        }
+        let epoch = world.link.journal_epoch(host).expect("a journal");
+        let action = dispatched_to(world.incident.id(), host, Some(epoch));
+        seed_in(&world.store, &action).await;
+        hosts.push(host);
+        actions.push(action);
+    }
+    let gate = Arc::new(Semaphore::new(0));
+    for host in &hosts {
+        world.link.hold_status_queries(*host, gate.clone());
+    }
+    world.link.on_action_status(|_, ids, epoch| {
+        Ok(ActionAnswers {
+            epoch,
+            answers: ids.iter().map(|id| finished(*id)).collect(),
+        })
+    });
+    let a = world.start(ActionSettings::default(), world.store.clone());
+
+    let mut passes = Vec::new();
+    for host in &hosts {
+        let service = a.service.clone();
+        let host = *host;
+        passes.push(tokio::spawn(
+            async move { service.reconcile_host(host).await },
+        ));
+    }
+    for _ in 0..5000 {
+        if asked(&a).len() >= MAX_RECONCILE_PASSES {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    for _ in 0..500 {
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(
+        asked(&a).len(),
+        MAX_RECONCILE_PASSES,
+        "hello-triggered passes are bounded by the same pool",
+    );
+
+    gate.add_permits(hosts.len());
+    for pass in passes {
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(5), pass).await;
+    }
+    for action in actions {
+        assert_eq!(
+            a.get(action.id()).await.status(),
+            &ActionStatus::Succeeded,
+            "every session's pass runs once a slot frees",
+        );
+    }
 }
