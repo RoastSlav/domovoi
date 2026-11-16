@@ -1,4 +1,7 @@
 //! Orphan recovery after a restart: identify, terminate, and record abandoned children.
+//!
+//! Emptiness is only concluded from a complete inspection. A process this agent cannot read
+//! (permission, I/O, a malformed `/proc` entry) makes the group `Unknown`, never `Empty`.
 
 use domovoi_core::ports::Clock;
 use jiff::SignedDuration;
@@ -22,6 +25,157 @@ pub(super) struct ProcessStat {
     pub(super) session: u32,
 }
 
+/// What inspecting one process established.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ProcessLookup {
+    /// The process exists and its stat parsed.
+    Running(ProcessStat),
+    /// The process does not exist.
+    Gone,
+    /// The process exists but could not be read.
+    Denied,
+    /// The read failed for another reason (for example a transient I/O error).
+    Failed,
+    /// The entry exists but could not be parsed.
+    Malformed,
+}
+
+/// Why a `/proc` enumeration did not complete.
+#[derive(Debug, thiserror::Error)]
+#[error("{reason}")]
+pub(super) struct InspectError {
+    reason: String,
+}
+
+impl InspectError {
+    pub(super) fn new(err: std::io::Error) -> Self {
+        Self {
+            reason: err.to_string(),
+        }
+    }
+}
+
+/// A signal this agent may send to a group.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Signal {
+    Term,
+    Kill,
+}
+
+/// The result of a group signal.
+///
+/// Only the Linux target can send signals; on other targets only `Failed` is reachable, and
+/// the other variants exist so the inspection seam has one result type everywhere.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum SignalOutcome {
+    Sent,
+    /// The group no longer exists.
+    Missing,
+    Denied,
+    Failed,
+}
+
+/// The injected seam for `/proc` inspection and group signals.
+pub(super) trait ProcessInspector: Send + Sync {
+    fn lookup(&self, pid: u32) -> ProcessLookup;
+    fn list(&self) -> Result<Vec<u32>, InspectError>;
+    fn group_exists(&self, pgid: u32) -> Option<bool>;
+    fn signal(&self, pgid: u32, signal: Signal) -> SignalOutcome;
+}
+
+/// The real Linux inspector.
+pub(super) struct ProcInspector;
+
+impl ProcessInspector for ProcInspector {
+    fn lookup(&self, pid: u32) -> ProcessLookup {
+        match std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+            Ok(text) => match parse_stat(&text) {
+                Some(stat) => ProcessLookup::Running(stat),
+                None => ProcessLookup::Malformed,
+            },
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => ProcessLookup::Gone,
+            Err(err) if err.kind() == std::io::ErrorKind::PermissionDenied => ProcessLookup::Denied,
+            Err(_) => ProcessLookup::Failed,
+        }
+    }
+
+    fn list(&self) -> Result<Vec<u32>, InspectError> {
+        let entries = std::fs::read_dir("/proc").map_err(InspectError::new)?;
+        let mut pids = Vec::new();
+        for entry in entries {
+            let entry = entry.map_err(InspectError::new)?;
+            if let Some(pid) = entry
+                .file_name()
+                .to_str()
+                .and_then(|name| name.parse::<u32>().ok())
+            {
+                pids.push(pid);
+            }
+        }
+        Ok(pids)
+    }
+
+    fn group_exists(&self, pgid: u32) -> Option<bool> {
+        kernel_group_exists(pgid)
+    }
+
+    fn signal(&self, pgid: u32, signal: Signal) -> SignalOutcome {
+        sys_signal(pgid, signal)
+    }
+}
+
+fn parse_stat(text: &str) -> Option<ProcessStat> {
+    let rest = text.rsplit_once(')')?.1;
+    let fields: Vec<&str> = rest.split_whitespace().collect();
+    Some(ProcessStat {
+        state: fields.first()?.chars().next()?,
+        pgrp: fields.get(2)?.parse().ok()?,
+        session: fields.get(3)?.parse().ok()?,
+        start_time: fields.get(19)?.parse().ok()?,
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn kernel_group_exists(pgid: u32) -> Option<bool> {
+    use nix::errno::Errno;
+    use nix::sys::signal::kill;
+    use nix::unistd::Pid;
+    match kill(Pid::from_raw(-(pgid as i32)), None) {
+        Ok(()) => Some(true),
+        Err(Errno::EPERM) => Some(true),
+        Err(Errno::ESRCH) => Some(false),
+        Err(_) => None,
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn kernel_group_exists(_pgid: u32) -> Option<bool> {
+    None
+}
+
+#[cfg(target_os = "linux")]
+fn sys_signal(pgid: u32, signal: Signal) -> SignalOutcome {
+    use nix::errno::Errno;
+    use nix::sys::signal::{Signal as UnixSignal, killpg};
+    use nix::unistd::Pid;
+    let signal = match signal {
+        Signal::Term => UnixSignal::SIGTERM,
+        Signal::Kill => UnixSignal::SIGKILL,
+    };
+    match killpg(Pid::from_raw(pgid as i32), signal) {
+        Ok(()) => SignalOutcome::Sent,
+        Err(Errno::ESRCH) => SignalOutcome::Missing,
+        Err(Errno::EPERM) => SignalOutcome::Denied,
+        Err(_) => SignalOutcome::Failed,
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn sys_signal(_pgid: u32, _signal: Signal) -> SignalOutcome {
+    SignalOutcome::Failed
+}
+
 /// One started execution left by a previous agent instance.
 pub(super) struct StartedExecution {
     execution_id: Uuid,
@@ -31,9 +185,10 @@ pub(super) struct StartedExecution {
     session: u32,
 }
 
+/// What a group inspection established.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum GroupState {
-    Alive,
+    NonEmpty,
     Empty,
     Unknown,
 }
@@ -69,83 +224,82 @@ pub(super) fn started_without_finished(records: &[Record]) -> Vec<StartedExecuti
         .collect()
 }
 
-/// Reads `/proc/<pid>/stat` fields 5, 6 and 22.
+/// Reads one process with the real inspector.
 pub(super) fn process_stat(pid: u32) -> Option<ProcessStat> {
-    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
-    let rest = stat.rsplit_once(')')?.1;
-    let fields: Vec<&str> = rest.split_whitespace().collect();
-    Some(ProcessStat {
-        state: fields.first()?.chars().next()?,
-        pgrp: fields.get(2)?.parse().ok()?,
-        session: fields.get(3)?.parse().ok()?,
-        start_time: fields.get(19)?.parse().ok()?,
-    })
-}
-
-/// Whether a process group still has any member at all.
-#[cfg(target_os = "linux")]
-fn group_exists(pgid: u32) -> Option<bool> {
-    use nix::errno::Errno;
-    use nix::sys::signal::kill;
-    use nix::unistd::Pid;
-    match kill(Pid::from_raw(-(pgid as i32)), None) {
-        Ok(()) => Some(true),
-        Err(Errno::EPERM) => Some(true),
-        Err(Errno::ESRCH) => Some(false),
-        Err(_) => None,
+    match ProcInspector.lookup(pid) {
+        ProcessLookup::Running(stat) => Some(stat),
+        _ => None,
     }
 }
 
-#[cfg(not(target_os = "linux"))]
-fn group_exists(_pgid: u32) -> Option<bool> {
-    None
+/// Whether a group still has a live member, using the real inspector. Test-only.
+#[cfg(all(test, target_os = "linux"))]
+pub(super) fn group_state(pgid: u32, session: u32) -> GroupState {
+    group_state_with(&ProcInspector, pgid, session)
 }
 
 /// Whether a process group still has a live (non-zombie) member in `session`.
 ///
-/// The kernel's own group-existence check decides an empty group. `/proc` is then scanned
-/// only to find a live member; an entry that disappears during the scan has already exited
-/// and is not treated as unknown.
-pub(super) fn group_state(pgid: u32, session: u32) -> GroupState {
-    match group_exists(pgid) {
+/// A zombie cannot run code and is reaped by its parent or init, so it is not a live member.
+/// The group is `Empty` only when the kernel says it does not exist, or when a complete scan
+/// finds no live member; any unreadable or unparsable entry makes it `Unknown`.
+pub(super) fn group_state_with(
+    inspector: &dyn ProcessInspector,
+    pgid: u32,
+    session: u32,
+) -> GroupState {
+    let exists = inspector.group_exists(pgid);
+    // Even a gone group needs a complete enumeration: an unreadable /proc is not evidence.
+    let pids = match inspector.list() {
+        Ok(pids) => pids,
+        Err(err) => {
+            tracing::warn!(%err, pgid, "could not enumerate processes for group recovery");
+            return GroupState::Unknown;
+        }
+    };
+    match exists {
         Some(false) => return GroupState::Empty,
         None => return GroupState::Unknown,
         Some(true) => {}
     }
-    let Ok(entries) = std::fs::read_dir("/proc") else {
-        return GroupState::Unknown;
-    };
-    let mut found = false;
-    for entry in entries.flatten() {
-        let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
-            continue;
-        };
-        let Ok(pid) = name.parse::<u32>() else {
-            continue;
-        };
-        if let Some(stat) = process_stat(pid)
-            && stat.state != 'Z'
-            && stat.pgrp == pgid
-            && (session == 0 || stat.session == session)
-        {
-            found = true;
+    let mut live = false;
+    let mut incomplete = false;
+    for pid in pids {
+        match inspector.lookup(pid) {
+            ProcessLookup::Running(stat)
+                if stat.state != 'Z'
+                    && stat.pgrp == pgid
+                    && (session == 0 || stat.session == session) =>
+            {
+                live = true;
+            }
+            ProcessLookup::Running(_) | ProcessLookup::Gone => {}
+            ProcessLookup::Denied | ProcessLookup::Failed | ProcessLookup::Malformed => {
+                incomplete = true;
+            }
         }
     }
-    if found {
-        GroupState::Alive
+    if live {
+        GroupState::NonEmpty
+    } else if incomplete {
+        GroupState::Unknown
     } else {
-        // The group exists only as zombies, or every live entry has already exited.
         GroupState::Empty
     }
 }
 
 /// Polls until the group is empty, bounded by the fake/real clock.
-async fn wait_empty(clock: &dyn Clock, pgid: u32, session: u32) -> bool {
+async fn wait_empty(
+    inspector: &dyn ProcessInspector,
+    clock: &dyn Clock,
+    pgid: u32,
+    session: u32,
+) -> bool {
     for _ in 0..500 {
-        match group_state(pgid, session) {
+        match group_state_with(inspector, pgid, session) {
             GroupState::Empty => return true,
             GroupState::Unknown => return false,
-            GroupState::Alive => {}
+            GroupState::NonEmpty => {}
         }
         let now = clock.now();
         let next = now
@@ -155,53 +309,39 @@ async fn wait_empty(clock: &dyn Clock, pgid: u32, session: u32) -> bool {
         // With a fake clock the sleep returns at once; let the signal be delivered.
         tokio::task::yield_now().await;
     }
-    matches!(group_state(pgid, session), GroupState::Empty)
-}
-
-#[cfg(target_os = "linux")]
-fn terminate_process_group(pid: u32) -> bool {
-    use nix::sys::signal::{Signal, killpg};
-    use nix::unistd::Pid;
-    killpg(Pid::from_raw(pid as i32), Signal::SIGTERM).is_ok()
-}
-
-#[cfg(not(target_os = "linux"))]
-fn terminate_process_group(_pid: u32) -> bool {
-    false
-}
-
-#[cfg(target_os = "linux")]
-fn kill_process_group(pid: u32) -> bool {
-    use nix::sys::signal::{Signal, killpg};
-    use nix::unistd::Pid;
-    killpg(Pid::from_raw(pid as i32), Signal::SIGKILL).is_ok()
-}
-
-#[cfg(not(target_os = "linux"))]
-fn kill_process_group(_pid: u32) -> bool {
-    false
+    matches!(
+        group_state_with(inspector, pgid, session),
+        GroupState::Empty
+    )
 }
 
 impl Journal {
     /// Terminates process groups left running by a previous agent instance.
     ///
-    /// The original leader must still be the recorded process, and it must be the group
-    /// leader (`pgrp == pid`). After the grace period the group is identified by its PGID
-    /// and session even if the leader has exited, so a surviving descendant is still
-    /// signalled. An unreadable or changed identity leaves the outcome unknown instead of
-    /// killing an unrelated group or claiming a clean recovery.
+    /// The original leader must still be the recorded process, or must have exited with a
+    /// persisted group-leader identity. A group is signalled only when its identity is
+    /// established, and `abandoned` is written only after a complete inspection proves the
+    /// group is empty.
     pub async fn recover_orphans(&self, clock: &dyn Clock) {
+        self.recover_orphans_with(clock, &ProcInspector).await;
+    }
+
+    /// [`Journal::recover_orphans`] with an injectable inspector. Test-only.
+    pub(super) async fn recover_orphans_with(
+        &self,
+        clock: &dyn Clock,
+        inspector: &dyn ProcessInspector,
+    ) {
         let unresolved = match self.lock() {
             Ok(state) if state.fenced.is_none() => started_without_finished(&state.records),
             _ => return,
         };
         for execution in unresolved {
-            let initial = process_stat(execution.pid);
             let mut already_empty = false;
-            let (pgid, session) = match initial {
-                Some(stat) if stat.start_time == execution.start_time => {
-                    // The runner starts every child as its own process-group leader, so the
-                    // PID is the group id. The start time proves this is the original child.
+            let (pgid, session) = match inspector.lookup(execution.pid) {
+                ProcessLookup::Running(stat) if stat.start_time == execution.start_time => {
+                    // The runner starts every child as its own group leader, so the PID is
+                    // the group id. The start time proves this is the original child.
                     (
                         execution.pid,
                         if execution.session == 0 {
@@ -211,27 +351,25 @@ impl Journal {
                         },
                     )
                 }
-                Some(_) => {
-                    // A reused PID, or a process whose recorded identity no longer
-                    // matches. Never fall back to a group scan for this case.
+                ProcessLookup::Running(_) => {
+                    // A reused PID, or a process whose recorded identity no longer matches.
                     continue;
                 }
-                None => {
-                    // The leader has already exited. Only a persisted group leader
-                    // identity can authorize a signal; a legacy record without one stays
-                    // unresolved, as does a PID that was never a group leader.
+                ProcessLookup::Gone => {
+                    // The leader has already exited. Only a persisted group-leader identity
+                    // can authorize a signal; a legacy record without one stays unresolved.
                     if execution.pgid == 0
                         || execution.pgid != execution.pid
                         || execution.session == 0
                     {
                         continue;
                     }
-                    match group_state(execution.pgid, execution.session) {
+                    match group_state_with(inspector, execution.pgid, execution.session) {
                         GroupState::Empty => {
                             already_empty = true;
                             (execution.pgid, execution.session)
                         }
-                        GroupState::Alive => (execution.pgid, execution.session),
+                        GroupState::NonEmpty => (execution.pgid, execution.session),
                         GroupState::Unknown => {
                             tracing::warn!(
                                 pid = execution.pid,
@@ -241,11 +379,21 @@ impl Journal {
                         }
                     }
                 }
+                ProcessLookup::Denied | ProcessLookup::Failed | ProcessLookup::Malformed => {
+                    tracing::warn!(
+                        pid = execution.pid,
+                        "the orphaned process could not be inspected; leaving it unresolved"
+                    );
+                    continue;
+                }
             };
             if !already_empty {
-                if !terminate_process_group(pgid) {
-                    tracing::warn!(pid = execution.pid, "could not send SIGTERM to an orphan");
-                    continue;
+                match inspector.signal(pgid, Signal::Term) {
+                    SignalOutcome::Sent | SignalOutcome::Missing => {}
+                    SignalOutcome::Denied | SignalOutcome::Failed => {
+                        tracing::warn!(pid = execution.pid, "could not send SIGTERM to an orphan");
+                        continue;
+                    }
                 }
                 let now = clock.now();
                 let deadline = now
@@ -253,17 +401,20 @@ impl Journal {
                     .unwrap_or(now);
                 clock.sleep_until(deadline).await;
 
-                match group_state(pgid, session) {
+                match group_state_with(inspector, pgid, session) {
                     GroupState::Empty => {}
-                    GroupState::Alive => {
-                        if !kill_process_group(pgid) {
-                            tracing::warn!(
-                                pid = execution.pid,
-                                "could not send SIGKILL to an orphan"
-                            );
-                            continue;
+                    GroupState::NonEmpty => {
+                        match inspector.signal(pgid, Signal::Kill) {
+                            SignalOutcome::Sent | SignalOutcome::Missing => {}
+                            SignalOutcome::Denied | SignalOutcome::Failed => {
+                                tracing::warn!(
+                                    pid = execution.pid,
+                                    "could not send SIGKILL to an orphan"
+                                );
+                                continue;
+                            }
                         }
-                        if !wait_empty(clock, pgid, session).await {
+                        if !wait_empty(inspector, clock, pgid, session).await {
                             tracing::warn!(
                                 pid = execution.pid,
                                 "the orphaned group is not empty after SIGKILL; leaving it unresolved"
@@ -279,6 +430,14 @@ impl Journal {
                         continue;
                     }
                 }
+            }
+            // Only a complete inspection that establishes emptiness may abandon.
+            if group_state_with(inspector, pgid, session) != GroupState::Empty {
+                tracing::warn!(
+                    pid = execution.pid,
+                    "the orphaned group could not be proven empty; leaving it unresolved"
+                );
+                continue;
             }
             match self.lock() {
                 Ok(mut state)

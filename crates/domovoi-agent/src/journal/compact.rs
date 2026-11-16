@@ -7,9 +7,11 @@ use uuid::Uuid;
 
 use super::JOURNAL_FILE;
 use super::Journal;
+use super::commit;
 use super::record::{self, Record};
-use super::store::{JournalState, load_records, write_meta_locked};
+use super::store::{Fence, JournalState, load_records, write_meta_locked};
 use crate::error::{JournalError, StateError};
+use crate::fs_atomic::{DurableFaults, DurableWriteError};
 
 /// Whether a compaction's rename is known to be durable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,29 +41,45 @@ pub(super) fn rewrite_locked(
         .map_err(|err| StateError::new(&tmp, err))?;
     drop(file);
     std::fs::rename(&tmp, &path).map_err(|err| StateError::new(&path, err))?;
-    let fault = std::mem::take(&mut state.rewrite_dir_sync_fault);
-    let sync = if fault {
-        Err(std::io::Error::other("injected directory sync failure"))
-    } else {
-        crate::fs_atomic::sync_dir(&state.dir)
-    };
-    if let Err(err) = sync {
-        tracing::warn!(%err, "journal compaction directory sync failed; reloading the file");
-        // The rename is visible but its durability is unknown. Adopt whatever the file
-        // actually holds; never claim the old or the new file is authoritative unread.
-        match load_records(&state.dir, &state.meta) {
-            Ok((kept, valid_len, fence)) => {
-                state.records = kept;
-                state.valid_len = valid_len;
-                state.fenced = fence;
-            }
-            Err(err) => state.fenced = Some(super::store::Fence::corrupt(err.to_string())),
-        }
-        return Ok(RewriteOutcome::Indeterminate);
+    // The new file is visible but not yet the committed one. Replace the durable boundary
+    // before anything treats the rewrite as done; the boundary write also syncs the
+    // directory, so the rename and the boundary become durable together.
+    let len = bytes.len() as u64;
+    let mut faults = DurableFaults::default();
+    if std::mem::take(&mut state.rewrite_dir_sync_fault) {
+        faults.dir_sync = true;
+        state.confirm_fails = true;
     }
-    state.records = records.to_vec();
-    state.valid_len = bytes.len() as u64;
-    Ok(RewriteOutcome::Confirmed)
+    let outcome = match commit::write(&state.dir, len, faults) {
+        Ok(()) => RewriteOutcome::Confirmed,
+        Err(DurableWriteError::BeforeCommit(err)) => {
+            tracing::warn!(%err, "journal compaction's commit boundary write failed");
+            RewriteOutcome::Indeterminate
+        }
+        Err(DurableWriteError::Indeterminate(err)) => {
+            let confirms = !std::mem::take(&mut state.confirm_fails)
+                && commit::confirm(&state.dir, len).is_ok();
+            if confirms {
+                RewriteOutcome::Confirmed
+            } else {
+                tracing::warn!(%err, "journal compaction's boundary durability is unknown");
+                RewriteOutcome::Indeterminate
+            }
+        }
+    };
+    // Adopt exactly what the file holds. A boundary that still names the old, longer file is
+    // repaired from the complete shorter file; anything else fails closed.
+    match commit::load(&state.dir)
+        .and_then(|committed| load_records(&state.dir, &state.meta, committed))
+    {
+        Ok((kept, valid_len, fence)) => {
+            state.records = kept;
+            state.valid_len = valid_len;
+            state.fenced = fence;
+        }
+        Err(err) => state.fenced = Some(Fence::corrupt(err.to_string())),
+    }
+    Ok(outcome)
 }
 
 pub(super) fn kept_executions(

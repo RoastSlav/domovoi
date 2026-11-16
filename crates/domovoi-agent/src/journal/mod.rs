@@ -4,6 +4,8 @@
 //! always tell "never reached the agent", "finished", "running here", or "unknowable".
 
 mod append;
+mod archive;
+mod commit;
 mod compact;
 mod limiter;
 mod lock;
@@ -165,7 +167,6 @@ impl Journal {
                 "an interrupted journal reset; run `domovoi agent journal reset`",
             )));
         }
-        append::recover_marker(dir)?;
         let mut meta = match Metadata::load(dir)? {
             Some(meta) => meta,
             None => {
@@ -182,7 +183,10 @@ impl Journal {
                 )));
             }
         };
-        let (mut records, mut valid_len, mut fenced) = load_records(dir, &meta)?;
+        // Without the durable committed length there is no statement about which bytes were
+        // acknowledged, so the journal cannot be trusted even if it parses.
+        let committed = commit::load(dir)?;
+        let (mut records, mut valid_len, mut fenced) = load_records(dir, &meta, committed)?;
         // A boot load is written once per boot, carrying the sticky marker forward.
         if meta.boot.boot_id != boot_id {
             let next = Metadata {
@@ -197,49 +201,22 @@ impl Journal {
                 Err(DurableWriteError::BeforeCommit(err)) => {
                     return Err(JournalError::State(err));
                 }
-                Err(DurableWriteError::Indeterminate(err)) => {
+                Err(DurableWriteError::Indeterminate(_err)) => {
                     // A rename may or may not be durable. Confirm the file and its directory
-                    // entry before adopting anything; a parseable journal alone is not proof.
-                    let meta_path = dir.join(META_FILE);
-                    let durable = std::fs::OpenOptions::new()
-                        .write(true)
-                        .open(&meta_path)
-                        .and_then(|file| file.sync_all())
-                        .and_then(|()| crate::fs_atomic::sync_dir(dir));
-                    if let Err(sync_err) = durable {
-                        return Err(JournalError::Corrupt(format!(
-                            "the boot metadata's durability is unknown: {sync_err}"
-                        )));
-                    }
-                    match Metadata::load(dir) {
-                        Ok(Some(loaded))
-                            if loaded.epoch == meta.epoch
-                                && loaded.boot == next.boot
-                                && loaded.pruned == next.pruned =>
-                        {
-                            match load_records(dir, &loaded) {
-                                Ok((kept, len, fence)) => {
-                                    meta = loaded;
-                                    records = kept;
-                                    valid_len = len;
-                                    fenced = fence;
-                                }
-                                Err(load_err) => {
-                                    fenced = Some(Fence::metadata(load_err.to_string()));
-                                }
-                            }
+                    // entry, require the exact intended metadata and a journal that validates
+                    // against it. A parseable journal alone is not proof.
+                    match store::reconcile_metadata(dir, &next) {
+                        Ok(reconciled) => {
+                            meta = reconciled.meta;
+                            records = reconciled.records;
+                            valid_len = reconciled.valid_len;
+                            fenced = reconciled.fence;
                         }
-                        Ok(Some(_)) => {
+                        Err(sync_err) => {
                             return Err(JournalError::Corrupt(format!(
-                                "the boot metadata change is not durably visible: {err}"
+                                "the boot metadata's durability is unknown: {sync_err}"
                             )));
                         }
-                        Ok(None) => {
-                            return Err(JournalError::Corrupt(
-                                "the boot metadata disappeared during its write".to_owned(),
-                            ));
-                        }
-                        Err(load_err) => return Err(load_err),
                     }
                 }
             }
@@ -253,8 +230,11 @@ impl Journal {
             running_now: BTreeSet::new(),
             meta_faults: DurableFaults::default(),
             append_fault: AppendFault::default(),
+            commit_faults: DurableFaults::default(),
+            confirm_fails: false,
             recovery_sync_fails: false,
             truncate_fails: false,
+            truncate_sync_fails: false,
             rewrite_dir_sync_fault: false,
         };
         lock.hold();
@@ -433,6 +413,30 @@ impl Journal {
     pub fn inject_append_fault(&self, fault: AppendFault) {
         if let Ok(mut state) = self.state.lock() {
             state.append_fault = fault;
+        }
+    }
+
+    /// Injects the next commit-boundary write failures. Test-only.
+    #[doc(hidden)]
+    pub fn inject_commit_faults(&self, faults: DurableFaults) {
+        if let Ok(mut state) = self.state.lock() {
+            state.commit_faults = faults;
+        }
+    }
+
+    /// Makes the recovery confirmation of an indeterminate commit boundary fail. Test-only.
+    #[doc(hidden)]
+    pub fn inject_commit_confirm_failure(&self) {
+        if let Ok(mut state) = self.state.lock() {
+            state.confirm_fails = true;
+        }
+    }
+
+    /// Makes the next append's repair truncation fail. Test-only.
+    #[doc(hidden)]
+    pub fn inject_truncate_failure(&self) {
+        if let Ok(mut state) = self.state.lock() {
+            state.truncate_fails = true;
         }
     }
 

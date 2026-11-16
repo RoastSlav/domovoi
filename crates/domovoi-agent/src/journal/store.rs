@@ -10,6 +10,7 @@ use jiff::Timestamp;
 use uuid::Uuid;
 
 use super::JOURNAL_FILE;
+use super::commit;
 use super::limiter::Acceptance;
 use super::meta::{META_FILE, Metadata};
 use super::record::{self, Record};
@@ -32,6 +33,8 @@ pub enum AppendFault {
     RecoverySync,
     /// Write the complete frame, fail both syncs, and fail the repair truncation.
     RecoverySyncTruncateFail,
+    /// Write the complete frame, fail both syncs, repair the length but fail its sync.
+    RecoverySyncTruncateSyncFail,
     /// Write and sync the frame, then report an uncertain outcome.
     Uncertain,
 }
@@ -89,17 +92,21 @@ pub(super) struct JournalState {
     pub(super) running_now: BTreeSet<Uuid>,
     pub(super) meta_faults: DurableFaults,
     pub(super) append_fault: AppendFault,
+    pub(super) commit_faults: DurableFaults,
+    pub(super) confirm_fails: bool,
     pub(super) recovery_sync_fails: bool,
     pub(super) truncate_fails: bool,
+    pub(super) truncate_sync_fails: bool,
     pub(super) rewrite_dir_sync_fault: bool,
 }
 
 pub(super) fn load_records(
     dir: &Path,
     meta: &Metadata,
+    committed: u64,
 ) -> Result<(Vec<Record>, u64, Option<Fence>), JournalError> {
     let path = dir.join(JOURNAL_FILE);
-    let Some(bytes) = crate::fs_atomic::read_optional(&path)? else {
+    let Some(mut bytes) = crate::fs_atomic::read_optional(&path)? else {
         return Ok((
             Vec::new(),
             0,
@@ -113,21 +120,46 @@ pub(super) fn load_records(
             Some(Fence::corrupt("the journal file is empty")),
         ));
     }
-    match record::parse(&bytes, meta.epoch) {
-        Ok(parsed) => {
-            if parsed.valid_len < bytes.len() as u64 {
-                // Only a physically incomplete final frame reaches here: truncate it so the
-                // next append starts on a frame boundary.
-                let file = std::fs::OpenOptions::new()
-                    .write(true)
-                    .open(&path)
-                    .map_err(|err| StateError::new(&path, err))?;
-                file.set_len(parsed.valid_len)
-                    .and_then(|()| file.sync_all())
-                    .map_err(|err| StateError::new(&path, err))?;
+    let actual = bytes.len() as u64;
+    if actual < committed {
+        // A compaction replaced the journal but its boundary update did not land (or a
+        // power failure lost the rename). The visible file is the only copy left; adopt it
+        // only when it is a complete, lifecycle-valid file, then make the boundary agree.
+        return match record::parse(&bytes, meta.epoch) {
+            Ok(parsed) if parsed.valid_len == actual => {
+                commit::write(dir, actual, DurableFaults::default()).map_err(|err| {
+                    JournalError::Corrupt(format!(
+                        "the journal is {actual} bytes but the committed boundary could not be \
+                         repaired: {err}"
+                    ))
+                })?;
+                Ok((parsed.records, actual, None))
             }
-            Ok((parsed.records, parsed.valid_len, None))
-        }
+            _ => Ok((
+                Vec::new(),
+                0,
+                Some(Fence::corrupt(format!(
+                    "the journal is {actual} bytes but the durable commit boundary is {committed}"
+                ))),
+            )),
+        };
+    }
+    if actual > committed {
+        // Bytes beyond the boundary were never acknowledged. They may form a complete,
+        // checksum-valid frame, but no commit point ever named them.
+        commit::truncate_journal(dir, committed)?;
+        bytes.truncate(committed as usize);
+    }
+    match record::parse(&bytes, meta.epoch) {
+        Ok(parsed) if parsed.valid_len == committed => Ok((parsed.records, committed, None)),
+        Ok(parsed) => Ok((
+            Vec::new(),
+            0,
+            Some(Fence::corrupt(format!(
+                "the journal ends at {} bytes inside the committed {committed} bytes",
+                parsed.valid_len
+            ))),
+        )),
         Err(err) => Ok((Vec::new(), 0, Some(Fence::corrupt(err.to_string())))),
     }
 }
@@ -135,14 +167,20 @@ pub(super) fn load_records(
 /// Marks an in-progress explicit reset so a retry can finish it instead of restarting it.
 pub(super) const RESET_INTENT_FILE: &str = "action-journal.reset";
 
-pub(super) fn create_epoch(
+/// Creates the journal, its commit boundary and its metadata for a known epoch.
+///
+/// The order is journal frame (synced), then the durable committed length, then metadata.
+/// The boundary write syncs the parent directory, so the journal's directory entry is
+/// durable by the time an append can be acknowledged.
+pub(super) fn create_epoch_with(
     dir: &Path,
+    epoch: Uuid,
     now: Timestamp,
     boot_id: &str,
     mono_ns: u64,
+    commit_faults: DurableFaults,
 ) -> Result<Uuid, JournalError> {
     std::fs::create_dir_all(dir).map_err(|err| StateError::new(dir, err))?;
-    let epoch = Uuid::now_v7();
     let created = Record::JournalCreated {
         format: Record::FORMAT,
         epoch,
@@ -161,10 +199,66 @@ pub(super) fn create_epoch(
         .and_then(|()| file.sync_all())
         .map_err(|err| StateError::new(&path, err))?;
     drop(file);
+    commit::write(dir, frame.len() as u64, commit_faults)
+        .map_err(|err| StateError::new(dir.join(commit::COMMIT_FILE), err))?;
     let meta = Metadata::new(epoch, boot_id, mono_ns);
     meta.write(dir, DurableFaults::default())
         .map_err(|err| StateError::new(dir.join(META_FILE), err))?;
     Ok(epoch)
+}
+
+/// The state implied by metadata that has been proven durable.
+#[derive(Debug)]
+pub(super) struct Reconciled {
+    pub(super) meta: Metadata,
+    pub(super) records: Vec<Record>,
+    pub(super) valid_len: u64,
+    pub(super) fence: Option<Fence>,
+}
+
+/// Proves that `expected` is the durable on-disk metadata and that the journal agrees.
+///
+/// This is the single reconciliation contract for startup and live metadata writes. It
+/// syncs the metadata file and its directory entry, requires the visible object to equal
+/// the intended one exactly, then loads the journal under the durable commit boundary. Any
+/// failure is returned, and the caller must keep its fence.
+pub(super) fn reconcile_metadata(
+    dir: &Path,
+    expected: &Metadata,
+) -> Result<Reconciled, JournalError> {
+    let path = dir.join(META_FILE);
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(&path)
+        .and_then(|file| file.sync_all())
+        .map_err(|err| StateError::new(&path, err))?;
+    crate::fs_atomic::sync_dir(dir).map_err(|err| StateError::new(dir, err))?;
+    let Some(visible) = Metadata::load(dir)? else {
+        return Err(JournalError::Corrupt(
+            "the metadata disappeared during its write".to_owned(),
+        ));
+    };
+    if visible != *expected {
+        return Err(JournalError::Corrupt(format!(
+            "the visible metadata is not the intended value: expected epoch {} boot {} \
+             first load {}, found epoch {} boot {} first load {} pruned {}",
+            expected.epoch,
+            expected.boot.boot_id,
+            expected.boot.first_load_mono_ns,
+            visible.epoch,
+            visible.boot.boot_id,
+            visible.boot.first_load_mono_ns,
+            visible.pruned
+        )));
+    }
+    let committed = commit::load(dir)?;
+    let (records, valid_len, fence) = load_records(dir, &visible, committed)?;
+    Ok(Reconciled {
+        meta: visible,
+        records,
+        valid_len,
+        fence,
+    })
 }
 
 /// Writes `next` metadata, handling the three outcomes. Returns whether it committed.
@@ -180,34 +274,21 @@ pub(super) fn write_meta_locked(
         }
         Err(DurableWriteError::BeforeCommit(err)) => Err(JournalError::State(err)),
         Err(DurableWriteError::Indeterminate(err)) => {
-            // Indeterminate durability: never remove records and never claim either version
-            // is authoritative without reading it. The visible metadata must parse, name the
-            // same epoch and describe a journal that itself validates before the fence clears.
+            // Indeterminate durability: fence first, then prove the intended object and its
+            // durability with the same reconciliation contract startup uses. A visible file
+            // with the same epoch is not proof; only exact equality after a confirmed sync is.
             state.fenced = Some(Fence::metadata(err.to_string()));
-            match Metadata::load(&state.dir) {
-                Ok(Some(meta)) if meta.epoch == state.meta.epoch => {
-                    match load_records(&state.dir, &meta) {
-                        Ok((records, valid_len, fence)) => {
-                            state.meta = meta;
-                            state.records = records;
-                            state.valid_len = valid_len;
-                            state.fenced = fence;
-                            Ok(false)
-                        }
-                        Err(load_err) => {
-                            state.fenced = Some(Fence::metadata(load_err.to_string()));
-                            Ok(false)
-                        }
-                    }
-                }
-                Ok(Some(_)) => {
-                    state.fenced = Some(Fence::metadata("metadata epoch changed during the write"));
+            match reconcile_metadata(&state.dir, next) {
+                Ok(reconciled) => {
+                    state.meta = reconciled.meta;
+                    state.records = reconciled.records;
+                    state.valid_len = reconciled.valid_len;
+                    state.fenced = reconciled.fence;
                     Ok(false)
                 }
-                Ok(None) => Ok(false),
-                Err(load_err) => {
-                    state.fenced = Some(Fence::metadata(load_err.to_string()));
-                    Ok(false)
+                Err(reconcile_err) => {
+                    state.fenced = Some(Fence::metadata(reconcile_err.to_string()));
+                    Err(reconcile_err)
                 }
             }
         }

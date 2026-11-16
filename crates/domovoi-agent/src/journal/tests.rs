@@ -93,6 +93,7 @@ fn journal_init_creates_journal_and_epoch() {
     assert!(!epoch.is_nil());
     assert!(dir.path().join(JOURNAL_FILE).exists());
     assert!(dir.path().join(super::META_FILE).exists());
+    assert_eq!(committed_len(dir.path()), journal_len(dir.path()));
     assert_eq!(open(dir.path()).epoch(), epoch);
 }
 
@@ -105,6 +106,10 @@ fn journal_init_refuses_when_either_file_exists() {
     let only_journal = TempDir::new().unwrap();
     std::fs::write(only_journal.path().join(JOURNAL_FILE), b"x").unwrap();
     assert!(Journal::init_unlocked(only_journal.path(), T0, BOOT, MONO).is_err());
+
+    let only_boundary = TempDir::new().unwrap();
+    super::commit::write(only_boundary.path(), 0, DurableFaults::default()).unwrap();
+    assert!(Journal::init_unlocked(only_boundary.path(), T0, BOOT, MONO).is_err());
 }
 
 #[test]
@@ -738,23 +743,24 @@ fn failed_acceptance_sync_never_acknowledges() {
     let id = Uuid::now_v7();
     {
         let journal = open(dir.path());
-        // Both the first sync and the recovery sync fail: the journal is fenced.
+        // Both the first sync and the recovery sync fail: the frame is uncommitted and the
+        // repair returns to the durable boundary.
         journal.inject_append_fault(AppendFault::RecoverySync);
         assert!(
             journal
                 .accept(&request(id, "container.restart", true), T0, BOOT, MONO)
                 .is_err()
         );
-        assert!(journal.corruption().is_some());
-        assert!(!matches!(state_of(&journal, id), ActionState::NotFound));
+        assert!(
+            journal.corruption().is_none(),
+            "a synced repair leaves a fully known state"
+        );
+        assert_eq!(state_of(&journal, id), ActionState::NotFound);
     }
-    // The unconfirmed frame was truncated, and a restart is still fenced only by absence:
-    // the previous journal state is intact and no spawned execution exists.
+    // The unconfirmed frame was truncated; the previous journal state is intact and no
+    // spawned execution exists.
     let reopened = open(dir.path());
-    assert!(matches!(
-        state_of(&reopened, id),
-        ActionState::NotFound | ActionState::OutcomeUnknown { .. }
-    ));
+    assert_eq!(state_of(&reopened, id), ActionState::NotFound);
 }
 
 #[test]
@@ -859,7 +865,6 @@ fn failed_finished_append_never_reports_durable_success() {
         !matches!(state_of(&journal, id), ActionState::Finished { .. }),
         "an unconfirmed finish is never authoritative"
     );
-    assert!(journal.corruption().is_some());
 }
 
 #[test]
@@ -970,7 +975,18 @@ fn write_records(dir: &Path, records: &[Record]) {
     for record in records {
         bytes.extend_from_slice(&super::record::frame(record).unwrap());
     }
-    std::fs::write(dir.join(JOURNAL_FILE), bytes).unwrap();
+    std::fs::write(dir.join(JOURNAL_FILE), &bytes).unwrap();
+    // Every journal file created outside `init` still needs a commit boundary that names
+    // its complete contents.
+    super::commit::write(dir, bytes.len() as u64, DurableFaults::default()).unwrap();
+}
+
+fn committed_len(dir: &Path) -> u64 {
+    super::commit::load(dir).unwrap()
+}
+
+fn journal_len(dir: &Path) -> u64 {
+    std::fs::metadata(dir.join(JOURNAL_FILE)).unwrap().len()
 }
 
 fn assert_corrupt(dir: &Path) {
@@ -1109,6 +1125,12 @@ fn rejects_unknown_record_kind() {
     bytes.extend_from_slice(&sha2::Sha256::digest(payload));
     bytes.extend_from_slice(payload);
     std::fs::write(dir.path().join(JOURNAL_FILE), bytes).unwrap();
+    super::commit::write(
+        dir.path(),
+        journal_len(dir.path()),
+        DurableFaults::default(),
+    )
+    .unwrap();
     assert_corrupt(dir.path());
 }
 
@@ -1654,6 +1676,7 @@ fn archive_names(dir: &Path) -> Vec<String> {
         .map(|entry| entry.file_name().to_string_lossy().into_owned())
         .filter(|name| {
             name.starts_with("action-journal.")
+                && name != "action-journal.commit"
                 && !name.ends_with(".bin")
                 && !name.ends_with(".json")
                 && !name.ends_with(".lock")
@@ -1745,16 +1768,23 @@ fn repeated_resets_keep_unique_archives() {
 fn an_interrupted_reset_can_be_resumed() {
     let dir = TempDir::new().unwrap();
     init(dir.path());
+    let epoch = Uuid::now_v7();
     std::fs::write(
         dir.path().join(super::store::RESET_INTENT_FILE),
-        br#"{"stage":"archiving","generation":"g","epoch":null}"#,
+        serde_json::to_vec(&serde_json::json!({
+            "stage": "archiving",
+            "generation": "g",
+            "sources": [JOURNAL_FILE, super::META_FILE, super::commit::COMMIT_FILE],
+            "epoch": epoch.to_string(),
+        }))
+        .unwrap(),
     )
     .unwrap();
-    std::fs::remove_file(dir.path().join(JOURNAL_FILE)).unwrap();
-    std::fs::remove_file(dir.path().join(super::META_FILE)).unwrap();
-    let epoch = Journal::reset_unlocked(dir.path(), T0, BOOT, MONO).unwrap();
-    assert!(!epoch.is_nil());
+    let resumed = Journal::reset_unlocked(dir.path(), T0, BOOT, MONO).unwrap();
+    assert_eq!(resumed, epoch, "the epoch chosen before archival is reused");
     assert!(!dir.path().join(super::store::RESET_INTENT_FILE).exists());
+    assert!(dir.path().join(format!("{JOURNAL_FILE}.g")).exists());
+    assert!(dir.path().join(format!("{}.g", super::META_FILE)).exists());
     assert!(Journal::open_unlocked(dir.path(), BOOT, MONO, limits()).is_ok());
 }
 
@@ -1806,12 +1836,14 @@ fn unconfirmed_finished_frame_is_not_adopted_after_restart() {
     let dir = TempDir::new().unwrap();
     init(dir.path());
     let id = Uuid::now_v7();
+    let committed;
     {
         let journal = open(dir.path());
         journal
             .accept(&request(id, "container.restart", true), T0, BOOT, MONO)
             .unwrap();
         journal.started(id, 1, 1).unwrap();
+        committed = committed_len(dir.path());
         journal.inject_append_fault(AppendFault::RecoverySyncTruncateFail);
         assert!(journal.finished(id, result()).is_err());
         assert!(!matches!(
@@ -1819,14 +1851,20 @@ fn unconfirmed_finished_frame_is_not_adopted_after_restart() {
             ActionState::Finished { .. }
         ));
     }
-    // The durable marker repairs the unconfirmed frame on the next open.
-    assert!(dir.path().join(super::append::APPEND_MARKER_FILE).exists());
+    // The durable boundary still names the started record; the finished frame lies beyond it
+    // and the process's fence disappeared with the process.
+    assert_eq!(committed_len(dir.path()), committed);
+    assert!(journal_len(dir.path()) > committed);
     let reopened = open(dir.path());
     assert!(!matches!(
         state_of(&reopened, id),
         ActionState::Finished { .. }
     ));
-    assert!(!dir.path().join(super::append::APPEND_MARKER_FILE).exists());
+    assert_eq!(
+        journal_len(dir.path()),
+        committed,
+        "startup truncated everything past the committed boundary"
+    );
 }
 
 #[test]
@@ -1834,6 +1872,7 @@ fn unconfirmed_acceptance_does_not_spawn_after_restart() {
     let dir = TempDir::new().unwrap();
     init(dir.path());
     let id = Uuid::now_v7();
+    let committed = committed_len(dir.path());
     {
         let journal = open(dir.path());
         journal.inject_append_fault(AppendFault::RecoverySyncTruncateFail);
@@ -1843,11 +1882,13 @@ fn unconfirmed_acceptance_does_not_spawn_after_restart() {
                 .is_err()
         );
     }
+    assert_eq!(committed_len(dir.path()), committed);
     let reopened = open(dir.path());
-    assert!(matches!(
+    assert_eq!(
         state_of(&reopened, id),
-        ActionState::NotFound | ActionState::OutcomeUnknown { .. }
-    ));
+        ActionState::NotFound,
+        "an uncommitted acceptance is never adopted"
+    );
 }
 
 #[test]
@@ -1982,4 +2023,969 @@ async fn leader_exits_before_recovery_but_a_descendant_is_still_terminated() {
             reason
         } if reason.known() == Some(&OutcomeUnknownReason::AgentRestarted)
     ));
+}
+
+// ---- Commit boundary -------------------------------------------------------
+
+#[test]
+fn append_open_failure_leaves_the_boundary_and_records_unchanged() {
+    let dir = TempDir::new().unwrap();
+    init(dir.path());
+    let journal = open(dir.path());
+    let committed = committed_len(dir.path());
+    let id = Uuid::now_v7();
+    journal.inject_append_fault(AppendFault::Open);
+    assert!(
+        journal
+            .accept(&request(id, "container.restart", true), T0, BOOT, MONO)
+            .is_err()
+    );
+    assert_eq!(committed_len(dir.path()), committed);
+    assert_eq!(journal_len(dir.path()), committed);
+    assert!(journal.corruption().is_none());
+    assert_eq!(state_of(&journal, id), ActionState::NotFound);
+}
+
+#[test]
+fn a_missing_commit_boundary_fails_startup_closed() {
+    let dir = TempDir::new().unwrap();
+    init(dir.path());
+    std::fs::remove_file(dir.path().join(super::commit::COMMIT_FILE)).unwrap();
+    assert!(
+        Journal::open_unlocked(dir.path(), BOOT, MONO, limits()).is_err(),
+        "a journal without a boundary has no acknowledged bytes"
+    );
+}
+
+#[test]
+fn a_complete_frame_beyond_the_boundary_is_truncated_at_startup() {
+    let dir = TempDir::new().unwrap();
+    init(dir.path());
+    let id = Uuid::now_v7();
+    let committed;
+    {
+        let journal = open(dir.path());
+        journal
+            .accept(&request(id, "container.restart", true), T0, BOOT, MONO)
+            .unwrap();
+        journal.started(id, 1, 1).unwrap();
+        committed = committed_len(dir.path());
+    }
+    // Simulate a crash after the frame was written and synced but before the boundary was
+    // replaced: the bytes are complete and checksum-valid, yet nobody acknowledged them.
+    let path = dir.path().join(JOURNAL_FILE);
+    let mut bytes = std::fs::read(&path).unwrap();
+    bytes.extend_from_slice(&super::record::frame(&finished_rec(id)).unwrap());
+    std::fs::write(&path, bytes).unwrap();
+    let reopened = open(dir.path());
+    assert_eq!(committed_len(dir.path()), committed);
+    assert_eq!(journal_len(dir.path()), committed);
+    assert!(!matches!(
+        state_of(&reopened, id),
+        ActionState::Finished { .. }
+    ));
+}
+
+#[test]
+fn a_boundary_write_failure_never_acknowledges_the_append() {
+    for (stage, faults) in [
+        (
+            "temporary-file sync",
+            DurableFaults {
+                temp_sync: true,
+                ..DurableFaults::default()
+            },
+        ),
+        (
+            "rename",
+            DurableFaults {
+                rename: true,
+                ..DurableFaults::default()
+            },
+        ),
+    ] {
+        let dir = TempDir::new().unwrap();
+        init(dir.path());
+        let journal = open(dir.path());
+        let accepted = Uuid::now_v7();
+        let committed = committed_len(dir.path());
+        journal.inject_commit_faults(faults);
+        assert!(
+            journal
+                .accept(
+                    &request(accepted, "container.restart", true),
+                    T0,
+                    BOOT,
+                    MONO
+                )
+                .is_err(),
+            "{stage}: the append is not acknowledged"
+        );
+        assert_eq!(committed_len(dir.path()), committed, "{stage}");
+        assert_eq!(journal_len(dir.path()), committed, "{stage}");
+        assert!(journal.corruption().is_none(), "{stage}");
+        let reopened = open(dir.path());
+        assert_eq!(
+            state_of(&reopened, accepted),
+            ActionState::NotFound,
+            "{stage}"
+        );
+    }
+}
+
+#[test]
+fn an_unconfirmed_boundary_is_confirmed_by_a_recovery_sync() {
+    let dir = TempDir::new().unwrap();
+    init(dir.path());
+    let journal = open(dir.path());
+    let id = Uuid::now_v7();
+    journal.inject_commit_faults(DurableFaults {
+        dir_sync: true,
+        ..DurableFaults::default()
+    });
+    assert_eq!(
+        journal
+            .accept(&request(id, "container.restart", true), T0, BOOT, MONO)
+            .unwrap(),
+        AcceptOutcome::Accepted,
+        "the recovery sync proved the boundary durable"
+    );
+    assert!(journal.corruption().is_none());
+    let reopened = open(dir.path());
+    assert!(matches!(
+        state_of(&reopened, id),
+        ActionState::OutcomeUnknown { .. }
+    ));
+}
+
+#[test]
+fn an_unconfirmed_boundary_without_confirmation_is_rolled_back() {
+    let dir = TempDir::new().unwrap();
+    init(dir.path());
+    let id = Uuid::now_v7();
+    let committed = committed_len(dir.path());
+    {
+        let journal = open(dir.path());
+        journal.inject_commit_faults(DurableFaults {
+            dir_sync: true,
+            ..DurableFaults::default()
+        });
+        journal.inject_commit_confirm_failure();
+        assert!(
+            journal
+                .accept(&request(id, "container.restart", true), T0, BOOT, MONO)
+                .is_err()
+        );
+    }
+    assert_eq!(committed_len(dir.path()), committed);
+    let reopened = open(dir.path());
+    assert_eq!(state_of(&reopened, id), ActionState::NotFound);
+}
+
+#[test]
+fn failed_boundary_and_failed_truncation_never_adopt_after_restart() {
+    // The exact dangerous case: a complete synced frame, the boundary replacement fails,
+    // and the repair truncation fails too. The process then dies.
+    let dir = TempDir::new().unwrap();
+    init(dir.path());
+    let kept = Uuid::now_v7();
+    let lost = Uuid::now_v7();
+    let committed;
+    {
+        let journal = open(dir.path());
+        journal
+            .accept(&request(kept, "container.restart", true), T0, BOOT, MONO)
+            .unwrap();
+        committed = committed_len(dir.path());
+        journal.inject_append_fault(AppendFault::Uncertain);
+        journal.inject_commit_faults(DurableFaults {
+            rename: true,
+            ..DurableFaults::default()
+        });
+        journal.inject_truncate_failure();
+        assert!(
+            journal
+                .accept(&request(lost, "container.restart", true), T0, BOOT, MONO)
+                .is_err()
+        );
+        assert!(journal.corruption().is_some(), "the process is fenced");
+    }
+    // The frame is still physically present and parses on its own, but no boundary names it.
+    assert_eq!(committed_len(dir.path()), committed);
+    assert!(journal_len(dir.path()) > committed);
+    let reopened = open(dir.path());
+    assert!(
+        matches!(
+            state_of(&reopened, kept),
+            ActionState::OutcomeUnknown { reason }
+                if reason.known() == Some(&OutcomeUnknownReason::NoStartRecord)
+        ),
+        "the previously committed record survives"
+    );
+    assert_eq!(
+        state_of(&reopened, lost),
+        ActionState::NotFound,
+        "the unconfirmed frame never becomes authoritative"
+    );
+    assert_eq!(
+        journal_len(dir.path()),
+        committed,
+        "startup truncated the unconfirmed frame"
+    );
+}
+
+// ---- Shared metadata reconciliation ---------------------------------------
+
+#[test]
+fn reconciliation_accepts_only_the_exact_intended_metadata() {
+    let dir = TempDir::new().unwrap();
+    init(dir.path());
+    let meta = super::Metadata::load(dir.path()).unwrap().unwrap();
+    let reconciled = super::store::reconcile_metadata(dir.path(), &meta).unwrap();
+    assert_eq!(reconciled.meta, meta);
+    assert!(reconciled.fence.is_none());
+
+    // Same epoch, different sticky state: this is not the intended object.
+    let mut wrong = meta.clone();
+    wrong.pruned = true;
+    let err = super::store::reconcile_metadata(dir.path(), &wrong).unwrap_err();
+    assert!(err.to_string().contains("not the intended value"), "{err}");
+}
+
+#[test]
+fn reconciliation_rejects_corrupt_metadata() {
+    let dir = TempDir::new().unwrap();
+    init(dir.path());
+    let meta = super::Metadata::load(dir.path()).unwrap().unwrap();
+    std::fs::write(dir.path().join(super::META_FILE), b"{ not json").unwrap();
+    assert!(super::store::reconcile_metadata(dir.path(), &meta).is_err());
+}
+
+#[test]
+fn reconciliation_fences_an_inconsistent_journal() {
+    let dir = TempDir::new().unwrap();
+    init(dir.path());
+    let meta = super::Metadata::load(dir.path()).unwrap().unwrap();
+    std::fs::remove_file(dir.path().join(JOURNAL_FILE)).unwrap();
+    let reconciled = super::store::reconcile_metadata(dir.path(), &meta).unwrap();
+    assert!(
+        reconciled.fence.is_some(),
+        "valid metadata with a missing journal is fenced, not adopted as healthy"
+    );
+}
+
+#[test]
+fn metadata_write_failures_before_replacement_leave_the_old_value() {
+    for (stage, faults) in [
+        (
+            "temporary-file sync",
+            DurableFaults {
+                temp_sync: true,
+                ..DurableFaults::default()
+            },
+        ),
+        (
+            "rename",
+            DurableFaults {
+                rename: true,
+                ..DurableFaults::default()
+            },
+        ),
+    ] {
+        let dir = TempDir::new().unwrap();
+        init(dir.path());
+        let id = Uuid::now_v7();
+        let journal = open(dir.path());
+        finished_execution(&journal, id);
+        journal.inject_metadata_faults(faults);
+        assert!(
+            journal
+                .prune(0, MONO + super::limiter::WINDOW_NS + 1, BOOT)
+                .is_err(),
+            "{stage}"
+        );
+        assert!(
+            journal.corruption().is_none(),
+            "{stage}: nothing was renamed"
+        );
+        let meta = super::Metadata::load(dir.path()).unwrap().unwrap();
+        assert!(!meta.pruned, "{stage}");
+        assert!(matches!(
+            state_of(&journal, id),
+            ActionState::Finished { .. }
+        ));
+    }
+}
+
+#[test]
+fn an_indeterminate_metadata_write_adopts_the_confirmed_intended_value() {
+    let dir = TempDir::new().unwrap();
+    init(dir.path());
+    let journal = open(dir.path());
+    finished_execution(&journal, Uuid::now_v7());
+    journal.inject_metadata_faults(DurableFaults {
+        dir_sync: true,
+        ..DurableFaults::default()
+    });
+    assert!(
+        !journal
+            .prune(0, MONO + super::limiter::WINDOW_NS + 1, BOOT)
+            .unwrap(),
+        "the rewrite did not report removed records"
+    );
+    assert!(
+        journal.corruption().is_none(),
+        "the recovery sync confirmed the intended metadata"
+    );
+    let meta = super::Metadata::load(dir.path()).unwrap().unwrap();
+    assert!(
+        meta.pruned,
+        "the sticky marker is adopted only after confirmation"
+    );
+}
+
+// ---- Reset archive ordering ------------------------------------------------
+
+fn has_original(dir: &Path, name: &str, original: &[u8]) -> bool {
+    if std::fs::read(dir.join(name)).ok().as_deref() == Some(original) {
+        return true;
+    }
+    std::fs::read_dir(dir)
+        .unwrap()
+        .filter_map(Result::ok)
+        .any(|entry| {
+            let candidate = entry.file_name().to_string_lossy().into_owned();
+            candidate.starts_with(&format!("{name}."))
+                && std::fs::read(entry.path()).ok().as_deref() == Some(original)
+        })
+}
+
+#[test]
+fn every_archive_failure_keeps_a_recoverable_copy_and_resumes() {
+    let cases = [
+        (
+            "intent write",
+            super::reset::ResetFaults {
+                intent_write: true,
+                ..super::reset::ResetFaults::default()
+            },
+        ),
+        (
+            "first link",
+            super::reset::ResetFaults {
+                link_first: true,
+                ..super::reset::ResetFaults::default()
+            },
+        ),
+        (
+            "second link",
+            super::reset::ResetFaults {
+                link_second: true,
+                ..super::reset::ResetFaults::default()
+            },
+        ),
+        (
+            "link verification",
+            super::reset::ResetFaults {
+                verify: true,
+                ..super::reset::ResetFaults::default()
+            },
+        ),
+        (
+            "directory sync after links",
+            super::reset::ResetFaults {
+                link_dir_sync: true,
+                ..super::reset::ResetFaults::default()
+            },
+        ),
+        (
+            "first source removal",
+            super::reset::ResetFaults {
+                remove_first: true,
+                ..super::reset::ResetFaults::default()
+            },
+        ),
+        (
+            "second source removal",
+            super::reset::ResetFaults {
+                remove_second: true,
+                ..super::reset::ResetFaults::default()
+            },
+        ),
+        (
+            "directory sync after removal",
+            super::reset::ResetFaults {
+                remove_dir_sync: true,
+                ..super::reset::ResetFaults::default()
+            },
+        ),
+        (
+            "epoch creation",
+            super::reset::ResetFaults {
+                create_epoch: true,
+                ..super::reset::ResetFaults::default()
+            },
+        ),
+        (
+            "epoch boundary",
+            super::reset::ResetFaults {
+                epoch_commit: DurableFaults {
+                    rename: true,
+                    ..DurableFaults::default()
+                },
+                ..super::reset::ResetFaults::default()
+            },
+        ),
+        (
+            "intent removal",
+            super::reset::ResetFaults {
+                intent_remove: true,
+                ..super::reset::ResetFaults::default()
+            },
+        ),
+        (
+            "intent directory sync",
+            super::reset::ResetFaults {
+                intent_dir_sync: true,
+                ..super::reset::ResetFaults::default()
+            },
+        ),
+    ];
+    for (stage, faults) in cases {
+        let dir = TempDir::new().unwrap();
+        init(dir.path());
+        let journal = std::fs::read(dir.path().join(JOURNAL_FILE)).unwrap();
+        let meta = std::fs::read(dir.path().join(super::META_FILE)).unwrap();
+        let boundary = std::fs::read(dir.path().join(super::commit::COMMIT_FILE)).unwrap();
+        assert!(
+            Journal::reset_unlocked_with_faults(dir.path(), T0, BOOT, MONO, faults).is_err(),
+            "{stage}: the reset must report failure"
+        );
+        assert!(has_original(dir.path(), JOURNAL_FILE, &journal), "{stage}");
+        assert!(has_original(dir.path(), super::META_FILE, &meta), "{stage}");
+        assert!(
+            has_original(dir.path(), super::commit::COMMIT_FILE, &boundary),
+            "{stage}"
+        );
+        // Retrying the interrupted reset finishes it without losing any copy.
+        let epoch = Journal::reset_unlocked(dir.path(), T0, BOOT, MONO)
+            .unwrap_or_else(|err| panic!("{stage}: retry failed: {err}"));
+        assert!(!epoch.is_nil(), "{stage}");
+        assert!(has_original(dir.path(), JOURNAL_FILE, &journal), "{stage}");
+        assert!(has_original(dir.path(), super::META_FILE, &meta), "{stage}");
+        assert!(
+            has_original(dir.path(), super::commit::COMMIT_FILE, &boundary),
+            "{stage}"
+        );
+        assert!(
+            Journal::open_unlocked(dir.path(), BOOT, MONO, limits()).is_ok(),
+            "{stage}: the reset journal opens"
+        );
+        assert!(
+            !dir.path().join(super::store::RESET_INTENT_FILE).exists(),
+            "{stage}"
+        );
+    }
+}
+
+#[test]
+fn a_reset_resumes_after_links_are_durable_but_sources_remain() {
+    let dir = TempDir::new().unwrap();
+    init(dir.path());
+    let journal = std::fs::read(dir.path().join(JOURNAL_FILE)).unwrap();
+    let meta = std::fs::read(dir.path().join(super::META_FILE)).unwrap();
+    let epoch = Uuid::now_v7();
+    // Simulate the crash window: links exist, sources are still present.
+    for (name, bytes) in [
+        (JOURNAL_FILE, &journal),
+        (super::META_FILE, &meta),
+        (
+            super::commit::COMMIT_FILE,
+            &std::fs::read(dir.path().join(super::commit::COMMIT_FILE)).unwrap(),
+        ),
+    ] {
+        std::fs::hard_link(dir.path().join(name), dir.path().join(format!("{name}.g"))).unwrap();
+        assert_eq!(
+            std::fs::read(dir.path().join(format!("{name}.g"))).unwrap(),
+            *bytes
+        );
+    }
+    std::fs::write(
+        dir.path().join(super::store::RESET_INTENT_FILE),
+        serde_json::to_vec(&serde_json::json!({
+            "stage": "archiving",
+            "generation": "g",
+            "sources": [JOURNAL_FILE, super::META_FILE, super::commit::COMMIT_FILE],
+            "epoch": epoch.to_string(),
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        Journal::reset_unlocked(dir.path(), T0, BOOT, MONO).unwrap(),
+        epoch
+    );
+    assert!(has_original(dir.path(), JOURNAL_FILE, &journal));
+    assert!(has_original(dir.path(), super::META_FILE, &meta));
+    assert!(Journal::open_unlocked(dir.path(), BOOT, MONO, limits()).is_ok());
+}
+
+#[test]
+fn a_reset_finishes_an_epoch_created_before_the_stage_write() {
+    let dir = TempDir::new().unwrap();
+    let epoch = Uuid::now_v7();
+    super::store::create_epoch_with(dir.path(), epoch, T0, BOOT, MONO, DurableFaults::default())
+        .unwrap();
+    std::fs::write(
+        dir.path().join(super::store::RESET_INTENT_FILE),
+        serde_json::to_vec(&serde_json::json!({
+            "stage": "archived",
+            "generation": "g",
+            "sources": [],
+            "epoch": epoch.to_string(),
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        Journal::reset_unlocked(dir.path(), T0, BOOT, MONO).unwrap(),
+        epoch,
+        "the already-created epoch is not rotated"
+    );
+    assert!(!dir.path().join(super::store::RESET_INTENT_FILE).exists());
+}
+
+#[test]
+fn a_reset_refuses_a_journal_from_another_epoch() {
+    let dir = TempDir::new().unwrap();
+    let epoch = Uuid::now_v7();
+    super::store::create_epoch_with(dir.path(), epoch, T0, BOOT, MONO, DurableFaults::default())
+        .unwrap();
+    std::fs::write(
+        dir.path().join(super::store::RESET_INTENT_FILE),
+        serde_json::to_vec(&serde_json::json!({
+            "stage": "archived",
+            "generation": "g",
+            "sources": [],
+            "epoch": Uuid::now_v7().to_string(),
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    assert!(Journal::reset_unlocked(dir.path(), T0, BOOT, MONO).is_err());
+    assert!(
+        dir.path().join(super::store::RESET_INTENT_FILE).exists(),
+        "the unresolved intent is kept"
+    );
+    let meta = super::Metadata::load(dir.path()).unwrap().unwrap();
+    assert_eq!(meta.epoch, epoch, "the existing epoch is untouched");
+}
+
+#[test]
+fn a_metadata_only_reset_archives_the_metadata_and_boundary() {
+    let dir = TempDir::new().unwrap();
+    init(dir.path());
+    let meta = std::fs::read(dir.path().join(super::META_FILE)).unwrap();
+    std::fs::remove_file(dir.path().join(JOURNAL_FILE)).unwrap();
+    let epoch = Journal::reset_unlocked(dir.path(), T0, BOOT, MONO).unwrap();
+    assert!(!epoch.is_nil());
+    assert!(has_original(dir.path(), super::META_FILE, &meta));
+    assert!(Journal::open_unlocked(dir.path(), BOOT, MONO, limits()).is_ok());
+}
+
+// ---- Injected process inspection ------------------------------------------
+
+struct SteppingClock {
+    now: std::sync::Mutex<Timestamp>,
+}
+
+impl SteppingClock {
+    fn new(now: Timestamp) -> Self {
+        Self {
+            now: std::sync::Mutex::new(now),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl domovoi_core::ports::Clock for SteppingClock {
+    fn now(&self) -> Timestamp {
+        *self.now.lock().unwrap()
+    }
+
+    async fn sleep_until(&self, at: Timestamp) {
+        *self.now.lock().unwrap() = at;
+    }
+}
+
+struct FakeInspector {
+    procs: std::sync::Mutex<BTreeMap<u32, super::recovery::ProcessLookup>>,
+    group: std::sync::Mutex<Option<bool>>,
+    list_fails: bool,
+    term: super::recovery::SignalOutcome,
+    kill: super::recovery::SignalOutcome,
+    deliver: bool,
+    sent: std::sync::Mutex<Vec<(u32, super::recovery::Signal)>>,
+}
+
+impl FakeInspector {
+    fn new() -> Self {
+        Self {
+            procs: std::sync::Mutex::new(BTreeMap::new()),
+            group: std::sync::Mutex::new(Some(true)),
+            list_fails: false,
+            term: super::recovery::SignalOutcome::Sent,
+            kill: super::recovery::SignalOutcome::Sent,
+            deliver: true,
+            sent: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+
+    fn set(&self, pid: u32, lookup: super::recovery::ProcessLookup) {
+        self.procs.lock().unwrap().insert(pid, lookup);
+    }
+
+    fn set_group(&self, exists: Option<bool>) {
+        *self.group.lock().unwrap() = exists;
+    }
+
+    fn signals(&self) -> Vec<(u32, super::recovery::Signal)> {
+        self.sent.lock().unwrap().clone()
+    }
+
+    fn live(start_time: u64, pgrp: u32, session: u32) -> super::recovery::ProcessLookup {
+        super::recovery::ProcessLookup::Running(super::recovery::ProcessStat {
+            state: 'S',
+            start_time,
+            pgrp,
+            session,
+        })
+    }
+}
+
+impl super::recovery::ProcessInspector for FakeInspector {
+    fn lookup(&self, pid: u32) -> super::recovery::ProcessLookup {
+        self.procs
+            .lock()
+            .unwrap()
+            .get(&pid)
+            .copied()
+            .unwrap_or(super::recovery::ProcessLookup::Gone)
+    }
+
+    fn list(&self) -> Result<Vec<u32>, super::recovery::InspectError> {
+        if self.list_fails {
+            return Err(super::recovery::InspectError::new(std::io::Error::other(
+                "injected enumeration failure",
+            )));
+        }
+        Ok(self.procs.lock().unwrap().keys().copied().collect())
+    }
+
+    fn group_exists(&self, _pgid: u32) -> Option<bool> {
+        *self.group.lock().unwrap()
+    }
+
+    fn signal(&self, pgid: u32, signal: super::recovery::Signal) -> super::recovery::SignalOutcome {
+        self.sent.lock().unwrap().push((pgid, signal));
+        let outcome = match signal {
+            super::recovery::Signal::Term => self.term,
+            super::recovery::Signal::Kill => self.kill,
+        };
+        if outcome == super::recovery::SignalOutcome::Sent && self.deliver {
+            let mut procs = self.procs.lock().unwrap();
+            for lookup in procs.values_mut() {
+                if matches!(
+                    lookup,
+                    super::recovery::ProcessLookup::Running(stat) if stat.pgrp == pgid
+                ) {
+                    *lookup = super::recovery::ProcessLookup::Gone;
+                }
+            }
+            *self.group.lock().unwrap() = Some(false);
+        }
+        outcome
+    }
+}
+
+fn started_at(id: Uuid, pid: u32, start: u64, pgid: u32, session: u32) -> Record {
+    Record::Started {
+        format: Record::FORMAT,
+        execution_id: id,
+        pid,
+        proc_start_time: start,
+        pgid,
+        session,
+    }
+}
+
+fn orphan_journal(dir: &Path, id: Uuid, pid: u32, start: u64) -> Journal {
+    let epoch = init(dir);
+    write_records(
+        dir,
+        &[
+            created(epoch),
+            accepted(id),
+            started_at(id, pid, start, pid, 9),
+        ],
+    );
+    open(dir)
+}
+
+fn abandoned_count(dir: &Path, id: Uuid) -> usize {
+    let epoch = super::Metadata::load(dir).unwrap().unwrap().epoch;
+    let bytes = match std::fs::read(dir.join(JOURNAL_FILE)) {
+        Ok(bytes) => bytes,
+        Err(_) => return 0,
+    };
+    super::record::parse(&bytes, epoch)
+        .map(|parsed| {
+            parsed
+                .records
+                .iter()
+                .filter(|record| {
+                    matches!(
+                        record,
+                        Record::Abandoned { execution_id, .. } if *execution_id == id
+                    )
+                })
+                .count()
+        })
+        .unwrap_or(0)
+}
+
+#[tokio::test]
+async fn an_unreadable_group_member_is_unknown_and_never_abandoned() {
+    let dir = TempDir::new().unwrap();
+    let id = Uuid::now_v7();
+    let leader = 41_001;
+    let member = 41_002;
+    let journal = orphan_journal(dir.path(), id, leader, 7);
+    let clock = SteppingClock::new(T0);
+    let inspector = FakeInspector::new();
+    inspector.set(member, super::recovery::ProcessLookup::Denied);
+    journal.recover_orphans_with(&clock, &inspector).await;
+    assert_eq!(
+        abandoned_count(dir.path(), id),
+        0,
+        "an unreadable member means the group is not proven empty"
+    );
+    // A later complete scan proves the group gone.
+    inspector.set(member, super::recovery::ProcessLookup::Gone);
+    inspector.set_group(Some(false));
+    journal.recover_orphans_with(&clock, &inspector).await;
+    assert_eq!(
+        abandoned_count(dir.path(), id),
+        1,
+        "abandonment follows a complete scan that proves emptiness"
+    );
+}
+
+#[tokio::test]
+async fn failed_and_malformed_process_reads_are_unknown() {
+    for lookup in [
+        super::recovery::ProcessLookup::Failed,
+        super::recovery::ProcessLookup::Malformed,
+    ] {
+        let dir = TempDir::new().unwrap();
+        let id = Uuid::now_v7();
+        let journal = orphan_journal(dir.path(), id, 41_010, 7);
+        let clock = SteppingClock::new(T0);
+        let inspector = FakeInspector::new();
+        inspector.set(41_011, lookup);
+        journal.recover_orphans_with(&clock, &inspector).await;
+        assert_eq!(abandoned_count(dir.path(), id), 0, "{lookup:?}");
+    }
+}
+
+#[tokio::test]
+async fn a_failed_process_enumeration_is_unknown() {
+    let dir = TempDir::new().unwrap();
+    let id = Uuid::now_v7();
+    let journal = orphan_journal(dir.path(), id, 41_020, 7);
+    let clock = SteppingClock::new(T0);
+    let mut inspector = FakeInspector::new();
+    inspector.list_fails = true;
+    inspector.set_group(Some(false));
+    journal.recover_orphans_with(&clock, &inspector).await;
+    assert_eq!(abandoned_count(dir.path(), id), 0);
+}
+
+#[tokio::test]
+async fn a_zombie_only_group_is_empty_and_abandoned() {
+    let dir = TempDir::new().unwrap();
+    let id = Uuid::now_v7();
+    let journal = orphan_journal(dir.path(), id, 41_030, 7);
+    let clock = SteppingClock::new(T0);
+    let inspector = FakeInspector::new();
+    inspector.set(
+        41_031,
+        super::recovery::ProcessLookup::Running(super::recovery::ProcessStat {
+            state: 'Z',
+            start_time: 9,
+            pgrp: 41_030,
+            session: 9,
+        }),
+    );
+    journal.recover_orphans_with(&clock, &inspector).await;
+    assert_eq!(
+        abandoned_count(dir.path(), id),
+        1,
+        "a zombie cannot run and does not keep the group alive"
+    );
+}
+
+#[tokio::test]
+async fn a_live_group_is_terminated_then_abandoned() {
+    let dir = TempDir::new().unwrap();
+    let id = Uuid::now_v7();
+    let pid = 41_040;
+    let journal = orphan_journal(dir.path(), id, pid, 7);
+    let clock = SteppingClock::new(T0);
+    let inspector = FakeInspector::new();
+    inspector.set(pid, FakeInspector::live(7, pid, 9));
+    journal.recover_orphans_with(&clock, &inspector).await;
+    assert_eq!(
+        inspector.signals(),
+        vec![(pid, super::recovery::Signal::Term)],
+        "the live leader is terminated once"
+    );
+    assert_eq!(abandoned_count(dir.path(), id), 1);
+}
+
+#[tokio::test]
+async fn a_failed_sigterm_never_abandons() {
+    let dir = TempDir::new().unwrap();
+    let id = Uuid::now_v7();
+    let pid = 41_050;
+    let journal = orphan_journal(dir.path(), id, pid, 7);
+    let clock = SteppingClock::new(T0);
+    let mut inspector = FakeInspector::new();
+    inspector.set(pid, FakeInspector::live(7, pid, 9));
+    inspector.term = super::recovery::SignalOutcome::Failed;
+    journal.recover_orphans_with(&clock, &inspector).await;
+    assert_eq!(abandoned_count(dir.path(), id), 0);
+    assert_eq!(
+        inspector.signals(),
+        vec![(pid, super::recovery::Signal::Term)]
+    );
+}
+
+#[tokio::test]
+async fn a_failed_sigkill_never_abandons() {
+    let dir = TempDir::new().unwrap();
+    let id = Uuid::now_v7();
+    let pid = 41_060;
+    let journal = orphan_journal(dir.path(), id, pid, 7);
+    let clock = SteppingClock::new(T0);
+    let mut inspector = FakeInspector::new();
+    inspector.set(pid, FakeInspector::live(7, pid, 9));
+    inspector.deliver = false;
+    inspector.kill = super::recovery::SignalOutcome::Failed;
+    journal.recover_orphans_with(&clock, &inspector).await;
+    assert_eq!(abandoned_count(dir.path(), id), 0);
+    assert!(
+        inspector
+            .signals()
+            .contains(&(pid, super::recovery::Signal::Kill))
+    );
+}
+
+#[tokio::test]
+async fn a_sigkill_that_leaves_the_group_alive_never_abandons() {
+    let dir = TempDir::new().unwrap();
+    let id = Uuid::now_v7();
+    let pid = 41_070;
+    let journal = orphan_journal(dir.path(), id, pid, 7);
+    let clock = SteppingClock::new(T0);
+    let mut inspector = FakeInspector::new();
+    inspector.set(pid, FakeInspector::live(7, pid, 9));
+    // SIGTERM and SIGKILL are both accepted by the kernel but never take effect.
+    inspector.deliver = false;
+    journal.recover_orphans_with(&clock, &inspector).await;
+    assert_eq!(
+        abandoned_count(dir.path(), id),
+        0,
+        "a successful killpg call is not proof the group is empty"
+    );
+}
+
+#[tokio::test]
+async fn a_reused_pid_is_never_signalled() {
+    let dir = TempDir::new().unwrap();
+    let id = Uuid::now_v7();
+    let pid = 41_080;
+    let journal = orphan_journal(dir.path(), id, pid, 7);
+    let clock = SteppingClock::new(T0);
+    let inspector = FakeInspector::new();
+    // The PID now belongs to a different process.
+    inspector.set(pid, FakeInspector::live(8, pid, 9));
+    journal.recover_orphans_with(&clock, &inspector).await;
+    assert!(inspector.signals().is_empty());
+    assert_eq!(abandoned_count(dir.path(), id), 0);
+}
+
+#[tokio::test]
+async fn an_unreadable_leader_is_left_unresolved() {
+    let dir = TempDir::new().unwrap();
+    let id = Uuid::now_v7();
+    let pid = 41_090;
+    let journal = orphan_journal(dir.path(), id, pid, 7);
+    let clock = SteppingClock::new(T0);
+    let inspector = FakeInspector::new();
+    inspector.set(pid, super::recovery::ProcessLookup::Denied);
+    journal.recover_orphans_with(&clock, &inspector).await;
+    assert!(inspector.signals().is_empty());
+    assert_eq!(abandoned_count(dir.path(), id), 0);
+}
+
+#[test]
+fn a_failed_initial_boundary_leaves_no_adoptable_journal() {
+    let dir = TempDir::new().unwrap();
+    assert!(
+        Journal::init_unlocked_with_faults(
+            dir.path(),
+            T0,
+            BOOT,
+            MONO,
+            DurableFaults {
+                rename: true,
+                ..DurableFaults::default()
+            },
+        )
+        .is_err()
+    );
+    assert!(
+        Journal::open_unlocked(dir.path(), BOOT, MONO, limits()).is_err(),
+        "an incomplete initialization is never opened"
+    );
+    let epoch = Journal::reset_unlocked(dir.path(), T0, BOOT, MONO).unwrap();
+    assert!(!epoch.is_nil());
+    assert!(Journal::open_unlocked(dir.path(), BOOT, MONO, limits()).is_ok());
+}
+
+#[test]
+fn a_truncation_sync_failure_leaves_a_restart_safe_boundary() {
+    let dir = TempDir::new().unwrap();
+    init(dir.path());
+    let id = Uuid::now_v7();
+    let committed;
+    {
+        let journal = open(dir.path());
+        committed = committed_len(dir.path());
+        journal.inject_append_fault(AppendFault::RecoverySyncTruncateSyncFail);
+        assert!(
+            journal
+                .accept(&request(id, "container.restart", true), T0, BOOT, MONO)
+                .is_err()
+        );
+        assert!(
+            journal.corruption().is_some(),
+            "an unconfirmed truncation stops further appends"
+        );
+    }
+    assert_eq!(committed_len(dir.path()), committed);
+    let reopened = open(dir.path());
+    assert_eq!(state_of(&reopened, id), ActionState::NotFound);
+    assert_eq!(journal_len(dir.path()), committed);
 }
