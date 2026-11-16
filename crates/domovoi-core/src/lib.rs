@@ -34,7 +34,7 @@ pub mod verdict;
 pub use ack::{AckRule, EvidencePredicate, MaintenanceWindow, TargetPattern};
 pub use action::{
     ActionChange, ActionError, ActionRequest, ActionStatus, ApprovalChannel, HumanApproval,
-    PlanBinding, PlanHash, Principal, StoredAction,
+    JournalEpoch, PlanBinding, PlanHash, Principal, StoredAction,
 };
 pub use actor::{Actor, ActorParseError, SYSTEM_ACTIONS, SYSTEM_AUDIT, SYSTEM_INCIDENTS};
 pub use addr::{in_cidr, valid_cidr};

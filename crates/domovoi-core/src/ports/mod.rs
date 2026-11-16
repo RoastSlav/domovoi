@@ -11,14 +11,16 @@ pub mod hostfs;
 pub mod llm;
 pub mod logs;
 pub mod process;
+pub mod reconcile;
 pub mod redact;
 pub mod repos;
 pub mod store_health;
 pub mod uow;
 
 pub use agent_link::{
-    AgentLink, CheckRecheck, HostAvailability, IngestError, LinkError, Presence, SignalSink,
-    SkillDispatch, SkillOutput, ToolOutput,
+    ActionAnswer, ActionAnswerEntry, ActionAnswers, AgentLink, CheckRecheck, HostAvailability,
+    IngestError, LinkError, Presence, SignalSink, SkillDispatch, SkillOutput, ToolOutput,
+    UnknownReason,
 };
 pub use chat::{
     ChatError, ChatGateway, InteractionSink, MessageRef, Notifier, OutboundMessage, ThreadRef,
@@ -31,6 +33,7 @@ pub use llm::{
 };
 pub use logs::{LogLine, LogSource};
 pub use process::{ProcessError, ProcessExecutor, ProcessOutput, ProcessSpec};
+pub use reconcile::HostReconciler;
 pub use redact::Redactor;
 pub use repos::*;
 pub use store_health::StoreHealth;

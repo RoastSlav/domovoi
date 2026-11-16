@@ -3,7 +3,7 @@
 use async_trait::async_trait;
 use jiff::Timestamp;
 
-use crate::action::PlanHash;
+use crate::action::{JournalEpoch, PlanHash};
 use crate::id::{ActionId, HostId};
 use crate::signal::{CheckKey, Evidence, Signal, SignalStatus, TargetKey};
 use crate::skill::{SkillName, SkillSummary, ValidatedArgs};
@@ -63,6 +63,61 @@ pub struct CheckRecheck {
     pub evidence: Evidence,
     /// When the check ran.
     pub observed_at: Timestamp,
+}
+
+/// What an agent's journal says about a run id.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ActionAnswer {
+    /// The run finished; `detail` is the agent's failure message when it failed.
+    Finished {
+        /// Whether the run's recorded result is a success.
+        succeeded: bool,
+        /// The agent's failure message, when the run failed.
+        detail: Option<String>,
+    },
+    /// Still running in the agent instance that started it.
+    Running,
+    /// Positive evidence the request never reached the journal.
+    NotFound,
+    /// The journal cannot establish what happened.
+    Unknown {
+        /// Why.
+        reason: UnknownReason,
+    },
+}
+
+/// Why an outcome is unknown. The first three come from the agent's answer; the hub
+/// decides the last two.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnknownReason {
+    /// The journal recorded acceptance but never a start record.
+    NoStartRecord,
+    /// The agent restarted while the execution was recorded as started.
+    AgentRestarted,
+    /// The journal lost the record, or the hub's epoch is stale.
+    JournalLost,
+    /// The journal epoch the hub recorded at dispatch is not the live one.
+    EpochChanged,
+    /// The run was dispatched before the hub recorded an epoch.
+    EpochUnknown,
+}
+
+/// One answer, keyed by the id that was asked about.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActionAnswerEntry {
+    /// The run the answer is about.
+    pub execution: ActionId,
+    /// What the journal knows.
+    pub answer: ActionAnswer,
+}
+
+/// The agent's answers and the epoch it answered under.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActionAnswers {
+    /// The journal's actual epoch.
+    pub epoch: JournalEpoch,
+    /// One answer per requested id that the agent recognised.
+    pub answers: Vec<ActionAnswerEntry>,
 }
 
 /// Whether an agent is connected.
@@ -177,6 +232,18 @@ pub trait AgentLink: Send + Sync {
         }
     }
 
+    /// The journal epoch the host's live session reported, or `None` with no live session.
+    fn journal_epoch(&self, host: HostId) -> Option<JournalEpoch>;
+
+    /// What the host's agent knows about `ids` under `expected_epoch`. At most 64 ids.
+    async fn action_status(
+        &self,
+        host: HostId,
+        ids: Vec<ActionId>,
+        expected_epoch: JournalEpoch,
+        deadline: Timestamp,
+    ) -> Result<ActionAnswers, LinkError>;
+
     /// Skills the agent announced on its last handshake; empty when never connected.
     fn skills(&self, host: HostId) -> Vec<SkillSummary>;
 }
@@ -238,6 +305,20 @@ mod tests {
 
         fn presence(&self, _host: HostId) -> Presence {
             self.0.clone()
+        }
+
+        fn journal_epoch(&self, _host: HostId) -> Option<JournalEpoch> {
+            None
+        }
+
+        async fn action_status(
+            &self,
+            _host: HostId,
+            _ids: Vec<ActionId>,
+            _expected_epoch: JournalEpoch,
+            _deadline: Timestamp,
+        ) -> Result<ActionAnswers, LinkError> {
+            Err(LinkError::NotConnected)
         }
 
         fn skills(&self, _host: HostId) -> Vec<SkillSummary> {

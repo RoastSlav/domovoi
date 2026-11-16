@@ -6,10 +6,14 @@ use std::collections::BTreeMap;
 use jiff::{SignedDuration, Timestamp};
 
 use super::approval::{HumanApproval, PlanHash};
+use super::epoch::JournalEpoch;
 use crate::id::{ActionId, HostId, IncidentId, UserId};
 use crate::skill::{Risk, SkillName, SkillSummary, ValidatedArgs};
 
 /// Where an action is in its life. See `ARCHITECTURE.md` section 5.6.
+///
+/// [`ActionStatus::OutcomeUnknown`] and [`ActionStatus::NotRun`] are terminal: neither is
+/// retried, re-dispatched or turned into a success or failure.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ActionStatus {
@@ -22,7 +26,12 @@ pub enum ActionStatus {
     /// Nobody decided before the approval window closed.
     Expired,
     /// Sent to the agent.
-    Dispatched,
+    Dispatched {
+        /// The agent journal epoch the hub saw when it sent this run; absent for a run
+        /// sent before the epoch was recorded, or when it could not be read.
+        #[serde(default)]
+        agent_epoch: Option<JournalEpoch>,
+    },
     /// Re-validation at dispatch failed.
     Rejected {
         /// Why.
@@ -39,11 +48,21 @@ pub enum ActionStatus {
     Verified,
     /// Verification failed.
     VerifyFailed,
+    /// The run may have happened and its result cannot be established. Terminal.
+    OutcomeUnknown {
+        /// Why.
+        reason: String,
+    },
+    /// Positive evidence that the run never reached the agent. Terminal.
+    NotRun {
+        /// Why.
+        reason: String,
+    },
 }
 
 impl ActionStatus {
     /// Every status name, as [`ActionStatus::name`] gives them.
-    pub const NAMES: [&'static str; 10] = [
+    pub const NAMES: [&'static str; 12] = [
         "proposed",
         "approved",
         "denied",
@@ -52,6 +71,8 @@ impl ActionStatus {
         "rejected",
         "succeeded",
         "failed",
+        "outcome_unknown",
+        "not_run",
         "verified",
         "verify_failed",
     ];
@@ -65,10 +86,12 @@ impl ActionStatus {
             Self::Approved => "approved",
             Self::Denied => "denied",
             Self::Expired => "expired",
-            Self::Dispatched => "dispatched",
+            Self::Dispatched { .. } => "dispatched",
             Self::Rejected { .. } => "rejected",
             Self::Succeeded => "succeeded",
             Self::Failed { .. } => "failed",
+            Self::OutcomeUnknown { .. } => "outcome_unknown",
+            Self::NotRun { .. } => "not_run",
             Self::Verified => "verified",
             Self::VerifyFailed => "verify_failed",
         }
