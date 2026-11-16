@@ -211,7 +211,9 @@ async fn sent(
     } else {
         request.plan_hash()
     };
-    request.dispatch(plan, at(dispatched_at)).map_err(setup)?;
+    request
+        .dispatch(plan, None, at(dispatched_at))
+        .map_err(setup)?;
     repo.update_from(&request, "proposed").await?;
     Ok(request)
 }

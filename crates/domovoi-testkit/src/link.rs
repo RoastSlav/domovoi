@@ -1,14 +1,17 @@
 //! A fake agent link and a recording signal sink.
 
 use std::collections::{BTreeMap, VecDeque};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use domovoi_core::ports::{
-    AgentLink, CheckRecheck, HostAvailability, IngestError, LinkError, Presence, SignalSink,
-    SkillDispatch, SkillOutput, ToolOutput,
+    ActionAnswer, ActionAnswerEntry, ActionAnswers, AgentLink, CheckRecheck, HostAvailability,
+    HostReconciler, IngestError, LinkError, Presence, SignalSink, SkillDispatch, SkillOutput,
+    ToolOutput,
 };
-use domovoi_core::{CheckKey, HostId, ReadToolCall, Signal, SkillSummary, TargetKey};
+use domovoi_core::{
+    ActionId, CheckKey, HostId, JournalEpoch, ReadToolCall, Signal, SkillSummary, TargetKey,
+};
 use domovoi_proto::messages::{CheckInfo, HostFacts};
 use jiff::Timestamp;
 
@@ -20,6 +23,9 @@ type SkillHandler =
     Box<dyn Fn(HostId, &SkillDispatch) -> Result<SkillOutput, LinkError> + Send + Sync>;
 type CheckHandler = Box<
     dyn Fn(HostId, &CheckKey, Option<&TargetKey>) -> Result<CheckRecheck, LinkError> + Send + Sync,
+>;
+type StatusHandler = Arc<
+    dyn Fn(HostId, &[ActionId], JournalEpoch) -> Result<ActionAnswers, LinkError> + Send + Sync,
 >;
 
 /// One request made through a [`FakeAgentLink`].
@@ -54,6 +60,17 @@ pub enum LinkRequest {
         /// The deadline passed.
         deadline: Timestamp,
     },
+    /// `action_status`.
+    Status {
+        /// Target host.
+        host: HostId,
+        /// The executions asked about.
+        ids: Vec<ActionId>,
+        /// The epoch the caller believes the journal has.
+        expected_epoch: JournalEpoch,
+        /// The deadline passed.
+        deadline: Timestamp,
+    },
 }
 
 #[derive(Default)]
@@ -74,6 +91,9 @@ pub struct FakeAgentLink {
     skills: Mutex<BTreeMap<HostId, Vec<SkillSummary>>>,
     facts: Mutex<BTreeMap<HostId, HostFacts>>,
     checks: Mutex<BTreeMap<HostId, Vec<CheckInfo>>>,
+    epochs: Mutex<BTreeMap<HostId, JournalEpoch>>,
+    answers: Mutex<BTreeMap<HostId, BTreeMap<ActionId, ActionAnswer>>>,
+    status: Mutex<Option<StatusHandler>>,
     handlers: Mutex<Handlers>,
     requests: Mutex<Vec<LinkRequest>>,
 }
@@ -88,6 +108,9 @@ impl FakeAgentLink {
             skills: Mutex::new(BTreeMap::new()),
             facts: Mutex::new(BTreeMap::new()),
             checks: Mutex::new(BTreeMap::new()),
+            epochs: Mutex::new(BTreeMap::new()),
+            answers: Mutex::new(BTreeMap::new()),
+            status: Mutex::new(None),
             handlers: Mutex::new(Handlers::default()),
             requests: Mutex::new(Vec::new()),
         }
@@ -164,6 +187,35 @@ impl FakeAgentLink {
         + 'static,
     ) {
         lock(&self.handlers).check = Some(Box::new(handler));
+    }
+
+    /// Sets the journal epoch a host's agent reported.
+    pub fn set_journal_epoch(&self, host: HostId, epoch: JournalEpoch) {
+        lock(&self.epochs).insert(host, epoch);
+    }
+
+    /// Drops a host's journal epoch, so `journal_epoch` answers `None` for it.
+    pub fn clear_journal_epoch(&self, host: HostId) {
+        lock(&self.epochs).remove(&host);
+    }
+
+    /// Scripts what the host's journal says about one run.
+    pub fn answer(&self, host: HostId, id: ActionId, answer: ActionAnswer) {
+        lock(&self.answers)
+            .entry(host)
+            .or_default()
+            .insert(id, answer);
+    }
+
+    /// Answers every `action_status` with `handler`, instead of the scripted answers.
+    pub fn on_action_status(
+        &self,
+        handler: impl Fn(HostId, &[ActionId], JournalEpoch) -> Result<ActionAnswers, LinkError>
+        + Send
+        + Sync
+        + 'static,
+    ) {
+        *lock(&self.status) = Some(Arc::new(handler));
     }
 
     /// Every request so far, oldest first.
@@ -266,6 +318,45 @@ impl AgentLink for FakeAgentLink {
         }
     }
 
+    fn journal_epoch(&self, host: HostId) -> Option<JournalEpoch> {
+        lock(&self.epochs).get(&host).copied()
+    }
+
+    async fn action_status(
+        &self,
+        host: HostId,
+        ids: Vec<ActionId>,
+        expected_epoch: JournalEpoch,
+        deadline: Timestamp,
+    ) -> Result<ActionAnswers, LinkError> {
+        lock(&self.requests).push(LinkRequest::Status {
+            host,
+            ids: ids.clone(),
+            expected_epoch,
+            deadline,
+        });
+        self.connected(host)?;
+        if let Some(handler) = lock(&self.status).clone() {
+            return handler(host, &ids, expected_epoch);
+        }
+        let scripted = lock(&self.answers);
+        let host_answers = scripted.get(&host);
+        let answers = ids
+            .into_iter()
+            .map(|id| ActionAnswerEntry {
+                execution: id,
+                answer: host_answers
+                    .and_then(|known| known.get(&id))
+                    .cloned()
+                    .unwrap_or(ActionAnswer::NotFound),
+            })
+            .collect();
+        Ok(ActionAnswers {
+            epoch: expected_epoch,
+            answers,
+        })
+    }
+
     fn skills(&self, host: HostId) -> Vec<SkillSummary> {
         lock(&self.skills).get(&host).cloned().unwrap_or_default()
     }
@@ -305,6 +396,51 @@ impl SignalSink for RecordingSignalSink {
         }
         lock(&self.batches).push(signals);
         Ok(())
+    }
+}
+
+/// A [`HostReconciler`] that records every host it was asked to reconcile.
+#[derive(Debug, Default)]
+pub struct RecordingReconciler {
+    hosts: Mutex<Vec<HostId>>,
+    notify: tokio::sync::Notify,
+}
+
+impl RecordingReconciler {
+    /// A reconciler that has been asked about nothing yet.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Every host it was asked to reconcile, oldest first.
+    #[must_use]
+    pub fn hosts(&self) -> Vec<HostId> {
+        lock(&self.hosts).clone()
+    }
+
+    /// Waits until at least `count` hosts have been recorded and returns the list, or
+    /// returns at once when that many already were. No polling and no sleeping: it uses
+    /// the `Notify` woken by the next recorded host.
+    pub async fn wait_for(&self, count: usize) -> Vec<HostId> {
+        loop {
+            let notified = self.notify.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            let hosts = lock(&self.hosts).clone();
+            if hosts.len() >= count {
+                return hosts;
+            }
+            notified.await;
+        }
+    }
+}
+
+#[async_trait]
+impl HostReconciler for RecordingReconciler {
+    async fn reconcile_host(&self, host: HostId) {
+        lock(&self.hosts).push(host);
+        self.notify.notify_waiters();
     }
 }
 

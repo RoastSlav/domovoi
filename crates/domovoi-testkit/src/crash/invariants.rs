@@ -13,7 +13,7 @@ use super::SweepStore;
 use super::integrity::OrphanStorage;
 
 /// The audit kinds that correspond one-to-one with a non-rotation action transition.
-const TRANSITION_AUDITS: [&str; 11] = [
+const TRANSITION_AUDITS: [&str; 13] = [
     "action.proposed",
     "action.approved",
     "action.denied",
@@ -23,6 +23,8 @@ const TRANSITION_AUDITS: [&str; 11] = [
     "action.dispatched",
     "action.succeeded",
     "action.failed",
+    "action.outcome_unknown",
+    "action.not_run",
     "action.verified",
     "action.verify_failed",
 ];
