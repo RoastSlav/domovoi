@@ -1,7 +1,7 @@
 //! What the service that has only just started does with actions the store already
-//! holds: one approved but never dispatched is started, one left running is failed
-//! with the reason that says the host must be checked (ADR 0014), and the loop guard
-//! remembers what the previous session ran in the hour it is still in.
+//! holds: one approved but never dispatched is started, one left running is left for
+//! reconciliation against its agent's journal rather than failed (ADR 0014), and the
+//! loop guard remembers what the previous session ran in the hour it is still in.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -10,7 +10,8 @@ use domovoi_core::ports::{
     ActionRepo, AuditFilter, AuditLog, HostAvailability, IncidentRepo, Page, Presence,
 };
 use domovoi_core::{
-    ActionId, ActionRequest, ActionStatus, PlanBinding, PlanHash, Principal, SignalStatus, UserId,
+    ActionId, ActionRequest, ActionStatus, JournalEpoch, PlanBinding, PlanHash, Principal,
+    SignalStatus, UserId,
 };
 use domovoi_engine::actions::audit;
 use domovoi_engine::{
@@ -28,15 +29,11 @@ use tokio_util::sync::CancellationToken;
 use crate::actions_harness::{Actions, check, ok_output, verified_restart};
 use crate::harness::{SECRET, host_id};
 
-/// Why a run the previous session left running is failed. The test spells it out so a
-/// reader sees the exact sentence the person is shown.
-const RESTART: &str = "the hub restarted while this ran; check the host before running it again";
-
 /// What the session that just stopped left an action as in the store.
 enum LeftBehind {
     /// Still waiting for the new session to start it.
     Approved,
-    /// Running when the hub stopped; its answer went to the session that is gone.
+    /// Running when the hub stopped; its outcome is not known from the store alone.
     Dispatched,
     /// Run to the end by that session, inside the hour the new session is still in, so
     /// the loop guard has to remember it from the audit log.
@@ -78,6 +75,8 @@ async fn restarted_with(
             version: "0.1.0".to_owned(),
         },
     );
+    // Every dispatch the service makes records the journal it was sent under.
+    link.set_journal_epoch(host_id(), JournalEpoch::from_uuid(uuid::Uuid::now_v7()));
     link.set_skills(host_id(), vec![verified_restart()]);
     link.on_skill(|_, _| Ok(ok_output("restarted nginx")));
     link.on_check(|_, _, _| Ok(check(SignalStatus::Resolved)));
@@ -103,9 +102,9 @@ async fn restarted_with(
         if matches!(state, LeftBehind::Dispatched | LeftBehind::Ran) {
             let plan =
                 PlanHash::compute(&skill.name, skill.manifest_hash, action.host(), &validated);
-            action.dispatch(plan, T0).unwrap();
+            action.dispatch(plan, None, T0).unwrap();
             assert!(
-                action.status() == &ActionStatus::Dispatched,
+                matches!(action.status(), ActionStatus::Dispatched { .. }),
                 "the plan the agent has now is the approved one, so the previous session ran it",
             );
         }
@@ -208,48 +207,46 @@ async fn an_action_approved_before_a_restart_runs_after_it() {
 }
 
 #[tokio::test]
-async fn startup_recovery_runs_before_catch_up() {
-    // One action is left running and one is still approved. The new session must fail the
-    // running one before it dispatches the waiting one, or a look at the audit log could
-    // show a dispatch that the recovery then contradicts.
+async fn startup_no_longer_fails_dispatched_actions() {
+    // One action is left running and one is still approved. A restart is no evidence
+    // either way about the running one, so it stays dispatched until its agent's journal
+    // can be asked; the waiting approval is dispatched as usual.
     let (a, ids) = restarted(vec![LeftBehind::Dispatched, LeftBehind::Approved]).await;
     a.until(ids[1], |status| status == &ActionStatus::Verified)
         .await;
+    a.settle().await;
 
+    let leftover = a.get(ids[0]).await;
+    assert!(
+        matches!(leftover.status(), ActionStatus::Dispatched { .. }),
+        "a run left by the previous session is not failed by a restart: {:?}",
+        leftover.status(),
+    );
     let mut entries = AuditLog::list(&*a.store, &AuditFilter::default(), &Page::first(100))
         .await
         .unwrap()
         .items;
     entries.reverse();
-    let position = |id: ActionId, kind: &str| {
-        let subject = format!("action:{id}");
+    let subject = format!("action:{}", ids[0]);
+    assert!(
         entries
             .iter()
-            .position(|entry| entry.subject == subject && entry.kind == kind)
-    };
-    let failed = position(ids[0], audit::FAILED).expect("the leftover run was failed");
-    let dispatched =
-        position(ids[1], audit::DISPATCHED).expect("the waiting approval was dispatched");
-    assert!(
-        failed < dispatched,
-        "recovery failed the leftover run before catch-up dispatched the waiting one",
+            .all(|entry| entry.subject != subject || entry.kind == audit::DISPATCHED),
+        "nothing is audited for the leftover run but its own dispatch",
     );
 }
 
 #[tokio::test]
-async fn a_dispatched_action_fails_after_a_restart() {
+async fn a_dispatched_action_stays_dispatched_after_a_restart() {
     let (a, ids) = restarted(vec![LeftBehind::Dispatched]).await;
     let id = ids[0];
     a.settle().await;
 
     let stored = a.get(id).await;
-    let ActionStatus::Failed { reason } = stored.status().clone() else {
-        panic!("the restart left an action it cannot still be waiting for")
-    };
-    assert_eq!(
-        reason,
-        RESTART.to_owned(),
-        "the failure says the host must be checked before running again",
+    assert!(
+        matches!(stored.status(), ActionStatus::Dispatched { .. }),
+        "a restart says nothing about a run already sent; it waits for the agent's journal: {:?}",
+        stored.status(),
     );
     assert_eq!(
         a.runs(),
@@ -260,8 +257,8 @@ async fn a_dispatched_action_fails_after_a_restart() {
     let trail = a.trail(id).await;
     assert_eq!(
         trail,
-        [audit::FAILED.to_owned()],
-        "the leftover run is audited once, and nothing else is audited for it",
+        Vec::<String>::new(),
+        "the restart writes nothing for a run it cannot judge",
     );
 }
 
@@ -391,18 +388,19 @@ async fn catch_up_waits_for_unknown_host() {
 
 #[tokio::test]
 async fn stale_approval_not_dispatched_after_restart() {
-    // The approval's window closed while the hub was down: the new session may not run it.
+    // The approval's window closed while the hub was down: the new session may not run it,
+    // and the closed window is positive proof it never reached the agent.
     let (a, ids) = restarted_with(vec![LeftBehind::Approved], |clock, _| {
         clock.advance(SignedDuration::from_hours(2));
     })
     .await;
     let id = ids[0];
     let action = a
-        .until(id, |status| matches!(status, ActionStatus::Rejected { .. }))
+        .until(id, |status| matches!(status, ActionStatus::NotRun { .. }))
         .await;
     assert_eq!(
         action.status(),
-        &ActionStatus::Rejected {
+        &ActionStatus::NotRun {
             reason: "the approval expired before the action was dispatched".to_owned(),
         },
         "the action whose approval expired is refused with the reason the person can act on",

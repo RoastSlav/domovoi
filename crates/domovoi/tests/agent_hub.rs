@@ -316,9 +316,26 @@ async fn run_skill_reaches_agent_and_plan_mismatch_is_reported() {
         skill,
         args: validated,
     };
-    let out = link
-        .run_skill(agent.host, dispatch, t0() + SignedDuration::from_secs(30))
-        .await;
+    let out = match link.journal_epoch(agent.host) {
+        Some(epoch) => {
+            let handoff = link
+                .start_skill(
+                    agent.host,
+                    dispatch,
+                    epoch,
+                    t0() + SignedDuration::from_secs(30),
+                )
+                .await;
+            match handoff {
+                Ok(handoff) => {
+                    link.skill_result(agent.host, handoff, t0() + SignedDuration::from_secs(30))
+                        .await
+                }
+                Err(err) => Err(err),
+            }
+        }
+        None => Err(LinkError::NotConnected),
+    };
     let expected = if cfg!(unix) {
         "PlanMismatch"
     } else {

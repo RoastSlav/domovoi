@@ -47,6 +47,8 @@ mod profile;
 #[cfg(test)]
 mod readiness;
 #[cfg(test)]
+mod reconciliation;
+#[cfg(test)]
 mod rules;
 #[cfg(test)]
 mod sessions;

@@ -7,10 +7,14 @@
 
 use std::collections::BTreeMap;
 
-use domovoi_core::ports::{EffectRead, EffectRecord, EffectStatus, LinkError, Presence};
+use domovoi_core::ports::{
+    ActionAnswer, ActionGuard, AggregateRef, AuditDraft, EffectRead, EffectRecord, EffectStatus,
+    HostReconciler, JournalDraft, JournalKind, LinkError, Presence, StateWrite, Transaction,
+    UnitOfWork, UnknownReason,
+};
 use domovoi_core::{
-    ActionId, ActionStatus, Incident, ManifestHash, PlanBinding, SignalClass, SignalStatus,
-    SkillSummary, TriageOutcome, UserId, Verdict,
+    ActionId, ActionRequest, ActionStatus, Incident, JournalEpoch, ManifestHash, PlanBinding,
+    PlanHash, SignalClass, SignalStatus, SkillSummary, TriageOutcome, UserId, Verdict,
 };
 use domovoi_engine::triage::{mint_token, token_hash};
 use domovoi_testkit::approvals::{chat, human};
@@ -463,7 +467,113 @@ pub fn action_lifecycle<S: SweepStore>(world: &mut World<S>) -> BoxFuture<'_, ()
             NAME,
             world.wait_for(late.id(), |status| matches!(status, ActionStatus::Verified))
         );
+        // 11. Two runs the previous session left running, stored with the history that
+        // session wrote: the agent's journal settles one to `NotRun` and cannot establish
+        // the other, so it stays unknown rather than guessed.
+        let epoch = JournalEpoch::from_uuid(uuid::Uuid::now_v7());
+        world.link.set_journal_epoch(host_id(), epoch);
+        let never = left_dispatched(world, incident, &verified_restart(), epoch);
+        step!(world, NAME, store_sent(world, &never));
+        world
+            .link
+            .answer(host_id(), never.id(), ActionAnswer::NotFound);
+        let unprovable = left_dispatched(world, incident, &verified_restart(), epoch);
+        step!(world, NAME, store_sent(world, &unprovable));
+        world.link.answer(
+            host_id(),
+            unprovable.id(),
+            ActionAnswer::Unknown {
+                reason: UnknownReason::NoStartRecord,
+            },
+        );
+        world.service.reconcile_host(host_id()).await;
+        if world.crashing.crashed() {
+            return;
+        }
+        for (id, wanted) in [
+            (never.id(), "not_run"),
+            (unprovable.id(), "outcome_unknown"),
+        ] {
+            let stored = world
+                .action(id)
+                .await
+                .expect("the reconciled run is stored");
+            assert_eq!(
+                stored.status().name(),
+                wanted,
+                "run {id} is settled as {wanted}"
+            );
+        }
     })
+}
+
+/// An action a previous hub session sent and left `Dispatched` under `epoch`.
+fn left_dispatched(
+    world: &World<impl SweepStore>,
+    incident: domovoi_core::IncidentId,
+    skill: &SkillSummary,
+    epoch: JournalEpoch,
+) -> ActionRequest {
+    let args: BTreeMap<String, String> = ARGS
+        .iter()
+        .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
+        .collect();
+    let validated = skill.validate_args(&args).expect("the fixture arguments");
+    let plan = PlanHash::compute(&skill.name, skill.manifest_hash, host_id(), &validated);
+    let (mut action, _) = world.proposal(incident, skill, ARGS, HOUR);
+    action
+        .approve(human(UserId::new()), world.now())
+        .expect("the previous session approved it");
+    action
+        .dispatch(plan, Some(epoch), world.now())
+        .expect("the previous session sent it");
+    action
+}
+
+/// Stores `action` as the session that proposed, approved and sent it left it: one commit
+/// with the state and the audit and journal row each step wrote, so the crash invariants see
+/// a whole history rather than a run that appeared from nowhere.
+async fn store_sent<S: SweepStore>(world: &World<S>, action: &ActionRequest) -> Result<(), String> {
+    let at = world.now();
+    let subject = format!("action:{}", action.id());
+    let actor = domovoi_core::Actor::System("actions".to_owned());
+    let audit = |kind: &str| {
+        AuditDraft::new(
+            actor.clone(),
+            at,
+            kind.to_owned(),
+            subject.clone(),
+            serde_json::json!({}),
+        )
+    };
+    let journal = |to: &str| JournalDraft {
+        aggregate: AggregateRef::action(action.id()),
+        kind: JournalKind::ActionTransition,
+        payload_v: 1,
+        payload: serde_json::json!({
+            "action": action.id().to_string(),
+            "to": to,
+        }),
+        actor: actor.clone(),
+        occurred_at: at,
+    };
+    let tx = Transaction::new()
+        .write(StateWrite::Action {
+            action: action.clone(),
+            expected: ActionGuard::New,
+        })
+        .audit(audit("action.proposed"))
+        .audit(audit("action.approved"))
+        .audit(audit("action.dispatched"))
+        .journal(journal("proposed"))
+        .journal(journal("approved"))
+        .journal(journal("dispatched"));
+    world
+        .crashing
+        .commit(tx)
+        .await
+        .map(|_| ())
+        .map_err(|err| format!("the leftover run is not stored: {err}"))
 }
 
 /// Waits until the wake effect of `action` has been put back for a later attempt after a

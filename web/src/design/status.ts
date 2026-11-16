@@ -48,6 +48,8 @@ export type ActionStatus =
   | "rejected"
   | "succeeded"
   | "failed"
+  | "outcome_unknown"
+  | "not_run"
   | "verified"
   | "verify_failed";
 /** What a skill may do. */

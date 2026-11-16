@@ -8,13 +8,14 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use domovoi_core::ports::{
-    ActionRepo, AgentLink, CheckRecheck, Clock, HostAvailability, IncidentRepo, LinkError,
-    Presence, SkillDispatch, SkillOutput, ToolOutput,
+    ActionAnswers, ActionRepo, AgentLink, CheckRecheck, Clock, HostAvailability, IncidentRepo,
+    LinkError, Presence, SkillDispatch, SkillOutput, ToolOutput,
 };
 use domovoi_core::skill::{ParamKind, ParamName, ParamSpec};
 use domovoi_core::{
-    ActionRequest, ActionStatus, CheckKey, HostId, IncidentEvent, IncidentId, IncidentPolicy,
-    PlanBinding, Principal, ReadToolCall, Risk, SkillSummary, TargetKey, UserId, apply,
+    ActionId, ActionRequest, ActionStatus, CheckKey, HostId, IncidentEvent, IncidentId,
+    IncidentPolicy, JournalEpoch, PlanBinding, Principal, ReadToolCall, Risk, SkillSummary,
+    TargetKey, UserId, apply,
 };
 use domovoi_engine::actions::audit;
 use domovoi_engine::{ActionDeps, ActionService, ActionSettings, PatternRedactor};
@@ -109,7 +110,7 @@ fn rejected(done: &ActionRequest, reason: &str) {
 }
 
 #[tokio::test]
-async fn approval_for_resolved_incident_is_not_dispatched() {
+async fn incident_resolved_before_dispatch_stays_rejected() {
     let world = seeded().await;
     let action = approved_for(
         host_id(),
@@ -161,7 +162,7 @@ async fn approval_for_deleted_incident_is_not_dispatched() {
 }
 
 #[tokio::test]
-async fn approval_expiring_while_waiting_for_host_is_not_dispatched() {
+async fn second_preflight_settles_an_approval_that_expired_while_waiting() {
     let world = seeded().await;
     let action = approved_for(
         host_id(),
@@ -186,11 +187,14 @@ async fn approval_expiring_while_waiting_for_host_is_not_dispatched() {
     connect(&world, host_id(), &a.clock);
 
     let done = a
-        .until(action.id(), |s| matches!(s, ActionStatus::Rejected { .. }))
+        .until(action.id(), |s| matches!(s, ActionStatus::NotRun { .. }))
         .await;
-    rejected(
-        &done,
-        "the approval expired before the action was dispatched",
+    assert_eq!(
+        done.status(),
+        &ActionStatus::NotRun {
+            reason: "the approval expired before the action was dispatched".to_owned(),
+        },
+        "a closed window proves the action never reached the agent",
     );
     assert_eq!(a.runs(), 0, "an expired approval never reaches the agent");
 }
@@ -357,6 +361,9 @@ async fn waiting_runs_do_not_starve_other_hosts() {
         .await
         .unwrap();
     world.link.set_skills(other, vec![verified_restart()]);
+    world
+        .link
+        .set_journal_epoch(other, JournalEpoch::from_uuid(uuid::Uuid::now_v7()));
     world.link.set_presence(
         other,
         Presence::Connected {
@@ -397,8 +404,8 @@ async fn waiting_runs_do_not_starve_other_hosts() {
     assert_eq!(a.runs(), 1, "only the reachable host's skill ran");
 }
 
-/// An agent link whose `run_skill` records the request and then holds the run for `hold`
-/// on the fake clock, so a test can see how many runs are in flight at once.
+/// An agent link whose `skill_result` holds the run for `hold` on the fake clock, so a test
+/// can see how many runs are in flight at once.
 struct SlowLink {
     inner: Arc<FakeAgentLink>,
     clock: Arc<FakeClock>,
@@ -416,13 +423,25 @@ impl AgentLink for SlowLink {
         self.inner.run_tool(host, call, deadline).await
     }
 
-    async fn run_skill(
+    async fn start_skill(
         &self,
         host: HostId,
         req: SkillDispatch,
+        expected_epoch: JournalEpoch,
+        deadline: jiff::Timestamp,
+    ) -> Result<domovoi_core::ports::SkillHandoff, LinkError> {
+        self.inner
+            .start_skill(host, req, expected_epoch, deadline)
+            .await
+    }
+
+    async fn skill_result(
+        &self,
+        host: HostId,
+        handoff: domovoi_core::ports::SkillHandoff,
         deadline: jiff::Timestamp,
     ) -> Result<SkillOutput, LinkError> {
-        let output = self.inner.run_skill(host, req, deadline).await;
+        let output = self.inner.skill_result(host, handoff, deadline).await;
         let until = self.clock.now().checked_add(self.hold).unwrap_or(deadline);
         self.clock.sleep_until(until).await;
         output
@@ -444,6 +463,22 @@ impl AgentLink for SlowLink {
 
     async fn availability(&self, host: HostId) -> HostAvailability {
         AgentLink::availability(&*self.inner, host).await
+    }
+
+    fn journal_epoch(&self, host: HostId) -> Option<JournalEpoch> {
+        self.inner.journal_epoch(host)
+    }
+
+    async fn action_status(
+        &self,
+        host: HostId,
+        ids: Vec<ActionId>,
+        expected_epoch: JournalEpoch,
+        deadline: jiff::Timestamp,
+    ) -> Result<ActionAnswers, LinkError> {
+        self.inner
+            .action_status(host, ids, expected_epoch, deadline)
+            .await
     }
 
     fn skills(&self, host: HostId) -> Vec<domovoi_core::SkillSummary> {

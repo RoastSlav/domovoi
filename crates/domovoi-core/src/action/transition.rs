@@ -3,6 +3,7 @@
 use jiff::Timestamp;
 
 use super::approval::{ApprovalChannel, HumanApproval, PlanHash};
+use super::epoch::JournalEpoch;
 use super::request::{ActionRequest, ActionStatus};
 use crate::skill::Risk;
 
@@ -104,11 +105,12 @@ impl ActionRequest {
     pub fn dispatch(
         &mut self,
         current_plan_hash: PlanHash,
+        agent_epoch: Option<JournalEpoch>,
         now: Timestamp,
     ) -> Result<ActionChange, ActionError> {
         self.require(self.status == ActionStatus::Approved, "dispatch")?;
         let to = if current_plan_hash == self.plan_hash {
-            ActionStatus::Dispatched
+            ActionStatus::Dispatched { agent_epoch }
         } else {
             ActionStatus::Rejected {
                 reason: "the plan changed after approval".to_owned(),
@@ -130,7 +132,10 @@ impl ActionRequest {
         result: Result<(), String>,
         now: Timestamp,
     ) -> Result<ActionChange, ActionError> {
-        self.require(self.status == ActionStatus::Dispatched, "complete")?;
+        self.require(
+            matches!(self.status, ActionStatus::Dispatched { .. }),
+            "complete",
+        )?;
         let to = match result {
             Ok(()) => ActionStatus::Succeeded,
             Err(reason) => ActionStatus::Failed { reason },
@@ -147,5 +152,39 @@ impl ActionRequest {
             ActionStatus::VerifyFailed
         };
         Ok(self.move_to(to, now))
+    }
+
+    /// `Dispatched → OutcomeUnknown`, when the agent cannot establish what became of the
+    /// run. Terminal: the outcome is never retried, re-dispatched or converted into a
+    /// success or failure.
+    pub fn outcome_unknown(
+        &mut self,
+        reason: String,
+        now: Timestamp,
+    ) -> Result<ActionChange, ActionError> {
+        self.require(
+            matches!(self.status, ActionStatus::Dispatched { .. }),
+            "mark unknown",
+        )?;
+        Ok(self.move_to(ActionStatus::OutcomeUnknown { reason }, now))
+    }
+
+    /// `Dispatched | Approved → NotRun`: positive evidence the run never started, either
+    /// because the agent's journal has no record of it, because the hub never handed the
+    /// request over, or because its approval expired before it was dispatched. Terminal.
+    /// `Proposed` expiry stays `Expired`.
+    pub fn never_ran(
+        &mut self,
+        reason: String,
+        now: Timestamp,
+    ) -> Result<ActionChange, ActionError> {
+        self.require(
+            matches!(
+                self.status,
+                ActionStatus::Dispatched { .. } | ActionStatus::Approved
+            ),
+            "mark not run",
+        )?;
+        Ok(self.move_to(ActionStatus::NotRun { reason }, now))
     }
 }

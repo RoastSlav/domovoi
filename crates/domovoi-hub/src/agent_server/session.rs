@@ -4,10 +4,13 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 
 use domovoi_core::HostId;
-use domovoi_proto::messages::{Ping, Pong, SessionId, SignalsAck, Unsupported};
+use domovoi_proto::messages::{
+    AUTHORITATIVE_ABSENCE, Ping, Pong, SessionId, SignalsAck, Unsupported,
+};
 use domovoi_proto::{Decoded, Message, Transport};
 use jiff::SignedDuration;
 use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 
 /// Hub pings that may go unanswered before the session counts as dead.
 const MISSED_PONGS: u32 = 3;
@@ -41,14 +44,26 @@ pub(crate) async fn run_session(
         checks: hello.checks,
         docker: hello.docker,
         journal_epoch: hello.journal_epoch,
+        authoritative_absence: hello
+            .features
+            .iter()
+            .any(|feature| feature == AUTHORITATIVE_ABSENCE),
         agent_status: None,
         outbox,
         pending: HashMap::new(),
         cancel: cancel.clone(),
     };
     let journal_epoch = live.journal_epoch;
+    let authoritative_absence = live.authoritative_absence;
     inner.registry.register(host, live, remote_ip);
-    tracing::info!(%host, agent = %agent.agent, %journal_epoch, "agent connected");
+    tracing::info!(
+        %host,
+        agent = %agent.agent,
+        %journal_epoch,
+        authoritative_absence,
+        "agent connected"
+    );
+    reconcile(inner, host, &cancel);
     let clock = inner.deps.clock.clone();
     let secs = inner.settings.heartbeat.as_secs().max(1);
     let beat = SignedDuration::from_secs(secs);
@@ -87,6 +102,28 @@ pub(crate) async fn run_session(
     .await;
     inner.registry.end(host, session, inner.deps.clock.now());
     result
+}
+
+/// Tells the action service that this host's agent authenticated, so its dispatched runs
+/// are reconciled against the journal.
+///
+/// The task belongs to the session that triggered it: when that session ends or is
+/// replaced, the task stops asking. An answer the pass already received is still committed:
+/// the pass hands each outcome to the writer before it awaits anything that a cancelled task
+/// could drop.
+pub(super) fn reconcile(inner: &Inner, host: HostId, session: &CancellationToken) {
+    let Some(reconciler) = inner.reconciler.get().cloned() else {
+        return;
+    };
+    let shutdown = inner.shutdown.clone();
+    let session = session.clone();
+    tokio::spawn(async move {
+        tokio::select! {
+            () = shutdown.cancelled() => {}
+            () = session.cancelled() => {}
+            () = reconciler.reconcile_host(host) => {}
+        }
+    });
 }
 
 async fn handle(

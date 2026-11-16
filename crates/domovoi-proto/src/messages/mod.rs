@@ -21,9 +21,9 @@ pub use actions::{
 };
 pub use catalog::{CatalogEntry, CatalogPage, GetCatalog};
 pub use handshake::{
-    AgentSettings, Challenge, ChallengeResponse, CheckInfo, CheckOverride, DockerReport, Enroll,
-    Enrolled, Hello, HelperIdentity, HelperStatus, HostFacts, Reject, RejectReason, SessionId,
-    SkillRunnerStatus, Welcome,
+    AUTHORITATIVE_ABSENCE, AgentSettings, Challenge, ChallengeResponse, CheckInfo, CheckOverride,
+    DockerReport, Enroll, Enrolled, Hello, HelperIdentity, HelperStatus, HostFacts, Reject,
+    RejectReason, SessionId, SkillRunnerStatus, Welcome,
 };
 pub use stream::{
     AgentStatus, AttestSafety, ConfigUpdate, DigestFacts, ErrorMessage, Ping, Pong,

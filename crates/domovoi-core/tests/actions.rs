@@ -7,8 +7,8 @@ use std::collections::BTreeMap;
 
 use domovoi_core::{
     ActionChange, ActionError, ActionId, ActionRequest, ActionStatus, ApprovalChannel, HostId,
-    HumanApproval, IncidentId, ManifestHash, ParamKind, ParamName, ParamSpec, PlanHash, Principal,
-    Risk, SkillName, SkillSummary, UserId, ValidatedArgs,
+    HumanApproval, IncidentId, JournalEpoch, ManifestHash, ParamKind, ParamName, ParamSpec,
+    PlanHash, Principal, Risk, SkillName, SkillSummary, UserId, ValidatedArgs,
 };
 use jiff::{SignedDuration, Timestamp};
 use uuid::Uuid;
@@ -100,7 +100,7 @@ fn approved(risk: Risk) -> ActionRequest {
 fn dispatched() -> ActionRequest {
     let mut req = approved(Risk::Write);
     let hash = req.plan_hash();
-    req.dispatch(hash, at(120)).unwrap();
+    req.dispatch(hash, None, at(120)).unwrap();
     req
 }
 
@@ -174,8 +174,11 @@ fn destructive_needs_web_typed_confirmation() {
 fn approved_dispatches_when_plan_hash_matches() {
     let mut req = approved(Risk::Write);
     let hash = req.plan_hash();
-    req.dispatch(hash, at(120)).unwrap();
-    assert_eq!(req.status(), &ActionStatus::Dispatched);
+    req.dispatch(hash, None, at(120)).unwrap();
+    assert_eq!(
+        req.status(),
+        &ActionStatus::Dispatched { agent_epoch: None }
+    );
 }
 
 #[test]
@@ -188,7 +191,7 @@ fn dispatch_with_different_plan_hash_rejects() {
         host(),
         &args(&skill, "sonarr"),
     );
-    let change = req.dispatch(changed, at(120)).unwrap();
+    let change = req.dispatch(changed, None, at(120)).unwrap();
     assert!(matches!(change.to, ActionStatus::Rejected { .. }));
     assert!(matches!(req.status(), ActionStatus::Rejected { .. }));
 }
@@ -231,7 +234,7 @@ fn illegal_operations_leave_request_unchanged() {
         ("expire", |r| r.expire(at(7200))),
         ("dispatch", |r| {
             let hash = r.plan_hash();
-            r.dispatch(hash, at(60))
+            r.dispatch(hash, None, at(60))
         }),
         ("complete", |r| r.complete(Ok(()), at(60))),
         ("verify", |r| r.verified(true, at(60))),
@@ -270,6 +273,84 @@ fn illegal_operations_leave_request_unchanged() {
             assert_eq!(req, base, "{op_name} from {state} changed the request");
         }
     }
+}
+
+#[test]
+fn dispatch_records_the_journal_epoch_the_hub_saw() {
+    let mut req = approved(Risk::Write);
+    let hash = req.plan_hash();
+    let epoch = JournalEpoch::from_uuid(uuid::Uuid::nil());
+    req.dispatch(hash, Some(epoch), at(120)).unwrap();
+    assert_eq!(
+        req.status(),
+        &ActionStatus::Dispatched {
+            agent_epoch: Some(epoch),
+        },
+        "the run remembers which journal it was sent under",
+    );
+}
+
+#[test]
+fn an_unknown_outcome_is_terminal() {
+    let mut req = dispatched();
+    req.outcome_unknown("the journal lost the record".to_owned(), at(180))
+        .unwrap();
+    assert_eq!(
+        req.status(),
+        &ActionStatus::OutcomeUnknown {
+            reason: "the journal lost the record".to_owned(),
+        },
+    );
+
+    let settled = req.clone();
+    for refused in [
+        req.complete(Ok(()), at(200)),
+        req.verified(true, at(200)),
+        req.never_ran("late evidence".to_owned(), at(200)),
+    ] {
+        assert!(
+            matches!(refused, Err(ActionError::NotAllowed { .. })),
+            "an unknown outcome is never turned into anything else: {refused:?}",
+        );
+    }
+    assert_eq!(req, settled, "a refused change leaves the request alone");
+}
+
+#[test]
+fn never_ran_settles_an_approved_or_dispatched_run() {
+    let mut approved_but_unsent = approved(Risk::Write);
+    approved_but_unsent
+        .never_ran("the approval expired".to_owned(), at(7200))
+        .unwrap();
+    assert_eq!(
+        approved_but_unsent.status(),
+        &ActionStatus::NotRun {
+            reason: "the approval expired".to_owned(),
+        },
+        "an approval that closed before dispatch never ran",
+    );
+
+    let mut sent = dispatched();
+    sent.never_ran("the agent has no record".to_owned(), at(180))
+        .unwrap();
+    assert_eq!(
+        sent.status(),
+        &ActionStatus::NotRun {
+            reason: "the agent has no record".to_owned(),
+        },
+        "a journal with no record proves nothing started",
+    );
+
+    let mut undecided = proposed(Risk::Write);
+    assert!(matches!(
+        undecided.never_ran("nothing was decided".to_owned(), at(7200)),
+        Err(ActionError::NotAllowed { .. }),
+    ));
+    assert_eq!(
+        undecided.status(),
+        &ActionStatus::Proposed,
+        "a proposal nobody decided expires; it does not become a run that never happened",
+    );
 }
 
 #[test]

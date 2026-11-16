@@ -1,16 +1,22 @@
-//! A fake agent link and a recording signal sink.
+//! A fake agent link, and the recording doubles next to it.
 
-use std::collections::{BTreeMap, VecDeque};
-use std::sync::Mutex;
+use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use domovoi_core::ports::{
-    AgentLink, CheckRecheck, HostAvailability, IngestError, LinkError, Presence, SignalSink,
-    SkillDispatch, SkillOutput, ToolOutput,
+    ActionAnswer, ActionAnswerEntry, ActionAnswers, AgentLink, CheckRecheck, HostAvailability,
+    LinkError, Presence, SkillDispatch, SkillHandoff, SkillOutput, ToolOutput,
 };
-use domovoi_core::{CheckKey, HostId, ReadToolCall, Signal, SkillSummary, TargetKey};
+use domovoi_core::{
+    ActionId, CheckKey, HostId, JournalEpoch, ReadToolCall, SkillSummary, TargetKey,
+};
 use domovoi_proto::messages::{CheckInfo, HostFacts};
 use jiff::Timestamp;
+
+mod recorders;
+
+pub use recorders::{RecordingReconciler, RecordingSignalSink};
 
 use crate::lock;
 
@@ -20,6 +26,9 @@ type SkillHandler =
     Box<dyn Fn(HostId, &SkillDispatch) -> Result<SkillOutput, LinkError> + Send + Sync>;
 type CheckHandler = Box<
     dyn Fn(HostId, &CheckKey, Option<&TargetKey>) -> Result<CheckRecheck, LinkError> + Send + Sync,
+>;
+type StatusHandler = Arc<
+    dyn Fn(HostId, &[ActionId], JournalEpoch) -> Result<ActionAnswers, LinkError> + Send + Sync,
 >;
 
 /// One request made through a [`FakeAgentLink`].
@@ -54,6 +63,17 @@ pub enum LinkRequest {
         /// The deadline passed.
         deadline: Timestamp,
     },
+    /// `action_status`.
+    Status {
+        /// Target host.
+        host: HostId,
+        /// The executions asked about.
+        ids: Vec<ActionId>,
+        /// The epoch the caller believes the journal has.
+        expected_epoch: JournalEpoch,
+        /// The deadline passed.
+        deadline: Timestamp,
+    },
 }
 
 #[derive(Default)]
@@ -74,6 +94,19 @@ pub struct FakeAgentLink {
     skills: Mutex<BTreeMap<HostId, Vec<SkillSummary>>>,
     facts: Mutex<BTreeMap<HostId, HostFacts>>,
     checks: Mutex<BTreeMap<HostId, Vec<CheckInfo>>>,
+    epochs: Mutex<BTreeMap<HostId, JournalEpoch>>,
+    answers: Mutex<BTreeMap<HostId, BTreeMap<ActionId, ActionAnswer>>>,
+    status: Mutex<Option<StatusHandler>>,
+    /// When set, `start_skill` waits for a permit before it reports the request handed over,
+    /// so a test can hold a dispatch at the point where it has been committed but not sent.
+    handoff_gate: Mutex<Option<std::sync::Arc<tokio::sync::Semaphore>>>,
+    /// The error `start_skill` answers with once, instead of handing the request over.
+    handoff_failure: Mutex<Option<LinkError>>,
+    /// When set for a host, `action_status` waits for a permit from the gate before it
+    /// answers, so a test can hold a pass inside its journal query.
+    status_gates: Mutex<BTreeMap<HostId, std::sync::Arc<tokio::sync::Semaphore>>>,
+    /// Skill requests already handed over, by request id, waiting for `skill_result`.
+    sent_skills: Mutex<BTreeMap<domovoi_core::RequestId, SkillDispatch>>,
     handlers: Mutex<Handlers>,
     requests: Mutex<Vec<LinkRequest>>,
 }
@@ -88,9 +121,36 @@ impl FakeAgentLink {
             skills: Mutex::new(BTreeMap::new()),
             facts: Mutex::new(BTreeMap::new()),
             checks: Mutex::new(BTreeMap::new()),
+            epochs: Mutex::new(BTreeMap::new()),
+            answers: Mutex::new(BTreeMap::new()),
+            status: Mutex::new(None),
+            handoff_gate: Mutex::new(None),
+            handoff_failure: Mutex::new(None),
+            status_gates: Mutex::new(BTreeMap::new()),
+            sent_skills: Mutex::new(BTreeMap::new()),
             handlers: Mutex::new(Handlers::default()),
             requests: Mutex::new(Vec::new()),
         }
+    }
+
+    /// Makes `start_skill` wait for a permit from `gate` before reporting the hand-off, so a
+    /// test can hold a dispatch between its commit and its send. Each `add_permits(1)`
+    /// releases one hand-off.
+    pub fn hold_skill_handoffs(&self, gate: std::sync::Arc<tokio::sync::Semaphore>) {
+        *lock(&self.handoff_gate) = Some(gate);
+    }
+
+    /// Makes the next `start_skill` fail with `error` instead of handing the request over,
+    /// as a full agent queue or an offline host would.
+    pub fn fail_next_skill_handoff(&self, error: LinkError) {
+        *lock(&self.handoff_failure) = Some(error);
+    }
+
+    /// Makes `action_status` for `host` wait for a permit from `gate` before answering, so a
+    /// test can hold a reconciliation pass inside its journal query. The request is recorded
+    /// before the wait, so the query is visible while it is held.
+    pub fn hold_status_queries(&self, host: HostId, gate: std::sync::Arc<tokio::sync::Semaphore>) {
+        lock(&self.status_gates).insert(host, gate);
     }
 
     /// Sets a host's presence.
@@ -166,6 +226,35 @@ impl FakeAgentLink {
         lock(&self.handlers).check = Some(Box::new(handler));
     }
 
+    /// Sets the journal epoch a host's agent reported.
+    pub fn set_journal_epoch(&self, host: HostId, epoch: JournalEpoch) {
+        lock(&self.epochs).insert(host, epoch);
+    }
+
+    /// Drops a host's journal epoch, so `journal_epoch` answers `None` for it.
+    pub fn clear_journal_epoch(&self, host: HostId) {
+        lock(&self.epochs).remove(&host);
+    }
+
+    /// Scripts what the host's journal says about one run.
+    pub fn answer(&self, host: HostId, id: ActionId, answer: ActionAnswer) {
+        lock(&self.answers)
+            .entry(host)
+            .or_default()
+            .insert(id, answer);
+    }
+
+    /// Answers every `action_status` with `handler`, instead of the scripted answers.
+    pub fn on_action_status(
+        &self,
+        handler: impl Fn(HostId, &[ActionId], JournalEpoch) -> Result<ActionAnswers, LinkError>
+        + Send
+        + Sync
+        + 'static,
+    ) {
+        *lock(&self.status) = Some(Arc::new(handler));
+    }
+
     /// Every request so far, oldest first.
     #[must_use]
     pub fn requests(&self) -> Vec<LinkRequest> {
@@ -209,17 +298,48 @@ impl AgentLink for FakeAgentLink {
         handler(host, &call)
     }
 
-    async fn run_skill(
+    async fn start_skill(
         &self,
         host: HostId,
         req: SkillDispatch,
+        expected_epoch: JournalEpoch,
         deadline: Timestamp,
-    ) -> Result<SkillOutput, LinkError> {
+    ) -> Result<SkillHandoff, LinkError> {
+        self.connected(host)?;
+        if let Some(error) = lock(&self.handoff_failure).take() {
+            return Err(error);
+        }
+        if self.journal_epoch(host) != Some(expected_epoch) {
+            return Err(LinkError::SessionChanged);
+        }
+        let gate = lock(&self.handoff_gate).clone();
+        if let Some(gate) = gate {
+            let _permit = gate
+                .acquire_owned()
+                .await
+                .map_err(|_| LinkError::NotConnected)?;
+        }
         lock(&self.requests).push(LinkRequest::Skill {
             host,
             dispatch: req.clone(),
             deadline,
         });
+        let id = domovoi_core::RequestId::new();
+        lock(&self.sent_skills).insert(id, req);
+        Ok(SkillHandoff::new(id))
+    }
+
+    async fn skill_result(
+        &self,
+        host: HostId,
+        handoff: SkillHandoff,
+        _deadline: Timestamp,
+    ) -> Result<SkillOutput, LinkError> {
+        let Some(req) = lock(&self.sent_skills).remove(&handoff.request()) else {
+            return Err(LinkError::Indeterminate(
+                "no skill request was handed over".to_owned(),
+            ));
+        };
         self.connected(host)?;
         let handlers = lock(&self.handlers);
         let handler = handlers.skill.as_ref().ok_or_else(no_handler)?;
@@ -266,45 +386,54 @@ impl AgentLink for FakeAgentLink {
         }
     }
 
+    fn journal_epoch(&self, host: HostId) -> Option<JournalEpoch> {
+        lock(&self.epochs).get(&host).copied()
+    }
+
+    async fn action_status(
+        &self,
+        host: HostId,
+        ids: Vec<ActionId>,
+        expected_epoch: JournalEpoch,
+        deadline: Timestamp,
+    ) -> Result<ActionAnswers, LinkError> {
+        lock(&self.requests).push(LinkRequest::Status {
+            host,
+            ids: ids.clone(),
+            expected_epoch,
+            deadline,
+        });
+        self.connected(host)?;
+        let gate = lock(&self.status_gates).get(&host).cloned();
+        if let Some(gate) = gate {
+            let _permit = gate
+                .acquire_owned()
+                .await
+                .map_err(|_| LinkError::NotConnected)?;
+        }
+        if let Some(handler) = lock(&self.status).clone() {
+            return handler(host, &ids, expected_epoch);
+        }
+        let scripted = lock(&self.answers);
+        let host_answers = scripted.get(&host);
+        let answers = ids
+            .into_iter()
+            .map(|id| ActionAnswerEntry {
+                execution: id,
+                answer: host_answers
+                    .and_then(|known| known.get(&id))
+                    .cloned()
+                    .unwrap_or(ActionAnswer::NotFound),
+            })
+            .collect();
+        Ok(ActionAnswers {
+            epoch: expected_epoch,
+            answers,
+        })
+    }
+
     fn skills(&self, host: HostId) -> Vec<SkillSummary> {
         lock(&self.skills).get(&host).cloned().unwrap_or_default()
-    }
-}
-
-/// A [`SignalSink`] that records every accepted batch.
-#[derive(Debug, Default)]
-pub struct RecordingSignalSink {
-    batches: Mutex<Vec<Vec<Signal>>>,
-    failures: Mutex<VecDeque<IngestError>>,
-}
-
-impl RecordingSignalSink {
-    /// An empty sink.
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Makes the next submit fail with `error`; the batch is not recorded.
-    pub fn fail_next(&self, error: IngestError) {
-        lock(&self.failures).push_back(error);
-    }
-
-    /// Every accepted batch, oldest first.
-    #[must_use]
-    pub fn batches(&self) -> Vec<Vec<Signal>> {
-        lock(&self.batches).clone()
-    }
-}
-
-#[async_trait]
-impl SignalSink for RecordingSignalSink {
-    async fn submit(&self, signals: Vec<Signal>) -> Result<(), IngestError> {
-        if let Some(error) = lock(&self.failures).pop_front() {
-            return Err(error);
-        }
-        lock(&self.batches).push(signals);
-        Ok(())
     }
 }
 

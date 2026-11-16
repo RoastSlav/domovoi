@@ -27,7 +27,7 @@ pub use chat::{GatewayCall, RecordingGateway, RecordingNotifier};
 pub use clock::FakeClock;
 pub use contracts::ContractError;
 pub use fs::FixtureHostFs;
-pub use link::{FakeAgentLink, RecordingSignalSink};
+pub use link::{FakeAgentLink, RecordingReconciler, RecordingSignalSink};
 pub use llm::ScriptedLlm;
 pub use logs::CannedLogSource;
 pub use process::FakeProcessExecutor;

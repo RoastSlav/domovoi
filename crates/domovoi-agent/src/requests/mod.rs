@@ -19,9 +19,10 @@ use domovoi_core::{HostId, RequestId, Risk, SignalStatus};
 use domovoi_proto::Message;
 use domovoi_proto::Open;
 use domovoi_proto::messages::{
-    ActionStatusQuery, CheckObservation, CheckResult, ErrorMessage, Logs, RefusalCode, Refused,
-    RunCapability, RunCheck, SkillFailure, SkillFailureCode, SkillOutcome, SkillResult,
-    ToolFailure, ToolFailureCode, ToolOutcome, ToolResult, ToolSuccess,
+    ActionState, ActionStatusAnswer, ActionStatusAnswers, ActionStatusQuery, CheckObservation,
+    CheckResult, ErrorMessage, Logs, OutcomeUnknownReason, RefusalCode, Refused, RunCapability,
+    RunCheck, SkillFailure, SkillFailureCode, SkillOutcome, SkillResult, ToolFailure,
+    ToolFailureCode, ToolOutcome, ToolResult, ToolSuccess,
 };
 use domovoi_runner::SkillCatalog;
 use jiff::Timestamp;
@@ -226,6 +227,36 @@ fn run_capability(ctx: &RequestCtx, run: &RunCapability) -> Message {
     )
 }
 
+/// Why an `action_status` query is answered conservatively.
+///
+/// The journal can only prove that a run never arrived when every execution path records
+/// its arrival. The legacy `run_skill` path does not record anything in the journal, so an
+/// id it does not know may still have run. Until executions are journal-backed, absence is
+/// reported as an unknowable outcome and never as `not_found`, so the hub cannot turn it
+/// into "nothing was started". It is also why this agent does not advertise
+/// `AUTHORITATIVE_ABSENCE` on `hello`: it cannot make that promise while a run can execute
+/// without a journal record. The hub fails closed for every agent that does not promise it.
+/// This also removes the need to order a status query behind a request whose acceptance is
+/// still being recorded.
+fn conservative(answers: ActionStatusAnswers) -> ActionStatusAnswers {
+    ActionStatusAnswers {
+        epoch: answers.epoch,
+        answers: answers
+            .answers
+            .into_iter()
+            .map(|answer| match answer.state {
+                ActionState::NotFound => ActionStatusAnswer {
+                    state: ActionState::OutcomeUnknown {
+                        reason: Open::new("journal_lost", Some(OutcomeUnknownReason::JournalLost)),
+                    },
+                    ..answer
+                },
+                _ => answer,
+            })
+            .collect(),
+    }
+}
+
 fn action_status(ctx: &RequestCtx, query: &ActionStatusQuery) -> Message {
     if query.execution_ids.len() > MAX_STATUS_IDS {
         return Message::Error(ErrorMessage {
@@ -237,7 +268,7 @@ fn action_status(ctx: &RequestCtx, query: &ActionStatusQuery) -> Message {
     }
     match &ctx.journal {
         Some(journal) => match journal.action_status(query) {
-            Ok(answers) => Message::ActionStatusAnswers(answers),
+            Ok(answers) => Message::ActionStatusAnswers(conservative(answers)),
             Err(err) => Message::Error(ErrorMessage {
                 code: "journal_error".to_owned(),
                 message: ctx.redactor.redact(&err.to_string()),
@@ -389,4 +420,45 @@ pub async fn serve(
         while running.try_join_next().is_some() {}
     }
     running.abort_all();
+}
+
+#[cfg(test)]
+mod tests {
+    use domovoi_proto::messages::{
+        ActionState, ActionStatusAnswer, ActionStatusAnswers, OutcomeUnknownReason,
+    };
+    use uuid::Uuid;
+
+    use super::conservative;
+
+    #[test]
+    fn an_absent_execution_is_reported_as_unknowable_not_as_missing() {
+        let known = Uuid::now_v7();
+        let absent = Uuid::now_v7();
+        let answers = conservative(ActionStatusAnswers {
+            epoch: Uuid::nil(),
+            answers: vec![
+                ActionStatusAnswer {
+                    execution_id: absent,
+                    state: ActionState::NotFound,
+                },
+                ActionStatusAnswer {
+                    execution_id: known,
+                    state: ActionState::Running,
+                },
+            ],
+        });
+        assert!(
+            matches!(
+                &answers.answers[0].state,
+                ActionState::OutcomeUnknown { reason }
+                    if reason.known() == Some(&OutcomeUnknownReason::JournalLost)
+            ),
+            "the legacy execution path keeps no journal record, so absence is not proof",
+        );
+        assert!(
+            matches!(answers.answers[1].state, ActionState::Running),
+            "what the journal does know is reported unchanged",
+        );
+    }
 }

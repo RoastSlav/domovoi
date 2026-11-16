@@ -4,26 +4,33 @@ import { useToast } from "../../components";
 
 const IN_FLIGHT = new Set(["approved", "dispatched"]);
 
+/** How a finished action is announced: never as a success or a failure it did not have. */
+type OutcomeKind = "success" | "error" | "info";
+
 /** What to say when an action that was running reaches `status`; nothing for the others. */
 function outcome(
   action: Action,
   host: string | undefined,
-): { failed: boolean; title: string } | undefined {
+): { kind: OutcomeKind; title: string } | undefined {
   const where = host ? `on ${host}` : "on the host";
   switch (action.status) {
     case "succeeded":
-      return { failed: false, title: `${action.skill} succeeded ${where}` };
+      return { kind: "success", title: `${action.skill} succeeded ${where}` };
     case "verified":
-      return { failed: false, title: `${action.skill} fixed the problem ${where}` };
+      return { kind: "success", title: `${action.skill} fixed the problem ${where}` };
     case "failed":
-      return { failed: true, title: `${action.skill} failed ${where}` };
+      return { kind: "error", title: `${action.skill} failed ${where}` };
     case "verify_failed":
       return {
-        failed: true,
+        kind: "error",
         title: `${action.skill} ran ${where}, but the problem is still there`,
       };
     case "rejected":
-      return { failed: true, title: `The agent ${where} refused to run ${action.skill}` };
+      return { kind: "error", title: `The agent ${where} refused to run ${action.skill}` };
+    case "outcome_unknown":
+      return { kind: "info", title: `${action.skill} result is unknown ${where}` };
+    case "not_run":
+      return { kind: "info", title: `${action.skill} never ran ${where}` };
     default:
       return undefined;
   }
@@ -32,7 +39,8 @@ function outcome(
 /**
  * Says how an approved action ended, as a toast, when the page sees it leave "running":
  * the person who approved it is told the result wherever on the page they are looking. A
- * result that was already in when the page loaded is not announced.
+ * result that was already in when the page loaded is not announced. An unknown outcome and
+ * a run that never happened are information, never a success or a failure.
  */
 export function useActionOutcomes(actions: readonly Action[], hosts: Map<string, string>): void {
   const toast = useToast();
@@ -50,10 +58,13 @@ export function useActionOutcomes(actions: readonly Action[], hosts: Map<string,
       if (!said) {
         continue;
       }
-      if (said.failed) {
-        toast.error({ title: said.title, ...(action.reason ? { detail: action.reason } : {}) });
-      } else {
+      const detail = action.reason ? { detail: action.reason } : {};
+      if (said.kind === "success") {
         toast.success({ title: said.title });
+      } else if (said.kind === "error") {
+        toast.error({ title: said.title, ...detail });
+      } else {
+        toast.info({ title: said.title, ...detail });
       }
     }
   }, [actions, hosts, toast]);

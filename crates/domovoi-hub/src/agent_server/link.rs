@@ -1,23 +1,28 @@
 //! [`WsAgentLink`]: the engine's way to reach agents through their live sessions.
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, PoisonError};
 
 use async_trait::async_trait;
 use domovoi_core::ports::{
-    AgentLink, CheckRecheck, Clock, HostAvailability, HostRepo, LinkError, LogLine, Presence,
-    SkillDispatch, SkillOutput, ToolOutput,
+    ActionAnswer, ActionAnswerEntry, ActionAnswers, AgentLink, CheckRecheck, Clock,
+    HostAvailability, HostRepo, LinkError, LogLine, Presence, SkillDispatch, SkillHandoff,
+    SkillOutput, ToolOutput, UnknownReason,
 };
-use domovoi_core::{CheckKey, HostId, ReadToolCall, SkillSummary, TargetKey};
+use domovoi_core::{
+    ActionId, CheckKey, HostId, JournalEpoch, ReadToolCall, RequestId, SkillSummary, TargetKey,
+};
 use domovoi_proto::messages::{
-    GetLogs, RunCheck, RunSkill, RunTool, SkillFailureCode, SkillOutcome, ToolFailureCode,
-    ToolOutcome,
+    ActionState, ActionStatusAnswers, ActionStatusQuery, CapabilityOutcome, GetLogs,
+    OutcomeUnknownReason, RunCheck, RunSkill, RunTool, SkillOutcome, ToolFailureCode, ToolOutcome,
 };
 use domovoi_proto::{Message, PROTOCOL_VERSION};
 use jiff::SignedDuration;
 use jiff::Timestamp;
+use tokio::sync::oneshot;
 
 use super::compat::{ProtocolState, protocol_state};
-use super::registry::{Registry, SessionState};
+use super::registry::{Registry, SessionFacts, SessionState};
 
 /// Routes requests to the host's current session. Fails fast with
 /// [`LinkError::NotConnected`] when the host has none, and with [`LinkError::Timeout`]
@@ -26,6 +31,10 @@ pub struct WsAgentLink {
     registry: Arc<Registry>,
     clock: Arc<dyn Clock>,
     hosts: Arc<dyn HostRepo>,
+    /// Answers still awaited for requests already queued, by host and request id. Taking
+    /// one out is how [`AgentLink::skill_result`] picks up where
+    /// [`AgentLink::start_skill`] left off.
+    sends: Mutex<HashMap<(HostId, RequestId), oneshot::Receiver<Message>>>,
 }
 
 impl WsAgentLink {
@@ -38,7 +47,15 @@ impl WsAgentLink {
             registry,
             clock,
             hosts,
+            sends: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Locks the awaited answers without panicking on a poisoned lock.
+    fn sends(
+        &self,
+    ) -> std::sync::MutexGuard<'_, HashMap<(HostId, RequestId), oneshot::Receiver<Message>>> {
+        self.sends.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Why a request found no live session: the hub rejected this agent's protocol, or it
@@ -97,11 +114,24 @@ impl WsAgentLink {
         message: &Message,
         deadline: Timestamp,
     ) -> Result<Message, LinkError> {
+        let (reply, _facts) = self.request_on(host, message, deadline, None).await?;
+        Ok(reply)
+    }
+
+    /// One hub request, optionally only to a session that still has `expected`, with what
+    /// the session that accepted it promised about itself.
+    async fn request_on(
+        &self,
+        host: HostId,
+        message: &Message,
+        deadline: Timestamp,
+        expected: Option<JournalEpoch>,
+    ) -> Result<(Message, SessionFacts), LinkError> {
         if self.clock.now() >= deadline {
             return Err(LinkError::Timeout);
         }
-        let (id, answer) = match self.registry.dispatch(host, message) {
-            Ok(pair) => pair,
+        let (id, answer, facts) = match self.registry.dispatch(host, message, expected) {
+            Ok(parts) => parts,
             Err(LinkError::NotConnected) => return Err(self.not_connected(host).await),
             Err(err) => return Err(err),
         };
@@ -112,7 +142,7 @@ impl WsAgentLink {
             () = self.clock.sleep_until(deadline) => Err(LinkError::Timeout),
         };
         self.registry.forget(host, id);
-        reply
+        Ok((reply?, facts))
     }
 
     /// The recent log lines of the agent on `host`: waits 10 s for a reply.
@@ -170,6 +200,77 @@ fn unexpected(message: &Message) -> LinkError {
     LinkError::Rejected(format!("the agent answered with {}", message.kind()))
 }
 
+/// The engine's view of the journal's answers, mapped against what the answering session
+/// promised.
+///
+/// `not_found` is positive evidence only when the agent records every action execution in
+/// its journal. An older agent, or one that still serves an unjournaled execution path,
+/// can run a request and still have no record of it, so its `not_found` is reported as an
+/// unknowable outcome instead.
+fn answers_from(reply: ActionStatusAnswers, authoritative_absence: bool) -> ActionAnswers {
+    ActionAnswers {
+        epoch: JournalEpoch::from_uuid(reply.epoch),
+        answers: reply
+            .answers
+            .into_iter()
+            .map(|answer| ActionAnswerEntry {
+                execution: ActionId::from_uuid(answer.execution_id),
+                answer: answer_from(answer.state, authoritative_absence),
+            })
+            .collect(),
+    }
+}
+
+/// What one journal state means to the engine. A finished run keeps whether it succeeded and
+/// the agent's message; the output itself is not needed to settle an action.
+fn answer_from(state: ActionState, authoritative_absence: bool) -> ActionAnswer {
+    match state {
+        ActionState::Finished { result } => match result.outcome {
+            CapabilityOutcome::Succeeded { .. } => ActionAnswer::Finished {
+                succeeded: true,
+                detail: None,
+            },
+            // Keep the failure class as it came off the wire, so a code this build does not
+            // know is reported rather than flattened into a generic failure.
+            CapabilityOutcome::Failed { code, message } => ActionAnswer::Finished {
+                succeeded: false,
+                detail: Some(format!("{}: {message}", code.raw())),
+            },
+        },
+        ActionState::Running => ActionAnswer::Running,
+        ActionState::NotFound if authoritative_absence => ActionAnswer::NotFound,
+        ActionState::NotFound => {
+            tracing::warn!(
+                "the agent has no record of a run but does not promise that every execution is journaled; \
+                 its absence is not proof the run never happened",
+            );
+            ActionAnswer::Unknown {
+                reason: UnknownReason::JournalLost,
+            }
+        }
+        ActionState::OutcomeUnknown { reason } => ActionAnswer::Unknown {
+            reason: unknown_reason(&reason),
+        },
+    }
+}
+
+/// Why the journal could not establish an outcome. A reason this build does not know is
+/// reported as a lost record: the run may have happened, so nothing is assumed.
+fn unknown_reason(reason: &domovoi_proto::Open<OutcomeUnknownReason>) -> UnknownReason {
+    match reason.known() {
+        Some(OutcomeUnknownReason::NoStartRecord) => UnknownReason::NoStartRecord,
+        Some(OutcomeUnknownReason::AgentRestarted) => UnknownReason::AgentRestarted,
+        Some(OutcomeUnknownReason::JournalLost) => UnknownReason::JournalLost,
+        None => {
+            tracing::warn!(
+                reason = reason.raw(),
+                "the agent reported an unknown outcome reason; treating the record as lost",
+            );
+            UnknownReason::JournalLost
+        }
+    }
+}
+
 #[async_trait]
 impl AgentLink for WsAgentLink {
     async fn run_tool(
@@ -186,27 +287,6 @@ impl AgentLink for WsAgentLink {
                     Err(LinkError::Timeout)
                 }
                 ToolOutcome::Err(f) => {
-                    Err(LinkError::Rejected(format!("{:?}: {}", f.code, f.message)))
-                }
-            },
-            other => Err(unexpected(&other)),
-        }
-    }
-
-    async fn run_skill(
-        &self,
-        host: HostId,
-        req: SkillDispatch,
-        deadline: Timestamp,
-    ) -> Result<SkillOutput, LinkError> {
-        let message = Message::RunSkill(RunSkill::from_dispatch(&req, deadline));
-        match self.request(host, &message, deadline).await? {
-            Message::SkillResult(result) => match result.outcome {
-                SkillOutcome::Ok(out) => Ok(out.into()),
-                SkillOutcome::Err(f) if f.code == SkillFailureCode::Timeout => {
-                    Err(LinkError::Timeout)
-                }
-                SkillOutcome::Err(f) => {
                     Err(LinkError::Rejected(format!("{:?}: {}", f.code, f.message)))
                 }
             },
@@ -244,6 +324,71 @@ impl AgentLink for WsAgentLink {
         }
     }
 
+    async fn start_skill(
+        &self,
+        host: HostId,
+        req: SkillDispatch,
+        expected_epoch: JournalEpoch,
+        deadline: Timestamp,
+    ) -> Result<SkillHandoff, LinkError> {
+        if self.clock.now() >= deadline {
+            return Err(LinkError::Timeout);
+        }
+        let message = Message::RunSkill(RunSkill::from_dispatch(&req, deadline));
+        let (id, answer, _facts) =
+            match self.registry.dispatch(host, &message, Some(expected_epoch)) {
+                Ok(parts) => parts,
+                Err(LinkError::NotConnected) => return Err(self.not_connected(host).await),
+                Err(err) => return Err(err),
+            };
+        self.sends().insert((host, id), answer);
+        Ok(SkillHandoff::new(id))
+    }
+
+    async fn skill_result(
+        &self,
+        host: HostId,
+        handoff: SkillHandoff,
+        deadline: Timestamp,
+    ) -> Result<SkillOutput, LinkError> {
+        let id = handoff.request();
+        let Some(answer) = self.sends().remove(&(host, id)) else {
+            return Err(LinkError::Indeterminate(
+                "the request was no longer awaited".to_owned(),
+            ));
+        };
+        let reply = tokio::select! {
+            reply = answer => reply.map_err(|_| {
+                LinkError::Indeterminate(
+                    "the agent disconnected before answering".to_owned(),
+                )
+            }),
+            () = self.clock.sleep_until(deadline) => Err(LinkError::Timeout),
+        };
+        self.registry.forget(host, id);
+        match reply? {
+            Message::SkillResult(result) => match result.outcome {
+                SkillOutcome::Ok(out) => Ok(out.into()),
+                // A terminal answer from the agent: it refused the run or reported that the
+                // run failed. The code and the message are both kept.
+                SkillOutcome::Err(f) => {
+                    Err(LinkError::Rejected(format!("{:?}: {}", f.code, f.message)))
+                }
+            },
+            Message::Refused(refused) => Err(LinkError::Rejected(format!(
+                "{}: {}",
+                refused.code.raw(),
+                refused.detail
+            ))),
+            // Anything else is not a result: the run may have happened, so the caller must
+            // not read this as a failure.
+            other => Err(LinkError::Indeterminate(format!(
+                "the agent answered with {}",
+                other.kind()
+            ))),
+        }
+    }
+
     fn presence(&self, host: HostId) -> Presence {
         self.registry.presence(host)
     }
@@ -264,6 +409,40 @@ impl AgentLink for WsAgentLink {
             // A live session was answered above; a host never seen in this hub run is
             // unknown until it connects.
             SessionState::Live { .. } | SessionState::Never => HostAvailability::Unknown,
+        }
+    }
+
+    fn journal_epoch(&self, host: HostId) -> Option<JournalEpoch> {
+        self.registry.journal_epoch(host)
+    }
+
+    async fn action_status(
+        &self,
+        host: HostId,
+        ids: Vec<ActionId>,
+        expected_epoch: JournalEpoch,
+        deadline: Timestamp,
+    ) -> Result<ActionAnswers, LinkError> {
+        let query = ActionStatusQuery {
+            execution_ids: ids.iter().map(ActionId::as_uuid).collect(),
+            expected_epoch: expected_epoch.as_uuid(),
+        };
+        let (reply, facts) = self
+            .request_on(
+                host,
+                &Message::ActionStatus(query),
+                deadline,
+                Some(expected_epoch),
+            )
+            .await?;
+        match reply {
+            Message::ActionStatusAnswers(reply) => {
+                Ok(answers_from(reply, facts.authoritative_absence))
+            }
+            other => Err(LinkError::Indeterminate(format!(
+                "the agent answered with {}",
+                other.kind()
+            ))),
         }
     }
 

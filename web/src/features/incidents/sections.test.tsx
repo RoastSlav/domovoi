@@ -89,6 +89,30 @@ test("a_failed_earlier_action_says_why_on_a_second_line", async () => {
   expect(fine).not.toHaveTextContent("exit code");
 });
 
+test("outcome_unknown_is_not_in_flight", async () => {
+  route("GET /api/v1/incidents/{id}", () => ({
+    ...detail(),
+    actions: [
+      action({
+        id: "u",
+        skill: "maybe_ran",
+        status: "outcome_unknown",
+        reason: "The agent stopped answering before it reported back.",
+      }),
+    ],
+  }));
+  open();
+
+  const earlier = await screen.findByRole("region", { name: "Earlier actions · 1" });
+  expect(within(earlier).getByText("maybe_ran"), "an unknown result is finished").toBeVisible();
+  expect(within(earlier).getByText("Result unknown")).toBeVisible();
+  expect(
+    within(earlier).getByText("The agent stopped answering before it reported back."),
+  ).toBeVisible();
+  expect(screen.queryByRole("region", { name: /^In progress/ })).toBeNull();
+  expect(within(earlier).queryByRole("progressbar"), "no progress spinner").toBeNull();
+});
+
 test("an_expiry_under_fifteen_minutes_is_a_warning_and_later_is_not", async () => {
   route("GET /api/v1/incidents/{id}", () => ({
     ...detail(),

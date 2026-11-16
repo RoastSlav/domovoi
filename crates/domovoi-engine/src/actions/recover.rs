@@ -1,18 +1,15 @@
 //! What a service that has only just started reads back from the store, so a hub that
 //! restarted neither loses what a person decided nor invents a run (ADR 0014): actions
-//! still marked **Approved** are found here for the executor to start, actions still
-//! marked **Dispatched** are failed because their answer went to the session that is
-//! gone, and the loop guard's memory of the last hour is reloaded from the audit log.
+//! still marked **Approved** are found here for the executor to start, and the loop
+//! guard's memory of the last hour is reloaded from the audit log. A run still marked
+//! **Dispatched** is not touched: it is reconciled against its agent's journal when that
+//! host authenticates, because a restart is no evidence either way.
 //! A scan the store will not finish is an error rather than a shorter list: the work it
 //! was meant to do stays undone until the hub starts again, instead of looking complete.
 
-use domovoi_core::ActionChange;
-use domovoi_core::ports::{
-    ActionFilter, ActionGuard, AuditEvent, AuditFilter, CommitError, Page, StoreError,
-};
+use domovoi_core::ports::{ActionFilter, AuditEvent, AuditFilter, Page, StoreError};
 use domovoi_core::{ActionId, ActionRequest};
 
-use super::Publish;
 use super::Shared;
 use super::audit;
 
@@ -24,11 +21,6 @@ use jiff::SignedDuration;
 /// this many tries the scan reports an error and the caller leaves those actions as the
 /// store has them.
 pub(crate) const SCAN_ATTEMPTS: usize = 3;
-
-/// Why an action that was running when the hub stopped is failed. Nothing is known
-/// about the run: the agent's answer went to the session that is gone.
-pub(crate) const RESTART_REASON: &str =
-    "the hub restarted while this ran; check the host before running it again";
 
 /// Every action matching `filter`, paged to the end and read again from the start if a
 /// page fails. `Err` means the store would not finish the listing: whoever started work
@@ -198,54 +190,4 @@ pub(crate) async fn dispatch_history(shared: &Shared) -> Result<usize, StoreErro
         runs.push_back(at);
     }
     Ok(reloaded)
-}
-
-/// Fails every action the store says was running and returns how many. The store picks
-/// them out, so this reads only leftovers, and the guarded write keeps a decision that
-/// came in the meantime from being overwritten. `Err` means it could not get the whole
-/// list: those actions stay as the store has them and the next hub start reads them again.
-pub(crate) async fn fail_abandoned(shared: &Shared) -> Result<usize, StoreError> {
-    let filter = ActionFilter {
-        status: Some("dispatched".to_owned()),
-        ..ActionFilter::default()
-    };
-    let leftovers = scan(shared, &filter).await?;
-    let mut failed = 0;
-    for mut action in leftovers {
-        let now = shared.deps.clock.now();
-        let ActionChange { from, .. } = match action.complete(Err(RESTART_REASON.to_owned()), now) {
-            Ok(change) => change,
-            Err(err) => {
-                tracing::debug!(
-                    action = %action.id(),
-                    %err,
-                    "an action left running already has an outcome",
-                );
-                continue;
-            }
-        };
-        match shared
-            .commit_action(
-                &action,
-                ActionGuard::Status(from.name().to_owned()),
-                audit::finished(&action, None, Some(RESTART_REASON), now),
-                now,
-                None,
-                Publish::ActionChanged,
-            )
-            .await
-        {
-            Ok(()) => failed += 1,
-            Err(CommitError::Conflict { .. }) => tracing::debug!(
-                action = %action.id(),
-                "someone decided this action meanwhile; the restart leaves it as they left it",
-            ),
-            Err(err) => tracing::warn!(
-                %err,
-                action = %action.id(),
-                "could not fail an action left running",
-            ),
-        }
-    }
-    Ok(failed)
 }

@@ -10,11 +10,13 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use async_trait::async_trait;
 use domovoi_core::ports::{
-    AgentLink, CheckRecheck, HostAvailability, LinkError, Presence, SettingsRepo, SkillDispatch,
-    SkillOutput, StoreError, ToolOutput,
+    ActionAnswers, AgentLink, CheckRecheck, HostAvailability, LinkError, Presence, SettingsRepo,
+    SkillDispatch, SkillHandoff, SkillOutput, StoreError, ToolOutput,
 };
 use domovoi_core::skill::SkillName;
-use domovoi_core::{CheckKey, Host, HostId, ReadToolCall, SkillSummary, TargetKey};
+use domovoi_core::{
+    ActionId, CheckKey, Host, HostId, JournalEpoch, ReadToolCall, SkillSummary, TargetKey,
+};
 use jiff::Timestamp;
 use serde_json::Value;
 use serde_json::json;
@@ -172,16 +174,26 @@ impl AgentLink for PolicyLink {
         AgentLink::run_tool(&*self.inner, host, call, deadline).await
     }
 
-    async fn run_skill(
+    async fn start_skill(
         &self,
         host: HostId,
         req: SkillDispatch,
+        expected_epoch: JournalEpoch,
         deadline: Timestamp,
-    ) -> Result<SkillOutput, LinkError> {
+    ) -> Result<SkillHandoff, LinkError> {
         if self.policy.is_disabled(host, &req.skill) {
             return Err(LinkError::Rejected(DISABLED_REASON.to_owned()));
         }
-        AgentLink::run_skill(&*self.inner, host, req, deadline).await
+        AgentLink::start_skill(&*self.inner, host, req, expected_epoch, deadline).await
+    }
+
+    async fn skill_result(
+        &self,
+        host: HostId,
+        handoff: SkillHandoff,
+        deadline: Timestamp,
+    ) -> Result<SkillOutput, LinkError> {
+        AgentLink::skill_result(&*self.inner, host, handoff, deadline).await
     }
 
     async fn run_check(
@@ -202,6 +214,20 @@ impl AgentLink for PolicyLink {
         AgentLink::availability(&*self.inner, host).await
     }
 
+    fn journal_epoch(&self, host: HostId) -> Option<JournalEpoch> {
+        AgentLink::journal_epoch(&*self.inner, host)
+    }
+
+    async fn action_status(
+        &self,
+        host: HostId,
+        ids: Vec<ActionId>,
+        expected_epoch: JournalEpoch,
+        deadline: Timestamp,
+    ) -> Result<ActionAnswers, LinkError> {
+        AgentLink::action_status(&*self.inner, host, ids, expected_epoch, deadline).await
+    }
+
     fn skills(&self, host: HostId) -> Vec<SkillSummary> {
         let inner = &*self.inner;
         AgentLink::skills(inner, host)
@@ -220,7 +246,9 @@ mod tests {
     use domovoi_core::ports::{
         AgentLink, LinkError, Presence, SettingsRepo, SkillDispatch, StoreError,
     };
-    use domovoi_core::{ActionId, HostId, PlanHash, ReadToolCall, Risk, SkillName, SkillSummary};
+    use domovoi_core::{
+        ActionId, HostId, JournalEpoch, PlanHash, ReadToolCall, Risk, SkillName, SkillSummary,
+    };
     use domovoi_testkit::build::{host, manifest};
     use domovoi_testkit::{FakeAgentLink, InMemoryStore};
     use jiff::Timestamp;
@@ -260,6 +288,11 @@ mod tests {
         }
     }
 
+    /// A fixed journal epoch for the fake agent.
+    fn epoch() -> JournalEpoch {
+        JournalEpoch::from_uuid(uuid::Uuid::nil())
+    }
+
     /// A [`PolicyLink`] over a connected fake agent on `nas` that announced both skills,
     /// with `prune_logs` disabled in the policy and saved in the settings store. Also
     /// returns the fake, so tests can check which calls actually reached it.
@@ -274,6 +307,8 @@ mod tests {
             },
         );
         agent.set_skills(nas.id, vec![summary(HIDDEN), summary(VISIBLE)]);
+        // A dispatch records this epoch, so the fake must report it back.
+        agent.set_journal_epoch(nas.id, epoch());
         let store: Arc<dyn SettingsRepo> = Arc::new(InMemoryStore::new());
         let policy = Arc::new(
             SkillPolicy::load(store.clone(), std::slice::from_ref(&nas))
@@ -306,15 +341,20 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn disabled_skill_run_skill_refused() {
+    async fn disabled_skill_handoff_refused() {
         let (link, nas, agent) = wrapped().await;
         let out = link
-            .run_skill(nas, dispatch(HIDDEN, nas), at("2026-11-01T00:05:00Z"))
+            .start_skill(
+                nas,
+                dispatch(HIDDEN, nas),
+                epoch(),
+                at("2026-11-01T00:05:00Z"),
+            )
             .await;
         match out {
             Err(LinkError::Rejected(reason)) => assert_eq!(reason, DISABLED_REASON),
             Err(other) => panic!("wrong reason for a refused skill: {other:?}"),
-            Ok(out) => panic!("a disabled skill ran: {out:?}"),
+            Ok(out) => panic!("a disabled skill was handed to the agent: {out:?}"),
         }
         assert!(
             agent.requests().is_empty(),

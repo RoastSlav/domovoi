@@ -1,5 +1,5 @@
 //! One task applies every action decision: two decisions at once leave exactly one
-//! outcome, and the expiry sweep only reads proposals whose approval window closed.
+//! outcome, and the expiry sweep only reads what the store says is open past its window.
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
@@ -193,22 +193,13 @@ async fn approve_and_deny_at_once_leave_exactly_one_outcome() {
 }
 
 #[tokio::test]
-async fn expiry_never_overwrites_an_approval() {
+async fn expiry_never_overwrites_a_decision() {
     let a = actions(ActionSettings::default()).await;
     let (action, _) = a.propose().await;
     let id = action.id();
 
-    let approved = a
-        .service
-        .approve(
-            id,
-            human(UserId::new()),
-            None,
-            PlanBinding::Full(action.plan_hash()),
-        )
-        .await
-        .unwrap();
-    assert!(matches!(approved.status(), ActionStatus::Approved));
+    let denied = a.service.deny(id, human(UserId::new())).await.unwrap();
+    assert_eq!(denied.status(), &ActionStatus::Denied);
 
     a.clock.advance(SignedDuration::from_hours(2));
     let swept = a.service.expire_due().await.unwrap();
@@ -217,12 +208,12 @@ async fn expiry_never_overwrites_an_approval() {
     let trail = a.trail(id).await;
     assert!(
         trail.iter().all(|kind| *kind != audit::EXPIRED),
-        "expiry never rewrites an approval",
+        "expiry never rewrites a decision",
     );
-    assert_ne!(
+    assert_eq!(
         a.get(id).await.status(),
-        &ActionStatus::Expired,
-        "the approval is still stored"
+        &ActionStatus::Denied,
+        "the decision is still stored"
     );
 }
 
@@ -242,7 +233,7 @@ fn restart_params() -> BTreeMap<String, String> {
 }
 
 #[tokio::test]
-async fn expire_due_reads_only_due_proposals() {
+async fn expire_due_reads_only_what_is_due() {
     let lists = new_lists();
     let a = swept(ActionSettings::default(), lists.clone()).await;
     let (incident, host) = (IncidentId::new(), HostId::new());
@@ -286,58 +277,57 @@ async fn expire_due_reads_only_due_proposals() {
     }
 
     let expired = a.service.expire_due().await.unwrap();
-    assert_eq!(
-        expired, DUE,
-        "only proposals whose window closed are decided"
-    );
+    assert_eq!(expired, DUE, "only actions whose window closed are decided");
 
     let due_at = a.now();
+    let window = Some(
+        due_at
+            .checked_add(SignedDuration::from_millis(1))
+            .unwrap_or(due_at),
+    );
     let expected = ActionFilter {
         status: Some("proposed".to_owned()),
-        expires_before: Some(
-            due_at
-                .checked_add(SignedDuration::from_millis(1))
-                .unwrap_or(due_at),
-        ),
+        expires_before: window,
+        ..ActionFilter::default()
+    };
+    let approved_due = ActionFilter {
+        status: Some("approved".to_owned()),
+        expires_before: window,
+        ..ActionFilter::default()
+    };
+    let approved_only = ActionFilter {
+        status: Some("approved".to_owned()),
         ..ActionFilter::default()
     };
     {
         let asked = lists.lock().unwrap_or_else(|err| err.into_inner());
         let sweeps = asked.iter().filter(|got| *got == &expected).count();
         assert_eq!(sweeps, 2, "the sweep pages over due proposals, then stops",);
-        let approved_only = ActionFilter {
-            status: Some("approved".to_owned()),
-            ..ActionFilter::default()
-        };
-        let dispatched_only = ActionFilter {
-            status: Some("dispatched".to_owned()),
-            ..ActionFilter::default()
-        };
+        assert_eq!(
+            asked.iter().filter(|got| *got == &approved_due).count(),
+            1,
+            "the sweep asks what is approved past its window, once",
+        );
         assert_eq!(
             asked.iter().filter(|got| *got == &approved_only).count(),
             1,
             "the service start looks for what a previous session left approved, once",
         );
         assert_eq!(
-            asked.iter().filter(|got| *got == &dispatched_only).count(),
-            1,
-            "the service start looks for what a previous session left running, once",
-        );
-        assert_eq!(
             asked.len(),
             sweeps + 2,
-            "the only listings are the sweep and the two the service start makes to catch up on what a previous session left",
+            "the only listings are the two sweeps and the one the service start makes to catch up",
         );
         assert!(
             asked
                 .iter()
-                .all(|got| got == &expected || got == &approved_only || got == &dispatched_only),
-            "a listing asks for open proposals whose window closed, or for one of the two statuses a restart leaves behind; none reads every action",
+                .all(|got| got == &expected || got == &approved_due || got == &approved_only),
+            "a listing asks for open proposals or approvals by window, or for what a restart leaves approved; none reads every action",
         );
     }
 
     let again = a.service.expire_due().await.unwrap();
-    assert_eq!(again, 0, "each due proposal is decided once");
+    assert_eq!(again, 0, "each due action is decided once");
     assert_eq!(a.get(open_id).await.status(), &ActionStatus::Proposed);
     assert_eq!(a.get(decided_id).await.status(), &ActionStatus::Denied);
 }

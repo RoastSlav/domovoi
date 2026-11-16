@@ -26,7 +26,9 @@ mod ws;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, OnceLock};
 
-use domovoi_core::ports::{AuditLog, Clock, FactRepo, HostRepo, SignalSink, StoreError};
+use domovoi_core::ports::{
+    AuditLog, Clock, FactRepo, HostReconciler, HostRepo, SignalSink, StoreError,
+};
 use domovoi_core::{HostId, HostKind, HostName};
 use domovoi_proto::messages::{CheckInfo, HostFacts};
 use domovoi_proto::{PROTOCOL_VERSION, Transport};
@@ -82,6 +84,9 @@ struct Inner {
     shutdown: CancellationToken,
     /// Where per-host check overrides are read from, once the runtime provides it.
     overrides: OnceLock<Arc<dyn domovoi_core::ports::SettingsRepo>>,
+    /// The action service, once the runtime has it, so an authenticated agent's
+    /// dispatched runs can be reconciled against its journal.
+    reconciler: OnceLock<Arc<dyn HostReconciler>>,
 }
 
 /// The agent server. Cheap to clone; clones share one server.
@@ -116,6 +121,7 @@ impl AgentServer {
                 network_degraded: AtomicBool::new(false),
                 shutdown: CancellationToken::new(),
                 overrides: OnceLock::new(),
+                reconciler: OnceLock::new(),
             }),
         })
     }
@@ -136,6 +142,24 @@ impl AgentServer {
     #[must_use]
     pub fn link(&self) -> Arc<WsAgentLink> {
         self.inner.link.clone()
+    }
+
+    /// Gives the server the action service, so every authenticated agent's dispatched
+    /// runs are reconciled against its journal. The runtime calls this once, after both
+    /// services exist; the first reconciler wins, because a second would duplicate work.
+    /// An agent that authenticated before the action service existed has runs to settle
+    /// too, so each host that is live now is reconciled straight away, bound to that
+    /// session's own cancellation token.
+    pub fn set_reconciler(&self, reconciler: Arc<dyn HostReconciler>) {
+        if self.inner.reconciler.set(reconciler).is_err() {
+            tracing::warn!("the agent server already has a reconciler; keeping the first");
+            return;
+        }
+        for host in self.inner.registry.live_hosts() {
+            if let Some(session) = self.inner.registry.live_cancel(host) {
+                session::reconcile(&self.inner, host, &session);
+            }
+        }
     }
 
     /// What the host's agent said about its machine on its last handshake; `None` while

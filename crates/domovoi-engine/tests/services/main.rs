@@ -26,6 +26,8 @@ mod effects_triage;
 #[cfg(test)]
 mod execute;
 #[cfg(test)]
+mod expiry;
+#[cfg(test)]
 mod freshness;
 #[cfg(test)]
 #[path = "../gates.rs"]
@@ -40,6 +42,8 @@ mod liveness;
 mod plan_binding;
 #[cfg(test)]
 mod profile;
+#[cfg(test)]
+mod reconciliation;
 #[cfg(test)]
 mod recovery;
 #[cfg(test)]

@@ -11,6 +11,17 @@ export const EARLIER_PREVIEW = 4;
 
 const IN_PROGRESS = new Set(["approved", "dispatched"]);
 
+/** Finished statuses with a reason worth a line of its own. */
+const SHOWS_REASON = ["failed", "verify_failed", "rejected", "outcome_unknown", "not_run"];
+
+/** The reason's tone: a warning needs checking, a neutral one only says what happened. */
+function reasonClass(status: string): string | undefined {
+  if (status === "not_run") {
+    return styles.rowNote;
+  }
+  return status === "outcome_unknown" ? styles.rowWarning : styles.rowFailure;
+}
+
 /** The arguments in full: `name = web  ·  path = /srv`. */
 function argsLine(action: Action): string {
   return Object.entries(action.args)
@@ -28,7 +39,7 @@ function runningNote(action: Action, host: string): string {
 /** One action as one compact row: skill and arguments on a line, status, and when or a spinner. */
 function ActionRow({ action, host }: { action: Action; host: string }) {
   const running = IN_PROGRESS.has(action.status);
-  const failed = ["failed", "verify_failed", "rejected"].includes(action.status);
+  const showsReason = SHOWS_REASON.includes(action.status);
   return (
     <li className={styles.item}>
       <div className={styles.actionRow}>
@@ -42,7 +53,9 @@ function ActionRow({ action, host }: { action: Action; host: string }) {
       </div>
       {Object.keys(action.args).length > 0 && <p className={styles.argsLine}>{argsLine(action)}</p>}
       {running && <p className={styles.rowNote}>{runningNote(action, host)}</p>}
-      {failed && action.reason && <p className={styles.rowFailure}>{action.reason}</p>}
+      {showsReason && action.reason && (
+        <p className={reasonClass(action.status)}>{action.reason}</p>
+      )}
     </li>
   );
 }

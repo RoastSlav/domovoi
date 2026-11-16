@@ -315,9 +315,10 @@ pub struct ActionDto {
 impl From<&ActionRequest> for ActionDto {
     fn from(a: &ActionRequest) -> Self {
         let reason = match a.status() {
-            ActionStatus::Rejected { reason } | ActionStatus::Failed { reason } => {
-                Some(reason.clone())
-            }
+            ActionStatus::Rejected { reason }
+            | ActionStatus::Failed { reason }
+            | ActionStatus::OutcomeUnknown { reason }
+            | ActionStatus::NotRun { reason } => Some(reason.clone()),
             _ => None,
         };
         let risk = serde_json::to_value(a.risk())
@@ -437,6 +438,32 @@ impl From<&Turn> for TurnDto {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_failed_action_reports_its_code_and_message() {
+        use domovoi_core::{IncidentId, Risk, UserId};
+        use domovoi_testkit::approvals::human;
+        use domovoi_testkit::build::{T0, action, host};
+
+        let mut request = action(IncidentId::new(), host("nas").unwrap().id, Risk::Write).unwrap();
+        request.approve(human(UserId::new()), T0).unwrap();
+        let plan = request.plan_hash();
+        request.dispatch(plan, None, T0).unwrap();
+        request
+            .complete(
+                Err("helper_unavailable: the helper is not reachable".to_owned()),
+                T0,
+            )
+            .unwrap();
+
+        let dto = ActionDto::from(&request);
+        assert_eq!(dto.status, "failed");
+        assert_eq!(
+            dto.reason.as_deref(),
+            Some("helper_unavailable: the helper is not reachable"),
+            "the person sees the failure class and its message",
+        );
+    }
 
     #[test]
     fn badges_and_verdicts_use_wire_names() {

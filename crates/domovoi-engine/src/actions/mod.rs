@@ -11,15 +11,20 @@ mod approvals;
 pub mod audit;
 mod commit;
 mod executor;
+mod expire;
 mod freshness;
 mod host_wait;
 mod outcome;
+mod preflight;
 mod recheck;
+mod reconcile;
 mod recover;
 mod reject;
 mod verify_wake;
 mod writer;
 mod writer_propose;
+
+pub use reconcile::MAX_RECONCILE_PASSES;
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::{Arc, Mutex};
@@ -30,7 +35,7 @@ use domovoi_core::ports::{
 };
 use domovoi_core::{ActionError, ActionId, ActionRequest, HostId, HumanApproval, PlanBinding};
 use jiff::{SignedDuration, Timestamp};
-use tokio::sync::{Notify, broadcast, oneshot};
+use tokio::sync::{Notify, broadcast, mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
@@ -51,6 +56,11 @@ pub struct ActionSettings {
     pub verify_default_delay: SignedDuration,
     /// Added to the skill's own timeout for the dispatch deadline.
     pub dispatch_grace: SignedDuration,
+    /// How long reconciliation waits before asking an agent again about a run that is
+    /// still running.
+    pub reconcile_interval: SignedDuration,
+    /// How long one `action_status` request may take before its batch is skipped.
+    pub reconcile_query_timeout: SignedDuration,
 }
 
 impl Default for ActionSettings {
@@ -61,6 +71,8 @@ impl Default for ActionSettings {
             presence_poll: SignedDuration::from_secs(5),
             verify_default_delay: SignedDuration::from_secs(30),
             dispatch_grace: SignedDuration::from_secs(30),
+            reconcile_interval: SignedDuration::from_secs(30),
+            reconcile_query_timeout: SignedDuration::from_secs(10),
         }
     }
 }
@@ -146,12 +158,40 @@ pub(crate) struct Shared {
     pub(crate) dispatches: Mutex<Dispatches>,
     /// Actions being run right now, so one is never run twice at once.
     pub(crate) running: Mutex<BTreeSet<ActionId>>,
+    /// One gate per host, held from just before a dispatch is committed until the request
+    /// has been handed to the agent's outgoing queue, and by reconciliation while it reads
+    /// the host's pending rows. That is what keeps a committed-but-unsent run out of a
+    /// reconciliation snapshot, so it can never be mistaken for a run the agent never got.
+    pub(crate) dispatch_gates: Mutex<BTreeMap<HostId, Arc<tokio::sync::Mutex<()>>>>,
+    /// One gate per host around a whole reconciliation pass, so a hello-triggered pass and
+    /// one asked for by the executor cannot poll the same host twice at once.
+    pub(crate) reconcile_passes: Mutex<BTreeMap<HostId, Arc<tokio::sync::Mutex<()>>>>,
+    /// Hosts whose reconciliation was asked for while no pass was running for them.
+    pub(crate) reconcile_pending: Mutex<BTreeSet<HostId>>,
+    /// Hosts that asked for a pass while one was already running for them. The running pass
+    /// cannot see rows dispatched after its snapshot, so it queues one more pass when it
+    /// releases its gate instead of dropping the request.
+    pub(crate) reconcile_again: Mutex<BTreeSet<HostId>>,
+    /// Bounds how many hosts reconcile at once, so a burst of triggers starts a bounded
+    /// number of passes and one slow host cannot keep every other host waiting.
+    pub(crate) reconcile_slots: Arc<tokio::sync::Semaphore>,
+    /// How many hosts the reconciliation scheduler has taken from its waiting set. Test
+    /// support: it lets a test wait until a trigger has actually been considered instead of
+    /// guessing with sleeps.
+    pub(crate) reconcile_attempts: std::sync::atomic::AtomicU64,
+    /// How many hello-triggered passes found their host's gate already held and started
+    /// waiting for it. Test support: it makes that wait observable.
+    pub(crate) reconcile_gate_waits: std::sync::atomic::AtomicU64,
+    /// How many hello-triggered passes held their host's gate while every slot was taken and
+    /// started waiting for one. Test support: it makes that wait observable.
+    pub(crate) reconcile_slot_waits: std::sync::atomic::AtomicU64,
+    /// Wakes the reconciliation worker.
+    pub(crate) reconcile_nudge: Arc<Notify>,
+    /// Outcomes that could not be queued on the writer yet; one worker hands them over.
+    pub(crate) deferred: mpsc::UnboundedSender<writer::WriteCommand>,
     /// The queue into the writer task. The executor hands every transition to that
     /// one writer (ADR 0019) rather than writing action state itself.
     pub(crate) writer: writer::WriterHandle,
-    /// Set once the writer has failed what the previous session left running, so the
-    /// executor's catch-up starts only over a recovered store.
-    pub(crate) recovered: tokio::sync::watch::Sender<bool>,
     /// Limits the runs started from the store at once. Shared across catch-ups, so a
     /// reload after the event bus fell behind does not open a second set of runs.
     pub(crate) catch_up_slots: Arc<tokio::sync::Semaphore>,
@@ -161,6 +201,33 @@ pub(crate) struct Shared {
 }
 
 impl Shared {
+    /// The host's dispatch gate; see [`Shared::dispatch_gates`]. Held while a dispatch is
+    /// committed and handed to the agent, and while reconciliation reads the pending rows.
+    pub(crate) async fn dispatch_gate(&self, host: HostId) -> tokio::sync::OwnedMutexGuard<()> {
+        let gate = {
+            let mut gates = self
+                .dispatch_gates
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            gates
+                .entry(host)
+                .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+                .clone()
+        };
+        gate.lock_owned().await
+    }
+
+    /// Asks for a reconciliation of `host` soon. Repeated asks for a host that is already
+    /// waiting collapse into one pass; the worker keeps at most one entry per host, so this
+    /// cannot grow into a loop of its own.
+    pub(crate) fn schedule_reconciliation(&self, host: HostId) {
+        self.reconcile_pending
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(host);
+        self.reconcile_nudge.notify_one();
+    }
+
     /// Publishes `kind` for the incident `action` belongs to.
     pub(crate) async fn publish(&self, action: &ActionRequest, kind: EventKind) {
         match self.deps.incidents.get(action.incident()).await {
@@ -202,15 +269,25 @@ impl ActionService {
     pub fn spawn(deps: ActionDeps, settings: ActionSettings) -> (ActionHandle, JoinHandle<()>) {
         let events = deps.bus.subscribe();
         let (writer, incoming) = writer::queue();
-        let (recovered, _recovered_rx) = tokio::sync::watch::channel(false);
+        let (deferred, deferred_incoming) = mpsc::unbounded_channel();
         let effects_nudge = Arc::new(Notify::new());
+        let reconcile_nudge = Arc::new(Notify::new());
         let shared = Arc::new(Shared {
             deps,
             settings,
             dispatches: Mutex::new(BTreeMap::new()),
             running: Mutex::new(BTreeSet::new()),
+            dispatch_gates: Mutex::new(BTreeMap::new()),
+            reconcile_passes: Mutex::new(BTreeMap::new()),
+            reconcile_pending: Mutex::new(BTreeSet::new()),
+            reconcile_again: Mutex::new(BTreeSet::new()),
+            reconcile_slots: Arc::new(tokio::sync::Semaphore::new(reconcile::MAX_RECONCILE_PASSES)),
+            reconcile_attempts: std::sync::atomic::AtomicU64::new(0),
+            reconcile_gate_waits: std::sync::atomic::AtomicU64::new(0),
+            reconcile_slot_waits: std::sync::atomic::AtomicU64::new(0),
+            reconcile_nudge: reconcile_nudge.clone(),
+            deferred,
             writer: writer.clone(),
-            recovered,
             catch_up_slots: Arc::new(tokio::sync::Semaphore::new(executor::MAX_CATCH_UP_RUNS)),
             effects_nudge: effects_nudge.clone(),
         });
@@ -230,7 +307,9 @@ impl ActionService {
             Arc::new(verify_wake::VerifyWake::new(shared.clone())),
         );
         let writer_shared = shared.clone();
+        let deferred_shared = shared.clone();
         let executor_shared = shared.clone();
+        let reconcile_shared = shared.clone();
         let task = tokio::spawn(async {
             // The loop guard counts runs in a rolling hour, and the runs of the session
             // that just stopped were in its memory, so they are read back from the audit
@@ -252,16 +331,19 @@ impl ActionService {
                     "the loop guard reloaded dispatches the previous hub session made",
                 );
             }
-            // Startup order: the writer fails the runs a previous session left
-            // dispatched and then signals `recovered`; the executor waits for that
-            // signal before it reads the store for approvals. The hub starts its agent
-            // server before this service, so each host's availability is already
-            // answerable when the executor asks. The effect runner starts with them: it
-            // returns what a previous session left claimed to pending before it claims
-            // anything, so a verification due across a restart still runs.
+            // Startup order: the loop guard is reloaded before either half can start a
+            // run, because the executor's catch-up reads the store for approvals as soon
+            // as it starts. The hub starts its agent server before this service, so each
+            // host's availability is already answerable when the executor asks. A
+            // dispatched run left by the previous session is not touched here: its outcome
+            // is reconciled when that host's agent authenticates. The effect runner starts
+            // with them: it returns what a previous session left claimed to pending before
+            // it claims anything, so a verification due across a restart still runs.
             let _ = tokio::join!(
                 writer::run(writer_shared, incoming),
+                writer::feed_deferred(deferred_shared, deferred_incoming),
                 executor::serve(executor_shared, events),
+                reconcile::serve(reconcile_shared),
                 runner.run(),
             );
         });
@@ -369,8 +451,9 @@ impl ActionHandle {
         }
     }
 
-    /// Expires every proposed action whose window has closed and returns how
-    /// many. The scheduler calls this periodically.
+    /// Expires every proposed action whose window has closed, and every approved action that
+    /// closed before it was dispatched as never run, and returns how many. The scheduler
+    /// calls this periodically.
     pub async fn expire_due(&self) -> Result<usize, ApprovalError> {
         let (reply, answer) = oneshot::channel();
         if self
@@ -386,5 +469,12 @@ impl ActionHandle {
             Ok(result) => result,
             Err(_) => Err(ApprovalError::Unavailable),
         }
+    }
+}
+
+#[async_trait::async_trait]
+impl domovoi_core::ports::HostReconciler for ActionHandle {
+    async fn reconcile_host(&self, host: domovoi_core::HostId) {
+        reconcile::host(&self.shared, host).await;
     }
 }

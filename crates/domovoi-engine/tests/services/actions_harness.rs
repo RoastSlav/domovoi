@@ -5,12 +5,12 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use domovoi_core::ports::{
-    ActionRepo, AuditFilter, AuditLog, CheckRecheck, Clock, IncidentRepo, Page, Presence,
-    SkillOutput, UnitOfWork,
+    ActionRepo, AggregateRef, AuditFilter, AuditLog, CheckRecheck, Clock, IncidentRepo,
+    JournalRead, Page, Presence, SkillOutput, UnitOfWork,
 };
 use domovoi_core::{
-    ActionId, ActionRequest, ActionStatus, Evidence, Incident, Principal, Risk, SignalStatus,
-    SkillSummary, VerifySpec,
+    ActionId, ActionRequest, ActionStatus, Evidence, Incident, JournalEpoch, Principal, Risk,
+    SignalStatus, SkillSummary, VerifySpec,
 };
 use domovoi_engine::actions::audit;
 use domovoi_engine::triage::{mint_token, token_hash};
@@ -87,6 +87,9 @@ pub fn check(status: SignalStatus) -> CheckRecheck {
 /// previous hub session left behind and then start the service over it.
 pub struct Seeded {
     pub store: Arc<InMemoryStore>,
+    /// Where the action service reads and writes actions; the store itself unless a test
+    /// wraps it to hold a call.
+    pub actions: Arc<dyn ActionRepo>,
     pub clock: Arc<FakeClock>,
     pub link: Arc<FakeAgentLink>,
     pub bus: broadcast::Sender<DomainEvent>,
@@ -112,6 +115,8 @@ async fn seeded_over(store: Arc<InMemoryStore>) -> Seeded {
             version: "0.1.0".to_owned(),
         },
     );
+    // Every dispatch records the journal it was sent under, so the harness agent has one.
+    link.set_journal_epoch(host_id(), JournalEpoch::from_uuid(uuid::Uuid::now_v7()));
     link.set_skills(host_id(), vec![verified_restart(), wipe()]);
     link.on_skill(|_, _| Ok(ok_output("restarted nginx")));
     link.on_check(|_, _, _| Ok(check(SignalStatus::Resolved)));
@@ -131,6 +136,7 @@ async fn seeded_over(store: Arc<InMemoryStore>) -> Seeded {
         shutdown: shutdown.clone(),
     });
     Seeded {
+        actions: store.clone(),
         store,
         clock,
         link,
@@ -143,6 +149,14 @@ async fn seeded_over(store: Arc<InMemoryStore>) -> Seeded {
 }
 
 impl Seeded {
+    /// Reads and writes actions through `actions` instead of the store, so a test can hold
+    /// a call the service makes.
+    #[must_use]
+    pub fn with_actions(mut self, actions: Arc<dyn ActionRepo>) -> Self {
+        self.actions = actions;
+        self
+    }
+
     /// Starts an action service over this world, committing every action write through
     /// `uow`. Each start gets its own shutdown token, so a test can stop one service and
     /// start another over the same store.
@@ -150,7 +164,7 @@ impl Seeded {
         let shutdown = self.shutdown.child_token();
         let events = self.bus.subscribe();
         let deps = ActionDeps {
-            actions: self.store.clone(),
+            actions: self.actions.clone(),
             incidents: self.store.clone(),
             audit: self.store.clone(),
             uow,
@@ -328,5 +342,18 @@ impl Actions {
             .iter()
             .filter(|r| matches!(r, domovoi_testkit::link::LinkRequest::Skill { .. }))
             .count()
+    }
+
+    /// The `outcome_reason` recorded in the journal for `id`'s last transition, when the
+    /// transition records one.
+    pub async fn journal_reason(&self, id: ActionId) -> Option<String> {
+        let rows =
+            JournalRead::entries_for(&*self.store, &AggregateRef::action(id), Page::MAX_LIMIT)
+                .await
+                .unwrap();
+        rows.last()
+            .and_then(|row| row.payload.get("outcome_reason"))
+            .and_then(|value| value.as_str())
+            .map(str::to_owned)
     }
 }

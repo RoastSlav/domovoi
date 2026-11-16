@@ -70,7 +70,7 @@ mod tests {
     use domovoi_testkit::build::{T0, manifest, open_incident};
     use domovoi_testkit::{FakeAgentLink, FakeClock, InMemoryStore};
     use jiff::SignedDuration;
-    use tokio::sync::{Notify, broadcast, oneshot, watch};
+    use tokio::sync::{Notify, broadcast, oneshot};
     use tokio_util::sync::CancellationToken;
 
     use crate::EnginePolicy;
@@ -111,7 +111,7 @@ mod tests {
                 shutdown: shutdown.clone(),
             });
             let (commands, incoming) = writer::queue();
-            let (recovered, _recovered_rx) = watch::channel(false);
+            let (deferred, _deferred_incoming) = tokio::sync::mpsc::unbounded_channel();
             let shared = Arc::new(Shared {
                 deps: ActionDeps {
                     actions: store.clone(),
@@ -130,8 +130,19 @@ mod tests {
                 settings: ActionSettings::default(),
                 dispatches: Mutex::new(BTreeMap::new()),
                 running: Mutex::new(BTreeSet::new()),
+                dispatch_gates: Mutex::new(BTreeMap::new()),
+                reconcile_passes: Mutex::new(BTreeMap::new()),
+                reconcile_pending: Mutex::new(BTreeSet::new()),
+                reconcile_again: Mutex::new(BTreeSet::new()),
+                reconcile_slots: Arc::new(tokio::sync::Semaphore::new(
+                    crate::actions::reconcile::MAX_RECONCILE_PASSES,
+                )),
+                reconcile_attempts: std::sync::atomic::AtomicU64::new(0),
+                reconcile_gate_waits: std::sync::atomic::AtomicU64::new(0),
+                reconcile_slot_waits: std::sync::atomic::AtomicU64::new(0),
+                reconcile_nudge: Arc::new(Notify::new()),
+                deferred,
                 writer: commands.clone(),
-                recovered,
                 catch_up_slots: Arc::new(tokio::sync::Semaphore::new(MAX_CATCH_UP_RUNS)),
                 effects_nudge: Arc::new(Notify::new()),
             });
@@ -200,7 +211,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn writer_refuses_an_approval_that_expired_before_dispatch() {
+    async fn writer_settles_a_dispatch_whose_approval_expired_as_never_run() {
         let writer = Writer::start().await;
         let (id, plan) = writer.approved().await;
         // The window closes while the dispatch waits for the writer.
@@ -209,21 +220,21 @@ mod tests {
         let decided = writer.dispatch(id, plan).await;
         assert_eq!(
             decided.status(),
-            &ActionStatus::Rejected {
+            &ActionStatus::NotRun {
                 reason: "the approval expired before the action was dispatched".to_owned(),
             },
-            "the writer itself refuses a stale approval, without the executor's help",
+            "the writer itself settles a stale approval, without the executor's help",
         );
         let stored = ActionRepo::get(&*writer.store, id).await.unwrap().unwrap();
         assert_eq!(
             stored.status(),
             decided.status(),
-            "the refusal reached the store",
+            "the decision reached the store",
         );
         let trail = writer.trail(id).await;
         assert!(
-            trail.contains(&"action.rejected".to_owned()),
-            "the refusal is audited as a rejection: {trail:?}",
+            trail.contains(&"action.not_run".to_owned()),
+            "the closed window is audited as a run that never happened: {trail:?}",
         );
         assert!(
             !trail.contains(&"action.dispatched".to_owned()),
@@ -268,6 +279,182 @@ mod tests {
         assert!(
             !trail.contains(&"action.dispatched".to_owned()),
             "nothing was dispatched: {trail:?}",
+        );
+        writer.shared.deps.shutdown.cancel();
+    }
+
+    #[tokio::test]
+    async fn an_expiry_wins_over_a_queued_rejection() {
+        let writer = Writer::start().await;
+        let (id, _plan) = writer.approved().await;
+        // The executor queued a rejection while the window was open; the writer applies it after
+        // it closed. Nothing was attempted, so the run ends as one that never happened.
+        writer.clock.advance(SignedDuration::from_hours(2));
+
+        let decided =
+            super::super::reject::reject(&writer.shared, id, "agent offline".to_owned(), false)
+                .await
+                .expect("the writer decided");
+
+        assert_eq!(
+            decided.status(),
+            &ActionStatus::NotRun {
+                reason: "the approval expired before the action was dispatched".to_owned(),
+            },
+            "a closed window outranks the reason the rejection was queued with",
+        );
+        assert_eq!(
+            writer.trail(id).await,
+            ["action.not_run".to_owned()],
+            "the expiry is audited once, as a run that never happened",
+        );
+        assert!(
+            writer.link.requests().is_empty(),
+            "nothing reached the agent",
+        );
+        writer.shared.deps.shutdown.cancel();
+    }
+
+    #[tokio::test]
+    async fn an_expiry_wins_over_a_queued_loop_guard_rejection() {
+        let writer = Writer::start().await;
+        let (id, _plan) = writer.approved().await;
+        writer.clock.advance(SignedDuration::from_hours(2));
+
+        let decided = super::super::reject::reject(
+            &writer.shared,
+            id,
+            "loop guard: restart_container already ran 3 times".to_owned(),
+            true,
+        )
+        .await
+        .expect("the writer decided");
+
+        assert_eq!(
+            decided.status(),
+            &ActionStatus::NotRun {
+                reason: "the approval expired before the action was dispatched".to_owned(),
+            },
+            "the loop guard does not relabel a run whose window closed",
+        );
+        let trail = writer.trail(id).await;
+        assert_eq!(trail, ["action.not_run".to_owned()]);
+        assert!(
+            !trail.contains(&"action.blocked".to_owned()),
+            "an expiry is not a block: {trail:?}",
+        );
+        writer.shared.deps.shutdown.cancel();
+    }
+
+    #[tokio::test]
+    async fn a_valid_approval_still_rejects_with_its_reason() {
+        let writer = Writer::start().await;
+        let (id, _plan) = writer.approved().await;
+
+        let decided = super::super::reject::reject(
+            &writer.shared,
+            id,
+            "loop guard: restart_container already ran 3 times".to_owned(),
+            true,
+        )
+        .await
+        .expect("the writer decided");
+
+        assert_eq!(
+            decided.status(),
+            &ActionStatus::Rejected {
+                reason: "loop guard: restart_container already ran 3 times".to_owned(),
+            },
+            "a rejection inside the window keeps the reason it was made for",
+        );
+        assert_eq!(
+            writer.trail(id).await,
+            ["action.blocked".to_owned()],
+            "and is audited as the block it is",
+        );
+        writer.shared.deps.shutdown.cancel();
+    }
+
+    #[tokio::test]
+    async fn an_incident_that_went_away_is_rejected_for_that_reason() {
+        let writer = Writer::start().await;
+        let (id, _plan) = writer.approved().await;
+        let stored = ActionRepo::get(&*writer.store, id).await.unwrap().unwrap();
+        let mut incident = IncidentRepo::get(&*writer.store, stored.incident())
+            .await
+            .unwrap()
+            .unwrap();
+        apply(
+            &mut incident,
+            IncidentEvent::Resolved { observed_at: T0 },
+            &IncidentPolicy::default(),
+            T0,
+        )
+        .unwrap();
+        IncidentRepo::update(&*writer.store, &incident)
+            .await
+            .unwrap();
+
+        let decided =
+            super::super::reject::reject(&writer.shared, id, "agent offline".to_owned(), false)
+                .await
+                .expect("the writer decided");
+
+        assert_eq!(
+            decided.status(),
+            &ActionStatus::Rejected {
+                reason: "the incident was resolved before the action was dispatched".to_owned(),
+            },
+            "the writer names the check that actually stopped it",
+        );
+        writer.shared.deps.shutdown.cancel();
+    }
+
+    #[tokio::test]
+    async fn a_freshness_store_error_leaves_the_action_approved() {
+        let writer = Writer::start().await;
+        let (id, _plan) = writer.approved().await;
+        writer
+            .store
+            .fail_next(domovoi_core::ports::StoreError::Backend("disk".to_owned()));
+
+        let refused =
+            super::super::reject::reject(&writer.shared, id, "agent offline".to_owned(), false)
+                .await;
+
+        assert!(
+            refused.is_err(),
+            "a store that cannot answer must not guess an outcome",
+        );
+        let stored = ActionRepo::get(&*writer.store, id).await.unwrap().unwrap();
+        assert_eq!(
+            stored.status(),
+            &ActionStatus::Approved,
+            "the action is left exactly as it was",
+        );
+        writer.shared.deps.shutdown.cancel();
+    }
+
+    #[tokio::test]
+    async fn a_rejection_never_expires_a_dispatched_action() {
+        let writer = Writer::start().await;
+        let (id, plan) = writer.approved().await;
+        writer.dispatch(id, plan).await;
+        writer.clock.advance(SignedDuration::from_hours(2));
+
+        let refused =
+            super::super::reject::reject(&writer.shared, id, "agent offline".to_owned(), false)
+                .await;
+
+        assert!(
+            refused.is_err(),
+            "a dispatched run is not decided by the expiry rule",
+        );
+        let stored = ActionRepo::get(&*writer.store, id).await.unwrap().unwrap();
+        assert!(
+            matches!(stored.status(), ActionStatus::Dispatched { .. }),
+            "the run stays dispatched for reconciliation: {:?}",
+            stored.status(),
         );
         writer.shared.deps.shutdown.cancel();
     }

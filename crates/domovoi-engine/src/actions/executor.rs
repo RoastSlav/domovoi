@@ -10,17 +10,17 @@
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
 
-use domovoi_core::ports::{SkillDispatch, SkillOutput};
-use domovoi_core::{ActionId, ActionRequest, ActionStatus, PlanHash, SkillSummary, ValidatedArgs};
-use jiff::{SignedDuration, Timestamp};
+use domovoi_core::ports::{LinkError, SkillDispatch, SkillOutput};
+use domovoi_core::{ActionId, ActionRequest, ActionStatus, PlanHash};
+use jiff::SignedDuration;
 use sha2::{Digest, Sha256};
 use tokio::sync::{Semaphore, broadcast, oneshot};
 use tokio::task::JoinSet;
 
 use super::Shared;
 use super::audit::RunRecord;
-use super::freshness;
 use super::host_wait::{self, HostWait};
+use super::preflight;
 use super::recheck::verify_after;
 use super::recover::approved;
 use super::writer::{Decision, WriteCommand};
@@ -51,23 +51,6 @@ fn start(
 pub(crate) async fn serve(shared: Arc<Shared>, mut events: broadcast::Receiver<DomainEvent>) {
     let shutdown = shared.deps.shutdown.clone();
     let mut running = JoinSet::new();
-    // The writer first fails what the previous session left running and then signals
-    // `recovered`; waiting for it keeps catch-up from starting a run the recovery is
-    // about to fail, or against a loop guard that has not finished reloading.
-    let mut recovered = shared.recovered.subscribe();
-    let stopping = tokio::select! {
-        () = shutdown.cancelled() => true,
-        result = recovered.wait_for(|done| *done) => {
-            if result.is_err() {
-                tracing::warn!("the recovery signal was lost before catch-up could start");
-            }
-            false
-        }
-    };
-    if stopping {
-        running.shutdown().await;
-        return;
-    }
     // Approvals made before this hub session started have no event left on the bus,
     // so the store is read once here for actions still waiting to run (ADR 0014).
     catch_up(&mut running, &shared).await;
@@ -191,30 +174,6 @@ async fn ask_dispatch(shared: &Shared, id: ActionId, plan: PlanHash) -> Option<A
     .await
 }
 
-/// Queues a rejection made before dispatch. `blocked` is the loop guard, which also
-/// publishes `ActionBlocked` so the person knows why nothing ran.
-async fn ask_reject(
-    shared: &Shared,
-    id: ActionId,
-    reason: String,
-    blocked: bool,
-) -> Option<ActionRequest> {
-    let (reply, answer) = oneshot::channel();
-    ask(
-        shared,
-        id,
-        "a rejection",
-        WriteCommand::Reject {
-            id,
-            reason,
-            blocked,
-            reply,
-        },
-        answer,
-    )
-    .await
-}
-
 /// Queues the agent's answer for a run, with the delay the verification owes if it succeeded.
 async fn ask_complete(
     shared: &Shared,
@@ -264,13 +223,13 @@ pub(crate) async fn run(shared: &Shared, id: ActionId, pool: Option<Arc<Semaphor
     // The wait starts here, not at the approval: the agent gets its whole `offline_wait`
     // after the hub restarts, however old the approval is.
     let started = deps.clock.now();
-    if !still_current(shared, id, &action, started).await {
+    if !preflight::still_current(shared, id, &action, started).await {
         return;
     }
     match host_wait::wait_for_host(shared, action.host(), started).await {
         HostWait::Known => {}
         HostWait::Incompatible => {
-            let _ = ask_reject(
+            let _ = preflight::ask_reject(
                 shared,
                 id,
                 "agent upgrade required: the agent speaks another protocol version".to_owned(),
@@ -280,7 +239,7 @@ pub(crate) async fn run(shared: &Shared, id: ActionId, pool: Option<Arc<Semaphor
             return;
         }
         HostWait::TimedOut => {
-            let _ = ask_reject(shared, id, "agent offline".to_owned(), false).await;
+            let _ = preflight::ask_reject(shared, id, "agent offline".to_owned(), false).await;
             return;
         }
     }
@@ -296,29 +255,73 @@ pub(crate) async fn run(shared: &Shared, id: ActionId, pool: Option<Arc<Semaphor
     let now = deps.clock.now();
     // Waiting may have taken an hour: the approval and the incident are asked again
     // before anything is sent.
-    if !still_current(shared, id, &action, now).await {
+    if !preflight::still_current(shared, id, &action, now).await {
         return;
     }
-    let (skill, args) = match revalidate(shared, &action) {
+    let (skill, args) = match preflight::revalidate(shared, &action) {
         Ok(found) => found,
         Err(reason) => {
-            let _ = ask_reject(shared, id, reason, false).await;
+            let _ = preflight::ask_reject(shared, id, reason, false).await;
             return;
         }
     };
     // The slot is claimed here, before the plan is even recomputed, so two catch-up runs
     // of the same skill cannot both read the same count and both pass (ADR 0019's writer
     // answers the dispatch, but the guard is this task's own bookkeeping).
-    if let Some(reason) = reserve_dispatch(shared, &action, now) {
-        let _ = ask_reject(shared, id, reason, true).await;
+    if let Some(reason) = preflight::reserve_dispatch(shared, &action, now) {
+        let _ = preflight::ask_reject(shared, id, reason, true).await;
         return;
     }
     let plan = PlanHash::compute(&skill.name, skill.manifest_hash, action.host(), &args);
-    let Some(action) = ask_dispatch(shared, id, plan).await else {
+    // The gate closes the window between the write that says `Dispatched` and the frame
+    // reaching the agent's queue: reconciliation takes it before it lists what is pending,
+    // so a run that has not been handed over yet can never be in that list.
+    let gate = shared.dispatch_gate(action.host()).await;
+    let Some(dispatched) = ask_dispatch(shared, id, plan).await else {
         return;
     };
-    if action.status() != &ActionStatus::Dispatched {
-        tracing::debug!(action = %id, "the plan the agent has now is not the approved one");
+    let (epoch, skill_name, args) = match dispatched.status() {
+        ActionStatus::Dispatched {
+            agent_epoch: Some(epoch),
+        } => (*epoch, skill.name.clone(), args),
+        ActionStatus::Dispatched { agent_epoch: None } => {
+            // The hub saw no journal when it committed the dispatch, so there is no session
+            // the run may safely be handed to. It stays dispatched and reconciliation
+            // settles it as unknown; sending it could never be accounted for.
+            tracing::warn!(
+                action = %id,
+                "the dispatch recorded no journal epoch; the run is not sent",
+            );
+            return;
+        }
+        _ => {
+            tracing::debug!(action = %id, "the plan the agent has now is not the approved one");
+            return;
+        }
+    };
+    // The writer's answer is not proof the row is still dispatched: an outside decision may
+    // have settled it while this run held the gate. Re-read before anything is sent.
+    let current = match deps.actions.get(id).await {
+        Ok(Some(current)) => current,
+        Ok(None) => {
+            tracing::debug!(action = %id, "the action vanished before it could be sent");
+            return;
+        }
+        Err(err) => {
+            tracing::warn!(%err, action = %id, "could not re-read the action before sending it");
+            return;
+        }
+    };
+    if !matches!(
+        current.status(),
+        ActionStatus::Dispatched {
+            agent_epoch: Some(seen),
+        } if *seen == epoch
+    ) {
+        tracing::debug!(
+            action = %id,
+            "the action is no longer dispatched under its journal epoch; it is not sent",
+        );
         return;
     }
     let deadline = deps
@@ -328,12 +331,37 @@ pub(crate) async fn run(shared: &Shared, id: ActionId, pool: Option<Arc<Semaphor
         .and_then(|t| t.checked_add(shared.settings.dispatch_grace))
         .unwrap_or(now);
     let dispatch = SkillDispatch {
-        action: action.id(),
-        skill: skill.name.clone(),
+        action: id,
+        skill: skill_name,
         args,
         plan_hash: plan,
     };
-    match deps.link.run_skill(action.host(), dispatch, deadline).await {
+    let handoff = match deps
+        .link
+        .start_skill(action.host(), dispatch, epoch, deadline)
+        .await
+    {
+        Ok(handoff) => handoff,
+        Err(err) => {
+            // `start_skill` only fails before the frame enters the session's outgoing queue,
+            // so this is proof the request never reached the agent. Settle it as a run that
+            // never happened, through the writer. The dispatch gate is still held, so a
+            // reconciliation pass cannot read the row as one that was sent and lost.
+            tracing::warn!(
+                action = %id,
+                %err,
+                "the hub never handed the run to the agent; it did not run",
+            );
+            super::reconcile::handoff_failed(shared, id).await;
+            return;
+        }
+    };
+    drop(gate);
+    match deps
+        .link
+        .skill_result(action.host(), handoff, deadline)
+        .await
+    {
         Ok(output) => {
             let record = run_record(shared, &output);
             let outcome = match output.exit_code {
@@ -351,85 +379,24 @@ pub(crate) async fn run(shared: &Shared, id: ActionId, pool: Option<Arc<Semaphor
             };
             let _ = ask_complete(shared, id, outcome, Some(record), delay).await;
         }
-        Err(err) => {
-            let _ = ask_complete(shared, id, Err(err.to_string()), None, None).await;
-        }
-    }
-}
-
-/// Takes one loop-guard slot for this action, or says why it cannot run: the skill already
-/// used every slot on this host in the last hour. The count and the claim are one lock, so
-/// runs that the service started together from the store cannot all read the same count and
-/// all pass; the runs a previous hub session made are already in the bookkeeping, which the
-/// recovery scan put back from the audit log.
-fn reserve_dispatch(shared: &Shared, action: &ActionRequest, now: Timestamp) -> Option<String> {
-    let hour_ago = now
-        .checked_sub(SignedDuration::from_hours(1))
-        .unwrap_or(now);
-    let mut dispatches = shared
-        .dispatches
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let runs = dispatches
-        .entry((action.host(), action.skill().to_string()))
-        .or_default();
-    while runs.front().is_some_and(|t| *t <= hour_ago) {
-        runs.pop_front();
-    }
-    let limit = shared.settings.loop_guard_per_hour;
-    if runs.len() >= limit as usize {
-        return Some(format!(
-            "loop guard: {} already ran {limit} times on this host in the last hour",
-            action.skill(),
-        ));
-    }
-    runs.push_back(now);
-    None
-}
-
-/// The skill as the agent has it now and the stored arguments validated against it, or
-/// the reason the action must be rejected before dispatch (INV-4). The rejection itself
-/// is queued for the writer, which audits it.
-fn revalidate(
-    shared: &Shared,
-    action: &ActionRequest,
-) -> Result<(SkillSummary, ValidatedArgs), String> {
-    let skills = shared.deps.link.skills(action.host());
-    let found = skills.into_iter().find(|s| &s.name == action.skill());
-    match found {
-        None => Err("the skill is no longer on the host".to_owned()),
-        Some(skill) if skill.risk != action.risk() => {
-            Err(format!("the skill's risk changed to {:?}", skill.risk))
-        }
-        Some(skill) => skill
-            .validate_args(action.args())
-            .map(|args| (skill, args))
-            .map_err(|err| format!("the arguments are no longer valid: {err}")),
-    }
-}
-
-/// Whether `action` may still be dispatched at `now`, rejecting it with the reason when
-/// it may not. A store that cannot say leaves it approved: nothing is sent and the next
-/// attempt, or the next hub start, asks again.
-async fn still_current(
-    shared: &Shared,
-    id: ActionId,
-    action: &ActionRequest,
-    now: Timestamp,
-) -> bool {
-    match freshness::check(shared, action, now).await {
-        Ok(None) => true,
-        Ok(Some(old)) => {
-            let _ = ask_reject(shared, id, old.reason().to_owned(), false).await;
-            false
+        Err(LinkError::Rejected(reason)) => {
+            // A terminal answer from the agent: it refused the run or reported a failure.
+            let _ = ask_complete(shared, id, Err(reason), None, None).await;
         }
         Err(err) => {
-            tracing::error!(
-                %err,
+            // The request was handed over and no usable answer came back. The run may have
+            // happened, so it is neither a success nor a failure: it stays dispatched until
+            // the agent's journal can settle it. Ask for that pass now, while the session
+            // that could still remember the run is live; a replacement's own pass covers a
+            // changed journal.
+            tracing::warn!(
                 action = %id,
-                "could not check whether the approval is still current; it stays approved",
+                %err,
+                "the run's result is unavailable; it stays dispatched for reconciliation",
             );
-            false
+            if deps.link.journal_epoch(action.host()) == Some(epoch) {
+                shared.schedule_reconciliation(action.host());
+            }
         }
     }
 }

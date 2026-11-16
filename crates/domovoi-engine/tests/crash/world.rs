@@ -9,13 +9,14 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use domovoi_core::ports::{
-    ActionFilter, ActionRepo, AdvisoryRepo, CheckRecheck, Clock, EffectQueue, EffectRead,
-    EffectStatus, IncidentFilter, IncidentRepo, Page, Presence, SkillOutput,
+    ActionFilter, ActionRepo, AdvisoryRepo, AgentLink, CheckRecheck, Clock, EffectQueue,
+    EffectRead, EffectStatus, HostReconciler, IncidentFilter, IncidentRepo, Page, Presence,
+    SkillOutput,
 };
 use domovoi_core::{
     ActionId, ActionRequest, ActionStatus, CheckKey, Evidence, HostId, Incident, IncidentId,
-    ParamKind, ParamName, ParamSpec, Principal, Risk, Severity, Signal, SignalClass, SignalStatus,
-    SkillManifest, SkillSummary, SourceKind, TargetKey, UserId, Verdict, VerifySpec,
+    JournalEpoch, ParamKind, ParamName, ParamSpec, Principal, Risk, Severity, Signal, SignalClass,
+    SignalStatus, SkillManifest, SkillSummary, SourceKind, TargetKey, UserId, Verdict, VerifySpec,
 };
 use domovoi_engine::triage::{mint_token, token_hash};
 use domovoi_engine::{
@@ -72,6 +73,8 @@ fn settings() -> ActionSettings {
         presence_poll: SignedDuration::from_secs(1),
         verify_default_delay: SignedDuration::from_secs(1),
         dispatch_grace: SignedDuration::from_secs(30),
+        reconcile_interval: SignedDuration::from_secs(30),
+        reconcile_query_timeout: SignedDuration::from_secs(10),
     }
 }
 
@@ -365,7 +368,7 @@ impl<S: SweepStore> World<S> {
                 || self.all_actions().await.iter().any(|action| {
                     matches!(
                         action.status(),
-                        ActionStatus::Approved | ActionStatus::Dispatched
+                        ActionStatus::Approved | ActionStatus::Dispatched { .. }
                     )
                 });
             quiet = if moving { 0 } else { quiet + 1 };
@@ -548,9 +551,9 @@ impl<S: SweepStore> World<S> {
         join(self.action_task.take()).await;
     }
 
-    /// Lets the restarted services do their start-up work: one tick, the writer's start-up
-    /// scan of actions left running, and every run the start-up scan starts, until nothing
-    /// is in flight.
+    /// Lets the restarted services do their start-up work: one tick, the writer's expiry
+    /// sweep, reconciliation of what the previous session left running, and every run the
+    /// start-up scan starts, until nothing is in flight.
     pub async fn recover(&self) -> Result<(), String> {
         self.advance(1);
         self.manager
@@ -561,8 +564,31 @@ impl<S: SweepStore> World<S> {
             .expire_due()
             .await
             .map_err(|err| format!("the restarted writer did not start: {err}"))?;
+        self.reconcile_leftovers().await;
         self.quiesce().await;
         Ok(())
+    }
+
+    /// Plays the agent of every host with a run left in `Dispatched`: it announces a journal
+    /// and has no record of those runs, which is what a fresh journal answers, so each
+    /// leftover settles instead of staying in flight for ever. A real hub does this when the
+    /// host's agent authenticates.
+    async fn reconcile_leftovers(&self) {
+        let mut hosts: Vec<HostId> = Vec::new();
+        for action in self.all_actions().await {
+            if matches!(action.status(), ActionStatus::Dispatched { .. })
+                && !hosts.contains(&action.host())
+            {
+                hosts.push(action.host());
+            }
+        }
+        for host in hosts {
+            if self.link.journal_epoch(host).is_none() {
+                self.link
+                    .set_journal_epoch(host, JournalEpoch::from_uuid(uuid::Uuid::now_v7()));
+            }
+            self.service.reconcile_host(host).await;
+        }
     }
 
     /// Proves the restarted services still do their work: one new incident, one approved
@@ -617,7 +643,9 @@ impl<S: SweepStore> World<S> {
             .wait_for(action.id(), |status| {
                 !matches!(
                     status,
-                    ActionStatus::Proposed | ActionStatus::Approved | ActionStatus::Dispatched
+                    ActionStatus::Proposed
+                        | ActionStatus::Approved
+                        | ActionStatus::Dispatched { .. }
                 )
             })
             .await;
@@ -653,6 +681,8 @@ fn script(link: &FakeAgentLink) {
             version: "0.1.0".to_owned(),
         },
     );
+    // Every dispatch records the journal it was sent under, so the fixture agent has one.
+    link.set_journal_epoch(host_id(), JournalEpoch::from_uuid(uuid::Uuid::now_v7()));
     link.set_skills(host_id(), all_skills());
     link.on_skill(|_, dispatch| {
         if dispatch.skill.as_str() == "restart_failing" {

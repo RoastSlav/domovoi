@@ -373,7 +373,8 @@ async fn denied_and_expired_and_rejected_and_blocked_and_failed_transitions_are_
     assert_transition(last, Some("succeeded"), "verify_failed");
     assert_eq!(last.audit[0].kind, audit::VERIFY_FAILED);
 
-    // A run the previous hub session left dispatched.
+    // A run the previous hub session left dispatched is left alone by the restart: only its
+    // agent's journal can settle it, and no agent has authenticated yet.
     let world = seeded().await;
     let skill = verified_restart();
     let params: BTreeMap<String, String> = [("container", "nginx")]
@@ -392,15 +393,23 @@ async fn denied_and_expired_and_rejected_and_blocked_and_failed_transitions_are_
     );
     action.approve(human(UserId::new()), T0).unwrap();
     let plan = PlanHash::compute(&skill.name, skill.manifest_hash, action.host(), &validated);
-    action.dispatch(plan, T0).unwrap();
+    action.dispatch(plan, None, T0).unwrap();
     ActionRepo::insert(&*world.store, &action).await.unwrap();
     let probe = Arc::new(RecordingUow::new(world.store.clone()));
     let a = world.start(ActionSettings::default(), probe.clone());
     a.settle().await;
-    let commits = probe.commits();
-    assert_eq!(commits.len(), 1, "the restart fails the leftover once");
-    assert_transition(&commits[0], Some("dispatched"), "failed");
-    assert_eq!(commits[0].audit[0].kind, audit::FAILED);
+    assert_eq!(
+        probe.commits().len(),
+        0,
+        "a restart writes nothing for a run it cannot judge",
+    );
+    assert!(
+        matches!(
+            a.get(action.id()).await.status(),
+            ActionStatus::Dispatched { .. }
+        ),
+        "the leftover run stays as the previous session left it",
+    );
 }
 
 #[tokio::test]

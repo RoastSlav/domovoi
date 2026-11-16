@@ -145,6 +145,15 @@ pub struct Enrolled {
     pub hub_cert_sha256: CertFingerprint,
 }
 
+/// A protocol feature an agent sends in `hello.features`: every action execution it can
+/// perform is recorded in its journal before it runs, so a journal with no record of an
+/// execution is proof that the execution never arrived.
+///
+/// Without this, absence is not proof: an older agent, or one that still serves an
+/// unjournaled execution path, can execute a run and answer `not_found`. The hub must then
+/// treat the answer as an unknowable outcome instead of "nothing was started".
+pub const AUTHORITATIVE_ABSENCE: &str = "authoritative_absence";
+
 /// The first frame of every connection by an enrolled agent.
 ///
 /// The hub replies `challenge`, or `reject` if the agent is unknown, revoked, speaks an

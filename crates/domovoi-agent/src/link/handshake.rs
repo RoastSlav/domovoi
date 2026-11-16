@@ -18,7 +18,11 @@ use crate::identity::Identity;
 /// Values the agent adds to `hello` beyond facts and catalogues.
 #[derive(Debug, Clone)]
 pub struct HelloExtensions {
-    /// Protocol features the agent implements; empty until one exists.
+    /// Protocol features the agent implements.
+    ///
+    /// This build advertises none. In particular it does not advertise
+    /// `AUTHORITATIVE_ABSENCE`: the legacy `run_skill` path can execute a read skill without
+    /// a journal record, so an empty journal is not proof that an execution never arrived.
     pub features: Vec<String>,
     /// The action journal's epoch.
     pub journal_epoch: Uuid,
