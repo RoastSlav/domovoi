@@ -3,7 +3,8 @@
 use domovoi_core::{DigestFact, Signal};
 use jiff::Timestamp;
 
-use super::handshake::AgentSettings;
+use super::handshake::{AgentSettings, HelperIdentity, HelperStatus, SkillRunnerStatus};
+use crate::bytes::{Base64Bytes, Nonce, PublicKey, Sha256Bytes, Signature};
 
 /// A liveness probe. Either side may send it; the other replies `pong` with
 /// `reply_to` set.
@@ -64,8 +65,53 @@ pub struct ErrorMessage {
 }
 
 /// The reply to a frame whose kind the receiver does not know.
+///
+/// Protocol 1.2 carries the field as `type`; the 1.1 `kind` name is not kept, because there is
+/// no 1.1 peer to accept under the exact-version rule.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Unsupported {
     /// The kind that was not understood.
-    pub kind: String,
+    #[serde(rename = "type")]
+    pub type_name: String,
+}
+
+/// Runtime changes the agent reports after `welcome`.
+///
+/// The hub answers nothing and records the values for the session. Prompt 25 consumes them;
+/// this milestone only carries them honestly.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AgentStatus {
+    /// What the agent knows about the helper now.
+    pub helper_status: HelperStatus,
+    /// The helper's public key when a helper is present.
+    #[serde(default)]
+    pub helper_identity: Option<HelperIdentity>,
+    /// What the agent knows about the skill runner now.
+    pub skill_runner_status: SkillRunnerStatus,
+    /// Whether the agent's effective uid is 0.
+    pub runs_as_root: bool,
+    /// Hash of the unattended ceiling. `None` until it exists.
+    #[serde(default)]
+    pub ceiling_hash: Option<Sha256Bytes>,
+    /// A short description of the unattended ceiling. `None` until it exists.
+    #[serde(default)]
+    pub ceiling_summary: Option<String>,
+}
+
+/// A hub challenge for a signed safety report from the helper.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AttestSafety {
+    /// Base64 of exactly 32 random bytes, hub -> agent.
+    pub nonce: Nonce,
+}
+
+/// The helper's signed answer to [`AttestSafety`].
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SafetyAttestation {
+    /// Base64 of exactly 32 raw bytes; same type and length rule as `helper_identity`.
+    pub public_key: PublicKey,
+    /// Base64 of the report bytes defined by the helper attestation contract, at most 64 KiB.
+    pub report: Base64Bytes,
+    /// Base64 of exactly 64 bytes.
+    pub signature: Signature,
 }

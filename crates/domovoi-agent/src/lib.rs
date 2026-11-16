@@ -12,6 +12,7 @@
 //!   the runner sees it.
 //! - [`runtime::AgentRuntime`] wires it all together.
 
+pub mod boot;
 pub mod checks;
 pub mod config_file;
 pub mod docker;
@@ -21,6 +22,7 @@ pub mod error;
 pub mod facts;
 pub mod fs_atomic;
 pub mod identity;
+pub mod journal;
 pub mod link;
 pub mod local;
 pub mod overrides;
@@ -33,9 +35,11 @@ pub mod spool;
 pub mod store;
 pub mod time;
 
+pub use boot::{BootSnapshot, BootSnapshotError, boot_snapshot};
 pub use docker::DockerControl;
 pub use domovoi_proto::EnrollToken;
 pub use enroll::{EnrollEnv, enroll};
-pub use error::{AgentError, EnrollError, LinkError, StateError};
+pub use error::{AgentError, EnrollError, JournalError, LinkError, StateError};
 pub use identity::Identity;
+pub use journal::{Journal, Metadata};
 pub use runtime::{AgentDeps, AgentRuntime};

@@ -5,8 +5,8 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use async_trait::async_trait;
 use domovoi_core::ports::{
-    AdvisoryRepo, AggregateRef, ClaimBatch, ClaimToken, Clock, EffectDraft, EffectKind,
-    EffectQueue, EffectRead, EffectRecord, Transaction,
+    AdvisoryRepo, AggregateRef, ClaimBatch, ClaimToken, EffectDraft, EffectKind, EffectQueue,
+    EffectRead, EffectRecord, Transaction,
 };
 use domovoi_core::{AdvisoryKind, EffectId, IncidentId};
 use domovoi_testkit::build::T0;
@@ -90,6 +90,23 @@ async fn until(
     row(store, id).await
 }
 
+/// Lets the services make progress until `done` holds, without moving the clock.
+async fn wait_until(
+    store: &InMemoryStore,
+    id: EffectId,
+    done: impl Fn(&EffectRecord) -> bool,
+) -> EffectRecord {
+    for _ in 0..10_000 {
+        settle().await;
+        let effect = row(store, id).await;
+        if done(&effect) {
+            return effect;
+        }
+    }
+    let effect = row(store, id).await;
+    panic!("effect never reached the expected state: {effect:?}");
+}
+
 async fn row(store: &InMemoryStore, id: EffectId) -> EffectRecord {
     EffectRead::effect(store, id)
         .await
@@ -132,27 +149,27 @@ async fn runner_retries_with_backoff_then_dead_letters() {
     // attempt in between.
     let mut attempts: Vec<(u32, Timestamp)> = Vec::new();
     let mut dead = false;
-    for _ in 0..600 {
-        settle().await;
-        let effect = row(&store, id).await;
-        if effect.status == "pending"
-            && effect.attempt > 0
-            && attempts.last().map(|(attempt, _)| *attempt) != Some(effect.attempt)
-        {
-            attempts.push((effect.attempt, effect.not_before));
-        }
+    for expected in 1..=3u32 {
+        // Wait for this attempt's retry (or the dead letter) to be committed before the
+        // clock moves again. Jumping the clock while a commit is in flight would change
+        // the next backoff's base.
+        let effect = wait_until(&store, id, |effect| {
+            effect.status == "dead" || (effect.status == "pending" && effect.attempt == expected)
+        })
+        .await;
         if effect.status == "dead" {
             dead = true;
             break;
         }
-        if effect.status == "claimed" {
-            continue;
-        }
-        if effect.not_before > Clock::now(&*clock) {
-            clock.set(effect.not_before);
-        } else {
-            clock.advance(SignedDuration::from_secs(1));
-        }
+        attempts.push((effect.attempt, effect.not_before));
+        clock.set(effect.not_before);
+        nudge.notify_one();
+    }
+    if !dead {
+        dead = wait_until(&store, id, |effect| effect.status == "dead")
+            .await
+            .status
+            == "dead";
     }
     shutdown.cancel();
     task.await.expect("the runner stops");
@@ -496,6 +513,8 @@ async fn a_handler_panic_leaves_the_effect_claimed_and_the_runner_running() {
     let task = task_of(runner);
 
     // The other kind is still processed in the same pass as the panic: the runner survives it.
+    // `Terminal` dead-letters on its first claim, so no fake time is needed here; advancing it
+    // would expire the panicking effect's lease and change what the rest of the test checks.
     let mut dead = false;
     for _ in 0..600 {
         settle().await;
@@ -503,7 +522,8 @@ async fn a_handler_panic_leaves_the_effect_claimed_and_the_runner_running() {
             dead = true;
             break;
         }
-        clock.advance(SignedDuration::from_secs(1));
+        // The runner may be waiting on its poll timer; wake it deterministically.
+        nudge.notify_one();
     }
     assert!(dead, "the runner kept claiming after a handler panicked");
     // The panicking task may be polled after its sibling finished, so wait for it to run.
@@ -532,7 +552,7 @@ async fn a_handler_panic_leaves_the_effect_claimed_and_the_runner_running() {
             reclaimed = true;
             break;
         }
-        clock.advance(SignedDuration::from_secs(1));
+        nudge.notify_one();
     }
     assert!(
         reclaimed,

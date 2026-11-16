@@ -50,6 +50,10 @@ pub fn new_host_id() -> HostId {
 /// tick after the clock moves resolves the seeded one.
 const TTL: SignedDuration = SignedDuration::from_mins(10);
 
+/// The most fake seconds one wait may add. A wait that is slow because of the machine must not
+/// move the clock far enough to reach an incident TTL and change the scenario under it.
+const WAIT_ADVANCE_SECS: usize = 60;
+
 /// The manager policy: two runs confirm a normal signal, and the ticker never fires on its
 /// own, so every tick in these tests is one the scenario asked for.
 fn policy() -> EnginePolicy {
@@ -84,7 +88,7 @@ pub fn restart_skill() -> SkillSummary {
             max_len: 64,
         },
     }];
-    manifest.summary()
+    manifest.summary(domovoi_core::ScriptDigest::of_bytes(b"fixture entry"))
 }
 
 /// `restart_container` that re-checks after 10 s, so a successful run is verified.
@@ -102,7 +106,7 @@ pub fn verified_restart() -> SkillSummary {
 fn runner(name: &str) -> SkillSummary {
     let mut manifest: SkillManifest = manifest(name, Risk::Write).expect("a valid manifest");
     manifest.params = restart_skill().params.clone();
-    manifest.summary()
+    manifest.summary(domovoi_core::ScriptDigest::of_bytes(b"fixture entry"))
 }
 
 /// The skill of the loop-guard step, which has used no slot when the step starts.
@@ -476,13 +480,19 @@ impl<S: SweepStore> World<S> {
     /// Fails at once when the process is down: nothing will change any more. Each round waits
     /// for the services to apply what they were given, so a slow commit is waited out instead
     /// of exhausting a poll budget. The timeout error carries the last status seen.
+    ///
+    /// The clock moves at most [`WAIT_ADVANCE_SECS`] seconds. Beyond that, a wait keeps
+    /// draining the services without moving time: on a loaded machine a slow commit makes the
+    /// loop run longer, and letting that run the fake clock past the incident TTL would resolve
+    /// the scenario's incident under it. Everything a wait is for here is due within seconds of
+    /// fake time.
     pub async fn wait_for(
         &self,
         id: ActionId,
         done: impl Fn(&ActionStatus) -> bool,
     ) -> Result<ActionRequest, String> {
         let mut last: Option<ActionStatus> = None;
-        for _ in 0..600 {
+        for round in 0..600 {
             if self.crashing.crashed() {
                 return Err(format!("the process is down before action {id} finished"));
             }
@@ -495,7 +505,9 @@ impl<S: SweepStore> World<S> {
                 }
                 last = Some(action.status().clone());
             }
-            self.advance(1);
+            if round < WAIT_ADVANCE_SECS {
+                self.advance(1);
+            }
         }
         let last = last.map_or_else(|| "gone".to_owned(), |status| format!("{status:?}"));
         Err(format!(
@@ -510,7 +522,7 @@ impl<S: SweepStore> World<S> {
         incident: IncidentId,
         verdict: Verdict,
     ) -> Result<(), String> {
-        for _ in 0..600 {
+        for round in 0..600 {
             if self.crashing.crashed() {
                 return Err("the process is down before the verdict was stored".to_owned());
             }
@@ -521,7 +533,9 @@ impl<S: SweepStore> World<S> {
             if found.is_some_and(|incident| incident.verdict() == Some(verdict)) {
                 return Ok(());
             }
-            self.advance(1);
+            if round < WAIT_ADVANCE_SECS {
+                self.advance(1);
+            }
         }
         Err("the verdict was never stored".to_owned())
     }

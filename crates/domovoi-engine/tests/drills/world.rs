@@ -89,7 +89,7 @@ pub fn starter_skill(name: &str) -> SkillSummary {
         std::fs::read_to_string(&path).unwrap_or_else(|err| panic!("{}: {err}", path.display()));
     let manifest: SkillManifest = toml::from_str(&text).unwrap();
     manifest.validate().unwrap();
-    manifest.summary()
+    manifest.summary(domovoi_core::ScriptDigest::of_bytes(b"fixture entry"))
 }
 
 fn turn(turn: &Turn, index: usize) -> LlmResponse {

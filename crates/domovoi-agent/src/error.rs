@@ -24,6 +24,35 @@ impl StateError {
     }
 }
 
+/// Why the durable action journal could not be opened, read or written.
+#[derive(Debug, thiserror::Error)]
+pub enum JournalError {
+    /// A journal file could not be read or written.
+    #[error(transparent)]
+    State(#[from] StateError),
+    /// Another process owns the journal.
+    #[error("the agent owns the journal at {}; stop the service", .0.display())]
+    Locked(PathBuf),
+    /// The journal lock could not be acquired.
+    #[error("could not lock the journal at {path}: {reason}", path = .0.display(), reason = .1)]
+    Lock(PathBuf, String),
+    /// This platform has no supported advisory file lock for the journal.
+    #[error("this platform cannot lock the action journal exclusively; the journal is unavailable")]
+    UnsupportedLock,
+    /// The journal is damaged and needs a local reset.
+    #[error("the action journal is corrupt: {0}")]
+    Corrupt(String),
+    /// Initialization was asked for after a journal file already existed.
+    #[error("the action journal already exists; use `domovoi agent journal reset` to replace it")]
+    AlreadyExists,
+    /// A journal file names a metadata format this build does not know.
+    #[error("the action journal uses unsupported format {0}")]
+    UnsupportedFormat(u32),
+    /// A live journal operation would break the execution lifecycle.
+    #[error("invalid journal lifecycle transition: {0}")]
+    Lifecycle(String),
+}
+
 /// Why connecting to the hub or keeping the link up failed.
 #[derive(Debug, thiserror::Error)]
 pub enum LinkError {
@@ -130,4 +159,10 @@ pub enum AgentError {
     /// The local webhook relay could not start or serve.
     #[error(transparent)]
     Relay(#[from] crate::relay::RelayError),
+    /// The action journal could not be opened.
+    #[error(transparent)]
+    Journal(#[from] JournalError),
+    /// The boot identity or monotonic time could not be read.
+    #[error(transparent)]
+    Boot(#[from] crate::boot::BootSnapshotError),
 }

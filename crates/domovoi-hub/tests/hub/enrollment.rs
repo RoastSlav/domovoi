@@ -239,7 +239,15 @@ async fn older_minor_agent_rejected_with_reason() {
 async fn newer_minor_agent_rejected_with_reason() {
     let hub = Hub::start().await;
     let ident = enroll(&hub, "nas").await;
-    let (reply, at) = reject_protocol(&hub, &ident, ProtocolVersion { major: 1, minor: 2 }).await;
+    let (reply, at) = reject_protocol(
+        &hub,
+        &ident,
+        ProtocolVersion {
+            major: PROTOCOL_VERSION.major,
+            minor: PROTOCOL_VERSION.minor + 1,
+        },
+    )
+    .await;
     assert_eq!(
         rejected(&reply),
         Some(RejectReason::Incompatible {
@@ -480,7 +488,13 @@ async fn compatible_reconnect_clears_incompatible_since() {
         .await
         .unwrap()
         .expect("the compatible report is stored");
-    assert_eq!(report.protocol, ReportedProtocol { major: 1, minor: 1 });
+    assert_eq!(
+        report.protocol,
+        ReportedProtocol {
+            major: PROTOCOL_VERSION.major,
+            minor: PROTOCOL_VERSION.minor,
+        }
+    );
     assert_eq!(report.incompatible_since, None);
     assert_eq!(protocol_audit(&hub).await.len(), 2);
 }

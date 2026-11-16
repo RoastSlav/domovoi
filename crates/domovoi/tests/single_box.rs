@@ -52,7 +52,23 @@ mod tests {
                 .stderr(Stdio::null());
             if local_agent {
                 let root = dir.join("root");
-                std::fs::create_dir_all(root.join("proc")).unwrap();
+                std::fs::create_dir_all(root.join("proc/sys/kernel/random")).unwrap();
+                std::fs::write(
+                    root.join("proc/sys/kernel/random/boot_id"),
+                    "018f0000-0000-7000-8000-000000000001\n",
+                )
+                .unwrap();
+                std::fs::write(root.join("proc/uptime"), "1.00 1.00\n").unwrap();
+                let state = dir.join("agent-state");
+                if !state.join("action-journal.json").exists() {
+                    domovoi_agent::Journal::init(
+                        &state,
+                        jiff::Timestamp::UNIX_EPOCH,
+                        "018f0000-0000-7000-8000-000000000001",
+                        1,
+                    )
+                    .unwrap();
+                }
                 let agent = dir.join("agent.toml");
                 std::fs::write(
                     &agent,

@@ -83,6 +83,7 @@ fn destructive_actions_cannot_be_approved_from_chat() {
         params: Vec::new(),
         applies_to: Vec::new(),
         manifest_hash: "00".repeat(32).parse::<ManifestHash>().unwrap(),
+        entry_script_digest: domovoi_core::ScriptDigest::of_bytes(b"#!/bin/sh\nexit 0\n"),
         timeout: jiff::SignedDuration::from_secs(60),
         verify: None,
         readme: None,

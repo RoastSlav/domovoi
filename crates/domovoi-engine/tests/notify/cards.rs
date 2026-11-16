@@ -39,7 +39,7 @@ fn proposed_with_args(
             },
         })
         .collect();
-    let skill = manifest.summary();
+    let skill = manifest.summary(domovoi_core::ScriptDigest::of_bytes(b"fixture entry"));
     let values: BTreeMap<String, String> = pairs
         .iter()
         .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))

@@ -934,6 +934,7 @@ dependencies = [
  "futures",
  "hex",
  "jiff",
+ "nix",
  "rand 0.10.3",
  "rcgen",
  "rustls",
@@ -1126,6 +1127,7 @@ dependencies = [
  "url",
  "utoipa",
  "utoipa-axum",
+ "uuid",
  "wiremock",
 ]
 

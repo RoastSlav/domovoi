@@ -60,7 +60,7 @@ pub fn verified_restart() -> SkillSummary {
 pub fn wipe() -> SkillSummary {
     domovoi_testkit::build::manifest("wipe_volume", Risk::Destructive)
         .unwrap()
-        .summary()
+        .summary(domovoi_core::ScriptDigest::of_bytes(b"fixture entry"))
 }
 
 pub fn ok_output(stdout: &str) -> SkillOutput {

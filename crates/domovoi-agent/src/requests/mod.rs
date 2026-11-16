@@ -17,9 +17,11 @@ use domovoi_checks::system::FsStats;
 use domovoi_core::ports::{Clock, HostFs, LogLine, LogSource, ProcessExecutor, Redactor};
 use domovoi_core::{HostId, RequestId, Risk, SignalStatus};
 use domovoi_proto::Message;
+use domovoi_proto::Open;
 use domovoi_proto::messages::{
-    CheckObservation, CheckResult, ErrorMessage, Logs, RunCheck, SkillFailure, SkillFailureCode,
-    SkillOutcome, SkillResult, ToolFailure, ToolFailureCode, ToolOutcome, ToolResult, ToolSuccess,
+    ActionStatusQuery, CheckObservation, CheckResult, ErrorMessage, Logs, RefusalCode, Refused,
+    RunCapability, RunCheck, SkillFailure, SkillFailureCode, SkillOutcome, SkillResult,
+    ToolFailure, ToolFailureCode, ToolOutcome, ToolResult, ToolSuccess,
 };
 use domovoi_runner::SkillCatalog;
 use jiff::Timestamp;
@@ -41,6 +43,8 @@ pub const MAX_CONCURRENT: usize = 4;
 pub const MAX_TOOL_OUTPUT: usize = 64 * 1024;
 /// Most log lines a `get_logs` reply carries, whatever the hub asked for.
 pub const MAX_LOG_LINES: usize = 2000;
+/// Most execution ids one `action_status` query may carry.
+pub const MAX_STATUS_IDS: usize = 64;
 
 /// Why a tool failed, as sent to the hub.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -91,6 +95,8 @@ pub struct RequestCtx {
     pub store: Arc<CheckStore>,
     /// The log lines of this process, for `get_logs`; `None` answers with none.
     pub logs: Option<Arc<dyn LogSource>>,
+    /// The durable action journal; `None` refuses journal-backed requests.
+    pub journal: Option<Arc<crate::journal::Journal>>,
 }
 
 /// Cuts `text` to at most `max` bytes on a character boundary.
@@ -177,9 +183,69 @@ pub fn busy_reply(kind: &RequestKind) -> Message {
             code: "busy".to_owned(),
             message: BUSY.to_owned(),
         }),
-        RequestKind::Logs(_) => Message::Error(ErrorMessage {
-            code: "busy".to_owned(),
-            message: BUSY.to_owned(),
+        RequestKind::Logs(_) | RequestKind::Capability(_) | RequestKind::ActionStatus(_) => {
+            Message::Error(ErrorMessage {
+                code: "busy".to_owned(),
+                message: BUSY.to_owned(),
+            })
+        }
+    }
+}
+
+/// A refusal that ends one execution without ending the session.
+fn refused(code: &str, known: RefusalCode, detail: impl Into<String>) -> Message {
+    Message::Refused(Refused {
+        code: Open::new(code, Some(known)),
+        detail: detail.into(),
+        retry_after: None,
+        scope: None,
+    })
+}
+
+/// Capabilities have no execution backend or registry in this milestone, so a request is
+/// refused honestly rather than accepted and left without a result.
+fn run_capability(ctx: &RequestCtx, run: &RunCapability) -> Message {
+    if ctx
+        .journal
+        .as_ref()
+        .is_some_and(|journal| journal.corruption().is_some())
+    {
+        return refused(
+            "journal_corrupt",
+            RefusalCode::JournalCorrupt,
+            "the action journal is corrupt; a local owner reset is required",
+        );
+    }
+    refused(
+        "contract_unknown",
+        RefusalCode::ContractUnknown,
+        format!(
+            "this agent has no capability registry, so {} is unknown",
+            run.contract
+        ),
+    )
+}
+
+fn action_status(ctx: &RequestCtx, query: &ActionStatusQuery) -> Message {
+    if query.execution_ids.len() > MAX_STATUS_IDS {
+        return Message::Error(ErrorMessage {
+            code: "bad_request".to_owned(),
+            message: format!(
+                "an action_status query carries at most {MAX_STATUS_IDS} execution ids"
+            ),
+        });
+    }
+    match &ctx.journal {
+        Some(journal) => match journal.action_status(query) {
+            Ok(answers) => Message::ActionStatusAnswers(answers),
+            Err(err) => Message::Error(ErrorMessage {
+                code: "journal_error".to_owned(),
+                message: ctx.redactor.redact(&err.to_string()),
+            }),
+        },
+        None => Message::Error(ErrorMessage {
+            code: "unavailable".to_owned(),
+            message: "there is no action journal on this agent".to_owned(),
         }),
     }
 }
@@ -281,6 +347,8 @@ pub async fn handle(ctx: &RequestCtx, kind: &RequestKind) -> Message {
                 .collect();
             chunk_logs(window, usize::from(get.offset))
         }
+        RequestKind::Capability(run) => run_capability(ctx, run),
+        RequestKind::ActionStatus(query) => action_status(ctx, query),
     }
 }
 

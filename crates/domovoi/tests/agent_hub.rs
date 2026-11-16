@@ -1,4 +1,8 @@
 //! The real agent runtime against the real hub agent server, over TLS on 127.0.0.1.
+//!
+//! The agent owns a durable journal, which the platform supports on Linux only.
+
+#![cfg(target_os = "linux")]
 
 #[cfg(test)]
 mod common {
@@ -134,6 +138,7 @@ mod common {
     }
 
     /// Enrolls a real agent with a token, spools one signal and starts its runtime.
+    #[cfg(target_os = "linux")]
     pub async fn agent(hub: &Hub, prepare: impl FnOnce(&Path)) -> Agent {
         let dir = tempfile::tempdir().unwrap();
         let invite = hub
@@ -142,7 +147,16 @@ mod common {
             .await
             .unwrap();
         let clock = Arc::new(FakeClock::new(t0()));
-        let fs = Arc::new(FixtureHostFs::new(dir.path().join("host")));
+        let root = dir.path().join("host");
+        let proc = root.join("proc");
+        std::fs::create_dir_all(proc.join("sys/kernel/random")).unwrap();
+        std::fs::write(
+            proc.join("sys/kernel/random/boot_id"),
+            "018f0000-0000-7000-8000-000000000001\n",
+        )
+        .unwrap();
+        std::fs::write(proc.join("uptime"), "1.00 1.00\n").unwrap();
+        let fs = Arc::new(FixtureHostFs::new(root));
         let config = config(dir.path(), &hub.url);
         let identity = tokio::time::timeout(
             GUARD,
@@ -168,6 +182,13 @@ mod common {
             .push(vec![signal(invite.host)])
             .unwrap();
         prepare(dir.path());
+        domovoi_agent::Journal::init(
+            dir.path(),
+            jiff::Timestamp::constant(1_700_000_000, 0),
+            "018f0000-0000-7000-8000-000000000001",
+            1,
+        )
+        .unwrap();
         let deps = AgentDeps {
             clock,
             executor: Arc::new(FakeProcessExecutor::new()),
@@ -224,6 +245,7 @@ use domovoi_core::ports::{AgentLink, LinkError, SkillDispatch};
 use domovoi_core::{ActionId, HostId, PlanHash, ReadToolCall, Risk, SkillName};
 use jiff::SignedDuration;
 
+#[cfg(target_os = "linux")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn real_agent_enrolls_connects_and_sends_signals() {
     let hub = hub().await;
@@ -264,6 +286,7 @@ async fn run_tool_round_trips_and_times_out() {
     );
 }
 
+#[cfg(target_os = "linux")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn run_skill_reaches_agent_and_plan_mismatch_is_reported() {
     let hub = hub().await;

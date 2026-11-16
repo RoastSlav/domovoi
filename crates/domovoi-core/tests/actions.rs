@@ -35,6 +35,7 @@ fn summary(risk: Risk) -> SkillSummary {
         }],
         applies_to: Vec::new(),
         manifest_hash: "ab".repeat(32).parse().unwrap(),
+        entry_script_digest: domovoi_core::ScriptDigest::of_bytes(b"#!/bin/sh\nexit 0\n"),
         timeout: jiff::SignedDuration::from_secs(60),
         verify: None,
         readme: None,

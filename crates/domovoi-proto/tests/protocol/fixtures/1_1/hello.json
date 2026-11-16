@@ -1,0 +1,71 @@
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "hello",
+  "payload": {
+    "agent_id": "01900000-0000-7000-8000-0000000000a1",
+    "agent_version": "0.1.0",
+    "capabilities": [
+      "docker",
+      "journal"
+    ],
+    "checks": [
+      {
+        "enabled": true,
+        "interval_seconds": 300,
+        "key": "disk.usage",
+        "thresholds": {
+          "warn_percent": 85
+        }
+      }
+    ],
+    "docker": {
+      "available": true,
+      "enabled": true,
+      "endpoint": "unix:///run/podman/podman.sock",
+      "engine": "Podman",
+      "locked": false,
+      "problem": null
+    },
+    "facts": {
+      "arch": "x86_64",
+      "boot_id": "5f0c1d2e-3a4b-4c5d-8e9f-0a1b2c3d4e5f",
+      "boot_time": "2023-11-03T08:26:40Z",
+      "cpu_count": 4,
+      "hostname": "nas",
+      "kernel": "6.12.0-1-amd64",
+      "mem_total_bytes": 17179869184,
+      "os": "Debian GNU/Linux 13"
+    },
+    "protocol": {
+      "major": 1,
+      "minor": 1
+    },
+    "skills": [
+      {
+        "applies_to": [
+          "container.restart_loop"
+        ],
+        "description": "Restart one container.",
+        "manifest_hash": "abababababababababababababababababababababababababababababababab",
+        "name": "restart_container",
+        "params": [
+          {
+            "description": "Container name.",
+            "kind": {
+              "max_len": 64,
+              "pattern": "^[a-z0-9_.-]+$",
+              "type": "string"
+            },
+            "name": "container",
+            "required": true
+          }
+        ],
+        "readme": "# Restart container\n\nRestarts one container managed by compose.",
+        "risk": "write",
+        "timeout": "1m",
+        "verify": null
+      }
+    ]
+  },
+  "v": 1
+}

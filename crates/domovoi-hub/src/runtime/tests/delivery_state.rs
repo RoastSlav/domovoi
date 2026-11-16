@@ -433,7 +433,19 @@ enabled = false",
     );
 
     harness.runtime.as_ref().unwrap().schedulers.minute().await;
-    assert!(held(&harness).await.is_empty(), "the card went out");
+    // The release is handed to the dispatcher; wait for the delivery attempt and for the
+    // held card to clear, rather than sampling either once.
+    guard(async {
+        loop {
+            if held(&harness).await.is_empty() && post_attempts(&harness.gateway) >= 7 {
+                break;
+            }
+            for _ in 0..20 {
+                tokio::task::yield_now().await;
+            }
+        }
+    })
+    .await;
     let incident = harness.incidents().await.remove(0);
     let stored = stored_state(&harness, incident.id())
         .await
@@ -543,7 +555,21 @@ enabled = false",
         "the fallback card was not delivered, so the alert stays held"
     );
 
-    harness.runtime.as_ref().unwrap().schedulers.minute().await;
+    // Let the scheduler's own next ticks retry the release. Driving it through the clock
+    // keeps one tick in flight at a time; calling `minute()` here would race the scheduled
+    // tick and a late failure could re-hold the incident after it was released.
+    guard(async {
+        loop {
+            if held(&harness).await.is_empty() {
+                return;
+            }
+            harness.clock.advance(SignedDuration::from_secs(30));
+            for _ in 0..20 {
+                tokio::task::yield_now().await;
+            }
+        }
+    })
+    .await;
     assert!(
         held(&harness).await.is_empty(),
         "released once the card went out"

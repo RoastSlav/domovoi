@@ -5,6 +5,7 @@ use std::sync::Arc;
 use domovoi_agent::enroll::{EnrollEnv, enroll};
 use domovoi_agent::identity::{Identity, generate_key};
 use domovoi_agent::link::RequestKind;
+use domovoi_agent::link::handshake::AgentStatusSource;
 use domovoi_agent::link::status;
 use domovoi_agent::link::tls::PinnedVerifier;
 use domovoi_agent::link::ws::{Connector, TlsConnector};
@@ -13,7 +14,8 @@ use domovoi_config::{AgentConfig, MapEnv};
 use domovoi_core::ReadToolCall;
 use domovoi_core::{AgentId, HostId};
 use domovoi_proto::messages::{
-    Enrolled, Ping, RejectReason, RunTool, ToolFailure, ToolFailureCode, ToolOutcome, ToolResult,
+    AgentStatus, Enrolled, HelperStatus, Ping, RejectReason, RunTool, SkillRunnerStatus,
+    ToolFailure, ToolFailureCode, ToolOutcome, ToolResult,
 };
 use domovoi_proto::{
     CertFingerprint, EnrollToken, Message, PROTOCOL_VERSION, ProtocolVersion, Release,
@@ -24,7 +26,7 @@ use domovoi_testkit::build::T0;
 use ed25519_dalek::{Signature, VerifyingKey};
 use jiff::SignedDuration;
 
-use crate::harness::{clock, empty_fs, identity, settle, start_link};
+use crate::harness::{clock, empty_fs, identity, settle, start_link, start_link_with_status};
 use crate::hub::{TestHub, guard};
 
 pub fn config(dir: &tempfile::TempDir, hub: &TestHub) -> AgentConfig {
@@ -318,7 +320,7 @@ async fn idle_incompatible_agent_logs_and_updates_status_hourly() {
     settle().await;
     let before = status::read(dir.path()).unwrap().expect("status written");
     assert_eq!(before.state, "incompatible");
-    assert_eq!(before.agent_protocol.as_deref(), Some("1.1"));
+    assert_eq!(before.agent_protocol.as_deref(), Some("1.2"));
     assert_eq!(before.hub_protocol.as_deref(), Some("2.0"));
     let first = before.last_notice_at.expect("the first notice is timed");
     clock.advance(SignedDuration::from_hours(1));
@@ -342,10 +344,18 @@ async fn welcome_from_any_hub_release_is_accepted() {
     let link = start_link(&hub, &identity, &clock, &dir);
     let mut conn = hub.accept().await;
     conn.welcome_from_release(&identity, 3600, "0.0.1").await;
-    let (first, _) = advancing(&clock, SignedDuration::from_secs(1), conn.expect()).await;
+    conn.send(
+        Message::Ping(Ping {
+            at: clock_now(&clock),
+        }),
+        None,
+    )
+    .await;
+    // The hub initiates the heartbeat, so answer without advancing the clock.
+    let first = guard(conn.expect()).await;
     assert!(
-        matches!(first.message, Message::Ping(Ping { .. })),
-        "the session starts and heartbeats as usual"
+        matches!(first.message, Message::Pong(_)),
+        "the session starts and answers the hub's heartbeat"
     );
     link.shutdown.cancel();
     assert!(guard(link.task).await.unwrap().is_ok());
@@ -385,11 +395,19 @@ async fn unparsable_hub_release_still_connects() {
     let link = start_link(&hub, &identity, &clock, &dir);
     let mut conn = hub.accept().await;
     conn.welcome_from_release(&identity, 2, "dev").await;
-    let (first, _) = advancing(&clock, SignedDuration::from_secs(1), conn.expect()).await;
+    conn.send(
+        Message::Ping(Ping {
+            at: clock_now(&clock),
+        }),
+        None,
+    )
+    .await;
+    // The hub initiates the heartbeat, so answer without advancing the clock.
+    let first = guard(conn.expect()).await;
     let kind = first.message;
     assert!(
-        matches!(kind, Message::Ping(Ping { .. })),
-        "an unparsable release is unknown, not old: the agent heartbeats as usual: {kind:?}",
+        matches!(kind, Message::Pong(_)),
+        "an unparsable release is unknown, not old: the agent answers the heartbeat: {kind:?}",
     );
     link.shutdown.cancel();
     assert!(
@@ -461,27 +479,24 @@ async fn heartbeat_drops_link_after_three_missed_pongs() {
     let link = start_link(&hub, &identity, &clock, &dir);
     let mut conn = hub.accept().await;
     conn.welcome(&identity, 10).await;
-    let step = SignedDuration::from_secs(1);
 
-    // An answered ping keeps the link up.
-    let (ping, _) = advancing(&clock, step, conn.expect()).await;
-    assert!(matches!(ping.message, Message::Ping(_)));
+    // A hub ping is answered, and the answer keeps the link alive.
     conn.send(
-        Message::Pong(domovoi_proto::messages::Pong {
+        Message::Ping(Ping {
             at: clock_now(&clock),
         }),
-        Some(ping.id),
+        None,
     )
     .await;
+    // The hub initiates the heartbeat, so answer without advancing the clock.
+    let pong = guard(conn.expect()).await;
+    assert!(matches!(pong.message, Message::Pong(_)));
 
-    for _ in 0..3 {
-        let (ping, _) = advancing(&clock, step, conn.expect()).await;
-        assert!(matches!(ping.message, Message::Ping(Ping { .. })));
-    }
-    let (closed, _) = advancing(&clock, step, conn.recv()).await;
+    // With no hub ping for three intervals, the agent treats the link as dead and closes it.
+    let (closed, _) = advancing(&clock, SignedDuration::from_secs(1), conn.recv()).await;
     assert!(
         closed.is_none(),
-        "the link should give up after three missed pongs"
+        "the link should give up after three silent heartbeat intervals"
     );
     link.shutdown.cancel();
 }
@@ -525,7 +540,118 @@ async fn link_forwards_requests_and_answers_unknown_kinds() {
     let Message::Unsupported(unsupported) = conn.expect().await.message else {
         panic!("expected unsupported");
     };
-    assert_eq!(unsupported.kind, "teleport");
+    assert_eq!(unsupported.type_name, "teleport");
     link.shutdown.cancel();
     assert!(guard(link.task).await.unwrap().is_ok());
+}
+
+// ---- agent_status ----------------------------------------------------------
+
+fn status(runs_as_root: bool) -> AgentStatus {
+    AgentStatus {
+        helper_status: HelperStatus::Absent,
+        helper_identity: None,
+        skill_runner_status: SkillRunnerStatus::Absent,
+        runs_as_root,
+        ceiling_hash: None,
+        ceiling_summary: None,
+    }
+}
+
+#[tokio::test]
+async fn agent_status_is_sent_after_welcome() {
+    let mut hub = TestHub::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let identity = identity(&hub);
+    let clock = clock();
+    let link = start_link(&hub, &identity, &clock, &dir);
+    let mut conn = hub.accept().await;
+    conn.welcome_raw(&identity, 3600).await;
+    let first = guard(conn.expect()).await;
+    assert!(
+        matches!(&first.message, Message::AgentStatus(status) if !status.runs_as_root),
+        "the initial status is sent after welcome: {first:?}"
+    );
+    link.shutdown.cancel();
+}
+
+#[tokio::test]
+async fn changed_agent_status_sends_one_update() {
+    let mut hub = TestHub::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let identity = identity(&hub);
+    let clock = clock();
+    let source = AgentStatusSource::new(status(false));
+    let link = start_link_with_status(&hub, &identity, &clock, &dir, source.clone());
+    let mut conn = hub.accept().await;
+    conn.welcome_raw(&identity, 3600).await;
+    let first = guard(conn.expect()).await;
+    assert!(matches!(first.message, Message::AgentStatus(status) if !status.runs_as_root));
+
+    source.set(status(true));
+    clock.advance(SignedDuration::from_secs(60));
+    settle().await;
+    let update = guard(conn.expect()).await;
+    assert!(
+        matches!(&update.message, Message::AgentStatus(status) if status.runs_as_root),
+        "a changed value is reported: {update:?}"
+    );
+    link.shutdown.cancel();
+}
+
+#[tokio::test]
+async fn unchanged_agent_status_probe_sends_nothing() {
+    let mut hub = TestHub::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let identity = identity(&hub);
+    let clock = clock();
+    let link = start_link(&hub, &identity, &clock, &dir);
+    let mut conn = hub.accept().await;
+    conn.welcome_raw(&identity, 3600).await;
+    assert!(matches!(
+        guard(conn.expect()).await.message,
+        Message::AgentStatus(_)
+    ));
+
+    // One probe interval with unchanged values must not produce a status frame. A ping
+    // answered next proves nothing was queued before its pong.
+    clock.advance(SignedDuration::from_secs(60));
+    settle().await;
+    conn.send(
+        Message::Ping(Ping {
+            at: clock_now(&clock),
+        }),
+        None,
+    )
+    .await;
+    let next = guard(conn.expect()).await;
+    assert!(
+        matches!(next.message, Message::Pong(_)),
+        "an unchanged probe must not send a status: {next:?}"
+    );
+    link.shutdown.cancel();
+}
+
+#[tokio::test]
+async fn new_session_sends_its_own_initial_status() {
+    let mut hub = TestHub::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let identity = identity(&hub);
+    let clock = clock();
+    let link = start_link(&hub, &identity, &clock, &dir);
+    let mut conn = hub.accept().await;
+    conn.welcome_raw(&identity, 3600).await;
+    assert!(matches!(
+        guard(conn.expect()).await.message,
+        Message::AgentStatus(_)
+    ));
+    drop(conn);
+
+    let (mut conn, _) = advancing(&clock, SignedDuration::from_secs(1), hub.accept()).await;
+    conn.welcome_raw(&identity, 3600).await;
+    assert!(
+        matches!(guard(conn.expect()).await.message, Message::AgentStatus(_)),
+        "the new session reports its own initial status"
+    );
+    link.shutdown.cancel();
 }

@@ -127,7 +127,8 @@ pub fn manifest(name: &str, risk: Risk) -> Result<SkillManifest, BuildError> {
 /// An action proposed by triage at [`T0`] for the [`manifest`] `restart_container` with
 /// `risk`, with a one-hour approval window.
 pub fn action(incident: IncidentId, host: HostId, risk: Risk) -> Result<ActionRequest, BuildError> {
-    let summary = manifest("restart_container", risk)?.summary();
+    let summary = manifest("restart_container", risk)?
+        .summary(domovoi_core::ScriptDigest::of_bytes(b"#!/bin/sh\nexit 0\n"));
     let args = summary.validate_args(&BTreeMap::new())?;
     Ok(ActionRequest::propose(
         incident,

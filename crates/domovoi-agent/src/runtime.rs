@@ -15,7 +15,9 @@ use tokio_util::sync::CancellationToken;
 use crate::checks::{CheckSet, check_settings};
 use crate::error::AgentError;
 use crate::identity::Identity;
+use crate::journal::Journal;
 use crate::link::backoff::random_jitter;
+use crate::link::handshake::HelloExtensions;
 use crate::link::tls::PinnedVerifier;
 use crate::link::ws::{Connector, TlsConnector};
 use crate::link::{Link, LinkParts};
@@ -62,6 +64,7 @@ pub struct AgentRuntime {
     connector: Arc<dyn Connector>,
     checks: Arc<dyn CheckSet>,
     requests: Arc<RequestCtx>,
+    journal: Arc<Journal>,
     store: Arc<CheckStore>,
     spool: Arc<SharedSpool>,
     relay: Option<crate::relay::Relay>,
@@ -76,6 +79,33 @@ pub(crate) fn container_policy(config: &AgentConfig) -> ContainerPolicy {
         ignore: config.containers.ignore.iter().cloned().collect(),
         baseline_expiry: config.containers.baseline_expiry.as_signed(),
     }
+}
+
+/// Opens and recovers the action journal, propagating every ownership and metadata error.
+///
+/// A missing journal, a partial initialization, corrupt metadata or an ownership conflict is
+/// fatal to agent startup. The agent never serves without the journal it owns.
+async fn open_journal(config: &AgentConfig, deps: &AgentDeps) -> Result<Arc<Journal>, AgentError> {
+    let dir = &config.agent.state_dir;
+    let snapshot = crate::boot::boot_snapshot(&*deps.hostfs).await?;
+    let journal = Journal::open(
+        dir,
+        &snapshot.boot_id.to_string(),
+        snapshot.monotonic_ns,
+        config.agent.mutation_limits.clone(),
+    )?;
+    journal.recover_orphans(&*deps.clock).await;
+    Ok(Arc::new(journal))
+}
+
+#[cfg(target_os = "linux")]
+fn runs_as_root() -> bool {
+    nix::unistd::geteuid().is_root()
+}
+
+#[cfg(not(target_os = "linux"))]
+fn runs_as_root() -> bool {
+    false
 }
 
 fn load_catalog(dir: &Path) -> SkillCatalog {
@@ -126,6 +156,7 @@ impl AgentRuntime {
         );
         let store = Arc::new(CheckStore::open(state_dir)?);
         let spool = Arc::new(SharedSpool::new(Spool::open(state_dir)?));
+        let journal = open_journal(&config, &deps).await?;
         let check_env = CheckEnv {
             host: identity.host_id,
             fs: deps.hostfs.clone(),
@@ -149,6 +180,7 @@ impl AgentRuntime {
             check_env,
             store: store.clone(),
             logs: deps.logs.clone(),
+            journal: Some(journal.clone()),
         });
         let verifier = Arc::new(PinnedVerifier::new(identity.hub_fingerprint));
         let connector = Arc::new(TlsConnector::new(
@@ -170,6 +202,7 @@ impl AgentRuntime {
             connector,
             checks,
             requests,
+            journal,
             store,
             spool,
             relay,
@@ -197,6 +230,12 @@ impl AgentRuntime {
     pub async fn run(self, shutdown: CancellationToken) -> Result<(), AgentError> {
         let stop = shutdown.child_token();
         let host = self.identity.host_id;
+        let extensions = HelloExtensions {
+            journal_epoch: self.journal.epoch(),
+            runs_as_root: runs_as_root(),
+            ..HelloExtensions::default()
+        };
+        let status = crate::link::handshake::AgentStatusSource::new(extensions.status());
         let parts = LinkParts {
             connector: self.connector,
             identity: self.identity,
@@ -205,6 +244,8 @@ impl AgentRuntime {
             skills: self.requests.catalog.summaries(),
             checks: self.check_infos,
             docker: self.deps.docker.as_ref().map(|d| d.report().clone()),
+            extensions,
+            status,
             overrides: Some(self.effective),
             spool: self.spool.clone(),
             jitter: self.jitter,

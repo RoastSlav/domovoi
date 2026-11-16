@@ -153,7 +153,7 @@ mod tests {
             IncidentRepo::insert(&*self.store, &incident).await.unwrap();
             let skill = manifest("restart_container", Risk::Write)
                 .unwrap()
-                .summary();
+                .summary(domovoi_core::ScriptDigest::of_bytes(b"fixture entry"));
             let args = skill.validate_args(&BTreeMap::new()).unwrap();
             let mut action = ActionRequest::propose(
                 incident.id(),

@@ -4,6 +4,8 @@
 #[cfg(test)]
 mod auth;
 #[cfg(test)]
+mod extensions;
+#[cfg(test)]
 mod roundtrip;
 #[cfg(test)]
 mod samples;

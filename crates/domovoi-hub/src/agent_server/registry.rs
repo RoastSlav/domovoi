@@ -6,11 +6,12 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use domovoi_core::ports::{LinkError, Presence};
 use domovoi_core::{HostId, RequestId, SkillSummary};
-use domovoi_proto::messages::{CheckInfo, DockerReport, HostFacts, SessionId};
+use domovoi_proto::messages::{AgentStatus, CheckInfo, DockerReport, HostFacts, SessionId};
 use domovoi_proto::{Message, encode};
 use jiff::Timestamp;
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
+use uuid::Uuid;
 
 /// Agents with a live session right now.
 pub const AGENTS_CONNECTED: &str = "domovoi_agents_connected";
@@ -37,6 +38,10 @@ pub(crate) struct Live {
     pub skills: Vec<SkillSummary>,
     pub checks: Vec<CheckInfo>,
     pub docker: Option<DockerReport>,
+    /// The action journal's epoch the agent announced.
+    pub journal_epoch: Uuid,
+    /// The last `agent_status` the agent sent, if any.
+    pub agent_status: Option<AgentStatus>,
     pub outbox: mpsc::Sender<String>,
     pub pending: HashMap<RequestId, oneshot::Sender<Message>>,
     pub cancel: CancellationToken,
@@ -148,6 +153,26 @@ impl Registry {
         }
         if closed {
             Self::report(&hosts);
+        }
+    }
+
+    /// The latest runtime status for the host's live session.
+    pub fn agent_status(&self, host: HostId) -> Option<AgentStatus> {
+        self.lock()
+            .get(&host)
+            .and_then(|entry| entry.live.as_ref())
+            .and_then(|live| live.agent_status.clone())
+    }
+
+    /// Records the agent's latest runtime status for `session`.
+    pub fn set_agent_status(&self, host: HostId, session: SessionId, status: AgentStatus) {
+        if let Some(live) = self
+            .lock()
+            .get_mut(&host)
+            .and_then(|entry| entry.live.as_mut())
+            .filter(|live| live.session == session)
+        {
+            live.agent_status = Some(status);
         }
     }
 

@@ -232,7 +232,8 @@ async fn seed_actions(store: &Store, nas: HostId) -> Result<()> {
         ("restart_container", Risk::Write),
         ("delete_volume", Risk::Destructive),
     ] {
-        let summary = manifest(skill, risk)?.summary();
+        let summary =
+            manifest(skill, risk)?.summary(domovoi_core::ScriptDigest::of_bytes(b"fixture entry"));
         let args = summary.validate_args(&BTreeMap::new())?;
         let action = ActionRequest::propose(
             incident.id(),
@@ -388,7 +389,10 @@ async fn main() -> Result<()> {
         ("delete_volume", Risk::Destructive),
     ]
     .into_iter()
-    .map(|(skill, risk)| manifest(skill, risk).map(|m| m.summary()))
+    .map(|(skill, risk)| {
+        manifest(skill, risk)
+            .map(|m| m.summary(domovoi_core::ScriptDigest::of_bytes(b"fixture entry")))
+    })
     .collect::<std::result::Result<Vec<_>, _>>()?;
     link.set_skills(nas, skills);
     link.set_presence(

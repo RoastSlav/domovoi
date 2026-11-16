@@ -389,7 +389,8 @@ async fn hosts_enrollment_skills_and_notes() {
     assert_eq!(revoke.body["revoked"], false);
 
     let restart = domovoi_testkit::build::manifest("restart_container", Risk::Write).unwrap();
-    let mut restart_summary = restart.summary();
+    let mut restart_summary =
+        restart.summary(domovoi_core::ScriptDigest::of_bytes(b"fixture entry"));
     restart_summary.readme = Some("# Restart container\n\nRestarts one container.".to_string());
     a.link.set_skills(a.nas.id, vec![restart_summary]);
     let skills = a.get("/api/v1/hosts/nas/skills", &login).await;

@@ -242,7 +242,9 @@ mod tests {
 
     /// The summary of a read skill named `name`, as an agent would announce it.
     fn summary(name: &str) -> SkillSummary {
-        manifest(name, Risk::Read).unwrap().summary()
+        manifest(name, Risk::Read)
+            .unwrap()
+            .summary(domovoi_core::ScriptDigest::of_bytes(b"fixture entry"))
     }
 
     /// A dispatch for skill `name`, as the action executor would build one.

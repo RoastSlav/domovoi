@@ -21,6 +21,6 @@ fn exact_rule_matrix() {
 }
 
 #[test]
-fn current_version_is_one_one() {
-    assert_eq!(PROTOCOL_VERSION.to_string(), "1.1");
+fn current_version_is_one_two() {
+    assert_eq!(PROTOCOL_VERSION.to_string(), "1.2");
 }

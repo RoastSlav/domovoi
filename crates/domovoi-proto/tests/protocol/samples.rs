@@ -5,13 +5,13 @@ use std::collections::BTreeMap;
 use domovoi_core::ports::LogLine;
 use domovoi_core::{
     ActionId, AgentId, CheckKey, DigestFact, Evidence, EvidenceValue, FactValue, HostId, HostName,
-    PlanHash, ReadToolCall, RequestId, Severity, Signal, SignalId, SignalStatus, SkillName,
-    SkillSummary, SourceKind, TargetKey,
+    PlanHash, ReadToolCall, RequestId, ScriptDigest, Severity, Signal, SignalId, SignalStatus,
+    SkillName, SkillSummary, SourceKind, TargetKey,
 };
 use domovoi_proto::messages::*;
 use domovoi_proto::{
-    CertFingerprint, EnrollToken, Message, Nonce, PROTOCOL_VERSION, PublicKey, Release,
-    Sha256Bytes, Signature,
+    Base64Bytes, CertFingerprint, EnrollToken, Message, Nonce, Open, PROTOCOL_VERSION, PublicKey,
+    Release, Sha256Bytes, Signature,
 };
 use jiff::Timestamp;
 use uuid::Uuid;
@@ -66,6 +66,8 @@ fn settings() -> AgentSettings {
 }
 
 fn skill_summary() -> SkillSummary {
+    // A real computed digest of the bytes the sample entry stands for, not a literal.
+    let digest = ScriptDigest::of_bytes(b"#!/bin/sh\nexec /usr/local/bin/restart \"$1\"\n");
     serde_json::from_value(serde_json::json!({
         "name": "restart_container",
         "description": "Restart one container.",
@@ -77,9 +79,14 @@ fn skill_summary() -> SkillSummary {
         }],
         "applies_to": ["container.restart_loop"],
         "manifest_hash": "ab".repeat(32),
+        "entry_script_digest": digest.to_string(),
         "readme": "# Restart container\n\nRestarts one container managed by compose.",
     }))
     .unwrap()
+}
+
+fn execution_id() -> Uuid {
+    Uuid::from_u128(0x0190_0000_0000_7000_8000_0000_0000_00f1)
 }
 
 fn evidence() -> Evidence {
@@ -129,8 +136,17 @@ pub fn all() -> Vec<Message> {
             agent_id: agent_id(),
             protocol: PROTOCOL_VERSION,
             agent_version: "0.1.0".to_owned(),
-            facts: facts(),
+            facts: Box::new(facts()),
             capabilities: vec!["docker".to_owned(), "journal".to_owned()],
+            features: Vec::new(),
+            journal_epoch: Uuid::from_u128(0x0190_0000_0000_7000_8000_0000_0000_00f0),
+            catalog_hash: None,
+            ceiling_hash: None,
+            ceiling_summary: None,
+            skill_runner_status: SkillRunnerStatus::Absent,
+            helper_status: HelperStatus::Absent,
+            runs_as_root: true,
+            helper_identity: None,
             skills: vec![skill_summary()],
             checks: vec![CheckInfo {
                 key: CheckKey::parse("disk.usage").unwrap(),
@@ -270,7 +286,106 @@ pub fn all() -> Vec<Message> {
         }
         .into(),
         Unsupported {
-            kind: "future_kind".to_owned(),
+            type_name: "future_kind".to_owned(),
+        }
+        .into(),
+        AgentStatus {
+            helper_status: HelperStatus::Absent,
+            helper_identity: None,
+            skill_runner_status: SkillRunnerStatus::Absent,
+            runs_as_root: true,
+            ceiling_hash: None,
+            ceiling_summary: None,
+        }
+        .into(),
+        RunCapability {
+            execution_id: execution_id(),
+            contract: "container.restart".to_owned(),
+            version: 1,
+            target: TargetKey::parse("container:plex").unwrap(),
+            args: BTreeMap::from([("container".to_owned(), "plex".to_owned())]),
+            plan_hash: plan_hash(),
+            authorization_kind: AuthorizationKind::Human,
+            expires_at: DEADLINE,
+            expected_safety: None,
+        }
+        .into(),
+        CapabilityResult {
+            outcome: CapabilityOutcome::Succeeded {
+                outputs: BTreeMap::from([("previous_state".to_owned(), "running".to_owned())]),
+            },
+        }
+        .into(),
+        Refused {
+            code: Open::new("rate_limited", Some(RefusalCode::RateLimited)),
+            detail: "too many mutations this hour".to_owned(),
+            retry_after: Some(30),
+            scope: Some(RefusalScope::Global),
+        }
+        .into(),
+        ActionStatusQuery {
+            execution_ids: vec![execution_id()],
+            expected_epoch: Uuid::from_u128(0x0190_0000_0000_7000_8000_0000_0000_00f0),
+        }
+        .into(),
+        ActionStatusAnswers {
+            epoch: Uuid::from_u128(0x0190_0000_0000_7000_8000_0000_0000_00f0),
+            answers: vec![ActionStatusAnswer {
+                execution_id: execution_id(),
+                state: ActionState::Finished {
+                    result: CapabilityResult {
+                        outcome: CapabilityOutcome::Succeeded {
+                            outputs: BTreeMap::new(),
+                        },
+                    },
+                },
+            }],
+        }
+        .into(),
+        GetCatalog {
+            page: 0,
+            page_size: 50,
+        }
+        .into(),
+        CatalogPage {
+            entries: vec![CatalogEntry {
+                contract: "container.restart".to_owned(),
+                version: 1,
+                descriptor: serde_json::json!({"family": "container", "verb": "restart"}),
+            }],
+            next_page: None,
+        }
+        .into(),
+        TransferBegin {
+            transfer_id: execution_id(),
+            kind: Open::new("package_artifact", Some(TransferKind::PackageArtifact)),
+            size: 3,
+            sha256: Sha256Bytes([4; 32]),
+        }
+        .into(),
+        TransferChunk {
+            transfer_id: execution_id(),
+            seq: 0,
+            bytes: Base64Bytes(vec![1, 2, 3]),
+        }
+        .into(),
+        TransferEnd {
+            transfer_id: execution_id(),
+        }
+        .into(),
+        TransferResult {
+            transfer_id: execution_id(),
+            outcome: TransferOutcome::Stored,
+        }
+        .into(),
+        AttestSafety {
+            nonce: Nonce([5; 32]),
+        }
+        .into(),
+        SafetyAttestation {
+            public_key: PublicKey([6; 32]),
+            report: Base64Bytes(b"domovoi-attestation".to_vec()),
+            signature: Signature([7; 64]),
         }
         .into(),
     ]

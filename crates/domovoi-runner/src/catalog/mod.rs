@@ -6,7 +6,9 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use domovoi_core::ports::{ProcessExecutor, SkillOutput};
-use domovoi_core::{ManifestHash, SkillManifest, SkillName, SkillSummary, ValidatedArgs};
+use domovoi_core::{
+    ManifestHash, ScriptDigest, SkillManifest, SkillName, SkillSummary, ValidatedArgs,
+};
 
 use crate::error::{CatalogIssue, RunError};
 use crate::skill_run;
@@ -18,6 +20,8 @@ pub struct LoadedSkill {
     manifest_hash: ManifestHash,
     entry_path: PathBuf,
     dir: PathBuf,
+    /// SHA-256 of the entry file's bytes as they were when the catalogue loaded it.
+    entry_script_digest: ScriptDigest,
     /// The folder's `README.md`, at most 8 KiB; absent when there is none.
     readme: Option<String>,
 }
@@ -45,6 +49,16 @@ impl LoadedSkill {
     #[must_use]
     pub fn dir(&self) -> &Path {
         &self.dir
+    }
+
+    /// SHA-256 of the entry file's bytes when the catalogue loaded it.
+    ///
+    /// Reported to the hub so a plan hash can bind the entry bytes. It covers the entry
+    /// executable only: not its interpreter, sourced files, other folder contents or the rest
+    /// of the runtime environment.
+    #[must_use]
+    pub fn entry_script_digest(&self) -> ScriptDigest {
+        self.entry_script_digest
     }
 }
 
@@ -102,7 +116,7 @@ impl SkillCatalog {
         self.skills
             .values()
             .map(|s| {
-                let mut summary = s.manifest.summary();
+                let mut summary = s.manifest.summary(s.entry_script_digest);
                 summary.readme = s.readme.clone();
                 summary
             })
@@ -150,6 +164,7 @@ impl LoadedSkill {
         manifest: SkillManifest,
         entry_path: PathBuf,
         dir: PathBuf,
+        entry_script_digest: ScriptDigest,
         readme: Option<String>,
     ) -> Self {
         Self {
@@ -157,6 +172,7 @@ impl LoadedSkill {
             manifest,
             entry_path,
             dir,
+            entry_script_digest,
             readme,
         }
     }

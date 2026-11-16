@@ -556,7 +556,9 @@ impl Api {
 
     /// Proposes `restart_container` (no parameters) with `risk`, open for an hour.
     pub async fn propose(&self, risk: Risk) -> ActionRequest {
-        let summary = manifest("restart_container", risk).unwrap().summary();
+        let summary = manifest("restart_container", risk)
+            .unwrap()
+            .summary(domovoi_core::ScriptDigest::of_bytes(b"fixture entry"));
         let args = summary.validate_args(&BTreeMap::new()).unwrap();
         let action = ActionRequest::propose(
             self.incident.id(),

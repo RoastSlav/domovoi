@@ -1,0 +1,21 @@
+---
+source: crates/domovoi-proto/tests/protocol/snapshots.rs
+expression: "pretty(&message, reply)"
+---
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "agent_status",
+  "payload": {
+    "ceiling_hash": null,
+    "ceiling_summary": null,
+    "helper_identity": null,
+    "helper_status": {
+      "state": "absent"
+    },
+    "runs_as_root": true,
+    "skill_runner_status": {
+      "state": "absent"
+    }
+  },
+  "v": 1
+}

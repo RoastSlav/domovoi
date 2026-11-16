@@ -5,7 +5,7 @@ use jiff::SignedDuration;
 use super::ident_newtype;
 use super::params::ParamSpec;
 use crate::host::HostName;
-use crate::sha256::sha256_newtype;
+use crate::sha256::{ScriptDigest, sha256_newtype};
 use crate::signal::CheckKey;
 
 ident_newtype!(
@@ -151,8 +151,11 @@ impl SkillManifest {
     }
 
     /// What the hub may know about this manifest.
+    ///
+    /// The manifest does not contain the entry file, so the caller supplies its digest: only
+    /// the catalogue that resolved and read the entry can compute it.
     #[must_use]
-    pub fn summary(&self) -> SkillSummary {
+    pub fn summary(&self, entry_script_digest: ScriptDigest) -> SkillSummary {
         SkillSummary {
             name: self.name.clone(),
             description: self.description.clone(),
@@ -163,8 +166,30 @@ impl SkillManifest {
             timeout: self.timeout,
             verify: self.verify.clone(),
             readme: None,
+            entry_script_digest,
         }
     }
+}
+
+/// Decodes the canonical wire form only: exactly 64 ASCII characters, each `0-9` or `a-f`.
+///
+/// Uppercase, mixed case, a `0x` prefix, whitespace, padding, an empty string and every
+/// other length are refused with a serde error. [`ScriptDigest`]'s generated `FromStr` uses
+/// `hex::decode_to_slice`, which accepts uppercase, so the wire path cannot reach it without
+/// this check.
+pub(crate) fn strict_script_digest<'de, D>(deserializer: D) -> Result<ScriptDigest, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Error as _;
+
+    let text = <String as serde::Deserialize>::deserialize(deserializer)?;
+    if text.len() != 64 || !text.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) {
+        return Err(D::Error::custom(
+            "expected 64 lowercase hexadecimal characters",
+        ));
+    }
+    text.parse().map_err(D::Error::custom)
 }
 
 /// The parts of a manifest an agent reports to the hub: no entry, user or output limit.
@@ -182,6 +207,11 @@ pub struct SkillSummary {
     pub applies_to: Vec<CheckKey>,
     /// Hash of the full manifest on the agent.
     pub manifest_hash: ManifestHash,
+    /// SHA-256 of the raw bytes of the agent's canonical resolved entry executable.
+    ///
+    /// Decoded only from exactly 64 ASCII lowercase hexadecimal characters.
+    #[serde(deserialize_with = "strict_script_digest")]
+    pub entry_script_digest: ScriptDigest,
     /// How long one run may take; the agent kills it after this.
     #[serde(
         default = "default_summary_timeout",

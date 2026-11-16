@@ -444,5 +444,5 @@ pub fn restart_skill() -> SkillSummary {
             max_len: 64,
         },
     }];
-    manifest.summary()
+    manifest.summary(domovoi_core::ScriptDigest::of_bytes(b"fixture entry"))
 }

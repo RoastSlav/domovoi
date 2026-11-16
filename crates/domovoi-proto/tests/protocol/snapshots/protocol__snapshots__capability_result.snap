@@ -1,0 +1,19 @@
+---
+source: crates/domovoi-proto/tests/protocol/snapshots.rs
+expression: "pretty(&message, reply)"
+---
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "capability_result",
+  "payload": {
+    "outcome": {
+      "succeeded": {
+        "outputs": {
+          "previous_state": "running"
+        }
+      }
+    }
+  },
+  "reply_to": "01900000-0000-7000-8000-000000000002",
+  "v": 1
+}

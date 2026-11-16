@@ -298,6 +298,15 @@ Identity of this agent and where it connects.
 | `skills_dir` | string | Where skill manifests are read from. Default `/etc/domovoi/skills`. |
 | `state_dir` | string | Where the agent keeps its key and spool. Default `/var/lib/domovoi-agent`. |
 
+#### `[agent.mutation_limits]`
+
+How many mutating capability executions this agent accepts. Local and root-owned; the hub cannot send, widen or override it.
+
+| Key | Type | Meaning |
+| --- | --- | --- |
+| `per_capability` | map of integer | Per-contract per-hour limits, keyed by contract id; `0` blocks that contract. |
+| `per_hour` | integer | Mutating executions per rolling hour. Default 30; `0` blocks every mutation. |
+
 ### `[checks.<name>]`
 
 Per-check settings, keyed by check key such as `disk.usage`.

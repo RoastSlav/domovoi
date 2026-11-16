@@ -90,7 +90,10 @@ mod tests {
             }
         );
         assert_eq!(
-            protocol_state(Some(&report(1, Some(at(5)))), PROTOCOL_VERSION),
+            protocol_state(
+                Some(&report(PROTOCOL_VERSION.minor, Some(at(5)))),
+                PROTOCOL_VERSION
+            ),
             ProtocolState::Compatible,
             "a matching report is compatible even when a stale rejection is stored"
         );

@@ -11,14 +11,19 @@ mod bytes;
 mod envelope;
 mod error;
 pub mod messages;
+mod open;
 mod transport;
 mod version;
 
 pub use auth::{CHALLENGE_CONTEXT, challenge_message};
-pub use bytes::{CertFingerprint, EnrollToken, Nonce, PublicKey, Sha256Bytes, Signature};
+pub use bytes::{
+    Base64Bytes, CertFingerprint, EnrollToken, MAX_BASE64_BYTES, Nonce, PublicKey, Sha256Bytes,
+    Signature,
+};
 pub use envelope::{Decoded, Envelope, MAX_FRAME_BYTES, decode, encode};
 pub use error::ProtoError;
 pub use messages::Message;
+pub use open::Open;
 pub use transport::{Transport, TransportError};
 pub use version::{
     PROTOCOL_VERSION, ProtocolVersion, Release, compatible, is_release_tag, parse_release,

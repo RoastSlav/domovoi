@@ -10,7 +10,7 @@ use domovoi_agent::link::tls::{CHANNEL_BINDING_LABEL, fingerprint};
 use domovoi_agent::link::ws::{WsTransport, ws_config};
 use domovoi_core::RequestId;
 use domovoi_proto::messages::{
-    AgentSettings, Challenge, Hello, Reject, RejectReason, SessionId, Signals, Welcome,
+    AgentSettings, AgentStatus, Challenge, Hello, Reject, RejectReason, SessionId, Signals, Welcome,
 };
 use domovoi_proto::{Decoded, Message, Nonce, Transport, challenge_message};
 use ed25519_dalek::{Signature, VerifyingKey};
@@ -82,8 +82,16 @@ impl HubConn {
         .is_ok()
     }
 
-    /// The whole handshake, ending in `welcome` with `heartbeat_seconds`.
+    /// The whole handshake, ending in `welcome` with `heartbeat_seconds`, then consuming the
+    /// session's initial `agent_status`.
     pub async fn welcome(&mut self, identity: &Identity, heartbeat_seconds: u32) -> Hello {
+        let hello = self.welcome_raw(identity, heartbeat_seconds).await;
+        self.expect_agent_status().await;
+        hello
+    }
+
+    /// The handshake without consuming the initial `agent_status`.
+    pub async fn welcome_raw(&mut self, identity: &Identity, heartbeat_seconds: u32) -> Hello {
         let (hello, nonce) = self.challenge(identity).await;
         assert!(
             self.verify(identity, &nonce).await,
@@ -102,9 +110,31 @@ impl HubConn {
         hello
     }
 
+    /// Reads and returns the session's initial `agent_status`.
+    pub async fn expect_agent_status(&mut self) -> AgentStatus {
+        match self.expect().await.message {
+            Message::AgentStatus(status) => status,
+            other => panic!("expected agent_status, got {other:?}"),
+        }
+    }
+
     /// The whole handshake, but the hub says it runs release `hub_release`, for the
     /// minimum-release rule: an older hub is refused by the agent.
     pub async fn welcome_from_release(
+        &mut self,
+        identity: &Identity,
+        heartbeat_seconds: u32,
+        hub_release: &str,
+    ) -> Hello {
+        let hello = self
+            .welcome_from_release_raw(identity, heartbeat_seconds, hub_release)
+            .await;
+        self.expect_agent_status().await;
+        hello
+    }
+
+    /// Like [`Self::welcome_from_release`], without consuming the initial `agent_status`.
+    pub async fn welcome_from_release_raw(
         &mut self,
         identity: &Identity,
         heartbeat_seconds: u32,
