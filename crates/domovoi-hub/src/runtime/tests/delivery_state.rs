@@ -555,7 +555,21 @@ enabled = false",
         "the fallback card was not delivered, so the alert stays held"
     );
 
-    harness.runtime.as_ref().unwrap().schedulers.minute().await;
+    // Let the scheduler's own next ticks retry the release. Driving it through the clock
+    // keeps one tick in flight at a time; calling `minute()` here would race the scheduled
+    // tick and a late failure could re-hold the incident after it was released.
+    guard(async {
+        loop {
+            if held(&harness).await.is_empty() {
+                return;
+            }
+            harness.clock.advance(SignedDuration::from_secs(30));
+            for _ in 0..20 {
+                tokio::task::yield_now().await;
+            }
+        }
+    })
+    .await;
     assert!(
         held(&harness).await.is_empty(),
         "released once the card went out"
