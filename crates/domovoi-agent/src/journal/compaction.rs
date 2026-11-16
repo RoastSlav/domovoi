@@ -25,13 +25,15 @@ pub(super) const INTENT_FILE: &str = "action-journal.compact";
 pub(super) const INTENT_FORMAT: u32 = 1;
 /// The temporary compacted journal.
 pub(super) const TEMP_FILE: &str = "action-journal.bin.tmp";
+/// The temporary file the atomic intent write uses.
+pub(super) const INTENT_TEMP_FILE: &str = ".action-journal.compact.tmp";
 
 /// Every temporary name a reset must not leave behind.
 pub(super) const TEMP_FILES: [&str; 4] = [
     TEMP_FILE,
     ".action-journal.json.tmp",
     ".action-journal.commit.tmp",
-    ".action-journal.compact.tmp",
+    INTENT_TEMP_FILE,
 ];
 
 /// Both sides of one compaction, bound to the epoch.

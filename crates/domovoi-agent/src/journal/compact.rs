@@ -96,20 +96,42 @@ pub(super) fn rewrite_locked(
         rename: faults.intent_rename,
         dir_sync: faults.intent_dir_sync,
     };
-    if compaction::write(&state.dir, &intent, intent_faults).is_err() {
-        // Nothing was replaced. Remove a visible intent best-effort; startup also aborts an
-        // intent that still matches the untouched original.
-        let _ = compaction::remove(&state.dir);
-        return Ok(RewriteOutcome::Indeterminate);
+    match compaction::write(&state.dir, &intent, intent_faults) {
+        Ok(()) => {}
+        Err(DurableWriteError::BeforeCommit(_)) => {
+            // The rename never happened, so no intent name exists to protect. A leftover
+            // temporary file is harmless and is removed here best-effort.
+            let _ = std::fs::remove_file(state.dir.join(compaction::INTENT_TEMP_FILE));
+            return Ok(RewriteOutcome::Indeterminate);
+        }
+        Err(DurableWriteError::Indeterminate(_)) => {
+            // The intent name may be visible. If its cleanup is not durably confirmed, an
+            // append would change the journal identity the intent describes.
+            if clean_intent(state, faults).durable() {
+                return Ok(RewriteOutcome::Indeterminate);
+            }
+            state.fenced = Some(Fence::append(
+                "a compaction intent may survive its failed write",
+            ));
+            return Ok(RewriteOutcome::Indeterminate);
+        }
     }
     // 2. Build and sync the compacted file.
     if write_temp(&state.dir, &bytes, faults).is_err() {
-        abort_transaction(state);
+        if !abort_transaction(state, faults).durable() {
+            state.fenced = Some(Fence::append(
+                "an aborted compaction's intent removal is not durably confirmed",
+            ));
+        }
         return Ok(RewriteOutcome::Indeterminate);
     }
     // 3. Replace the journal name.
     if faults.rename || std::fs::rename(compaction::temp_path(&state.dir), &journal).is_err() {
-        abort_transaction(state);
+        if !abort_transaction(state, faults).durable() {
+            state.fenced = Some(Fence::append(
+                "an aborted compaction's intent removal is not durably confirmed",
+            ));
+        }
         return Ok(RewriteOutcome::Indeterminate);
     }
     // 4. The new name must be durable before the boundary may name it.
@@ -149,12 +171,81 @@ pub(super) fn rewrite_locked(
         fence_compaction(state, records, bytes.len() as u64);
         return Ok(RewriteOutcome::Indeterminate);
     }
-    // 7. The new state is durable; removing the intent is cleanup. A failure here leaves a
-    // recoverable intent that startup reconciles and removes.
-    finish_intent(state, faults);
+    // 7. The new state is durable; the intent may be removed only if that removal is itself
+    // durable. An intent that might survive a crash would no longer describe the journal
+    // once an append changed it, so an unconfirmed cleanup fences mutations until startup
+    // resolves the transaction.
+    let cleanup = clean_intent(state, faults);
     state.records = records.to_vec();
     state.valid_len = bytes.len() as u64;
-    Ok(RewriteOutcome::Confirmed)
+    if cleanup.durable() {
+        Ok(RewriteOutcome::Confirmed)
+    } else {
+        state.fenced = Some(Fence::append(
+            "a completed compaction's intent removal is not durably confirmed",
+        ));
+        Ok(RewriteOutcome::Indeterminate)
+    }
+}
+
+/// How a compaction intent's cleanup ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum IntentCleanup {
+    /// Removed, and its directory entry synced: nothing can survive a crash.
+    Durable,
+    /// The removal failed; the intent remains.
+    RemoveFailed,
+    /// The file is gone from this view, but the directory entry was not synced.
+    Unsynced,
+    /// An injected failure left the intent in place.
+    Injected,
+}
+
+impl IntentCleanup {
+    /// Whether no intent can survive a crash.
+    fn durable(self) -> bool {
+        matches!(self, Self::Durable)
+    }
+}
+
+/// Removes the compaction intent and proves the removal is durable.
+///
+/// A missing file in this view is not proof: only a synced parent directory is. Callers must
+/// keep the journal read-only whenever this is not [`IntentCleanup::Durable`], because an
+/// append would change the journal identity a surviving intent still names.
+fn clean_intent(state: &JournalState, faults: RewriteFaults) -> IntentCleanup {
+    let path = state.dir.join(compaction::INTENT_FILE);
+    if faults.intent_remove {
+        tracing::warn!("a compaction intent was left in place");
+        return IntentCleanup::Injected;
+    }
+    if faults.intent_remove_dir_sync {
+        match std::fs::remove_file(&path) {
+            Ok(()) => {}
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => {
+                tracing::warn!(%err, "the compaction intent could not be removed");
+                return IntentCleanup::RemoveFailed;
+            }
+        }
+        tracing::warn!("the compaction intent's removal was not synced");
+        return IntentCleanup::Unsynced;
+    }
+    match std::fs::remove_file(&path) {
+        Ok(()) => {}
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+        Err(err) => {
+            tracing::warn!(%err, "the compaction intent could not be removed");
+            return IntentCleanup::RemoveFailed;
+        }
+    }
+    match crate::fs_atomic::sync_dir(&state.dir) {
+        Ok(()) => IntentCleanup::Durable,
+        Err(err) => {
+            tracing::warn!(%err, "the compaction intent removal could not be synced");
+            IntentCleanup::Unsynced
+        }
+    }
 }
 
 fn write_temp(dir: &Path, bytes: &[u8], faults: RewriteFaults) -> std::io::Result<()> {
@@ -179,11 +270,16 @@ fn write_temp(dir: &Path, bytes: &[u8], faults: RewriteFaults) -> std::io::Resul
 }
 
 /// The original journal is untouched: discard the temporary file and the intent.
-fn abort_transaction(state: &JournalState) {
+///
+/// Returns whether the intent's removal is durable. When it is not, the caller fences and
+/// leaves the old records in memory, because the intent may survive and startup must abort it.
+fn abort_transaction(state: &JournalState, faults: RewriteFaults) -> IntentCleanup {
     let _ = std::fs::remove_file(compaction::temp_path(&state.dir));
-    if let Err(err) = compaction::remove(&state.dir) {
-        tracing::warn!(%err, "could not remove an aborted compaction intent");
+    let cleanup = clean_intent(state, faults);
+    if !cleanup.durable() {
+        tracing::warn!("an aborted compaction's intent removal is not durably confirmed");
     }
+    cleanup
 }
 
 /// The rename happened but its durability was not confirmed. Mutations stay unavailable and
@@ -194,21 +290,6 @@ fn fence_compaction(state: &mut JournalState, records: &[Record], len: u64) {
     state.fenced = Some(Fence::append(
         "a compaction's durability could not be confirmed",
     ));
-}
-
-fn finish_intent(state: &JournalState, faults: RewriteFaults) {
-    if faults.intent_remove {
-        tracing::warn!("the completed compaction intent was left for startup to remove");
-        return;
-    }
-    if faults.intent_remove_dir_sync {
-        let _ = std::fs::remove_file(state.dir.join(compaction::INTENT_FILE));
-        tracing::warn!("the compaction intent's removal was not synced");
-        return;
-    }
-    if let Err(err) = compaction::remove(&state.dir) {
-        tracing::warn!(%err, "the completed compaction intent could not be removed");
-    }
 }
 
 pub(super) fn kept_executions(

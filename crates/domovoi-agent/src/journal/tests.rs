@@ -3414,7 +3414,7 @@ fn every_compaction_stage_is_recoverable() {
                 intent_remove: true,
                 ..RewriteFaults::default()
             },
-            Confirmed,
+            Fenced,
         ),
         (
             "intent removal directory sync",
@@ -3422,7 +3422,7 @@ fn every_compaction_stage_is_recoverable() {
                 intent_remove_dir_sync: true,
                 ..RewriteFaults::default()
             },
-            Confirmed,
+            Fenced,
         ),
     ];
 
@@ -3567,4 +3567,314 @@ fn init_refuses_a_leftover_compaction_intent() {
     write_compaction_intent(dir.path(), Uuid::now_v7(), b"old", b"new");
     assert!(Journal::init_unlocked(dir.path(), T0, BOOT, MONO).is_err());
     assert!(super::compaction::exists(dir.path()));
+}
+
+// ---- Compaction intent cleanup safety -------------------------------------
+
+fn seeded_compaction_history(dir: &Path) -> (Uuid, Uuid) {
+    let journal = open(dir);
+    let unresolved = Uuid::now_v7();
+    let finished = Uuid::now_v7();
+    journal
+        .accept(
+            &request(unresolved, "container.restart", true),
+            T0,
+            BOOT,
+            MONO,
+        )
+        .unwrap();
+    finished_execution(&journal, finished);
+    (unresolved, finished)
+}
+
+fn assert_mutations_refused(journal: &Journal, accepted: Uuid) {
+    assert!(matches!(
+        journal.accept(
+            &request(Uuid::now_v7(), "container.restart", true),
+            T0,
+            BOOT,
+            MONO
+        ),
+        Ok(AcceptOutcome::Refused(_))
+    ));
+    assert!(journal.started(accepted, 1, 1).is_err());
+    assert!(journal.finished(accepted, result()).is_err());
+    assert!(
+        journal
+            .prune(0, MONO + super::limiter::WINDOW_NS + 1, BOOT)
+            .is_err()
+    );
+}
+
+#[test]
+fn a_completed_compaction_with_failed_intent_removal_fences_until_restart() {
+    let dir = TempDir::new().unwrap();
+    init(dir.path());
+    let (unresolved, finished) = seeded_compaction_history(dir.path());
+    let journal = open(dir.path());
+    journal.inject_rewrite_faults(RewriteFaults {
+        intent_remove: true,
+        ..RewriteFaults::default()
+    });
+    assert!(
+        !journal
+            .prune(0, MONO + super::limiter::WINDOW_NS + 1, BOOT)
+            .unwrap(),
+        "an unconfirmed cleanup is not a confirmed prune"
+    );
+    assert!(journal.corruption().is_some(), "mutations must stop");
+    assert!(super::compaction::exists(dir.path()));
+    assert_eq!(committed_len(dir.path()), journal_len(dir.path()));
+    assert_mutations_refused(&journal, unresolved);
+
+    // Startup must resolve the surviving intent before any mutation is possible.
+    drop(journal);
+    let reopened = open(dir.path());
+    assert!(reopened.corruption().is_none());
+    assert!(!super::compaction::exists(dir.path()));
+    assert_eq!(committed_len(dir.path()), journal_len(dir.path()));
+    assert!(matches!(
+        state_of(&reopened, unresolved),
+        ActionState::OutcomeUnknown {
+            reason
+        } if reason.known() == Some(&OutcomeUnknownReason::NoStartRecord)
+    ));
+    assert!(!matches!(
+        state_of(&reopened, finished),
+        ActionState::Finished { .. }
+    ));
+    assert_eq!(
+        reopened
+            .accept(
+                &request(Uuid::now_v7(), "container.restart", true),
+                T0,
+                BOOT,
+                MONO
+            )
+            .unwrap(),
+        AcceptOutcome::Accepted,
+        "mutations resume after the transaction is resolved"
+    );
+    let again = open(dir.path());
+    assert!(again.corruption().is_none());
+    assert!(!super::compaction::exists(dir.path()));
+}
+
+#[test]
+fn an_unsynced_intent_removal_fences_and_recovers_when_the_intent_reappears() {
+    let dir = TempDir::new().unwrap();
+    let epoch = init(dir.path());
+    let (unresolved, finished) = seeded_compaction_history(dir.path());
+    let old = std::fs::read(dir.path().join(JOURNAL_FILE)).unwrap();
+    let journal = open(dir.path());
+    journal.inject_rewrite_faults(RewriteFaults {
+        intent_remove_dir_sync: true,
+        ..RewriteFaults::default()
+    });
+    assert!(
+        !journal
+            .prune(0, MONO + super::limiter::WINDOW_NS + 1, BOOT)
+            .unwrap()
+    );
+    assert!(
+        journal.corruption().is_some(),
+        "an unsynced deletion is uncertainty, not cleanup"
+    );
+    assert!(
+        !super::compaction::exists(dir.path()),
+        "the current view lost the name, but that is not proof"
+    );
+    assert_mutations_refused(&journal, unresolved);
+    let new = std::fs::read(dir.path().join(JOURNAL_FILE)).unwrap();
+    drop(journal);
+
+    // The crash: an unsynced deletion did not survive, so the intent name reappears.
+    write_compaction_intent(dir.path(), epoch, &old, &new);
+    let reopened = open(dir.path());
+    assert!(reopened.corruption().is_none());
+    assert!(!super::compaction::exists(dir.path()));
+    assert_eq!(committed_len(dir.path()), journal_len(dir.path()));
+    assert!(!matches!(
+        state_of(&reopened, finished),
+        ActionState::Finished { .. }
+    ));
+    assert_eq!(
+        reopened
+            .accept(
+                &request(Uuid::now_v7(), "container.restart", true),
+                T0,
+                BOOT,
+                MONO
+            )
+            .unwrap(),
+        AcceptOutcome::Accepted
+    );
+    let again = open(dir.path());
+    assert!(again.corruption().is_none());
+    assert_eq!(committed_len(dir.path()), journal_len(dir.path()));
+}
+
+#[test]
+fn an_aborted_compaction_with_failed_intent_cleanup_fences_and_aborts_at_restart() {
+    let dir = TempDir::new().unwrap();
+    init(dir.path());
+    let (unresolved, finished) = seeded_compaction_history(dir.path());
+    let old = std::fs::read(dir.path().join(JOURNAL_FILE)).unwrap();
+    let journal = open(dir.path());
+    journal.inject_rewrite_faults(RewriteFaults {
+        temp_write: true,
+        intent_remove: true,
+        ..RewriteFaults::default()
+    });
+    assert!(
+        !journal
+            .prune(0, MONO + super::limiter::WINDOW_NS + 1, BOOT)
+            .unwrap()
+    );
+    assert!(journal.corruption().is_some());
+    assert_eq!(
+        std::fs::read(dir.path().join(JOURNAL_FILE)).unwrap(),
+        old,
+        "the original journal is untouched"
+    );
+    assert!(
+        matches!(state_of(&journal, finished), ActionState::Finished { .. }),
+        "the in-memory state is the original, not the aborted compaction"
+    );
+    assert_mutations_refused(&journal, unresolved);
+    assert!(super::compaction::exists(dir.path()));
+
+    drop(journal);
+    let reopened = open(dir.path());
+    assert!(reopened.corruption().is_none());
+    assert!(!super::compaction::exists(dir.path()));
+    assert_eq!(
+        std::fs::read(dir.path().join(JOURNAL_FILE)).unwrap(),
+        old,
+        "every original record is recovered"
+    );
+    assert!(matches!(
+        state_of(&reopened, finished),
+        ActionState::Finished { .. }
+    ));
+    assert_eq!(
+        reopened
+            .accept(
+                &request(Uuid::now_v7(), "container.restart", true),
+                T0,
+                BOOT,
+                MONO
+            )
+            .unwrap(),
+        AcceptOutcome::Accepted
+    );
+}
+
+#[test]
+fn an_indeterminate_intent_write_with_failed_cleanup_fences_until_restart() {
+    let dir = TempDir::new().unwrap();
+    init(dir.path());
+    let (unresolved, finished) = seeded_compaction_history(dir.path());
+    let old = std::fs::read(dir.path().join(JOURNAL_FILE)).unwrap();
+    let journal = open(dir.path());
+    journal.inject_rewrite_faults(RewriteFaults {
+        intent_dir_sync: true,
+        intent_remove: true,
+        ..RewriteFaults::default()
+    });
+    assert!(
+        !journal
+            .prune(0, MONO + super::limiter::WINDOW_NS + 1, BOOT)
+            .unwrap()
+    );
+    assert!(
+        journal.corruption().is_some(),
+        "a possibly surviving intent blocks mutations"
+    );
+    assert!(super::compaction::exists(dir.path()));
+    assert_eq!(std::fs::read(dir.path().join(JOURNAL_FILE)).unwrap(), old);
+    assert_mutations_refused(&journal, unresolved);
+
+    drop(journal);
+    let reopened = open(dir.path());
+    assert!(reopened.corruption().is_none());
+    assert!(!super::compaction::exists(dir.path()));
+    assert_eq!(std::fs::read(dir.path().join(JOURNAL_FILE)).unwrap(), old);
+    assert!(matches!(
+        state_of(&reopened, finished),
+        ActionState::Finished { .. }
+    ));
+    assert_eq!(
+        reopened
+            .accept(
+                &request(Uuid::now_v7(), "container.restart", true),
+                T0,
+                BOOT,
+                MONO
+            )
+            .unwrap(),
+        AcceptOutcome::Accepted
+    );
+}
+
+#[test]
+fn confirmed_cleanup_leaves_the_running_journal_writable() {
+    let dir = TempDir::new().unwrap();
+    init(dir.path());
+    let (unresolved, finished) = seeded_compaction_history(dir.path());
+    let journal = open(dir.path());
+    assert!(
+        journal
+            .prune(0, MONO + super::limiter::WINDOW_NS + 1, BOOT)
+            .unwrap(),
+        "an ordinary compaction is confirmed"
+    );
+    assert!(journal.corruption().is_none());
+    assert!(!super::compaction::exists(dir.path()));
+    assert!(!matches!(
+        state_of(&journal, finished),
+        ActionState::Finished { .. }
+    ));
+    assert!(matches!(
+        journal
+            .accept(
+                &request(unresolved, "container.restart", true),
+                T0,
+                BOOT,
+                MONO
+            )
+            .unwrap(),
+        AcceptOutcome::Duplicate(_)
+    ));
+    let fresh = Uuid::now_v7();
+    assert_eq!(
+        journal
+            .accept(&request(fresh, "container.restart", true), T0, BOOT, MONO)
+            .unwrap(),
+        AcceptOutcome::Accepted
+    );
+}
+
+#[test]
+fn an_aborted_compaction_with_confirmed_cleanup_stays_writable() {
+    let dir = TempDir::new().unwrap();
+    init(dir.path());
+    let (unresolved, finished) = seeded_compaction_history(dir.path());
+    let journal = open(dir.path());
+    journal.inject_rewrite_faults(RewriteFaults {
+        temp_write: true,
+        ..RewriteFaults::default()
+    });
+    assert!(
+        !journal
+            .prune(0, MONO + super::limiter::WINDOW_NS + 1, BOOT)
+            .unwrap()
+    );
+    assert!(journal.corruption().is_none());
+    assert!(!super::compaction::exists(dir.path()));
+    assert!(matches!(
+        state_of(&journal, finished),
+        ActionState::Finished { .. }
+    ));
+    assert!(journal.started(unresolved, 1, 1).is_ok());
 }
