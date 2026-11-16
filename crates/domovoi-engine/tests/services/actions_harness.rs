@@ -5,8 +5,8 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use domovoi_core::ports::{
-    ActionRepo, AuditFilter, AuditLog, CheckRecheck, Clock, IncidentRepo, Page, Presence,
-    SkillOutput, UnitOfWork,
+    ActionRepo, AggregateRef, AuditFilter, AuditLog, CheckRecheck, Clock, IncidentRepo,
+    JournalRead, Page, Presence, SkillOutput, UnitOfWork,
 };
 use domovoi_core::{
     ActionId, ActionRequest, ActionStatus, Evidence, Incident, Principal, Risk, SignalStatus,
@@ -328,5 +328,18 @@ impl Actions {
             .iter()
             .filter(|r| matches!(r, domovoi_testkit::link::LinkRequest::Skill { .. }))
             .count()
+    }
+
+    /// The `outcome_reason` recorded in the journal for `id`'s last transition, when the
+    /// transition records one.
+    pub async fn journal_reason(&self, id: ActionId) -> Option<String> {
+        let rows =
+            JournalRead::entries_for(&*self.store, &AggregateRef::action(id), Page::MAX_LIMIT)
+                .await
+                .unwrap();
+        rows.last()
+            .and_then(|row| row.payload.get("outcome_reason"))
+            .and_then(|value| value.as_str())
+            .map(str::to_owned)
     }
 }

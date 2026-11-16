@@ -41,7 +41,7 @@ async fn succeeded_action(store: &InMemoryStore, incident: &Incident) -> ActionR
     let skill = verified_restart();
     let validated = skill.validate_args(&params()).expect("valid arguments");
     let plan = PlanHash::compute(&skill.name, skill.manifest_hash, action.host(), &validated);
-    action.dispatch(plan, T0).expect("dispatched");
+    action.dispatch(plan, None, T0).expect("dispatched");
     action.complete(Ok(()), T0).expect("succeeded");
     ActionRepo::insert(store, &action)
         .await
@@ -254,14 +254,15 @@ async fn a_failed_success_commit_creates_no_wake() {
         )
         .await
         .unwrap();
-    a.until(action.id(), |s| s == &ActionStatus::Dispatched)
-        .await;
+    a.until(action.id(), |s| {
+        matches!(s, ActionStatus::Dispatched { .. })
+    })
+    .await;
     a.settle().await;
 
     let stored = a.get(action.id()).await;
-    assert_eq!(
-        stored.status(),
-        &ActionStatus::Dispatched,
+    assert!(
+        matches!(stored.status(), ActionStatus::Dispatched { .. }),
         "the refused commit changed nothing"
     );
     for status in [

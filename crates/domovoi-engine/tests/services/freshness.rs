@@ -8,13 +8,14 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use domovoi_core::ports::{
-    ActionRepo, AgentLink, CheckRecheck, Clock, HostAvailability, IncidentRepo, LinkError,
-    Presence, SkillDispatch, SkillOutput, ToolOutput,
+    ActionAnswers, ActionRepo, AgentLink, CheckRecheck, Clock, HostAvailability, IncidentRepo,
+    LinkError, Presence, SkillDispatch, SkillOutput, ToolOutput,
 };
 use domovoi_core::skill::{ParamKind, ParamName, ParamSpec};
 use domovoi_core::{
-    ActionRequest, ActionStatus, CheckKey, HostId, IncidentEvent, IncidentId, IncidentPolicy,
-    PlanBinding, Principal, ReadToolCall, Risk, SkillSummary, TargetKey, UserId, apply,
+    ActionId, ActionRequest, ActionStatus, CheckKey, HostId, IncidentEvent, IncidentId,
+    IncidentPolicy, JournalEpoch, PlanBinding, Principal, ReadToolCall, Risk, SkillSummary,
+    TargetKey, UserId, apply,
 };
 use domovoi_engine::actions::audit;
 use domovoi_engine::{ActionDeps, ActionService, ActionSettings, PatternRedactor};
@@ -109,7 +110,7 @@ fn rejected(done: &ActionRequest, reason: &str) {
 }
 
 #[tokio::test]
-async fn approval_for_resolved_incident_is_not_dispatched() {
+async fn incident_resolved_before_dispatch_stays_rejected() {
     let world = seeded().await;
     let action = approved_for(
         host_id(),
@@ -161,7 +162,7 @@ async fn approval_for_deleted_incident_is_not_dispatched() {
 }
 
 #[tokio::test]
-async fn approval_expiring_while_waiting_for_host_is_not_dispatched() {
+async fn second_preflight_settles_an_approval_that_expired_while_waiting() {
     let world = seeded().await;
     let action = approved_for(
         host_id(),
@@ -186,11 +187,14 @@ async fn approval_expiring_while_waiting_for_host_is_not_dispatched() {
     connect(&world, host_id(), &a.clock);
 
     let done = a
-        .until(action.id(), |s| matches!(s, ActionStatus::Rejected { .. }))
+        .until(action.id(), |s| matches!(s, ActionStatus::NotRun { .. }))
         .await;
-    rejected(
-        &done,
-        "the approval expired before the action was dispatched",
+    assert_eq!(
+        done.status(),
+        &ActionStatus::NotRun {
+            reason: "the approval expired before the action was dispatched".to_owned(),
+        },
+        "a closed window proves the action never reached the agent",
     );
     assert_eq!(a.runs(), 0, "an expired approval never reaches the agent");
 }
@@ -444,6 +448,22 @@ impl AgentLink for SlowLink {
 
     async fn availability(&self, host: HostId) -> HostAvailability {
         AgentLink::availability(&*self.inner, host).await
+    }
+
+    fn journal_epoch(&self, host: HostId) -> Option<JournalEpoch> {
+        self.inner.journal_epoch(host)
+    }
+
+    async fn action_status(
+        &self,
+        host: HostId,
+        ids: Vec<ActionId>,
+        expected_epoch: JournalEpoch,
+        deadline: jiff::Timestamp,
+    ) -> Result<ActionAnswers, LinkError> {
+        self.inner
+            .action_status(host, ids, expected_epoch, deadline)
+            .await
     }
 
     fn skills(&self, host: HostId) -> Vec<domovoi_core::SkillSummary> {

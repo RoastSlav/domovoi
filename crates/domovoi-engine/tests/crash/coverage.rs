@@ -24,7 +24,7 @@ const COMMIT_SITES: [&str; 3] = ["actions/commit.rs", "effects/runner.rs", "mana
 
 /// Every audit kind the action writer can produce, including the chat-token rotation. A scenario
 /// has to exercise each one, and a new producer has to be added here.
-const AUDIT_KINDS: [&str; 12] = [
+const AUDIT_KINDS: [&str; 14] = [
     "action.proposed",
     "action.approved",
     "action.denied",
@@ -34,6 +34,8 @@ const AUDIT_KINDS: [&str; 12] = [
     "action.dispatched",
     "action.succeeded",
     "action.failed",
+    "action.outcome_unknown",
+    "action.not_run",
     "action.verified",
     "action.verify_failed",
     "action.token_rotated",
@@ -90,6 +92,8 @@ async fn sweep_covers_every_kind_of_write() {
         "dispatched",
         "succeeded",
         "failed",
+        "outcome_unknown",
+        "not_run",
         "verified",
         "verify_failed",
     ] {
