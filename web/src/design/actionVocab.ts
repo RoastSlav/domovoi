@@ -39,6 +39,18 @@ export const ACTION_STATUSES: Table<ActionStatus> = {
     hint: "The skill ran and reported an error; see its output.",
     icon: "x-circle",
   },
+  outcome_unknown: {
+    label: "Result unknown",
+    tone: "warning",
+    hint: "It was sent to the host and may have run; check the host before running it again.",
+    icon: "alert",
+  },
+  not_run: {
+    label: "Never ran",
+    tone: "neutral",
+    hint: "The agent has no record of it, so nothing was started.",
+    icon: "ban",
+  },
   verify_failed: {
     label: "Not fixed",
     tone: "danger",

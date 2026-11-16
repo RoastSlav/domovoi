@@ -24,6 +24,10 @@ function outcome(
       };
     case "rejected":
       return { failed: true, title: `The agent ${where} refused to run ${action.skill}` };
+    case "outcome_unknown":
+      return { failed: true, title: `${action.skill} result is unknown ${where}` };
+    case "not_run":
+      return { failed: false, title: `${action.skill} never ran ${where}` };
     default:
       return undefined;
   }

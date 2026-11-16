@@ -254,6 +254,7 @@
 }
 
 .rowNote,
+.rowWarning,
 .rowFailure {
   margin: 0;
   font-size: var(--text-xs);
@@ -262,6 +263,11 @@
 
 .rowNote {
   color: var(--color-text-muted);
+}
+
+.rowWarning {
+  color: var(--tone-warning-fg);
+  overflow-wrap: anywhere;
 }
 
 .rowFailure {

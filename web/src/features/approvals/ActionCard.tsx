@@ -77,6 +77,18 @@ function StateNote({ action, host }: { action: Action; host: string | undefined 
           {action.reason}
         </InlineMessage>
       );
+    case "outcome_unknown":
+      return (
+        <InlineMessage tone="warning" title={actionStatusMeta(action.status).hint}>
+          {action.reason}
+        </InlineMessage>
+      );
+    case "not_run":
+      return (
+        <InlineMessage tone="neutral" title={actionStatusMeta(action.status).hint}>
+          {action.reason}
+        </InlineMessage>
+      );
     default:
       return null;
   }

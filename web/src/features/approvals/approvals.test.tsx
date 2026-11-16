@@ -1,6 +1,10 @@
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { Action } from "../../api/types";
+import { ACTION_STATUSES } from "../../design/actionVocab";
+import { ICON_NAMES } from "../../design/icons";
+import { TONES } from "../../design/status";
+import { actionStatusMeta } from "../../design/tone";
 import { calls, failure, resetApi, route } from "../../test/apiMock";
 import { action, detail, nas } from "../../test/fixtures";
 import { renderAt } from "../../test/render";
@@ -422,6 +426,40 @@ test("a_running_action_shows_progress_and_a_failed_one_its_reason", () => {
   const alert = screen.getByRole("alert");
   expect(alert).toHaveTextContent("The skill ran and reported an error; see its output.");
   expect(alert).toHaveTextContent("exit code 1: no such container");
+});
+
+test("outcome_unknown_is_not_in_flight", () => {
+  show(
+    action({
+      status: "outcome_unknown",
+      reason: "The agent stopped answering before it reported back.",
+    }),
+  );
+
+  const item = within(screen.getByRole("group", { name: "Action restart_container" }));
+  expect(item.queryByRole("progressbar"), "no progress spinner").toBeNull();
+  expect(item.queryByText(/Waiting for the result/)).toBeNull();
+  expect(item.getByText("Result unknown")).toBeVisible();
+  expect(
+    item.getByText(
+      "It was sent to the host and may have run; check the host before running it again.",
+    ),
+  ).toBeVisible();
+  expect(item.getByText("The agent stopped answering before it reported back.")).toBeVisible();
+});
+
+test("outcome_unknown_and_not_run_have_vocabulary", () => {
+  for (const status of ["outcome_unknown", "not_run"] as const) {
+    expect(ACTION_STATUSES[status], "the status is in the vocabulary").toBeDefined();
+    expect(actionStatusMeta(status).label).not.toBe("");
+    expect(TONES).toContain(actionStatusMeta(status).tone);
+    expect(actionStatusMeta(status).hint).not.toBe("");
+    expect(ICON_NAMES).toContain(actionStatusMeta(status).icon);
+  }
+  expect(actionStatusMeta("outcome_unknown").tone, "an unknown result is a warning").toBe(
+    "warning",
+  );
+  expect(actionStatusMeta("not_run").tone, "nothing was attempted is quiet").toBe("neutral");
 });
 
 test("who_suggested_an_action_reads_as_words", () => {
