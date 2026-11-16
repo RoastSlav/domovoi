@@ -233,8 +233,11 @@ fn run_capability(ctx: &RequestCtx, run: &RunCapability) -> Message {
 /// its arrival. The legacy `run_skill` path does not record anything in the journal, so an
 /// id it does not know may still have run. Until executions are journal-backed, absence is
 /// reported as an unknowable outcome and never as `not_found`, so the hub cannot turn it
-/// into "nothing was started". This also removes the need to order a status query behind a
-/// request whose acceptance is still being recorded.
+/// into "nothing was started". It is also why this agent does not advertise
+/// `AUTHORITATIVE_ABSENCE` on `hello`: it cannot make that promise while a run can execute
+/// without a journal record. The hub fails closed for every agent that does not promise it.
+/// This also removes the need to order a status query behind a request whose acceptance is
+/// still being recorded.
 fn conservative(answers: ActionStatusAnswers) -> ActionStatusAnswers {
     ActionStatusAnswers {
         epoch: answers.epoch,
