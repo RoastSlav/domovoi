@@ -4,6 +4,7 @@
 //! not hand over at all.
 
 use domovoi_core::ports::{ActionAnswer, UnknownReason};
+
 /// Positive evidence the agent's journal never received the request.
 pub(crate) const NOT_RUN_REASON: &str = "the agent has no record of this run; nothing was started";
 /// The journal recorded acceptance but not a start.
