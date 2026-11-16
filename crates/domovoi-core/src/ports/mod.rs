@@ -19,8 +19,8 @@ pub mod uow;
 
 pub use agent_link::{
     ActionAnswer, ActionAnswerEntry, ActionAnswers, AgentLink, CheckRecheck, HostAvailability,
-    IngestError, LinkError, Presence, SignalSink, SkillDispatch, SkillOutput, ToolOutput,
-    UnknownReason,
+    IngestError, LinkError, Presence, SignalSink, SkillDispatch, SkillHandoff, SkillOutput,
+    ToolOutput, UnknownReason,
 };
 pub use chat::{
     ChatError, ChatGateway, InteractionSink, MessageRef, Notifier, OutboundMessage, ThreadRef,

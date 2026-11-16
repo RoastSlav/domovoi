@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use jiff::Timestamp;
 
 use crate::action::{JournalEpoch, PlanHash};
-use crate::id::{ActionId, HostId};
+use crate::id::{ActionId, HostId, RequestId};
 use crate::signal::{CheckKey, Evidence, Signal, SignalStatus, TargetKey};
 use crate::skill::{SkillName, SkillSummary, ValidatedArgs};
 use crate::triage::ReadToolCall;
@@ -33,6 +33,30 @@ pub struct SkillDispatch {
     pub args: ValidatedArgs,
     /// The plan hash the approval bound to.
     pub plan_hash: PlanHash,
+}
+
+/// A skill request the hub has handed to an agent's session.
+///
+/// It exists from the moment the encoded frame is in that session's outgoing queue, which
+/// is the point after which the agent may receive the execution and record it in its
+/// journal. [`AgentLink::skill_result`] takes it and answers with what the run produced.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SkillHandoff {
+    request: RequestId,
+}
+
+impl SkillHandoff {
+    /// Wraps the id of the request frame the hub queued.
+    #[must_use]
+    pub const fn new(request: RequestId) -> Self {
+        Self { request }
+    }
+
+    /// The id the queued frame was tagged with.
+    #[must_use]
+    pub const fn request(self) -> RequestId {
+        self.request
+    }
 }
 
 /// What a skill run produced.
@@ -174,12 +198,21 @@ pub enum LinkError {
     /// unavailable until the agent is upgraded. Reason code: `agent_incompatible`.
     #[error("agent_incompatible: the agent speaks another protocol version; upgrade it")]
     Incompatible,
+    /// The session the request was meant for is gone: the agent's journal epoch changed, so
+    /// the request is not sent to whichever agent replaced it. Nothing was handed over.
+    #[error("the agent's journal changed; the request was not sent")]
+    SessionChanged,
     /// No answer before the deadline.
     #[error("timed out")]
     Timeout,
     /// The agent refused the request, for example after local re-validation.
     #[error("rejected by agent: {0}")]
     Rejected(String),
+    /// The request was handed over but no usable answer came back: the link failed, the
+    /// agent sent something other than the expected result, or the reply could not be read.
+    /// This is not evidence that the run did not happen.
+    #[error("result unavailable: {0}")]
+    Indeterminate(String),
     /// The connection failed mid-request.
     #[error("transport error: {0}")]
     Transport(String),
@@ -187,8 +220,9 @@ pub enum LinkError {
 
 /// Sends requests to connected agents. Every method fails fast with
 /// [`LinkError::NotConnected`] when the host has no connected agent, with
-/// [`LinkError::Incompatible`] when this hub rejected the agent's protocol, and with
-/// [`LinkError::Timeout`] once `deadline` passes.
+/// [`LinkError::Incompatible`] when this hub rejected the agent's protocol, with
+/// [`LinkError::SessionChanged`] when the request named a journal the live session no longer
+/// has, and with [`LinkError::Timeout`] once `deadline` passes.
 #[async_trait]
 pub trait AgentLink: Send + Sync {
     /// Runs one read tool on `host`.
@@ -199,11 +233,32 @@ pub trait AgentLink: Send + Sync {
         deadline: Timestamp,
     ) -> Result<ToolOutput, LinkError>;
 
-    /// Runs one approved skill on `host`; see [`SkillDispatch`].
-    async fn run_skill(
+    /// Hands one approved skill to `host`'s live session, which must still be the journal
+    /// `expected_epoch` names, and returns once the frame is in that session's outgoing
+    /// queue.
+    ///
+    /// Failing means no request was handed over: the caller must not treat it as a run that
+    /// failed. [`LinkError::SessionChanged`] means the journal the action was dispatched
+    /// under is gone, so the request is not sent to a replacement.
+    async fn start_skill(
         &self,
         host: HostId,
         req: SkillDispatch,
+        expected_epoch: JournalEpoch,
+        deadline: Timestamp,
+    ) -> Result<SkillHandoff, LinkError>;
+
+    /// Waits for the terminal answer to a skill request handed over by
+    /// [`AgentLink::start_skill`].
+    ///
+    /// [`LinkError::Rejected`] is a confirmed terminal answer from the agent (it refused the
+    /// run or reported a failure). Every other error, including a timeout or a dropped
+    /// session, leaves the run's outcome unknown: it may have happened, so it is never
+    /// recorded as a failure.
+    async fn skill_result(
+        &self,
+        host: HostId,
+        handoff: SkillHandoff,
         deadline: Timestamp,
     ) -> Result<SkillOutput, LinkError>;
 
@@ -284,10 +339,20 @@ mod tests {
             Err(LinkError::NotConnected)
         }
 
-        async fn run_skill(
+        async fn start_skill(
             &self,
             _host: HostId,
             _req: SkillDispatch,
+            _expected_epoch: JournalEpoch,
+            _deadline: Timestamp,
+        ) -> Result<SkillHandoff, LinkError> {
+            Err(LinkError::NotConnected)
+        }
+
+        async fn skill_result(
+            &self,
+            _host: HostId,
+            _handoff: SkillHandoff,
             _deadline: Timestamp,
         ) -> Result<SkillOutput, LinkError> {
             Err(LinkError::NotConnected)
