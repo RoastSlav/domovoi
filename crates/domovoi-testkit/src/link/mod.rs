@@ -1,19 +1,22 @@
-//! A fake agent link and a recording signal sink.
+//! A fake agent link, and the recording doubles next to it.
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use domovoi_core::ports::{
     ActionAnswer, ActionAnswerEntry, ActionAnswers, AgentLink, CheckRecheck, HostAvailability,
-    HostReconciler, IngestError, LinkError, Presence, SignalSink, SkillDispatch, SkillOutput,
-    ToolOutput,
+    LinkError, Presence, SkillDispatch, SkillHandoff, SkillOutput, ToolOutput,
 };
 use domovoi_core::{
-    ActionId, CheckKey, HostId, JournalEpoch, ReadToolCall, Signal, SkillSummary, TargetKey,
+    ActionId, CheckKey, HostId, JournalEpoch, ReadToolCall, SkillSummary, TargetKey,
 };
 use domovoi_proto::messages::{CheckInfo, HostFacts};
 use jiff::Timestamp;
+
+mod recorders;
+
+pub use recorders::{RecordingReconciler, RecordingSignalSink};
 
 use crate::lock;
 
@@ -94,6 +97,13 @@ pub struct FakeAgentLink {
     epochs: Mutex<BTreeMap<HostId, JournalEpoch>>,
     answers: Mutex<BTreeMap<HostId, BTreeMap<ActionId, ActionAnswer>>>,
     status: Mutex<Option<StatusHandler>>,
+    /// When set, `start_skill` waits for a permit before it reports the request handed over,
+    /// so a test can hold a dispatch at the point where it has been committed but not sent.
+    handoff_gate: Mutex<Option<std::sync::Arc<tokio::sync::Semaphore>>>,
+    /// The error `start_skill` answers with once, instead of handing the request over.
+    handoff_failure: Mutex<Option<LinkError>>,
+    /// Skill requests already handed over, by request id, waiting for `skill_result`.
+    sent_skills: Mutex<BTreeMap<domovoi_core::RequestId, SkillDispatch>>,
     handlers: Mutex<Handlers>,
     requests: Mutex<Vec<LinkRequest>>,
 }
@@ -111,9 +121,25 @@ impl FakeAgentLink {
             epochs: Mutex::new(BTreeMap::new()),
             answers: Mutex::new(BTreeMap::new()),
             status: Mutex::new(None),
+            handoff_gate: Mutex::new(None),
+            handoff_failure: Mutex::new(None),
+            sent_skills: Mutex::new(BTreeMap::new()),
             handlers: Mutex::new(Handlers::default()),
             requests: Mutex::new(Vec::new()),
         }
+    }
+
+    /// Makes `start_skill` wait for a permit from `gate` before reporting the hand-off, so a
+    /// test can hold a dispatch between its commit and its send. Each `add_permits(1)`
+    /// releases one hand-off.
+    pub fn hold_skill_handoffs(&self, gate: std::sync::Arc<tokio::sync::Semaphore>) {
+        *lock(&self.handoff_gate) = Some(gate);
+    }
+
+    /// Makes the next `start_skill` fail with `error` instead of handing the request over,
+    /// as a full agent queue or an offline host would.
+    pub fn fail_next_skill_handoff(&self, error: LinkError) {
+        *lock(&self.handoff_failure) = Some(error);
     }
 
     /// Sets a host's presence.
@@ -261,17 +287,48 @@ impl AgentLink for FakeAgentLink {
         handler(host, &call)
     }
 
-    async fn run_skill(
+    async fn start_skill(
         &self,
         host: HostId,
         req: SkillDispatch,
+        expected_epoch: JournalEpoch,
         deadline: Timestamp,
-    ) -> Result<SkillOutput, LinkError> {
+    ) -> Result<SkillHandoff, LinkError> {
+        self.connected(host)?;
+        if let Some(error) = lock(&self.handoff_failure).take() {
+            return Err(error);
+        }
+        if self.journal_epoch(host) != Some(expected_epoch) {
+            return Err(LinkError::SessionChanged);
+        }
+        let gate = lock(&self.handoff_gate).clone();
+        if let Some(gate) = gate {
+            let _permit = gate
+                .acquire_owned()
+                .await
+                .map_err(|_| LinkError::NotConnected)?;
+        }
         lock(&self.requests).push(LinkRequest::Skill {
             host,
             dispatch: req.clone(),
             deadline,
         });
+        let id = domovoi_core::RequestId::new();
+        lock(&self.sent_skills).insert(id, req);
+        Ok(SkillHandoff::new(id))
+    }
+
+    async fn skill_result(
+        &self,
+        host: HostId,
+        handoff: SkillHandoff,
+        _deadline: Timestamp,
+    ) -> Result<SkillOutput, LinkError> {
+        let Some(req) = lock(&self.sent_skills).remove(&handoff.request()) else {
+            return Err(LinkError::Indeterminate(
+                "no skill request was handed over".to_owned(),
+            ));
+        };
         self.connected(host)?;
         let handlers = lock(&self.handlers);
         let handler = handlers.skill.as_ref().ok_or_else(no_handler)?;
@@ -359,88 +416,6 @@ impl AgentLink for FakeAgentLink {
 
     fn skills(&self, host: HostId) -> Vec<SkillSummary> {
         lock(&self.skills).get(&host).cloned().unwrap_or_default()
-    }
-}
-
-/// A [`SignalSink`] that records every accepted batch.
-#[derive(Debug, Default)]
-pub struct RecordingSignalSink {
-    batches: Mutex<Vec<Vec<Signal>>>,
-    failures: Mutex<VecDeque<IngestError>>,
-}
-
-impl RecordingSignalSink {
-    /// An empty sink.
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Makes the next submit fail with `error`; the batch is not recorded.
-    pub fn fail_next(&self, error: IngestError) {
-        lock(&self.failures).push_back(error);
-    }
-
-    /// Every accepted batch, oldest first.
-    #[must_use]
-    pub fn batches(&self) -> Vec<Vec<Signal>> {
-        lock(&self.batches).clone()
-    }
-}
-
-#[async_trait]
-impl SignalSink for RecordingSignalSink {
-    async fn submit(&self, signals: Vec<Signal>) -> Result<(), IngestError> {
-        if let Some(error) = lock(&self.failures).pop_front() {
-            return Err(error);
-        }
-        lock(&self.batches).push(signals);
-        Ok(())
-    }
-}
-
-/// A [`HostReconciler`] that records every host it was asked to reconcile.
-#[derive(Debug, Default)]
-pub struct RecordingReconciler {
-    hosts: Mutex<Vec<HostId>>,
-    notify: tokio::sync::Notify,
-}
-
-impl RecordingReconciler {
-    /// A reconciler that has been asked about nothing yet.
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Every host it was asked to reconcile, oldest first.
-    #[must_use]
-    pub fn hosts(&self) -> Vec<HostId> {
-        lock(&self.hosts).clone()
-    }
-
-    /// Waits until at least `count` hosts have been recorded and returns the list, or
-    /// returns at once when that many already were. No polling and no sleeping: it uses
-    /// the `Notify` woken by the next recorded host.
-    pub async fn wait_for(&self, count: usize) -> Vec<HostId> {
-        loop {
-            let notified = self.notify.notified();
-            tokio::pin!(notified);
-            notified.as_mut().enable();
-            let hosts = lock(&self.hosts).clone();
-            if hosts.len() >= count {
-                return hosts;
-            }
-            notified.await;
-        }
-    }
-}
-
-#[async_trait]
-impl HostReconciler for RecordingReconciler {
-    async fn reconcile_host(&self, host: HostId) {
-        lock(&self.hosts).push(host);
-        self.notify.notify_waiters();
     }
 }
 
