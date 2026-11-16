@@ -4,7 +4,7 @@ use domovoi_core::ports::SkillDispatch;
 use domovoi_core::{ActionId, CheckKey, HostId, JournalEpoch, ReadToolCall, TargetKey};
 use jiff::Timestamp;
 
-/// One request made through a [`FakeAgentLink`].
+/// One request made through a `FakeAgentLink`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum LinkRequest {
     /// `run_tool`.
