@@ -52,26 +52,58 @@ pub(super) fn write(dir: &Path, len: u64, faults: DurableFaults) -> Result<(), D
     crate::fs_atomic::write_atomic_durable_with(&path, &bytes, 0o600, faults)
 }
 
-/// Confirms a visible but indeterminate boundary, returning its durable length.
+/// Stages of a boundary reconciliation a test can make fail.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct ReconcileFaults {
+    /// Fail syncing the boundary file.
+    pub(super) file_sync: bool,
+    /// Fail syncing the parent directory.
+    pub(super) dir_sync: bool,
+}
+
+/// Confirms a visible boundary, returning its durable length.
 ///
-/// A rename that returned an error may still be visible. Only after the boundary file and
-/// its directory entry are synced, and the visible value is exactly `expected`, is the
-/// boundary durable.
-pub(super) fn confirm(dir: &Path, expected: u64) -> Result<u64, JournalError> {
+/// Reads the visible value, syncs the boundary file and its directory entry, reloads, and
+/// requires the confirmed value to be exactly `expected`. Syncing is the confirmation: a
+/// successful read of a visible value is never treated as proof of durability.
+pub(super) fn reconcile(dir: &Path, expected: u64) -> Result<u64, JournalError> {
+    reconcile_with(dir, expected, ReconcileFaults::default())
+}
+
+/// [`reconcile`] with test-injectable failures.
+pub(super) fn reconcile_with(
+    dir: &Path,
+    expected: u64,
+    faults: ReconcileFaults,
+) -> Result<u64, JournalError> {
     let path = dir.join(COMMIT_FILE);
+    let visible = load(dir)?;
+    if faults.file_sync {
+        return Err(JournalError::State(StateError::new(
+            &path,
+            "injected commit-boundary file sync failure",
+        )));
+    }
     std::fs::OpenOptions::new()
         .write(true)
         .open(&path)
         .and_then(|file| file.sync_all())
-        .and_then(|()| crate::fs_atomic::sync_dir(dir))
-        .map_err(|err| JournalError::State(StateError::new(&path, err)))?;
-    let visible = load(dir)?;
-    if visible != expected {
-        return Err(JournalError::Corrupt(format!(
-            "the commit boundary names {visible} bytes, not the intended {expected}"
+        .map_err(|err| StateError::new(&path, err))?;
+    if faults.dir_sync {
+        return Err(JournalError::State(StateError::new(
+            dir,
+            "injected commit-boundary directory sync failure",
         )));
     }
-    Ok(visible)
+    crate::fs_atomic::sync_dir(dir).map_err(|err| StateError::new(dir, err))?;
+    let confirmed = load(dir)?;
+    if confirmed != expected {
+        return Err(JournalError::Corrupt(format!(
+            "the commit boundary names {confirmed} bytes, not the intended {expected} \
+             (it was {visible} before the sync)"
+        )));
+    }
+    Ok(confirmed)
 }
 
 /// Truncates the journal to `len` and syncs the truncation.

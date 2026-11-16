@@ -97,7 +97,7 @@ pub(super) struct JournalState {
     pub(super) recovery_sync_fails: bool,
     pub(super) truncate_fails: bool,
     pub(super) truncate_sync_fails: bool,
-    pub(super) rewrite_dir_sync_fault: bool,
+    pub(super) rewrite_faults: super::compact::RewriteFaults,
 }
 
 pub(super) fn load_records(
@@ -122,27 +122,16 @@ pub(super) fn load_records(
     }
     let actual = bytes.len() as u64;
     if actual < committed {
-        // A compaction replaced the journal but its boundary update did not land (or a
-        // power failure lost the rename). The visible file is the only copy left; adopt it
-        // only when it is a complete, lifecycle-valid file, then make the boundary agree.
-        return match record::parse(&bytes, meta.epoch) {
-            Ok(parsed) if parsed.valid_len == actual => {
-                commit::write(dir, actual, DurableFaults::default()).map_err(|err| {
-                    JournalError::Corrupt(format!(
-                        "the journal is {actual} bytes but the committed boundary could not be \
-                         repaired: {err}"
-                    ))
-                })?;
-                Ok((parsed.records, actual, None))
-            }
-            _ => Ok((
-                Vec::new(),
-                0,
-                Some(Fence::corrupt(format!(
-                    "the journal is {actual} bytes but the durable commit boundary is {committed}"
-                ))),
-            )),
-        };
+        // Only a durable compaction transaction may explain a shorter journal. Without one,
+        // a complete, lifecycle-valid prefix is not proof that the missing records were
+        // legitimately removed, so never lower the boundary or adopt it.
+        return Ok((
+            Vec::new(),
+            0,
+            Some(Fence::corrupt(format!(
+                "the journal is {actual} bytes, shorter than the committed {committed} bytes"
+            ))),
+        ));
     }
     if actual > committed {
         // Bytes beyond the boundary were never acknowledged. They may form a complete,
@@ -251,7 +240,14 @@ pub(super) fn reconcile_metadata(
             visible.pruned
         )));
     }
+    if super::compaction::exists(dir) {
+        return Err(JournalError::Corrupt(
+            "a compaction transaction is unresolved; refusing to adopt metadata".to_owned(),
+        ));
+    }
+    // Adoption of any journal state goes through the same confirmed boundary.
     let committed = commit::load(dir)?;
+    commit::reconcile(dir, committed)?;
     let (records, valid_len, fence) = load_records(dir, &visible, committed)?;
     Ok(Reconciled {
         meta: visible,

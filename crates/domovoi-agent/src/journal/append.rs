@@ -85,7 +85,7 @@ pub(super) fn append_locked(state: &mut JournalState, record: &Record) -> Result
             // The rename is visible but its directory entry may not be durable. Confirm the
             // exact boundary value and its parent directory before acknowledging.
             let confirm_fails = std::mem::take(&mut state.confirm_fails);
-            if !confirm_fails && commit::confirm(&state.dir, target).is_ok() {
+            if !confirm_fails && commit::reconcile(&state.dir, target).is_ok() {
                 adopt(state, record, target);
                 match uncertain {
                     Some(err) => Err(JournalError::State(err)),

@@ -14,6 +14,7 @@ use super::JOURNAL_FILE;
 use super::Journal;
 use super::archive::{archive_existing, choose_generation, finish_epoch, present_sources};
 use super::commit;
+use super::compaction;
 use super::lock::{self, JournalLock};
 use super::meta::{META_FILE, Metadata};
 use super::store::{RESET_INTENT_FILE, create_epoch_with};
@@ -252,6 +253,7 @@ impl Journal {
             || dir.join(META_FILE).exists()
             || commit::exists(dir)
             || dir.join(RESET_INTENT_FILE).exists()
+            || compaction::leftovers_exist(dir)
         {
             return Err(JournalError::AlreadyExists);
         }

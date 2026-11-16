@@ -7,6 +7,8 @@ mod append;
 mod archive;
 mod commit;
 mod compact;
+mod compaction;
+mod faults;
 mod limiter;
 mod lock;
 mod meta;
@@ -120,6 +122,7 @@ impl Journal {
             mono_ns,
             limits,
             DurableFaults::default(),
+            commit::ReconcileFaults::default(),
         )
     }
 
@@ -138,6 +141,7 @@ impl Journal {
             mono_ns,
             limits,
             DurableFaults::default(),
+            commit::ReconcileFaults::default(),
         )
     }
 
@@ -150,7 +154,35 @@ impl Journal {
         limits: MutationLimits,
         faults: DurableFaults,
     ) -> Result<Self, JournalError> {
-        Self::open_with_lock(dir, lock::unlocked(), boot_id, mono_ns, limits, faults)
+        Self::open_with_lock(
+            dir,
+            lock::unlocked(),
+            boot_id,
+            mono_ns,
+            limits,
+            faults,
+            commit::ReconcileFaults::default(),
+        )
+    }
+
+    /// Opens without the OS lock and injects boundary-confirmation failures. Test-only.
+    #[cfg(test)]
+    pub(crate) fn open_unlocked_with_reconcile_faults(
+        dir: &Path,
+        boot_id: &str,
+        mono_ns: u64,
+        limits: MutationLimits,
+        faults: commit::ReconcileFaults,
+    ) -> Result<Self, JournalError> {
+        Self::open_with_lock(
+            dir,
+            lock::unlocked(),
+            boot_id,
+            mono_ns,
+            limits,
+            DurableFaults::default(),
+            faults,
+        )
     }
 
     fn open_with_lock(
@@ -160,6 +192,7 @@ impl Journal {
         mono_ns: u64,
         limits: MutationLimits,
         boot_faults: DurableFaults,
+        boundary_faults: commit::ReconcileFaults,
     ) -> Result<Self, JournalError> {
         if dir.join(store::RESET_INTENT_FILE).exists() {
             return Err(JournalError::State(StateError::new(
@@ -186,6 +219,12 @@ impl Journal {
         // Without the durable committed length there is no statement about which bytes were
         // acknowledged, so the journal cannot be trusted even if it parses.
         let committed = commit::load(dir)?;
+        // A compaction intent is resolved before the ordinary boundary rules. A shorter
+        // journal is accepted only when the transaction proves it is the intended result.
+        let committed = compaction::recover(dir, &meta, committed)?;
+        // Never expose records from a boundary whose file and directory entry are not
+        // durably confirmed. A visible value alone is not proof.
+        commit::reconcile_with(dir, committed, boundary_faults)?;
         let (mut records, mut valid_len, mut fenced) = load_records(dir, &meta, committed)?;
         // A boot load is written once per boot, carrying the sticky marker forward.
         if meta.boot.boot_id != boot_id {
@@ -235,7 +274,7 @@ impl Journal {
             recovery_sync_fails: false,
             truncate_fails: false,
             truncate_sync_fails: false,
-            rewrite_dir_sync_fault: false,
+            rewrite_faults: compact::RewriteFaults::default(),
         };
         lock.hold();
         let epoch = state.meta.epoch;
@@ -398,63 +437,6 @@ impl Journal {
         if let Ok(mut state) = self.state.lock() {
             state.fenced = Some(Fence::corrupt(reason));
         }
-    }
-
-    /// Injects the next metadata write failures. Test-only.
-    #[doc(hidden)]
-    pub fn inject_metadata_faults(&self, faults: DurableFaults) {
-        if let Ok(mut state) = self.state.lock() {
-            state.meta_faults = faults;
-        }
-    }
-
-    /// Injects the next append failure. Test-only.
-    #[doc(hidden)]
-    pub fn inject_append_fault(&self, fault: AppendFault) {
-        if let Ok(mut state) = self.state.lock() {
-            state.append_fault = fault;
-        }
-    }
-
-    /// Injects the next commit-boundary write failures. Test-only.
-    #[doc(hidden)]
-    pub fn inject_commit_faults(&self, faults: DurableFaults) {
-        if let Ok(mut state) = self.state.lock() {
-            state.commit_faults = faults;
-        }
-    }
-
-    /// Makes the recovery confirmation of an indeterminate commit boundary fail. Test-only.
-    #[doc(hidden)]
-    pub fn inject_commit_confirm_failure(&self) {
-        if let Ok(mut state) = self.state.lock() {
-            state.confirm_fails = true;
-        }
-    }
-
-    /// Makes the next append's repair truncation fail. Test-only.
-    #[doc(hidden)]
-    pub fn inject_truncate_failure(&self) {
-        if let Ok(mut state) = self.state.lock() {
-            state.truncate_fails = true;
-        }
-    }
-
-    /// Injects the next compaction directory-sync failure. Test-only.
-    #[doc(hidden)]
-    pub fn inject_rewrite_dir_sync_failure(&self) {
-        if let Ok(mut state) = self.state.lock() {
-            state.rewrite_dir_sync_fault = true;
-        }
-    }
-
-    /// Poisons the state mutex. Test-only.
-    #[cfg(test)]
-    pub(crate) fn poison_state_for_test(&self) {
-        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let _guard = self.state.lock().expect("the journal lock is healthy");
-            panic!("poison the journal lock");
-        }));
     }
 
     /// Serialises every journal operation inside the owning process.

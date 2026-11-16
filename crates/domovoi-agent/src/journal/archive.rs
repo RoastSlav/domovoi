@@ -13,6 +13,7 @@ use uuid::Uuid;
 
 use super::JOURNAL_FILE;
 use super::commit;
+use super::compaction;
 use super::meta::{META_FILE, Metadata};
 use super::record::{self, Record};
 use super::reset::ResetFaults;
@@ -28,9 +29,21 @@ fn exists(path: &Path) -> Result<bool, JournalError> {
     }
 }
 
+/// Recognises every file an interrupted reset or compaction can leave behind, so reset
+/// archives or removes it instead of letting it affect the new epoch.
 pub(super) fn present_sources(dir: &Path) -> Result<Vec<String>, JournalError> {
     let mut sources = Vec::new();
-    for name in [JOURNAL_FILE, META_FILE, commit::COMMIT_FILE] {
+    for name in [
+        JOURNAL_FILE,
+        META_FILE,
+        commit::COMMIT_FILE,
+        compaction::INTENT_FILE,
+    ] {
+        if exists(&dir.join(name))? {
+            sources.push(name.to_owned());
+        }
+    }
+    for name in compaction::TEMP_FILES {
         if exists(&dir.join(name))? {
             sources.push(name.to_owned());
         }
@@ -208,6 +221,14 @@ pub(super) fn finish_epoch(
             "injected epoch creation failure",
         )));
     }
+    for name in compaction::TEMP_FILES {
+        match std::fs::remove_file(dir.join(name)) {
+            Err(err) if err.kind() != std::io::ErrorKind::NotFound => {
+                return Err(JournalError::State(StateError::new(dir.join(name), err)));
+            }
+            _ => {}
+        }
+    }
     let journal = dir.join(JOURNAL_FILE);
     if !exists(&journal)? {
         create_epoch_with(dir, epoch, now, boot_id, mono_ns, faults.epoch_commit)
@@ -242,6 +263,8 @@ pub(super) fn finish_epoch(
             err,
         )));
     }
+    // The boundary must be durably confirmed before the epoch is treated as created.
+    commit::reconcile(dir, parsed.valid_len)?;
     if Metadata::load(dir)?.is_none() {
         Metadata::new(epoch, boot_id, mono_ns)
             .write(dir, DurableFaults::default())

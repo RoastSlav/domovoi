@@ -1,16 +1,18 @@
-//! Compaction: retention, the sticky marker, and crash-safe rewriting.
+//! Compaction: retention, the sticky marker, and the crash-safe rewrite transaction.
 
 use std::collections::BTreeSet;
 use std::io::Write as _;
+use std::path::Path;
 
 use uuid::Uuid;
 
 use super::JOURNAL_FILE;
 use super::Journal;
 use super::commit;
+use super::compaction::{self, CompactionIntent};
 use super::record::{self, Record};
-use super::store::{Fence, JournalState, load_records, write_meta_locked};
-use crate::error::{JournalError, StateError};
+use super::store::{Fence, JournalState, write_meta_locked};
+use crate::error::JournalError;
 use crate::fs_atomic::{DurableFaults, DurableWriteError};
 
 /// Whether a compaction's rename is known to be durable.
@@ -20,6 +22,45 @@ pub(super) enum RewriteOutcome {
     Indeterminate,
 }
 
+/// Stages of the compaction transaction a test can make fail.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct RewriteFaults {
+    /// Fail the intent's temporary-file write or sync.
+    pub(super) intent_temp_sync: bool,
+    /// Fail the intent rename.
+    pub(super) intent_rename: bool,
+    /// Fail the intent's parent-directory sync.
+    pub(super) intent_dir_sync: bool,
+    /// Fail writing the compacted temporary file.
+    pub(super) temp_write: bool,
+    /// Fail syncing the compacted temporary file.
+    pub(super) temp_sync: bool,
+    /// Fail renaming the compacted file over the journal.
+    pub(super) rename: bool,
+    /// Fail the journal's parent-directory sync.
+    pub(super) journal_dir_sync: bool,
+    /// Fail the recovery sync after a failed journal directory sync.
+    pub(super) journal_dir_recovery_fails: bool,
+    /// Fail the boundary's temporary-file write or sync.
+    pub(super) boundary_temp_sync: bool,
+    /// Fail the boundary rename.
+    pub(super) boundary_rename: bool,
+    /// Fail the boundary's parent-directory sync.
+    pub(super) boundary_dir_sync: bool,
+    /// Fail the confirmation of the boundary.
+    pub(super) boundary_reconcile_fails: bool,
+    /// Leave the intent in place.
+    pub(super) intent_remove: bool,
+    /// Remove the intent but skip the confirming directory sync.
+    pub(super) intent_remove_dir_sync: bool,
+}
+
+/// Rewrites the journal with `records` through the durable compaction transaction.
+///
+/// Ordering: durable intent (old and new identity) -> synced temporary file -> rename ->
+/// journal directory sync -> boundary write -> boundary confirmation -> intent removal ->
+/// directory sync. The compacted name is durable before the boundary may name it, and the
+/// transaction is removed only after the new committed state is confirmed.
 pub(super) fn rewrite_locked(
     state: &mut JournalState,
     records: &[Record],
@@ -28,58 +69,146 @@ pub(super) fn rewrite_locked(
     for record in records {
         bytes.extend_from_slice(&record::frame(record)?);
     }
-    let path = state.dir.join(JOURNAL_FILE);
-    let tmp = state.dir.join(format!("{JOURNAL_FILE}.tmp"));
+    let journal = state.dir.join(JOURNAL_FILE);
+    let Some(old) = crate::fs_atomic::read_optional(&journal)? else {
+        state.fenced = Some(Fence::corrupt("the journal disappeared before compaction"));
+        return Ok(RewriteOutcome::Indeterminate);
+    };
+    if old.len() as u64 != state.valid_len {
+        state.fenced = Some(Fence::corrupt(
+            "the journal length changed before compaction",
+        ));
+        return Ok(RewriteOutcome::Indeterminate);
+    }
+    let faults = std::mem::take(&mut state.rewrite_faults);
+    let intent = CompactionIntent {
+        format: compaction::INTENT_FORMAT,
+        transaction: Uuid::now_v7(),
+        epoch: state.meta.epoch,
+        old_len: old.len() as u64,
+        old_digest: compaction::digest(&old),
+        new_len: bytes.len() as u64,
+        new_digest: compaction::digest(&bytes),
+    };
+    // 1. The intent is durable before the original journal may be replaced.
+    let intent_faults = DurableFaults {
+        temp_sync: faults.intent_temp_sync,
+        rename: faults.intent_rename,
+        dir_sync: faults.intent_dir_sync,
+    };
+    if compaction::write(&state.dir, &intent, intent_faults).is_err() {
+        // Nothing was replaced. Remove a visible intent best-effort; startup also aborts an
+        // intent that still matches the untouched original.
+        let _ = compaction::remove(&state.dir);
+        return Ok(RewriteOutcome::Indeterminate);
+    }
+    // 2. Build and sync the compacted file.
+    if write_temp(&state.dir, &bytes, faults).is_err() {
+        abort_transaction(state);
+        return Ok(RewriteOutcome::Indeterminate);
+    }
+    // 3. Replace the journal name.
+    if faults.rename || std::fs::rename(compaction::temp_path(&state.dir), &journal).is_err() {
+        abort_transaction(state);
+        return Ok(RewriteOutcome::Indeterminate);
+    }
+    // 4. The new name must be durable before the boundary may name it.
+    let synced = if faults.journal_dir_sync {
+        Err(std::io::Error::other("injected directory sync failure"))
+    } else {
+        crate::fs_atomic::sync_dir(&state.dir)
+    };
+    if synced.is_err()
+        && (faults.journal_dir_recovery_fails || crate::fs_atomic::sync_dir(&state.dir).is_err())
+    {
+        fence_compaction(state, records, bytes.len() as u64);
+        return Ok(RewriteOutcome::Indeterminate);
+    }
+    // 5. The boundary names the compacted length, and 6. the naming is confirmed.
+    let boundary_faults = DurableFaults {
+        temp_sync: faults.boundary_temp_sync,
+        rename: faults.boundary_rename,
+        dir_sync: faults.boundary_dir_sync,
+    };
+    let durable = match commit::write(&state.dir, bytes.len() as u64, boundary_faults) {
+        Ok(()) => true,
+        Err(DurableWriteError::BeforeCommit(_)) => {
+            // Nothing was named yet; make one durable attempt to establish it.
+            commit::write(&state.dir, bytes.len() as u64, DurableFaults::default()).is_ok()
+        }
+        Err(DurableWriteError::Indeterminate(_)) => {
+            // The rename may be visible but its durability is unconfirmed. Confirm it.
+            !faults.boundary_reconcile_fails
+                && commit::reconcile(&state.dir, bytes.len() as u64).is_ok()
+        }
+    };
+    let confirmed = durable
+        && !faults.boundary_reconcile_fails
+        && commit::reconcile(&state.dir, bytes.len() as u64).is_ok();
+    if !confirmed {
+        fence_compaction(state, records, bytes.len() as u64);
+        return Ok(RewriteOutcome::Indeterminate);
+    }
+    // 7. The new state is durable; removing the intent is cleanup. A failure here leaves a
+    // recoverable intent that startup reconciles and removes.
+    finish_intent(state, faults);
+    state.records = records.to_vec();
+    state.valid_len = bytes.len() as u64;
+    Ok(RewriteOutcome::Confirmed)
+}
+
+fn write_temp(dir: &Path, bytes: &[u8], faults: RewriteFaults) -> std::io::Result<()> {
+    if faults.temp_write {
+        return Err(std::io::Error::other(
+            "injected compacted temporary-file write failure",
+        ));
+    }
+    let path = compaction::temp_path(dir);
     let mut file = std::fs::OpenOptions::new()
         .write(true)
         .create(true)
         .truncate(true)
-        .open(&tmp)
-        .map_err(|err| StateError::new(&tmp, err))?;
-    file.write_all(&bytes)
-        .and_then(|()| file.sync_all())
-        .map_err(|err| StateError::new(&tmp, err))?;
-    drop(file);
-    std::fs::rename(&tmp, &path).map_err(|err| StateError::new(&path, err))?;
-    // The new file is visible but not yet the committed one. Replace the durable boundary
-    // before anything treats the rewrite as done; the boundary write also syncs the
-    // directory, so the rename and the boundary become durable together.
-    let len = bytes.len() as u64;
-    let mut faults = DurableFaults::default();
-    if std::mem::take(&mut state.rewrite_dir_sync_fault) {
-        faults.dir_sync = true;
-        state.confirm_fails = true;
+        .open(&path)?;
+    file.write_all(bytes)?;
+    if faults.temp_sync {
+        return Err(std::io::Error::other(
+            "injected compacted temporary-file sync failure",
+        ));
     }
-    let outcome = match commit::write(&state.dir, len, faults) {
-        Ok(()) => RewriteOutcome::Confirmed,
-        Err(DurableWriteError::BeforeCommit(err)) => {
-            tracing::warn!(%err, "journal compaction's commit boundary write failed");
-            RewriteOutcome::Indeterminate
-        }
-        Err(DurableWriteError::Indeterminate(err)) => {
-            let confirms = !std::mem::take(&mut state.confirm_fails)
-                && commit::confirm(&state.dir, len).is_ok();
-            if confirms {
-                RewriteOutcome::Confirmed
-            } else {
-                tracing::warn!(%err, "journal compaction's boundary durability is unknown");
-                RewriteOutcome::Indeterminate
-            }
-        }
-    };
-    // Adopt exactly what the file holds. A boundary that still names the old, longer file is
-    // repaired from the complete shorter file; anything else fails closed.
-    match commit::load(&state.dir)
-        .and_then(|committed| load_records(&state.dir, &state.meta, committed))
-    {
-        Ok((kept, valid_len, fence)) => {
-            state.records = kept;
-            state.valid_len = valid_len;
-            state.fenced = fence;
-        }
-        Err(err) => state.fenced = Some(Fence::corrupt(err.to_string())),
+    file.sync_all()
+}
+
+/// The original journal is untouched: discard the temporary file and the intent.
+fn abort_transaction(state: &JournalState) {
+    let _ = std::fs::remove_file(compaction::temp_path(&state.dir));
+    if let Err(err) = compaction::remove(&state.dir) {
+        tracing::warn!(%err, "could not remove an aborted compaction intent");
     }
-    Ok(outcome)
+}
+
+/// The rename happened but its durability was not confirmed. Mutations stay unavailable and
+/// reads show the retained records until startup resolves the transaction.
+fn fence_compaction(state: &mut JournalState, records: &[Record], len: u64) {
+    state.records = records.to_vec();
+    state.valid_len = len;
+    state.fenced = Some(Fence::append(
+        "a compaction's durability could not be confirmed",
+    ));
+}
+
+fn finish_intent(state: &JournalState, faults: RewriteFaults) {
+    if faults.intent_remove {
+        tracing::warn!("the completed compaction intent was left for startup to remove");
+        return;
+    }
+    if faults.intent_remove_dir_sync {
+        let _ = std::fs::remove_file(state.dir.join(compaction::INTENT_FILE));
+        tracing::warn!("the compaction intent's removal was not synced");
+        return;
+    }
+    if let Err(err) = compaction::remove(&state.dir) {
+        tracing::warn!(%err, "the completed compaction intent could not be removed");
+    }
 }
 
 pub(super) fn kept_executions(
@@ -160,7 +289,7 @@ impl Journal {
             boot_id,
             state.meta.boot.first_load_mono_ns,
         );
-        let mut kept = vec![state.records[0].clone()];
+        let mut kept: Vec<Record> = vec![state.records[0].clone()];
         for record in &state.records[1..] {
             if record
                 .execution_id()
