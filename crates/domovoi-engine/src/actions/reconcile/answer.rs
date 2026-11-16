@@ -1,6 +1,7 @@
 //! What a journal answer settles an action to, the sentences the person sees, and the
 //! machine-readable token kept in the journal row. One place says why a run did or did not
-//! happen, for the journal path and for expiry before dispatch alike.
+//! happen, for the journal path, for expiry before dispatch, and for a request the hub could
+//! not hand over at all.
 
 use domovoi_core::ports::{ActionAnswer, UnknownReason};
 /// Positive evidence the agent's journal never received the request.
@@ -24,6 +25,12 @@ pub(crate) const EPOCH_UNKNOWN_REASON: &str =
 pub(crate) const EXPIRED_REASON: &str = "the approval expired before the action was dispatched";
 /// The token for the same, kept in the journal entry's `outcome_reason`.
 pub(crate) const EXPIRED_TOKEN: &str = "expired";
+/// The hub failed to hand the request to the agent before it was queued, so it was never
+/// sent. This is the hub's own proof, not a journal answer.
+pub(crate) const HANDOFF_FAILED_REASON: &str =
+    "The hub could not hand the request to the agent; it was never sent";
+/// The token for the same, kept in the journal entry's `outcome_reason`.
+pub(crate) const HUB_NOT_HANDED_OFF_TOKEN: &str = "hub_not_handed_off";
 
 /// What one journal answer or epoch comparison settles an action to.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,6 +46,8 @@ pub(crate) enum ReconcileOutcome {
     Unknown(UnknownReason),
     /// Positive evidence the run never reached the agent.
     NeverRan,
+    /// The hub proved that no request frame was ever queued for the agent.
+    HandoffFailed,
 }
 
 impl ReconcileOutcome {
@@ -47,6 +56,7 @@ impl ReconcileOutcome {
         match self {
             Self::Finished { .. } => "finished",
             Self::NeverRan => "not_run",
+            Self::HandoffFailed => HUB_NOT_HANDED_OFF_TOKEN,
             Self::Unknown(UnknownReason::NoStartRecord) => "no_start_record",
             Self::Unknown(UnknownReason::AgentRestarted) => "agent_restarted",
             Self::Unknown(UnknownReason::JournalLost) => "journal_lost",

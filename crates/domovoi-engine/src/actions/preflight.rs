@@ -55,6 +55,10 @@ pub(crate) async fn ask_expire(shared: &Shared, id: ActionId) -> Option<ActionRe
 /// runs that the service started together from the store cannot all read the same count and
 /// all pass; the runs a previous hub session made are already in the bookkeeping, which the
 /// recovery scan put back from the audit log.
+///
+/// The guard counts committed dispatch attempts, not completed runs: a run the hub proved it
+/// never handed over is still an attempt, and it keeps its `action.dispatched` audit row, so
+/// the in-memory count and the count rebuilt from the audit log after a restart agree.
 pub(crate) fn reserve_dispatch(
     shared: &Shared,
     action: &ActionRequest,

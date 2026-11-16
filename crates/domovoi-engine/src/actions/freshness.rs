@@ -133,6 +133,10 @@ mod tests {
                 dispatch_gates: Mutex::new(BTreeMap::new()),
                 reconcile_passes: Mutex::new(BTreeMap::new()),
                 reconcile_pending: Mutex::new(BTreeSet::new()),
+                reconcile_again: Mutex::new(BTreeSet::new()),
+                reconcile_slots: Arc::new(tokio::sync::Semaphore::new(
+                    crate::actions::reconcile::MAX_RECONCILE_PASSES,
+                )),
                 reconcile_nudge: Arc::new(Notify::new()),
                 deferred,
                 writer: commands.clone(),

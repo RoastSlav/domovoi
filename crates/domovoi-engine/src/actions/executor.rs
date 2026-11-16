@@ -343,17 +343,16 @@ pub(crate) async fn run(shared: &Shared, id: ActionId, pool: Option<Arc<Semaphor
     {
         Ok(handoff) => handoff,
         Err(err) => {
-            // Nothing reached the agent. The row stays dispatched; if this journal is still
-            // live, ask for a reconciliation now rather than waiting for a reconnect that
-            // may never come. A different epoch is left to its replacement's own pass.
+            // `start_skill` only fails before the frame enters the session's outgoing queue,
+            // so this is proof the request never reached the agent. Settle it as a run that
+            // never happened, through the writer. The dispatch gate is still held, so a
+            // reconciliation pass cannot read the row as one that was sent and lost.
             tracing::warn!(
                 action = %id,
                 %err,
-                "could not hand the run to the agent; it stays dispatched",
+                "the hub never handed the run to the agent; it did not run",
             );
-            if deps.link.journal_epoch(action.host()) == Some(epoch) {
-                shared.schedule_reconciliation(action.host());
-            }
+            super::reconcile::handoff_failed(shared, id).await;
             return;
         }
     };

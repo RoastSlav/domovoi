@@ -24,6 +24,8 @@ mod verify_wake;
 mod writer;
 mod writer_propose;
 
+pub use reconcile::MAX_RECONCILE_PASSES;
+
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::{Arc, Mutex};
 
@@ -166,6 +168,13 @@ pub(crate) struct Shared {
     pub(crate) reconcile_passes: Mutex<BTreeMap<HostId, Arc<tokio::sync::Mutex<()>>>>,
     /// Hosts whose reconciliation was asked for while no pass was running for them.
     pub(crate) reconcile_pending: Mutex<BTreeSet<HostId>>,
+    /// Hosts that asked for a pass while one was already running for them. The running pass
+    /// cannot see rows dispatched after its snapshot, so it queues one more pass when it
+    /// releases its gate instead of dropping the request.
+    pub(crate) reconcile_again: Mutex<BTreeSet<HostId>>,
+    /// Bounds how many hosts reconcile at once, so a burst of triggers starts a bounded
+    /// number of passes and one slow host cannot keep every other host waiting.
+    pub(crate) reconcile_slots: Arc<tokio::sync::Semaphore>,
     /// Wakes the reconciliation worker.
     pub(crate) reconcile_nudge: Arc<Notify>,
     /// Outcomes that could not be queued on the writer yet; one worker hands them over.
@@ -196,28 +205,6 @@ impl Shared {
                 .clone()
         };
         gate.lock_owned().await
-    }
-
-    /// The host's whole-pass gate; see [`Shared::reconcile_passes`].
-    pub(crate) async fn pass_gate(&self, host: HostId) -> tokio::sync::OwnedMutexGuard<()> {
-        self.pass_gate_arc(host).lock_owned().await
-    }
-
-    /// [`Shared::pass_gate`], for a caller that skips its pass when one is already running.
-    pub(crate) fn pass_gate_try(&self, host: HostId) -> Option<tokio::sync::OwnedMutexGuard<()>> {
-        self.pass_gate_arc(host).try_lock_owned().ok()
-    }
-
-    /// The host's pass gate, shared so a holder can be chosen.
-    fn pass_gate_arc(&self, host: HostId) -> Arc<tokio::sync::Mutex<()>> {
-        let mut gates = self
-            .reconcile_passes
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        gates
-            .entry(host)
-            .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
-            .clone()
     }
 
     /// Asks for a reconciliation of `host` soon. Repeated asks for a host that is already
@@ -283,6 +270,8 @@ impl ActionService {
             dispatch_gates: Mutex::new(BTreeMap::new()),
             reconcile_passes: Mutex::new(BTreeMap::new()),
             reconcile_pending: Mutex::new(BTreeSet::new()),
+            reconcile_again: Mutex::new(BTreeSet::new()),
+            reconcile_slots: Arc::new(tokio::sync::Semaphore::new(reconcile::MAX_RECONCILE_PASSES)),
             reconcile_nudge: reconcile_nudge.clone(),
             deferred,
             writer: writer.clone(),
