@@ -167,8 +167,11 @@ stateDiagram-v2
   Proposed --> Expired: approval window elapsed
   Approved --> Dispatched: re-validated at execute time (plan hash matches)
   Approved --> Rejected: re-validation failed
+  Approved --> NotRun: approval expired before dispatch
   Dispatched --> Succeeded
-  Dispatched --> Failed
+  Dispatched --> Failed: the agent reported a failure
+  Dispatched --> OutcomeUnknown: journal lost / epoch changed / agent restarted mid-run
+  Dispatched --> NotRun: not_found with matching epoch
   Succeeded --> Verified: verify check passes
   Succeeded --> VerifyFailed
 ```
