@@ -70,7 +70,7 @@ mod tests {
     use domovoi_testkit::build::{T0, manifest, open_incident};
     use domovoi_testkit::{FakeAgentLink, FakeClock, InMemoryStore};
     use jiff::SignedDuration;
-    use tokio::sync::{Notify, broadcast, oneshot, watch};
+    use tokio::sync::{Notify, broadcast, oneshot};
     use tokio_util::sync::CancellationToken;
 
     use crate::EnginePolicy;
@@ -111,7 +111,6 @@ mod tests {
                 shutdown: shutdown.clone(),
             });
             let (commands, incoming) = writer::queue();
-            let (recovered, _recovered_rx) = watch::channel(false);
             let shared = Arc::new(Shared {
                 deps: ActionDeps {
                     actions: store.clone(),
@@ -131,7 +130,6 @@ mod tests {
                 dispatches: Mutex::new(BTreeMap::new()),
                 running: Mutex::new(BTreeSet::new()),
                 writer: commands.clone(),
-                recovered,
                 catch_up_slots: Arc::new(tokio::sync::Semaphore::new(MAX_CATCH_UP_RUNS)),
                 effects_nudge: Arc::new(Notify::new()),
             });
@@ -200,7 +198,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn writer_refuses_an_approval_that_expired_before_dispatch() {
+    async fn writer_settles_a_dispatch_whose_approval_expired_as_never_run() {
         let writer = Writer::start().await;
         let (id, plan) = writer.approved().await;
         // The window closes while the dispatch waits for the writer.
@@ -209,21 +207,21 @@ mod tests {
         let decided = writer.dispatch(id, plan).await;
         assert_eq!(
             decided.status(),
-            &ActionStatus::Rejected {
+            &ActionStatus::NotRun {
                 reason: "the approval expired before the action was dispatched".to_owned(),
             },
-            "the writer itself refuses a stale approval, without the executor's help",
+            "the writer itself settles a stale approval, without the executor's help",
         );
         let stored = ActionRepo::get(&*writer.store, id).await.unwrap().unwrap();
         assert_eq!(
             stored.status(),
             decided.status(),
-            "the refusal reached the store",
+            "the decision reached the store",
         );
         let trail = writer.trail(id).await;
         assert!(
-            trail.contains(&"action.rejected".to_owned()),
-            "the refusal is audited as a rejection: {trail:?}",
+            trail.contains(&"action.not_run".to_owned()),
+            "the closed window is audited as a run that never happened: {trail:?}",
         );
         assert!(
             !trail.contains(&"action.dispatched".to_owned()),

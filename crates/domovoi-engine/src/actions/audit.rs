@@ -24,6 +24,10 @@ pub const DISPATCHED: &str = "action.dispatched";
 pub const SUCCEEDED: &str = "action.succeeded";
 /// The skill failed or could not run.
 pub const FAILED: &str = "action.failed";
+/// The run may have happened and its result cannot be established.
+pub const OUTCOME_UNKNOWN: &str = "action.outcome_unknown";
+/// Positive evidence the run never reached the agent.
+pub const NOT_RUN: &str = "action.not_run";
 /// The originating check passed afterwards.
 pub const VERIFIED: &str = "action.verified";
 /// The originating check still failed afterwards.
@@ -196,4 +200,22 @@ pub fn verification(
         at,
         json!({ "passed": passed, "check": summary }),
     )
+}
+
+/// `action.outcome_unknown`, with why the result cannot be established.
+#[must_use]
+pub fn outcome_unknown(action: &ActionRequest, reason: &str, at: Timestamp) -> AuditDraft {
+    event(
+        OUTCOME_UNKNOWN,
+        system(),
+        action,
+        at,
+        json!({ "reason": reason }),
+    )
+}
+
+/// `action.not_run`, with the positive evidence that nothing started.
+#[must_use]
+pub fn not_run(action: &ActionRequest, reason: &str, at: Timestamp) -> AuditDraft {
+    event(NOT_RUN, system(), action, at, json!({ "reason": reason }))
 }

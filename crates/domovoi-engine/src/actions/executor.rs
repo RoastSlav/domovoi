@@ -51,23 +51,6 @@ fn start(
 pub(crate) async fn serve(shared: Arc<Shared>, mut events: broadcast::Receiver<DomainEvent>) {
     let shutdown = shared.deps.shutdown.clone();
     let mut running = JoinSet::new();
-    // The writer first fails what the previous session left running and then signals
-    // `recovered`; waiting for it keeps catch-up from starting a run the recovery is
-    // about to fail, or against a loop guard that has not finished reloading.
-    let mut recovered = shared.recovered.subscribe();
-    let stopping = tokio::select! {
-        () = shutdown.cancelled() => true,
-        result = recovered.wait_for(|done| *done) => {
-            if result.is_err() {
-                tracing::warn!("the recovery signal was lost before catch-up could start");
-            }
-            false
-        }
-    };
-    if stopping {
-        running.shutdown().await;
-        return;
-    }
     // Approvals made before this hub session started have no event left on the bus,
     // so the store is read once here for actions still waiting to run (ADR 0014).
     catch_up(&mut running, &shared).await;
@@ -215,6 +198,20 @@ async fn ask_reject(
     .await
 }
 
+/// Queues the expiry of an approved action whose window closed while it waited. The
+/// action becomes `NotRun`: the window closing is proof it never reached the agent.
+async fn ask_expire(shared: &Shared, id: ActionId) -> Option<ActionRequest> {
+    let (reply, answer) = oneshot::channel();
+    ask(
+        shared,
+        id,
+        "an expiry before dispatch",
+        WriteCommand::ExpireApproved { id, reply },
+        answer,
+    )
+    .await
+}
+
 /// Queues the agent's answer for a run, with the delay the verification owes if it succeeded.
 async fn ask_complete(
     shared: &Shared,
@@ -317,7 +314,7 @@ pub(crate) async fn run(shared: &Shared, id: ActionId, pool: Option<Arc<Semaphor
     let Some(action) = ask_dispatch(shared, id, plan).await else {
         return;
     };
-    if action.status() != &ActionStatus::Dispatched {
+    if !matches!(action.status(), ActionStatus::Dispatched { .. }) {
         tracing::debug!(action = %id, "the plan the agent has now is not the approved one");
         return;
     }
@@ -420,7 +417,11 @@ async fn still_current(
     match freshness::check(shared, action, now).await {
         Ok(None) => true,
         Ok(Some(old)) => {
-            let _ = ask_reject(shared, id, old.reason().to_owned(), false).await;
+            if old == freshness::Stale::Expired {
+                let _ = ask_expire(shared, id).await;
+            } else {
+                let _ = ask_reject(shared, id, old.reason().to_owned(), false).await;
+            }
             false
         }
         Err(err) => {

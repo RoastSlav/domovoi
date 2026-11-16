@@ -11,10 +11,12 @@ mod approvals;
 pub mod audit;
 mod commit;
 mod executor;
+mod expire;
 mod freshness;
 mod host_wait;
 mod outcome;
 mod recheck;
+mod reconcile;
 mod recover;
 mod reject;
 mod verify_wake;
@@ -51,6 +53,11 @@ pub struct ActionSettings {
     pub verify_default_delay: SignedDuration,
     /// Added to the skill's own timeout for the dispatch deadline.
     pub dispatch_grace: SignedDuration,
+    /// How long reconciliation waits before asking an agent again about a run that is
+    /// still running.
+    pub reconcile_interval: SignedDuration,
+    /// How long one `action_status` request may take before its batch is skipped.
+    pub reconcile_query_timeout: SignedDuration,
 }
 
 impl Default for ActionSettings {
@@ -61,6 +68,8 @@ impl Default for ActionSettings {
             presence_poll: SignedDuration::from_secs(5),
             verify_default_delay: SignedDuration::from_secs(30),
             dispatch_grace: SignedDuration::from_secs(30),
+            reconcile_interval: SignedDuration::from_secs(30),
+            reconcile_query_timeout: SignedDuration::from_secs(10),
         }
     }
 }
@@ -149,9 +158,6 @@ pub(crate) struct Shared {
     /// The queue into the writer task. The executor hands every transition to that
     /// one writer (ADR 0019) rather than writing action state itself.
     pub(crate) writer: writer::WriterHandle,
-    /// Set once the writer has failed what the previous session left running, so the
-    /// executor's catch-up starts only over a recovered store.
-    pub(crate) recovered: tokio::sync::watch::Sender<bool>,
     /// Limits the runs started from the store at once. Shared across catch-ups, so a
     /// reload after the event bus fell behind does not open a second set of runs.
     pub(crate) catch_up_slots: Arc<tokio::sync::Semaphore>,
@@ -202,7 +208,6 @@ impl ActionService {
     pub fn spawn(deps: ActionDeps, settings: ActionSettings) -> (ActionHandle, JoinHandle<()>) {
         let events = deps.bus.subscribe();
         let (writer, incoming) = writer::queue();
-        let (recovered, _recovered_rx) = tokio::sync::watch::channel(false);
         let effects_nudge = Arc::new(Notify::new());
         let shared = Arc::new(Shared {
             deps,
@@ -210,7 +215,6 @@ impl ActionService {
             dispatches: Mutex::new(BTreeMap::new()),
             running: Mutex::new(BTreeSet::new()),
             writer: writer.clone(),
-            recovered,
             catch_up_slots: Arc::new(tokio::sync::Semaphore::new(executor::MAX_CATCH_UP_RUNS)),
             effects_nudge: effects_nudge.clone(),
         });
@@ -252,13 +256,14 @@ impl ActionService {
                     "the loop guard reloaded dispatches the previous hub session made",
                 );
             }
-            // Startup order: the writer fails the runs a previous session left
-            // dispatched and then signals `recovered`; the executor waits for that
-            // signal before it reads the store for approvals. The hub starts its agent
-            // server before this service, so each host's availability is already
-            // answerable when the executor asks. The effect runner starts with them: it
-            // returns what a previous session left claimed to pending before it claims
-            // anything, so a verification due across a restart still runs.
+            // Startup order: the loop guard is reloaded before either half can start a
+            // run, because the executor's catch-up reads the store for approvals as soon
+            // as it starts. The hub starts its agent server before this service, so each
+            // host's availability is already answerable when the executor asks. A
+            // dispatched run left by the previous session is not touched here: its outcome
+            // is reconciled when that host's agent authenticates. The effect runner starts
+            // with them: it returns what a previous session left claimed to pending before
+            // it claims anything, so a verification due across a restart still runs.
             let _ = tokio::join!(
                 writer::run(writer_shared, incoming),
                 executor::serve(executor_shared, events),
@@ -369,8 +374,9 @@ impl ActionHandle {
         }
     }
 
-    /// Expires every proposed action whose window has closed and returns how
-    /// many. The scheduler calls this periodically.
+    /// Expires every proposed action whose window has closed, and every approved action that
+    /// closed before it was dispatched as never run, and returns how many. The scheduler
+    /// calls this periodically.
     pub async fn expire_due(&self) -> Result<usize, ApprovalError> {
         let (reply, answer) = oneshot::channel();
         if self
@@ -386,5 +392,12 @@ impl ActionHandle {
             Ok(result) => result,
             Err(_) => Err(ApprovalError::Unavailable),
         }
+    }
+}
+
+#[async_trait::async_trait]
+impl domovoi_core::ports::HostReconciler for ActionHandle {
+    async fn reconcile_host(&self, host: domovoi_core::HostId) {
+        reconcile::host(&self.shared, host).await;
     }
 }

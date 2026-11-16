@@ -4,13 +4,13 @@
 //! exactly one decision can win an action and a decision read over a stale state is
 //! refused instead of overwriting one already made. The action service runs this loop
 //! joined with the executor, so whoever waits for the service also waits for the
-//! decisions still queued. It starts by failing what a previous hub session left
-//! running, so a hub that restarted does not leave actions waiting forever (ADR 0014).
+//! decisions still queued. Expiry before dispatch is settled here too, as `NotRun`:
+//! the approval window closing is positive proof the action never started.
 
 use std::sync::Arc;
 
 use domovoi_core::ports::{
-    ActionFilter, ActionGuard, AuditDraft, ClaimToken, CommitError, Observed, Page, Transaction,
+    ActionGuard, AuditDraft, ClaimToken, CommitError, Observed, Transaction,
 };
 use domovoi_core::{
     ActionChange, ActionError, ActionId, ActionRequest, ActionStatus, ApprovalChannel, EffectId,
@@ -18,11 +18,12 @@ use domovoi_core::{
 };
 use jiff::Timestamp;
 
-use super::approvals::{chat_token_ok, load, store};
+use super::approvals::{chat_token_ok, load};
 use super::audit::{self, RunRecord};
+use super::expire;
 use super::freshness;
 use super::outcome::{complete, finish_effect, verify};
-use super::recover;
+use super::reconcile::ReconcileOutcome;
 use super::reject;
 use super::{ApprovalError, Publish, Shared};
 use crate::events::EventKind;
@@ -95,6 +96,19 @@ pub(crate) enum WriteCommand {
         claim: ClaimToken,
         reply: oneshot::Sender<Result<(), ApprovalError>>,
     },
+    /// Settle a dispatched run from what the agent's journal answered.
+    Reconcile {
+        id: ActionId,
+        outcome: ReconcileOutcome,
+        /// The machine-readable reason kept in the journal entry.
+        wire_reason: &'static str,
+        reply: oneshot::Sender<Decision>,
+    },
+    /// Resolve an approved action whose window closed before it was dispatched.
+    ExpireApproved {
+        id: ActionId,
+        reply: oneshot::Sender<Decision>,
+    },
 }
 
 /// The queue into the writer loop, held by every [`ActionHandle`].
@@ -118,29 +132,6 @@ pub(crate) fn queue() -> (WriterHandle, mpsc::Receiver<WriteCommand>) {
 /// for the action service also waits for those writes to reach the store.
 #[must_use]
 pub(crate) async fn run(shared: Arc<Shared>, mut rx: mpsc::Receiver<WriteCommand>) {
-    // A hub that restarted lost whatever it was running: an answer the agent sent
-    // went to the session that is gone, so those actions are failed here (ADR 0014)
-    // before any new decision can read them.
-    let abandoned = match recover::fail_abandoned(&shared).await {
-        Ok(count) => count,
-        Err(err) => {
-            tracing::error!(
-                %err,
-                "the store would not say what the previous session left running; those actions wait for the next hub start",
-            );
-            0
-        }
-    };
-    if abandoned > 0 {
-        tracing::info!(
-            count = abandoned,
-            "actions left running by the hub session that just stopped were failed",
-        );
-    }
-    // The executor's catch-up waits for this, so it starts only over a recovered store,
-    // whether or not the scan above found anything or could finish. `send_replace` stores
-    // the value even if the executor has not subscribed yet.
-    shared.recovered.send_replace(true);
     let shutdown = shared.deps.shutdown.clone();
     loop {
         let command = tokio::select! {
@@ -203,7 +194,7 @@ async fn process(shared: &Shared, command: WriteCommand) {
             let _ = reply.send(result);
         }
         WriteCommand::ExpireDue { reply } => {
-            let result = expire_due(shared).await;
+            let result = expire::sweep(shared).await;
             if let Err(err) = &result {
                 refused(err, "the expiry sweep");
             }
@@ -251,6 +242,25 @@ async fn process(shared: &Shared, command: WriteCommand) {
             let result = verify(shared, id, passed, summary, effect).await;
             if let Err(err) = &result {
                 refused(err, "a re-check");
+            }
+            let _ = reply.send(result);
+        }
+        WriteCommand::ExpireApproved { id, reply } => {
+            let result = expire::approved(shared, id).await;
+            if let Err(err) = &result {
+                refused(err, "an expiry before dispatch");
+            }
+            let _ = reply.send(result);
+        }
+        WriteCommand::Reconcile {
+            id,
+            outcome,
+            wire_reason,
+            reply,
+        } => {
+            let result = super::reconcile::write(shared, id, outcome, wire_reason).await;
+            if let Err(err) = &result {
+                refused(err, "the reconciliation of a run");
             }
             let _ = reply.send(result);
         }
@@ -355,9 +365,11 @@ async fn deny(
 }
 
 /// Sends `id` to the agent: `Approved → Dispatched` when the plan the agent has now
-/// still matches the approved one, `Approved → Rejected` when it does not (INV-4).
-/// The audit line says which of the two happened, and the caller only runs the skill
-/// when the action it gets back is `Dispatched`.
+/// still matches the approved one, `Approved → Rejected` when it does not (INV-4), and
+/// `Approved → NotRun` when the approval window closed while the request waited. The audit
+/// line says which happened, and the caller only runs the skill when the action it gets
+/// back is `Dispatched`. The run records the journal epoch the host reported, so a later
+/// reconciliation can tell whether that journal is still the one it was sent to.
 async fn dispatch(shared: &Shared, id: ActionId, plan: PlanHash) -> Decision {
     let mut action = load(shared, id).await?;
     let now = shared.deps.clock.now();
@@ -369,10 +381,16 @@ async fn dispatch(shared: &Shared, id: ActionId, plan: PlanHash) -> Decision {
         .await
         .map_err(|err| ApprovalError::Store(err.to_string()))?;
     if let Some(old) = old {
+        if old == freshness::Stale::Expired {
+            return expire::approved_loaded(shared, id, &mut action, now).await;
+        }
         let reason = old.reason().to_owned();
         return reject::stop(shared, id, &mut action, reason, false, now).await;
     }
-    let ActionChange { from, .. } = action.dispatch(plan, now).map_err(ApprovalError::Refused)?;
+    let epoch = shared.deps.link.journal_epoch(action.host());
+    let ActionChange { from, .. } = action
+        .dispatch(plan, epoch, now)
+        .map_err(ApprovalError::Refused)?;
     let entry = match action.status().clone() {
         ActionStatus::Rejected { reason } => audit::rejected(&action, &reason, now),
         _ => audit::dispatched(&action, now),
@@ -381,57 +399,6 @@ async fn dispatch(shared: &Shared, id: ActionId, plan: PlanHash) -> Decision {
         .await
         .map_err(|err| stale(err, id))?;
     Ok(action)
-}
-
-/// Expires every still-proposed action whose window has closed and counts them.
-/// The store query does the picking, so an action decided meanwhile never shows
-/// up here; if one was nevertheless read open, the guarded write refuses it and
-/// the sweep skips it.
-async fn expire_due(shared: &Shared) -> Result<usize, ApprovalError> {
-    let now = shared.deps.clock.now();
-    let deadline = now
-        .checked_add(SignedDuration::from_millis(1))
-        .unwrap_or(now);
-    let filter = ActionFilter {
-        status: Some("proposed".to_owned()),
-        expires_before: Some(deadline),
-        ..ActionFilter::default()
-    };
-    let mut page = Page::first(Page::MAX_LIMIT);
-    let mut due = Vec::new();
-    loop {
-        let got = shared
-            .deps
-            .actions
-            .list(&filter, &page)
-            .await
-            .map_err(store)?;
-        due.extend(got.items);
-        match got.next_cursor {
-            Some(cursor) => page.cursor = Some(cursor),
-            None => break,
-        }
-    }
-    let mut expired = 0;
-    for mut action in due {
-        let from = match action.expire(now) {
-            Ok(ActionChange { from, .. }) => from,
-            Err(_) => continue,
-        };
-        action.clear_chat_token_hash();
-        match transition(shared, &action, &from, audit::expired(&action, now), now).await {
-            Ok(()) => expired += 1,
-            Err(CommitError::Conflict { .. }) => {
-                tracing::warn!(
-                    action = %action.id(),
-                    "someone else decided this action meanwhile; the sweep skips it"
-                );
-                continue;
-            }
-            Err(err) => return Err(stale(err, action.id())),
-        }
-    }
-    Ok(expired)
 }
 
 /// The guarded write of one transition out of `from`, with its audit and journal entries.
@@ -443,6 +410,28 @@ pub(crate) async fn transition(
     now: Timestamp,
 ) -> Result<(), CommitError> {
     transition_with(shared, action, from, audit, now, |tx| tx).await
+}
+
+/// [`transition`] that also records `extra` in the journal entry, for a settled outcome
+/// whose machine-readable reason the journal has to keep.
+pub(crate) async fn transition_recording(
+    shared: &Shared,
+    action: &ActionRequest,
+    from: &ActionStatus,
+    audit: AuditDraft,
+    now: Timestamp,
+    extra: (&str, &str),
+) -> Result<(), CommitError> {
+    shared
+        .commit_action(
+            action,
+            ActionGuard::Status(from.name().to_owned()),
+            audit,
+            now,
+            Some(extra),
+            Publish::ActionChanged,
+        )
+        .await
 }
 
 /// [`transition`] with a hook that adds effects to the same commit.
