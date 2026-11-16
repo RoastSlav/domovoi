@@ -179,6 +179,12 @@ pub(crate) struct Shared {
     /// support: it lets a test wait until a trigger has actually been considered instead of
     /// guessing with sleeps.
     pub(crate) reconcile_attempts: std::sync::atomic::AtomicU64,
+    /// How many hello-triggered passes found their host's gate already held and started
+    /// waiting for it. Test support: it makes that wait observable.
+    pub(crate) reconcile_gate_waits: std::sync::atomic::AtomicU64,
+    /// How many hello-triggered passes held their host's gate while every slot was taken and
+    /// started waiting for one. Test support: it makes that wait observable.
+    pub(crate) reconcile_slot_waits: std::sync::atomic::AtomicU64,
     /// Wakes the reconciliation worker.
     pub(crate) reconcile_nudge: Arc<Notify>,
     /// Outcomes that could not be queued on the writer yet; one worker hands them over.
@@ -277,6 +283,8 @@ impl ActionService {
             reconcile_again: Mutex::new(BTreeSet::new()),
             reconcile_slots: Arc::new(tokio::sync::Semaphore::new(reconcile::MAX_RECONCILE_PASSES)),
             reconcile_attempts: std::sync::atomic::AtomicU64::new(0),
+            reconcile_gate_waits: std::sync::atomic::AtomicU64::new(0),
+            reconcile_slot_waits: std::sync::atomic::AtomicU64::new(0),
             reconcile_nudge: reconcile_nudge.clone(),
             deferred,
             writer: writer.clone(),
@@ -349,17 +357,6 @@ impl ActionHandle {
     #[must_use]
     pub fn is_alive(&self) -> bool {
         !self.writer.tx.is_closed()
-    }
-
-    /// Test support: how many hosts the reconciliation scheduler has taken from its waiting
-    /// set. Not part of the public contract; it exists so a test can wait until a trigger has
-    /// actually been considered instead of guessing with sleeps.
-    #[doc(hidden)]
-    #[must_use]
-    pub fn reconcile_attempts(&self) -> u64 {
-        self.shared
-            .reconcile_attempts
-            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Approves action `id` on behalf of the human in `approval`. A chat approval needs

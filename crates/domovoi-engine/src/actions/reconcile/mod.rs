@@ -58,13 +58,16 @@ pub(crate) const RECONCILE_QUERY_ATTEMPTS: u32 = 3;
 const BATCH: usize = 64;
 
 /// Reconciles every run dispatched to `host` against its agent's journal, waiting for any
-/// pass already running for that host and for one of the bounded pass slots. A host with no
-/// live session has no answer, so nothing is read or written for it.
+/// pass already running for that host and then for one of the bounded pass slots. A host with
+/// no live session has no answer, so nothing is read or written for it.
+///
+/// The host gate comes first: a session that reconnects while a pass still owns its host must
+/// wait without holding a global slot, so the pool stays available to other hosts.
 pub(crate) async fn host(shared: &Arc<Shared>, host: HostId) {
+    let _pass = queue::hold_pass(shared.clone(), host).await;
     let Some(_slot) = queue::take_pass_slot(shared).await else {
         return;
     };
-    let _pass = queue::hold_pass(shared.clone(), host).await;
     pass(shared, host).await;
 }
 

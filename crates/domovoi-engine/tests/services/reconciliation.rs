@@ -3139,3 +3139,232 @@ async fn a_hello_pass_with_nothing_to_do_releases_its_slot_for_a_waiting_host() 
         pass.abort();
     }
 }
+
+/// Waits until a hello pass has started waiting for a host gate another pass holds.
+async fn wait_for_gate_wait(a: &Actions) {
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while a.service.reconcile_gate_waits() == 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("no hello pass ever waited for a held host gate");
+}
+
+/// Waits until a hello pass holds its host gate and is waiting for a free pass slot.
+async fn wait_for_slot_wait(a: &Actions) {
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while a.service.reconcile_slot_waits() == 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("no hello pass ever waited for a free pass slot");
+}
+
+/// A hello pass waits for its host's gate without holding a global slot, so another host can
+/// still use the last slot while that wait lasts.
+#[tokio::test]
+async fn a_hello_pass_waiting_for_its_host_gate_does_not_reserve_a_global_slot() {
+    let world = seeded().await;
+    let mut hosts = vec![host_id()];
+    for _ in 0..4 {
+        let host = HostId::new();
+        connect_host(&world, host, JournalEpoch::from_uuid(uuid::Uuid::now_v7()));
+        hosts.push(host);
+    }
+    let held = Arc::new(Semaphore::new(0));
+    for host in &hosts[..3] {
+        world.link.hold_status_queries(*host, held.clone());
+    }
+    world
+        .link
+        .on_skill(|_, _| Err(LinkError::Transport("the reply was dropped".to_owned())));
+    world.link.on_action_status(|_, ids, epoch| {
+        Ok(ActionAnswers {
+            epoch,
+            answers: ids.iter().map(|id| finished(*id)).collect(),
+        })
+    });
+    let a = world.start(ActionSettings::default(), world.store.clone());
+
+    // Three scheduler passes (A, B, C) hold three slots inside their queries.
+    let mut runs = Vec::new();
+    for host in &hosts[..3] {
+        runs.push(lose_a_reply_on(&a, *host).await);
+    }
+    for _ in 0..5000 {
+        if asked(&a).len() >= 3 {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(
+        asked(&a).len(),
+        3,
+        "three scheduler passes hold three slots"
+    );
+
+    // A reconnects while its scheduler pass still owns A's host gate. The hello pass must
+    // wait for that gate without taking the fourth slot.
+    let service = a.service.clone();
+    let reconnecting = hosts[0];
+    let hello = tokio::spawn(async move { service.reconcile_host(reconnecting).await });
+    wait_for_gate_wait(&a).await;
+    assert!(
+        !hello.is_finished(),
+        "the hello pass is waiting for A's gate"
+    );
+
+    // D is scheduled while the hello pass waits. It must get the free fourth slot.
+    let d_run = lose_a_reply_on(&a, hosts[3]).await;
+    let settled = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        a.until(d_run, |status| matches!(status, ActionStatus::Succeeded)),
+    )
+    .await
+    .expect("D never got the last slot while the hello pass waited for its host gate");
+    assert_eq!(settled.status(), &ActionStatus::Succeeded);
+    assert_eq!(
+        asked_of(&a, hosts[3]).len(),
+        1,
+        "the fourth slot went to D, not to the waiting hello pass",
+    );
+
+    held.add_permits(3);
+    for id in runs {
+        a.until(id, |status| matches!(status, ActionStatus::Succeeded))
+            .await;
+    }
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), hello).await;
+}
+
+/// Cancelling a hello pass while it waits for a held host gate frees nothing it held: no
+/// global slot is leaked and the last slot stays usable for another host.
+#[tokio::test]
+async fn cancelling_a_hello_pass_waiting_for_its_host_gate_keeps_the_pool_usable() {
+    let world = seeded().await;
+    let mut hosts = vec![host_id()];
+    for _ in 0..4 {
+        let host = HostId::new();
+        connect_host(&world, host, JournalEpoch::from_uuid(uuid::Uuid::now_v7()));
+        hosts.push(host);
+    }
+    let held = Arc::new(Semaphore::new(0));
+    for host in &hosts[..3] {
+        world.link.hold_status_queries(*host, held.clone());
+    }
+    world
+        .link
+        .on_skill(|_, _| Err(LinkError::Transport("the reply was dropped".to_owned())));
+    world.link.on_action_status(|_, ids, epoch| {
+        Ok(ActionAnswers {
+            epoch,
+            answers: ids.iter().map(|id| finished(*id)).collect(),
+        })
+    });
+    let a = world.start(ActionSettings::default(), world.store.clone());
+
+    let mut runs = Vec::new();
+    for host in &hosts[..3] {
+        runs.push(lose_a_reply_on(&a, *host).await);
+    }
+    for _ in 0..5000 {
+        if asked(&a).len() >= 3 {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(asked(&a).len(), 3);
+
+    let service = a.service.clone();
+    let reconnecting = hosts[0];
+    let hello = tokio::spawn(async move { service.reconcile_host(reconnecting).await });
+    wait_for_gate_wait(&a).await;
+    hello.abort();
+    let _ = hello.await;
+
+    // The abort did not consume the fourth slot, so D still starts.
+    let d_run = lose_a_reply_on(&a, hosts[3]).await;
+    let settled = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        a.until(d_run, |status| matches!(status, ActionStatus::Succeeded)),
+    )
+    .await
+    .expect("a cancelled gate waiter consumed a global slot");
+    assert_eq!(settled.status(), &ActionStatus::Succeeded);
+
+    held.add_permits(3);
+    for id in runs {
+        a.until(id, |status| matches!(status, ActionStatus::Succeeded))
+            .await;
+    }
+}
+
+/// Cancelling a hello pass that holds its host gate while every slot is taken releases the
+/// gate, so the host's own scheduler trigger still runs once a slot frees.
+#[tokio::test]
+async fn cancelling_a_hello_pass_that_waits_for_a_slot_releases_its_host_gate() {
+    let world = seeded().await;
+    let mut hosts = vec![host_id()];
+    for _ in 0..4 {
+        let host = HostId::new();
+        connect_host(&world, host, JournalEpoch::from_uuid(uuid::Uuid::now_v7()));
+        hosts.push(host);
+    }
+    let held = Arc::new(Semaphore::new(0));
+    for host in &hosts[..4] {
+        world.link.hold_status_queries(*host, held.clone());
+    }
+    world
+        .link
+        .on_skill(|_, _| Err(LinkError::Transport("the reply was dropped".to_owned())));
+    world.link.on_action_status(|_, ids, epoch| {
+        Ok(ActionAnswers {
+            epoch,
+            answers: ids.iter().map(|id| finished(*id)).collect(),
+        })
+    });
+    let a = world.start(ActionSettings::default(), world.store.clone());
+
+    // Four scheduler passes hold every slot.
+    let mut runs = Vec::new();
+    for host in &hosts[..4] {
+        runs.push(lose_a_reply_on(&a, *host).await);
+    }
+    for _ in 0..5000 {
+        if asked(&a).len() >= MAX_RECONCILE_PASSES {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(asked(&a).len(), MAX_RECONCILE_PASSES);
+
+    // The hello pass takes F's free host gate and then waits for a slot.
+    let waiting_host = hosts[4];
+    let service = a.service.clone();
+    let hello = tokio::spawn(async move { service.reconcile_host(waiting_host).await });
+    wait_for_slot_wait(&a).await;
+
+    // F's own scheduler trigger defers behind the hello pass's gate.
+    let f_run = lose_a_reply_on(&a, waiting_host).await;
+    wait_for_scheduler_attempts(&a, (MAX_RECONCILE_PASSES + 1) as u64).await;
+    assert!(asked_of(&a, waiting_host).is_empty());
+
+    hello.abort();
+    let _ = hello.await;
+    held.add_permits(1);
+    let settled = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        a.until(f_run, |status| matches!(status, ActionStatus::Succeeded)),
+    )
+    .await
+    .expect("a cancelled slot waiter left its host gate locked");
+    assert_eq!(settled.status(), &ActionStatus::Succeeded);
+
+    held.add_permits(MAX_RECONCILE_PASSES);
+    for id in runs {
+        a.until(id, |status| matches!(status, ActionStatus::Succeeded))
+            .await;
+    }
+}

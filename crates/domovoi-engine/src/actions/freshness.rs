@@ -138,6 +138,8 @@ mod tests {
                     crate::actions::reconcile::MAX_RECONCILE_PASSES,
                 )),
                 reconcile_attempts: std::sync::atomic::AtomicU64::new(0),
+                reconcile_gate_waits: std::sync::atomic::AtomicU64::new(0),
+                reconcile_slot_waits: std::sync::atomic::AtomicU64::new(0),
                 reconcile_nudge: Arc::new(Notify::new()),
                 deferred,
                 writer: commands.clone(),

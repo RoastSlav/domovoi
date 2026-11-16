@@ -55,7 +55,16 @@ impl Drop for PassSlot {
 /// Takes a pass slot for a session's hello-triggered pass. Dropping the slot returns it and
 /// wakes the scheduler, including when the session's task is cancelled or aborted.
 pub(crate) async fn take_pass_slot(shared: &Arc<Shared>) -> Option<PassSlot> {
-    let permit = shared.reconcile_slots.clone().acquire_owned().await.ok()?;
+    let semaphore = shared.reconcile_slots.clone();
+    if let Ok(permit) = semaphore.clone().try_acquire_owned() {
+        return Some(PassSlot::new(permit, shared.reconcile_nudge.clone()));
+    }
+    // The pool is full at this moment. Count the wait before awaiting so a test can observe
+    // a hello pass that is holding its host gate while it waits.
+    shared
+        .reconcile_slot_waits
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let permit = semaphore.acquire_owned().await.ok()?;
     Some(PassSlot::new(permit, shared.reconcile_nudge.clone()))
 }
 
@@ -80,7 +89,20 @@ impl Drop for PassHold {
 /// Waits for the host's pass gate, so a pass asked for by a session runs after any pass
 /// already reading that host.
 pub(crate) async fn hold_pass(shared: Arc<Shared>, host: HostId) -> PassHold {
-    let gate = pass_gate_arc(&shared, host).lock_owned().await;
+    let gate = pass_gate_arc(&shared, host);
+    if let Ok(gate) = gate.clone().try_lock_owned() {
+        return PassHold {
+            shared,
+            host,
+            gate: Some(gate),
+        };
+    }
+    // The host's gate is already held. Count the wait before awaiting so a test can observe
+    // that this hello pass has reached its gate wait without holding a global slot.
+    shared
+        .reconcile_gate_waits
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let gate = gate.lock_owned().await;
     PassHold {
         shared,
         host,
@@ -195,8 +217,7 @@ fn lock<T>(mutex: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// Records a run the hub provably never handed to the agent as one that never started.
-///
+/// Records a run the hub provably never handed to the agent as one that never started.///
 /// `start_skill` only answers with an error before the frame enters the session's outgoing
 /// queue, so this proof is the hub's own and needs no journal answer, no reconnect and no
 /// `authoritative_absence` promise. It goes through the writer like every other decision, so
@@ -221,5 +242,38 @@ pub(crate) async fn handoff_failed(shared: &Shared, id: ActionId) {
             action = %id,
             "the writer stopped before answering about a failed hand-off",
         );
+    }
+}
+
+impl crate::actions::ActionHandle {
+    /// Test support: how many hosts the reconciliation scheduler has taken from its waiting
+    /// set. Not part of the public contract; it exists so a test can wait until a trigger has
+    /// actually been considered instead of guessing with sleeps.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn reconcile_attempts(&self) -> u64 {
+        self.shared
+            .reconcile_attempts
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Test support: how many hello-triggered passes have started waiting for a host gate
+    /// that another pass holds. Not part of the public contract.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn reconcile_gate_waits(&self) -> u64 {
+        self.shared
+            .reconcile_gate_waits
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Test support: how many hello-triggered passes have held their host gate while waiting
+    /// for a free pass slot. Not part of the public contract.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn reconcile_slot_waits(&self) -> u64 {
+        self.shared
+            .reconcile_slot_waits
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 }
