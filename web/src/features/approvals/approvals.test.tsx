@@ -276,6 +276,57 @@ test("a_result_that_was_already_in_is_not_announced", async () => {
   expect(screen.queryByText("restart_container succeeded on nas")).toBeNull();
 });
 
+test("an_unknown_result_is_information_and_not_a_failure", async () => {
+  let status = "dispatched";
+  routeActions([], () => [action({ status, reason: "the agent lost its record of this run" })]);
+  const { client } = open();
+  await screen.findByText("Nothing to approve");
+
+  status = "outcome_unknown";
+  void client.invalidateQueries({ queryKey: ["actions"] });
+
+  const title = await screen.findByText("restart_container result is unknown on nas");
+  expect(title).toBeVisible();
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(screen.getByText("the agent lost its record of this run")).toBeVisible();
+});
+
+test("a_run_that_never_happened_is_information_and_not_a_success", async () => {
+  let status = "dispatched";
+  routeActions([], () => [action({ status })]);
+  const { client } = open();
+  await screen.findByText("Nothing to approve");
+
+  status = "not_run";
+  void client.invalidateQueries({ queryKey: ["actions"] });
+
+  expect(await screen.findByText("restart_container never ran on nas")).toBeVisible();
+  expect(screen.queryByText("restart_container succeeded on nas")).toBeNull();
+});
+
+test("a_failure_is_announced_as_an_error_and_a_success_as_a_success", async () => {
+  let status = "dispatched";
+  routeActions([], () => [action({ status, reason: "exit code 1" })]);
+  const { client } = open();
+  await screen.findByText("Nothing to approve");
+
+  status = "failed";
+  void client.invalidateQueries({ queryKey: ["actions"] });
+  expect(await screen.findByText("restart_container failed on nas")).toBeVisible();
+  expect(screen.getByRole("alert")).toBeVisible();
+});
+
+test("a_success_is_announced_as_a_success", async () => {
+  let status = "dispatched";
+  routeActions([], () => [action({ status })]);
+  const { client } = open();
+  await screen.findByText("Nothing to approve");
+
+  status = "succeeded";
+  void client.invalidateQueries({ queryKey: ["actions"] });
+  expect(await screen.findByText("restart_container succeeded on nas")).toBeVisible();
+});
+
 function show(shown: Action, why?: string) {
   return renderAt("/x", "/x", <ActionCard action={shown} host="nas" why={why} />);
 }
