@@ -185,16 +185,24 @@ impl Registry {
 
     /// Queues `message` for the host's agent and returns the request id and where its
     /// answer will arrive.
+    ///
+    /// With `expected_epoch`, the request is only queued when the live session reported that
+    /// journal: the check and the queueing are one step under the same lock, so a session
+    /// that replaces the host's cannot receive a request meant for the old journal.
     pub fn dispatch(
         &self,
         host: HostId,
         message: &Message,
+        expected_epoch: Option<JournalEpoch>,
     ) -> Result<(RequestId, oneshot::Receiver<Message>), LinkError> {
         let mut hosts = self.lock();
         let live = hosts
             .get_mut(&host)
             .and_then(|e| e.live.as_mut())
             .ok_or(LinkError::NotConnected)?;
+        if expected_epoch.is_some_and(|expected| live.journal_epoch != expected.as_uuid()) {
+            return Err(LinkError::SessionChanged);
+        }
         if live.pending.len() >= MAX_PENDING {
             return Err(busy());
         }

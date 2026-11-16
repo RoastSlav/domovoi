@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use domovoi_core::ports::{ActionAnswer, AgentLink, Clock, UnknownReason};
+use domovoi_core::ports::{ActionAnswer, AgentLink, Clock, LinkError, UnknownReason};
 use domovoi_core::{ActionId, HostId, JournalEpoch};
 use domovoi_proto::messages::{
     ActionState, ActionStatusAnswer, ActionStatusAnswers, CapabilityOutcome, CapabilityResult,
@@ -197,7 +197,8 @@ async fn the_link_asks_the_journal_about_each_run_and_maps_the_answers() {
     let failed = ActionId::new();
     let missing = ActionId::new();
     let unprovable = ActionId::new();
-    let asked = vec![finished, failed, missing, unprovable];
+    let future_failure = ActionId::new();
+    let asked = vec![finished, failed, missing, unprovable, future_failure];
     let deadline = hub.clock.now() + SignedDuration::from_secs(10);
     let waiting = tokio::spawn({
         let link = link.clone();
@@ -253,6 +254,17 @@ async fn the_link_asks_the_journal_about_each_run_and_maps_the_answers() {
                     reason: Open::new("no_start_record", Some(OutcomeUnknownReason::NoStartRecord)),
                 },
             },
+            ActionStatusAnswer {
+                execution_id: future_failure.as_uuid(),
+                state: ActionState::Finished {
+                    result: CapabilityResult {
+                        outcome: CapabilityOutcome::Failed {
+                            code: Open::new("a_later_code", None),
+                            message: "a failure this build does not know".to_owned(),
+                        },
+                    },
+                },
+            },
         ],
     };
     agent
@@ -280,7 +292,7 @@ async fn the_link_asks_the_journal_about_each_run_and_maps_the_answers() {
                 failed,
                 ActionAnswer::Finished {
                     succeeded: false,
-                    detail: Some("exit status 1".to_owned()),
+                    detail: Some("exited_non_zero: exit status 1".to_owned()),
                 },
             ),
             (missing, ActionAnswer::NotFound),
@@ -288,6 +300,13 @@ async fn the_link_asks_the_journal_about_each_run_and_maps_the_answers() {
                 unprovable,
                 ActionAnswer::Unknown {
                     reason: UnknownReason::NoStartRecord,
+                },
+            ),
+            (
+                future_failure,
+                ActionAnswer::Finished {
+                    succeeded: false,
+                    detail: Some("a_later_code: a failure this build does not know".to_owned(),),
                 },
             ),
         ],
@@ -341,4 +360,170 @@ async fn an_unrecognised_journal_reason_is_treated_as_a_lost_record() {
         }),
         "a reason this build does not know assumes the record is lost, never that it ran",
     );
+}
+
+/// A reconciler whose pass blocks until it is dropped, so a test can see the hub cancel it
+/// when its session is replaced.
+struct StoppableReconciler {
+    started: Arc<tokio::sync::Notify>,
+    stopped: Arc<std::sync::atomic::AtomicUsize>,
+    hold: Arc<tokio::sync::Semaphore>,
+}
+
+impl StoppableReconciler {
+    fn new() -> Self {
+        Self {
+            started: Arc::new(tokio::sync::Notify::new()),
+            stopped: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            hold: Arc::new(tokio::sync::Semaphore::new(0)),
+        }
+    }
+}
+
+/// Counts a dropped pass, which is how a cancelled task shows up.
+struct DropCount(Arc<std::sync::atomic::AtomicUsize>);
+
+impl Drop for DropCount {
+    fn drop(&mut self) {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+#[async_trait::async_trait]
+impl domovoi_core::ports::HostReconciler for StoppableReconciler {
+    async fn reconcile_host(&self, _host: domovoi_core::HostId) {
+        let _counted = DropCount(self.stopped.clone());
+        self.started.notify_one();
+        let _ = self.hold.clone().acquire_owned().await;
+    }
+}
+
+/// Waits until `done` holds, yielding to the runtime. Never used to make a race appear: the
+/// real ordering comes from the hub's own tokens and notifications.
+async fn until(done: impl Fn() -> bool) {
+    for _ in 0..2000 {
+        if done() {
+            return;
+        }
+        tokio::task::yield_now().await;
+    }
+    panic!("the condition never held");
+}
+
+#[tokio::test]
+async fn an_action_status_query_is_not_sent_to_a_replacement_session() {
+    let hub = Hub::start().await;
+    let link = hub.server.link();
+    let ident = enroll(&hub, "nas").await;
+    let first = uuid::Uuid::now_v7();
+    let _old = authenticate_with(&hub, &ident, first).await;
+    let mut replacement = authenticate_with(&hub, &ident, uuid::Uuid::now_v7()).await;
+
+    let out = link
+        .action_status(
+            ident.host,
+            vec![ActionId::new()],
+            JournalEpoch::from_uuid(first),
+            hub.clock.now() + SignedDuration::from_secs(5),
+        )
+        .await;
+    assert_eq!(
+        out,
+        Err(LinkError::SessionChanged),
+        "an old epoch's query is refused rather than answered by the replacement",
+    );
+    // The replacement session was never asked. A bounded wait is the only way to observe a
+    // frame that must not arrive; it does not drive the race, the registry check does.
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(200), replacement.recv())
+            .await
+            .is_err(),
+        "the replacement session received no action_status frame",
+    );
+}
+
+#[tokio::test]
+async fn a_same_epoch_reconnect_is_still_answered() {
+    let hub = Hub::start().await;
+    let link = hub.server.link();
+    let ident = enroll(&hub, "nas").await;
+    let epoch = uuid::Uuid::now_v7();
+    let _old = authenticate_with(&hub, &ident, epoch).await;
+    let mut replacement = authenticate_with(&hub, &ident, epoch).await;
+
+    let deadline = hub.clock.now() + SignedDuration::from_secs(10);
+    let waiting = tokio::spawn({
+        let link = link.clone();
+        async move {
+            link.action_status(
+                ident.host,
+                vec![ActionId::new()],
+                JournalEpoch::from_uuid(epoch),
+                deadline,
+            )
+            .await
+        }
+    });
+    let request = replacement.expect().await;
+    let Message::ActionStatus(query) = request.message else {
+        panic!("expected action_status");
+    };
+    assert_eq!(query.expected_epoch, epoch);
+    replacement
+        .send(
+            Message::ActionStatusAnswers(ActionStatusAnswers {
+                epoch,
+                answers: Vec::new(),
+            }),
+            Some(request.id),
+        )
+        .await;
+
+    let got = guard(waiting).await.unwrap();
+    assert!(
+        got.is_ok(),
+        "the journal identity is unchanged, so the query is safe: {got:?}",
+    );
+}
+
+#[tokio::test]
+async fn a_reconciliation_task_stops_when_its_session_is_replaced() {
+    let hub = Hub::start().await;
+    let reconciler = Arc::new(StoppableReconciler::new());
+    hub.server.set_reconciler(reconciler.clone());
+    let ident = enroll(&hub, "nas").await;
+
+    let _first = authenticate_with(&hub, &ident, uuid::Uuid::now_v7()).await;
+    guard(reconciler.started.notified()).await;
+    assert_eq!(
+        reconciler.stopped.load(std::sync::atomic::Ordering::SeqCst),
+        0
+    );
+
+    let _second = authenticate_with(&hub, &ident, uuid::Uuid::now_v7()).await;
+    until(|| reconciler.stopped.load(std::sync::atomic::Ordering::SeqCst) >= 1).await;
+}
+
+#[tokio::test]
+async fn rapid_reconnects_leave_one_pass_at_most() {
+    use std::sync::atomic::Ordering;
+
+    let hub = Hub::start().await;
+    let reconciler = Arc::new(StoppableReconciler::new());
+    hub.server.set_reconciler(reconciler.clone());
+    let ident = enroll(&hub, "nas").await;
+
+    let _sessions: Vec<FakeAgent> = {
+        let mut sessions = Vec::new();
+        for _ in 0..4 {
+            sessions.push(authenticate_with(&hub, &ident, uuid::Uuid::now_v7()).await);
+        }
+        sessions
+    };
+    until(|| {
+        let started: usize = 4;
+        let stopped = reconciler.stopped.load(Ordering::SeqCst);
+        started.saturating_sub(stopped) <= 1
+    })
+    .await;
 }

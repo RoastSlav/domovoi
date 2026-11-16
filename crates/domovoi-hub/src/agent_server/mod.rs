@@ -155,7 +155,7 @@ impl AgentServer {
             return;
         }
         for host in self.inner.registry.live_hosts() {
-            session::reconcile(&self.inner, host);
+            session::reconcile(&self.inner, host, None);
         }
     }
 

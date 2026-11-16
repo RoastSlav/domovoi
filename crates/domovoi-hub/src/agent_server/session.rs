@@ -8,6 +8,7 @@ use domovoi_proto::messages::{Ping, Pong, SessionId, SignalsAck, Unsupported};
 use domovoi_proto::{Decoded, Message, Transport};
 use jiff::SignedDuration;
 use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 
 /// Hub pings that may go unanswered before the session counts as dead.
 const MISSED_PONGS: u32 = 3;
@@ -49,7 +50,7 @@ pub(crate) async fn run_session(
     let journal_epoch = live.journal_epoch;
     inner.registry.register(host, live, remote_ip);
     tracing::info!(%host, agent = %agent.agent, %journal_epoch, "agent connected");
-    reconcile(inner, host);
+    reconcile(inner, host, Some(&cancel));
     let clock = inner.deps.clock.clone();
     let secs = inner.settings.heartbeat.as_secs().max(1);
     let beat = SignedDuration::from_secs(secs);
@@ -91,16 +92,33 @@ pub(crate) async fn run_session(
 }
 
 /// Tells the action service that this host's agent authenticated, so its dispatched runs
-/// are reconciled against the journal. Runs beside the session and stops with the hub.
-pub(super) fn reconcile(inner: &Inner, host: HostId) {
+/// are reconciled against the journal.
+///
+/// The task belongs to the session that triggered it: when that session ends or is
+/// replaced, the task stops asking. An answer the pass already received is still committed:
+/// the pass hands each outcome to the writer before it awaits anything that a cancelled task
+/// could drop.
+pub(super) fn reconcile(inner: &Inner, host: HostId, session: Option<&CancellationToken>) {
     let Some(reconciler) = inner.reconciler.get().cloned() else {
         return;
     };
     let shutdown = inner.shutdown.clone();
+    let session = session.cloned();
     tokio::spawn(async move {
-        tokio::select! {
-            () = shutdown.cancelled() => {}
-            () = reconciler.reconcile_host(host) => {}
+        match session {
+            Some(session) => {
+                tokio::select! {
+                    () = shutdown.cancelled() => {}
+                    () = session.cancelled() => {}
+                    () = reconciler.reconcile_host(host) => {}
+                }
+            }
+            None => {
+                tokio::select! {
+                    () = shutdown.cancelled() => {}
+                    () = reconciler.reconcile_host(host) => {}
+                }
+            }
         }
     });
 }
