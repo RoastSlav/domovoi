@@ -10,7 +10,8 @@ use domovoi_core::ports::{
     ActionRepo, AuditFilter, AuditLog, HostAvailability, IncidentRepo, Page, Presence,
 };
 use domovoi_core::{
-    ActionId, ActionRequest, ActionStatus, PlanBinding, PlanHash, Principal, SignalStatus, UserId,
+    ActionId, ActionRequest, ActionStatus, JournalEpoch, PlanBinding, PlanHash, Principal,
+    SignalStatus, UserId,
 };
 use domovoi_engine::actions::audit;
 use domovoi_engine::{
@@ -74,6 +75,8 @@ async fn restarted_with(
             version: "0.1.0".to_owned(),
         },
     );
+    // Every dispatch the service makes records the journal it was sent under.
+    link.set_journal_epoch(host_id(), JournalEpoch::from_uuid(uuid::Uuid::now_v7()));
     link.set_skills(host_id(), vec![verified_restart()]);
     link.on_skill(|_, _| Ok(ok_output("restarted nginx")));
     link.on_check(|_, _, _| Ok(check(SignalStatus::Resolved)));

@@ -12,7 +12,7 @@ use std::collections::BTreeSet;
 
 use domovoi_core::ports::{ActionAnswer, ActionFilter, Page, StoreError, UnknownReason};
 use domovoi_core::{ActionId, ActionRequest, ActionStatus, HostId};
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc, oneshot};
 
 use super::Shared;
 use super::writer::{Decision, WriteCommand};
@@ -39,9 +39,16 @@ pub(crate) const EXPIRED_REASON: &str = "the approval expired before the action 
 /// The token for the same, kept in the journal entry's `outcome_reason`.
 pub(crate) const EXPIRED_TOKEN: &str = "expired";
 
-/// How many times one pass asks again about runs that are still running. The rows stay
-/// `Dispatched` when the bound is reached; they are never failed.
-pub(crate) const RECONCILE_ROUNDS: u32 = 240;
+/// How many times one pass asks again about runs that are still running, after its first
+/// query: one pass makes at most [`RECONCILE_REPEATS`] + 1 queries, about two hours apart at
+/// the default interval. The rows stay `Dispatched` when the bound is reached; they are
+/// never failed.
+pub(crate) const RECONCILE_REPEATS: u32 = 240;
+
+/// Whether a pass that has made `repeats` repeat queries has used them all up.
+pub(crate) const fn repeats_exhausted(repeats: u32) -> bool {
+    repeats >= RECONCILE_REPEATS
+}
 
 /// The most ids one `action_status` request may carry.
 const BATCH: usize = 64;
@@ -107,17 +114,33 @@ pub(crate) async fn host(shared: &Shared, host: HostId) {
     let Some(epoch) = shared.deps.link.journal_epoch(host) else {
         return;
     };
-    let pending = match pending(shared, host).await {
-        Ok(pending) => pending,
-        Err(err) => {
-            tracing::error!(
-                %err,
-                %host,
-                "the store would not list dispatched actions; nothing is reconciled this time",
-            );
-            return;
+    // Take the host's dispatch gate before reading what is pending, so a dispatch that was
+    // committed but has not reached the agent's queue is not in the snapshot. The gate is
+    // released before any journal query, which may take a while.
+    let pending = {
+        let _gate = shared.dispatch_gate(host).await;
+        match pending(shared, host).await {
+            Ok(pending) => pending,
+            Err(err) => {
+                tracing::error!(
+                    %err,
+                    %host,
+                    "the store would not list dispatched actions; nothing is reconciled this time",
+                );
+                return;
+            }
         }
     };
+    // The session may have been replaced while the rows were being read. Classifying them
+    // against the epoch that is gone would make a new session's runs look foreign, so the
+    // pass stops instead: the replacement's own pass will settle them.
+    if shared.deps.link.journal_epoch(host) != Some(epoch) {
+        tracing::debug!(
+            %host,
+            "the agent's journal changed while dispatched runs were being read; not reconciling",
+        );
+        return;
+    }
     let mut remaining = Vec::new();
     for action in pending {
         match action.status() {
@@ -142,10 +165,19 @@ pub(crate) async fn host(shared: &Shared, host: HostId) {
             _ => remaining.push(action.id()),
         }
     }
-    let mut rounds = 0;
+    let mut repeats = 0;
     loop {
         let mut running = Vec::new();
         for batch in remaining.chunks(BATCH) {
+            // A replaced session must not be asked, and its epoch must not be used to
+            // classify anything: stop before the query rather than after.
+            if shared.deps.link.journal_epoch(host) != Some(epoch) {
+                tracing::debug!(
+                    %host,
+                    "the agent's journal changed during reconciliation; stopping this pass",
+                );
+                return;
+            }
             let now = shared.deps.clock.now();
             let deadline = now
                 .checked_add(shared.settings.reconcile_query_timeout)
@@ -209,11 +241,11 @@ pub(crate) async fn host(shared: &Shared, host: HostId) {
         if running.is_empty() {
             return;
         }
-        rounds += 1;
-        if rounds > RECONCILE_ROUNDS {
+        repeats += 1;
+        if repeats_exhausted(repeats) {
             tracing::warn!(
                 %host,
-                rounds,
+                queries = repeats + 1,
                 "dispatched runs are still running; reconciliation stops asking for now",
             );
             return;
@@ -252,6 +284,10 @@ async fn pending(shared: &Shared, host: HostId) -> Result<Vec<ActionRequest>, St
 
 /// Queues one settled outcome for the writer, which commits it under the `dispatched`
 /// guard. A refused write is logged and dropped: the row keeps whatever it now holds.
+///
+/// The command is handed over before this awaits anything, so an answer that has already
+/// been received is committed even when the session's replacement cancels this pass. A full
+/// writer queue is handed over by a detached task for the same reason.
 async fn settle(shared: &Shared, id: ActionId, outcome: ReconcileOutcome) {
     let wire_reason = outcome.token();
     let (reply, answer) = oneshot::channel();
@@ -261,9 +297,23 @@ async fn settle(shared: &Shared, id: ActionId, outcome: ReconcileOutcome) {
         wire_reason,
         reply,
     };
-    if shared.writer.tx.send(command).await.is_err() {
-        tracing::debug!(action = %id, "the action service is closing; the run stays dispatched");
-        return;
+    let tx = shared.writer.tx.clone();
+    match tx.try_send(command) {
+        Ok(()) => {}
+        Err(mpsc::error::TrySendError::Full(command)) => {
+            tokio::spawn(async move {
+                let _ = tx.send(command).await;
+            });
+            tracing::debug!(
+                action = %id,
+                "the writer queue is full; the settled outcome is handed over in the background",
+            );
+            return;
+        }
+        Err(mpsc::error::TrySendError::Closed(_)) => {
+            tracing::debug!(action = %id, "the action service is closing; the run stays dispatched");
+            return;
+        }
     }
     match answer.await {
         Ok(Ok(_)) => {}
@@ -339,4 +389,26 @@ pub(crate) async fn write(
         .await
         .map_err(|err| super::writer::stale(err, id))?;
     Ok(action)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{RECONCILE_REPEATS, repeats_exhausted};
+
+    #[test]
+    fn a_pass_makes_one_query_then_the_bounded_repeats() {
+        assert!(
+            !repeats_exhausted(RECONCILE_REPEATS - 1),
+            "the pass may make one more repeat query",
+        );
+        assert_eq!(
+            RECONCILE_REPEATS, 240,
+            "one initial query plus 240 repeats is 241 queries",
+        );
+        assert!(
+            repeats_exhausted(RECONCILE_REPEATS),
+            "the last permitted repeat query is followed by no more",
+        );
+        assert!(repeats_exhausted(RECONCILE_REPEATS + 1));
+    }
 }

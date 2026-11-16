@@ -361,6 +361,9 @@ async fn waiting_runs_do_not_starve_other_hosts() {
         .await
         .unwrap();
     world.link.set_skills(other, vec![verified_restart()]);
+    world
+        .link
+        .set_journal_epoch(other, JournalEpoch::from_uuid(uuid::Uuid::now_v7()));
     world.link.set_presence(
         other,
         Presence::Connected {
@@ -401,8 +404,8 @@ async fn waiting_runs_do_not_starve_other_hosts() {
     assert_eq!(a.runs(), 1, "only the reachable host's skill ran");
 }
 
-/// An agent link whose `run_skill` records the request and then holds the run for `hold`
-/// on the fake clock, so a test can see how many runs are in flight at once.
+/// An agent link whose `skill_result` holds the run for `hold` on the fake clock, so a test
+/// can see how many runs are in flight at once.
 struct SlowLink {
     inner: Arc<FakeAgentLink>,
     clock: Arc<FakeClock>,
@@ -420,13 +423,25 @@ impl AgentLink for SlowLink {
         self.inner.run_tool(host, call, deadline).await
     }
 
-    async fn run_skill(
+    async fn start_skill(
         &self,
         host: HostId,
         req: SkillDispatch,
+        expected_epoch: JournalEpoch,
+        deadline: jiff::Timestamp,
+    ) -> Result<domovoi_core::ports::SkillHandoff, LinkError> {
+        self.inner
+            .start_skill(host, req, expected_epoch, deadline)
+            .await
+    }
+
+    async fn skill_result(
+        &self,
+        host: HostId,
+        handoff: domovoi_core::ports::SkillHandoff,
         deadline: jiff::Timestamp,
     ) -> Result<SkillOutput, LinkError> {
-        let output = self.inner.run_skill(host, req, deadline).await;
+        let output = self.inner.skill_result(host, handoff, deadline).await;
         let until = self.clock.now().checked_add(self.hold).unwrap_or(deadline);
         self.clock.sleep_until(until).await;
         output

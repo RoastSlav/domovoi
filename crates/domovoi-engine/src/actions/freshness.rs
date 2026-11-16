@@ -129,6 +129,7 @@ mod tests {
                 settings: ActionSettings::default(),
                 dispatches: Mutex::new(BTreeMap::new()),
                 running: Mutex::new(BTreeSet::new()),
+                dispatch_gates: Mutex::new(BTreeMap::new()),
                 writer: commands.clone(),
                 catch_up_slots: Arc::new(tokio::sync::Semaphore::new(MAX_CATCH_UP_RUNS)),
                 effects_nudge: Arc::new(Notify::new()),

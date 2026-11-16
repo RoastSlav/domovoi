@@ -8,11 +8,12 @@
 //! each window is tested with the journal itself, under the same names.
 
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
+use async_trait::async_trait;
 use domovoi_core::ports::{
-    ActionAnswer, ActionAnswerEntry, ActionAnswers, ActionRepo, AuditLog, HostReconciler,
-    LinkError, RAN_STATUSES, UnknownReason,
+    ActionAnswer, ActionAnswerEntry, ActionAnswers, ActionFilter, ActionRepo, AuditFilter,
+    AuditLog, HostReconciler, LinkError, Page, Paged, RAN_STATUSES, StoreError, UnknownReason,
 };
 use domovoi_core::{
     ActionId, ActionRequest, ActionStatus, IncidentId, JournalEpoch, PlanBinding, PlanHash,
@@ -20,10 +21,12 @@ use domovoi_core::{
 };
 use domovoi_engine::ActionSettings;
 use domovoi_engine::actions::audit;
+use domovoi_testkit::InMemoryStore;
 use domovoi_testkit::approvals::human;
 use domovoi_testkit::build::T0;
 use domovoi_testkit::link::LinkRequest;
 use jiff::SignedDuration;
+use tokio::sync::Semaphore;
 
 use crate::actions_harness::{Actions, Seeded, seeded, verified_restart};
 use crate::harness::host_id;
@@ -208,6 +211,25 @@ async fn finished_failure_carries_the_agents_message() {
             reason: "the container is not there".to_owned(),
         },
         "a failure carries the agent's own message",
+    );
+    let entry = AuditLog::list(
+        &*a.store,
+        &AuditFilter {
+            subject: Some(format!("action:{id}")),
+            ..AuditFilter::default()
+        },
+        &Page::first(10),
+    )
+    .await
+    .unwrap()
+    .items
+    .into_iter()
+    .find(|entry| entry.kind == audit::FAILED)
+    .expect("the failure is audited");
+    assert_eq!(
+        entry.detail.get("reason").and_then(|value| value.as_str()),
+        Some("the container is not there"),
+        "the audit keeps the same reason the person sees",
     );
     assert_eq!(a.runs(), 0, "reconciliation never runs a skill again");
 }
@@ -633,5 +655,684 @@ async fn outcome_unknown_is_not_the_loop_guard() {
         a.runs(),
         1,
         "an unknown outcome does not block unrelated work through the loop guard",
+    );
+}
+
+/// What a test wants to hold: one call to the action repository, with a signal for when the
+/// call is waiting and a permit that lets it continue.
+struct Halt {
+    reached: Arc<Semaphore>,
+    release: Arc<Semaphore>,
+}
+
+impl Halt {
+    fn new() -> Self {
+        Self {
+            reached: Arc::new(Semaphore::new(0)),
+            release: Arc::new(Semaphore::new(0)),
+        }
+    }
+
+    /// Lets the held call continue.
+    fn release(&self) {
+        self.release.add_permits(1);
+    }
+
+    /// Waits until the held call is waiting. The timeout only stops a broken test from
+    /// hanging; it never drives the race.
+    async fn reached(&self) {
+        let permit = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            self.reached.clone().acquire_owned(),
+        )
+        .await
+        .expect("the held call never started")
+        .expect("the signal semaphore was closed");
+        permit.forget();
+    }
+}
+
+/// An action repository that delegates to the store but can hold one `get` for a given
+/// action or one listing of dispatched rows, so a test decides what the service sees next.
+struct GatedStore {
+    inner: Arc<InMemoryStore>,
+    hold_get: Mutex<Option<(ActionId, Arc<Halt>)>>,
+    hold_dispatched: Mutex<Option<Arc<Halt>>>,
+}
+
+impl GatedStore {
+    fn new(inner: Arc<InMemoryStore>) -> Self {
+        Self {
+            inner,
+            hold_get: Mutex::new(None),
+            hold_dispatched: Mutex::new(None),
+        }
+    }
+
+    /// Holds the next read of `id` that finds it dispatched, which is the executor's
+    /// send-time re-read rather than the writer's or the executor's earlier loads.
+    fn hold_get_of_dispatched(&self, id: ActionId) -> Arc<Halt> {
+        let halt = Arc::new(Halt::new());
+        *self.hold_get.lock().unwrap() = Some((id, halt.clone()));
+        halt
+    }
+
+    /// Holds the next listing of dispatched rows.
+    fn hold_dispatched_listing(&self) -> Arc<Halt> {
+        let halt = Arc::new(Halt::new());
+        *self.hold_dispatched.lock().unwrap() = Some(halt.clone());
+        halt
+    }
+}
+
+#[async_trait]
+impl ActionRepo for GatedStore {
+    async fn insert(&self, action: &ActionRequest) -> Result<(), StoreError> {
+        ActionRepo::insert(&*self.inner, action).await
+    }
+
+    async fn update_from(&self, action: &ActionRequest, expected: &str) -> Result<(), StoreError> {
+        ActionRepo::update_from(&*self.inner, action, expected).await
+    }
+
+    async fn get(&self, id: ActionId) -> Result<Option<ActionRequest>, StoreError> {
+        let probe = ActionRepo::get(&*self.inner, id).await?;
+        let dispatched = probe
+            .as_ref()
+            .is_some_and(|action| matches!(action.status(), ActionStatus::Dispatched { .. }));
+        let halt = {
+            let mut held = self.hold_get.lock().unwrap();
+            match held.as_ref() {
+                Some((held_id, _)) if *held_id == id && dispatched => {
+                    held.take().map(|(_, halt)| halt)
+                }
+                _ => None,
+            }
+        };
+        if let Some(halt) = halt {
+            halt.reached.add_permits(1);
+            let _ = halt.release.clone().acquire_owned().await;
+            // Read again after the pause, so the caller sees what the test wrote meanwhile.
+            return ActionRepo::get(&*self.inner, id).await;
+        }
+        Ok(probe)
+    }
+
+    async fn list(
+        &self,
+        filter: &ActionFilter,
+        page: &Page,
+    ) -> Result<Paged<ActionRequest>, StoreError> {
+        let held = (filter.status.as_deref() == Some("dispatched"))
+            .then(|| self.hold_dispatched.lock().unwrap().take())
+            .flatten();
+        if let Some(halt) = held {
+            halt.reached.add_permits(1);
+            let _ = halt.release.clone().acquire_owned().await;
+        }
+        ActionRepo::list(&*self.inner, filter, page).await
+    }
+
+    async fn find_by_chat_token_hash(
+        &self,
+        hash: &[u8; 32],
+    ) -> Result<Option<ActionRequest>, StoreError> {
+        ActionRepo::find_by_chat_token_hash(&*self.inner, hash).await
+    }
+
+    async fn last_run_by_skill(
+        &self,
+        host: domovoi_core::HostId,
+    ) -> Result<BTreeMap<domovoi_core::SkillName, jiff::Timestamp>, StoreError> {
+        ActionRepo::last_run_by_skill(&*self.inner, host).await
+    }
+}
+
+/// Approves `action` through the service, as a person would.
+async fn approve(a: &Actions, action: &ActionRequest) {
+    a.service
+        .approve(
+            action.id(),
+            human(UserId::new()),
+            None,
+            PlanBinding::Full(action.plan_hash()),
+        )
+        .await
+        .unwrap();
+}
+
+/// Lets queued work run until `done` holds for the stored action, without moving time.
+async fn until_dispatched(a: &Actions, id: ActionId) {
+    for _ in 0..1000 {
+        if matches!(a.get(id).await.status(), ActionStatus::Dispatched { .. }) {
+            return;
+        }
+        tokio::task::yield_now().await;
+    }
+    panic!("action {id} was never dispatched");
+}
+
+/// Lets queued work run without moving time.
+async fn settle() {
+    for _ in 0..50 {
+        tokio::task::yield_now().await;
+    }
+}
+
+#[tokio::test]
+async fn a_sent_run_is_never_mistaken_for_not_run() {
+    // The write says dispatched, the request has not reached the agent, and reconciliation
+    // runs: it must not list the row until the hand-off is done, or an empty journal would
+    // turn a run that is about to happen into "nothing was started".
+    let world = seeded().await;
+    let halt = Arc::new(Semaphore::new(0));
+    world.link.hold_skill_handoffs(halt.clone());
+    let a = world.start(ActionSettings::default(), world.store.clone());
+    let (action, _) = a.propose().await;
+    approve(&a, &action).await;
+    until_dispatched(&a, action.id()).await;
+    settle().await;
+    assert_eq!(a.runs(), 0, "the hand-off is held before the agent sees it");
+
+    let pass = tokio::spawn({
+        let service = a.service.clone();
+        async move { service.reconcile_host(host_id()).await }
+    });
+    settle().await;
+    assert!(
+        asked(&a).is_empty(),
+        "reconciliation may not ask the journal while the run is still on its way",
+    );
+
+    halt.add_permits(1);
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), pass).await;
+    let done = a
+        .until(action.id(), |status| {
+            !matches!(
+                status,
+                ActionStatus::Approved | ActionStatus::Dispatched { .. }
+            )
+        })
+        .await;
+    assert!(
+        !matches!(done.status(), ActionStatus::NotRun { .. }),
+        "a run the executor sent is never reported as never started: {:?}",
+        done.status(),
+    );
+    assert_eq!(a.runs(), 1, "the skill reached the agent exactly once");
+}
+
+#[tokio::test]
+async fn a_dispatch_waits_for_the_reconciliation_snapshot() {
+    // Reconciliation reads the pending rows first; a dispatch starting at that moment waits
+    // for the read to finish, so it cannot enter a snapshot that was taken before it.
+    let world = seeded().await;
+    let store = world.store.clone();
+    let gated = Arc::new(GatedStore::new(store.clone()));
+    let a = world
+        .with_actions(gated.clone())
+        .start(ActionSettings::default(), store);
+    let listing = gated.hold_dispatched_listing();
+
+    let pass = tokio::spawn({
+        let service = a.service.clone();
+        async move { service.reconcile_host(host_id()).await }
+    });
+    listing.reached().await;
+
+    let (action, _) = a.propose().await;
+    approve(&a, &action).await;
+    settle().await;
+    assert_eq!(
+        a.get(action.id()).await.status(),
+        &ActionStatus::Approved,
+        "the dispatch cannot be committed while the snapshot is being read",
+    );
+
+    listing.release();
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), pass).await;
+    a.until(action.id(), |status| {
+        matches!(status, ActionStatus::Verified)
+    })
+    .await;
+    assert_eq!(a.runs(), 1, "the action runs once reconciliation lets go");
+}
+
+#[tokio::test]
+async fn a_terminal_run_is_never_sent() {
+    // The row is settled between the writer's answer and the hand-off: the executor re-reads
+    // it and must not send the skill under a status that is already final.
+    let world = seeded().await;
+    let store = world.store.clone();
+    let gated = Arc::new(GatedStore::new(store.clone()));
+    let a = world
+        .with_actions(gated.clone())
+        .start(ActionSettings::default(), store);
+    let (action, _) = a.propose().await;
+    let reading = gated.hold_get_of_dispatched(action.id());
+
+    approve(&a, &action).await;
+    until_dispatched_through(&gated, action.id()).await;
+    reading.reached().await;
+
+    let mut settled = a.get(action.id()).await;
+    settled
+        .never_ran("a person closed it".to_owned(), T0)
+        .unwrap();
+    ActionRepo::update_from(&*a.store, &settled, "dispatched")
+        .await
+        .unwrap();
+    reading.release();
+    settle().await;
+
+    assert_eq!(
+        a.get(action.id()).await.status(),
+        &ActionStatus::NotRun {
+            reason: "a person closed it".to_owned(),
+        },
+        "the terminal decision stands",
+    );
+    assert_eq!(a.runs(), 0, "a terminal action is never sent to the agent");
+}
+
+/// Waits until the store says `id` is dispatched, without reading through the gated write
+/// path the executor is about to use.
+async fn until_dispatched_through(gated: &GatedStore, id: ActionId) {
+    for _ in 0..1000 {
+        let stored = ActionRepo::get(&*gated.inner, id).await.unwrap();
+        if stored.is_some_and(|action| matches!(action.status(), ActionStatus::Dispatched { .. })) {
+            return;
+        }
+        tokio::task::yield_now().await;
+    }
+    panic!("action {id} was never dispatched");
+}
+
+#[tokio::test]
+async fn a_lost_reply_leaves_the_run_dispatched() {
+    let world = seeded().await;
+    world
+        .link
+        .on_skill(|_, _| Err(LinkError::Transport("the agent disconnected".to_owned())));
+    let a = world.start(ActionSettings::default(), world.store.clone());
+    let (action, _) = a.propose().await;
+    approve(&a, &action).await;
+    settle().await;
+
+    assert!(
+        matches!(
+            a.get(action.id()).await.status(),
+            ActionStatus::Dispatched { .. }
+        ),
+        "a reply lost after the hand-off says nothing about the run",
+    );
+    assert_eq!(
+        a.trail(action.id()).await,
+        [
+            audit::PROPOSED.to_owned(),
+            audit::APPROVED.to_owned(),
+            audit::DISPATCHED.to_owned(),
+        ],
+        "no outcome is invented",
+    );
+}
+
+#[tokio::test]
+async fn a_hub_timeout_leaves_the_run_dispatched() {
+    let world = seeded().await;
+    world.link.on_skill(|_, _| Err(LinkError::Timeout));
+    let a = world.start(ActionSettings::default(), world.store.clone());
+    let (action, _) = a.propose().await;
+    approve(&a, &action).await;
+    settle().await;
+
+    assert!(
+        matches!(
+            a.get(action.id()).await.status(),
+            ActionStatus::Dispatched { .. }
+        ),
+        "the hub's own timeout is not the agent's answer",
+    );
+}
+
+#[tokio::test]
+async fn an_unexpected_reply_leaves_the_run_dispatched() {
+    let world = seeded().await;
+    world.link.on_skill(|_, _| {
+        Err(LinkError::Indeterminate(
+            "the agent answered with pong".to_owned(),
+        ))
+    });
+    let a = world.start(ActionSettings::default(), world.store.clone());
+    let (action, _) = a.propose().await;
+    approve(&a, &action).await;
+    settle().await;
+
+    assert!(
+        matches!(
+            a.get(action.id()).await.status(),
+            ActionStatus::Dispatched { .. }
+        ),
+        "a frame that is not a result is not a failure",
+    );
+}
+
+#[tokio::test]
+async fn an_agent_reported_timeout_is_a_confirmed_result() {
+    let world = seeded().await;
+    world
+        .link
+        .on_skill(|_, _| Err(LinkError::Rejected("Timeout: nginx timed out".to_owned())));
+    let a = world.start(ActionSettings::default(), world.store.clone());
+    let (action, _) = a.propose().await;
+    approve(&a, &action).await;
+    let done = a
+        .until(action.id(), |status| {
+            matches!(status, ActionStatus::Failed { .. })
+        })
+        .await;
+
+    assert_eq!(
+        done.status(),
+        &ActionStatus::Failed {
+            reason: "Timeout: nginx timed out".to_owned(),
+        },
+        "an agent that reports a terminal failure is taken at its word",
+    );
+}
+
+#[tokio::test]
+async fn an_agent_refusal_is_a_confirmed_result() {
+    let world = seeded().await;
+    world.link.on_skill(|_, _| {
+        Err(LinkError::Rejected(
+            "PlanMismatch: the approved plan does not match".to_owned(),
+        ))
+    });
+    let a = world.start(ActionSettings::default(), world.store.clone());
+    let (action, _) = a.propose().await;
+    approve(&a, &action).await;
+    let done = a
+        .until(action.id(), |status| {
+            matches!(status, ActionStatus::Failed { .. })
+        })
+        .await;
+
+    assert_eq!(
+        done.status(),
+        &ActionStatus::Failed {
+            reason: "PlanMismatch: the approved plan does not match".to_owned(),
+        },
+        "a refusal with its code is a terminal result, not an unknown outcome",
+    );
+}
+
+#[tokio::test]
+async fn a_full_agent_queue_is_not_a_failure() {
+    let world = seeded().await;
+    world.link.fail_next_skill_handoff(LinkError::Rejected(
+        "the agent already has 256 requests in flight".to_owned(),
+    ));
+    let a = world.start(ActionSettings::default(), world.store.clone());
+    let (action, _) = a.propose().await;
+    approve(&a, &action).await;
+    settle().await;
+
+    assert!(
+        matches!(
+            a.get(action.id()).await.status(),
+            ActionStatus::Dispatched { .. }
+        ),
+        "a request that was never handed over is not a failure",
+    );
+    assert_eq!(a.runs(), 0, "nothing reached the agent");
+}
+
+#[tokio::test]
+async fn an_old_epoch_request_is_never_sent() {
+    // The journal changed between the dispatch and the hand-off. Sending to the replacement
+    // would attach the run to a journal it was never recorded under.
+    let world = seeded().await;
+    let store = world.store.clone();
+    let link = world.link.clone();
+    let gated = Arc::new(GatedStore::new(store.clone()));
+    let a = world
+        .with_actions(gated.clone())
+        .start(ActionSettings::default(), store);
+    let (action, _) = a.propose().await;
+    let reading = gated.hold_get_of_dispatched(action.id());
+    approve(&a, &action).await;
+    until_dispatched_through(&gated, action.id()).await;
+    reading.reached().await;
+
+    link.set_journal_epoch(host_id(), JournalEpoch::from_uuid(uuid::Uuid::now_v7()));
+    reading.release();
+    settle().await;
+
+    assert!(
+        matches!(
+            a.get(action.id()).await.status(),
+            ActionStatus::Dispatched { .. }
+        ),
+        "the run stays dispatched for the new session to settle",
+    );
+    assert_eq!(
+        a.runs(),
+        0,
+        "the replacement session never received the old epoch's run",
+    );
+}
+
+#[tokio::test]
+async fn a_reconciliation_pass_stops_when_the_journal_changes_while_listing() {
+    let world = seeded().await;
+    let epoch = JournalEpoch::from_uuid(uuid::Uuid::now_v7());
+    let action = dispatched_for(world.incident.id(), Some(epoch));
+    let id = action.id();
+    seed(&world, &action).await;
+    let store = world.store.clone();
+    let link = world.link.clone();
+    link.set_journal_epoch(host_id(), epoch);
+    let gated = Arc::new(GatedStore::new(store.clone()));
+    let a = world
+        .with_actions(gated.clone())
+        .start(ActionSettings::default(), store);
+    let listing = gated.hold_dispatched_listing();
+
+    let pass = tokio::spawn({
+        let service = a.service.clone();
+        async move { service.reconcile_host(host_id()).await }
+    });
+    listing.reached().await;
+    // A run dispatched under the replacement session while the old pass is reading.
+    let replacement = JournalEpoch::from_uuid(uuid::Uuid::now_v7());
+    let newer = dispatched_for(a.incident.id(), Some(replacement));
+    ActionRepo::insert(&*a.store, &newer).await.unwrap();
+    link.set_journal_epoch(host_id(), replacement);
+    listing.release();
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), pass).await;
+
+    assert!(
+        asked(&a).is_empty(),
+        "the pass does not ask a replacement session about the old epoch's runs",
+    );
+    assert!(
+        matches!(a.get(id).await.status(), ActionStatus::Dispatched { .. }),
+        "the old epoch's run is left for the replacement's own pass",
+    );
+    assert!(
+        matches!(
+            a.get(newer.id()).await.status(),
+            ActionStatus::Dispatched { .. }
+        ),
+        "a run from the new session is not classified against the old epoch",
+    );
+}
+
+#[tokio::test]
+async fn a_duplicate_answer_for_one_run_settles_it_once() {
+    let world = seeded().await;
+    let epoch = JournalEpoch::from_uuid(uuid::Uuid::now_v7());
+    let action = dispatched_for(world.incident.id(), Some(epoch));
+    let id = action.id();
+    seed(&world, &action).await;
+    world.link.set_journal_epoch(host_id(), epoch);
+    // Two contradictory answers for the same id: the first terminal one wins, the guarded
+    // write refuses the second, and the result does not depend on the order of the loop.
+    world.link.on_action_status(move |_, ids, asked| {
+        let answers = ids
+            .iter()
+            .flat_map(|asked_id| {
+                [
+                    ActionAnswerEntry {
+                        execution: *asked_id,
+                        answer: ActionAnswer::Finished {
+                            succeeded: true,
+                            detail: None,
+                        },
+                    },
+                    ActionAnswerEntry {
+                        execution: *asked_id,
+                        answer: ActionAnswer::Unknown {
+                            reason: UnknownReason::JournalLost,
+                        },
+                    },
+                ]
+            })
+            .collect();
+        Ok(ActionAnswers {
+            epoch: asked,
+            answers,
+        })
+    });
+    let a = world.start(ActionSettings::default(), world.store.clone());
+
+    a.service.reconcile_host(host_id()).await;
+
+    assert_eq!(
+        a.get(id).await.status(),
+        &ActionStatus::Succeeded,
+        "the first terminal answer is the one that is committed",
+    );
+    assert_eq!(
+        a.trail(id).await,
+        [audit::DISPATCHED.to_owned(), audit::SUCCEEDED.to_owned()],
+        "exactly one outcome is recorded",
+    );
+}
+
+#[tokio::test]
+async fn an_answer_from_the_matching_session_is_committed_after_a_replacement() {
+    // The answer is received while the session still matches, so it is legitimate even
+    // though the agent reconnects before the pass finishes.
+    let world = seeded().await;
+    let epoch = JournalEpoch::from_uuid(uuid::Uuid::now_v7());
+    let action = dispatched_for(world.incident.id(), Some(epoch));
+    let id = action.id();
+    seed(&world, &action).await;
+    world.link.set_journal_epoch(host_id(), epoch);
+    let link = world.link.clone();
+    world.link.on_action_status(move |_, ids, asked| {
+        // The replacement happens after the answer was produced under `asked`.
+        link.set_journal_epoch(host_id(), JournalEpoch::from_uuid(uuid::Uuid::now_v7()));
+        Ok(ActionAnswers {
+            epoch: asked,
+            answers: ids
+                .iter()
+                .map(|id| ActionAnswerEntry {
+                    execution: *id,
+                    answer: ActionAnswer::Finished {
+                        succeeded: true,
+                        detail: None,
+                    },
+                })
+                .collect(),
+        })
+    });
+    let a = world.start(ActionSettings::default(), world.store.clone());
+
+    a.service.reconcile_host(host_id()).await;
+
+    assert_eq!(
+        a.get(id).await.status(),
+        &ActionStatus::Succeeded,
+        "evidence received from the matching session is not discarded",
+    );
+}
+
+#[tokio::test]
+async fn a_lost_reply_is_recovered_from_the_journal() {
+    // The whole path: the agent ran the skill and recorded it, the reply never arrived, the
+    // executor left the row dispatched, and the next authenticated pass settles it.
+    let world = seeded().await;
+    world
+        .link
+        .on_skill(|_, _| Err(LinkError::Transport("the reply was dropped".to_owned())));
+    let a = world.start(ActionSettings::default(), world.store.clone());
+    let (action, _) = a.propose().await;
+    approve(&a, &action).await;
+    settle().await;
+    assert!(
+        matches!(
+            a.get(action.id()).await.status(),
+            ActionStatus::Dispatched { .. }
+        ),
+        "a lost reply is not an outcome",
+    );
+
+    a.link.answer(
+        host_id(),
+        action.id(),
+        ActionAnswer::Finished {
+            succeeded: true,
+            detail: None,
+        },
+    );
+    a.service.reconcile_host(host_id()).await;
+
+    assert_eq!(
+        a.get(action.id()).await.status(),
+        &ActionStatus::Succeeded,
+        "the journal's recorded result settles the run",
+    );
+    assert_eq!(
+        a.trail(action.id()).await,
+        [
+            audit::PROPOSED.to_owned(),
+            audit::APPROVED.to_owned(),
+            audit::DISPATCHED.to_owned(),
+            audit::SUCCEEDED.to_owned(),
+        ],
+        "exactly one terminal audit entry",
+    );
+}
+
+#[tokio::test]
+async fn a_lost_reply_about_a_failure_keeps_the_reason() {
+    let world = seeded().await;
+    world
+        .link
+        .on_skill(|_, _| Err(LinkError::Transport("the reply was dropped".to_owned())));
+    let a = world.start(ActionSettings::default(), world.store.clone());
+    let (action, _) = a.propose().await;
+    approve(&a, &action).await;
+    settle().await;
+
+    a.link.answer(
+        host_id(),
+        action.id(),
+        ActionAnswer::Finished {
+            succeeded: false,
+            detail: Some("exited_non_zero: the service did not stop".to_owned()),
+        },
+    );
+    a.service.reconcile_host(host_id()).await;
+
+    assert_eq!(
+        a.get(action.id()).await.status(),
+        &ActionStatus::Failed {
+            reason: "exited_non_zero: the service did not stop".to_owned(),
+        },
+        "a recovered failure keeps its code and message",
     );
 }

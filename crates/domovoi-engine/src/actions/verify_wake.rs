@@ -115,11 +115,14 @@ impl EffectHandler for VerifyWake {
                 shared.deps.redactor.redact(&result.summary),
             ),
             Err(err) => {
-                let transport = matches!(
+                let failures = matches!(
                     err,
-                    LinkError::NotConnected | LinkError::Timeout | LinkError::Transport(_)
+                    LinkError::NotConnected
+                        | LinkError::Timeout
+                        | LinkError::Transport(_)
+                        | LinkError::Indeterminate(_)
                 );
-                if transport && effect.attempt < effect.max_attempts {
+                if failures && effect.attempt < effect.max_attempts {
                     return EffectOutcome::Retry {
                         error: shared.deps.redactor.redact(&err.to_string()),
                     };

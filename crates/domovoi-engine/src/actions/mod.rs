@@ -15,6 +15,7 @@ mod expire;
 mod freshness;
 mod host_wait;
 mod outcome;
+mod preflight;
 mod recheck;
 mod reconcile;
 mod recover;
@@ -155,6 +156,11 @@ pub(crate) struct Shared {
     pub(crate) dispatches: Mutex<Dispatches>,
     /// Actions being run right now, so one is never run twice at once.
     pub(crate) running: Mutex<BTreeSet<ActionId>>,
+    /// One gate per host, held from just before a dispatch is committed until the request
+    /// has been handed to the agent's outgoing queue, and by reconciliation while it reads
+    /// the host's pending rows. That is what keeps a committed-but-unsent run out of a
+    /// reconciliation snapshot, so it can never be mistaken for a run the agent never got.
+    pub(crate) dispatch_gates: Mutex<BTreeMap<HostId, Arc<tokio::sync::Mutex<()>>>>,
     /// The queue into the writer task. The executor hands every transition to that
     /// one writer (ADR 0019) rather than writing action state itself.
     pub(crate) writer: writer::WriterHandle,
@@ -167,6 +173,22 @@ pub(crate) struct Shared {
 }
 
 impl Shared {
+    /// The host's dispatch gate; see [`Shared::dispatch_gates`]. Held while a dispatch is
+    /// committed and handed to the agent, and while reconciliation reads the pending rows.
+    pub(crate) async fn dispatch_gate(&self, host: HostId) -> tokio::sync::OwnedMutexGuard<()> {
+        let gate = {
+            let mut gates = self
+                .dispatch_gates
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            gates
+                .entry(host)
+                .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+                .clone()
+        };
+        gate.lock_owned().await
+    }
+
     /// Publishes `kind` for the incident `action` belongs to.
     pub(crate) async fn publish(&self, action: &ActionRequest, kind: EventKind) {
         match self.deps.incidents.get(action.incident()).await {
@@ -214,6 +236,7 @@ impl ActionService {
             settings,
             dispatches: Mutex::new(BTreeMap::new()),
             running: Mutex::new(BTreeSet::new()),
+            dispatch_gates: Mutex::new(BTreeMap::new()),
             writer: writer.clone(),
             catch_up_slots: Arc::new(tokio::sync::Semaphore::new(executor::MAX_CATCH_UP_RUNS)),
             effects_nudge: effects_nudge.clone(),

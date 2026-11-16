@@ -681,6 +681,8 @@ fn script(link: &FakeAgentLink) {
             version: "0.1.0".to_owned(),
         },
     );
+    // Every dispatch records the journal it was sent under, so the fixture agent has one.
+    link.set_journal_epoch(host_id(), JournalEpoch::from_uuid(uuid::Uuid::now_v7()));
     link.set_skills(host_id(), all_skills());
     link.on_skill(|_, dispatch| {
         if dispatch.skill.as_str() == "restart_failing" {
