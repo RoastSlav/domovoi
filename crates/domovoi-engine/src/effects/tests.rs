@@ -5,8 +5,8 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use async_trait::async_trait;
 use domovoi_core::ports::{
-    AdvisoryRepo, AggregateRef, ClaimBatch, ClaimToken, Clock, EffectDraft, EffectKind,
-    EffectQueue, EffectRead, EffectRecord, Transaction,
+    AdvisoryRepo, AggregateRef, ClaimBatch, ClaimToken, EffectDraft, EffectKind, EffectQueue,
+    EffectRead, EffectRecord, Transaction,
 };
 use domovoi_core::{AdvisoryKind, EffectId, IncidentId};
 use domovoi_testkit::build::T0;
