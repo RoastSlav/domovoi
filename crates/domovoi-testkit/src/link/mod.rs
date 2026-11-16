@@ -102,6 +102,9 @@ pub struct FakeAgentLink {
     handoff_gate: Mutex<Option<std::sync::Arc<tokio::sync::Semaphore>>>,
     /// The error `start_skill` answers with once, instead of handing the request over.
     handoff_failure: Mutex<Option<LinkError>>,
+    /// When set for a host, `action_status` waits for a permit from the gate before it
+    /// answers, so a test can hold a pass inside its journal query.
+    status_gates: Mutex<BTreeMap<HostId, std::sync::Arc<tokio::sync::Semaphore>>>,
     /// Skill requests already handed over, by request id, waiting for `skill_result`.
     sent_skills: Mutex<BTreeMap<domovoi_core::RequestId, SkillDispatch>>,
     handlers: Mutex<Handlers>,
@@ -123,6 +126,7 @@ impl FakeAgentLink {
             status: Mutex::new(None),
             handoff_gate: Mutex::new(None),
             handoff_failure: Mutex::new(None),
+            status_gates: Mutex::new(BTreeMap::new()),
             sent_skills: Mutex::new(BTreeMap::new()),
             handlers: Mutex::new(Handlers::default()),
             requests: Mutex::new(Vec::new()),
@@ -140,6 +144,13 @@ impl FakeAgentLink {
     /// as a full agent queue or an offline host would.
     pub fn fail_next_skill_handoff(&self, error: LinkError) {
         *lock(&self.handoff_failure) = Some(error);
+    }
+
+    /// Makes `action_status` for `host` wait for a permit from `gate` before answering, so a
+    /// test can hold a reconciliation pass inside its journal query. The request is recorded
+    /// before the wait, so the query is visible while it is held.
+    pub fn hold_status_queries(&self, host: HostId, gate: std::sync::Arc<tokio::sync::Semaphore>) {
+        lock(&self.status_gates).insert(host, gate);
     }
 
     /// Sets a host's presence.
@@ -393,6 +404,13 @@ impl AgentLink for FakeAgentLink {
             deadline,
         });
         self.connected(host)?;
+        let gate = lock(&self.status_gates).get(&host).cloned();
+        if let Some(gate) = gate {
+            let _permit = gate
+                .acquire_owned()
+                .await
+                .map_err(|_| LinkError::NotConnected)?;
+        }
         if let Some(handler) = lock(&self.status).clone() {
             return handler(host, &ids, expected_epoch);
         }
