@@ -513,6 +513,8 @@ async fn a_handler_panic_leaves_the_effect_claimed_and_the_runner_running() {
     let task = task_of(runner);
 
     // The other kind is still processed in the same pass as the panic: the runner survives it.
+    // `Terminal` dead-letters on its first claim, so no fake time is needed here; advancing it
+    // would expire the panicking effect's lease and change what the rest of the test checks.
     let mut dead = false;
     for _ in 0..600 {
         settle().await;
@@ -520,7 +522,8 @@ async fn a_handler_panic_leaves_the_effect_claimed_and_the_runner_running() {
             dead = true;
             break;
         }
-        clock.advance(SignedDuration::from_secs(1));
+        // The runner may be waiting on its poll timer; wake it deterministically.
+        nudge.notify_one();
     }
     assert!(dead, "the runner kept claiming after a handler panicked");
     // The panicking task may be polled after its sibling finished, so wait for it to run.
@@ -549,7 +552,7 @@ async fn a_handler_panic_leaves_the_effect_claimed_and_the_runner_running() {
             reclaimed = true;
             break;
         }
-        clock.advance(SignedDuration::from_secs(1));
+        nudge.notify_one();
     }
     assert!(
         reclaimed,
