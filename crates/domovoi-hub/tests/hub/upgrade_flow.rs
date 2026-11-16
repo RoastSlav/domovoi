@@ -488,7 +488,7 @@ async fn terminal(store: &Store, action: ActionId) -> ActionRequest {
             .expect("the action is still there");
         if !matches!(
             found.status(),
-            ActionStatus::Proposed | ActionStatus::Approved | ActionStatus::Dispatched
+            ActionStatus::Proposed | ActionStatus::Approved | ActionStatus::Dispatched { .. }
         ) {
             return found;
         }

@@ -99,6 +99,17 @@ pub fn hello(agent: AgentId, protocol: ProtocolVersion) -> Message {
     hello_running(agent, protocol, "0.1.0")
 }
 
+/// A hello from an agent whose action journal has `epoch`.
+pub fn hello_with_epoch(agent: AgentId, protocol: ProtocolVersion, epoch: uuid::Uuid) -> Message {
+    match hello(agent, protocol) {
+        Message::Hello(mut hello) => {
+            hello.journal_epoch = epoch;
+            Message::Hello(hello)
+        }
+        other => other,
+    }
+}
+
 /// A hello saying the agent runs release `version`, for the minimum-release rule.
 pub fn hello_running(agent: AgentId, protocol: ProtocolVersion, version: &str) -> Message {
     Message::Hello(Hello {

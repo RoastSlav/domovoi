@@ -5,7 +5,7 @@ use std::net::IpAddr;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use domovoi_core::ports::{LinkError, Presence};
-use domovoi_core::{HostId, RequestId, SkillSummary};
+use domovoi_core::{HostId, JournalEpoch, RequestId, SkillSummary};
 use domovoi_proto::messages::{AgentStatus, CheckInfo, DockerReport, HostFacts, SessionId};
 use domovoi_proto::{Message, encode};
 use jiff::Timestamp;
@@ -301,6 +301,23 @@ impl Registry {
         };
         encode(message, RequestId::new(), None)
             .is_ok_and(|frame| live.outbox.try_send(frame).is_ok())
+    }
+
+    /// The journal epoch the host's live session announced, or `None` when it has none.
+    pub fn journal_epoch(&self, host: HostId) -> Option<JournalEpoch> {
+        self.lock()
+            .get(&host)
+            .and_then(|e| e.live.as_ref())
+            .map(|live| JournalEpoch::from_uuid(live.journal_epoch))
+    }
+
+    /// Every host with a live session right now.
+    pub fn live_hosts(&self) -> Vec<HostId> {
+        self.lock()
+            .iter()
+            .filter(|(_, entry)| entry.live.is_some())
+            .map(|(host, _)| *host)
+            .collect()
     }
 
     /// The skills the host's agent announced when it connected.

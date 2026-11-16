@@ -244,7 +244,7 @@ async fn sent(a: &Api, skill: &str, after: SignedDuration) -> jiff::Timestamp {
         .approve(human(domovoi_core::UserId::new()), a.now())
         .unwrap();
     let at = a.now().checked_add(after).unwrap();
-    request.dispatch(request.plan_hash(), at).unwrap();
+    request.dispatch(request.plan_hash(), None, at).unwrap();
     ActionRepo::insert(&*a.store, &request).await.unwrap();
     at
 }

@@ -49,6 +49,7 @@ pub(crate) async fn run_session(
     let journal_epoch = live.journal_epoch;
     inner.registry.register(host, live, remote_ip);
     tracing::info!(%host, agent = %agent.agent, %journal_epoch, "agent connected");
+    reconcile(inner, host);
     let clock = inner.deps.clock.clone();
     let secs = inner.settings.heartbeat.as_secs().max(1);
     let beat = SignedDuration::from_secs(secs);
@@ -87,6 +88,21 @@ pub(crate) async fn run_session(
     .await;
     inner.registry.end(host, session, inner.deps.clock.now());
     result
+}
+
+/// Tells the action service that this host's agent authenticated, so its dispatched runs
+/// are reconciled against the journal. Runs beside the session and stops with the hub.
+pub(super) fn reconcile(inner: &Inner, host: HostId) {
+    let Some(reconciler) = inner.reconciler.get().cloned() else {
+        return;
+    };
+    let shutdown = inner.shutdown.clone();
+    tokio::spawn(async move {
+        tokio::select! {
+            () = shutdown.cancelled() => {}
+            () = reconciler.reconcile_host(host) => {}
+        }
+    });
 }
 
 async fn handle(

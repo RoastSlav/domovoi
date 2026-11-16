@@ -4,13 +4,17 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use domovoi_core::ports::{
-    AgentLink, CheckRecheck, Clock, HostAvailability, HostRepo, LinkError, LogLine, Presence,
-    SkillDispatch, SkillOutput, ToolOutput,
+    ActionAnswer, ActionAnswerEntry, ActionAnswers, AgentLink, CheckRecheck, Clock,
+    HostAvailability, HostRepo, LinkError, LogLine, Presence, SkillDispatch, SkillOutput,
+    ToolOutput, UnknownReason,
 };
-use domovoi_core::{CheckKey, HostId, ReadToolCall, SkillSummary, TargetKey};
+use domovoi_core::{
+    ActionId, CheckKey, HostId, JournalEpoch, ReadToolCall, SkillSummary, TargetKey,
+};
 use domovoi_proto::messages::{
-    GetLogs, RunCheck, RunSkill, RunTool, SkillFailureCode, SkillOutcome, ToolFailureCode,
-    ToolOutcome,
+    ActionState, ActionStatusAnswers, ActionStatusQuery, CapabilityOutcome, GetLogs,
+    OutcomeUnknownReason, RunCheck, RunSkill, RunTool, SkillFailureCode, SkillOutcome,
+    ToolFailureCode, ToolOutcome,
 };
 use domovoi_proto::{Message, PROTOCOL_VERSION};
 use jiff::SignedDuration;
@@ -170,6 +174,60 @@ fn unexpected(message: &Message) -> LinkError {
     LinkError::Rejected(format!("the agent answered with {}", message.kind()))
 }
 
+/// The engine's view of the journal's answers.
+fn answers_from(reply: ActionStatusAnswers) -> ActionAnswers {
+    ActionAnswers {
+        epoch: JournalEpoch::from_uuid(reply.epoch),
+        answers: reply
+            .answers
+            .into_iter()
+            .map(|answer| ActionAnswerEntry {
+                execution: ActionId::from_uuid(answer.execution_id),
+                answer: answer_from(answer.state),
+            })
+            .collect(),
+    }
+}
+
+/// What one journal state means to the engine. A finished run keeps only whether it
+/// succeeded and the agent's message; the output itself is not needed to settle an action.
+fn answer_from(state: ActionState) -> ActionAnswer {
+    match state {
+        ActionState::Finished { result } => match result.outcome {
+            CapabilityOutcome::Succeeded { .. } => ActionAnswer::Finished {
+                succeeded: true,
+                detail: None,
+            },
+            CapabilityOutcome::Failed { message, .. } => ActionAnswer::Finished {
+                succeeded: false,
+                detail: Some(message),
+            },
+        },
+        ActionState::Running => ActionAnswer::Running,
+        ActionState::NotFound => ActionAnswer::NotFound,
+        ActionState::OutcomeUnknown { reason } => ActionAnswer::Unknown {
+            reason: unknown_reason(&reason),
+        },
+    }
+}
+
+/// Why the journal could not establish an outcome. A reason this build does not know is
+/// reported as a lost record: the run may have happened, so nothing is assumed.
+fn unknown_reason(reason: &domovoi_proto::Open<OutcomeUnknownReason>) -> UnknownReason {
+    match reason.known() {
+        Some(OutcomeUnknownReason::NoStartRecord) => UnknownReason::NoStartRecord,
+        Some(OutcomeUnknownReason::AgentRestarted) => UnknownReason::AgentRestarted,
+        Some(OutcomeUnknownReason::JournalLost) => UnknownReason::JournalLost,
+        None => {
+            tracing::warn!(
+                reason = reason.raw(),
+                "the agent reported an unknown outcome reason; treating the record as lost",
+            );
+            UnknownReason::JournalLost
+        }
+    }
+}
+
 #[async_trait]
 impl AgentLink for WsAgentLink {
     async fn run_tool(
@@ -264,6 +322,30 @@ impl AgentLink for WsAgentLink {
             // A live session was answered above; a host never seen in this hub run is
             // unknown until it connects.
             SessionState::Live { .. } | SessionState::Never => HostAvailability::Unknown,
+        }
+    }
+
+    fn journal_epoch(&self, host: HostId) -> Option<JournalEpoch> {
+        self.registry.journal_epoch(host)
+    }
+
+    async fn action_status(
+        &self,
+        host: HostId,
+        ids: Vec<ActionId>,
+        expected_epoch: JournalEpoch,
+        deadline: Timestamp,
+    ) -> Result<ActionAnswers, LinkError> {
+        let query = ActionStatusQuery {
+            execution_ids: ids.iter().map(ActionId::as_uuid).collect(),
+            expected_epoch: expected_epoch.as_uuid(),
+        };
+        match self
+            .request(host, &Message::ActionStatus(query), deadline)
+            .await?
+        {
+            Message::ActionStatusAnswers(reply) => Ok(answers_from(reply)),
+            other => Err(unexpected(&other)),
         }
     }
 

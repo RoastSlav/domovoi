@@ -315,9 +315,10 @@ pub struct ActionDto {
 impl From<&ActionRequest> for ActionDto {
     fn from(a: &ActionRequest) -> Self {
         let reason = match a.status() {
-            ActionStatus::Rejected { reason } | ActionStatus::Failed { reason } => {
-                Some(reason.clone())
-            }
+            ActionStatus::Rejected { reason }
+            | ActionStatus::Failed { reason }
+            | ActionStatus::OutcomeUnknown { reason }
+            | ActionStatus::NotRun { reason } => Some(reason.clone()),
             _ => None,
         };
         let risk = serde_json::to_value(a.risk())

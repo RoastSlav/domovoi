@@ -14,7 +14,9 @@ use domovoi_core::ports::{
     SkillOutput, StoreError, ToolOutput,
 };
 use domovoi_core::skill::SkillName;
-use domovoi_core::{CheckKey, Host, HostId, ReadToolCall, SkillSummary, TargetKey};
+use domovoi_core::{
+    ActionId, CheckKey, Host, HostId, JournalEpoch, ReadToolCall, SkillSummary, TargetKey,
+};
 use jiff::Timestamp;
 use serde_json::Value;
 use serde_json::json;
@@ -200,6 +202,20 @@ impl AgentLink for PolicyLink {
 
     async fn availability(&self, host: HostId) -> HostAvailability {
         AgentLink::availability(&*self.inner, host).await
+    }
+
+    fn journal_epoch(&self, host: HostId) -> Option<JournalEpoch> {
+        AgentLink::journal_epoch(&*self.inner, host)
+    }
+
+    async fn action_status(
+        &self,
+        host: HostId,
+        ids: Vec<ActionId>,
+        expected_epoch: JournalEpoch,
+        deadline: Timestamp,
+    ) -> Result<domovoi_core::ports::ActionAnswers, LinkError> {
+        AgentLink::action_status(&*self.inner, host, ids, expected_epoch, deadline).await
     }
 
     fn skills(&self, host: HostId) -> Vec<SkillSummary> {

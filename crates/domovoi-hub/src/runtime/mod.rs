@@ -13,18 +13,18 @@ mod start;
 mod support;
 #[cfg(test)]
 mod tests;
+mod triage_build;
 pub mod updates;
 
 use std::sync::Arc;
 
 use domovoi_config::{Secrets, hub::HubConfig};
 use domovoi_core::ports::{
-    AgentLink, ChatGateway, Clock, HostRepo, InteractionSink, LogSource, Notifier, ProcessExecutor,
+    ChatGateway, Clock, HostRepo, InteractionSink, LogSource, Notifier, ProcessExecutor,
 };
-use domovoi_engine::triage::{TriageDeps, TriageHandle, TriageService};
 use domovoi_engine::{
-    ActionDeps, ActionHandle, ActionService, DomainEvent, IncidentManager, ManagerDeps,
-    ManagerHandle, PatternRedactor,
+    ActionDeps, ActionService, DomainEvent, IncidentManager, ManagerDeps, ManagerHandle,
+    PatternRedactor,
 };
 use domovoi_llm::LlmBuildError;
 use domovoi_store::{Store, StoreOpenError};
@@ -237,7 +237,8 @@ impl HubRuntime {
             },
             settings::actions(),
         );
-        let triage = build_triage(TriageBuild {
+        server.set_reconciler(Arc::new(actions_service.clone()));
+        let triage = triage_build::build(triage_build::TriageBuild {
             config: &config,
             store: &store,
             link: policy_link.clone(),
@@ -248,19 +249,20 @@ impl HubRuntime {
             executor: deps.process_executor,
             shutdown: &worker_shutdown,
             overrides: &overrides,
-            actions_service: actions_service.clone(),
+            actions: actions_service.clone(),
         })
         .await?;
         let public_url = support::public_url(&config)?;
         let (gateways, notifiers) = adapters::build_chat(&config, &clock, &public_url, &overrides)?;
+        let identity = WebIdentity {
+            public_url: public_url.clone(),
+            trusted_proxies: config.web.trusted_proxies.clone(),
+        };
         let auth = Arc::new(AuthState::new(
             store.clone(),
             store.clone(),
             clock.clone(),
-            WebIdentity {
-                public_url: public_url.clone(),
-                trusted_proxies: config.web.trusted_proxies.clone(),
-            },
+            identity,
         ));
         let settings = settings.map(|(key, sources)| {
             server.use_check_overrides(store.clone());
@@ -406,95 +408,4 @@ impl HubRuntime {
     pub async fn run(self, shutdown: CancellationToken) -> Result<(), RuntimeError> {
         serve::run(self, shutdown).await
     }
-}
-
-struct TriageBuild<'a> {
-    config: &'a HubConfig,
-    store: &'a Arc<Store>,
-    link: Arc<dyn AgentLink>,
-    manager: &'a ManagerHandle,
-    bus: &'a broadcast::Sender<DomainEvent>,
-    clock: &'a Arc<dyn Clock>,
-    redactor: &'a Arc<PatternRedactor>,
-    executor: Option<Arc<dyn ProcessExecutor>>,
-    shutdown: &'a CancellationToken,
-    overrides: &'a AdapterOverrides,
-    actions_service: ActionHandle,
-}
-
-async fn build_triage(
-    input: TriageBuild<'_>,
-) -> Result<(Option<TriageHandle>, Option<JoinHandle<()>>), RuntimeError> {
-    let TriageBuild {
-        config,
-        store,
-        link,
-        manager,
-        bus,
-        clock,
-        redactor,
-        executor,
-        shutdown,
-        overrides,
-        actions_service,
-    } = input;
-    if !config.triage.enabled {
-        return Ok((None, None));
-    }
-    let (primary, configured_fallbacks) = match (&overrides.primary, &config.llm.primary) {
-        (Some(provider), Some(primary_config)) => (
-            provider.clone(),
-            settings::fallback_models_for(primary_config, executor.clone(), clock)?,
-        ),
-        (Some(provider), None) => (provider.clone(), Vec::new()),
-        (None, Some(primary_config)) => {
-            let chain = settings::chain_for(primary_config, executor.clone(), clock)?;
-            let head: Arc<dyn domovoi_core::ports::LlmProvider> =
-                chain.iter().map(Arc::clone).next().ok_or_else(|| {
-                    RuntimeError::Chat("triage is enabled without a primary provider".to_owned())
-                })?;
-            (head, chain.iter().skip(1).map(Arc::clone).collect())
-        }
-        (None, None) => {
-            return Err(RuntimeError::Chat(
-                "triage is enabled without a primary provider".to_owned(),
-            ));
-        }
-    };
-    let tail = match (&overrides.secondary, &config.llm.secondary) {
-        (Some(provider), None) => vec![provider.clone()],
-        (Some(provider), Some(secondary)) => std::iter::chain(
-            std::iter::once(provider.clone()),
-            settings::fallback_models_for(secondary, executor.clone(), clock)?
-                .iter()
-                .map(Arc::clone),
-        )
-        .collect(),
-        (None, Some(secondary)) => settings::chain_for(secondary, executor.clone(), clock)?,
-        (None, None) => Vec::new(),
-    };
-    let fallbacks = std::iter::chain(configured_fallbacks, tail).collect();
-    let (handle, task) = TriageService::spawn(
-        TriageDeps {
-            primary,
-            fallbacks,
-            link,
-            incidents: store.clone(),
-            signals: store.clone(),
-            notes: store.clone(),
-            actions: store.clone(),
-            actions_service,
-            cache: store.clone(),
-            usage: store.clone(),
-            admission: store.clone(),
-            advisories: store.clone(),
-            redactor: redactor.clone(),
-            clock: clock.clone(),
-            manager: manager.clone(),
-            bus: bus.clone(),
-            shutdown: shutdown.clone(),
-        },
-        settings::triage(config),
-    );
-    Ok((Some(handle), Some(task)))
 }
