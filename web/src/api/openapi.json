@@ -3500,7 +3500,7 @@
             "description": "The incident it is for."
           },
           "plan_binding": {
-            "type": "string",
+            "$ref": "#/components/schemas/PlanBinding",
             "description": "Which binding family `plan_hash` belongs to: `v1` or `v2`."
           },
           "plan_hash": {
@@ -5013,6 +5013,14 @@
             "description": "Whether it must be given."
           }
         }
+      },
+      "PlanBinding": {
+        "type": "string",
+        "description": "Which plan-hash family an action's displayed hash belongs to.",
+        "enum": [
+          "v1",
+          "v2"
+        ]
       },
       "PredicateDto": {
         "type": "object",

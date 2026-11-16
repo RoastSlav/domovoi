@@ -265,6 +265,7 @@ impl<S: SweepStore + EffectQueue + AdvisoryRepo + domovoi_core::ports::HostRepo>
         let mut registered = domovoi_testkit::build::host("crash").unwrap();
         registered.id = host_id();
         HostRepo::upsert_host(&*store, &registered).await.unwrap();
+        let agent_id = AgentId::new();
         if HostRepo::live_agent(&*store, host_id())
             .await
             .unwrap()
@@ -273,7 +274,7 @@ impl<S: SweepStore + EffectQueue + AdvisoryRepo + domovoi_core::ports::HostRepo>
             HostRepo::put_agent(
                 &*store,
                 &AgentIdentity {
-                    agent: AgentId::new(),
+                    agent: agent_id,
                     host: host_id(),
                     public_key: [7; 32],
                     version: "0.1.0".to_owned(),
@@ -286,6 +287,7 @@ impl<S: SweepStore + EffectQueue + AdvisoryRepo + domovoi_core::ports::HostRepo>
         }
         let clock = Arc::new(FakeClock::new(T0));
         let link = Arc::new(FakeAgentLink::new());
+        link.set_agent(host_id(), agent_id);
         script(&link);
         let crashing = Arc::new(CrashingStore::new(store.clone()));
         let (bus, _events) = broadcast::channel(256);

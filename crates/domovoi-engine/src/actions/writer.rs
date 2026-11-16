@@ -13,15 +13,15 @@ use domovoi_core::ports::{
     ActionGuard, AuditDraft, ClaimToken, CommitError, Observed, Transaction,
 };
 use domovoi_core::{
-    ActionChange, ActionError, ActionId, ActionRequest, ActionStatus, ApprovalChannel,
-    ApprovalProvenance, Authorization, EffectId, HumanApproval, PlanBinding, PlanHash,
+    ActionChange, ActionError, ActionId, ActionRequest, ActionStatus, AgentSessionId,
+    ApprovalChannel, ApprovalProvenance, Authorization, EffectId, HumanApproval, PlanBinding,
+    PlanHash, PlanTarget,
 };
 use jiff::Timestamp;
 
 use super::approvals::{chat_token_ok, load, refused};
 use super::audit::{self, RunRecord};
 use super::expire;
-use super::freshness;
 use super::outcome::{complete, finish_effect, verify};
 use super::reconcile::ReconcileOutcome;
 use super::reject;
@@ -68,6 +68,12 @@ pub(crate) enum WriteCommand {
     Dispatch {
         id: ActionId,
         plan: PlanHash,
+        /// The v2 target snapshot the plan was calculated from; absent for v1.
+        target: Option<PlanTarget>,
+        /// The authenticated session the plan was calculated from.
+        session: AgentSessionId,
+        /// That session's journal epoch, recorded when the dispatch commits.
+        epoch: domovoi_core::JournalEpoch,
         reply: oneshot::Sender<Decision>,
     },
     Reject {
@@ -233,8 +239,15 @@ async fn process(shared: &Shared, command: WriteCommand) {
             }
             let _ = reply.send(result);
         }
-        WriteCommand::Dispatch { id, plan, reply } => {
-            let result = dispatch(shared, id, plan).await;
+        WriteCommand::Dispatch {
+            id,
+            plan,
+            target,
+            session,
+            epoch,
+            reply,
+        } => {
+            let result = super::dispatch::dispatch(shared, id, plan, target, session, epoch).await;
             if let Err(err) = &result {
                 refused(err, "a dispatch");
             }
@@ -376,43 +389,6 @@ async fn deny(
     )
     .await
     .map_err(|err| stale(err, id))?;
-    Ok(action)
-}
-
-/// Sends `id` to the agent: `Approved → Dispatched` when the plan the agent has now
-/// still matches the approved one, `Approved → Rejected` when it does not (INV-4), and
-/// `Approved → NotRun` when the approval window closed while the request waited. The audit
-/// line says which happened, and the caller only runs the skill when the action it gets
-/// back is `Dispatched`. The run records the journal epoch the host reported, so a later
-/// reconciliation can tell whether that journal is still the one it was sent to.
-async fn dispatch(shared: &Shared, id: ActionId, plan: PlanHash) -> Decision {
-    let mut action = load(shared, id).await?;
-    let now = shared.deps.clock.now();
-    // The executor asked before sending this, but the writer is the one that decides: an
-    // approval that expired, or an incident that was deleted or resolved while the
-    // request waited in the queue, must not be dispatched either. A store that cannot
-    // answer leaves the action approved rather than guessing.
-    let old = freshness::check(shared, &action, now)
-        .await
-        .map_err(|err| ApprovalError::Store(err.to_string()))?;
-    if let freshness::Fresh::Stale(old) = old {
-        if old == freshness::Stale::Expired {
-            return expire::approved_loaded(shared, id, &mut action, now).await;
-        }
-        let reason = old.reason().to_owned();
-        return reject::stop(shared, id, &mut action, reason, false, now).await;
-    }
-    let epoch = shared.deps.link.journal_epoch(action.host());
-    let ActionChange { from, .. } = action
-        .dispatch(plan, epoch, now)
-        .map_err(ApprovalError::Refused)?;
-    let entry = match action.status().clone() {
-        ActionStatus::Rejected { reason } => audit::rejected(&action, &reason, now),
-        _ => audit::dispatched(&action, now),
-    };
-    transition(shared, &action, &from, entry, now)
-        .await
-        .map_err(|err| stale(err, id))?;
     Ok(action)
 }
 

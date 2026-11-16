@@ -78,6 +78,14 @@ define_id!(
     ActionId
 );
 define_id!(
+    /// Identifies one authenticated hub-agent connection.
+    ///
+    /// It is unique per connection and is not the agent's journal epoch: a reconnection may
+    /// keep the journal while replacing the session.
+    AgentSessionId
+);
+
+define_id!(
     /// The opaque idempotency key of one execution of an action.
     ///
     /// At M1 it is the action's [`ActionId`]; later milestones give a step its own id.

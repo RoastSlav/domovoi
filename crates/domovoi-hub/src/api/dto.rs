@@ -8,6 +8,8 @@ use domovoi_core::{
     ActionRequest, ActionStatus, Card, CardBadge, Incident, Principal, TriageReport, Verdict,
 };
 use domovoi_engine::triage::Turn;
+
+use super::plan_binding::PlanBinding;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -301,7 +303,7 @@ pub struct ActionDto {
     /// The stored legacy v1 plan hash, for audit display.
     pub plan_hash_v1: Option<String>,
     /// Which binding family `plan_hash` belongs to: `v1` or `v2`.
-    pub plan_binding: String,
+    pub plan_binding: PlanBinding,
     /// Why it was rejected or failed.
     pub reason: Option<String>,
     /// Who proposed it, for example `system:triage`.
@@ -339,11 +341,7 @@ impl From<&ActionRequest> for ActionDto {
             status: a.status().name().to_owned(),
             plan_hash: a.plan_hash_for_approval().to_string(),
             plan_hash_v1: Some(a.plan_hash().to_string()),
-            plan_binding: if a.plan_hash_v2().is_some() {
-                "v2".to_owned()
-            } else {
-                "v1".to_owned()
-            },
+            plan_binding: PlanBinding::from(a.approval_plan().family()),
             reason,
             proposed_by: match a.proposed_by() {
                 Principal::Human(user) => format!("user:{user}"),
@@ -446,53 +444,5 @@ impl From<&Turn> for TurnDto {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_failed_action_reports_its_code_and_message() {
-        use domovoi_core::{IncidentId, Risk, UserId};
-        use domovoi_testkit::approvals::human;
-        use domovoi_testkit::build::{T0, action, host};
-
-        let mut request = action(IncidentId::new(), host("nas").unwrap().id, Risk::Write).unwrap();
-        domovoi_testkit::approvals::approve(&mut request, human(UserId::new()), T0).unwrap();
-        let plan = request.plan_hash_for_approval();
-        request.dispatch(plan, None, T0).unwrap();
-        request
-            .complete(
-                Err("helper_unavailable: the helper is not reachable".to_owned()),
-                T0,
-            )
-            .unwrap();
-
-        let dto = ActionDto::from(&request);
-        assert_eq!(dto.status, "failed");
-        assert_eq!(
-            dto.reason.as_deref(),
-            Some("helper_unavailable: the helper is not reachable"),
-            "the person sees the failure class and its message",
-        );
-    }
-
-    #[test]
-    fn badges_and_verdicts_use_wire_names() {
-        assert_eq!(verdict_name(Verdict::ActionNeeded), "ACTION_NEEDED");
-        let card = |badge| Card {
-            incident: domovoi_core::IncidentId::new(),
-            host: domovoi_core::HostName::parse("nas").unwrap(),
-            badge,
-            headline: String::new(),
-            bullets: Vec::new(),
-            next_step: None,
-            details: None,
-            buttons: Vec::new(),
-            plans: Vec::new(),
-            resolved: false,
-        };
-        let verdict = CardDto::from(&card(CardBadge::Verdict(Verdict::Monitor)));
-        assert_eq!(verdict.badge, "MONITOR");
-        let severity = CardDto::from(&card(CardBadge::Severity(domovoi_core::Severity::Critical)));
-        assert_eq!(severity.badge, "critical");
-    }
-}
+#[path = "dto_tests.rs"]
+mod tests;

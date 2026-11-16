@@ -27,7 +27,8 @@ pub struct CardPlan {
     pub risk: Risk,
     /// Validated arguments, in name order.
     pub args: Vec<(String, String)>,
-    /// The first 8 hex digits of the action's v1 plan hash.
+    /// The first 8 hex digits of the action's approval-family plan hash: v2 for a new
+    /// action, v1 for a legacy one.
     pub plan_short: String,
     /// When the approval window closes.
     pub expires_at: Timestamp,

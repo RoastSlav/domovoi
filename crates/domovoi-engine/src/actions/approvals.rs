@@ -21,6 +21,12 @@ pub(crate) fn refused(err: &ApprovalError, what: &str) {
         ApprovalError::NotYetSupported => {
             tracing::debug!("{what} carried a policy authorization, which is not supported yet")
         }
+        ApprovalError::MissingAuthorization => {
+            tracing::debug!("{what} had no valid human authorization")
+        }
+        ApprovalError::InconsistentAuthorization => {
+            tracing::debug!("{what} had approval evidence that contradicts its plan")
+        }
         ApprovalError::Refused(reason) => {
             tracing::debug!(%reason, "the action could not take {what}")
         }

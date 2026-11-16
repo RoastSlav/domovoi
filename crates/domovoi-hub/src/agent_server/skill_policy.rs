@@ -1,8 +1,6 @@
 //! Which skills the hub may use on each host: the UI's per-host switch, saved in the
-//! settings table under `host.<name>.skills` as `{"disabled": ["name", ..]}`. The policy
-//! only ever *narrows* what the agent itself allows, so nothing on the agent or the wire
-//! changes: [`PolicyLink`] wraps the real link and hides the disabled skills from
-//! everything the engine asks, refusing them at dispatch too.
+//! settings table under `host.<name>.skills` as `{"disabled": ["name", ..]}`. The policy only
+//! narrows what the agent allows; [`PolicyLink`] hides disabled skills from the engine.
 
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
@@ -24,11 +22,7 @@ use serde_json::json;
 /// Why the hub refuses a disabled skill.
 pub const DISABLED_REASON: &str = "the skill is disabled on this host";
 
-/// The settings key of a host's disabled skills, like the check overrides key.
-#[must_use]
-pub fn host_skills_key(host: &str) -> String {
-    format!("host.{host}.skills")
-}
+use super::skill_policy_key::host_skills_key;
 
 /// Which skills are off per host, kept in memory and in the settings table.
 pub struct SkillPolicy {
@@ -178,13 +172,22 @@ impl AgentLink for PolicyLink {
         &self,
         host: HostId,
         req: SkillDispatch,
+        expected_session: domovoi_core::AgentSessionId,
         expected_epoch: JournalEpoch,
         deadline: Timestamp,
     ) -> Result<SkillHandoff, LinkError> {
         if self.policy.is_disabled(host, &req.skill) {
             return Err(LinkError::Rejected(DISABLED_REASON.to_owned()));
         }
-        AgentLink::start_skill(&*self.inner, host, req, expected_epoch, deadline).await
+        AgentLink::start_skill(
+            &*self.inner,
+            host,
+            req,
+            expected_session,
+            expected_epoch,
+            deadline,
+        )
+        .await
     }
 
     async fn skill_result(
@@ -216,6 +219,10 @@ impl AgentLink for PolicyLink {
 
     fn journal_epoch(&self, host: HostId) -> Option<JournalEpoch> {
         AgentLink::journal_epoch(&*self.inner, host)
+    }
+
+    fn snapshot(&self, host: HostId) -> Option<domovoi_core::ports::AgentSnapshot> {
+        AgentLink::snapshot(&*self.inner, host)
     }
 
     async fn action_status(
@@ -347,6 +354,7 @@ mod tests {
             .start_skill(
                 nas,
                 dispatch(HIDDEN, nas),
+                domovoi_core::AgentSessionId::new(),
                 epoch(),
                 at("2026-11-01T00:05:00Z"),
             )

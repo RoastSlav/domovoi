@@ -143,13 +143,200 @@ async fn the_hash_columns_reject_a_non_hex_value() {
     }
 }
 
+async fn inserted(fresh: &Fresh) -> ActionRequest {
+    let mut action = action(IncidentId::new(), HostId::new(), Risk::Write).unwrap();
+    domovoi_testkit::approvals::approve(
+        &mut action,
+        domovoi_testkit::approvals::human(domovoi_core::UserId::new()),
+        T0,
+    )
+    .unwrap();
+    ActionRepo::insert(&fresh.store, &action).await.unwrap();
+    action
+}
+
+async fn corrupts(fresh: &Fresh, id: ActionRequest, sql: &'static str) -> bool {
+    sqlx::query(sql)
+        .bind(id.id().to_string())
+        .execute(fresh.store.pool_for_tests())
+        .await
+        .unwrap();
+    matches!(
+        ActionRepo::get(&fresh.store, id.id()).await,
+        Err(StoreError::Backend(message)) if message.contains("unreadable")
+    )
+}
+
+#[tokio::test]
+async fn hydration_accepts_a_valid_proposed_v2_row() {
+    let fresh = Fresh::new().await;
+    let action = action(IncidentId::new(), HostId::new(), Risk::Write).unwrap();
+    ActionRepo::insert(&fresh.store, &action).await.unwrap();
+    assert!(
+        ActionRepo::get(&fresh.store, action.id())
+            .await
+            .unwrap()
+            .is_some()
+    );
+}
+
+#[tokio::test]
+async fn hydration_accepts_a_valid_approved_v2_row() {
+    let fresh = Fresh::new().await;
+    let action = inserted(&fresh).await;
+    let stored = ActionRepo::get(&fresh.store, action.id())
+        .await
+        .unwrap()
+        .expect("the approved row loads");
+    assert_eq!(stored.authorization_kind(), Some(AuthorizationKind::Human));
+}
+
+#[tokio::test]
+async fn hydration_rejects_a_v2_approval_without_a_displayed_hash() {
+    let fresh = Fresh::new().await;
+    let action = inserted(&fresh).await;
+    assert!(
+        corrupts(
+            &fresh,
+            action,
+            "UPDATE actions SET approved_plan_hash = NULL WHERE id = ?",
+        )
+        .await,
+        "a v2 approval must keep the displayed hash",
+    );
+}
+
+#[tokio::test]
+async fn hydration_rejects_a_mismatched_approved_hash() {
+    let fresh = Fresh::new().await;
+    let action = inserted(&fresh).await;
+    let other = "11".repeat(32);
+    let refused = sqlx::query("UPDATE actions SET approved_plan_hash = ? WHERE id = ?")
+        .bind(other)
+        .bind(action.id().to_string())
+        .execute(fresh.store.pool_for_tests())
+        .await;
+    assert!(refused.is_ok(), "the CHECK accepts a canonical hash");
+    assert!(
+        matches!(
+            ActionRepo::get(&fresh.store, action.id()).await,
+            Err(StoreError::Backend(message)) if message.contains("does not match")
+        ),
+        "a hash from another plan is corrupt",
+    );
+}
+
+#[tokio::test]
+async fn hydration_rejects_an_approved_row_without_an_approver() {
+    let fresh = Fresh::new().await;
+    let action = inserted(&fresh).await;
+    assert!(
+        corrupts(
+            &fresh,
+            action,
+            "UPDATE actions SET approved_by = NULL, approved_channel = NULL, approved_at = NULL \
+             WHERE id = ?",
+        )
+        .await,
+        "a human approval needs its approver",
+    );
+}
+
+#[tokio::test]
+async fn hydration_rejects_approval_metadata_on_a_proposed_row() {
+    let fresh = Fresh::new().await;
+    let action = action(IncidentId::new(), HostId::new(), Risk::Write).unwrap();
+    ActionRepo::insert(&fresh.store, &action).await.unwrap();
+    let hash = "22".repeat(32);
+    let updated = sqlx::query("UPDATE actions SET approved_plan_hash = ? WHERE id = ?")
+        .bind(hash)
+        .bind(action.id().to_string())
+        .execute(fresh.store.pool_for_tests())
+        .await;
+    assert!(updated.is_ok());
+    assert!(
+        matches!(
+            ActionRepo::get(&fresh.store, action.id()).await,
+            Err(StoreError::Backend(message)) if message.contains("undecided")
+        ),
+        "a proposed action must not carry approval metadata",
+    );
+}
+
+#[tokio::test]
+async fn hydration_accepts_a_v1_approval_with_a_matching_hash() {
+    let fresh = Fresh::new().await;
+    let action = inserted(&fresh).await;
+    sqlx::query(
+        "UPDATE actions SET approved_plan_hash = plan_hash, plan_hash_v2 = NULL WHERE id = ?",
+    )
+    .bind(action.id().to_string())
+    .execute(fresh.store.pool_for_tests())
+    .await
+    .unwrap();
+    let stored = ActionRepo::get(&fresh.store, action.id())
+        .await
+        .unwrap()
+        .expect("the v1 approval loads");
+    assert_eq!(
+        stored.approval_plan().family(),
+        domovoi_core::PlanFamily::V1
+    );
+}
+
+#[tokio::test]
+async fn hydration_accepts_a_legacy_approval_without_displayed_fields() {
+    let fresh = Fresh::new().await;
+    let action = inserted(&fresh).await;
+    sqlx::query(
+        "UPDATE actions SET plan_hash_v2 = NULL, approved_plan_hash = NULL, \
+         approval_session_ref = NULL, approval_client = NULL WHERE id = ?",
+    )
+    .bind(action.id().to_string())
+    .execute(fresh.store.pool_for_tests())
+    .await
+    .unwrap();
+    let stored = ActionRepo::get(&fresh.store, action.id())
+        .await
+        .unwrap()
+        .expect("the legacy approval loads");
+    assert_eq!(stored.approved_plan_hash(), None);
+    assert_eq!(stored.provenance(), None);
+}
+
+#[tokio::test]
+async fn hydration_rejects_a_v1_approval_with_a_mismatched_hash() {
+    let fresh = Fresh::new().await;
+    let action = inserted(&fresh).await;
+    let other = "33".repeat(32);
+    sqlx::query("UPDATE actions SET approved_plan_hash = ?, plan_hash_v2 = NULL WHERE id = ?")
+        .bind(other)
+        .bind(action.id().to_string())
+        .execute(fresh.store.pool_for_tests())
+        .await
+        .unwrap();
+    assert!(
+        matches!(
+            ActionRepo::get(&fresh.store, action.id()).await,
+            Err(StoreError::Backend(message)) if message.contains("does not match")
+        ),
+        "a v1 displayed hash must match the v1 plan",
+    );
+}
+
 /// A row written when `Dispatched` carried no epoch still loads: the epoch is absent, not
 /// invented, so reconciliation can ask its agent what became of the run. Its other fields
 /// are untouched, and the `dispatched` filter still finds it.
 #[tokio::test]
 async fn pre_upgrade_dispatched_status_loads_without_an_epoch() {
     let fresh = Fresh::new().await;
-    let open = action(IncidentId::new(), HostId::new(), Risk::Write).unwrap();
+    let mut open = action(IncidentId::new(), HostId::new(), Risk::Write).unwrap();
+    domovoi_testkit::approvals::approve(
+        &mut open,
+        domovoi_testkit::approvals::human(domovoi_core::UserId::new()),
+        T0,
+    )
+    .unwrap();
     ActionRepo::insert(&fresh.store, &open).await.unwrap();
     sqlx::query(r#"UPDATE actions SET status = '{"type":"dispatched"}' WHERE id = ?"#)
         .bind(open.id().to_string())

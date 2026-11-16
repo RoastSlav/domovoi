@@ -1,12 +1,19 @@
 //! Plan hash v2 end to end: the approval binding, dispatch recomputation and the two hashes.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
-use domovoi_core::ports::{ActionRepo, HostRepo, IncidentRepo, Presence};
+use async_trait::async_trait;
+use domovoi_core::ports::{
+    ActionRepo, AggregateRef, EnrollmentToken, HostRepo, IncidentRepo, JournalRead, Page, Presence,
+    StoreError,
+};
 use domovoi_core::{
-    ActionId, ActionRequest, ActionStatus, ApprovalProvenance, Authorization, ExecutionId,
-    ImplHash, Incident, KeyFingerprint, PlanBinding, PlanContract, PlanHash, PlanTarget,
-    PolicyPermit, PolicyPermitParts, Principal, ScriptDigest, StoredAction, UserId,
+    ActionId, ActionRequest, ActionStatus, AgentId, AgentIdentity, AgentReport, ApprovalProvenance,
+    AuthenticatedReport, Authorization, AuthorizationKind, CheckKey, ExecutionId, Host, HostId,
+    HostName, ImplHash, Incident, KeyFingerprint, PlanBinding, PlanContract, PlanHash, PlanTarget,
+    PolicyPermit, PolicyPermitParts, Principal, ReportOutcome, ScriptDigest, StoredAction,
+    TargetKey, UserId,
 };
 use domovoi_engine::{ActionSettings, ApprovalError};
 use domovoi_testkit::approvals::human;
@@ -14,8 +21,212 @@ use domovoi_testkit::build::{T0, open_incident};
 use domovoi_testkit::link::LinkRequest;
 use jiff::SignedDuration;
 
-use crate::actions_harness::{Actions, actions, verified_restart};
+use crate::actions_harness::{Actions, actions, seeded, verified_restart};
 use crate::harness::host_id;
+
+/// A host repository that holds `live_agent` until the test releases it, so the executor's
+/// session snapshot and target can be paused before the writer decides.
+struct GatedHosts {
+    inner: Arc<domovoi_testkit::InMemoryStore>,
+    gate: Arc<tokio::sync::Semaphore>,
+    calls: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+#[async_trait]
+impl HostRepo for GatedHosts {
+    async fn upsert_host(&self, host: &Host) -> Result<(), StoreError> {
+        self.inner.upsert_host(host).await
+    }
+
+    async fn get_host(&self, id: HostId) -> Result<Option<Host>, StoreError> {
+        self.inner.get_host(id).await
+    }
+
+    async fn get_host_by_name(&self, name: &HostName) -> Result<Option<Host>, StoreError> {
+        self.inner.get_host_by_name(name).await
+    }
+
+    async fn list_hosts(&self) -> Result<Vec<Host>, StoreError> {
+        self.inner.list_hosts().await
+    }
+
+    async fn put_agent(&self, agent: &AgentIdentity) -> Result<(), StoreError> {
+        self.inner.put_agent(agent).await
+    }
+
+    async fn get_agent(&self, id: AgentId) -> Result<Option<AgentIdentity>, StoreError> {
+        self.inner.get_agent(id).await
+    }
+
+    async fn live_agent(&self, host: HostId) -> Result<Option<AgentIdentity>, StoreError> {
+        self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let _permit = self
+            .gate
+            .acquire()
+            .await
+            .map_err(|_| StoreError::Backend("the test gate closed".to_owned()))?;
+        self.inner.live_agent(host).await
+    }
+
+    async fn revoke_agent(&self, id: AgentId, at: jiff::Timestamp) -> Result<(), StoreError> {
+        self.inner.revoke_agent(id, at).await
+    }
+
+    async fn agent_report(&self, agent: AgentId) -> Result<Option<AgentReport>, StoreError> {
+        self.inner.agent_report(agent).await
+    }
+
+    async fn record_agent_report(
+        &self,
+        agent: AgentId,
+        seen: &AuthenticatedReport,
+        now: jiff::Timestamp,
+    ) -> Result<ReportOutcome, StoreError> {
+        self.inner.record_agent_report(agent, seen, now).await
+    }
+
+    async fn create_enrollment_token(&self, token: &EnrollmentToken) -> Result<(), StoreError> {
+        self.inner.create_enrollment_token(token).await
+    }
+
+    async fn consume_enrollment_token(
+        &self,
+        token_hash: &[u8; 32],
+        now: jiff::Timestamp,
+    ) -> Result<HostId, StoreError> {
+        self.inner.consume_enrollment_token(token_hash, now).await
+    }
+}
+
+/// A world whose enrolled-key read the test can hold.
+async fn gated_world() -> (
+    crate::actions_harness::Seeded,
+    Arc<tokio::sync::Semaphore>,
+    Arc<std::sync::atomic::AtomicUsize>,
+) {
+    let world = seeded().await;
+    let gate = Arc::new(tokio::sync::Semaphore::new(0));
+    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let hosts = Arc::new(GatedHosts {
+        inner: world.store.clone(),
+        gate: gate.clone(),
+        calls: calls.clone(),
+    });
+    (world.with_hosts(hosts), gate, calls)
+}
+
+async fn wait_for_key_read(calls: &std::sync::atomic::AtomicUsize) {
+    for _ in 0..5000 {
+        if calls.load(std::sync::atomic::Ordering::SeqCst) > 0 {
+            return;
+        }
+        tokio::task::yield_now().await;
+    }
+    panic!("the executor never reached the enrolled-key read");
+}
+
+#[tokio::test]
+async fn a_replacement_session_never_receives_the_v2_snapshot() {
+    let (world, gate, calls) = gated_world().await;
+    let a = world.start(ActionSettings::default(), world.store.clone());
+    let (action, _) = a.propose().await;
+    approve(&a, &action).await;
+    wait_for_key_read(&calls).await;
+
+    // The executor has taken the snapshot and is held at the key read. Replace the session,
+    // keeping the journal epoch and the manifest hash but changing the entry digest.
+    let mut replacement = verified_restart();
+    replacement.entry_script_digest = ScriptDigest::of_bytes(b"a different entry");
+    a.link.set_skills(host_id(), vec![replacement]);
+    a.link.new_session(host_id());
+    gate.add_permits(4);
+
+    let settled = a
+        .until(action.id(), |status| {
+            matches!(status, ActionStatus::Rejected { .. })
+        })
+        .await;
+    assert!(
+        matches!(settled.status(), ActionStatus::Rejected { reason } if reason.contains("session")),
+        "the replacement session is refused: {:?}",
+        settled.status(),
+    );
+    assert_eq!(a.runs(), 0, "the replacement agent received no request");
+}
+
+#[tokio::test]
+async fn changed_incident_subject_between_executor_and_writer_rejects_dispatch() {
+    let (world, gate, calls) = gated_world().await;
+    let a = world.start(ActionSettings::default(), world.store.clone());
+    let (action, _) = a.propose().await;
+    approve(&a, &action).await;
+    wait_for_key_read(&calls).await;
+
+    let original = IncidentRepo::get(&*a.store, action.incident())
+        .await
+        .unwrap()
+        .expect("the incident is stored");
+    let changed = open_incident(host_id(), "docker.container", Some("/different"))
+        .unwrap()
+        .with_id(original.id());
+    IncidentRepo::update(&*a.store, &changed).await.unwrap();
+    gate.add_permits(4);
+
+    let settled = a
+        .until(action.id(), |status| {
+            matches!(status, ActionStatus::Rejected { .. })
+        })
+        .await;
+    assert!(
+        matches!(settled.status(), ActionStatus::Rejected { reason } if reason.contains("plan")),
+        "the changed subject invalidates the plan: {:?}",
+        settled.status(),
+    );
+    assert_eq!(a.runs(), 0);
+}
+
+#[tokio::test]
+async fn a_session_change_after_the_dispatch_commit_reaches_no_agent() {
+    let a = actions(ActionSettings::default()).await;
+    let gate = Arc::new(tokio::sync::Semaphore::new(0));
+    a.link.hold_skill_handoffs(gate.clone());
+    let (action, _) = a.propose().await;
+    approve(&a, &action).await;
+    a.until(action.id(), |status| {
+        matches!(status, ActionStatus::Dispatched { .. })
+    })
+    .await;
+
+    a.link.new_session(host_id());
+    gate.add_permits(1);
+    let settled = a
+        .until(action.id(), |status| {
+            matches!(status, ActionStatus::NotRun { .. })
+        })
+        .await;
+    assert!(
+        matches!(settled.status(), ActionStatus::NotRun { .. }),
+        "a failed handoff is positive evidence nothing ran",
+    );
+    assert_eq!(a.runs(), 0);
+}
+
+#[tokio::test]
+async fn unchanged_session_and_target_still_run() {
+    let a = actions(ActionSettings::default()).await;
+    let (action, _) = a.propose().await;
+    approve(&a, &action).await;
+    let settled = a
+        .until(action.id(), |status| {
+            matches!(status, ActionStatus::Succeeded | ActionStatus::Verified)
+        })
+        .await;
+    assert!(matches!(
+        settled.status(),
+        ActionStatus::Succeeded | ActionStatus::Verified
+    ));
+    assert_eq!(a.runs(), 1);
+}
 
 /// A run whose agent never comes back, so the executor waits while a test changes the world.
 #[cfg(test)]
@@ -326,6 +537,104 @@ async fn policy_authorization_is_refused_at_m1() {
     assert_eq!(a.get(action.id()).await.status(), &ActionStatus::Proposed);
     assert_eq!(a.runs(), 0);
     assert_eq!(a.trail(action.id()).await, ["action.proposed"]);
+
+    // The dispatch path independently refuses a stored policy authorization.
+    let world = seeded().await;
+    let stored = authorized_row(&world, Some(AuthorizationKind::Policy), false);
+    let id = stored.id;
+    ActionRepo::insert(&*world.store, &ActionRequest::from_stored(stored))
+        .await
+        .unwrap();
+    let a = world.start(ActionSettings::default(), world.store.clone());
+    wait_for_snapshot(&a).await;
+    assert_eq!(
+        a.get(id).await.status(),
+        &ActionStatus::Approved,
+        "a refused dispatch leaves the action approved",
+    );
+    assert_eq!(a.runs(), 0, "no skill reached the agent");
+    assert!(a.trail(id).await.is_empty(), "no dispatch audit entry");
+    let journal = JournalRead::entries_for(&*a.store, &AggregateRef::action(id), Page::MAX_LIMIT)
+        .await
+        .unwrap();
+    assert!(journal.is_empty(), "no dispatch journal entry");
+}
+
+/// A stored v2 action approved by the given case, or with no authorization evidence.
+fn authorized_row(
+    world: &crate::actions_harness::Seeded,
+    kind: Option<AuthorizationKind>,
+    with_approver: bool,
+) -> StoredAction {
+    let skill = verified_restart();
+    let args = skill
+        .validate_args(&BTreeMap::from([(
+            "container".to_owned(),
+            "nginx".to_owned(),
+        )]))
+        .unwrap();
+    let id = ActionId::new();
+    let target = PlanTarget::new(
+        host_id(),
+        KeyFingerprint::of_public_key(&[7; 32]),
+        CheckKey::parse("docker.container").unwrap(),
+        Some(TargetKey::parse("nginx").unwrap()),
+    );
+    let plan_hash = PlanHash::compute(&skill.name, skill.manifest_hash, host_id(), &args);
+    let plan_hash_v2 = PlanHash::compute_v2(
+        &PlanContract::skill(&skill.name, 1).unwrap(),
+        ImplHash::from_parts(skill.manifest_hash, skill.entry_script_digest),
+        &target,
+        &args,
+        ExecutionId::from_action(id),
+    );
+    StoredAction {
+        id,
+        incident: world.incident.id(),
+        host: host_id(),
+        skill: skill.name.clone(),
+        risk: skill.risk,
+        args: args.to_map(),
+        plan_hash,
+        plan_hash_v2: Some(plan_hash_v2),
+        approved_plan_hash: with_approver.then_some(plan_hash_v2),
+        provenance: with_approver.then(|| ApprovalProvenance::new(None, "policy")),
+        authorization_kind: kind,
+        status: ActionStatus::Approved,
+        proposed_by: Principal::System("triage".into()),
+        approved_by: with_approver.then(|| human(UserId::new())),
+        expires_at: T0.checked_add(SignedDuration::from_hours(1)).unwrap(),
+        created_at: T0,
+        updated_at: T0,
+        chat_token_hash: None,
+    }
+}
+
+#[tokio::test]
+async fn dispatch_refuses_an_approved_action_without_authorization_evidence() {
+    let world = seeded().await;
+    let stored = authorized_row(&world, None, false);
+    let id = stored.id;
+    ActionRepo::insert(&*world.store, &ActionRequest::from_stored(stored))
+        .await
+        .unwrap();
+    let a = world.start(ActionSettings::default(), world.store.clone());
+    wait_for_snapshot(&a).await;
+    assert_eq!(a.get(id).await.status(), &ActionStatus::Approved);
+    assert_eq!(a.runs(), 0);
+    assert!(a.trail(id).await.is_empty());
+}
+
+/// Waits until the executor took a session snapshot, proving a negative dispatch test
+/// actually reached the dispatch path instead of merely starting no run.
+async fn wait_for_snapshot(a: &Actions) {
+    for _ in 0..5000 {
+        if a.link.snapshot_calls() > 0 {
+            return;
+        }
+        tokio::task::yield_now().await;
+    }
+    panic!("the executor never reached the dispatch path");
 }
 
 #[tokio::test]

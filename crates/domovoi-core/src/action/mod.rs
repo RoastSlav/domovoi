@@ -13,5 +13,5 @@ pub use authorization::{
 };
 pub use epoch::JournalEpoch;
 pub use plan::{ImplHash, PlanContract, PlanError, PlanTarget};
-pub use request::{ActionRequest, ActionStatus, Principal, StoredAction};
+pub use request::{ActionRequest, ActionStatus, ApprovalPlan, PlanFamily, Principal, StoredAction};
 pub use transition::{ActionChange, ActionError};

@@ -70,10 +70,11 @@ async fn restarted_with(
     let mut registered = domovoi_testkit::build::host("nas").unwrap();
     registered.id = host_id();
     HostRepo::upsert_host(&*store, &registered).await.unwrap();
+    let agent_id = AgentId::new();
     HostRepo::put_agent(
         &*store,
         &AgentIdentity {
-            agent: AgentId::new(),
+            agent: agent_id,
             host: host_id(),
             public_key: [7; 32],
             version: "0.1.0".to_owned(),
@@ -85,6 +86,7 @@ async fn restarted_with(
     .unwrap();
     let clock = Arc::new(FakeClock::new(T0));
     let link = Arc::new(FakeAgentLink::new());
+    link.set_agent(host_id(), agent_id);
     link.set_presence(
         host_id(),
         Presence::Connected {

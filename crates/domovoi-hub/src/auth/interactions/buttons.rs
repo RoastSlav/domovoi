@@ -55,6 +55,9 @@ pub fn approval_reason(err: &ApprovalError) -> String {
         ApprovalError::NotYetSupported => {
             "Policy approvals are not supported yet; a person must approve".to_owned()
         }
+        ApprovalError::MissingAuthorization | ApprovalError::InconsistentAuthorization => {
+            "This approval is not valid; open the incident to review it".to_owned()
+        }
         ApprovalError::Refused(ActionError::ChangedMeanwhile) => {
             "Someone already decided this action".to_owned()
         }

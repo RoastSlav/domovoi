@@ -92,11 +92,10 @@ pub(crate) fn reserve_dispatch(
 /// the reason the action must be rejected before dispatch (INV-4). The rejection itself
 /// is queued for the writer, which audits it.
 pub(crate) fn revalidate(
-    shared: &Shared,
+    skills: &[SkillSummary],
     action: &ActionRequest,
 ) -> Result<(SkillSummary, ValidatedArgs), String> {
-    let skills = shared.deps.link.skills(action.host());
-    let found = skills.into_iter().find(|s| &s.name == action.skill());
+    let found = skills.iter().find(|s| &s.name == action.skill());
     match found {
         None => Err("the skill is no longer on the host".to_owned()),
         Some(skill) if skill.risk != action.risk() => {
@@ -104,7 +103,7 @@ pub(crate) fn revalidate(
         }
         Some(skill) => skill
             .validate_args(action.args())
-            .map(|args| (skill, args))
+            .map(|args| (skill.clone(), args))
             .map_err(|err| format!("the arguments are no longer valid: {err}")),
     }
 }

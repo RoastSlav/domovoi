@@ -10,7 +10,8 @@ use domovoi_core::ports::{
     SkillOutput, ToolOutput, UnknownReason,
 };
 use domovoi_core::{
-    ActionId, CheckKey, HostId, JournalEpoch, ReadToolCall, RequestId, SkillSummary, TargetKey,
+    ActionId, AgentSessionId, CheckKey, HostId, JournalEpoch, ReadToolCall, RequestId,
+    SkillSummary, TargetKey,
 };
 use domovoi_proto::messages::{
     ActionState, ActionStatusAnswers, ActionStatusQuery, CapabilityOutcome, GetLogs,
@@ -130,7 +131,7 @@ impl WsAgentLink {
         if self.clock.now() >= deadline {
             return Err(LinkError::Timeout);
         }
-        let (id, answer, facts) = match self.registry.dispatch(host, message, expected) {
+        let (id, answer, facts) = match self.registry.dispatch(host, message, None, expected) {
             Ok(parts) => parts,
             Err(LinkError::NotConnected) => return Err(self.not_connected(host).await),
             Err(err) => return Err(err),
@@ -328,6 +329,7 @@ impl AgentLink for WsAgentLink {
         &self,
         host: HostId,
         req: SkillDispatch,
+        expected_session: AgentSessionId,
         expected_epoch: JournalEpoch,
         deadline: Timestamp,
     ) -> Result<SkillHandoff, LinkError> {
@@ -335,12 +337,16 @@ impl AgentLink for WsAgentLink {
             return Err(LinkError::Timeout);
         }
         let message = Message::RunSkill(RunSkill::from_dispatch(&req, deadline));
-        let (id, answer, _facts) =
-            match self.registry.dispatch(host, &message, Some(expected_epoch)) {
-                Ok(parts) => parts,
-                Err(LinkError::NotConnected) => return Err(self.not_connected(host).await),
-                Err(err) => return Err(err),
-            };
+        let (id, answer, _facts) = match self.registry.dispatch(
+            host,
+            &message,
+            Some(expected_session),
+            Some(expected_epoch),
+        ) {
+            Ok(parts) => parts,
+            Err(LinkError::NotConnected) => return Err(self.not_connected(host).await),
+            Err(err) => return Err(err),
+        };
         self.sends().insert((host, id), answer);
         Ok(SkillHandoff::new(id))
     }
@@ -414,6 +420,10 @@ impl AgentLink for WsAgentLink {
 
     fn journal_epoch(&self, host: HostId) -> Option<JournalEpoch> {
         self.registry.journal_epoch(host)
+    }
+
+    fn snapshot(&self, host: HostId) -> Option<domovoi_core::ports::AgentSnapshot> {
+        self.registry.snapshot(host)
     }
 
     async fn action_status(

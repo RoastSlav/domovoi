@@ -10,6 +10,7 @@
 mod approvals;
 pub mod audit;
 mod commit;
+mod dispatch;
 mod executor;
 mod expire;
 mod freshness;
@@ -21,6 +22,7 @@ mod reconcile;
 mod record;
 mod recover;
 mod reject;
+mod v2_plan;
 mod verify_wake;
 mod writer;
 mod writer_propose;
@@ -134,6 +136,12 @@ pub enum ApprovalError {
     /// milestone, so nothing is written and the action stays as it was.
     #[error("policy authorizations are not supported yet")]
     NotYetSupported,
+    /// The stored action has no usable human approval behind its `Approved` status.
+    #[error("the action has no valid human authorization")]
+    MissingAuthorization,
+    /// The stored approval evidence contradicts the action's plan or authorization case.
+    #[error("the action's stored approval evidence contradicts its plan")]
+    InconsistentAuthorization,
     /// Another runner holds the effect this write was fenced by: the lease expired and the
     /// effect was reclaimed. Nothing changed.
     #[error("the effect was claimed by someone else")]

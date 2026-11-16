@@ -1018,7 +1018,7 @@ export interface components {
             /** @description The incident it is for. */
             incident_id: string;
             /** @description Which binding family `plan_hash` belongs to: `v1` or `v2`. */
-            plan_binding: string;
+            plan_binding: components["schemas"]["PlanBinding"];
             /**
              * @description The plan hash of this action's own family: what an approval covers and what the
              *     dispatch guard re-checks. New actions use v2; a legacy action keeps v1.
@@ -1613,6 +1613,11 @@ export interface components {
             /** @description Whether it must be given. */
             required: boolean;
         };
+        /**
+         * @description Which plan-hash family an action's displayed hash belongs to.
+         * @enum {string}
+         */
+        PlanBinding: "v1" | "v2";
         /**
          * @description One condition on a signal's evidence. `value` is text, a number, `true` or `false`;
          *     `at_most` and `at_least` need a number, and `in_network` an address such as

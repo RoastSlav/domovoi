@@ -4,8 +4,8 @@ use std::collections::{BTreeMap, HashMap};
 use std::net::IpAddr;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
-use domovoi_core::ports::{LinkError, Presence};
-use domovoi_core::{HostId, JournalEpoch, RequestId, SkillSummary};
+use domovoi_core::ports::{AgentSnapshot, LinkError, Presence};
+use domovoi_core::{AgentId, AgentSessionId, HostId, JournalEpoch, RequestId, SkillSummary};
 use domovoi_proto::messages::{AgentStatus, CheckInfo, DockerReport, HostFacts, SessionId};
 use domovoi_proto::{Message, encode};
 use jiff::Timestamp;
@@ -31,6 +31,10 @@ pub(crate) enum Liveness {
 /// A live, authenticated session.
 pub(crate) struct Live {
     pub session: SessionId,
+    /// The hub-local identity of this authenticated connection.
+    pub identity: AgentSessionId,
+    /// The enrolled agent that authenticated it.
+    pub agent: AgentId,
     pub since: Timestamp,
     pub version: String,
     /// What the agent said about its machine, kept so the hub can profile the host.
@@ -202,13 +206,15 @@ impl Registry {
     /// Queues `message` for the host's agent and returns the request id, where its answer
     /// will arrive, and what the accepting session promised about itself.
     ///
-    /// With `expected_epoch`, the request is only queued when the live session reported that
-    /// journal: the check and the queueing are one step under the same lock, so a session
-    /// that replaces the host's cannot receive a request meant for the old journal.
+    /// With `expected_session` and `expected_epoch`, the request is only queued when the
+    /// live session is exactly that connection and reported that journal: the checks and the
+    /// queueing are one step under the same lock, so a replacement session cannot receive a
+    /// request meant for the old one, even when the journal epoch survived the reconnection.
     pub fn dispatch(
         &self,
         host: HostId,
         message: &Message,
+        expected_session: Option<AgentSessionId>,
         expected_epoch: Option<JournalEpoch>,
     ) -> Result<(RequestId, oneshot::Receiver<Message>, SessionFacts), LinkError> {
         let mut hosts = self.lock();
@@ -216,6 +222,9 @@ impl Registry {
             .get_mut(&host)
             .and_then(|e| e.live.as_mut())
             .ok_or(LinkError::NotConnected)?;
+        if expected_session.is_some_and(|expected| live.identity != expected) {
+            return Err(LinkError::SessionChanged);
+        }
         if expected_epoch.is_some_and(|expected| live.journal_epoch != expected.as_uuid()) {
             return Err(LinkError::SessionChanged);
         }
@@ -364,6 +373,19 @@ impl Registry {
             .and_then(|e| e.live.as_ref())
             .map(|l| l.skills.clone())
             .unwrap_or_default()
+    }
+
+    /// The coherent snapshot of the host's live session.
+    pub fn snapshot(&self, host: HostId) -> Option<AgentSnapshot> {
+        self.lock()
+            .get(&host)
+            .and_then(|e| e.live.as_ref())
+            .map(|live| AgentSnapshot {
+                session: live.identity,
+                agent: live.agent,
+                journal_epoch: JournalEpoch::from_uuid(live.journal_epoch),
+                skills: live.skills.clone(),
+            })
     }
 
     /// Every watched host.

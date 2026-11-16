@@ -37,6 +37,8 @@ pub(crate) async fn run_session(
     let cancel = inner.shutdown.child_token();
     let live = Live {
         session,
+        identity: domovoi_core::AgentSessionId::new(),
+        agent: agent.agent,
         since: inner.deps.clock.now(),
         version: hello.agent_version,
         facts: *hello.facts,

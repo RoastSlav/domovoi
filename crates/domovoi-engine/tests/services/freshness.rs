@@ -380,10 +380,11 @@ async fn waiting_runs_do_not_starve_other_hosts() {
     HostRepo::upsert_host(&*world.store, &registered)
         .await
         .unwrap();
+    let other_agent = AgentId::new();
     HostRepo::put_agent(
         &*world.store,
         &AgentIdentity {
-            agent: AgentId::new(),
+            agent: other_agent,
             host: other,
             public_key: [7; 32],
             version: "0.1.0".to_owned(),
@@ -393,6 +394,7 @@ async fn waiting_runs_do_not_starve_other_hosts() {
     )
     .await
     .unwrap();
+    world.link.set_agent(other, other_agent);
     let other_incident = open_incident(other, "docker.container", Some("nginx")).unwrap();
     IncidentRepo::insert(&*world.store, &other_incident)
         .await
@@ -464,11 +466,12 @@ impl AgentLink for SlowLink {
         &self,
         host: HostId,
         req: SkillDispatch,
+        expected_session: domovoi_core::AgentSessionId,
         expected_epoch: JournalEpoch,
         deadline: jiff::Timestamp,
     ) -> Result<domovoi_core::ports::SkillHandoff, LinkError> {
         self.inner
-            .start_skill(host, req, expected_epoch, deadline)
+            .start_skill(host, req, expected_session, expected_epoch, deadline)
             .await
     }
 
@@ -516,6 +519,10 @@ impl AgentLink for SlowLink {
         self.inner
             .action_status(host, ids, expected_epoch, deadline)
             .await
+    }
+
+    fn snapshot(&self, host: HostId) -> Option<domovoi_core::ports::AgentSnapshot> {
+        self.inner.snapshot(host)
     }
 
     fn skills(&self, host: HostId) -> Vec<domovoi_core::SkillSummary> {

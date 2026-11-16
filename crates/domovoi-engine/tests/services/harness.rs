@@ -8,9 +8,9 @@ use domovoi_core::ports::{
     NoteRepo, Page, Part, Presence, SignalRepo, StopReason, ToolOutput, UnitOfWork, Usage,
 };
 use domovoi_core::{
-    ActionRequest, AgentId, AgentIdentity, CheckKey, Evidence, EvidenceValue, HostId, Incident,
-    Note, NoteId, ParamKind, ParamName, ParamSpec, Risk, Severity, Signal, SkillSummary,
-    SourceKind, TargetKey, TriageOutcome,
+    ActionRequest, AgentIdentity, CheckKey, Evidence, EvidenceValue, HostId, Incident, Note,
+    NoteId, ParamKind, ParamName, ParamSpec, Risk, Severity, Signal, SkillSummary, SourceKind,
+    TargetKey, TriageOutcome,
 };
 use domovoi_engine::triage::{TriageDeps, TriageHandle, TriageService, TriageSettings};
 use domovoi_engine::{
@@ -176,7 +176,7 @@ pub async fn world_over(
     HostRepo::put_agent(
         &*store,
         &AgentIdentity {
-            agent: AgentId::new(),
+            agent: link.agent_id(host_id()),
             host: host_id(),
             public_key: [7; 32],
             version: "0.1.0".to_owned(),

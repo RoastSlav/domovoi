@@ -268,7 +268,7 @@ async fn approve_api_accepts_the_current_plan_hash() {
     assert_eq!(
         reply.body["plan_hash"],
         action.plan_hash_for_approval().to_string(),
-        "the DTO carries the v1 plan hash"
+        "the DTO carries the approval-family plan hash"
     );
 }
 

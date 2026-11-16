@@ -26,6 +26,11 @@ fn approval_error(err: ApprovalError) -> ApiError {
         ApprovalError::NotYetSupported => ApiError::Conflict(
             "policy authorizations are not supported yet; a person must approve".to_owned(),
         ),
+        ApprovalError::MissingAuthorization | ApprovalError::InconsistentAuthorization => {
+            ApiError::Conflict(
+                "the action's stored approval is not valid; reload and review it again".to_owned(),
+            )
+        }
         ApprovalError::Refused(ActionError::DestructiveNeedsTypedConfirmation) => {
             ApiError::Forbidden("type the skill's name to approve a destructive action".to_owned())
         }

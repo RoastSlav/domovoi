@@ -16,18 +16,35 @@ export const PLAN_HASH_HINT_V1 =
 /** The label a legacy action carries, so no client has to infer the binding family. */
 export const PLAN_BINDING_V1_LABEL = "v1 binding";
 
+/** The label an unrecognised binding value carries; it is never shown as v1. */
+export const PLAN_BINDING_UNKNOWN_LABEL = "unknown binding";
+
+/** What an unrecognised binding value means: the card refuses to guess. */
+export const PLAN_HASH_HINT_UNKNOWN =
+  "This action's plan binding is not one this build understands. Reload the page; if it persists, the hub and the web UI are from different versions.";
+
 /** The short plan hash of a waiting action, with the explanation of what it binds. */
 export function PlanTag({ planHash, binding }: { planHash: string; binding: string }) {
-  const v2 = binding === "v2";
+  const label =
+    binding === "v2" ? "v2" : binding === "v1" ? PLAN_BINDING_V1_LABEL : PLAN_BINDING_UNKNOWN_LABEL;
+  const hint =
+    binding === "v2"
+      ? PLAN_HASH_HINT_V2
+      : binding === "v1"
+        ? PLAN_HASH_HINT_V1
+        : PLAN_HASH_HINT_UNKNOWN;
+  const title =
+    binding === "v2"
+      ? "Plan hash v2"
+      : binding === "v1"
+        ? "Plan hash (v1 binding)"
+        : "Plan binding";
   return (
     <Cluster>
       <Tag>Plan {planHash.slice(0, 8)}</Tag>
-      <Tag>{v2 ? "v2" : PLAN_BINDING_V1_LABEL}</Tag>
-      <InfoTip
-        title={v2 ? "Plan hash v2" : "Plan hash (v1 binding)"}
-        learnMore="concepts/actions.html"
-      >
-        {v2 ? PLAN_HASH_HINT_V2 : PLAN_HASH_HINT_V1}
+      <Tag>{label}</Tag>
+      <InfoTip title={title} learnMore="concepts/actions.html">
+        {hint}
       </InfoTip>
     </Cluster>
   );

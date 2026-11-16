@@ -1898,10 +1898,11 @@ async fn connect_host(world: &Seeded, host: HostId, epoch: JournalEpoch) {
     HostRepo::upsert_host(&*world.store, &registered)
         .await
         .unwrap();
+    let agent_id = AgentId::new();
     HostRepo::put_agent(
         &*world.store,
         &AgentIdentity {
-            agent: AgentId::new(),
+            agent: agent_id,
             host,
             public_key: [7; 32],
             version: "0.1.0".to_owned(),
@@ -1911,6 +1912,7 @@ async fn connect_host(world: &Seeded, host: HostId, epoch: JournalEpoch) {
     )
     .await
     .unwrap();
+    world.link.set_agent(host, agent_id);
     world.link.set_presence(
         host,
         Presence::Connected {

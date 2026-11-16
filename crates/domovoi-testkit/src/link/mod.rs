@@ -5,18 +5,21 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use domovoi_core::ports::{
-    ActionAnswer, ActionAnswerEntry, ActionAnswers, AgentLink, CheckRecheck, HostAvailability,
-    LinkError, Presence, SkillDispatch, SkillHandoff, SkillOutput, ToolOutput,
+    ActionAnswer, ActionAnswerEntry, ActionAnswers, AgentLink, AgentSnapshot, CheckRecheck,
+    HostAvailability, LinkError, Presence, SkillDispatch, SkillHandoff, SkillOutput, ToolOutput,
 };
 use domovoi_core::{
-    ActionId, CheckKey, HostId, JournalEpoch, ReadToolCall, SkillSummary, TargetKey,
+    ActionId, AgentId, AgentSessionId, CheckKey, HostId, JournalEpoch, ReadToolCall, SkillSummary,
+    TargetKey,
 };
 use domovoi_proto::messages::{CheckInfo, HostFacts};
 use jiff::Timestamp;
 
 mod recorders;
+mod request;
 
 pub use recorders::{RecordingReconciler, RecordingSignalSink};
+pub use request::LinkRequest;
 
 use crate::lock;
 
@@ -30,51 +33,6 @@ type CheckHandler = Box<
 type StatusHandler = Arc<
     dyn Fn(HostId, &[ActionId], JournalEpoch) -> Result<ActionAnswers, LinkError> + Send + Sync,
 >;
-
-/// One request made through a [`FakeAgentLink`].
-#[derive(Debug, Clone, PartialEq)]
-pub enum LinkRequest {
-    /// `run_tool`.
-    Tool {
-        /// Target host.
-        host: HostId,
-        /// The call.
-        call: ReadToolCall,
-        /// The deadline passed.
-        deadline: Timestamp,
-    },
-    /// `run_skill`.
-    Skill {
-        /// Target host.
-        host: HostId,
-        /// The dispatch.
-        dispatch: SkillDispatch,
-        /// The deadline passed.
-        deadline: Timestamp,
-    },
-    /// `run_check`.
-    Check {
-        /// Target host.
-        host: HostId,
-        /// The check.
-        check: CheckKey,
-        /// The target.
-        target: Option<TargetKey>,
-        /// The deadline passed.
-        deadline: Timestamp,
-    },
-    /// `action_status`.
-    Status {
-        /// Target host.
-        host: HostId,
-        /// The executions asked about.
-        ids: Vec<ActionId>,
-        /// The epoch the caller believes the journal has.
-        expected_epoch: JournalEpoch,
-        /// The deadline passed.
-        deadline: Timestamp,
-    },
-}
 
 #[derive(Default)]
 struct Handlers {
@@ -95,6 +53,8 @@ pub struct FakeAgentLink {
     facts: Mutex<BTreeMap<HostId, HostFacts>>,
     checks: Mutex<BTreeMap<HostId, Vec<CheckInfo>>>,
     epochs: Mutex<BTreeMap<HostId, JournalEpoch>>,
+    agents: Mutex<BTreeMap<HostId, AgentId>>,
+    sessions: Mutex<BTreeMap<HostId, AgentSessionId>>,
     answers: Mutex<BTreeMap<HostId, BTreeMap<ActionId, ActionAnswer>>>,
     status: Mutex<Option<StatusHandler>>,
     /// When set, `start_skill` waits for a permit before it reports the request handed over,
@@ -109,6 +69,7 @@ pub struct FakeAgentLink {
     sent_skills: Mutex<BTreeMap<domovoi_core::RequestId, SkillDispatch>>,
     handlers: Mutex<Handlers>,
     requests: Mutex<Vec<LinkRequest>>,
+    snapshot_calls: std::sync::atomic::AtomicUsize,
 }
 
 impl FakeAgentLink {
@@ -122,6 +83,8 @@ impl FakeAgentLink {
             facts: Mutex::new(BTreeMap::new()),
             checks: Mutex::new(BTreeMap::new()),
             epochs: Mutex::new(BTreeMap::new()),
+            agents: Mutex::new(BTreeMap::new()),
+            sessions: Mutex::new(BTreeMap::new()),
             answers: Mutex::new(BTreeMap::new()),
             status: Mutex::new(None),
             handoff_gate: Mutex::new(None),
@@ -130,6 +93,7 @@ impl FakeAgentLink {
             sent_skills: Mutex::new(BTreeMap::new()),
             handlers: Mutex::new(Handlers::default()),
             requests: Mutex::new(Vec::new()),
+            snapshot_calls: std::sync::atomic::AtomicUsize::new(0),
         }
     }
 
@@ -156,6 +120,28 @@ impl FakeAgentLink {
     /// Sets a host's presence.
     pub fn set_presence(&self, host: HostId, presence: Presence) {
         lock(&self.presence).insert(host, presence);
+    }
+
+    /// The enrolled agent this fake reports for `host`, creating one on first use.
+    pub fn agent_id(&self, host: HostId) -> AgentId {
+        *lock(&self.agents).entry(host).or_default()
+    }
+
+    /// Names the enrolled agent a host's session belongs to.
+    pub fn set_agent(&self, host: HostId, agent: AgentId) {
+        lock(&self.agents).insert(host, agent);
+    }
+
+    /// The connection identity this fake reports for `host`.
+    pub fn session_id(&self, host: HostId) -> AgentSessionId {
+        *lock(&self.sessions).entry(host).or_default()
+    }
+
+    /// Replaces the authenticated connection for `host`, as a reconnect would.
+    pub fn new_session(&self, host: HostId) -> AgentSessionId {
+        let session = AgentSessionId::new();
+        lock(&self.sessions).insert(host, session);
+        session
     }
 
     /// Sets what `availability` reports for a host, separate from its presence. A test uses
@@ -257,8 +243,17 @@ impl FakeAgentLink {
 
     /// Every request so far, oldest first.
     #[must_use]
+    /// Every request made so far, oldest first.
     pub fn requests(&self) -> Vec<LinkRequest> {
         lock(&self.requests).clone()
+    }
+
+    /// How many times the executor asked for a session snapshot. Test support: it proves a
+    /// negative dispatch test actually reached the dispatch path.
+    #[must_use]
+    pub fn snapshot_calls(&self) -> usize {
+        self.snapshot_calls
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     fn connected(&self, host: HostId) -> Result<(), LinkError> {
@@ -302,6 +297,7 @@ impl AgentLink for FakeAgentLink {
         &self,
         host: HostId,
         req: SkillDispatch,
+        expected_session: AgentSessionId,
         expected_epoch: JournalEpoch,
         deadline: Timestamp,
     ) -> Result<SkillHandoff, LinkError> {
@@ -309,15 +305,17 @@ impl AgentLink for FakeAgentLink {
         if let Some(error) = lock(&self.handoff_failure).take() {
             return Err(error);
         }
-        if self.journal_epoch(host) != Some(expected_epoch) {
-            return Err(LinkError::SessionChanged);
-        }
         let gate = lock(&self.handoff_gate).clone();
         if let Some(gate) = gate {
             let _permit = gate
                 .acquire_owned()
                 .await
                 .map_err(|_| LinkError::NotConnected)?;
+        }
+        if self.session_id(host) != expected_session
+            || self.journal_epoch(host) != Some(expected_epoch)
+        {
+            return Err(LinkError::SessionChanged);
         }
         lock(&self.requests).push(LinkRequest::Skill {
             host,
@@ -388,6 +386,20 @@ impl AgentLink for FakeAgentLink {
 
     fn journal_epoch(&self, host: HostId) -> Option<JournalEpoch> {
         lock(&self.epochs).get(&host).copied()
+    }
+
+    fn snapshot(&self, host: HostId) -> Option<AgentSnapshot> {
+        self.snapshot_calls
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        match self.presence(host) {
+            Presence::Connected { .. } => Some(AgentSnapshot {
+                session: self.session_id(host),
+                agent: self.agent_id(host),
+                journal_epoch: self.journal_epoch(host)?,
+                skills: self.skills(host),
+            }),
+            Presence::Disconnected { .. } => None,
+        }
     }
 
     async fn action_status(

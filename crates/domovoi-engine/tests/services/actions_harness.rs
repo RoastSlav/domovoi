@@ -9,9 +9,9 @@ use domovoi_core::ports::{
     JournalRead, Page, Presence, SkillOutput, UnitOfWork,
 };
 use domovoi_core::{
-    ActionId, ActionRequest, ActionStatus, AgentId, AgentIdentity, ApprovalProvenance,
-    Authorization, Evidence, Incident, JournalEpoch, PlanTarget, Principal, Risk, SignalStatus,
-    SkillSummary, VerifySpec,
+    ActionId, ActionRequest, ActionStatus, AgentIdentity, ApprovalProvenance, Authorization,
+    Evidence, Incident, JournalEpoch, PlanTarget, Principal, Risk, SignalStatus, SkillSummary,
+    VerifySpec,
 };
 use domovoi_engine::actions::audit;
 use domovoi_engine::triage::{mint_token, token_hash};
@@ -91,6 +91,9 @@ pub struct Seeded {
     /// Where the action service reads and writes actions; the store itself unless a test
     /// wraps it to hold a call.
     pub actions: Arc<dyn ActionRepo>,
+    /// Where the action service reads hosts and enrolled agents; the store unless a test
+    /// wraps it to control when a snapshot is read.
+    pub hosts: Arc<dyn HostRepo>,
     pub clock: Arc<FakeClock>,
     pub link: Arc<FakeAgentLink>,
     pub bus: broadcast::Sender<DomainEvent>,
@@ -130,7 +133,7 @@ async fn seeded_over(store: Arc<InMemoryStore>) -> Seeded {
     HostRepo::put_agent(
         &*store,
         &AgentIdentity {
-            agent: AgentId::new(),
+            agent: link.agent_id(host_id()),
             host: host_id(),
             public_key: [7; 32],
             version: "0.1.0".to_owned(),
@@ -155,6 +158,7 @@ async fn seeded_over(store: Arc<InMemoryStore>) -> Seeded {
     });
     Seeded {
         actions: store.clone(),
+        hosts: store.clone(),
         store,
         clock,
         link,
@@ -175,6 +179,14 @@ impl Seeded {
         self
     }
 
+    /// Reads hosts and agents through `hosts` instead of the store, so a test can hold the
+    /// enrolled-key read between the executor's snapshot and the writer's decision.
+    #[must_use]
+    pub fn with_hosts(mut self, hosts: Arc<dyn HostRepo>) -> Self {
+        self.hosts = hosts;
+        self
+    }
+
     /// Starts an action service over this world, committing every action write through
     /// `uow`. Each start gets its own shutdown token, so a test can stop one service and
     /// start another over the same store.
@@ -189,7 +201,7 @@ impl Seeded {
             effects: self.store.clone(),
             advisories: self.store.clone(),
             link: self.link.clone(),
-            hosts: self.store.clone(),
+            hosts: self.hosts.clone(),
             redactor: Arc::new(PatternRedactor::new([SecretString::from(
                 SECRET.to_owned(),
             )])),

@@ -10,7 +10,7 @@ import { action, detail, nas } from "../../test/fixtures";
 import { renderAt } from "../../test/render";
 import { ActionCard, suggestedBy } from "./ActionCard";
 import { ApprovalsPage } from "./ApprovalsPage";
-import { PLAN_BINDING_V1_LABEL, PLAN_HASH_HINT_V2 } from "./PlanTag";
+import { PLAN_BINDING_UNKNOWN_LABEL, PLAN_BINDING_V1_LABEL, PLAN_HASH_HINT_V2 } from "./PlanTag";
 
 vi.mock("../../api/client", () => import("../../test/apiMock"));
 
@@ -411,6 +411,16 @@ test("action_card_marks_legacy_actions_as_v1_binding", async () => {
   const item = within(await card("restart_container"));
   expect(item.getByText(PLAN_BINDING_V1_LABEL)).toBeVisible();
   expect(item.queryByText("v2")).toBeNull();
+});
+
+test("unknown_plan_binding_is_never_shown_as_v1", async () => {
+  const odd = action({ id: "act-odd", plan_binding: "v3" as never });
+  routeActions([odd]);
+  open();
+
+  const item = within(await card("restart_container"));
+  expect(item.getByText(PLAN_BINDING_UNKNOWN_LABEL)).toBeVisible();
+  expect(item.queryByText(PLAN_BINDING_V1_LABEL)).toBeNull();
 });
 
 test("model_reason_is_labelled_as_the_models", () => {

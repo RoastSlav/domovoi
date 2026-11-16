@@ -33,10 +33,10 @@ pub mod verdict;
 
 pub use ack::{AckRule, EvidencePredicate, MaintenanceWindow, TargetPattern};
 pub use action::{
-    ActionChange, ActionError, ActionRequest, ActionStatus, ApprovalChannel, ApprovalProvenance,
-    Authorization, AuthorizationKind, HumanApproval, ImplHash, JournalEpoch, PermitError,
-    PlanBinding, PlanContract, PlanError, PlanHash, PlanTarget, PolicyPermit, PolicyPermitParts,
-    Principal, StoredAction,
+    ActionChange, ActionError, ActionRequest, ActionStatus, ApprovalChannel, ApprovalPlan,
+    ApprovalProvenance, Authorization, AuthorizationKind, HumanApproval, ImplHash, JournalEpoch,
+    PermitError, PlanBinding, PlanContract, PlanError, PlanFamily, PlanHash, PlanTarget,
+    PolicyPermit, PolicyPermitParts, Principal, StoredAction,
 };
 pub use actor::{Actor, ActorParseError, SYSTEM_ACTIONS, SYSTEM_AUDIT, SYSTEM_INCIDENTS};
 pub use addr::{in_cidr, valid_cidr};
@@ -52,8 +52,8 @@ pub use host::{
     ProtocolParseError, REPORT_REFRESH, ReportOutcome, ReportedProtocol, host_target_text,
 };
 pub use id::{
-    AckRuleId, ActionId, AdvisoryId, AgentId, EffectId, ExecutionId, HostId, IncidentId, NoteId,
-    RequestId, SignalId, UserId,
+    AckRuleId, ActionId, AdvisoryId, AgentId, AgentSessionId, EffectId, ExecutionId, HostId,
+    IncidentId, NoteId, RequestId, SignalId, UserId,
 };
 pub use incident::{
     Incident, IncidentChange, IncidentEvent, IncidentGroup, IncidentPolicy, IncidentStatus, apply,

@@ -18,9 +18,9 @@ pub mod store_health;
 pub mod uow;
 
 pub use agent_link::{
-    ActionAnswer, ActionAnswerEntry, ActionAnswers, AgentLink, CheckRecheck, HostAvailability,
-    IngestError, LinkError, Presence, SignalSink, SkillDispatch, SkillHandoff, SkillOutput,
-    ToolOutput, UnknownReason,
+    ActionAnswer, ActionAnswerEntry, ActionAnswers, AgentLink, AgentSnapshot, CheckRecheck,
+    HostAvailability, IngestError, LinkError, Presence, SignalSink, SkillDispatch, SkillHandoff,
+    SkillOutput, ToolOutput, UnknownReason,
 };
 pub use chat::{
     ChatError, ChatGateway, InteractionSink, MessageRef, Notifier, OutboundMessage, ThreadRef,

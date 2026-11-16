@@ -12,6 +12,48 @@ use super::plan::{ImplHash, PlanContract, PlanError, PlanTarget};
 use crate::id::{ActionId, ExecutionId, HostId, IncidentId, UserId};
 use crate::skill::{Risk, SkillName, SkillSummary, ValidatedArgs};
 
+/// Which plan-hash family an action uses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PlanFamily {
+    /// The legacy family, kept for an action created before v2 existed.
+    V1,
+    /// The current family, over the contract, implementation, target, arguments and execution.
+    V2,
+}
+
+impl PlanFamily {
+    /// The stored and API name, `v1` or `v2`.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::V1 => "v1",
+            Self::V2 => "v2",
+        }
+    }
+}
+
+/// The approval hash and the family it belongs to, selected in one place.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ApprovalPlan {
+    hash: PlanHash,
+    family: PlanFamily,
+}
+
+impl ApprovalPlan {
+    /// The hash a human approves and the dispatch guard compares.
+    #[must_use]
+    pub const fn hash(self) -> PlanHash {
+        self.hash
+    }
+
+    /// Which family the hash belongs to.
+    #[must_use]
+    pub const fn family(self) -> PlanFamily {
+        self.family
+    }
+}
+
 /// Where an action is in its life. See `ARCHITECTURE.md` section 5.6.
 ///
 /// [`ActionStatus::OutcomeUnknown`] and [`ActionStatus::NotRun`] are terminal: neither is
@@ -271,13 +313,6 @@ impl ActionRequest {
         self.chat_token_hash = None;
     }
 
-    /// Replaces the generated id, for rehydrating stored requests and fixed test ids.
-    #[must_use]
-    pub fn with_id(mut self, id: ActionId) -> Self {
-        self.id = id;
-        self
-    }
-
     /// Unique id.
     #[must_use]
     pub fn id(&self) -> ActionId {
@@ -328,10 +363,26 @@ impl ActionRequest {
 
     /// The hash of the action's own family: v2 when present, else the legacy v1 hash.
     ///
-    /// This is the only version selector; the writer and the DTO both use it.
+    /// Use [`ActionRequest::approval_plan`] when the family is also needed; this is the
+    /// single source of truth for both.
     #[must_use]
     pub fn plan_hash_for_approval(&self) -> PlanHash {
-        self.plan_hash_v2.unwrap_or(self.plan_hash)
+        self.approval_plan().hash()
+    }
+
+    /// The approval hash and its family, selected in one place.
+    #[must_use]
+    pub fn approval_plan(&self) -> ApprovalPlan {
+        match self.plan_hash_v2 {
+            Some(hash) => ApprovalPlan {
+                hash,
+                family: PlanFamily::V2,
+            },
+            None => ApprovalPlan {
+                hash: self.plan_hash,
+                family: PlanFamily::V1,
+            },
+        }
     }
 
     /// The exact hash the approval carried, once one was given.

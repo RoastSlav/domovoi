@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use jiff::Timestamp;
 
 use crate::action::{JournalEpoch, PlanHash};
-use crate::id::{ActionId, HostId, RequestId};
+use crate::id::{ActionId, AgentId, AgentSessionId, HostId, RequestId};
 use crate::signal::{CheckKey, Evidence, Signal, SignalStatus, TargetKey};
 use crate::skill::{SkillName, SkillSummary, ValidatedArgs};
 use crate::triage::ReadToolCall;
@@ -144,6 +144,24 @@ pub struct ActionAnswers {
     pub answers: Vec<ActionAnswerEntry>,
 }
 
+/// The coherent view of one authenticated agent session that a v2 plan is calculated from.
+///
+/// The session id is unique per connection; the journal epoch is not, because it can survive
+/// a reconnection. Every field belongs to the same session and is read together by
+/// [`AgentLink::snapshot`], so a plan cannot mix one session's skills with another session's
+/// key or journal.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentSnapshot {
+    /// The authenticated connection this snapshot describes.
+    pub session: AgentSessionId,
+    /// The enrolled agent that authenticated this connection.
+    pub agent: AgentId,
+    /// The journal epoch this session announced.
+    pub journal_epoch: JournalEpoch,
+    /// The skills this session announced on its handshake.
+    pub skills: Vec<SkillSummary>,
+}
+
 /// Whether an agent is connected.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Presence {
@@ -233,23 +251,31 @@ pub trait AgentLink: Send + Sync {
         deadline: Timestamp,
     ) -> Result<ToolOutput, LinkError>;
 
-    /// Hands one approved skill to `host`'s live session, which must still be the journal
-    /// `expected_epoch` names, and returns once the frame is in that session's outgoing
-    /// queue.
+    /// Hands one approved skill to `host`'s live session, which must still be the exact
+    /// `expected_session` and the journal `expected_epoch` names, and returns once the frame
+    /// is in that session's outgoing queue.
     ///
     /// Failing means no request was handed over: no frame was queued, so the run cannot have
     /// happened. Implementations must not answer with an error after the frame is queued;
     /// every later failure belongs to [`AgentLink::skill_result`], whose errors are not proof
     /// of anything. The executor settles an error here as a run that never started.
-    /// [`LinkError::SessionChanged`] means the journal the action was dispatched
+    /// [`LinkError::SessionChanged`] means the session or journal the action was dispatched
     /// under is gone, so the request is not sent to a replacement.
     async fn start_skill(
         &self,
         host: HostId,
         req: SkillDispatch,
+        expected_session: AgentSessionId,
         expected_epoch: JournalEpoch,
         deadline: Timestamp,
     ) -> Result<SkillHandoff, LinkError>;
+
+    /// The coherent session snapshot for `host`, or `None` with no live session.
+    ///
+    /// The snapshot covers the authenticated session, the enrolled agent, the journal epoch
+    /// and the announced skills. A caller that calculates a v2 plan from it pins all four to
+    /// the session it later hands the request to.
+    fn snapshot(&self, host: HostId) -> Option<AgentSnapshot>;
 
     /// Waits for the terminal answer to a skill request handed over by
     /// [`AgentLink::start_skill`].
@@ -346,10 +372,15 @@ mod tests {
             &self,
             _host: HostId,
             _req: SkillDispatch,
+            _expected_session: crate::id::AgentSessionId,
             _expected_epoch: JournalEpoch,
             _deadline: Timestamp,
         ) -> Result<SkillHandoff, LinkError> {
             Err(LinkError::NotConnected)
+        }
+
+        fn snapshot(&self, _host: HostId) -> Option<AgentSnapshot> {
+            None
         }
 
         async fn skill_result(
