@@ -82,13 +82,40 @@ pub(super) fn process_stat(pid: u32) -> Option<ProcessStat> {
     })
 }
 
+/// Whether a process group still has any member at all.
+#[cfg(target_os = "linux")]
+fn group_exists(pgid: u32) -> Option<bool> {
+    use nix::errno::Errno;
+    use nix::sys::signal::kill;
+    use nix::unistd::Pid;
+    match kill(Pid::from_raw(-(pgid as i32)), None) {
+        Ok(()) => Some(true),
+        Err(Errno::EPERM) => Some(true),
+        Err(Errno::ESRCH) => Some(false),
+        Err(_) => None,
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn group_exists(_pgid: u32) -> Option<bool> {
+    None
+}
+
 /// Whether a process group still has a live (non-zombie) member in `session`.
+///
+/// The kernel's own group-existence check decides an empty group. `/proc` is then scanned
+/// only to find a live member; an entry that disappears during the scan has already exited
+/// and is not treated as unknown.
 pub(super) fn group_state(pgid: u32, session: u32) -> GroupState {
+    match group_exists(pgid) {
+        Some(false) => return GroupState::Empty,
+        None => return GroupState::Unknown,
+        Some(true) => {}
+    }
     let Ok(entries) = std::fs::read_dir("/proc") else {
         return GroupState::Unknown;
     };
     let mut found = false;
-    let mut unreadable = false;
     for entry in entries.flatten() {
         let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
             continue;
@@ -96,23 +123,18 @@ pub(super) fn group_state(pgid: u32, session: u32) -> GroupState {
         let Ok(pid) = name.parse::<u32>() else {
             continue;
         };
-        match process_stat(pid) {
-            Some(stat)
-                if stat.state != 'Z'
-                    && stat.pgrp == pgid
-                    && (session == 0 || stat.session == session) =>
-            {
-                found = true;
-            }
-            Some(_) => {}
-            None => unreadable = true,
+        if let Some(stat) = process_stat(pid)
+            && stat.state != 'Z'
+            && stat.pgrp == pgid
+            && (session == 0 || stat.session == session)
+        {
+            found = true;
         }
     }
     if found {
         GroupState::Alive
-    } else if unreadable {
-        GroupState::Unknown
     } else {
+        // The group exists only as zombies, or every live entry has already exited.
         GroupState::Empty
     }
 }
