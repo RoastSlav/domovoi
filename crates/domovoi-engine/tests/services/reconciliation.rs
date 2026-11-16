@@ -2771,3 +2771,371 @@ async fn hello_passes_take_the_same_bounded_pool() {
         );
     }
 }
+
+/// Waits until the reconciliation scheduler has taken at least `count` hosts from its
+/// waiting set. This is observable state, not a sleep: it proves the scheduler considered a
+/// trigger before the test changes the pool.
+async fn wait_for_scheduler_attempts(a: &Actions, count: u64) {
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while a.service.reconcile_attempts() < count {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the scheduler never considered the pending trigger");
+}
+
+/// Runs one approved action on `host` whose reply is lost, so the executor asks for a pass.
+/// Returns the run's id once the request has been handed over.
+async fn lose_a_reply_on(a: &Actions, host: HostId) -> ActionId {
+    let before = a.runs();
+    let action = a
+        .service
+        .propose(proposed_for_host(a.incident.id(), host))
+        .await
+        .unwrap();
+    approve(a, &action).await;
+    for _ in 0..2000 {
+        if a.runs() > before {
+            return action.id();
+        }
+        tokio::task::yield_now().await;
+    }
+    panic!("the run on {host} was never handed over");
+}
+
+/// Five hosts, four of them holding a hello pass in its query. The fifth loses a reply and
+/// waits for a slot; releasing the hello passes must wake the scheduler without any further
+/// trigger, reconnect or unrelated notification.
+#[tokio::test]
+async fn a_pending_scheduler_pass_is_reawakened_when_hello_passes_release_slots() {
+    let world = seeded().await;
+    let mut hosts = vec![host_id()];
+    for _ in 0..4 {
+        let host = HostId::new();
+        connect_host(&world, host, JournalEpoch::from_uuid(uuid::Uuid::now_v7()));
+        hosts.push(host);
+    }
+    let mut waiting = Vec::new();
+    for host in &hosts[..4] {
+        let epoch = world.link.journal_epoch(*host).expect("a journal");
+        let action = dispatched_to(world.incident.id(), *host, Some(epoch));
+        seed_in(&world.store, &action).await;
+        waiting.push(action.id());
+    }
+    let gate = Arc::new(Semaphore::new(0));
+    for host in &hosts[..4] {
+        world.link.hold_status_queries(*host, gate.clone());
+    }
+    world
+        .link
+        .on_skill(|_, _| Err(LinkError::Transport("the reply was dropped".to_owned())));
+    world.link.on_action_status(|_, ids, epoch| {
+        Ok(ActionAnswers {
+            epoch,
+            answers: ids.iter().map(|id| finished(*id)).collect(),
+        })
+    });
+    let a = world.start(ActionSettings::default(), world.store.clone());
+
+    let mut passes = Vec::new();
+    for host in &hosts[..4] {
+        let service = a.service.clone();
+        let host = *host;
+        passes.push(tokio::spawn(
+            async move { service.reconcile_host(host).await },
+        ));
+    }
+    for _ in 0..5000 {
+        if asked(&a).len() >= MAX_RECONCILE_PASSES {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(
+        asked(&a).len(),
+        MAX_RECONCILE_PASSES,
+        "four hello passes hold every pass slot",
+    );
+
+    let fifth = hosts[4];
+    let fifth_run = lose_a_reply_on(&a, fifth).await;
+    // A second lost reply for the same waiting host must coalesce into the same pass.
+    let fifth_second = lose_a_reply_on(&a, fifth).await;
+    wait_for_scheduler_attempts(&a, 1).await;
+    assert!(
+        asked_of(&a, fifth).is_empty(),
+        "the fifth host waits while hello passes hold every slot",
+    );
+    for id in [fifth_run, fifth_second] {
+        assert!(
+            matches!(a.get(id).await.status(), ActionStatus::Dispatched { .. }),
+            "a lost reply is not an outcome yet",
+        );
+    }
+
+    gate.add_permits(4);
+    for id in [fifth_run, fifth_second] {
+        let settled = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            a.until(id, |status| matches!(status, ActionStatus::Succeeded)),
+        )
+        .await
+        .expect("the fifth host was never reawakened");
+        assert_eq!(settled.status(), &ActionStatus::Succeeded);
+    }
+    let queries = asked_of(&a, fifth);
+    assert_eq!(queries.len(), 1, "the reawakened scheduler asks once");
+    assert_eq!(
+        queries[0].len(),
+        2,
+        "both triggers for the waiting host coalesce into the one pass",
+    );
+    for id in waiting {
+        assert_eq!(
+            a.get(id).await.status(),
+            &ActionStatus::Succeeded,
+            "the hello passes settled the runs they held",
+        );
+    }
+    for pass in passes {
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(5), pass).await;
+    }
+}
+
+/// A hello pass cancelled by its session ending releases its slot and wakes the scheduler
+/// the same way a completed one does.
+#[tokio::test]
+async fn a_cancelled_hello_pass_releases_its_slot_and_wakes_the_scheduler() {
+    let world = seeded().await;
+    let mut hosts = vec![host_id()];
+    for _ in 0..4 {
+        let host = HostId::new();
+        connect_host(&world, host, JournalEpoch::from_uuid(uuid::Uuid::now_v7()));
+        hosts.push(host);
+    }
+    for host in &hosts[..4] {
+        let epoch = world.link.journal_epoch(*host).expect("a journal");
+        let action = dispatched_to(world.incident.id(), *host, Some(epoch));
+        seed_in(&world.store, &action).await;
+    }
+    let gate = Arc::new(Semaphore::new(0));
+    for host in &hosts[..4] {
+        world.link.hold_status_queries(*host, gate.clone());
+    }
+    world
+        .link
+        .on_skill(|_, _| Err(LinkError::Transport("the reply was dropped".to_owned())));
+    world.link.on_action_status(|_, ids, epoch| {
+        Ok(ActionAnswers {
+            epoch,
+            answers: ids.iter().map(|id| finished(*id)).collect(),
+        })
+    });
+    let a = world.start(ActionSettings::default(), world.store.clone());
+
+    let mut passes = Vec::new();
+    for host in &hosts[..4] {
+        let service = a.service.clone();
+        let host = *host;
+        passes.push(tokio::spawn(
+            async move { service.reconcile_host(host).await },
+        ));
+    }
+    for _ in 0..5000 {
+        if asked(&a).len() >= MAX_RECONCILE_PASSES {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(asked(&a).len(), MAX_RECONCILE_PASSES);
+
+    let fifth = hosts[4];
+    let fifth_run = lose_a_reply_on(&a, fifth).await;
+    wait_for_scheduler_attempts(&a, 1).await;
+    assert!(asked_of(&a, fifth).is_empty());
+
+    let cancelled = passes.remove(0);
+    cancelled.abort();
+    let _ = cancelled.await;
+
+    let settled = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        a.until(fifth_run, |status| {
+            matches!(status, ActionStatus::Succeeded)
+        }),
+    )
+    .await
+    .expect("a cancelled hello pass did not release its slot to the scheduler");
+    assert_eq!(settled.status(), &ActionStatus::Succeeded);
+    for pass in passes {
+        pass.abort();
+    }
+}
+
+/// A scheduler-owned pass releasing its slot also wakes the next hosts. Two hosts wait while
+/// the pool is full; each runs in turn as the slot is handed on.
+#[tokio::test]
+async fn a_scheduler_pass_releasing_its_slot_wakes_the_next_hosts() {
+    let world = seeded().await;
+    let mut hosts = vec![host_id()];
+    for _ in 0..5 {
+        let host = HostId::new();
+        connect_host(&world, host, JournalEpoch::from_uuid(uuid::Uuid::now_v7()));
+        hosts.push(host);
+    }
+    for host in &hosts[..3] {
+        let epoch = world.link.journal_epoch(*host).expect("a journal");
+        let action = dispatched_to(world.incident.id(), *host, Some(epoch));
+        seed_in(&world.store, &action).await;
+    }
+    let held = Arc::new(Semaphore::new(0));
+    for host in &hosts[..3] {
+        world.link.hold_status_queries(*host, held.clone());
+    }
+    let slow_slot = Arc::new(Semaphore::new(0));
+    world.link.hold_status_queries(hosts[3], slow_slot.clone());
+    world
+        .link
+        .on_skill(|_, _| Err(LinkError::Transport("the reply was dropped".to_owned())));
+    world.link.on_action_status(|_, ids, epoch| {
+        Ok(ActionAnswers {
+            epoch,
+            answers: ids.iter().map(|id| finished(*id)).collect(),
+        })
+    });
+    let a = world.start(ActionSettings::default(), world.store.clone());
+
+    let mut hello_passes = Vec::new();
+    for host in &hosts[..3] {
+        let service = a.service.clone();
+        let host = *host;
+        hello_passes.push(tokio::spawn(
+            async move { service.reconcile_host(host).await },
+        ));
+    }
+    for _ in 0..5000 {
+        if asked(&a).len() >= 3 {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(asked(&a).len(), 3, "three hello passes hold three slots");
+
+    // The fourth slot goes to a scheduler pass, held inside its query.
+    let scheduler_run = lose_a_reply_on(&a, hosts[3]).await;
+    for _ in 0..5000 {
+        if asked_of(&a, hosts[3]).len() == 1 {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(
+        asked_of(&a, hosts[3]).len(),
+        1,
+        "the scheduler pass is held"
+    );
+
+    // Two more hosts ask for a pass while the pool is full.
+    let first_waiting = lose_a_reply_on(&a, hosts[4]).await;
+    let second_waiting = lose_a_reply_on(&a, hosts[5]).await;
+    wait_for_scheduler_attempts(&a, 3).await;
+    assert!(
+        asked_of(&a, hosts[4]).is_empty() && asked_of(&a, hosts[5]).is_empty(),
+        "both hosts wait while the pool is full",
+    );
+
+    slow_slot.add_permits(1);
+    for id in [scheduler_run, first_waiting, second_waiting] {
+        let settled = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            a.until(id, |status| matches!(status, ActionStatus::Succeeded)),
+        )
+        .await
+        .expect("a waiting host was not woken by the released slot");
+        assert_eq!(settled.status(), &ActionStatus::Succeeded);
+    }
+    for pass in hello_passes {
+        pass.abort();
+    }
+}
+
+/// A hello pass with no pending rows returns early; its released slot wakes the scheduler
+/// for a host that is waiting.
+#[tokio::test]
+async fn a_hello_pass_with_nothing_to_do_releases_its_slot_for_a_waiting_host() {
+    let world = seeded().await;
+    let store = world.store.clone();
+    let gated = Arc::new(GatedStore::new(store.clone()));
+    let mut hosts = vec![host_id()];
+    for _ in 0..4 {
+        let host = HostId::new();
+        connect_host(&world, host, JournalEpoch::from_uuid(uuid::Uuid::now_v7()));
+        hosts.push(host);
+    }
+    for host in &hosts[..3] {
+        let epoch = world.link.journal_epoch(*host).expect("a journal");
+        let action = dispatched_to(world.incident.id(), *host, Some(epoch));
+        seed_in(&world.store, &action).await;
+    }
+    let held = Arc::new(Semaphore::new(0));
+    for host in &hosts[..3] {
+        world.link.hold_status_queries(*host, held.clone());
+    }
+    world
+        .link
+        .on_skill(|_, _| Err(LinkError::Transport("the reply was dropped".to_owned())));
+    world.link.on_action_status(|_, ids, epoch| {
+        Ok(ActionAnswers {
+            epoch,
+            answers: ids.iter().map(|id| finished(*id)).collect(),
+        })
+    });
+    let a = world
+        .with_actions(gated.clone())
+        .start(ActionSettings::default(), store);
+
+    let mut hello_passes = Vec::new();
+    for host in &hosts[..3] {
+        let service = a.service.clone();
+        let host = *host;
+        hello_passes.push(tokio::spawn(
+            async move { service.reconcile_host(host).await },
+        ));
+    }
+    for _ in 0..5000 {
+        if asked(&a).len() >= 3 {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(asked(&a).len(), 3);
+
+    // The fourth slot goes to a hello pass with no rows, held while it reads the listing.
+    let listing = gated.hold_dispatched_listing();
+    let empty = hosts[3];
+    let service = a.service.clone();
+    hello_passes.push(tokio::spawn(
+        async move { service.reconcile_host(empty).await },
+    ));
+    listing.reached().await;
+
+    let fifth = hosts[4];
+    let fifth_run = lose_a_reply_on(&a, fifth).await;
+    wait_for_scheduler_attempts(&a, 1).await;
+    assert!(asked_of(&a, fifth).is_empty());
+
+    listing.release();
+    let settled = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        a.until(fifth_run, |status| {
+            matches!(status, ActionStatus::Succeeded)
+        }),
+    )
+    .await
+    .expect("an early-returning hello pass did not release its slot to the scheduler");
+    assert_eq!(settled.status(), &ActionStatus::Succeeded);
+    for pass in hello_passes {
+        pass.abort();
+    }
+}

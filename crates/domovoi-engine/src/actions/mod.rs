@@ -175,6 +175,10 @@ pub(crate) struct Shared {
     /// Bounds how many hosts reconcile at once, so a burst of triggers starts a bounded
     /// number of passes and one slow host cannot keep every other host waiting.
     pub(crate) reconcile_slots: Arc<tokio::sync::Semaphore>,
+    /// How many hosts the reconciliation scheduler has taken from its waiting set. Test
+    /// support: it lets a test wait until a trigger has actually been considered instead of
+    /// guessing with sleeps.
+    pub(crate) reconcile_attempts: std::sync::atomic::AtomicU64,
     /// Wakes the reconciliation worker.
     pub(crate) reconcile_nudge: Arc<Notify>,
     /// Outcomes that could not be queued on the writer yet; one worker hands them over.
@@ -272,6 +276,7 @@ impl ActionService {
             reconcile_pending: Mutex::new(BTreeSet::new()),
             reconcile_again: Mutex::new(BTreeSet::new()),
             reconcile_slots: Arc::new(tokio::sync::Semaphore::new(reconcile::MAX_RECONCILE_PASSES)),
+            reconcile_attempts: std::sync::atomic::AtomicU64::new(0),
             reconcile_nudge: reconcile_nudge.clone(),
             deferred,
             writer: writer.clone(),
@@ -344,6 +349,17 @@ impl ActionHandle {
     #[must_use]
     pub fn is_alive(&self) -> bool {
         !self.writer.tx.is_closed()
+    }
+
+    /// Test support: how many hosts the reconciliation scheduler has taken from its waiting
+    /// set. Not part of the public contract; it exists so a test can wait until a trigger has
+    /// actually been considered instead of guessing with sleeps.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn reconcile_attempts(&self) -> u64 {
+        self.shared
+            .reconcile_attempts
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Approves action `id` on behalf of the human in `approval`. A chat approval needs

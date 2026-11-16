@@ -61,7 +61,7 @@ const BATCH: usize = 64;
 /// pass already running for that host and for one of the bounded pass slots. A host with no
 /// live session has no answer, so nothing is read or written for it.
 pub(crate) async fn host(shared: &Arc<Shared>, host: HostId) {
-    let Ok(_slot) = shared.reconcile_slots.clone().acquire_owned().await else {
+    let Some(_slot) = queue::take_pass_slot(shared).await else {
         return;
     };
     let _pass = queue::hold_pass(shared.clone(), host).await;

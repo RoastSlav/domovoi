@@ -15,7 +15,7 @@ use std::sync::Arc;
 use std::sync::PoisonError;
 
 use domovoi_core::{ActionId, HostId};
-use tokio::sync::OwnedMutexGuard;
+use tokio::sync::{Notify, OwnedMutexGuard, OwnedSemaphorePermit};
 use tokio::task::JoinSet;
 
 use super::Shared;
@@ -24,6 +24,40 @@ use crate::actions::writer::WriteCommand;
 
 /// How many hosts may reconcile at the same time.
 pub const MAX_RECONCILE_PASSES: usize = 4;
+
+/// One of the bounded pass slots.
+///
+/// Dropping it returns the permit to the semaphore and then wakes the scheduler, whichever
+/// path took it: a scheduler-started pass, a session's hello-triggered pass, or a task that
+/// was cancelled or aborted before it finished. The permit is returned first, so a woken
+/// scheduler always sees the free slot.
+pub(crate) struct PassSlot {
+    permit: Option<OwnedSemaphorePermit>,
+    nudge: Arc<Notify>,
+}
+
+impl PassSlot {
+    fn new(permit: OwnedSemaphorePermit, nudge: Arc<Notify>) -> Self {
+        Self {
+            permit: Some(permit),
+            nudge,
+        }
+    }
+}
+
+impl Drop for PassSlot {
+    fn drop(&mut self) {
+        drop(self.permit.take());
+        self.nudge.notify_one();
+    }
+}
+
+/// Takes a pass slot for a session's hello-triggered pass. Dropping the slot returns it and
+/// wakes the scheduler, including when the session's task is cancelled or aborted.
+pub(crate) async fn take_pass_slot(shared: &Arc<Shared>) -> Option<PassSlot> {
+    let permit = shared.reconcile_slots.clone().acquire_owned().await.ok()?;
+    Some(PassSlot::new(permit, shared.reconcile_nudge.clone()))
+}
 
 /// A host's whole-pass gate, released when the pass ends however it ends: a finished pass,
 /// a cancelled session, or an aborted task. Releasing it also starts the follow-up pass a
@@ -118,18 +152,22 @@ pub(crate) async fn serve(shared: Arc<Shared>) {
         // Start what fits. A slot that is not free leaves its host waiting in the set, so a
         // full pool delays work instead of losing it.
         while let Some(host) = next_pending(&shared) {
+            shared
+                .reconcile_attempts
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let Ok(permit) = shared.reconcile_slots.clone().try_acquire_owned() else {
                 lock(&shared.reconcile_pending).insert(host);
                 break;
             };
+            let slot = PassSlot::new(permit, shared.reconcile_nudge.clone());
             let Some(hold) = try_hold_pass(shared.clone(), host) else {
-                drop(permit);
+                drop(slot);
                 shared.defer_pass(host);
                 continue;
             };
             let worker = shared.clone();
             passes.spawn(async move {
-                let _permit = permit;
+                let _slot = slot;
                 let _hold = hold;
                 super::pass(&worker, host).await;
             });
