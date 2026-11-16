@@ -237,8 +237,11 @@ pub trait AgentLink: Send + Sync {
     /// `expected_epoch` names, and returns once the frame is in that session's outgoing
     /// queue.
     ///
-    /// Failing means no request was handed over: the caller must not treat it as a run that
-    /// failed. [`LinkError::SessionChanged`] means the journal the action was dispatched
+    /// Failing means no request was handed over: no frame was queued, so the run cannot have
+    /// happened. Implementations must not answer with an error after the frame is queued;
+    /// every later failure belongs to [`AgentLink::skill_result`], whose errors are not proof
+    /// of anything. The executor settles an error here as a run that never started.
+    /// [`LinkError::SessionChanged`] means the journal the action was dispatched
     /// under is gone, so the request is not sent to a replacement.
     async fn start_skill(
         &self,

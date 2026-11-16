@@ -23,7 +23,7 @@ stateDiagram-v2
 - **Rejected:** something changed between approval and running, the incident was resolved or deleted, the agent never came back, or the loop guard stopped it. The thread says why.
 - **Dispatched:** it was sent to the agent. If the hub loses the answer, the action stays here and its result is asked for when the agent authenticates again.
 - **Succeeded or Failed:** what the skill's run reported. Failures are posted in the incident's thread.
-- **Never ran:** the agent has no record of it. An approval that expired before it was sent also ends here, instead of being rejected.
+- **Never ran:** the hub could not hand it to the agent, or the agent has no record of it. An approval that expired before it was sent also ends here, instead of being rejected.
 - **Result unknown:** it was sent to the host and may have run. It stays unknown rather than becoming a success or a failure, and a person checks the host before running the work again.
 - **Verified or VerifyFailed:** whether the check that raised the incident passes again afterwards. A verified action marks the incident as fixed. A failed verification is posted in the thread.
 

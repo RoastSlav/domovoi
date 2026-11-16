@@ -171,7 +171,7 @@ stateDiagram-v2
   Dispatched --> Succeeded
   Dispatched --> Failed: the agent reported a failure
   Dispatched --> OutcomeUnknown: journal lost / epoch changed / agent restarted mid-run
-  Dispatched --> NotRun: not_found with matching epoch
+  Dispatched --> NotRun: not_found with matching epoch, or the hub could not hand it over
   Succeeded --> Verified: verify check passes
   Succeeded --> VerifyFailed
 ```

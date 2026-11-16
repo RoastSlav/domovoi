@@ -170,8 +170,9 @@ impl ActionRequest {
     }
 
     /// `Dispatched | Approved → NotRun`: positive evidence the run never started, either
-    /// because the agent's journal has no record of it or because its approval expired
-    /// before it was dispatched. Terminal. `Proposed` expiry stays `Expired`.
+    /// because the agent's journal has no record of it, because the hub never handed the
+    /// request over, or because its approval expired before it was dispatched. Terminal.
+    /// `Proposed` expiry stays `Expired`.
     pub fn never_ran(
         &mut self,
         reason: String,
