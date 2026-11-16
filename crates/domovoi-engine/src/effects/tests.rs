@@ -162,6 +162,9 @@ async fn runner_retries_with_backoff_then_dead_letters() {
         } else {
             clock.advance(SignedDuration::from_secs(1));
         }
+        // The runner may be waiting on its poll timer rather than the clock change; the
+        // nudge is the test's deterministic way to wake it.
+        nudge.notify_one();
     }
     shutdown.cancel();
     task.await.expect("the runner stops");

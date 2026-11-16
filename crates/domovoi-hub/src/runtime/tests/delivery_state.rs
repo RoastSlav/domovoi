@@ -433,16 +433,19 @@ enabled = false",
     );
 
     harness.runtime.as_ref().unwrap().schedulers.minute().await;
-    // The release is handed to the dispatcher; wait for it to finish the delivery.
+    // The release is handed to the dispatcher; wait for the delivery attempt and for the
+    // held card to clear, rather than sampling either once.
     guard(async {
-        while !held(&harness).await.is_empty() {
+        loop {
+            if held(&harness).await.is_empty() && post_attempts(&harness.gateway) >= 7 {
+                break;
+            }
             for _ in 0..20 {
                 tokio::task::yield_now().await;
             }
         }
     })
     .await;
-    assert!(held(&harness).await.is_empty(), "the card went out");
     let incident = harness.incidents().await.remove(0);
     let stored = stored_state(&harness, incident.id())
         .await
