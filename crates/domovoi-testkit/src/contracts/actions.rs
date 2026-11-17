@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 
 use super::{ContractError, ContractResult};
 use crate::approvals::human;
-use crate::build::{BuildError, T0, action, at, manifest, plan_target};
+use crate::build::{BuildError, T0, action, at, manifest};
 
 /// Approves `request` as `user` at `now`, bound to its displayed plan.
 fn approve_request(
@@ -207,11 +207,12 @@ async fn sent(
     let args = summary
         .validate_args(&BTreeMap::new())
         .map_err(BuildError::from)?;
+    let incident = crate::build::incident(host, "disk.usage", None)?.with_id(IncidentId::new());
     let mut request = ActionRequest::propose(
-        IncidentId::new(),
+        &incident,
         &summary,
         &args,
-        Some(plan_target(host)?),
+        Some(crate::build::key_fingerprint()),
         Principal::System("triage".into()),
         SignedDuration::from_hours(1),
         T0,

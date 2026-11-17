@@ -47,10 +47,10 @@ async fn audit_failure_rolls_back_transition_on_sqlite() {
         .summary(domovoi_core::ScriptDigest::of_bytes(b"fixture entry"));
     let args = skill.validate_args(&BTreeMap::new()).unwrap();
     let action = ActionRequest::propose(
-        a.incident.id(),
+        &a.incident,
         &skill,
         &args,
-        Some(domovoi_testkit::build::plan_target(a.nas.id).unwrap()),
+        Some(domovoi_testkit::build::key_fingerprint()),
         Principal::System("triage".into()),
         SignedDuration::from_hours(1),
         a.now(),

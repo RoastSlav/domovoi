@@ -18,8 +18,8 @@ use domovoi_core::ports::{
 };
 use domovoi_core::{
     ActionId, ActionRequest, ActionStatus, AgentId, AgentIdentity, ApprovalProvenance,
-    Authorization, CheckKey, HostId, IncidentId, JournalEpoch, KeyFingerprint, PlanBinding,
-    PlanTarget, Principal, TargetKey, UserId,
+    Authorization, HostId, IncidentId, JournalEpoch, KeyFingerprint, PlanBinding, Principal,
+    UserId,
 };
 use domovoi_engine::ActionSettings;
 use domovoi_engine::actions::MAX_RECONCILE_PASSES;
@@ -67,11 +67,14 @@ fn dispatched_for(incident: IncidentId, epoch: Option<JournalEpoch>) -> ActionRe
 fn dispatched_to(incident: IncidentId, host: HostId, epoch: Option<JournalEpoch>) -> ActionRequest {
     let skill = verified_restart();
     let validated = skill.validate_args(&restart_params()).unwrap();
+    let incident = domovoi_testkit::build::incident(host, "disk.usage", None)
+        .expect("a valid incident")
+        .with_id(incident);
     let mut action = ActionRequest::propose(
-        incident,
+        &incident,
         &skill,
         &validated,
-        Some(domovoi_testkit::build::plan_target(host).unwrap()),
+        Some(domovoi_testkit::build::key_fingerprint()),
         Principal::System("triage".into()),
         SignedDuration::from_hours(1),
         T0,
@@ -1942,16 +1945,14 @@ fn approved_for_host(incident: IncidentId, host: HostId) -> ActionRequest {
 fn proposed_for_host(incident: IncidentId, host: HostId) -> ActionRequest {
     let skill = verified_restart();
     let validated = skill.validate_args(&restart_params()).unwrap();
+    let incident = domovoi_testkit::build::incident(host, "docker.container", Some("nginx"))
+        .expect("a valid incident")
+        .with_id(incident);
     ActionRequest::propose(
-        incident,
+        &incident,
         &skill,
         &validated,
-        Some(PlanTarget::new(
-            host,
-            KeyFingerprint::of_public_key(&[7u8; 32]),
-            CheckKey::parse("docker.container").unwrap(),
-            Some(TargetKey::parse("nginx").unwrap()),
-        )),
+        Some(KeyFingerprint::of_public_key(&[7u8; 32])),
         Principal::System("triage".into()),
         SignedDuration::from_hours(1),
         T0,

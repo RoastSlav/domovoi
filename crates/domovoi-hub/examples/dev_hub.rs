@@ -207,7 +207,7 @@ fn firing(
     .with_class(SignalClass::Immediate))
 }
 
-async fn seed_actions(store: &Store, nas: HostId) -> Result<()> {
+async fn seed_actions(store: &Store) -> Result<()> {
     let mut found = None;
     for _ in 0..50 {
         let page = IncidentRepo::list(
@@ -236,10 +236,10 @@ async fn seed_actions(store: &Store, nas: HostId) -> Result<()> {
             manifest(skill, risk)?.summary(domovoi_core::ScriptDigest::of_bytes(b"fixture entry"));
         let args = summary.validate_args(&BTreeMap::new())?;
         let action = ActionRequest::propose(
-            incident.id(),
+            &incident,
             &summary,
             &args,
-            Some(domovoi_testkit::build::plan_target(nas)?),
+            Some(domovoi_testkit::build::key_fingerprint()),
             Principal::System("triage".into()),
             SignedDuration::from_hours(4),
             Timestamp::now(),
@@ -536,7 +536,7 @@ async fn main() -> Result<()> {
             "Disk /srv is 93% full",
         )?])
         .await?;
-    seed_actions(&store, nas).await?;
+    seed_actions(&store).await?;
     let found = HostRepo::get_host(&*store, nas).await?;
     let Some(seeded) = found else {
         return Err("the nas host is missing".into());

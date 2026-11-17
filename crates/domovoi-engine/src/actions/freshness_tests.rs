@@ -140,13 +140,10 @@ impl Writer {
             .summary(domovoi_core::ScriptDigest::of_bytes(b"fixture entry"));
         let args = skill.validate_args(&BTreeMap::new()).unwrap();
         let mut action = ActionRequest::propose(
-            incident.id(),
+            &incident,
             &skill,
             &args,
-            Some(PlanTarget::of_incident(
-                &incident,
-                KeyFingerprint::of_public_key(&[7u8; 32]),
-            )),
+            Some(KeyFingerprint::of_public_key(&[7u8; 32])),
             Principal::System("triage".into()),
             SignedDuration::from_hours(1),
             T0,

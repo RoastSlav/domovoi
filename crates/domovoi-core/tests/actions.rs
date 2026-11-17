@@ -8,10 +8,10 @@ use std::collections::BTreeMap;
 use domovoi_core::{
     ActionChange, ActionError, ActionId, ActionRequest, ActionStatus, ApprovalChannel,
     ApprovalEvidenceError, ApprovalProvenance, Authorization, AuthorizationKind, CheckKey,
-    ExecutionId, HostId, HumanApproval, ImplHash, IncidentId, JournalEpoch, KeyFingerprint,
-    ManifestHash, ParamKind, ParamName, ParamSpec, PlanBinding, PlanContract, PlanFamily, PlanHash,
-    PlanTarget, Principal, Risk, SkillName, SkillSummary, StoredAction, StoredActionError, UserId,
-    ValidatedArgs,
+    ExecutionId, HostId, HumanApproval, ImplHash, Incident, IncidentId, JournalEpoch,
+    KeyFingerprint, ManifestHash, ParamKind, ParamName, ParamSpec, PlanBinding, PlanContract,
+    PlanFamily, PlanHash, PlanTarget, Principal, Risk, Severity, Signal, SkillName, SkillSummary,
+    SourceKind, StoredAction, StoredActionError, TargetKey, UserId, ValidatedArgs,
 };
 use jiff::{SignedDuration, Timestamp};
 use uuid::Uuid;
@@ -83,15 +83,35 @@ fn approve_with(
     )
 }
 
+#[cfg(test)]
+fn incident(id: IncidentId, host: HostId, check: &str, target: Option<&str>) -> Incident {
+    let signal = Signal::firing(
+        SourceKind::BuiltIn,
+        host,
+        CheckKey::parse(check).unwrap(),
+        target.map(|t| TargetKey::parse(t).unwrap()),
+        Severity::Warning,
+        "test",
+        at(0),
+    );
+    Incident::new_pending(&signal, at(0)).with_id(id)
+}
+
 /// A request proposed at `at(0)` with a one-hour approval window.
 #[cfg(test)]
 fn proposed(risk: Risk) -> ActionRequest {
     let skill = summary(risk);
-    ActionRequest::propose(
+    let incident = incident(
         IncidentId::from_uuid(Uuid::from_u128(0x0190_0000_0000_7000_8000_0000_0000_0002)),
+        host(),
+        "disk.usage",
+        None,
+    );
+    ActionRequest::propose(
+        &incident,
         &skill,
         &args(&skill, "plex"),
-        Some(target(host())),
+        Some(KeyFingerprint::of_public_key(&[7u8; 32])),
         Principal::System("triage".into()),
         SignedDuration::from_hours(1),
         at(0),

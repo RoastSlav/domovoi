@@ -110,10 +110,10 @@ pub async fn proposed(a: &Api, risk: Risk) -> (ActionRequest, String) {
     let args = summary.validate_args(&BTreeMap::new()).unwrap();
     let token = mint_token();
     let action = ActionRequest::propose(
-        a.incident.id(),
+        &a.incident,
         &summary,
         &args,
-        Some(domovoi_testkit::build::plan_target(a.nas.id).unwrap()),
+        Some(domovoi_testkit::build::key_fingerprint()),
         Principal::System("triage".into()),
         SignedDuration::from_hours(1),
         a.now(),

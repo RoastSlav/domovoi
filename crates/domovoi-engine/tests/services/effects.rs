@@ -22,7 +22,7 @@ use jiff::SignedDuration;
 use serde_json::{Value, json};
 
 use crate::actions_harness::{Actions, actions, actions_with_uow, seeded, verified_restart};
-use crate::harness::host_id;
+
 use crate::uow_probe::RecordingUow;
 
 /// The verify delay `verified_restart` declares.
@@ -69,10 +69,10 @@ fn proposed(incident: &Incident) -> ActionRequest {
     let skill = verified_restart();
     let validated = skill.validate_args(&params()).expect("valid arguments");
     ActionRequest::propose(
-        incident.id(),
+        incident,
         &skill,
         &validated,
-        Some(domovoi_testkit::build::plan_target(host_id()).unwrap()),
+        Some(domovoi_testkit::build::key_fingerprint()),
         Principal::System("triage".into()),
         SignedDuration::from_hours(1),
         T0,

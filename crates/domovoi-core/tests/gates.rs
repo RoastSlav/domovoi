@@ -4,12 +4,26 @@
 
 use domovoi_core::{
     ActionChange, ActionError, ActionRequest, ApprovalChannel, ApprovalProvenance, Authorization,
-    CheckKey, HostId, HumanApproval, IncidentId, KeyFingerprint, ManifestHash, PlanBinding,
-    PlanTarget, PolicyPermit, PolicyPermitParts, Principal, ReadTool, ReadToolCall, Risk,
-    SkillName, SkillSummary, ToolArgError, UserId,
+    CheckKey, HostId, HumanApproval, Incident, IncidentId, KeyFingerprint, ManifestHash,
+    PlanBinding, PolicyPermit, PolicyPermitParts, Principal, ReadTool, ReadToolCall, Risk,
+    Severity, Signal, SkillName, SkillSummary, SourceKind, TargetKey, ToolArgError, UserId,
 };
 use jiff::{SignedDuration, Timestamp};
 use serde_json::json;
+
+#[cfg(test)]
+fn incident(id: IncidentId, host: HostId, check: &str, target: Option<&str>) -> Incident {
+    let signal = Signal::firing(
+        SourceKind::BuiltIn,
+        host,
+        CheckKey::parse(check).unwrap(),
+        target.map(|t| TargetKey::parse(t).unwrap()),
+        Severity::Warning,
+        "test",
+        Timestamp::UNIX_EPOCH,
+    );
+    Incident::new_pending(&signal, Timestamp::UNIX_EPOCH).with_id(id)
+}
 
 #[test]
 fn read_tool_catalogue_is_read_only() {
@@ -102,16 +116,13 @@ fn no_approval_without_human() {
         readme: None,
     };
     let args = skill.validate_args(&Default::default()).unwrap();
+    let host = HostId::new();
+    let incident = incident(IncidentId::new(), host, "disk.usage", None);
     let mut req = ActionRequest::propose(
-        IncidentId::new(),
+        &incident,
         &skill,
         &args,
-        Some(PlanTarget::new(
-            HostId::new(),
-            KeyFingerprint::of_public_key(&[7u8; 32]),
-            CheckKey::parse("disk.usage").unwrap(),
-            None,
-        )),
+        Some(KeyFingerprint::of_public_key(&[7u8; 32])),
         Principal::System("triage".into()),
         SignedDuration::from_hours(1),
         Timestamp::UNIX_EPOCH,
@@ -148,16 +159,13 @@ fn destructive_actions_cannot_be_approved_from_chat() {
     };
     let args = skill.validate_args(&Default::default()).unwrap();
     let now = Timestamp::UNIX_EPOCH;
+    let host = HostId::new();
+    let incident = incident(IncidentId::new(), host, "disk.usage", None);
     let mut req = ActionRequest::propose(
-        IncidentId::new(),
+        &incident,
         &skill,
         &args,
-        Some(PlanTarget::new(
-            HostId::new(),
-            KeyFingerprint::of_public_key(&[7u8; 32]),
-            CheckKey::parse("disk.usage").unwrap(),
-            None,
-        )),
+        Some(KeyFingerprint::of_public_key(&[7u8; 32])),
         Principal::System("triage".into()),
         SignedDuration::from_hours(1),
         now,

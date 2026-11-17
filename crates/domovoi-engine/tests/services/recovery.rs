@@ -11,8 +11,7 @@ use domovoi_core::ports::{
 };
 use domovoi_core::{
     ActionId, ActionRequest, ActionStatus, AgentId, AgentIdentity, ApprovalProvenance,
-    Authorization, JournalEpoch, KeyFingerprint, PlanBinding, PlanTarget, Principal, SignalStatus,
-    UserId,
+    Authorization, JournalEpoch, KeyFingerprint, PlanBinding, Principal, SignalStatus, UserId,
 };
 use domovoi_engine::actions::audit;
 use domovoi_engine::{
@@ -109,15 +108,10 @@ async fn restarted_with(
     let mut ids = Vec::new();
     for (index, state) in states.iter().enumerate() {
         let mut action = ActionRequest::propose(
-            incident.id(),
+            &incident,
             &skill,
             &validated,
-            Some(PlanTarget::new(
-                host_id(),
-                KeyFingerprint::of_public_key(&[7u8; 32]),
-                incident.check().clone(),
-                incident.target().cloned(),
-            )),
+            Some(KeyFingerprint::of_public_key(&[7u8; 32])),
             Principal::System("triage".into()),
             SignedDuration::from_hours(1),
             T0,

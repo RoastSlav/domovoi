@@ -152,9 +152,10 @@ pub(crate) async fn store(
             ));
             continue;
         }
-        let target = match shared.deps.hosts.live_agent(incident.host()).await {
+        let (target, host_key) = match shared.deps.hosts.live_agent(incident.host()).await {
             Ok(Some(agent)) if agent.agent == snapshot.agent => {
-                PlanTarget::of_incident(incident, KeyFingerprint::of_public_key(&agent.public_key))
+                let host_key = KeyFingerprint::of_public_key(&agent.public_key);
+                (PlanTarget::of_incident(incident, host_key), host_key)
             }
             Ok(Some(_)) => {
                 dropped.push(format!(
@@ -238,10 +239,10 @@ pub(crate) async fn store(
             continue;
         }
         let action = match ActionRequest::propose(
-            incident.id(),
+            incident,
             skill,
             &args,
-            Some(target),
+            Some(host_key),
             Principal::System(PROPOSER.into()),
             PROPOSAL_TTL,
             now,

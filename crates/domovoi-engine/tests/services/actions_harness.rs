@@ -10,8 +10,7 @@ use domovoi_core::ports::{
 };
 use domovoi_core::{
     ActionId, ActionRequest, ActionStatus, AgentIdentity, ApprovalProvenance, Authorization,
-    Evidence, Incident, JournalEpoch, PlanTarget, Principal, Risk, SignalStatus, SkillSummary,
-    VerifySpec,
+    Evidence, Incident, JournalEpoch, Principal, Risk, SignalStatus, SkillSummary, VerifySpec,
 };
 use domovoi_engine::actions::audit;
 use domovoi_engine::triage::{mint_token, token_hash};
@@ -291,13 +290,10 @@ impl Actions {
         let validated = skill.validate_args(&args).unwrap();
         let token = mint_token();
         let action = ActionRequest::propose(
-            self.incident.id(),
+            &self.incident,
             skill,
             &validated,
-            Some(PlanTarget::of_incident(
-                &self.incident,
-                domovoi_testkit::build::key_fingerprint(),
-            )),
+            Some(domovoi_testkit::build::key_fingerprint()),
             Principal::System("triage".into()),
             ttl,
             self.now(),

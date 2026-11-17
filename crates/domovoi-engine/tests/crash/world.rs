@@ -15,9 +15,9 @@ use domovoi_core::ports::{
 };
 use domovoi_core::{
     ActionId, ActionRequest, ActionStatus, AgentId, AgentIdentity, CheckKey, Evidence, HostId,
-    Incident, IncidentId, JournalEpoch, KeyFingerprint, ParamKind, ParamName, ParamSpec,
-    PlanTarget, Principal, Risk, Severity, Signal, SignalClass, SignalStatus, SkillManifest,
-    SkillSummary, SourceKind, TargetKey, UserId, Verdict, VerifySpec,
+    Incident, IncidentId, JournalEpoch, KeyFingerprint, ParamKind, ParamName, ParamSpec, Principal,
+    Risk, Severity, Signal, SignalClass, SignalStatus, SkillManifest, SkillSummary, SourceKind,
+    TargetKey, UserId, Verdict, VerifySpec,
 };
 use domovoi_engine::triage::{mint_token, token_hash};
 use domovoi_engine::{
@@ -478,17 +478,16 @@ impl<S: SweepStore> World<S> {
         let validated = skill
             .validate_args(&args)
             .expect("the args match the manifest");
+        let incident =
+            domovoi_testkit::build::incident(host_id(), "docker.container", Some("nginx"))
+                .expect("a valid incident")
+                .with_id(incident);
         let token = mint_token();
         let action = ActionRequest::propose(
-            incident,
+            &incident,
             skill,
             &validated,
-            Some(PlanTarget::new(
-                host_id(),
-                KeyFingerprint::of_public_key(&[7u8; 32]),
-                CheckKey::parse("docker.container").unwrap(),
-                Some(TargetKey::parse("nginx").unwrap()),
-            )),
+            Some(KeyFingerprint::of_public_key(&[7u8; 32])),
             Principal::System("triage".into()),
             ttl,
             self.now(),

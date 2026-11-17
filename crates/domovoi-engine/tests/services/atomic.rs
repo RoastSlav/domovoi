@@ -390,10 +390,10 @@ async fn denied_and_expired_and_rejected_and_blocked_and_failed_transitions_are_
         .collect();
     let validated = skill.validate_args(&params).unwrap();
     let mut action = ActionRequest::propose(
-        world.incident.id(),
+        &world.incident,
         &skill,
         &validated,
-        Some(domovoi_testkit::build::plan_target(host_id()).unwrap()),
+        Some(domovoi_testkit::build::key_fingerprint()),
         Principal::System("triage".into()),
         SignedDuration::from_hours(1),
         T0,

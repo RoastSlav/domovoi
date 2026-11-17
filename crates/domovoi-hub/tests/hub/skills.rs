@@ -232,10 +232,10 @@ async fn sent(a: &Api, skill: &str, after: SignedDuration) -> jiff::Timestamp {
         .summary(domovoi_core::ScriptDigest::of_bytes(b"fixture entry"));
     let args = summary.validate_args(&BTreeMap::new()).unwrap();
     let mut request = ActionRequest::propose(
-        a.incident.id(),
+        &a.incident,
         &summary,
         &args,
-        Some(domovoi_testkit::build::plan_target(a.nas.id).unwrap()),
+        Some(domovoi_testkit::build::key_fingerprint()),
         Principal::System("triage".into()),
         SignedDuration::from_hours(1),
         a.now(),

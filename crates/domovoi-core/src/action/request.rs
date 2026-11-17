@@ -10,7 +10,9 @@ use super::authorization::AuthorizationKind;
 use super::epoch::JournalEpoch;
 use super::plan::{ImplHash, PlanContract, PlanError, PlanTarget};
 use super::stored::{ApprovalEvidence, ApprovalEvidenceError, StoredActionError};
+use crate::host::KeyFingerprint;
 use crate::id::{ActionId, ExecutionId, HostId, IncidentId, UserId};
+use crate::incident::Incident;
 use crate::skill::{Risk, SkillName, SkillSummary, ValidatedArgs};
 
 /// Which plan-hash family an action uses.
@@ -225,31 +227,34 @@ pub struct ActionRequest {
 }
 
 impl ActionRequest {
-    /// Proposes running `skill` with already validated `args` on `host`.
+    /// Proposes running `skill` with already validated `args` for `incident`.
     ///
-    /// `target` is the canonical plan target built by the caller from the linked incident and
-    /// the host's enrolled agent key. A host without an enrolled key has no v2 identity, so
-    /// this refuses with [`PlanError::NoEnrolledKey`] rather than hashing a placeholder. The
-    /// v1 hash is still computed and kept for the audit line and the agent's local check.
+    /// The v2 target is derived from `incident` and `host_key`, so its host, check and
+    /// optional target always belong to the linked incident; a caller cannot supply a target
+    /// from another one. `host_key` is the host's enrolled agent key; `None` means the host
+    /// has no enrolled key, which refuses with [`PlanError::NoEnrolledKey`] rather than
+    /// hashing a placeholder. The v1 hash is still computed and kept for the audit line and
+    /// the agent's local check.
     ///
     /// The approval window is `ttl` from `now`. If that overflows the timestamp range the
     /// request expires immediately, which fails closed.
     pub fn propose(
-        incident: IncidentId,
+        incident: &Incident,
         skill: &SkillSummary,
         args: &ValidatedArgs,
-        target: Option<PlanTarget>,
+        host_key: Option<KeyFingerprint>,
         proposed_by: Principal,
         ttl: SignedDuration,
         now: Timestamp,
     ) -> Result<Self, PlanError> {
-        let host = target.as_ref().ok_or(PlanError::NoEnrolledKey)?.host();
+        let host_key = host_key.ok_or(PlanError::NoEnrolledKey)?;
+        let target = PlanTarget::of_incident(incident, host_key);
+        let host = target.host();
         let id = ActionId::new();
-        let target = target.ok_or(PlanError::NoEnrolledKey)?;
         let plan_hash_v2 = Self::v2_hash_for(id, skill, args, &target)?;
         Ok(Self {
             id,
-            incident,
+            incident: incident.id(),
             host,
             skill: skill.name.clone(),
             risk: skill.risk,

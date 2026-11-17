@@ -244,12 +244,15 @@ async fn expire_due_reads_only_what_is_due() {
     let (incident, host) = (IncidentId::new(), HostId::new());
     let skill = verified_restart();
     let args = skill.validate_args(&restart_params()).unwrap();
+    let incident = domovoi_testkit::build::incident(host, "disk.usage", None)
+        .expect("a valid incident")
+        .with_id(incident);
     let open_for = |ttl: SignedDuration, at: Timestamp| {
         ActionRequest::propose(
-            incident,
+            &incident,
             &skill,
             &args,
-            Some(domovoi_testkit::build::plan_target(host).unwrap()),
+            Some(domovoi_testkit::build::key_fingerprint()),
             Principal::System("triage".into()),
             ttl,
             at,

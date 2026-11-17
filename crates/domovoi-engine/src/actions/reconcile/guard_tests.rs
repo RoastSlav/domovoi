@@ -7,8 +7,7 @@ use domovoi_core::ports::{
     ActionRepo, AggregateRef, AuditFilter, AuditLog, IncidentRepo, JournalRead, Page,
 };
 use domovoi_core::{
-    ActionRequest, ActionStatus, HostId, JournalEpoch, KeyFingerprint, PlanTarget, Principal, Risk,
-    UserId,
+    ActionRequest, ActionStatus, HostId, JournalEpoch, KeyFingerprint, Principal, Risk, UserId,
 };
 use domovoi_testkit::approvals::{approve, human};
 use domovoi_testkit::build::{T0, manifest, open_incident};
@@ -103,13 +102,10 @@ impl Writer {
             .summary(domovoi_core::ScriptDigest::of_bytes(b"fixture entry"));
         let args = skill.validate_args(&BTreeMap::new()).unwrap();
         let mut action = ActionRequest::propose(
-            incident.id(),
+            &incident,
             &skill,
             &args,
-            Some(PlanTarget::of_incident(
-                &incident,
-                KeyFingerprint::of_public_key(&[7u8; 32]),
-            )),
+            Some(KeyFingerprint::of_public_key(&[7u8; 32])),
             Principal::System("triage".into()),
             SignedDuration::from_hours(1),
             T0,

@@ -342,12 +342,13 @@ fn host_target_text_is_the_only_formatter() {
 fn execution_identity_is_the_final_action_id() {
     let skill = summary("restart_container", Risk::Write);
     let plan_args = args("web");
-    let plan_target = target(host(), 7, "docker.container", Some("web"));
+    let incident = incident(host(), "docker.container", Some("web"));
+    let plan_target = PlanTarget::of_incident(&incident, key(7));
     let request = domovoi_core::ActionRequest::propose(
-        domovoi_core::IncidentId::new(),
+        &incident,
         &skill,
         &plan_args,
-        Some(plan_target.clone()),
+        Some(key(7)),
         domovoi_core::Principal::System("triage".into()),
         SignedDuration::from_hours(1),
         T0,
@@ -370,8 +371,9 @@ fn execution_identity_is_the_final_action_id() {
 #[test]
 fn propose_refuses_a_host_without_an_enrolled_key() {
     let skill = summary("restart_container", Risk::Write);
+    let incident = incident(host(), "docker.container", Some("web"));
     let result = domovoi_core::ActionRequest::propose(
-        domovoi_core::IncidentId::new(),
+        &incident,
         &skill,
         &args("web"),
         None,
@@ -380,4 +382,39 @@ fn propose_refuses_a_host_without_an_enrolled_key() {
         T0,
     );
     assert_eq!(result, Err(PlanError::NoEnrolledKey));
+}
+
+#[test]
+fn propose_derives_the_plan_target_from_the_incident() {
+    let skill = summary("restart_container", Risk::Write);
+    let plan_args = args("web");
+    let incident = incident(host(), "docker.container", Some("web"));
+    let request = domovoi_core::ActionRequest::propose(
+        &incident,
+        &skill,
+        &plan_args,
+        Some(key(7)),
+        domovoi_core::Principal::System("triage".into()),
+        SignedDuration::from_hours(1),
+        T0,
+    )
+    .unwrap();
+
+    assert_eq!(
+        request.host(),
+        incident.host(),
+        "the action is bound to the incident's host"
+    );
+    let expected = PlanHash::compute_v2(
+        &contract("restart_container", 1),
+        ImplHash::from_parts(skill.manifest_hash, skill.entry_script_digest),
+        &PlanTarget::of_incident(&incident, key(7)),
+        &plan_args,
+        ExecutionId::from_action(request.id()),
+    );
+    assert_eq!(
+        request.plan_hash_v2(),
+        Some(expected),
+        "the caller cannot supply a target from another incident"
+    );
 }
