@@ -55,25 +55,23 @@ fn scans(dir: &std::path::Path, offenders: &mut Vec<String>) {
     }
 }
 
-/// One operation the execution and the read boundary allow, where it may appear and how
-/// often.
+/// One operation a boundary allows, and the exact number of non-comment occurrences each
+/// file may hold. No other source file may hold the literal at all.
 struct BoundaryCall {
     /// The literal the scan counts.
     literal: &'static str,
-    /// The one file under `src/`, and how many non-comment occurrences it must have.
-    file: &'static str,
-    count: usize,
-    /// Files that may hold the literal because they own its definition or match rather
-    /// than a second call path; their occurrences are not counted.
-    also_allowed: &'static [&'static str],
+    /// Each file that may contain it, with the exact count it must have. A file that owns a
+    /// definition or a match is listed with its own count rather than exempted, so it
+    /// cannot quietly grow a second occurrence.
+    sites: &'static [(&'static str, usize)],
 }
 
 /// There is exactly one module that dispatches a skill and exactly one that reads a host's
 /// tool output, one sender of `Dispatch`, one constructor of `AuthorizedExecution`, one call
 /// site of the execution boundary, and one caller of the check re-run (EXEC-1..3, ADR 0022).
-/// The counts are exact: a second call anywhere, including a second one in the same file or
-/// on the same line, fails here. A source scan cannot see a renamed re-export or a macro;
-/// it makes the ordinary second path fail.
+/// The counts are exact: a second call anywhere, including a second one in the same file, a
+/// second one in the writer, or two on the same line, fails here. A source scan cannot see a
+/// renamed re-export or a macro; it makes the ordinary second path fail.
 #[test]
 fn single_execution_boundary() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
@@ -86,57 +84,42 @@ fn single_execution_boundary() {
     );
 }
 
-/// The required call sites and their exact counts.
+/// The required call sites and the exact count each permitted file must have.
 const BOUNDARY_CALLS: &[BoundaryCall] = &[
     BoundaryCall {
         literal: "AuthorizedExecution::of(",
-        file: "actions/executor.rs",
-        count: 1,
-        also_allowed: &[],
+        sites: &[("actions/executor.rs", 1)],
     },
     BoundaryCall {
         literal: "execute::execute(",
-        file: "actions/executor.rs",
-        count: 1,
-        also_allowed: &[],
+        sites: &[("actions/executor.rs", 1)],
     },
     BoundaryCall {
         literal: "start_skill(",
-        file: "actions/execute.rs",
-        count: 1,
-        also_allowed: &[],
+        sites: &[("actions/execute.rs", 1)],
     },
     BoundaryCall {
         literal: "run_tool(",
-        file: "evidence/mod.rs",
-        count: 1,
-        also_allowed: &[],
+        sites: &[("evidence/mod.rs", 1)],
     },
     BoundaryCall {
         literal: "run_check(",
-        file: "actions/verify_wake.rs",
-        count: 1,
-        also_allowed: &[],
+        sites: &[("actions/verify_wake.rs", 1)],
     },
-    // The writer defines the command and matches it; only `execute.rs` builds one.
+    // `execute.rs` builds the one command; the writer matches that command in `process()`
+    // exactly once. Both sites are counted, so neither file may hold a second one.
     BoundaryCall {
         literal: "WriteCommand::Dispatch {",
-        file: "actions/execute.rs",
-        count: 1,
-        also_allowed: &["actions/writer.rs"],
+        sites: &[("actions/execute.rs", 1), ("actions/writer.rs", 1)],
     },
     // Names an earlier interface used: a re-appearance would be a second path.
     BoundaryCall {
         literal: "run_skill(",
-        file: "actions/execute.rs",
-        count: 0,
-        also_allowed: &[],
+        sites: &[("actions/execute.rs", 0)],
     },
     BoundaryCall {
         literal: "run_capability(",
-        file: "actions/execute.rs",
-        count: 0,
-        also_allowed: &[],
+        sites: &[("actions/execute.rs", 0)],
     },
 ];
 
@@ -184,36 +167,39 @@ fn count_occurrences(text: &str, literal: &str) -> usize {
         .sum()
 }
 
-/// Every way the files fall short of [`BOUNDARY_CALLS`]: a wrong count in the one file, or
-/// an occurrence anywhere else.
+/// Every way the files fall short of [`BOUNDARY_CALLS`]: a permitted file missing or with
+/// the wrong count, or an occurrence anywhere else.
 fn boundary_offenders(files: &[(String, String)]) -> Vec<String> {
     let mut out = Vec::new();
     for call in BOUNDARY_CALLS {
-        let found = files.iter().find(|(rel, _)| rel == call.file);
-        match found {
-            None => out.push(format!(
-                "{}: missing; `{}` must appear {} time(s) there",
-                call.file, call.literal, call.count
-            )),
-            Some((_, text)) => {
-                let got = count_occurrences(text, call.literal);
-                if got != call.count {
-                    out.push(format!(
-                        "{}: `{}` appears {got} time(s); expected {}",
-                        call.file, call.literal, call.count
-                    ));
+        for &(file, expected) in call.sites {
+            match files.iter().find(|(rel, _)| rel.as_str() == file) {
+                None => out.push(format!(
+                    "{file}: missing; `{}` must appear {expected} time(s) there",
+                    call.literal
+                )),
+                Some((_, text)) => {
+                    let got = count_occurrences(text, call.literal);
+                    if got != expected {
+                        out.push(format!(
+                            "{file}: `{}` appears {got} time(s); expected {expected}",
+                            call.literal
+                        ));
+                    }
                 }
             }
         }
         for (rel, text) in files {
-            if rel == call.file || call.also_allowed.contains(&rel.as_str()) {
+            if call.sites.iter().any(|(site, _)| *site == rel.as_str()) {
                 continue;
             }
             let got = count_occurrences(text, call.literal);
             if got > 0 {
+                let allowed: Vec<&str> = call.sites.iter().map(|(site, _)| *site).collect();
                 out.push(format!(
                     "{rel}: `{}` appears {got} time(s); only {} may have it",
-                    call.literal, call.file
+                    call.literal,
+                    allowed.join(", ")
                 ));
             }
         }
@@ -222,7 +208,8 @@ fn boundary_offenders(files: &[(String, String)]) -> Vec<String> {
 }
 
 /// The smallest tree that satisfies [`BOUNDARY_CALLS`], used to prove the gate refuses a
-/// second path without touching the real sources.
+/// second path without touching the real sources. `actions/writer.rs` holds the one
+/// `Dispatch` match the gate counts; it is a permitted site, not an exempt file.
 fn boundary_tree() -> Vec<(String, String)> {
     [
         (
@@ -267,8 +254,9 @@ fn assert_refused(tree: &[(String, String)], what: &str) {
     );
 }
 
-/// The gate counts call sites, not files: a second constructor, a second boundary call, a
-/// second skill start, read or re-check fails, wherever it is written.
+/// The gate counts call sites in each permitted file, not whole files: a second constructor,
+/// a second boundary call, a second skill start, read or re-check, a second dispatch
+/// construction, and a second dispatch match in the writer all fail.
 #[test]
 fn the_boundary_gate_counts_each_operation_exactly_once() {
     assert!(
@@ -323,6 +311,39 @@ fn the_boundary_gate_counts_each_operation_exactly_once() {
         "let a = AuthorizedExecution::of(action)?;\n",
     );
     assert_refused(&tree, "a constructor call in a disallowed module");
+
+    // The writer's match is counted, so a second dispatch there is a second path.
+    let mut tree = boundary_tree();
+    push_line(
+        &mut tree,
+        "actions/execute.rs",
+        "ask(shared, id, \"again\", WriteCommand::Dispatch { id, plan }, answer).await;\n",
+    );
+    assert_refused(
+        &tree,
+        "a second dispatch construction in the execution boundary",
+    );
+
+    let mut tree = boundary_tree();
+    push_line(
+        &mut tree,
+        "actions/writer.rs",
+        "    WriteCommand::Dispatch { id, plan, .. } => {}\n",
+    );
+    assert_refused(&tree, "a second dispatch match in the writer");
+
+    let mut tree = boundary_tree();
+    push_line(
+        &mut tree,
+        "actions/other.rs",
+        "let command = WriteCommand::Dispatch { id, plan };\n",
+    );
+    assert_refused(&tree, "a dispatch command built in another module");
+
+    // A permitted file that is missing or renamed fails instead of being skipped.
+    let mut tree = boundary_tree();
+    tree.retain(|(rel, _)| rel != "actions/writer.rs");
+    assert_refused(&tree, "a missing permitted file");
 
     // Two calls on one line are two calls.
     let mut tree = boundary_tree();

@@ -40,7 +40,7 @@ cd web && npx vitest run src/features/<area>      # web: only the tests for the 
 
 When a changed crate has a `tests/gates.rs`, run it too; it is part of the crate's tests already.
 
-`domovoi-hub`'s `test-support` feature and `domovoi`'s matching dev-dependency are what let the hub and binary integration tests drive an agent's wire directly. Both are non-default and are turned on by those packages' test builds only, so the plain commands above need no feature flag and a normal or release build has no such accessor.
+`domovoi-hub`'s `test-support` feature and `domovoi`'s matching dev-dependency are what let the hub and binary integration tests drive an agent's wire directly. The feature is non-default and those packages' test builds turn it on through their dev-dependencies, so the plain commands above need no feature flag and a normal build has no such accessor. Asking for it explicitly (`--features test-support`, or `--all-features`) compiles it, as any Cargo feature would; nothing in CI or `cargo xtask ci` does.
 
 CI on GitHub runs the whole workspace, the web checks, deny and the rest on the pull request. A failure there that your scoped run missed is expected now and then; fix it on the branch. Run the full `cargo xtask ci` below only when you want the whole picture before pushing, for example after a change to a shared crate.
 
