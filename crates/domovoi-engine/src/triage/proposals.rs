@@ -11,9 +11,9 @@ use domovoi_core::{
     KeyFingerprint, PlanFamily, PlanTarget, Principal, SkillSummary, TriageReport, ValidatedArgs,
 };
 use jiff::Timestamp;
+use sha2::{Digest, Sha256};
 
 use crate::ApprovalError;
-use sha2::{Digest, Sha256};
 
 use super::{PROPOSAL_TTL, Shared};
 
@@ -212,9 +212,12 @@ pub(crate) async fn store(
                     existing[i] = rotated;
                     continue;
                 }
-                // The window closed between listing and rotation. Fall through and store a
-                // fresh proposal; the expired action is left for the sweep to settle.
-                Err(ApprovalError::Refused(ActionError::Expired)) => {}
+                // The window closed between listing and rotation. Drop it from this batch so
+                // a repeated proposal does not try it again, and fall through to store a
+                // fresh one; the expired action is left for the sweep to settle.
+                Err(ApprovalError::Refused(ActionError::Expired)) => {
+                    existing.remove(i);
+                }
                 Err(err) => {
                     tracing::warn!(
                         %err,
