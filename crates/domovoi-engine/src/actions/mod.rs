@@ -3,7 +3,7 @@
 //! Only [`ActionHandle::approve`] moves an action to `Approved`, and it takes a
 //! [`HumanApproval`] by value, which only the hub's auth layer can construct (INV-1). Chat
 //! approvals also need the action's single-use token. The executor then applies a loop guard,
-//! re-validates the plan (INV-4), dispatches through [`execute::execute`], and verifies by
+//! re-validates the plan (INV-4), dispatches through `execute::execute`, and verifies by
 //! re-running the originating check. Every transition is audited and published as an event.
 
 mod approvals;

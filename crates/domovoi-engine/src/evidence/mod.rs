@@ -1,7 +1,7 @@
 //! The one path to an agent's tool output.
 //!
 //! [`Evidence::collect_evidence`] is the only caller of
-//! [`AgentLink::run_tool`](domovoi_core::ports::AgentLink::run_tool): the model, the
+//! [`AgentLink::run_tool`]: the model, the
 //! Operator, the triage context and the hub's profile collection all read a host through it,
 //! and `xtask arch-check` (EXEC-1) fails when another module reads a host directly.
 //!
@@ -13,7 +13,7 @@
 //!
 //! It is not the only way to obtain information about a host: the hub reads host metadata
 //! through `AgentAdmin`, and verification re-runs a check with
-//! [`AgentLink::run_check`](domovoi_core::ports::AgentLink::run_check). [`HostCatalog`] is
+//! [`AgentLink::run_check`]. [`HostCatalog`] is
 //! the narrow, non-tool view of an agent (its session, announced skills and presence) that
 //! triage and profile collection need beside the reads.
 
