@@ -221,13 +221,14 @@ pub const RUN_SKILL_ALLOWED_PREFIXES: &[&str] = &["crates/domovoi-engine/src/act
 pub const RUN_CHECK_ALLOWED_PREFIXES: &[&str] =
     &["crates/domovoi-engine/src/actions/verify_wake.rs"];
 
-/// Path prefixes where a transport may not name the link types, nor call the server's
-/// accessor to one (EXEC-4, ADR 0022). Only the code that declares, implements or composes
-/// the link, and the engine's two boundaries, may name `AgentLink`, `WsAgentLink` or
-/// `PolicyLink`, or call `.link()` / `.link_for_tests()`. The rule is a default-deny over
-/// every scanned crate: a new transport directory is covered without an edit here.
+/// Where a link may be named or taken (EXEC-4, ADR 0022): the code that declares, implements
+/// or composes it, plus the engine's two boundaries. The core `ports/` exceptions are exact
+/// files - the trait declaration and the module that re-exports it - so another port module
+/// added beside them is denied. Everything else is default-deny: a new transport directory
+/// is refused without an edit here, and a new allowed area is a deliberate, reviewable one.
 pub const AGENT_LINK_ALLOWED_PREFIXES: &[&str] = &[
-    "crates/domovoi-core/src/ports/",
+    "crates/domovoi-core/src/ports/agent_link.rs",
+    "crates/domovoi-core/src/ports/mod.rs",
     "crates/domovoi-hub/src/agent_server/",
     "crates/domovoi-hub/src/runtime/",
     "crates/domovoi-engine/src/evidence/",

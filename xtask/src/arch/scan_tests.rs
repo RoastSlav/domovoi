@@ -187,6 +187,58 @@ fn the_link_definition_exception_is_the_trait_file_alone() {
     assert!(check_file("crates/domovoi-testkit/src/link/mod.rs", cases[0].0).is_empty());
 }
 
+/// EXEC-4's core `ports/` exceptions are exact: the trait declaration file and the module
+/// that re-exports it. Another port beside them may not name the link or take it raw.
+#[test]
+fn the_core_ports_exceptions_are_the_trait_file_and_its_reexport() {
+    assert!(
+        check_file(
+            "crates/domovoi-core/src/ports/agent_link.rs",
+            "pub trait AgentLink: Send + Sync {\n"
+        )
+        .is_empty(),
+        "the trait declaration may not name its own trait"
+    );
+    assert!(
+        check_file(
+            "crates/domovoi-core/src/ports/mod.rs",
+            "    ActionAnswers, AgentLink, AgentSnapshot,\n"
+        )
+        .is_empty(),
+        "the re-export of the trait may not be refused"
+    );
+    let naming = "fn proxy(link: Arc<dyn AgentLink>) -> Host {\n";
+    let refused = check_file("crates/domovoi-core/src/ports/reconcile.rs", naming);
+    assert!(
+        refused.iter().any(|v| v.rule == "EXEC-4"),
+        "`{naming}` was accepted in another core port"
+    );
+    let accessor = "let presence = self.link().presence(host);\n";
+    let refused = check_file("crates/domovoi-core/src/ports/agent_proxy.rs", accessor);
+    assert!(
+        refused.iter().any(|v| v.rule == "EXEC-4"),
+        "`{accessor}` was accepted in another core port"
+    );
+    // The trait file keeps its own EXEC-1..3 exception; a neighbour does not.
+    assert!(
+        check_file(
+            "crates/domovoi-core/src/ports/agent_link.rs",
+            "link.start_skill(host, req, session, epoch, deadline).await;\n"
+        )
+        .is_empty(),
+        "the trait file is the EXEC-2 exception"
+    );
+    assert_eq!(
+        check_file(
+            "crates/domovoi-core/src/ports/mod.rs",
+            "link.start_skill(host, req, s, e, d).await;\n"
+        )[0]
+        .rule,
+        "EXEC-2",
+        "the re-export module is not a place to start a skill"
+    );
+}
+
 #[test]
 fn a_transport_naming_the_link_is_rejected() {
     for text in [
