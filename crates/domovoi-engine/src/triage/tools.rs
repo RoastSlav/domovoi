@@ -1,12 +1,13 @@
 //! Running the model's tool calls: parsed into the closed [`ReadToolCall`] set, answered
-//! from the store or through the agent link, redacted and cut.
+//! from the store or through the one evidence boundary, redacted and cut.
 
 use domovoi_core::ports::{IncidentFilter, Page};
-use domovoi_core::{HostId, Incident, IncidentId, ReadToolCall, Risk, SkillSummary};
+use domovoi_core::{HostId, Incident, IncidentId, ReadToolCall};
 use jiff::{SignedDuration, Timestamp};
 use serde_json::Value;
 
 use super::Shared;
+use crate::evidence::EvidenceRequest;
 
 /// Where tool calls run: a host, and the incident to leave out of history, if any.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,13 +63,12 @@ pub(crate) fn cut(text: &str, max: usize) -> String {
 pub(crate) async fn call(
     shared: &Shared,
     scope: Scope,
-    skills: &[SkillSummary],
     name: &str,
     input: Value,
     run_deadline: Timestamp,
 ) -> ToolResult {
     match ReadToolCall::from_json(name, input) {
-        Ok(call) => run(shared, scope, skills, call, run_deadline).await,
+        Ok(call) => run(shared, scope, call, run_deadline).await,
         Err(err) => finish(shared, &format!("error: {err}"), true),
     }
 }
@@ -77,11 +77,10 @@ pub(crate) async fn call(
 pub(crate) async fn run(
     shared: &Shared,
     scope: Scope,
-    skills: &[SkillSummary],
     call: ReadToolCall,
     run_deadline: Timestamp,
 ) -> ToolResult {
-    match execute(shared, scope, skills, call, run_deadline).await {
+    match execute(shared, scope, call, run_deadline).await {
         Ok(text) => finish(shared, &text, false),
         Err(text) => finish(shared, &format!("error: {text}"), true),
     }
@@ -117,7 +116,6 @@ where
 async fn execute(
     shared: &Shared,
     scope: Scope,
-    skills: &[SkillSummary],
     call: ReadToolCall,
     run_deadline: Timestamp,
 ) -> Result<String, String> {
@@ -173,21 +171,12 @@ async fn execute(
                     .join("\n")
             })
         }
-        ReadToolCall::RunReadSkill { skill, args } => {
-            let summary = skills
-                .iter()
-                .find(|s| &s.name == skill)
-                .ok_or_else(|| format!("skill `{skill}` is not installed on this host"))?;
-            if summary.risk != Risk::Read {
-                return Err(format!("skill `{skill}` is not read-only"));
-            }
-            summary.validate_args(args).map_err(|e| e.to_string())?;
-            agent(shared, scope, call, run_deadline).await
-        }
         _ => agent(shared, scope, call, run_deadline).await,
     }
 }
 
+/// Runs one read through the evidence boundary, within this run's deadline and the
+/// per-tool limit, whichever comes first.
 async fn agent(
     shared: &Shared,
     scope: Scope,
@@ -199,13 +188,10 @@ async fn agent(
     let per_tool = now.checked_add(TOOL_DEADLINE).unwrap_or(now);
     // The per-tool limit is an extra safety net; the run's deadline always wins.
     let deadline = std::cmp::min(per_tool, run_deadline);
-    let out = bounded(
-        shared,
-        deadline,
-        deps.link.run_tool(scope.host, call, deadline),
-    )
-    .await?
-    .map_err(|err| err.to_string())?;
+    let request = EvidenceRequest::for_host(scope.host, call, deadline);
+    let out = bounded(shared, deadline, deps.evidence.collect_evidence(request))
+        .await?
+        .map_err(|err| err.to_string())?;
     Ok(if out.truncated {
         format!("{}\n[the agent cut this output]", out.text)
     } else {

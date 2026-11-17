@@ -111,12 +111,7 @@ fn host_read_calls() -> Vec<ReadToolCall> {
 /// cannot call tools, the way incident triage handles such providers: without it the
 /// model would answer about the host without ever consulting it. [`tools::run`] has
 /// already redacted and cut what [`run`] returns.
-pub(crate) async fn host_output(
-    shared: &Shared,
-    host: HostId,
-    skills: &[SkillSummary],
-    deadline: Timestamp,
-) -> String {
+pub(crate) async fn host_output(shared: &Shared, host: HostId, deadline: Timestamp) -> String {
     let scope = Scope {
         host,
         incident: None,
@@ -127,7 +122,7 @@ pub(crate) async fn host_output(
             break;
         }
         let name = call.tool().name();
-        let result = run(shared, scope, skills, call, deadline).await;
+        let result = run(shared, scope, call, deadline).await;
         text.push_str(format!("\n### {name}\n\n{}\n", result.content).as_str());
     }
     format!("{text}\nYou cannot call tools. Answer from the output above.")
@@ -167,7 +162,7 @@ pub(crate) async fn answer(
     }
     let deps = &shared.deps;
     let skills: Vec<SkillSummary> = match host {
-        Some(host) => deps.link.skills(host),
+        Some(host) => deps.catalog.skills(host),
         None => Vec::new(),
     };
     // Offer only the read-only skills: the executor refuses to run anything else, so
@@ -203,7 +198,7 @@ pub(crate) async fn answer(
             // output in front of the question: incident triage does the same for its
             // fallback, and without it the model would never consult the host.
             let gathered: String = match (host, provider.supports_tools()) {
-                (Some(host), false) => host_output(shared, host, &skills, run.deadline()).await,
+                (Some(host), false) => host_output(shared, host, run.deadline()).await,
                 _ => String::new(),
             };
             if !gathered.is_empty() {

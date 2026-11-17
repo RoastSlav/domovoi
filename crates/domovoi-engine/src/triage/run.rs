@@ -68,7 +68,7 @@ async fn outcome(
     if !fresh && let Some((mut report, from)) = cached(shared, incident, &digest).await {
         // The repeat incident gets the same approve buttons a fresh triage would: the
         // cached report's proposals are re-validated against the host's current session.
-        let snapshot = deps.link.snapshot(incident.host());
+        let snapshot = deps.catalog.snapshot(incident.host());
         let skills = snapshot
             .as_ref()
             .map(|session| session.skills.clone())
@@ -109,7 +109,7 @@ async fn outcome(
         };
         return (TriageOutcome::Skipped { reason }, BTreeMap::new());
     }
-    let snapshot = deps.link.snapshot(incident.host());
+    let snapshot = deps.catalog.snapshot(incident.host());
     let skills = snapshot
         .as_ref()
         .map(|session| session.skills.clone())
@@ -265,7 +265,6 @@ async fn opening(
     shared: &Shared,
     provider: &Arc<dyn LlmProvider>,
     incident: &Incident,
-    skills: &[SkillSummary],
     bundle: &str,
     used: &mut Vec<ToolUse>,
     run: &agent::RunBudget,
@@ -283,7 +282,7 @@ async fn opening(
                 ReadToolCall::RunReadSkill { skill, .. } => Some(skill.to_string()),
                 _ => None,
             };
-            let result = tools::run(shared, scope, skills, call, run.deadline()).await;
+            let result = tools::run(shared, scope, call, run.deadline()).await;
             used.push(ToolUse {
                 tool: name.to_owned(),
                 skill,
@@ -311,7 +310,7 @@ async fn attempt(
     used: &mut Vec<ToolUse>,
     run: &mut agent::RunBudget,
 ) -> Result<TriageReport, Failure> {
-    let first = opening(shared, provider, incident, skills, bundle, used, run).await?;
+    let first = opening(shared, provider, incident, bundle, used, run).await?;
     let mut messages = vec![LlmMessage {
         role: Role::User,
         parts: vec![Part::Text(first)],

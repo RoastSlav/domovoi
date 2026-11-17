@@ -25,6 +25,7 @@ use domovoi_store::{Store, StoreOptions};
 use domovoi_testkit::approvals::human;
 use domovoi_testkit::build::T0;
 use domovoi_testkit::crash::{Exempt, check_invariants_except};
+use domovoi_testkit::link::action_caps;
 use domovoi_testkit::{FakeAgentLink, FakeClock};
 use sha2::{Digest, Sha256};
 use tokio::sync::broadcast;
@@ -545,6 +546,7 @@ impl Harness {
             bus: bus.clone(),
             shutdown: shutdown.clone(),
         });
+        let caps = action_caps(link);
         let (actions, action_task) = ActionService::spawn(
             ActionDeps {
                 actions: store.clone(),
@@ -553,7 +555,11 @@ impl Harness {
                 uow: store.clone(),
                 effects: store.clone(),
                 advisories: store.clone(),
-                link,
+                probe: caps.probe,
+                observer: caps.observer,
+                journal: caps.journal,
+                handoff: caps.handoff,
+                rerun: caps.rerun,
                 hosts: store.clone(),
                 redactor: Arc::new(PatternRedactor::default()),
                 clock,

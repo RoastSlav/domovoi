@@ -20,6 +20,7 @@ use domovoi_engine::{
 };
 use domovoi_testkit::approvals::human;
 use domovoi_testkit::build::{T0, open_incident};
+use domovoi_testkit::link::action_caps;
 use domovoi_testkit::{FakeAgentLink, FakeClock, InMemoryStore};
 use jiff::SignedDuration;
 use secrecy::SecretString;
@@ -167,6 +168,7 @@ async fn restarted_with(
         bus: bus.clone(),
         shutdown: shutdown.clone(),
     });
+    let caps = action_caps(link.clone());
     let (service, action_task) = ActionService::spawn(
         ActionDeps {
             actions: store.clone(),
@@ -175,7 +177,11 @@ async fn restarted_with(
             uow: store.clone(),
             effects: store.clone(),
             advisories: store.clone(),
-            link: link.clone(),
+            probe: caps.probe,
+            observer: caps.observer,
+            journal: caps.journal,
+            handoff: caps.handoff,
+            rerun: caps.rerun,
             hosts: store.clone(),
             redactor: Arc::new(PatternRedactor::new([SecretString::from(
                 SECRET.to_owned(),

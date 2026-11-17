@@ -41,6 +41,7 @@ use domovoi_hub::runtime::updates::UpdateChecker;
 use domovoi_proto::messages::{CheckInfo, HostFacts};
 use domovoi_store::{Store, StoreOptions};
 use domovoi_testkit::build::{host, manifest};
+use domovoi_testkit::link::{action_caps, evidence_caps, observer_of};
 use domovoi_testkit::{CannedLogSource, FakeAgentLink};
 use jiff::{SignedDuration, Timestamp};
 use tokio::io::AsyncBufReadExt;
@@ -447,6 +448,7 @@ async fn main() -> Result<()> {
         bus: bus.clone(),
         shutdown: shutdown.clone(),
     });
+    let caps = action_caps(link.clone());
     let (actions_service, _actions_task) = ActionService::spawn(
         ActionDeps {
             actions: store.clone(),
@@ -455,7 +457,11 @@ async fn main() -> Result<()> {
             uow: store.clone(),
             effects: store.clone(),
             advisories: store.clone(),
-            link: link.clone(),
+            probe: caps.probe,
+            observer: caps.observer,
+            journal: caps.journal,
+            handoff: caps.handoff,
+            rerun: caps.rerun,
             hosts: store.clone(),
             redactor: Arc::new(PatternRedactor::default()),
             clock: clock.clone(),
@@ -469,7 +475,8 @@ async fn main() -> Result<()> {
     let config = config()?;
     let server = agent_server(dir.path(), clock.clone(), store.clone(), manager.clone())?;
     let profile_deps = ProfileDeps {
-        link: link.clone(),
+        evidence: domovoi_engine::Evidence::new(evidence_caps(link.clone()), clock.clone()),
+        catalog: domovoi_engine::HostCatalog::new(observer_of(link.clone())),
         agents: Arc::new(DevAgents {
             server: server.clone(),
             link: link.clone(),

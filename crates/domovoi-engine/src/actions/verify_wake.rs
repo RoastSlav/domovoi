@@ -101,8 +101,8 @@ impl EffectHandler for VerifyWake {
         let deadline = now.checked_add(RECHECK_DEADLINE).unwrap_or(now);
         let recheck = shared
             .deps
-            .link
-            .run_check(
+            .rerun
+            .rerun_check(
                 action.host(),
                 incident.check().clone(),
                 incident.target().cloned(),

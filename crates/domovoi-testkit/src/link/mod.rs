@@ -15,10 +15,14 @@ use domovoi_core::{
 use domovoi_proto::messages::{CheckInfo, HostFacts};
 use jiff::Timestamp;
 
+mod any_caps;
+mod caps;
 mod recorders;
 mod request;
 mod script;
 
+pub use any_caps::{action_caps_of, evidence_caps_of, observer_of_any};
+pub use caps::{action_caps, evidence_caps, observer_of};
 pub use recorders::{RecordingReconciler, RecordingSignalSink};
 pub use request::LinkRequest;
 
@@ -40,6 +44,13 @@ struct Handlers {
     tool: Option<ToolHandler>,
     skill: Option<SkillHandler>,
     check: Option<CheckHandler>,
+}
+
+/// A held availability check: the gate that keeps it pending, and a notifier that fires when
+/// the check has been entered.
+struct AvailabilityHold {
+    gate: Arc<tokio::sync::Semaphore>,
+    entered: Arc<tokio::sync::Notify>,
 }
 
 /// An [`AgentLink`] with scripted presence, skills, host facts and handlers.
@@ -66,6 +77,11 @@ pub struct FakeAgentLink {
     /// When set for a host, `action_status` waits for a permit from the gate before it
     /// answers, so a test can hold a pass inside its journal query.
     status_gates: Mutex<BTreeMap<HostId, std::sync::Arc<tokio::sync::Semaphore>>>,
+    /// When set for a host, `availability` waits for a permit from the gate before it
+    /// answers, so a test can hold a read inside the availability check. The paired
+    /// notifier fires once the check has been entered, so a test can move its fake clock
+    /// only after the check is actually pending.
+    avail_gates: Mutex<BTreeMap<HostId, AvailabilityHold>>,
     /// Skill requests already handed over, by request id, waiting for `skill_result`.
     sent_skills: Mutex<BTreeMap<domovoi_core::RequestId, SkillDispatch>>,
     handlers: Mutex<Handlers>,
@@ -93,6 +109,7 @@ impl FakeAgentLink {
             handoff_gate: Mutex::new(None),
             handoff_failure: Mutex::new(None),
             status_gates: Mutex::new(BTreeMap::new()),
+            avail_gates: Mutex::new(BTreeMap::new()),
             sent_skills: Mutex::new(BTreeMap::new()),
             handlers: Mutex::new(Handlers::default()),
             requests: Mutex::new(Vec::new()),
@@ -119,6 +136,26 @@ impl FakeAgentLink {
     /// before the wait, so the query is visible while it is held.
     pub fn hold_status_queries(&self, host: HostId, gate: std::sync::Arc<tokio::sync::Semaphore>) {
         lock(&self.status_gates).insert(host, gate);
+    }
+
+    /// Makes `availability` for `host` wait for a permit from `gate` before it answers,
+    /// so a test can hold an evidence collection inside its availability check. Each
+    /// `add_permits(1)` on the gate releases one check. The returned notifier fires once
+    /// the check has been entered, so a test can act only then.
+    pub fn hold_availability(
+        &self,
+        host: HostId,
+        gate: std::sync::Arc<tokio::sync::Semaphore>,
+    ) -> std::sync::Arc<tokio::sync::Notify> {
+        let entered = std::sync::Arc::new(tokio::sync::Notify::new());
+        lock(&self.avail_gates).insert(
+            host,
+            AvailabilityHold {
+                gate,
+                entered: entered.clone(),
+            },
+        );
+        entered
     }
 
     /// Sets a host's presence.
@@ -366,6 +403,15 @@ impl AgentLink for FakeAgentLink {
     }
 
     async fn availability(&self, host: HostId) -> HostAvailability {
+        let hold = lock(&self.avail_gates).get(&host).map(|hold| {
+            hold.entered.notify_one();
+            hold.gate.clone()
+        });
+        if let Some(gate) = hold {
+            // `HostAvailability` has no error channel, so a closed gate leaves the
+            // scripted state to answer as it would; tests keep the gate open.
+            let _held = gate.acquire_owned().await;
+        }
         if let Some(scripted) = lock(&self.availability).get(&host).cloned() {
             return scripted;
         }
@@ -448,41 +494,5 @@ impl AgentLink for FakeAgentLink {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn fake_agent_link_checks_presence_then_handlers() {
-        let link = FakeAgentLink::new();
-        let host = HostId::new();
-        let at = Timestamp::constant(1_700_000_000, 0);
-        let call = ReadToolCall::HostOverview;
-        assert_eq!(
-            link.run_tool(host, call.clone(), at).await,
-            Err(LinkError::NotConnected)
-        );
-
-        link.set_presence(
-            host,
-            Presence::Connected {
-                since: at,
-                version: "0.1.0".to_owned(),
-            },
-        );
-        assert!(matches!(
-            link.run_tool(host, call.clone(), at).await,
-            Err(LinkError::Rejected(_))
-        ));
-
-        link.on_tool(|_, _| {
-            Ok(ToolOutput {
-                text: "up 3 days".to_owned(),
-                truncated: false,
-            })
-        });
-        let out = link.run_tool(host, call, at).await.unwrap();
-        assert_eq!(out.text, "up 3 days");
-        assert_eq!(link.requests().len(), 3);
-        assert!(link.skills(host).is_empty());
-    }
-}
+#[path = "link_tests.rs"]
+mod tests;

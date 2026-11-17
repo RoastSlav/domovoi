@@ -57,7 +57,7 @@ fn check<'a>(
 
 /// Whether the host's current session is still the one this report was built from.
 fn session_current(shared: &Shared, host: HostId, snapshot: &AgentSnapshot) -> bool {
-    shared.deps.link.snapshot(host).is_some_and(|current| {
+    shared.deps.catalog.snapshot(host).is_some_and(|current| {
         current.session == snapshot.session && current.agent == snapshot.agent
     })
 }

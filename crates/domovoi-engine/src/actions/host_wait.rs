@@ -34,7 +34,7 @@ pub(crate) async fn wait_for_host(shared: &Shared, host: HostId, started: Timest
         .checked_add(shared.settings.offline_wait)
         .unwrap_or(started);
     loop {
-        match deps.link.availability(host).await {
+        match deps.probe.check_availability(host).await {
             HostAvailability::Known { .. } => return HostWait::Known,
             HostAvailability::Incompatible { .. } => return HostWait::Incompatible,
             HostAvailability::Unknown | HostAvailability::Absent { .. } => {}

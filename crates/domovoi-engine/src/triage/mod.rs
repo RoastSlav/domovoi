@@ -26,8 +26,8 @@ mod tools;
 use std::sync::Arc;
 
 use domovoi_core::ports::{
-    ActionRepo, AdmissionRepo, AdvisoryRepo, AgentLink, Clock, HostRepo, IncidentRepo, LlmProvider,
-    NoteRepo, Redactor, SignalRepo, TriageCacheRepo, UsageRepo,
+    ActionRepo, AdmissionRepo, AdvisoryRepo, Clock, HostRepo, IncidentRepo, LlmProvider, NoteRepo,
+    Redactor, SignalRepo, TriageCacheRepo, UsageRepo,
 };
 use domovoi_core::{HostId, Incident, IncidentId, TriageBudget, TriageOutcome, UserId};
 use tokio::sync::broadcast;
@@ -36,6 +36,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::actions::ActionHandle;
 use crate::events::DomainEvent;
+use crate::evidence::{Evidence, HostCatalog};
 use crate::manager::ManagerHandle;
 
 pub use agent::{
@@ -133,8 +134,10 @@ pub struct TriageDeps {
     pub primary: Arc<dyn LlmProvider>,
     /// Providers tried in order after the primary fails.
     pub fallbacks: Vec<Arc<dyn LlmProvider>>,
-    /// Read tools and skill catalogues on agents.
-    pub link: Arc<dyn AgentLink>,
+    /// The one path to an agent's tool output.
+    pub evidence: Evidence,
+    /// The agent sessions, skills and presence triage needs beside its reads.
+    pub catalog: HostCatalog,
     /// Incidents, read only; changes go through `manager`.
     pub incidents: Arc<dyn IncidentRepo>,
     /// Recent signals of an incident.

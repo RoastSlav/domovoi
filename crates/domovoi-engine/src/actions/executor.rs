@@ -10,18 +10,13 @@
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
 
-use domovoi_core::ports::{LinkError, SkillDispatch};
-use domovoi_core::{ActionId, ActionRequest, ActionStatus, PlanFamily, PlanHash, PlanTarget};
-use jiff::SignedDuration;
+use domovoi_core::{ActionId, ActionRequest, ActionStatus};
 use tokio::sync::{Semaphore, broadcast, oneshot};
 use tokio::task::JoinSet;
 
 use super::Shared;
-use super::audit::RunRecord;
 use super::host_wait::{self, HostWait};
 use super::preflight;
-use super::recheck::verify_after;
-use super::record::run_record;
 use super::recover::approved;
 use super::writer::{Decision, WriteCommand};
 use crate::events::{DomainEvent, EventKind};
@@ -156,59 +151,6 @@ pub(crate) async fn ask(
     }
 }
 
-/// Queues `Dispatch` and answers with the action as the writer left it: `Dispatched`
-/// when the plan still matches, `Rejected` when it no longer does (INV-4).
-async fn ask_dispatch(
-    shared: &Shared,
-    id: ActionId,
-    plan: PlanHash,
-    target: Option<PlanTarget>,
-    session: domovoi_core::AgentSessionId,
-    epoch: domovoi_core::JournalEpoch,
-) -> Option<ActionRequest> {
-    let (reply, answer) = oneshot::channel();
-    ask(
-        shared,
-        id,
-        "a dispatch",
-        WriteCommand::Dispatch {
-            id,
-            plan,
-            target,
-            session,
-            epoch,
-            reply,
-        },
-        answer,
-    )
-    .await
-}
-
-/// Queues the agent's answer for a run, with the delay the verification owes if it succeeded.
-async fn ask_complete(
-    shared: &Shared,
-    id: ActionId,
-    outcome: Result<(), String>,
-    record: Option<RunRecord>,
-    verify_after: Option<SignedDuration>,
-) -> Option<ActionRequest> {
-    let (reply, answer) = oneshot::channel();
-    ask(
-        shared,
-        id,
-        "the answer for a run",
-        WriteCommand::Complete {
-            id,
-            result: outcome,
-            record,
-            verify_after,
-            reply,
-        },
-        answer,
-    )
-    .await
-}
-
 /// Runs action `id` if it is still approved. The freshness check, the wait for the host,
 /// the loop guard and the re-validation are checked here, but every change to the action
 /// goes through the writer task, which answers with the action as it left it.
@@ -269,7 +211,7 @@ pub(crate) async fn run(shared: &Shared, id: ActionId, pool: Option<Arc<Semaphor
     let Some(incident) = preflight::current_incident(shared, id, &action, now).await else {
         return;
     };
-    let Some(snapshot) = deps.link.snapshot(action.host()) else {
+    let Some(snapshot) = deps.observer.observe_snapshot(action.host()) else {
         let _ = preflight::ask_reject(
             shared,
             id,
@@ -286,163 +228,21 @@ pub(crate) async fn run(shared: &Shared, id: ActionId, pool: Option<Arc<Semaphor
             return;
         }
     };
-    // The slot is claimed here, before the plan is even recomputed, so two catch-up runs
-    // of the same skill cannot both read the same count and both pass (ADR 0019's writer
-    // answers the dispatch, but the guard is this task's own bookkeeping).
-    if let Some(reason) = preflight::reserve_dispatch(shared, &action, now) {
-        let _ = preflight::ask_reject(shared, id, reason, true).await;
-        return;
-    }
-    let runskill_plan_hash =
-        PlanHash::compute(&skill.name, skill.manifest_hash, action.host(), &args);
-    let (approval_plan_hash, plan_target) = match action.approval_plan().family() {
-        PlanFamily::V2 => {
-            let Some((hash, target)) =
-                super::v2_plan::v2_plan(shared, &action, &skill, &args, &incident, &snapshot).await
-            else {
-                return;
-            };
-            (hash, Some(target))
-        }
-        PlanFamily::V1 => (
-            PlanHash::compute(&skill.name, skill.manifest_hash, action.host(), &args),
-            None,
-        ),
-    };
-    // The gate closes the window between the write that says `Dispatched` and the frame
-    // reaching the agent's queue: reconciliation takes it before it lists what is pending,
-    // so a run that has not been handed over yet can never be in that list.
-    let gate = shared.dispatch_gate(action.host()).await;
-    let Some(dispatched) = ask_dispatch(
-        shared,
-        id,
-        approval_plan_hash,
-        plan_target,
-        snapshot.session,
-        snapshot.journal_epoch,
-    )
-    .await
-    else {
-        return;
-    };
-    let (epoch, skill_name, args) = match dispatched.status() {
-        ActionStatus::Dispatched {
-            agent_epoch: Some(epoch),
-        } => (*epoch, skill.name.clone(), args),
-        ActionStatus::Dispatched { agent_epoch: None } => {
-            // The hub saw no journal when it committed the dispatch, so there is no session
-            // the run may safely be handed to. It stays dispatched and reconciliation
-            // settles it as unknown; sending it could never be accounted for.
-            tracing::warn!(
-                action = %id,
-                "the dispatch recorded no journal epoch; the run is not sent",
-            );
-            return;
-        }
-        _ => {
-            tracing::debug!(action = %id, "the plan the agent has now is not the approved one");
-            return;
-        }
-    };
-    // The writer's answer is not proof the row is still dispatched: an outside decision may
-    // have settled it while this run held the gate. Re-read before anything is sent.
-    let current = match deps.actions.get(id).await {
-        Ok(Some(current)) => current,
-        Ok(None) => {
-            tracing::debug!(action = %id, "the action vanished before it could be sent");
-            return;
-        }
+    // Everything from the loop guard on is the one execution boundary: it claims the loop
+    // guard's slot, recomputes the approval-family hash, commits the single dispatch, sends
+    // the request and settles the answer. The reads above are handed over so the plan, the
+    // guard and the request all describe the same incident and the same agent session.
+    let authorized = match super::execute::AuthorizedExecution::of(action) {
+        Ok(authorized) => authorized,
         Err(err) => {
-            tracing::warn!(%err, action = %id, "could not re-read the action before sending it");
+            tracing::warn!(action = %id, %err, "the action cannot be dispatched");
             return;
         }
     };
-    if !matches!(
-        current.status(),
-        ActionStatus::Dispatched {
-            agent_epoch: Some(seen),
-        } if *seen == epoch
-    ) {
-        tracing::debug!(
-            action = %id,
-            "the action is no longer dispatched under its journal epoch; it is not sent",
-        );
-        return;
-    }
-    let deadline = deps
-        .clock
-        .now()
-        .checked_add(skill.timeout)
-        .and_then(|t| t.checked_add(shared.settings.dispatch_grace))
-        .unwrap_or(now);
-    let dispatch = SkillDispatch {
-        action: id,
-        skill: skill_name,
-        args,
-        plan_hash: runskill_plan_hash,
-    };
-    let handoff = match deps
-        .link
-        .start_skill(action.host(), dispatch, snapshot.session, epoch, deadline)
-        .await
+    if let Err(err) =
+        super::execute::execute(shared, authorized, skill, args, snapshot, incident).await
     {
-        Ok(handoff) => handoff,
-        Err(err) => {
-            // `start_skill` only fails before the frame enters the session's outgoing queue,
-            // so this is proof the request never reached the agent. Settle it as a run that
-            // never happened, through the writer. The dispatch gate is still held, so a
-            // reconciliation pass cannot read the row as one that was sent and lost.
-            tracing::warn!(
-                action = %id,
-                %err,
-                "the hub never handed the run to the agent; it did not run",
-            );
-            super::reconcile::handoff_failed(shared, id).await;
-            return;
-        }
-    };
-    drop(gate);
-    match deps
-        .link
-        .skill_result(action.host(), handoff, deadline)
-        .await
-    {
-        Ok(output) => {
-            let record = run_record(shared, &output);
-            let outcome = match output.exit_code {
-                Some(0) => Ok(()),
-                Some(code) => Err(format!("the skill exited with code {code}")),
-                None => Err("the skill was killed".to_owned()),
-            };
-            let ok = outcome.is_ok();
-            // The re-check is a durable effect created with the success transition, so the
-            // writer needs the delay now; the runner fires it when the delay has passed.
-            let delay = if ok {
-                verify_after(shared, &action, &skill).await
-            } else {
-                None
-            };
-            let _ = ask_complete(shared, id, outcome, Some(record), delay).await;
-        }
-        Err(LinkError::Rejected(reason)) => {
-            // A terminal answer from the agent: it refused the run or reported a failure.
-            let _ = ask_complete(shared, id, Err(reason), None, None).await;
-        }
-        Err(err) => {
-            // The request was handed over and no usable answer came back. The run may have
-            // happened, so it is neither a success nor a failure: it stays dispatched until
-            // the agent's journal can settle it. Ask for that pass now, while the session
-            // that could still remember the run is live; a replacement's own pass covers a
-            // changed journal.
-            tracing::warn!(
-                action = %id,
-                %err,
-                "the run's result is unavailable; it stays dispatched for reconciliation",
-            );
-            if deps.link.journal_epoch(action.host()) == Some(epoch) {
-                shared.schedule_reconciliation(action.host());
-            }
-        }
+        tracing::debug!(action = %id, %err, "the run was not dispatched");
     }
 }
 

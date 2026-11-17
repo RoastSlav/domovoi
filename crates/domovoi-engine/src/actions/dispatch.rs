@@ -48,7 +48,7 @@ pub(crate) async fn dispatch(
     };
     // A replacement session must not receive a plan calculated for the old one, even when
     // the journal epoch survived the reconnection.
-    let Some(snapshot) = shared.deps.link.snapshot(action.host()) else {
+    let Some(snapshot) = shared.deps.observer.observe_snapshot(action.host()) else {
         let reason = "the agent session changed before dispatch".to_owned();
         return reject::stop(shared, id, &mut action, reason, false, now).await;
     };

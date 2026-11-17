@@ -19,6 +19,7 @@ use domovoi_engine::{
 };
 use domovoi_engine::{ManagerHandle, PatternRedactor};
 use domovoi_testkit::build::{T0, manifest, open_incident};
+use domovoi_testkit::link::{action_caps, evidence_caps, observer_of};
 use domovoi_testkit::{FakeAgentLink, FakeClock, InMemoryStore, ScriptedLlm};
 use jiff::Timestamp;
 use secrecy::SecretString;
@@ -255,6 +256,7 @@ async fn world_over_with_actions(
         (false, true) => vec![third_dyn],
         (true, true) => vec![secondary_dyn, third_dyn],
     };
+    let caps = action_caps(link.clone());
     let (actions_service, _actions_task) = ActionService::spawn(
         ActionDeps {
             actions: actions.clone(),
@@ -263,7 +265,11 @@ async fn world_over_with_actions(
             uow,
             effects: store.clone(),
             advisories: store.clone(),
-            link: link.clone(),
+            probe: caps.probe,
+            observer: caps.observer,
+            journal: caps.journal,
+            handoff: caps.handoff,
+            rerun: caps.rerun,
             hosts: store.clone(),
             redactor: redactor.clone(),
             clock: clock.clone(),
@@ -276,7 +282,8 @@ async fn world_over_with_actions(
     let deps = TriageDeps {
         primary: primary_dyn.clone(),
         fallbacks: fallbacks.clone(),
-        link: link.clone(),
+        evidence: domovoi_engine::Evidence::new(evidence_caps(link.clone()), clock.clone()),
+        catalog: domovoi_engine::HostCatalog::new(observer_of(link.clone())),
         incidents: store.clone(),
         signals: store.clone(),
         notes: store.clone(),
@@ -333,7 +340,11 @@ impl World {
         let deps = TriageDeps {
             primary: self.primary_dyn.clone(),
             fallbacks: self.fallbacks.clone(),
-            link: self.link.clone(),
+            evidence: domovoi_engine::Evidence::new(
+                evidence_caps(self.link.clone()),
+                self.clock.clone(),
+            ),
+            catalog: domovoi_engine::HostCatalog::new(observer_of(self.link.clone())),
             incidents: self.store.clone(),
             signals: self.store.clone(),
             notes: self.store.clone(),

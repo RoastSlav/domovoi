@@ -39,3 +39,5 @@ An ADR records one decision that shapes the codebase: the context, the decision 
 | [0019](0019-single-writer-for-actions.md) | Action decisions have a single writer, and the store refuses stale writes | Accepted |
 | [0020](0020-license-polyform-noncommercial.md) | License: PolyForm Noncommercial 1.0.0; commercial use paid above €100k revenue | Accepted |
 | [0021](0021-plan-hash-v2-and-authorization.md) | Plan hash v2 and the authorization wrapper | Accepted |
+| [0022](0022-single-execution-boundary.md) | One execution boundary and one read boundary | Accepted |
+| [0023](0023-capability-objects-one-checker-bounded-evidence.md) | Capability objects, one checker, bounded evidence | Accepted |

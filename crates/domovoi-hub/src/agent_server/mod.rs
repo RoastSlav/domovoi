@@ -2,7 +2,7 @@
 //!
 //! A TLS WebSocket listener with a self-signed certificate that agents pin, single-use
 //! enrollment tokens, a challenge signed with each agent's enrolled key, one session per
-//! host, [`WsAgentLink`] for the engine, and presence checks that tell host down, agent
+//! host, `WsAgentLink` for the engine, and presence checks that tell host down, agent
 //! down and the hub's own network trouble apart.
 
 mod compat;
@@ -10,6 +10,7 @@ mod conn;
 mod error;
 mod handshake;
 mod link;
+mod link_answers;
 mod memory;
 mod overrides;
 pub(crate) use overrides::{stored_docker, stored_overrides};
@@ -31,7 +32,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, OnceLock};
 
 use domovoi_core::ports::{
-    AuditLog, Clock, FactRepo, HostReconciler, HostRepo, SignalSink, StoreError,
+    AgentLink, AuditLog, Clock, FactRepo, HostReconciler, HostRepo, SignalSink, StoreError,
 };
 use domovoi_core::{HostId, HostKind, HostName};
 use domovoi_proto::messages::{CheckInfo, HostFacts};
@@ -44,6 +45,7 @@ use tokio_util::sync::CancellationToken;
 pub use compat::{ProtocolState, protocol_state};
 pub use error::AgentServerError;
 pub use handshake::{BAD_TOKEN_DELAY, FIRST_FRAME_TIMEOUT, STEP_TIMEOUT};
+#[cfg(any(test, feature = "test-support"))]
 pub use link::WsAgentLink;
 pub use memory::MemoryTransport;
 pub use probes::{NetProbes, RealNetProbes};
@@ -54,6 +56,9 @@ pub use skill_policy_key::host_skills_key;
 pub use tls::{CHANNEL_BINDING_LABEL, HUB_SAN, TlsIdentity, colon_hex};
 pub use tokens::{EnrollmentInvite, TOKEN_TTL, token_hash};
 pub use ws::MAX_FRAMES_PER_SECOND;
+
+#[cfg(not(any(test, feature = "test-support")))]
+pub(crate) use link::WsAgentLink;
 
 use registry::Registry;
 
@@ -143,10 +148,58 @@ impl AgentServer {
         self.inner.tls.fingerprint_text()
     }
 
-    /// The link the engine uses to reach agents.
-    #[must_use]
-    pub fn link(&self) -> Arc<WsAgentLink> {
+    /// The raw link, private to this module: the server's own methods and its tests are the
+    /// only code that can hold it.
+    ///
+    /// Nothing outside `agent_server/` can call it. The runtime composes the engine's
+    /// capabilities through [`AgentServer::policy_link`], which hands out the link already
+    /// wrapped in the skill policy, and a transport reaches agents through
+    /// [`crate::api::AgentAdmin`] (EXEC-4, ADR 0023).
+    fn link(&self) -> Arc<WsAgentLink> {
         self.inner.link.clone()
+    }
+
+    /// The link wrapped in the hub's skill policy: the one value the runtime turns into the
+    /// engine's capability objects. It is the only way outside this module to obtain the
+    /// link, and what it returns enforces the policy on every skill call.
+    #[must_use]
+    pub(crate) fn policy_link(&self, policy: Arc<SkillPolicy>) -> PolicyLink {
+        PolicyLink::wrap(self.link(), policy)
+    }
+
+    /// The link this server owns, for the test suites that drive an agent's wire directly.
+    ///
+    /// Only compiled with the `test-support` feature, which is not a default feature and is
+    /// turned on by nothing but this crate's and the binary's test builds: a normal or
+    /// release build has no method that hands out the link. The suites that use it live
+    /// under `tests/`, which every architecture scan exempts.
+    #[cfg(any(test, feature = "test-support"))]
+    #[must_use]
+    pub fn link_for_tests(&self) -> Arc<WsAgentLink> {
+        self.link()
+    }
+
+    /// The connection state of `host`'s agent, for a transport reading it through
+    /// [`crate::api::AgentAdmin`].
+    #[must_use]
+    pub fn host_presence(&self, host: HostId) -> domovoi_core::ports::Presence {
+        self.inner.link.presence(host)
+    }
+
+    /// The skills `host`'s agent announced on its last handshake.
+    #[must_use]
+    pub fn host_skills(&self, host: HostId) -> Vec<domovoi_core::SkillSummary> {
+        self.inner.link.skills(host)
+    }
+
+    /// The agent's recent log lines, as the log page asks for them.
+    pub async fn host_logs(
+        &self,
+        host: HostId,
+        lines: u16,
+        min_level: String,
+    ) -> Result<Vec<domovoi_core::ports::LogLine>, domovoi_core::ports::LinkError> {
+        self.inner.link.logs(host, lines, min_level).await
     }
 
     /// Gives the server the action service, so every authenticated agent's dispatched

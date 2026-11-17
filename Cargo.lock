@@ -1075,6 +1075,7 @@ dependencies = [
  "url",
  "uuid",
  "wiremock",
+ "xtask",
 ]
 
 [[package]]
@@ -1090,6 +1091,7 @@ dependencies = [
  "domovoi-config",
  "domovoi-core",
  "domovoi-engine",
+ "domovoi-hub",
  "domovoi-llm",
  "domovoi-proto",
  "domovoi-store",
@@ -1129,6 +1131,7 @@ dependencies = [
  "utoipa-axum",
  "uuid",
  "wiremock",
+ "xtask",
 ]
 
 [[package]]
@@ -4661,7 +4664,10 @@ dependencies = [
  "anyhow",
  "cargo_metadata",
  "clap",
+ "proc-macro2",
  "serde_json",
+ "syn 3.0.9",
+ "tempfile",
  "toml",
 ]
 

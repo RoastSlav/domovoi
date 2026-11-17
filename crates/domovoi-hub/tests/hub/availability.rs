@@ -27,7 +27,7 @@ async fn rejected_protocol(hub: &Hub, ident: &Ident, protocol: ProtocolVersion) 
 
 /// Polls `availability` until the teardown of the agent's session has run.
 async fn settled(hub: &Hub, host: domovoi_core::HostId) -> HostAvailability {
-    let link = hub.server.link();
+    let link = hub.server.link_for_tests();
     pump(&hub.clock, SignedDuration::from_millis(100), async {
         loop {
             if let HostAvailability::Absent { .. } = link.availability(host).await {
@@ -47,14 +47,14 @@ async fn availability_is_unknown_until_first_session_then_known_then_absent() {
     // An enrolled agent with no session yet is unknown, not absent: it has never been
     // seen in this hub run.
     assert_eq!(
-        hub.server.link().availability(ident.host).await,
+        hub.server.link_for_tests().availability(ident.host).await,
         HostAvailability::Unknown,
     );
 
     let (_, agent) = online(&hub, "nas").await;
     let since = hub.clock.now();
     assert_eq!(
-        hub.server.link().availability(ident.host).await,
+        hub.server.link_for_tests().availability(ident.host).await,
         HostAvailability::Known { since },
         "a live session is known, since it started",
     );
@@ -81,7 +81,7 @@ async fn availability_is_unknown_after_hub_restart() {
     // previous run's absence says nothing about this one.
     let restarted = hub.restart();
     assert_eq!(
-        restarted.link().availability(ident.host).await,
+        restarted.link_for_tests().availability(ident.host).await,
         HostAvailability::Unknown,
         "a hub that just started has never seen the host",
     );
@@ -95,13 +95,13 @@ async fn track_does_not_make_a_host_absent() {
     hub.server.watch_known_hosts().await.unwrap();
     assert!(
         matches!(
-            hub.server.link().presence(ident.host),
+            hub.server.link_for_tests().presence(ident.host),
             domovoi_core::ports::Presence::Disconnected { last_seen: Some(_) },
         ),
         "the host was tracked with a last-seen time",
     );
     assert_eq!(
-        hub.server.link().availability(ident.host).await,
+        hub.server.link_for_tests().availability(ident.host).await,
         HostAvailability::Unknown,
         "tracking a host is not the same as its agent having been connected",
     );
@@ -112,10 +112,10 @@ async fn policy_link_forwards_availability() {
     let hub = Hub::start().await;
     let (ident, _agent) = online(&hub, "nas").await;
     let policy = SkillPolicy::load(hub.store.clone(), &[]).await.unwrap();
-    let link = PolicyLink::wrap(hub.server.link(), Arc::new(policy));
+    let link = PolicyLink::wrap(hub.server.link_for_tests(), Arc::new(policy));
     assert_eq!(
         link.availability(ident.host).await,
-        hub.server.link().availability(ident.host).await,
+        hub.server.link_for_tests().availability(ident.host).await,
         "the policy narrows skills, not whether the host is there",
     );
     assert!(
@@ -134,7 +134,7 @@ async fn rejected_protocol_makes_host_incompatible() {
     let reply = rejected_protocol(&hub, &ident, ProtocolVersion { major: 1, minor: 0 }).await;
     assert!(matches!(reply, Message::Reject(_)), "{reply:?}");
     assert_eq!(
-        hub.server.link().availability(ident.host).await,
+        hub.server.link_for_tests().availability(ident.host).await,
         HostAvailability::Incompatible {
             reported: "1.0".to_owned(),
         },
@@ -160,7 +160,7 @@ async fn expected_incompatible_host_is_not_incompatible() {
         .await
         .unwrap();
     assert_eq!(
-        hub.server.link().availability(ident.host).await,
+        hub.server.link_for_tests().availability(ident.host).await,
         HostAvailability::Unknown,
         "an expected incompatibility does not tell the executor the host is unusable",
     );
@@ -170,7 +170,7 @@ async fn expected_incompatible_host_is_not_incompatible() {
     agent.authenticate(&ident).await;
     assert!(
         matches!(
-            hub.server.link().availability(ident.host).await,
+            hub.server.link_for_tests().availability(ident.host).await,
             HostAvailability::Known { .. },
         ),
         "a compatible session is known despite the older stored report",
@@ -188,7 +188,7 @@ async fn a_new_session_makes_an_absent_host_known_again() {
     again.authenticate(&ident).await;
     assert!(
         matches!(
-            hub.server.link().availability(ident.host).await,
+            hub.server.link_for_tests().availability(ident.host).await,
             HostAvailability::Known { .. },
         ),
         "an agent that reconnects is known again",
@@ -199,7 +199,7 @@ async fn a_new_session_makes_an_absent_host_known_again() {
     let never = HostName::parse("never").unwrap();
     let invite = hub.server.create_token(&never).await.unwrap();
     assert_eq!(
-        hub.server.link().availability(invite.host).await,
+        hub.server.link_for_tests().availability(invite.host).await,
         HostAvailability::Unknown,
     );
 }

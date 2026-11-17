@@ -26,6 +26,7 @@ use domovoi_engine::{
 };
 use domovoi_testkit::build::{T0, manifest, open_incident};
 use domovoi_testkit::crash::{CrashingStore, SweepStore, check_invariants};
+use domovoi_testkit::link::action_caps;
 use domovoi_testkit::{FakeAgentLink, FakeClock};
 use jiff::{SignedDuration, Timestamp};
 use tokio::sync::broadcast;
@@ -303,6 +304,7 @@ impl<S: SweepStore + EffectQueue + AdvisoryRepo + domovoi_core::ports::HostRepo>
             bus: bus.clone(),
             shutdown: shutdown.clone(),
         });
+        let caps = action_caps(link.clone());
         let (service, action_task) = ActionService::spawn(
             ActionDeps {
                 actions: store.clone(),
@@ -311,7 +313,11 @@ impl<S: SweepStore + EffectQueue + AdvisoryRepo + domovoi_core::ports::HostRepo>
                 uow: crashing.clone(),
                 effects: store.clone(),
                 advisories: store.clone(),
-                link: link.clone(),
+                probe: caps.probe,
+                observer: caps.observer,
+                journal: caps.journal,
+                handoff: caps.handoff,
+                rerun: caps.rerun,
                 hosts: store.clone(),
                 redactor: Arc::new(PatternRedactor::default()),
                 clock: clock.clone(),

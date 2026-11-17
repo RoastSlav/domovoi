@@ -18,6 +18,7 @@ use domovoi_engine::{
 };
 use domovoi_testkit::approvals::human;
 use domovoi_testkit::build::T0;
+use domovoi_testkit::link::action_caps;
 use domovoi_testkit::{FakeAgentLink, FakeClock, InMemoryStore};
 use jiff::{SignedDuration, Timestamp};
 use tokio::sync::broadcast;
@@ -109,6 +110,7 @@ async fn swept(settings: ActionSettings, lists: Arc<Mutex<Vec<ActionFilter>>>) -
         store: store.clone(),
         lists,
     });
+    let caps = action_caps(Arc::new(FakeAgentLink::new()));
     let (service, _task) = ActionService::spawn(
         ActionDeps {
             actions,
@@ -117,7 +119,11 @@ async fn swept(settings: ActionSettings, lists: Arc<Mutex<Vec<ActionFilter>>>) -
             uow: store.clone(),
             effects: store.clone(),
             advisories: store.clone(),
-            link: Arc::new(FakeAgentLink::new()),
+            probe: caps.probe,
+            observer: caps.observer,
+            journal: caps.journal,
+            handoff: caps.handoff,
+            rerun: caps.rerun,
             hosts: store.clone(),
             redactor: Arc::new(PatternRedactor::default()),
             clock: clock.clone(),

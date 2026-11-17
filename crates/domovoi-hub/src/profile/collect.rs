@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 
 use domovoi_core::ports::Presence;
 use domovoi_core::{Host, HostId, ReadToolCall, Risk, SkillSummary};
+use domovoi_engine::EvidenceRequest;
 use domovoi_proto::messages::{CheckInfo, HostFacts};
 use jiff::SignedDuration;
 
@@ -42,13 +43,16 @@ pub(crate) const JOURNAL_LINES: u16 = 100;
 /// Read skills one profile asks, so a host with a large skill set stays cheap.
 pub(crate) const MAX_SKILL_SECTIONS: usize = 12;
 
-/// Asks the agent for one thing and returns its text, or why it did not answer.
+/// Asks the agent for one thing through the evidence boundary and returns its text, or why
+/// it did not answer. Redaction and the cut note stay here: the boundary returns the
+/// agent's output exactly as it arrived.
 async fn ask(deps: &ProfileDeps, host: HostId, call: ReadToolCall) -> Result<String, String> {
     let now = deps.clock.now();
     let deadline = now.checked_add(TOOL_DEADLINE).unwrap_or(now);
+    let request = EvidenceRequest::for_host(host, call, deadline);
     let out = deps
-        .link
-        .run_tool(host, call, deadline)
+        .evidence
+        .collect_evidence(request)
         .await
         .map_err(|err| err.to_string())?;
     let text = deps.redactor.redact(&out.text);
@@ -148,7 +152,7 @@ pub(crate) fn skills_of(summaries: Vec<SkillSummary>) -> Vec<String> {
 /// Fails only when the host has no connected agent to ask; a tool that fails becomes a
 /// section saying so.
 pub(crate) async fn collect(deps: &ProfileDeps, host: &Host) -> Result<HostProfile, ProfileError> {
-    let connected = deps.link.presence(host.id);
+    let connected = deps.catalog.presence(host.id);
     let version = match connected {
         Presence::Connected { version, .. } => version,
         Presence::Disconnected { .. } => return Err(ProfileError::NotConnected),
@@ -190,7 +194,7 @@ pub(crate) async fn collect(deps: &ProfileDeps, host: &Host) -> Result<HostProfi
         kernel_section,
     ]
     .to_vec();
-    let summaries = deps.link.skills(host.id);
+    let summaries = deps.catalog.skills(host.id);
     let mut asked = 0;
     for skill in summaries.iter().filter(|skill| skill.risk == Risk::Read) {
         if skill.params.iter().any(|param| param.required) {

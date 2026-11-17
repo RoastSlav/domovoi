@@ -1,6 +1,7 @@
 //! Assembly and lifecycle of a complete hub.
 
 pub(crate) mod adapters;
+pub mod caps;
 mod delivery;
 mod dispatcher;
 pub(crate) mod every;
@@ -23,8 +24,8 @@ use domovoi_core::ports::{
     ChatGateway, Clock, HostRepo, InteractionSink, LogSource, Notifier, ProcessExecutor,
 };
 use domovoi_engine::{
-    ActionDeps, ActionService, DomainEvent, IncidentManager, ManagerDeps, ManagerHandle,
-    PatternRedactor,
+    ActionDeps, ActionService, DomainEvent, Evidence, HostCatalog, IncidentManager, ManagerDeps,
+    ManagerHandle, PatternRedactor,
 };
 use domovoi_llm::LlmBuildError;
 use domovoi_store::{Store, StoreOpenError};
@@ -33,9 +34,10 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::agent_server::{
-    AgentServer, AgentServerDeps, AgentServerError, PolicyLink, RealNetProbes, ServerSettings,
-    SkillPolicy,
+    AgentServer, AgentServerDeps, AgentServerError, RealNetProbes, ServerSettings, SkillPolicy,
 };
+use caps::{action_caps, evidence_caps, observer_of};
+
 use crate::api::{ApiDeps, ApiState, MetricsRender};
 use crate::auth::{AuthState, WebIdentity};
 use crate::digest::DigestDeps;
@@ -219,7 +221,13 @@ impl HubRuntime {
         let skill_policy = Arc::new(
             SkillPolicy::load(store.clone(), &HostRepo::list_hosts(&*store).await?).await?,
         );
-        let policy_link = Arc::new(PolicyLink::wrap(server.link(), skill_policy.clone()));
+        let policy_link = Arc::new(server.policy_link(skill_policy.clone()));
+        // The one read boundary and the narrow catalogue view are built once here, from
+        // the same policy link the engine dispatches through; each handle receives only
+        // the capabilities it needs, never the link itself (ADR 0023).
+        let evidence = Evidence::new(evidence_caps(policy_link.clone()), clock.clone());
+        let catalog = HostCatalog::new(observer_of(policy_link.clone()));
+        let caps_bundle = action_caps(policy_link);
         let (actions_service, actions_task) = ActionService::spawn(
             ActionDeps {
                 actions: store.clone(),
@@ -228,7 +236,11 @@ impl HubRuntime {
                 uow: store.clone(),
                 effects: store.clone(),
                 advisories: store.clone(),
-                link: policy_link.clone(),
+                probe: caps_bundle.probe,
+                observer: caps_bundle.observer,
+                journal: caps_bundle.journal,
+                handoff: caps_bundle.handoff,
+                rerun: caps_bundle.rerun,
                 hosts: store.clone(),
                 redactor: redactor.clone(),
                 clock: clock.clone(),
@@ -242,7 +254,8 @@ impl HubRuntime {
         let triage = triage_build::build(triage_build::TriageBuild {
             config: &config,
             store: &store,
-            link: policy_link.clone(),
+            evidence: evidence.clone(),
+            catalog: catalog.clone(),
             manager: &manager,
             bus: &bus,
             clock: &clock,
@@ -279,7 +292,8 @@ impl HubRuntime {
             })
         });
         let profile_deps = crate::profile::ProfileDeps {
-            link: policy_link.clone(),
+            evidence: evidence.clone(),
+            catalog: catalog.clone(),
             agents: Arc::new(server.clone()),
             hosts: store.clone(),
             notes: store.clone(),

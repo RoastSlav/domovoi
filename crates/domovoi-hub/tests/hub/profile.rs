@@ -5,13 +5,13 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use crate::api_harness::{Api, TestAgents, api};
+use crate::api_harness::{Api, TestAgents, api, api_without_profiles};
 use axum::http::{Method, StatusCode};
 use domovoi_core::ports::{HostRepo, LinkError, NoteRepo, Presence, SettingsRepo, ToolOutput};
 use domovoi_core::{
     CheckKey, HostId, ParamKind, ParamName, ParamSpec, ReadToolCall, Risk, SkillSummary,
 };
-use domovoi_engine::PatternRedactor;
+use domovoi_engine::{Evidence, HostCatalog, PatternRedactor};
 use domovoi_hub::agent_server::{PolicyLink, SkillPolicy};
 use domovoi_hub::profile::diff::{MAX_CHANGES, changes, recent_changes};
 use domovoi_hub::profile::{
@@ -20,10 +20,12 @@ use domovoi_hub::profile::{
 };
 use domovoi_proto::messages::{CheckInfo, HostFacts};
 use domovoi_testkit::build::{host, manifest};
-use domovoi_testkit::link::LinkRequest;
+use domovoi_testkit::link::{LinkRequest, evidence_caps, observer_of};
 use serde_json::json;
 
+use jiff::SignedDuration;
 use jiff::Timestamp;
+use tokio::sync::Semaphore;
 
 /// What the agent's `HostOverview` answers with.
 const OVERVIEW_TEXT: &str = "uptime: 41 days\nload: 0.08 0.11 0.09\nmemory: 31 GiB total, 6.2 GiB used\ndisks:\n  /srv 2.0T 91%";
@@ -139,7 +141,8 @@ fn seed(a: &Api, version: &str) {
 /// The hub's pieces put together as the profile task and the API use them.
 fn profile_deps(a: &Api) -> ProfileDeps {
     ProfileDeps {
-        link: a.link.clone(),
+        evidence: Evidence::new(evidence_caps(a.link.clone()), a.clock.clone()),
+        catalog: HostCatalog::new(observer_of(a.link.clone())),
         agents: Arc::new(TestAgents {
             link: a.link.clone(),
             hosts: a.store.clone(),
@@ -149,6 +152,60 @@ fn profile_deps(a: &Api) -> ProfileDeps {
         settings: a.store.clone(),
         clock: a.clock.clone(),
         redactor: Arc::new(PatternRedactor::default()),
+    }
+}
+
+#[tokio::test]
+async fn profile_collection_reads_through_the_evidence_boundary() {
+    let a = api().await;
+    seed(&a, "0.6.0");
+    a.link.set_skills(a.nas.id, announced_skills());
+    // One read fails at the agent: the page has to say so, with the agent's own words.
+    a.link.on_tool(|_, call| {
+        if matches!(call, ReadToolCall::ListeningPorts) {
+            return Err(LinkError::Rejected(
+                "the port table is unreadable".to_owned(),
+            ));
+        }
+        Ok(ToolOutput {
+            text: answered(call),
+            truncated: false,
+        })
+    });
+
+    let profile = refresh(&profile_deps(&a), &a.nas).await.unwrap();
+    let titles: Vec<&str> = profile
+        .sections
+        .iter()
+        .map(|section| section.title.as_str())
+        .collect();
+    assert!(
+        [
+            "Overview",
+            "Containers",
+            "Listening ports",
+            "Kernel messages (24 h)"
+        ]
+        .iter()
+        .all(|fixed| titles.contains(fixed)),
+        "the fixed sections are still there: {titles:?}"
+    );
+    let ports = profile
+        .sections
+        .iter()
+        .find(|section| section.title == "Listening ports")
+        .expect("the failed section stays on the page");
+    assert!(!ports.ok, "a failed read is never shown as an empty one");
+    assert_eq!(
+        ports.text,
+        "rejected by agent: the port table is unreadable"
+    );
+
+    // Every read that reached the agent was on the host being profiled.
+    for request in a.link.requests() {
+        if let LinkRequest::Tool { host, .. } = request {
+            assert_eq!(host, a.nas.id, "a profile read reached another host");
+        }
     }
 }
 
@@ -293,8 +350,13 @@ async fn a_disabled_read_skill_is_never_asked_for_a_profile() {
     let policy = SkillPolicy::load(a.store.clone(), std::slice::from_ref(&a.nas))
         .await
         .unwrap();
+    let policy_link = Arc::new(PolicyLink::wrap(a.link.clone(), Arc::new(policy)));
     let deps = ProfileDeps {
-        link: Arc::new(PolicyLink::wrap(a.link.clone(), Arc::new(policy))),
+        evidence: Evidence::new(
+            domovoi_hub::runtime::caps::evidence_caps(policy_link.clone()),
+            a.clock.clone(),
+        ),
+        catalog: HostCatalog::new(domovoi_hub::runtime::caps::observer_of(policy_link)),
         agents: Arc::new(TestAgents {
             link: a.link.clone(),
             hosts: a.store.clone(),
@@ -367,6 +429,60 @@ async fn a_tool_that_never_answers_leaves_a_visible_gap_in_the_profile() {
         profile.containers.len(),
         2,
         "the rest of the profile was still collected"
+    );
+}
+
+#[tokio::test]
+async fn an_availability_check_pending_past_the_deadline_times_out_every_section() {
+    let a = api_without_profiles().await;
+    connect(&a, a.nas.id, "0.6.0");
+    a.link.set_checks(a.nas.id, announced());
+    a.link.on_tool(|_, call| {
+        Ok(ToolOutput {
+            text: answered(call),
+            truncated: false,
+        })
+    });
+    // One gate with no permit, so every availability the profile asks stays pending,
+    // and a notifier that fires on entry: the test moves the clock only while a check
+    // is on hold, exactly where the deadline has to cut in.
+    let entered = a
+        .link
+        .hold_availability(a.nas.id, Arc::new(Semaphore::new(0)));
+    let clock = a.clock.clone();
+    let deps = profile_deps(&a);
+    let nas = a.nas.clone();
+    let task = tokio::spawn(async move { refresh(&deps, &nas).await });
+    // Each section asks for its own availability check with its own deadline: past the
+    // deadline, the boundary times out the pending ask and the next check enters.
+    for _ in 0..4 {
+        entered.notified().await;
+        clock.advance(SignedDuration::from_secs(21));
+    }
+    let profile = task.await.unwrap().unwrap();
+    assert_eq!(
+        profile.sections.len(),
+        4,
+        "the four fixed sections are all there is"
+    );
+    for section in profile.sections.iter() {
+        assert!(
+            !section.ok,
+            "no availability check ever answered, so no section did"
+        );
+        assert_eq!(
+            section.text, "timed out",
+            "every gap says the deadline passed"
+        );
+    }
+    let asked = a
+        .link
+        .requests()
+        .iter()
+        .any(|call| matches!(call, LinkRequest::Tool { .. }));
+    assert!(
+        !asked,
+        "the read never ran past a pending availability check"
     );
 }
 

@@ -20,9 +20,10 @@ pub(crate) mod render;
 use std::sync::Arc;
 
 use domovoi_core::ports::{
-    AgentLink, Clock, HostRepo, NoteRepo, Presence, Redactor, SettingsRepo, StoreError,
+    Clock, HostRepo, NoteRepo, Presence, Redactor, SettingsRepo, StoreError,
 };
 use domovoi_core::{Host, HostId, Note, NoteId};
+use domovoi_engine::{Evidence, HostCatalog};
 use domovoi_proto::messages::HostFacts;
 use jiff::SignedDuration;
 use jiff::Timestamp;
@@ -137,8 +138,10 @@ pub enum ProfileError {
 /// Everything the profile task and the API need to collect and save a profile.
 #[derive(Clone)]
 pub struct ProfileDeps {
-    /// The agent requests go through.
-    pub link: Arc<dyn AgentLink>,
+    /// The one path to the agent's tool output.
+    pub evidence: Evidence,
+    /// The agent sessions and skills read beside it.
+    pub catalog: HostCatalog,
     /// The handshake's facts and check settings.
     pub agents: Arc<dyn AgentAdmin>,
     /// Where the hosts are listed.
@@ -276,7 +279,7 @@ pub(crate) async fn tick(deps: &ProfileDeps) {
 
 /// Whether `host` has a connected agent whose profile should be collected again.
 async fn due(deps: &ProfileDeps, host: &Host) -> Result<bool, ProfileError> {
-    let version = match deps.link.presence(host.id) {
+    let version = match deps.catalog.presence(host.id) {
         Presence::Connected { version, .. } => version,
         Presence::Disconnected { .. } => return Ok(false),
     };

@@ -171,7 +171,7 @@ pub(crate) async fn answer(
             Refusal::Unverifiable => TriageError::AdmissionUnavailable,
         });
     }
-    let snapshot = deps.link.snapshot(incident.host());
+    let snapshot = deps.catalog.snapshot(incident.host());
     let skills = snapshot
         .as_ref()
         .map(|session| session.skills.clone())
@@ -220,8 +220,7 @@ pub(crate) async fn answer(
             // Without tool calling the model cannot look at the host: put its read output
             // in front of the question, as triage and chat do.
             if !provider.supports_tools() {
-                let gathered =
-                    super::chat::host_output(shared, scope.host, &skills, run.deadline()).await;
+                let gathered = super::chat::host_output(shared, scope.host, run.deadline()).await;
                 messages.push(LlmMessage {
                     role: Role::User,
                     parts: vec![Part::Text(gathered)],

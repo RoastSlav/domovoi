@@ -1,10 +1,15 @@
 //! `cargo xtask arch-check`: enforce the rules in ARCHITECTURE.md.
 
+mod alias;
+pub mod ast;
 mod git;
 mod graph;
+mod lex;
 mod manifest;
+pub mod reach;
 pub mod rules;
 mod scan;
+pub mod wiring;
 
 use std::fmt;
 use std::path::Path;
@@ -36,7 +41,7 @@ pub fn run(root: &Path, base: Option<&str>) -> anyhow::Result<()> {
     let mut violations = Vec::new();
     violations.extend(graph::check(&graph::from_metadata(&metadata)));
     violations.extend(manifest::check(&metadata)?);
-    violations.extend(scan::check_tree(root)?);
+    violations.extend(scan::check_tree(root, &metadata)?);
     if let Some(base) = base {
         violations.extend(git::check(root, base)?);
     }

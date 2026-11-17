@@ -10,8 +10,202 @@ use jiff::SignedDuration;
 use crate::agent::{FakeAgent, enroll, new_key};
 use crate::harness::{Hub, t0};
 
+/// A transport reads host state through `AgentAdmin`; it never names, holds or takes the
+/// agent link itself (EXEC-4, ADR 0023). The check is the workspace's one syntax-aware
+/// implementation, shared with `cargo xtask arch-check`, default-deny over the hub's whole
+/// source tree, so a transport directory added later is covered without an edit here and a
+/// renamed import, a macro body or a split line cannot slip past.
+#[test]
+fn transports_do_not_name_the_agent_link() {
+    let violations = xtask::arch::ast::exec_violations(&hub_sources());
+    assert!(
+        violations.is_empty(),
+        "a transport names or reaches the agent link: {violations:#?}",
+    );
+}
+
+/// The workspace-relative path of a file under the hub's `src/`.
+fn crate_path(rel: &str) -> String {
+    format!("crates/{}/src/{rel}", env!("CARGO_PKG_NAME"))
+}
+
+/// The hub's production sources: every `.rs` file under `src/` that no test target or
+/// `#[cfg(test)]` module reaches, as (workspace-relative path, text).
+fn hub_sources() -> Vec<(String, String)> {
+    let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let prefix = format!("crates/{}/src", env!("CARGO_PKG_NAME"));
+    let mut files = Vec::new();
+    source_files(&src, &src, &prefix, &mut files);
+    let test_only = xtask::arch::ast::cfg_test_closure(&files);
+    files
+        .into_iter()
+        .filter(|(rel, _)| !test_only.contains(rel))
+        .collect()
+}
+
+/// Collects every `.rs` file under `dir` with its workspace-relative path and text.
+fn source_files(
+    root: &std::path::Path,
+    dir: &std::path::Path,
+    prefix: &str,
+    out: &mut Vec<(String, String)>,
+) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            source_files(root, &path, prefix, out);
+            continue;
+        }
+        if path.extension().and_then(|ext| ext.to_str()) != Some("rs") {
+            continue;
+        }
+        let rel = path
+            .strip_prefix(root)
+            .unwrap_or(&path)
+            .to_string_lossy()
+            .replace('\\', "/");
+        if let Ok(text) = std::fs::read_to_string(&path) {
+            out.push((format!("{prefix}/{rel}"), text));
+        }
+    }
+}
+
+/// The hub's two card sites, each holding its exact count: the policy wrapper and the runtime
+/// capability forward every raw link operation exactly once.
+const POLICY: &str = "fn f() {\n    AgentLink::run_tool(a, b, c);\n    AgentLink::start_skill(a, b, c, d, e);\n    AgentLink::skill_result(a, b, c);\n    AgentLink::run_check(a, b, c, d);\n}\n";
+
+const CAPS: &str = "fn f() {\n    self.link\n        .run_tool(a, b, c);\n    self.link\n        .start_skill(a, b, c, d, e);\n    self.link\n        .skill_result(a, b, c);\n    self.link\n        .run_check(a, b, c, d);\n}\n";
+
+/// The smallest tree that satisfies the hub's boundary cards.
+fn hub_tree() -> Vec<(String, String)> {
+    vec![
+        (
+            crate_path("agent_server/skill_policy.rs"),
+            POLICY.to_owned(),
+        ),
+        (crate_path("runtime/caps.rs"), CAPS.to_owned()),
+    ]
+}
+
+/// Appends `text` to `rel`'s file, adding the file when the tree does not have it.
+fn push_text(tree: &mut Vec<(String, String)>, rel: &str, text: &str) {
+    let path = crate_path(rel);
+    match tree.iter_mut().find(|(file, _)| *file == path) {
+        Some((_, body)) => body.push_str(text),
+        None => tree.push((path, text.to_owned())),
+    }
+}
+
+/// A new transport source file dropped into the real hub tree is refused when it reaches the
+/// raw link through an associated path: a call, a function item, a renamed type, a renamed
+/// accessor, or the test-support accessor. The fixture is added to the hub's actual
+/// production sources, so the gate is shown to cover a file nobody listed.
+#[test]
+fn a_new_transport_file_cannot_take_the_link_by_path() {
+    let real = hub_sources();
+    for (what, text) in [
+        (
+            "UFCS call",
+            "fn f(s: &S) { let raw = AgentServer::link(&s); }
+",
+        ),
+        (
+            "function item",
+            "fn f(s: &S) { let get = AgentServer::link; let raw = get(&s); }
+",
+        ),
+        (
+            "renamed type",
+            "use crate::agent_server::AgentServer as Server;
+fn f(s: &S) { let raw = Server::link(&s); }
+",
+        ),
+        (
+            "renamed accessor",
+            "use crate::agent_server::AgentServer::link as obtain;
+fn f(s: &S) { let raw = obtain(&s); }
+",
+        ),
+        (
+            "test accessor",
+            "fn f(s: &S) { let raw = AgentServer::link_for_tests(&s); }
+",
+        ),
+    ] {
+        let mut tree = real.clone();
+        tree.push((crate_path("sse/new_transport.rs"), text.to_owned()));
+        let violations = xtask::arch::ast::exec_violations(&tree);
+        assert!(
+            violations
+                .iter()
+                .any(|v| v.rule == "EXEC-4" && v.location.contains("sse/new_transport.rs")),
+            "{what} was accepted in a new transport file: {violations:#?}",
+        );
+    }
+
+    let mut tree = real;
+    tree.push((
+        crate_path("sse/new_transport.rs"),
+        "fn f() { let a = Other::link(&x); } // AgentServer::link
+"
+        .to_owned(),
+    ));
+    assert!(
+        xtask::arch::ast::exec_violations(&tree).is_empty(),
+        "an unrelated `link` is not the accessor",
+    );
+}
+
+/// The scan sees an inferred accessor, and spares the composition root that legitimately
+/// builds the boundaries from the link and the server module that owns it.
+#[test]
+fn the_link_scan_sees_an_untyped_accessor() {
+    for text in [
+        "let link = server.link();\n",
+        "let presence = self.link().presence(host);\n",
+        "let link = hub.server.link_for_tests();\n",
+        "let link: Arc<dyn AgentLink> = server.link();\n",
+        "let link = server\n    .link\n    ();\n",
+    ] {
+        for rel in ["api/hosts.rs", "sse/events.rs"] {
+            let mut tree = hub_tree();
+            push_text(&mut tree, rel, text);
+            let violations = xtask::arch::ast::exec_violations(&tree);
+            assert!(
+                violations
+                    .iter()
+                    .any(|violation| violation.rule == "EXEC-4"),
+                "{rel}: {text} was accepted in a transport",
+            );
+        }
+    }
+    let mut tree = hub_tree();
+    push_text(
+        &mut tree,
+        "auth/interactions/web.rs",
+        "// let link = server.link();\n",
+    );
+    assert!(
+        xtask::arch::ast::exec_violations(&tree).is_empty(),
+        "a comment is not a call",
+    );
+    for rel in ["runtime/mod.rs", "agent_server/mod.rs"] {
+        let mut tree = hub_tree();
+        push_text(&mut tree, rel, "let link = server.link();\n");
+        assert!(
+            !xtask::arch::ast::exec_violations(&tree)
+                .iter()
+                .any(|violation| violation.rule == "EXEC-4"),
+            "{rel} is the composition root or the link's owner",
+        );
+    }
+}
+
 async fn reachable(hub: &Hub, host: domovoi_core::HostId) -> bool {
-    let link = hub.server.link();
+    let link = hub.server.link_for_tests();
     let call = link
         .run_tool(
             host,
@@ -58,7 +252,7 @@ async fn agent_link_requires_completed_handshake() {
     agent.authenticate(&ident).await;
     assert!(
         matches!(
-            hub.server.link().presence(ident.host),
+            hub.server.link_for_tests().presence(ident.host),
             Presence::Connected { .. }
         ),
         "the full handshake does"

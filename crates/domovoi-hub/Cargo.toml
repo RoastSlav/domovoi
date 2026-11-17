@@ -15,6 +15,9 @@ default = []
 # Embed the built React app from web/dist. Requires `npm run build` in web/ first;
 # without it the hub serves a page explaining how to build the UI.
 embed-ui = []
+# The raw-link accessor the hub's and the binary's tests use to drive an agent's wire.
+# Never enabled by default: it exists so that no production build hands out the link.
+test-support = []
 
 [dependencies]
 domovoi-core = { workspace = true }
@@ -62,11 +65,16 @@ uuid = { workspace = true }
 tempfile = { workspace = true }
 
 [dev-dependencies]
+# A package may dev-depend on itself; this turns `test-support` on for this crate's test
+# builds only, so the raw-link accessor is compiled in for `tests/` and never for a build
+# of the library that ships.
+domovoi-hub = { workspace = true, features = ["test-support"] }
 domovoi-testkit = { workspace = true }
 insta = { workspace = true }
 sqlx = { workspace = true }
 tracing-subscriber = { workspace = true }
 wiremock = { workspace = true }
+xtask = { workspace = true }
 
 [[test]]
 name = "hub"
