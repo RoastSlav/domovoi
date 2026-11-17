@@ -172,7 +172,13 @@ async fn authenticate(
     let Some(current) = hosts.get_agent(agent.agent).await? else {
         return Err(reject(transport, RejectReason::Revoked, answer.id).await);
     };
-    if current.revoked_at.is_some() {
+    // The identity used to verify the signature must still be the same enrollment. A version
+    // change is expected and allowed; a changed host, key or AgentId is not.
+    if current.revoked_at.is_some()
+        || current.agent != agent.agent
+        || current.host != agent.host
+        || current.public_key != agent.public_key
+    {
         return Err(reject(transport, RejectReason::Revoked, answer.id).await);
     }
     let enrolled = hosts.live_agent(current.host).await?;

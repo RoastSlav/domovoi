@@ -7,8 +7,8 @@ use std::fmt::Write as _;
 
 use domovoi_core::ports::{ActionFilter, AgentSnapshot, Page};
 use domovoi_core::{
-    ActionId, ActionProposal, ActionRequest, Incident, KeyFingerprint, PlanTarget, Principal,
-    SkillSummary, TriageReport, ValidatedArgs,
+    ActionId, ActionProposal, ActionRequest, HostId, Incident, KeyFingerprint, PlanFamily,
+    PlanTarget, Principal, SkillSummary, TriageReport, ValidatedArgs,
 };
 use sha2::{Digest, Sha256};
 
@@ -50,6 +50,33 @@ fn check<'a>(
         .validate_args(&proposal.args)
         .map_err(|e| format!("bad arguments: {e}"))?;
     Ok((skill, args))
+}
+
+/// Whether the host's current session is still the one this report was built from.
+fn session_current(shared: &Shared, host: HostId, snapshot: &AgentSnapshot) -> bool {
+    shared.deps.link.snapshot(host).is_some_and(|current| {
+        current.session == snapshot.session && current.agent == snapshot.agent
+    })
+}
+
+/// Whether `existing` is exactly the plan this proposal would create, execution id included.
+///
+/// The hash comparison covers the contract, implementation (manifest and entry digest),
+/// target, canonical arguments and the action's own execution id; risk is not a v2 input, so
+/// it is compared separately.
+fn same_plan(
+    existing: &ActionRequest,
+    skill: &SkillSummary,
+    args: &ValidatedArgs,
+    wanted: &BTreeMap<String, String>,
+    target: &PlanTarget,
+) -> bool {
+    existing.skill() == &skill.name
+        && existing.args() == wanted
+        && existing.risk() == skill.risk
+        && existing.approval_plan().family() == PlanFamily::V2
+        && ActionRequest::v2_hash_for(existing.id(), skill, args, target)
+            .is_ok_and(|expected| existing.plan_hash_v2() == Some(expected))
 }
 
 /// Stores a `Proposed` action for each of `proposals` that names a skill on this host,
@@ -100,40 +127,9 @@ pub(crate) async fn store(
                 continue;
             }
         };
-        // An identical action is already waiting for a human; do not store a second one.
-        // The card this run publishes is built from this batch's tokens, so without one
-        // for the waiting action its approve buttons would fall back to "Open in Web":
-        // rotate the waiting action's chat token and hand over the replacement instead.
-        let wanted = args.to_map();
-        let waiting = existing
-            .iter()
-            .position(|a| a.skill() == &skill.name && a.args() == &wanted);
-        if let Some(i) = waiting {
-            let token = mint_token();
-            let id = existing[i].id();
-            // Refused if the action was decided or deleted meanwhile; then the old token
-            // still stands and nothing is offered for it, as before.
-            match shared
-                .deps
-                .actions_service
-                .rotate_chat_token(id, token_hash(&token))
-                .await
-            {
-                Ok(rotated) => {
-                    tokens.insert(rotated.id(), token);
-                    existing[i] = rotated;
-                }
-                Err(err) => tracing::warn!(
-                    %err,
-                    "could not rotate the chat token of a waiting action"
-                ),
-            }
-            continue;
-        }
-        let token = mint_token();
-        // The catalogue this report was built from must still belong to the host's current
-        // session, and its enrolled identity must still be current. A session replacement
-        // during triage must not mix one session's skills with another identity's key.
+        // Resolve the one session and target this proposal may bind to before deciding
+        // whether an old proposal is the same plan. A stale action must not be reused for a
+        // different implementation or target, and a replaced session must not rotate it.
         let Some(snapshot) = snapshot else {
             dropped.push(format!(
                 "{}: no authenticated agent session to bind the action to",
@@ -141,14 +137,7 @@ pub(crate) async fn store(
             ));
             continue;
         };
-        if shared
-            .deps
-            .link
-            .snapshot(incident.host())
-            .is_none_or(|current| {
-                current.session != snapshot.session || current.agent != snapshot.agent
-            })
-        {
+        if !session_current(shared, incident.host(), snapshot) {
             dropped.push(format!(
                 "{}: the agent session changed while triage ran",
                 proposal.skill
@@ -182,6 +171,55 @@ pub(crate) async fn store(
                 continue;
             }
         };
+        let wanted = args.to_map();
+        let waiting = existing
+            .iter()
+            .position(|action| same_plan(action, skill, &args, &wanted, &target));
+        if let Some(i) = waiting {
+            // An identical action is already waiting for a human; do not store a second one.
+            // The card this run publishes is built from this batch's tokens, so without one
+            // for the waiting action its approve buttons would fall back to "Open in Web":
+            // rotate the waiting action's chat token and hand over the replacement instead.
+            let token = mint_token();
+            let id = existing[i].id();
+            // The session must still be the one this plan was built from, checked as close
+            // as practical to the rotation. A stale action keeps its old token.
+            if !session_current(shared, incident.host(), snapshot) {
+                dropped.push(format!(
+                    "{}: the agent session changed while triage ran",
+                    proposal.skill
+                ));
+                continue;
+            }
+            // Refused if the action was decided or deleted meanwhile; then the old token
+            // still stands and nothing is offered for it, as before.
+            match shared
+                .deps
+                .actions_service
+                .rotate_chat_token(id, token_hash(&token))
+                .await
+            {
+                Ok(rotated) => {
+                    tokens.insert(rotated.id(), token);
+                    existing[i] = rotated;
+                }
+                Err(err) => tracing::warn!(
+                    %err,
+                    "could not rotate the chat token of a waiting action"
+                ),
+            }
+            continue;
+        }
+        let token = mint_token();
+        // Recheck as close as practical to persisting the proposal; dispatch remains the
+        // authority on a session that changes after this.
+        if !session_current(shared, incident.host(), snapshot) {
+            dropped.push(format!(
+                "{}: the agent session changed while triage ran",
+                proposal.skill
+            ));
+            continue;
+        }
         let action = match ActionRequest::propose(
             incident.id(),
             skill,
@@ -201,8 +239,8 @@ pub(crate) async fn store(
             Ok(stored) => {
                 tokens.insert(stored.id(), token);
                 kept.push(proposal);
-                // It is on record now: the same skill and arguments again in this batch
-                // are the identical action and must not become a second one.
+                // It is on record now: an identical action again in this batch must not
+                // become a second one.
                 existing.push(stored);
             }
             Err(err) => {

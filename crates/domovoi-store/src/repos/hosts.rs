@@ -153,37 +153,84 @@ impl HostRepo for Store {
     }
 
     async fn put_agent(&self, agent: &AgentIdentity) -> Result<(), StoreError> {
-        const REVOKED: &str = "SELECT revoked_at FROM agents WHERE agent_id = ?";
-        const SQL: &str = "INSERT INTO agents \
+        const EXISTING: &str = "SELECT agent_id, host_id, public_key, version, enrolled_at, \
+            revoked_at FROM agents WHERE agent_id = ?";
+        const LIVE_ON_HOST: &str =
+            "SELECT 1 FROM agents WHERE host_id = ? AND revoked_at IS NULL LIMIT 1";
+        const UPDATE_VERSION: &str = "UPDATE agents SET version = ? WHERE agent_id = ?";
+        const INSERT: &str = "INSERT INTO agents \
             (agent_id, host_id, public_key, version, enrolled_at, revoked_at) \
-            VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (agent_id) DO UPDATE SET \
-            host_id = excluded.host_id, public_key = excluded.public_key, \
-            version = excluded.version, enrolled_at = excluded.enrolled_at, \
-            revoked_at = excluded.revoked_at";
+            VALUES (?, ?, ?, ?, ?, NULL)";
         let mut tx = self.write.begin().await.map_err(db)?;
-        if !host_exists(&mut tx, agent.host).await? {
-            return Err(StoreError::NotFound);
-        }
-        let existing: Option<(Option<i64>,)> = sqlx::query_as(REVOKED)
+        let existing: Option<AgentRow> = sqlx::query_as(EXISTING)
             .bind(agent.agent.to_string())
             .fetch_optional(&mut *tx)
             .await
             .map_err(db)?;
-        if matches!(existing, Some((Some(_),))) {
-            return Err(StoreError::Conflict(
-                "a revoked agent never comes back".to_owned(),
-            ));
+        match existing {
+            Some(current) => {
+                // An `AgentId` names one enrollment for life. Only the version it reports may
+                // move; every identity field is fixed, and revocation has its own operation.
+                if current.revoked_at.is_some() {
+                    return Err(StoreError::Conflict(
+                        "a revoked agent never comes back".to_owned(),
+                    ));
+                }
+                if agent.revoked_at.is_some() {
+                    return Err(StoreError::Conflict(
+                        "revocation goes through revoke_agent, not put_agent".to_owned(),
+                    ));
+                }
+                if current.host_id != agent.host.to_string() {
+                    return Err(StoreError::Conflict(
+                        "an agent id cannot move to another host".to_owned(),
+                    ));
+                }
+                if current.public_key != agent.public_key {
+                    return Err(StoreError::Conflict(
+                        "an agent id cannot change its public key".to_owned(),
+                    ));
+                }
+                if current.enrolled_at != ms(agent.enrolled_at) {
+                    return Err(StoreError::Conflict(
+                        "an agent id cannot change its enrollment time".to_owned(),
+                    ));
+                }
+                sqlx::query(UPDATE_VERSION)
+                    .bind(&agent.version)
+                    .bind(agent.agent.to_string())
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(db)?;
+            }
+            None => {
+                if agent.revoked_at.is_some() {
+                    return Err(StoreError::Conflict(
+                        "an agent cannot be enrolled revoked".to_owned(),
+                    ));
+                }
+                if !host_exists(&mut tx, agent.host).await? {
+                    return Err(StoreError::NotFound);
+                }
+                let other: Option<(i64,)> = sqlx::query_as(LIVE_ON_HOST)
+                    .bind(agent.host.to_string())
+                    .fetch_optional(&mut *tx)
+                    .await
+                    .map_err(db)?;
+                if other.is_some() {
+                    return Err(StoreError::Conflict("host already has an agent".to_owned()));
+                }
+                sqlx::query(INSERT)
+                    .bind(agent.agent.to_string())
+                    .bind(agent.host.to_string())
+                    .bind(&agent.public_key[..])
+                    .bind(&agent.version)
+                    .bind(ms(agent.enrolled_at))
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(db)?;
+            }
         }
-        sqlx::query(SQL)
-            .bind(agent.agent.to_string())
-            .bind(agent.host.to_string())
-            .bind(&agent.public_key[..])
-            .bind(&agent.version)
-            .bind(ms(agent.enrolled_at))
-            .bind(agent.revoked_at.map(ms))
-            .execute(&mut *tx)
-            .await
-            .map_err(db)?;
         tx.commit().await.map_err(db)
     }
 

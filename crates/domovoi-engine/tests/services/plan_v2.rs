@@ -390,15 +390,22 @@ async fn dispatch_refuses_after_host_reenrollment() {
         .await
         .unwrap()
         .expect("the harness host has an agent");
+    HostRepo::revoke_agent(&*a.store, enrolled.agent, a.now())
+        .await
+        .unwrap();
     let mut reenrolled = enrolled.clone();
+    reenrolled.agent = AgentId::new();
     reenrolled.public_key = [8; 32];
     HostRepo::put_agent(&*a.store, &reenrolled).await.unwrap();
 
     reconnect(&a);
     rejected(&a, action.id()).await;
 
-    // Putting the original key back does not resurrect a terminal action.
-    HostRepo::put_agent(&*a.store, &enrolled).await.unwrap();
+    // The revoked identity cannot be restored, and the terminal action stays rejected.
+    assert!(
+        HostRepo::put_agent(&*a.store, &enrolled).await.is_err(),
+        "a revoked agent identity never comes back"
+    );
     a.settle().await;
     assert!(matches!(
         a.get(action.id()).await.status(),

@@ -1,7 +1,5 @@
 //! Live sessions: streaming, requests through the link, replacement, revocation, limits.
 
-use std::sync::Arc;
-
 use domovoi_core::ports::{AgentLink, Clock, FactRepo, LinkError, LogLine, Presence};
 use domovoi_core::{
     CheckKey, DigestFact, FactValue, HostId, ReadToolCall, Severity, Signal, SourceKind,
@@ -18,7 +16,6 @@ use domovoi_proto::{
 };
 use ed25519_dalek::Signer;
 use jiff::SignedDuration;
-use tokio::sync::Semaphore;
 
 use crate::agent::{FakeAgent, Ident, enroll, hello, online, rejected};
 use crate::harness::{Hub, guard, pump, t0};
@@ -480,37 +477,6 @@ async fn a_handshake_that_finishes_after_reenrollment_is_refused() {
         hub.server.link().presence(old.host),
         Presence::Disconnected { .. }
     ));
-}
-
-#[tokio::test]
-async fn a_registration_after_retirement_is_refused() {
-    let hub = Hub::start().await;
-    let gate = Arc::new(Semaphore::new(0));
-    hub.server.hold_registrations(gate.clone());
-    let ident = enroll(&hub, "nas").await;
-
-    let mut agent = FakeAgent::connect(hub.addr).await;
-    let Message::Challenge(challenge) = agent.hello(ident.agent, PROTOCOL_VERSION).await else {
-        panic!("expected a challenge");
-    };
-    let reply = agent.answer(&challenge, ident.agent, &ident.key).await;
-    assert!(
-        matches!(reply, Message::Welcome(_)),
-        "the handshake finished; registration is held"
-    );
-
-    // Retire the identity between the successful handshake and its registration.
-    assert!(hub.server.revoke_agent(ident.host).await.unwrap());
-    gate.add_permits(1);
-
-    agent.closed().await;
-    assert!(
-        matches!(
-            hub.server.link().presence(ident.host),
-            Presence::Disconnected { .. }
-        ),
-        "a retired agent never becomes the live session"
-    );
 }
 
 #[tokio::test]

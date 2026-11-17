@@ -1,17 +1,19 @@
 use std::collections::BTreeMap;
 
-use domovoi_core::ports::{ActionRepo, AgentLink, IncidentRepo, LlmError, Part};
+use domovoi_core::ports::{ActionRepo, AgentLink, HostRepo, IncidentRepo, LlmError, Part};
 use domovoi_core::{
-    ActionStatus, AgentSessionId, CheckKey, ExecutionId, ImplHash, KeyFingerprint, PlanContract,
-    PlanHash, PlanTarget, Principal, ReadToolCall, TriageOutcome, UserId,
+    ActionId, ActionRequest, ActionStatus, AgentSessionId, CheckKey, ExecutionId, ImplHash,
+    KeyFingerprint, PlanContract, PlanHash, PlanTarget, Principal, ReadToolCall, Risk,
+    StoredAction, TriageOutcome, UserId,
 };
 use domovoi_engine::triage::{MAX_ANSWER_CHARS, PROPOSAL_TTL, TriageError, token_hash};
-use domovoi_testkit::build::open_incident;
+use domovoi_testkit::build::{T0, open_incident};
 use domovoi_testkit::link::LinkRequest;
+use jiff::SignedDuration;
 use serde_json::json;
 
 use crate::harness::{
-    Setup, add_signal, calls, disk, host_id, report, report_json, restart_skill, world,
+    Setup, World, add_signal, calls, disk, host_id, report, report_json, restart_skill, world,
 };
 
 #[tokio::test]
@@ -414,5 +416,260 @@ async fn a_cached_report_with_a_changed_session_stores_no_action() {
             .iter()
             .all(|action| action.incident() != again.id()),
         "a cached report from a replaced session stores no action",
+    );
+}
+
+fn restart_proposal() -> String {
+    report_json(
+        "ACTION_NEEDED",
+        json!([{"skill": "restart_container", "args": {"container": "nginx"}, "reason": "It is stuck."}]),
+    )
+}
+
+/// Runs one fresh triage that stores a single proposal.
+async fn triage_once(w: &mut World) -> ActionRequest {
+    w.primary.push_text(restart_proposal());
+    let TriageOutcome::Report(report) = w.run().await else {
+        panic!("a report");
+    };
+    assert_eq!(report.proposals.len(), 1, "the proposal is stored");
+    let actions = w.actions().await;
+    assert_eq!(actions.len(), 1);
+    actions.into_iter().next().unwrap()
+}
+
+async fn triage_again(w: &mut World) -> TriageOutcome {
+    w.primary.push_text(restart_proposal());
+    w.run().await
+}
+
+#[tokio::test]
+async fn an_unchanged_proposal_reuses_the_action_and_rotates_its_token() {
+    let mut w = world(Setup::default()).await;
+    w.link.set_skills(host_id(), vec![restart_skill()]);
+    let first = triage_once(&mut w).await;
+    let before = first.chat_token_hash().copied();
+    assert!(before.is_some(), "the first proposal carries a chat token");
+
+    let TriageOutcome::Report(second) = triage_again(&mut w).await else {
+        panic!("a report");
+    };
+    assert!(
+        second.proposals.is_empty(),
+        "the duplicate is a rotation, not a second action"
+    );
+    let actions = w.actions().await;
+    assert_eq!(actions.len(), 1);
+    assert_eq!(actions[0].id(), first.id());
+    assert_ne!(
+        actions[0].chat_token_hash(),
+        before.as_ref(),
+        "the waiting action's chat token rotated"
+    );
+}
+
+#[tokio::test]
+async fn a_changed_entry_script_stores_a_new_proposal() {
+    let mut w = world(Setup::default()).await;
+    let skill = restart_skill();
+    w.link.set_skills(host_id(), vec![skill.clone()]);
+    let first = triage_once(&mut w).await;
+    let before = first.chat_token_hash().copied();
+
+    let mut changed = skill;
+    changed.entry_script_digest = domovoi_core::ScriptDigest::of_bytes(b"a replaced entry");
+    w.link.set_skills(host_id(), vec![changed]);
+    let _ = triage_again(&mut w).await;
+
+    let actions = w.actions().await;
+    assert_eq!(
+        actions.len(),
+        2,
+        "a different entry script is a different plan"
+    );
+    let old = actions.into_iter().find(|a| a.id() == first.id()).unwrap();
+    assert_eq!(
+        old.chat_token_hash(),
+        before.as_ref(),
+        "the stale action's token is not rotated"
+    );
+}
+
+#[tokio::test]
+async fn a_changed_manifest_stores_a_new_proposal() {
+    let mut w = world(Setup::default()).await;
+    let skill = restart_skill();
+    w.link.set_skills(host_id(), vec![skill.clone()]);
+    let first = triage_once(&mut w).await;
+    let before = first.chat_token_hash().copied();
+
+    let mut changed = skill;
+    changed.manifest_hash = "cd".repeat(32).parse().unwrap();
+    w.link.set_skills(host_id(), vec![changed]);
+    let _ = triage_again(&mut w).await;
+
+    let actions = w.actions().await;
+    assert_eq!(actions.len(), 2, "a different manifest is a different plan");
+    let old = actions.into_iter().find(|a| a.id() == first.id()).unwrap();
+    assert_eq!(old.chat_token_hash(), before.as_ref());
+}
+
+#[tokio::test]
+async fn a_changed_incident_subject_stores_a_new_proposal() {
+    let mut w = world(Setup::default()).await;
+    w.link.set_skills(host_id(), vec![restart_skill()]);
+    let first = triage_once(&mut w).await;
+    let before = first.chat_token_hash().copied();
+
+    let changed = open_incident(host_id(), "docker.container", Some("/different"))
+        .unwrap()
+        .with_id(w.incident.id());
+    IncidentRepo::update(&*w.store, &changed).await.unwrap();
+    w.primary.push_text(restart_proposal());
+    assert!(matches!(
+        w.triage.triage(&changed).await,
+        TriageOutcome::Report(_)
+    ));
+
+    let actions = w.actions().await;
+    assert_eq!(actions.len(), 2, "a changed target is a different plan");
+    let old = actions.into_iter().find(|a| a.id() == first.id()).unwrap();
+    assert_eq!(old.chat_token_hash(), before.as_ref());
+}
+
+#[tokio::test]
+async fn a_changed_enrolled_key_stores_a_new_proposal() {
+    let mut w = world(Setup::default()).await;
+    w.link.set_skills(host_id(), vec![restart_skill()]);
+    let first = triage_once(&mut w).await;
+    let before = first.chat_token_hash().copied();
+
+    let old_agent = HostRepo::live_agent(&*w.store, host_id())
+        .await
+        .unwrap()
+        .expect("the harness host has an agent");
+    HostRepo::revoke_agent(&*w.store, old_agent.agent, w.now())
+        .await
+        .unwrap();
+    let mut replacement = old_agent.clone();
+    replacement.agent = domovoi_core::AgentId::new();
+    replacement.public_key = [9; 32];
+    HostRepo::put_agent(&*w.store, &replacement).await.unwrap();
+    w.link.set_agent(host_id(), replacement.agent);
+    w.link.new_session(host_id());
+
+    let _ = triage_again(&mut w).await;
+    let actions = w.actions().await;
+    assert_eq!(actions.len(), 2, "a changed key is a different plan");
+    let old = actions.into_iter().find(|a| a.id() == first.id()).unwrap();
+    assert_eq!(old.chat_token_hash(), before.as_ref());
+}
+
+#[tokio::test]
+async fn a_changed_risk_stores_a_new_proposal() {
+    let mut w = world(Setup::default()).await;
+    w.link.set_skills(host_id(), vec![restart_skill()]);
+    let first = triage_once(&mut w).await;
+    let before = first.chat_token_hash().copied();
+
+    let mut riskier = restart_skill();
+    riskier.risk = Risk::Destructive;
+    w.link.set_skills(host_id(), vec![riskier]);
+    let _ = triage_again(&mut w).await;
+
+    let actions = w.actions().await;
+    assert_eq!(
+        actions.len(),
+        2,
+        "risk changes the approval requirement, so it is not identical"
+    );
+    let old = actions.into_iter().find(|a| a.id() == first.id()).unwrap();
+    assert_eq!(old.chat_token_hash(), before.as_ref());
+}
+
+#[tokio::test]
+async fn a_legacy_v1_proposal_is_not_reused_as_v2() {
+    let mut w = world(Setup::default()).await;
+    let skill = restart_skill();
+    w.link.set_skills(host_id(), vec![skill.clone()]);
+    let args = skill
+        .validate_args(&BTreeMap::from([(
+            "container".to_owned(),
+            "nginx".to_owned(),
+        )]))
+        .unwrap();
+    let legacy = ActionRequest::try_from_stored(StoredAction {
+        id: ActionId::new(),
+        incident: w.incident.id(),
+        host: host_id(),
+        skill: skill.name.clone(),
+        risk: skill.risk,
+        args: args.to_map(),
+        plan_hash: PlanHash::compute(&skill.name, skill.manifest_hash, host_id(), &args),
+        plan_hash_v2: None,
+        approved_plan_hash: None,
+        provenance: None,
+        authorization_kind: None,
+        status: ActionStatus::Proposed,
+        proposed_by: Principal::System("triage".into()),
+        approved_by: None,
+        expires_at: T0.checked_add(SignedDuration::from_hours(1)).unwrap_or(T0),
+        created_at: T0,
+        updated_at: T0,
+        chat_token_hash: Some([9; 32]),
+    })
+    .expect("a legacy proposal is a valid stored action");
+    ActionRepo::insert(&*w.store, &legacy).await.unwrap();
+
+    let TriageOutcome::Report(report) = triage_again(&mut w).await else {
+        panic!("a report");
+    };
+    assert_eq!(
+        report.proposals.len(),
+        1,
+        "a v1 action is not the same plan"
+    );
+    let actions = w.actions().await;
+    assert_eq!(actions.len(), 2);
+    let old = actions.into_iter().find(|a| a.id() == legacy.id()).unwrap();
+    assert_eq!(
+        old.chat_token_hash(),
+        Some(&[9; 32]),
+        "the legacy action's token is not rotated"
+    );
+}
+
+#[tokio::test]
+async fn a_session_change_before_matching_does_not_rotate_the_token() {
+    let mut w = world(Setup::default()).await;
+    w.link.set_skills(host_id(), vec![restart_skill()]);
+    let first = triage_once(&mut w).await;
+    let before = first.chat_token_hash().copied();
+
+    let stable = w
+        .link
+        .snapshot(host_id())
+        .expect("the harness has a live session");
+    let mut changed = stable.clone();
+    changed.session = AgentSessionId::new();
+    w.link.script_snapshots([Some(stable), Some(changed)]);
+
+    let TriageOutcome::Report(report) = triage_again(&mut w).await else {
+        panic!("a report");
+    };
+    assert!(report.proposals.is_empty());
+    assert!(
+        report
+            .details
+            .contains("the agent session changed while triage ran"),
+        "the drop says why: {}",
+        report.details,
+    );
+    let actions = w.actions().await;
+    assert_eq!(actions.len(), 1);
+    assert_eq!(
+        actions[0].chat_token_hash(),
+        before.as_ref(),
+        "a replaced session does not rotate the stale action's token"
     );
 }

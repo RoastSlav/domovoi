@@ -21,6 +21,8 @@ mod session;
 mod settings;
 mod skill_policy;
 mod skill_policy_key;
+#[cfg(test)]
+mod tests;
 mod tls;
 mod tokens;
 mod ws;
@@ -290,18 +292,11 @@ impl AgentServer {
             .retire(agent, self.inner.deps.clock.now());
     }
 
-    /// Test support: whether the live registry has retired `agent`. The local enrollment
-    /// path uses the same retirement as a token re-enrollment, and its test checks that.
-    #[doc(hidden)]
-    pub fn is_retired(&self, agent: domovoi_core::AgentId) -> bool {
+    /// Whether the live registry has retired `agent`. Test support for the local enrollment
+    /// path; it is not part of the production API.
+    #[cfg(test)]
+    pub(crate) fn is_retired(&self, agent: domovoi_core::AgentId) -> bool {
         self.inner.registry.is_retired(agent)
-    }
-
-    /// Test support: holds every session registration until a permit is added to `gate`, so a
-    /// test can retire an agent between its successful handshake and its registration.
-    #[doc(hidden)]
-    pub fn hold_registrations(&self, gate: Arc<tokio::sync::Semaphore>) {
-        self.inner.registry.hold_registrations(gate);
     }
 
     /// Runs one presence check now. [`serve`](Self::serve) does this every heartbeat.

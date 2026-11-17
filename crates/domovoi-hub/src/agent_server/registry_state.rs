@@ -2,9 +2,11 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::{Deref, DerefMut};
+#[cfg(test)]
 use std::sync::Arc;
 
 use domovoi_core::{AgentId, HostId};
+#[cfg(test)]
 use tokio::sync::Semaphore;
 
 use super::registry::Entry;
@@ -20,7 +22,9 @@ pub(super) struct State {
     /// Identities that were revoked or replaced. An `AgentId` is never reused, so a
     /// registration of one of these is always a connection that outlived its enrollment.
     pub(super) retired: BTreeSet<AgentId>,
-    /// Test support: every registration waits for a permit here before it is decided.
+    /// Test-only: every registration waits for a permit here before it is decided. It is
+    /// absent from production builds, so no caller can install a gate that holds sessions.
+    #[cfg(test)]
     pub(super) registration_gate: Option<Arc<Semaphore>>,
 }
 

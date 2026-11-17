@@ -246,15 +246,7 @@ impl ActionRequest {
         let host = target.as_ref().ok_or(PlanError::NoEnrolledKey)?.host();
         let id = ActionId::new();
         let target = target.ok_or(PlanError::NoEnrolledKey)?;
-        let contract = PlanContract::skill(&skill.name, 1)?;
-        let implementation = ImplHash::from_parts(skill.manifest_hash, skill.entry_script_digest);
-        let plan_hash_v2 = PlanHash::compute_v2(
-            &contract,
-            implementation,
-            &target,
-            args,
-            ExecutionId::from_action(id),
-        );
+        let plan_hash_v2 = Self::v2_hash_for(id, skill, args, &target)?;
         Ok(Self {
             id,
             incident,
@@ -304,6 +296,29 @@ impl ActionRequest {
             updated_at: stored.updated_at,
             chat_token_hash: stored.chat_token_hash,
         })
+    }
+
+    /// The v2 approval hash a proposal with these inputs would have with `id` as its
+    /// execution id.
+    ///
+    /// The execution id is one of v2's five inputs, so a caller asking whether an existing
+    /// proposal is still the same plan must pass that action's own id, never a freshly
+    /// generated one. The canonical encoding stays in [`PlanHash::compute_v2`].
+    pub fn v2_hash_for(
+        id: ActionId,
+        skill: &SkillSummary,
+        args: &ValidatedArgs,
+        target: &PlanTarget,
+    ) -> Result<PlanHash, PlanError> {
+        let contract = PlanContract::skill(&skill.name, 1)?;
+        let implementation = ImplHash::from_parts(skill.manifest_hash, skill.entry_script_digest);
+        Ok(PlanHash::compute_v2(
+            &contract,
+            implementation,
+            target,
+            args,
+            ExecutionId::from_action(id),
+        ))
     }
 
     /// Checks that the recorded approval evidence covers exactly this action's plan.

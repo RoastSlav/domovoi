@@ -2,14 +2,18 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::net::IpAddr;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+#[cfg(test)]
+use std::sync::Arc;
+use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use domovoi_core::ports::{AgentSnapshot, LinkError, Presence};
 use domovoi_core::{AgentId, AgentSessionId, HostId, JournalEpoch, RequestId, SkillSummary};
 use domovoi_proto::messages::{AgentStatus, CheckInfo, DockerReport, HostFacts, SessionId};
 use domovoi_proto::{Message, encode};
 use jiff::Timestamp;
-use tokio::sync::{Semaphore, mpsc, oneshot};
+#[cfg(test)]
+use tokio::sync::Semaphore;
+use tokio::sync::{mpsc, oneshot};
 
 use super::registry_state::{RegisterError, State};
 use tokio_util::sync::CancellationToken;
@@ -183,17 +187,20 @@ impl Registry {
     }
 
     /// Whether `agent` has been retired. Test support, for the local enrollment path.
+    #[cfg(test)]
     pub fn is_retired(&self, agent: AgentId) -> bool {
         self.lock().retired.contains(&agent)
     }
 
     /// Test support: holds every registration until a permit is added to `gate`, so a test
     /// can retire an agent between its successful handshake and its registration.
+    #[cfg(test)]
     pub fn hold_registrations(&self, gate: Arc<Semaphore>) {
         self.lock().registration_gate = Some(gate);
     }
 
     /// Test support: the gate registrations wait on, if a test installed one.
+    #[cfg(test)]
     pub fn registration_gate(&self) -> Option<Arc<Semaphore>> {
         self.lock().registration_gate.clone()
     }
