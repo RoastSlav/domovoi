@@ -2,14 +2,20 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::net::IpAddr;
+#[cfg(test)]
+use std::sync::Arc;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
-use domovoi_core::ports::{LinkError, Presence};
-use domovoi_core::{HostId, JournalEpoch, RequestId, SkillSummary};
+use domovoi_core::ports::{AgentSnapshot, LinkError, Presence};
+use domovoi_core::{AgentId, AgentSessionId, HostId, JournalEpoch, RequestId, SkillSummary};
 use domovoi_proto::messages::{AgentStatus, CheckInfo, DockerReport, HostFacts, SessionId};
 use domovoi_proto::{Message, encode};
 use jiff::Timestamp;
+#[cfg(test)]
+use tokio::sync::Semaphore;
 use tokio::sync::{mpsc, oneshot};
+
+use super::registry_state::{RegisterError, State};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -31,6 +37,10 @@ pub(crate) enum Liveness {
 /// A live, authenticated session.
 pub(crate) struct Live {
     pub session: SessionId,
+    /// The hub-local identity of this authenticated connection.
+    pub identity: AgentSessionId,
+    /// The enrolled agent that authenticated it.
+    pub agent: AgentId,
     pub since: Timestamp,
     pub version: String,
     /// What the agent said about its machine, kept so the hub can profile the host.
@@ -60,7 +70,7 @@ pub(crate) struct SessionFacts {
 
 /// What the hub knows about one host's agent.
 #[derive(Default)]
-struct Entry {
+pub(super) struct Entry {
     live: Option<Live>,
     last_seen: Option<Timestamp>,
     /// When this hub session last saw a live session end, if it ever had one.
@@ -101,12 +111,12 @@ pub(crate) struct Watch {
 /// Sessions by host. A host has at most one live session.
 #[derive(Default)]
 pub(crate) struct Registry {
-    hosts: Mutex<BTreeMap<HostId, Entry>>,
+    state: Mutex<State>,
 }
 
 impl Registry {
-    fn lock(&self) -> MutexGuard<'_, BTreeMap<HostId, Entry>> {
-        self.hosts.lock().unwrap_or_else(PoisonError::into_inner)
+    fn lock(&self) -> MutexGuard<'_, State> {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Publishes how many hosts have a live session, from inside the lock.
@@ -124,8 +134,19 @@ impl Registry {
     }
 
     /// Makes `live` the host's session, closing the one it replaces.
-    pub fn register(&self, host: HostId, live: Live, remote_ip: Option<IpAddr>) {
+    ///
+    /// A retired `AgentId` is refused. Its handshake may have finished after the agent was
+    /// revoked or replaced, and the registry is the last place that can stop it.
+    pub fn register(
+        &self,
+        host: HostId,
+        live: Live,
+        remote_ip: Option<IpAddr>,
+    ) -> Result<(), RegisterError> {
         let mut hosts = self.lock();
+        if hosts.retired.contains(&live.agent) {
+            return Err(RegisterError::Retired(live.agent));
+        }
         let entry = hosts.entry(host).or_default();
         if let Some(old) = entry.live.take() {
             old.cancel.cancel();
@@ -137,6 +158,51 @@ impl Registry {
         }
         entry.live = Some(live);
         Self::report(&hosts);
+        Ok(())
+    }
+
+    /// Retires `agent` for good: records the identity, closes its live session if one is
+    /// registered, and makes every later registration of it fail.
+    ///
+    /// This is the one retirement operation every enrollment path uses, so a handshake that
+    /// is still in flight when the agent is revoked or replaced cannot become live later.
+    pub fn retire(&self, agent: AgentId, at: Timestamp) {
+        let mut state = self.lock();
+        state.retired.insert(agent);
+        let hosts: Vec<HostId> = state
+            .iter()
+            .filter(|(_, entry)| entry.live.as_ref().is_some_and(|live| live.agent == agent))
+            .map(|(host, _)| *host)
+            .collect();
+        for host in hosts {
+            let Some(entry) = state.get_mut(&host) else {
+                continue;
+            };
+            if let Some(live) = entry.live.take() {
+                live.cancel.cancel();
+                entry.absent_since = Some(at);
+            }
+        }
+        Self::report(&state);
+    }
+
+    /// Whether `agent` has been retired. Test support, for the local enrollment path.
+    #[cfg(test)]
+    pub fn is_retired(&self, agent: AgentId) -> bool {
+        self.lock().retired.contains(&agent)
+    }
+
+    /// Test support: holds every registration until a permit is added to `gate`, so a test
+    /// can retire an agent between its successful handshake and its registration.
+    #[cfg(test)]
+    pub fn hold_registrations(&self, gate: Arc<Semaphore>) {
+        self.lock().registration_gate = Some(gate);
+    }
+
+    /// Test support: the gate registrations wait on, if a test installed one.
+    #[cfg(test)]
+    pub fn registration_gate(&self) -> Option<Arc<Semaphore>> {
+        self.lock().registration_gate.clone()
     }
 
     /// Ends `session` if it is still the host's session, at `at`. Waiting requests fail and
@@ -202,13 +268,15 @@ impl Registry {
     /// Queues `message` for the host's agent and returns the request id, where its answer
     /// will arrive, and what the accepting session promised about itself.
     ///
-    /// With `expected_epoch`, the request is only queued when the live session reported that
-    /// journal: the check and the queueing are one step under the same lock, so a session
-    /// that replaces the host's cannot receive a request meant for the old journal.
+    /// With `expected_session` and `expected_epoch`, the request is only queued when the
+    /// live session is exactly that connection and reported that journal: the checks and the
+    /// queueing are one step under the same lock, so a replacement session cannot receive a
+    /// request meant for the old one, even when the journal epoch survived the reconnection.
     pub fn dispatch(
         &self,
         host: HostId,
         message: &Message,
+        expected_session: Option<AgentSessionId>,
         expected_epoch: Option<JournalEpoch>,
     ) -> Result<(RequestId, oneshot::Receiver<Message>, SessionFacts), LinkError> {
         let mut hosts = self.lock();
@@ -216,6 +284,9 @@ impl Registry {
             .get_mut(&host)
             .and_then(|e| e.live.as_mut())
             .ok_or(LinkError::NotConnected)?;
+        if expected_session.is_some_and(|expected| live.identity != expected) {
+            return Err(LinkError::SessionChanged);
+        }
         if expected_epoch.is_some_and(|expected| live.journal_epoch != expected.as_uuid()) {
             return Err(LinkError::SessionChanged);
         }
@@ -364,6 +435,19 @@ impl Registry {
             .and_then(|e| e.live.as_ref())
             .map(|l| l.skills.clone())
             .unwrap_or_default()
+    }
+
+    /// The coherent snapshot of the host's live session.
+    pub fn snapshot(&self, host: HostId) -> Option<AgentSnapshot> {
+        self.lock()
+            .get(&host)
+            .and_then(|e| e.live.as_ref())
+            .map(|live| AgentSnapshot {
+                session: live.identity,
+                agent: live.agent,
+                journal_epoch: JournalEpoch::from_uuid(live.journal_epoch),
+                skills: live.skills.clone(),
+            })
     }
 
     /// Every watched host.

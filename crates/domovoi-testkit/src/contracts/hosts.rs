@@ -5,7 +5,7 @@ use domovoi_core::{
     AgentId, AgentIdentity, AuthenticatedReport, HostId, ReportOutcome, ReportedProtocol,
 };
 
-use super::ContractResult;
+use super::{ContractError, ContractResult};
 use crate::build::{T0, at, host};
 
 fn agent(host: HostId) -> AgentIdentity {
@@ -79,6 +79,62 @@ async fn agents(repo: &dyn HostRepo) -> ContractResult {
     repo.put_agent(&upgraded).await?;
     assert_eq!(repo.get_agent(first.agent).await?, Some(upgraded));
 
+    // An AgentId names one enrollment for life. Its version may move; nothing else may.
+    let current = repo
+        .get_agent(first.agent)
+        .await?
+        .ok_or_else(|| ContractError::Setup("the upgraded agent is stored".to_owned()))?;
+    let mut changed_key = current.clone();
+    changed_key.public_key = [9; 32];
+    assert!(
+        matches!(
+            repo.put_agent(&changed_key).await,
+            Err(StoreError::Conflict(_))
+        ),
+        "an agent id cannot change its public key"
+    );
+    assert_eq!(repo.get_agent(first.agent).await?, Some(current.clone()));
+
+    let elsewhere = host("agent-elsewhere")?;
+    repo.upsert_host(&elsewhere).await?;
+    let mut moved = current.clone();
+    moved.host = elsewhere.id;
+    assert!(
+        matches!(repo.put_agent(&moved).await, Err(StoreError::Conflict(_))),
+        "an agent id cannot move to another host"
+    );
+    assert_eq!(
+        repo.live_agent(box1.id).await?,
+        Some(current.clone()),
+        "the refused move did not take effect"
+    );
+    assert_eq!(repo.live_agent(elsewhere.id).await?, None);
+
+    let mut re_enrolled = current.clone();
+    re_enrolled.enrolled_at = at(5);
+    assert!(
+        matches!(
+            repo.put_agent(&re_enrolled).await,
+            Err(StoreError::Conflict(_))
+        ),
+        "an agent id cannot change its enrollment time"
+    );
+
+    let mut pre_revoked = current.clone();
+    pre_revoked.revoked_at = Some(at(6));
+    assert!(
+        matches!(
+            repo.put_agent(&pre_revoked).await,
+            Err(StoreError::Conflict(_))
+        ),
+        "put_agent cannot revoke an agent"
+    );
+    assert_eq!(
+        repo.live_agent(box1.id).await?,
+        Some(current.clone()),
+        "the refused revocation did not take effect"
+    );
+
     let second = agent(box1.id);
     assert!(
         matches!(repo.put_agent(&second).await, Err(StoreError::Conflict(_))),
@@ -96,6 +152,23 @@ async fn agents(repo: &dyn HostRepo) -> ContractResult {
     assert!(
         matches!(repo.put_agent(&first).await, Err(StoreError::Conflict(_))),
         "a revoked agent never comes back"
+    );
+    let mut after_revoke = current.clone();
+    after_revoke.version = "0.3.0".to_owned();
+    assert!(
+        matches!(
+            repo.put_agent(&after_revoke).await,
+            Err(StoreError::Conflict(_))
+        ),
+        "a revoked agent cannot be updated"
+    );
+    assert!(
+        matches!(
+            repo.record_agent_report(first.agent, &seen(1, 1, "0.1.0"), at(15))
+                .await,
+            Err(StoreError::Conflict(_))
+        ),
+        "a revoked agent cannot update its stored report"
     );
     assert_eq!(
         repo.live_agent(box1.id).await?,

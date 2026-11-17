@@ -67,9 +67,14 @@ async fn outcome(
     // not take a run of the hour or read the monthly budget.
     if !fresh && let Some((mut report, from)) = cached(shared, incident, &digest).await {
         // The repeat incident gets the same approve buttons a fresh triage would: the
-        // cached report's proposals are re-validated against the host's current skills.
-        let skills = deps.link.skills(incident.host());
-        let tokens = proposals::create(shared, incident, &skills, &mut report).await;
+        // cached report's proposals are re-validated against the host's current session.
+        let snapshot = deps.link.snapshot(incident.host());
+        let skills = snapshot
+            .as_ref()
+            .map(|session| session.skills.clone())
+            .unwrap_or_default();
+        let tokens =
+            proposals::create(shared, incident, snapshot.as_ref(), &skills, &mut report).await;
         return (TriageOutcome::Cached { report, from }, tokens);
     }
     if let Err(refusal) = admit(shared, Purpose::Triage).await {
@@ -104,7 +109,11 @@ async fn outcome(
         };
         return (TriageOutcome::Skipped { reason }, BTreeMap::new());
     }
-    let skills = deps.link.skills(incident.host());
+    let snapshot = deps.link.snapshot(incident.host());
+    let skills = snapshot
+        .as_ref()
+        .map(|session| session.skills.clone())
+        .unwrap_or_default();
     let bundle = context::build(shared, incident, &skills).await;
     let mut tool_use: Vec<ToolUse> = Vec::new();
     let mut run = agent::RunBudget::for_run(shared);
@@ -112,7 +121,8 @@ async fn outcome(
     {
         Ok(mut report) => {
             redact_report(deps.redactor.as_ref(), &mut report);
-            let tokens = proposals::create(shared, incident, &skills, &mut report).await;
+            let tokens =
+                proposals::create(shared, incident, snapshot.as_ref(), &skills, &mut report).await;
             if let Err(err) = deps
                 .cache
                 .put(&incident.fingerprint(), &digest, &report, deps.clock.now())

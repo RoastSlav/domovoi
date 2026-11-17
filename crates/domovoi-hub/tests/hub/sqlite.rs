@@ -14,13 +14,14 @@ use async_trait::async_trait;
 use domovoi_core::ports::{
     AckRepo, ActionFilter, ActionRepo, AdvisoryRepo, AggregateRef, AuditEvent, AuditFilter,
     AuditLog, ClaimBatch, CommitError, CommitReceipt, EffectKind, EffectQueue, EffectRead,
-    EffectRecord, EffectStatus, IncidentFilter, IncidentRepo, IncidentTimelineEntry, JournalEntry,
-    JournalRead, Page, Paged, SignalRepo, StoreError, Transaction, UnitOfWork, Versioned,
-    VersionedRead,
+    EffectRecord, EffectStatus, EnrollmentToken, HostRepo, IncidentFilter, IncidentRepo,
+    IncidentTimelineEntry, JournalEntry, JournalRead, Page, Paged, SignalRepo, StoreError,
+    Transaction, UnitOfWork, Versioned, VersionedRead,
 };
 use domovoi_core::{
-    AckRule, AckRuleId, ActionId, ActionRequest, Advisory, AdvisoryId, Fingerprint, HostId,
-    Incident, IncidentId, MaintenanceWindow, Note, NoteId, Signal, SkillName,
+    AckRule, AckRuleId, ActionId, ActionRequest, Advisory, AdvisoryId, AgentId, AgentIdentity,
+    AgentReport, AuthenticatedReport, Fingerprint, Host, HostId, HostName, Incident, IncidentId,
+    MaintenanceWindow, Note, NoteId, ReportOutcome, Signal, SkillName,
 };
 use domovoi_store::Store;
 use domovoi_testkit::crash::{IntegrityRead, Orphan, OrphanStorage, check_invariants};
@@ -269,6 +270,66 @@ impl AuditLog for SqliteStore {
         page: &Page,
     ) -> Result<Paged<AuditEvent>, StoreError> {
         AuditLog::list(&*self.0, filter, page).await
+    }
+}
+
+#[async_trait]
+impl HostRepo for SqliteStore {
+    async fn upsert_host(&self, host: &Host) -> Result<(), StoreError> {
+        HostRepo::upsert_host(&*self.0, host).await
+    }
+
+    async fn get_host(&self, id: HostId) -> Result<Option<Host>, StoreError> {
+        HostRepo::get_host(&*self.0, id).await
+    }
+
+    async fn get_host_by_name(&self, name: &HostName) -> Result<Option<Host>, StoreError> {
+        HostRepo::get_host_by_name(&*self.0, name).await
+    }
+
+    async fn list_hosts(&self) -> Result<Vec<Host>, StoreError> {
+        HostRepo::list_hosts(&*self.0).await
+    }
+
+    async fn put_agent(&self, agent: &AgentIdentity) -> Result<(), StoreError> {
+        HostRepo::put_agent(&*self.0, agent).await
+    }
+
+    async fn get_agent(&self, id: AgentId) -> Result<Option<AgentIdentity>, StoreError> {
+        HostRepo::get_agent(&*self.0, id).await
+    }
+
+    async fn live_agent(&self, host: HostId) -> Result<Option<AgentIdentity>, StoreError> {
+        HostRepo::live_agent(&*self.0, host).await
+    }
+
+    async fn revoke_agent(&self, id: AgentId, at: Timestamp) -> Result<(), StoreError> {
+        HostRepo::revoke_agent(&*self.0, id, at).await
+    }
+
+    async fn agent_report(&self, agent: AgentId) -> Result<Option<AgentReport>, StoreError> {
+        HostRepo::agent_report(&*self.0, agent).await
+    }
+
+    async fn record_agent_report(
+        &self,
+        agent: AgentId,
+        seen: &AuthenticatedReport,
+        now: Timestamp,
+    ) -> Result<ReportOutcome, StoreError> {
+        HostRepo::record_agent_report(&*self.0, agent, seen, now).await
+    }
+
+    async fn create_enrollment_token(&self, token: &EnrollmentToken) -> Result<(), StoreError> {
+        HostRepo::create_enrollment_token(&*self.0, token).await
+    }
+
+    async fn consume_enrollment_token(
+        &self,
+        token_hash: &[u8; 32],
+        now: Timestamp,
+    ) -> Result<HostId, StoreError> {
+        HostRepo::consume_enrollment_token(&*self.0, token_hash, now).await
     }
 }
 

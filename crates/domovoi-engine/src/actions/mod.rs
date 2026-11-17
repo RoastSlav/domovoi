@@ -10,6 +10,7 @@
 mod approvals;
 pub mod audit;
 mod commit;
+mod dispatch;
 mod executor;
 mod expire;
 mod freshness;
@@ -18,8 +19,10 @@ mod outcome;
 mod preflight;
 mod recheck;
 mod reconcile;
+mod record;
 mod recover;
 mod reject;
+mod v2_plan;
 mod verify_wake;
 mod writer;
 mod writer_propose;
@@ -30,10 +33,13 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::{Arc, Mutex};
 
 use domovoi_core::ports::{
-    ActionRepo, AdvisoryRepo, AgentLink, AuditLog, Clock, EffectKind, EffectQueue, IncidentRepo,
-    Redactor, UnitOfWork,
+    ActionRepo, AdvisoryRepo, AgentLink, AuditLog, Clock, EffectKind, EffectQueue, HostRepo,
+    IncidentRepo, Redactor, UnitOfWork,
 };
-use domovoi_core::{ActionError, ActionId, ActionRequest, HostId, HumanApproval, PlanBinding};
+use domovoi_core::{
+    ActionError, ActionId, ActionRequest, ApprovalProvenance, Authorization, HostId, HumanApproval,
+    PlanBinding,
+};
 use jiff::{SignedDuration, Timestamp};
 use tokio::sync::{Notify, broadcast, mpsc, oneshot};
 use tokio::task::JoinHandle;
@@ -94,6 +100,8 @@ pub struct ActionDeps {
     pub advisories: Arc<dyn AdvisoryRepo>,
     /// Skill catalogues, dispatch and re-checks.
     pub link: Arc<dyn AgentLink>,
+    /// Enrolled hosts and their agent keys, read for the v2 target.
+    pub hosts: Arc<dyn HostRepo>,
     /// Runs on skill output before it is stored.
     pub redactor: Arc<dyn Redactor>,
     /// Time.
@@ -124,6 +132,16 @@ pub enum ApprovalError {
     /// a typed confirmation on the web.
     #[error("{0}")]
     Refused(ActionError),
+    /// A policy authorization reached the writer. No policy permits exist in this
+    /// milestone, so nothing is written and the action stays as it was.
+    #[error("policy authorizations are not supported yet")]
+    NotYetSupported,
+    /// The stored action has no usable human approval behind its `Approved` status.
+    #[error("the action has no valid human authorization")]
+    MissingAuthorization,
+    /// The stored approval evidence contradicts the action's plan or authorization case.
+    #[error("the action's stored approval evidence contradicts its plan")]
+    InconsistentAuthorization,
     /// Another runner holds the effect this write was fenced by: the lease expired and the
     /// effect was reclaimed. Nothing changed.
     #[error("the effect was claimed by someone else")]
@@ -359,24 +377,26 @@ impl ActionHandle {
         !self.writer.tx.is_closed()
     }
 
-    /// Approves action `id` on behalf of the human in `approval`. A chat approval needs
-    /// `chat_token`, which works once. `binding` must name the action's stored v1 plan hash,
-    /// so an approval covers the plan the card showed. This is the only way to reach
+    /// Approves action `id` on behalf of the authorization's human. A chat approval needs
+    /// `chat_token`, which works once. `binding` must name the action's approval-family plan
+    /// hash, so an approval covers the plan the card showed. This is the only way to reach
     /// `Approved`; the decision is queued for the writer task, so it cannot race another
-    /// one.
+    /// one. A policy authorization is refused in this milestone.
     pub async fn approve(
         &self,
         id: ActionId,
-        approval: HumanApproval,
+        authorization: Authorization,
         chat_token: Option<&str>,
         binding: PlanBinding,
+        provenance: ApprovalProvenance,
     ) -> Result<ActionRequest, ApprovalError> {
         let (reply, answer) = oneshot::channel();
         let command = writer::WriteCommand::Approve {
             id,
-            approval,
+            authorization,
             chat_token: chat_token.map(str::to_owned),
             binding,
+            provenance,
             reply,
         };
         if self.writer.tx.send(command).await.is_err() {
@@ -428,9 +448,9 @@ impl ActionHandle {
         }
     }
 
-    /// Replaces the chat approval token hash of a still-proposed action. The previous
-    /// token stops working. Refused with `ChangedMeanwhile` when the action is no longer
-    /// `proposed`, and `NotFound` when it does not exist.
+    /// Replaces the chat approval token hash of a still-proposed, unexpired action without
+    /// extending its window. Refused with `ChangedMeanwhile` when decided, `Expired` when
+    /// the window closed, and `NotFound` when missing.
     pub async fn rotate_chat_token(
         &self,
         id: ActionId,

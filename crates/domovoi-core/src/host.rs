@@ -8,6 +8,7 @@ use jiff::{SignedDuration, Timestamp};
 
 use crate::error::ValidationError;
 use crate::id::{AgentId, HostId};
+use crate::sha256::sha256_newtype;
 
 /// A validated host slug matching `^[a-z0-9][a-z0-9-]{0,62}$`.
 #[derive(
@@ -117,6 +118,32 @@ pub struct AgentIdentity {
     pub enrolled_at: Timestamp,
     /// When the agent was revoked; a revoked agent may never connect again.
     pub revoked_at: Option<Timestamp>,
+}
+
+sha256_newtype!(
+    /// SHA-256 over an agent's enrolled ed25519 public key bytes: the hub-computed half of a
+    /// host's canonical identity.
+    ///
+    /// Exactly 64 lowercase hex on the wire and in display. Computed from the hub's own
+    /// enrolled record, never accepted from an agent message, an incident or a client.
+    KeyFingerprint
+);
+
+impl KeyFingerprint {
+    /// Hashes the 32 raw public-key bytes of an enrolled agent.
+    #[must_use]
+    pub fn of_public_key(public_key: &[u8; 32]) -> Self {
+        Self::digest(public_key)
+    }
+}
+
+/// The canonical host identity text: `host:{host_id}/{fingerprint}`.
+///
+/// This is the only place the format is written. `PlanTarget::canonical` uses it, and a
+/// registry resolving a target reuses it, so a plan hash and a resolution cannot drift.
+#[must_use]
+pub fn host_target_text(host: HostId, key: &KeyFingerprint) -> String {
+    format!("host:{host}/{key}")
 }
 
 /// How often a report is refreshed without writing anything but its timestamp.

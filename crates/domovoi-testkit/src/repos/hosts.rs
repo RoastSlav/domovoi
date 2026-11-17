@@ -44,18 +44,45 @@ impl HostRepo for InMemoryStore {
 
     async fn put_agent(&self, agent: &AgentIdentity) -> Result<(), StoreError> {
         let mut state = self.begin()?;
+        if let Some(existing) = state.agents.get(&agent.agent).cloned() {
+            // An `AgentId` names one enrollment for life. Only the version it reports may
+            // move; every identity field is fixed, and revocation has its own operation.
+            if existing.revoked_at.is_some() {
+                return Err(conflict("a revoked agent never comes back"));
+            }
+            if agent.revoked_at.is_some() {
+                return Err(conflict(
+                    "revocation goes through revoke_agent, not put_agent",
+                ));
+            }
+            if existing.host != agent.host {
+                return Err(conflict("an agent id cannot move to another host"));
+            }
+            if existing.public_key != agent.public_key {
+                return Err(conflict("an agent id cannot change its public key"));
+            }
+            if existing.enrolled_at != agent.enrolled_at {
+                return Err(conflict("an agent id cannot change its enrollment time"));
+            }
+            state.agents.insert(
+                agent.agent,
+                AgentIdentity {
+                    version: agent.version.clone(),
+                    ..existing
+                },
+            );
+            return Ok(());
+        }
+        if agent.revoked_at.is_some() {
+            return Err(conflict("an agent cannot be enrolled revoked"));
+        }
         if !state.hosts.contains_key(&agent.host) {
             return Err(StoreError::NotFound);
-        }
-        if let Some(existing) = state.agents.get(&agent.agent)
-            && existing.revoked_at.is_some()
-        {
-            return Err(conflict("agent revoked"));
         }
         let other_active = state
             .agents
             .values()
-            .any(|a| a.host == agent.host && a.agent != agent.agent && a.revoked_at.is_none());
+            .any(|a| a.host == agent.host && a.revoked_at.is_none());
         if other_active {
             return Err(conflict("host already has an agent"));
         }
@@ -94,8 +121,11 @@ impl HostRepo for InMemoryStore {
         now: Timestamp,
     ) -> Result<ReportOutcome, StoreError> {
         let mut state = self.begin()?;
-        if !state.agents.contains_key(&agent) {
+        let Some(identity) = state.agents.get(&agent) else {
             return Err(StoreError::NotFound);
+        };
+        if identity.revoked_at.is_some() {
+            return Err(StoreError::Conflict("the agent is revoked".to_owned()));
         }
         let previous = state.reports.get(&agent).cloned();
         let since_was = previous

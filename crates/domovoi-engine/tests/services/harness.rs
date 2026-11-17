@@ -4,13 +4,13 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use domovoi_core::ports::{
-    ActionFilter, ActionRepo, Clock, IncidentTimelineEntry, LlmProvider, LlmResponse, NoteRepo,
-    Page, Part, Presence, SignalRepo, StopReason, ToolOutput, UnitOfWork, Usage,
+    ActionFilter, ActionRepo, Clock, HostRepo, IncidentTimelineEntry, LlmProvider, LlmResponse,
+    NoteRepo, Page, Part, Presence, SignalRepo, StopReason, ToolOutput, UnitOfWork, Usage,
 };
 use domovoi_core::{
-    ActionRequest, CheckKey, Evidence, EvidenceValue, HostId, Incident, Note, NoteId, ParamKind,
-    ParamName, ParamSpec, Risk, Severity, Signal, SkillSummary, SourceKind, TargetKey,
-    TriageOutcome,
+    ActionRequest, AgentIdentity, CheckKey, Evidence, EvidenceValue, HostId, Incident, Note,
+    NoteId, ParamKind, ParamName, ParamSpec, Risk, Severity, Signal, SkillSummary, SourceKind,
+    TargetKey, TriageOutcome,
 };
 use domovoi_engine::triage::{TriageDeps, TriageHandle, TriageService, TriageSettings};
 use domovoi_engine::{
@@ -146,12 +146,32 @@ pub async fn world(setup: Setup) -> World {
     world_over(setup, store.clone(), store).await
 }
 
+/// A world whose action repository is `actions` for both the writer and triage, so a test
+/// can change an action between triage's listing and the writer's rotation.
+pub async fn world_with_actions(
+    setup: Setup,
+    store: Arc<InMemoryStore>,
+    actions: Arc<dyn ActionRepo>,
+) -> World {
+    world_over_with_actions(setup, store.clone(), store, actions).await
+}
+
 /// A world whose stores `uow` commits the action service's writes, so a test can watch
 /// what the writer commits. `store` must be the same store `uow` forwards to.
 pub async fn world_over(
     setup: Setup,
     store: Arc<InMemoryStore>,
     uow: Arc<dyn UnitOfWork>,
+) -> World {
+    let actions: Arc<dyn ActionRepo> = store.clone();
+    world_over_with_actions(setup, store, uow, actions).await
+}
+
+async fn world_over_with_actions(
+    setup: Setup,
+    store: Arc<InMemoryStore>,
+    uow: Arc<dyn UnitOfWork>,
+    actions: Arc<dyn ActionRepo>,
 ) -> World {
     let clock = Arc::new(FakeClock::new(T0));
     let link = Arc::new(FakeAgentLink::new());
@@ -169,6 +189,23 @@ pub async fn world_over(
         })
     });
     let incident = incident_with(&store, setup.evidence).await;
+    // Triage binds a v2 plan to the host's enrolled key, so the world has one.
+    let mut registered = domovoi_testkit::build::host("nas").unwrap();
+    registered.id = host_id();
+    HostRepo::upsert_host(&*store, &registered).await.unwrap();
+    HostRepo::put_agent(
+        &*store,
+        &AgentIdentity {
+            agent: link.agent_id(host_id()),
+            host: host_id(),
+            public_key: [7; 32],
+            version: "0.1.0".to_owned(),
+            enrolled_at: T0,
+            revoked_at: None,
+        },
+    )
+    .await
+    .unwrap();
     // The world's own incident stands for one a test drives by hand: it counts as already
     // triaged, so the service's start-up pass leaves it alone and the test decides when
     // triage runs. The entry has no detail, so nothing reads it as a report, and it is
@@ -220,13 +257,14 @@ pub async fn world_over(
     };
     let (actions_service, _actions_task) = ActionService::spawn(
         ActionDeps {
-            actions: store.clone(),
+            actions: actions.clone(),
             incidents: store.clone(),
             audit: store.clone(),
             uow,
             effects: store.clone(),
             advisories: store.clone(),
             link: link.clone(),
+            hosts: store.clone(),
             redactor: redactor.clone(),
             clock: clock.clone(),
             manager: manager.clone(),
@@ -242,7 +280,8 @@ pub async fn world_over(
         incidents: store.clone(),
         signals: store.clone(),
         notes: store.clone(),
-        actions: store.clone(),
+        hosts: store.clone(),
+        actions,
         actions_service: actions_service.clone(),
         cache: store.clone(),
         usage: setup.usage.clone().unwrap_or_else(|| store.clone()),
@@ -298,6 +337,7 @@ impl World {
             incidents: self.store.clone(),
             signals: self.store.clone(),
             notes: self.store.clone(),
+            hosts: self.store.clone(),
             actions: self.store.clone(),
             actions_service: self.actions_service.clone(),
             cache: self.store.clone(),

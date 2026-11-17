@@ -6,8 +6,8 @@ use domovoi_core::ports::{
 use std::collections::BTreeMap;
 
 use domovoi_core::{
-    ActionError, ActionId, ActionRequest, ActionStatus, HostId, IncidentId, PlanHash, Principal,
-    Risk, UserId,
+    ActionChange, ActionError, ActionId, ActionRequest, ActionStatus, ApprovalProvenance,
+    Authorization, HostId, IncidentId, PlanBinding, PlanHash, Principal, Risk, UserId,
 };
 use jiff::{SignedDuration, Timestamp};
 use serde_json::{Value, json};
@@ -15,6 +15,21 @@ use serde_json::{Value, json};
 use super::{ContractError, ContractResult};
 use crate::approvals::human;
 use crate::build::{BuildError, T0, action, at, manifest};
+
+/// Approves `request` as `user` at `now`, bound to its displayed plan.
+fn approve_request(
+    request: &mut ActionRequest,
+    user: UserId,
+    now: Timestamp,
+) -> Result<ActionChange, ActionError> {
+    let binding = PlanBinding::Full(request.plan_hash_for_approval());
+    request.approve(
+        Authorization::human(human(user)),
+        ApprovalProvenance::new(None, "test"),
+        &binding,
+        now,
+    )
+}
 
 /// Exercises inserts, guarded updates, chat tokens and listing on an empty `repo`.
 pub async fn action_repo_contract(repo: &dyn ActionRepo) -> ContractResult {
@@ -33,8 +48,7 @@ pub async fn action_repo_contract(repo: &dyn ActionRepo) -> ContractResult {
         Err(StoreError::Conflict(_))
     ));
 
-    first
-        .approve(human(UserId::new()), at(60))
+    approve_request(&mut first, UserId::new(), at(60))
         .map_err(|e| ContractError::Setup(e.to_string()))?;
     repo.update_from(&first, "proposed").await?;
     let stored = repo.get(first.id()).await?;
@@ -193,23 +207,23 @@ async fn sent(
     let args = summary
         .validate_args(&BTreeMap::new())
         .map_err(BuildError::from)?;
+    let incident = crate::build::incident(host, "disk.usage", None)?.with_id(IncidentId::new());
     let mut request = ActionRequest::propose(
-        IncidentId::new(),
-        host,
+        &incident,
         &summary,
         &args,
+        Some(crate::build::key_fingerprint()),
         Principal::System("triage".into()),
         SignedDuration::from_hours(1),
         T0,
-    );
+    )
+    .map_err(|e| ContractError::Setup(e.to_string()))?;
     repo.insert(&request).await?;
-    request
-        .approve(human(UserId::new()), at(1))
-        .map_err(setup)?;
+    approve_request(&mut request, UserId::new(), at(1)).map_err(setup)?;
     let plan = if stale_plan {
         PlanHash::compute(&summary.name, summary.manifest_hash, HostId::new(), &args)
     } else {
-        request.plan_hash()
+        request.plan_hash_for_approval()
     };
     request
         .dispatch(plan, None, at(dispatched_at))

@@ -174,6 +174,28 @@ pub const HUMAN_APPROVAL_ALLOWED_PREFIXES: &[&str] =
 pub const HUMAN_APPROVAL_RESTORE_ALLOWED_PREFIXES: &[&str] =
     &["crates/domovoi-store/src/", "crates/domovoi-testkit/"];
 
+/// Path prefixes where `PolicyPermit::issue` may be called. The permit is a data factory,
+/// not an issuer, and M1 has no operational caller (ADR 0021).
+pub const POLICY_PERMIT_ALLOWED_PREFIXES: &[&str] = &["crates/domovoi-hub/src/policy/"];
+
+/// Path prefixes where `Authorization::human` may be called: only the hub's auth layer
+/// turns an authenticated human into an authorization (INV-1, ADR 0021).
+pub const AUTHORIZATION_HUMAN_ALLOWED_PREFIXES: &[&str] =
+    &["crates/domovoi-hub/src/auth/", "crates/domovoi-testkit/"];
+
+/// Path prefixes where `Authorization::policy` may be called: only a future policy layer and
+/// tests; M1 refuses the case at the writer (INV-1, ADR 0021).
+pub const AUTHORIZATION_POLICY_ALLOWED_PREFIXES: &[&str] =
+    &["crates/domovoi-hub/src/policy/", "crates/domovoi-testkit/"];
+
+/// Path prefixes where the `plan:v2` domain line may be written: one implementation only
+/// (ADR 0021).
+pub const PLAN_HASH_V2_ALLOWED_PREFIXES: &[&str] = &["crates/domovoi-core/src/action/"];
+
+/// The one module that may define `Authorization`; a public enum elsewhere would reopen a
+/// direct construction path (ADR 0021).
+pub const AUTHORIZATION_MODULE: &str = "crates/domovoi-core/src/action/authorization.rs";
+
 /// Crates whose sources must stay free of I/O (R2).
 pub const PURE_CRATE_DIRS: &[&str] = &[
     "crates/domovoi-core/src/",

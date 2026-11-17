@@ -5,12 +5,12 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use domovoi_core::ports::{
-    ActionRepo, AggregateRef, AuditFilter, AuditLog, CheckRecheck, Clock, IncidentRepo,
+    ActionRepo, AggregateRef, AuditFilter, AuditLog, CheckRecheck, Clock, HostRepo, IncidentRepo,
     JournalRead, Page, Presence, SkillOutput, UnitOfWork,
 };
 use domovoi_core::{
-    ActionId, ActionRequest, ActionStatus, Evidence, Incident, JournalEpoch, Principal, Risk,
-    SignalStatus, SkillSummary, VerifySpec,
+    ActionId, ActionRequest, ActionStatus, AgentIdentity, ApprovalProvenance, Authorization,
+    Evidence, Incident, JournalEpoch, Principal, Risk, SignalStatus, SkillSummary, VerifySpec,
 };
 use domovoi_engine::actions::audit;
 use domovoi_engine::triage::{mint_token, token_hash};
@@ -90,6 +90,9 @@ pub struct Seeded {
     /// Where the action service reads and writes actions; the store itself unless a test
     /// wraps it to hold a call.
     pub actions: Arc<dyn ActionRepo>,
+    /// Where the action service reads hosts and enrolled agents; the store unless a test
+    /// wraps it to control when a snapshot is read.
+    pub hosts: Arc<dyn HostRepo>,
     pub clock: Arc<FakeClock>,
     pub link: Arc<FakeAgentLink>,
     pub bus: broadcast::Sender<DomainEvent>,
@@ -122,6 +125,23 @@ async fn seeded_over(store: Arc<InMemoryStore>) -> Seeded {
     link.on_check(|_, _, _| Ok(check(SignalStatus::Resolved)));
     let incident = open_incident(host_id(), "docker.container", Some("nginx")).unwrap();
     IncidentRepo::insert(&*store, &incident).await.unwrap();
+    // The host is registered, with one enrolled agent whose key matches the fixture target.
+    let mut registered = domovoi_testkit::build::host("nas").unwrap();
+    registered.id = host_id();
+    HostRepo::upsert_host(&*store, &registered).await.unwrap();
+    HostRepo::put_agent(
+        &*store,
+        &AgentIdentity {
+            agent: link.agent_id(host_id()),
+            host: host_id(),
+            public_key: [7; 32],
+            version: "0.1.0".to_owned(),
+            enrolled_at: T0,
+            revoked_at: None,
+        },
+    )
+    .await
+    .unwrap();
     let (bus, _events) = broadcast::channel(256);
     let shutdown = CancellationToken::new();
     let (manager, manager_task) = IncidentManager::spawn(ManagerDeps {
@@ -137,6 +157,7 @@ async fn seeded_over(store: Arc<InMemoryStore>) -> Seeded {
     });
     Seeded {
         actions: store.clone(),
+        hosts: store.clone(),
         store,
         clock,
         link,
@@ -157,6 +178,14 @@ impl Seeded {
         self
     }
 
+    /// Reads hosts and agents through `hosts` instead of the store, so a test can hold the
+    /// enrolled-key read between the executor's snapshot and the writer's decision.
+    #[must_use]
+    pub fn with_hosts(mut self, hosts: Arc<dyn HostRepo>) -> Self {
+        self.hosts = hosts;
+        self
+    }
+
     /// Starts an action service over this world, committing every action write through
     /// `uow`. Each start gets its own shutdown token, so a test can stop one service and
     /// start another over the same store.
@@ -171,6 +200,7 @@ impl Seeded {
             effects: self.store.clone(),
             advisories: self.store.clone(),
             link: self.link.clone(),
+            hosts: self.hosts.clone(),
             redactor: Arc::new(PatternRedactor::new([SecretString::from(
                 SECRET.to_owned(),
             )])),
@@ -260,16 +290,29 @@ impl Actions {
         let validated = skill.validate_args(&args).unwrap();
         let token = mint_token();
         let action = ActionRequest::propose(
-            self.incident.id(),
-            host_id(),
+            &self.incident,
             skill,
             &validated,
+            Some(domovoi_testkit::build::key_fingerprint()),
             Principal::System("triage".into()),
             ttl,
             self.now(),
         )
+        .unwrap()
         .with_chat_token_hash(token_hash(&token));
         (action, token)
+    }
+
+    /// A human authorization and its provenance, for a test that approves through the
+    /// real writer path.
+    pub fn authorization(
+        &self,
+        approval: domovoi_core::HumanApproval,
+    ) -> (Authorization, ApprovalProvenance) {
+        (
+            Authorization::human(approval),
+            ApprovalProvenance::new(None, "test"),
+        )
     }
 
     /// Proposes `restart_container` for `nginx`, open for an hour.
@@ -289,6 +332,7 @@ impl Actions {
     /// Lets the executor run, advancing time a second per step, until `done` holds for the
     /// stored action.
     pub async fn until(&self, id: ActionId, done: impl Fn(&ActionStatus) -> bool) -> ActionRequest {
+        let mut last = self.get(id).await;
         for _ in 0..2000 {
             for _ in 0..20 {
                 tokio::task::yield_now().await;
@@ -297,9 +341,13 @@ impl Actions {
             if done(action.status()) {
                 return action;
             }
+            last = action;
             self.clock.advance(SignedDuration::from_secs(1));
         }
-        panic!("action {id} never reached the expected status");
+        panic!(
+            "action {id} never reached the expected status; last was {:?}",
+            last.status()
+        );
     }
 
     /// Lets queued work run without moving time.

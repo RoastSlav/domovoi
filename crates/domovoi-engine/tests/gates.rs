@@ -512,9 +512,9 @@ mod redaction {
 
 mod actions {
     use domovoi_core::ports::SkillOutput;
-    use domovoi_core::{ActionError, ActionStatus, PlanBinding, UserId};
+    use domovoi_core::{ActionError, ActionStatus, Authorization, PlanBinding, UserId};
     use domovoi_engine::{ActionSettings, ApprovalError, DomainEvent, EventKind};
-    use domovoi_testkit::approvals::{chat, human, web_typed};
+    use domovoi_testkit::approvals::{chat, human, provenance, web_typed};
     use jiff::SignedDuration;
 
     use crate::actions_harness::{actions, ok_output, verified_restart, wipe};
@@ -529,9 +529,10 @@ mod actions {
             a.service
                 .approve(
                     action.id(),
-                    chat(UserId::new(), "discord", "1234"),
+                    Authorization::human(chat(UserId::new(), "discord", "1234")),
                     Some(&token),
-                    PlanBinding::Full(action.plan_hash()),
+                    PlanBinding::Full(action.plan_hash_for_approval()),
+                    provenance(),
                 )
                 .await
                 .err(),
@@ -555,9 +556,10 @@ mod actions {
             a.service
                 .approve(
                     action.id(),
-                    human(UserId::new()),
+                    Authorization::human(human(UserId::new())),
                     None,
-                    PlanBinding::Full(action.plan_hash()),
+                    PlanBinding::Full(action.plan_hash_for_approval()),
+                    provenance(),
                 )
                 .await
                 .err(),
@@ -569,9 +571,10 @@ mod actions {
         a.service
             .approve(
                 action.id(),
-                web_typed(UserId::new()),
+                Authorization::human(web_typed(UserId::new())),
                 None,
-                PlanBinding::Full(action.plan_hash()),
+                PlanBinding::Full(action.plan_hash_for_approval()),
+                provenance(),
             )
             .await
             .unwrap();
@@ -637,9 +640,10 @@ mod actions {
         a.service
             .approve(
                 failed.id(),
-                human(UserId::new()),
+                Authorization::human(human(UserId::new())),
                 None,
-                PlanBinding::Full(failed.plan_hash()),
+                PlanBinding::Full(failed.plan_hash_for_approval()),
+                provenance(),
             )
             .await
             .unwrap();
@@ -652,9 +656,10 @@ mod actions {
         a.service
             .approve(
                 rejected.id(),
-                human(UserId::new()),
+                Authorization::human(human(UserId::new())),
                 None,
-                PlanBinding::Full(rejected.plan_hash()),
+                PlanBinding::Full(rejected.plan_hash_for_approval()),
+                provenance(),
             )
             .await
             .unwrap();
@@ -692,9 +697,10 @@ mod actions {
             a.service
                 .approve(
                     failed.id(),
-                    human(UserId::new()),
+                    Authorization::human(human(UserId::new())),
                     None,
-                    PlanBinding::Full(failed.plan_hash()),
+                    PlanBinding::Full(failed.plan_hash_for_approval()),
+                    provenance(),
                 )
                 .await
                 .is_err(),

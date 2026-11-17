@@ -41,6 +41,38 @@ async fn raw(path: &Path) -> sqlx::SqliteConnection {
 }
 
 #[tokio::test]
+async fn migration_records_approving_rows_as_human() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = copy_fixture(dir.path());
+    let store = Store::open(&path, StoreOptions::beside(&path, at(1000)))
+        .await
+        .unwrap();
+
+    let approved: Vec<(Option<String>,)> =
+        sqlx::query_as("SELECT authorization_kind FROM actions WHERE approved_by IS NOT NULL")
+            .fetch_all(store.pool_for_tests())
+            .await
+            .unwrap();
+    assert!(!approved.is_empty(), "the fixture has an approved action");
+    assert!(
+        approved
+            .iter()
+            .all(|(kind,)| kind.as_deref() == Some("human")),
+        "every row with an approver is a human approval: {approved:?}"
+    );
+
+    let undecided: Vec<(Option<String>,)> =
+        sqlx::query_as("SELECT authorization_kind FROM actions WHERE approved_by IS NULL")
+            .fetch_all(store.pool_for_tests())
+            .await
+            .unwrap();
+    assert!(
+        undecided.iter().all(|(kind,)| kind.is_none()),
+        "a row nobody approved has no authorization case: {undecided:?}"
+    );
+}
+
+#[tokio::test]
 async fn upgrade_from_previous_schema_keeps_every_row() {
     let dir = tempfile::tempdir().unwrap();
     let path = copy_fixture(dir.path());

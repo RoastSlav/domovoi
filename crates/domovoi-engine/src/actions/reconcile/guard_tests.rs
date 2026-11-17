@@ -7,9 +7,9 @@ use domovoi_core::ports::{
     ActionRepo, AggregateRef, AuditFilter, AuditLog, IncidentRepo, JournalRead, Page,
 };
 use domovoi_core::{
-    ActionRequest, ActionStatus, HostId, JournalEpoch, PlanHash, Principal, Risk, UserId,
+    ActionRequest, ActionStatus, HostId, JournalEpoch, KeyFingerprint, Principal, Risk, UserId,
 };
-use domovoi_testkit::approvals::human;
+use domovoi_testkit::approvals::{approve, human};
 use domovoi_testkit::build::{T0, manifest, open_incident};
 use domovoi_testkit::{FakeAgentLink, FakeClock, InMemoryStore};
 use jiff::SignedDuration;
@@ -61,6 +61,7 @@ impl Writer {
                 effects: store.clone(),
                 advisories: store.clone(),
                 link,
+                hosts: store.clone(),
                 redactor: Arc::new(PatternRedactor::default()),
                 clock: clock.clone(),
                 manager,
@@ -101,16 +102,17 @@ impl Writer {
             .summary(domovoi_core::ScriptDigest::of_bytes(b"fixture entry"));
         let args = skill.validate_args(&BTreeMap::new()).unwrap();
         let mut action = ActionRequest::propose(
-            incident.id(),
-            self.host,
+            &incident,
             &skill,
             &args,
+            Some(KeyFingerprint::of_public_key(&[7u8; 32])),
             Principal::System("triage".into()),
             SignedDuration::from_hours(1),
             T0,
-        );
-        action.approve(human(UserId::new()), T0).unwrap();
-        let plan = PlanHash::compute(&skill.name, skill.manifest_hash, self.host, &args);
+        )
+        .unwrap();
+        approve(&mut action, human(UserId::new()), T0).unwrap();
+        let plan = action.plan_hash_for_approval();
         action
             .dispatch(
                 plan,

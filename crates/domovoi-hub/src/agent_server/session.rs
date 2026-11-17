@@ -37,6 +37,8 @@ pub(crate) async fn run_session(
     let cancel = inner.shutdown.child_token();
     let live = Live {
         session,
+        identity: domovoi_core::AgentSessionId::new(),
+        agent: agent.agent,
         since: inner.deps.clock.now(),
         version: hello.agent_version,
         facts: *hello.facts,
@@ -55,7 +57,34 @@ pub(crate) async fn run_session(
     };
     let journal_epoch = live.journal_epoch;
     let authoritative_absence = live.authoritative_absence;
-    inner.registry.register(host, live, remote_ip);
+    // Test-only: let a test retire the agent between the handshake and this registration.
+    #[cfg(test)]
+    if let Some(gate) = inner.registry.registration_gate() {
+        // The permit is only a release signal; registration itself is the next step.
+        drop(gate.acquire_owned().await.map_err(|_| ConnError::Closed)?);
+    }
+    // The handshake proved the key, but enrollment may have changed while the agent answered.
+    // The accepted identity must still be the host's current one before it is registered.
+    let current = inner.deps.hosts.live_agent(host).await?;
+    let same_identity = current.as_ref().is_some_and(|current| {
+        current.agent == agent.agent
+            && current.host == agent.host
+            && current.public_key == agent.public_key
+    });
+    if !same_identity {
+        tracing::info!(
+            %host,
+            agent = %agent.agent,
+            "refused a session for an identity that is no longer current"
+        );
+        let _ = transport.close().await;
+        return Ok(());
+    }
+    if let Err(err) = inner.registry.register(host, live, remote_ip) {
+        tracing::info!(%host, agent = %agent.agent, %err, "refused a session for a retired agent");
+        let _ = transport.close().await;
+        return Ok(());
+    }
     tracing::info!(
         %host,
         agent = %agent.agent,

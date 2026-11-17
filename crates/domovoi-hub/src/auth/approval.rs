@@ -4,7 +4,9 @@
 //! after the interaction authorizer found the platform user on the allowlist. Either way the
 //! approval is an authenticated human's.
 
-use domovoi_core::{ApprovalChannel, HumanApproval, SkillName, UserId};
+use domovoi_core::{
+    ApprovalChannel, ApprovalProvenance, Authorization, HumanApproval, SkillName, UserId,
+};
 use jiff::Timestamp;
 
 /// The approval by `user` at `now` for an action running `skill`. It counts as typed
@@ -37,5 +39,38 @@ pub fn chat_approval(
             platform_user: platform_user.to_owned(),
         },
         now,
+    )
+}
+
+/// The web authorization and its provenance: the surface is `web` and `session_hash` is the
+/// session's stored one-way hash, never the cookie or a token.
+#[must_use]
+pub fn web_authorization(
+    user: UserId,
+    confirm_text: Option<&str>,
+    skill: &SkillName,
+    session_hash: &[u8; 32],
+    now: Timestamp,
+) -> (Authorization, ApprovalProvenance) {
+    let approval = web_approval(user, confirm_text, skill, now);
+    (
+        Authorization::human(approval),
+        ApprovalProvenance::new(Some(hex::encode(session_hash)), "web"),
+    )
+}
+
+/// The chat authorization and its provenance: the surface is `chat:<platform>` and there is
+/// no session reference.
+#[must_use]
+pub fn chat_authorization(
+    user: UserId,
+    platform: &str,
+    platform_user: &str,
+    now: Timestamp,
+) -> (Authorization, ApprovalProvenance) {
+    let approval = chat_approval(user, platform, platform_user, now);
+    (
+        Authorization::human(approval),
+        ApprovalProvenance::new(None, format!("chat:{platform}")),
     )
 }

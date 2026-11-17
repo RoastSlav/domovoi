@@ -318,10 +318,15 @@ async fn run_skill_reaches_agent_and_plan_mismatch_is_reported() {
     };
     let out = match link.journal_epoch(agent.host) {
         Some(epoch) => {
+            let session = link
+                .snapshot(agent.host)
+                .expect("the connected agent has a session")
+                .session;
             let handoff = link
                 .start_skill(
                     agent.host,
                     dispatch,
+                    session,
                     epoch,
                     t0() + SignedDuration::from_secs(30),
                 )

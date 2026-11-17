@@ -7,8 +7,8 @@ use std::collections::BTreeMap;
 use async_trait::async_trait;
 use domovoi_core::ports::{ActionFilter, ActionRepo, Page, Paged, RAN_STATUSES, StoreError};
 use domovoi_core::{
-    ActionId, ActionRequest, ApprovalChannel, HostId, HumanApproval, Principal, SkillName,
-    StoredAction,
+    ActionId, ActionRequest, ActionStatus, ApprovalChannel, ApprovalProvenance, AuthorizationKind,
+    HostId, HumanApproval, Principal, SkillName, StoredAction,
 };
 use jiff::Timestamp;
 use sqlx::{Executor, Sqlite};
@@ -21,7 +21,8 @@ use crate::error::{corrupt, db};
 
 macro_rules! action_columns {
     () => {
-        "SELECT id, incident_id, host_id, skill, risk, args, plan_hash, status, \
+        "SELECT id, incident_id, host_id, skill, risk, args, plan_hash, plan_hash_v2, \
+    approved_plan_hash, approval_session_ref, approval_client, authorization_kind, status, \
     proposed_by_kind, proposed_by, approved_by, approved_channel, approved_at, expires_at, \
     created_at, updated_at, chat_token_hash FROM actions"
     };
@@ -36,6 +37,11 @@ struct ActionRow {
     risk: String,
     args: String,
     plan_hash: String,
+    plan_hash_v2: Option<String>,
+    approved_plan_hash: Option<String>,
+    approval_session_ref: Option<String>,
+    approval_client: Option<String>,
+    authorization_kind: Option<String>,
     status: String,
     proposed_by_kind: String,
     proposed_by: String,
@@ -64,15 +70,44 @@ impl ActionRow {
             (None, None, None) => None,
             _ => return Err(corrupt("approval", "partially stored")),
         };
-        Ok(ActionRequest::from_stored(StoredAction {
+        let authorization_kind = match self.authorization_kind.as_deref() {
+            None => None,
+            Some("human") => Some(AuthorizationKind::Human),
+            Some("policy") => Some(AuthorizationKind::Policy),
+            Some(other) => return Err(corrupt("authorization kind", other)),
+        };
+        let provenance = match (self.approval_session_ref, self.approval_client) {
+            (None, None) => None,
+            (session_ref, Some(client)) => Some(ApprovalProvenance::new(session_ref, client)),
+            (Some(_), None) => {
+                return Err(corrupt("approval provenance", "the client is missing"));
+            }
+        };
+        let status: ActionStatus = from_json(&self.status, "action status")?;
+        let plan_hash = from_name(&self.plan_hash, "plan hash")?;
+        let plan_hash_v2 = self
+            .plan_hash_v2
+            .as_deref()
+            .map(|hash| from_name(hash, "v2 plan hash"))
+            .transpose()?;
+        let approved_plan_hash = self
+            .approved_plan_hash
+            .as_deref()
+            .map(|hash| from_name(hash, "approved plan hash"))
+            .transpose()?;
+        let stored = StoredAction {
             id: parse(&self.id, "action id")?,
             incident: parse(&self.incident_id, "incident id")?,
             host: parse(&self.host_id, "host id")?,
             skill: from_name(&self.skill, "skill name")?,
             risk: from_name(&self.risk, "risk")?,
             args: from_json(&self.args, "action args")?,
-            plan_hash: from_name(&self.plan_hash, "plan hash")?,
-            status: from_json(&self.status, "action status")?,
+            plan_hash,
+            plan_hash_v2,
+            approved_plan_hash,
+            provenance,
+            authorization_kind,
+            status,
             proposed_by,
             approved_by,
             expires_at: from_ms(self.expires_at)?,
@@ -83,7 +118,8 @@ impl ActionRow {
                 .as_deref()
                 .map(|h| hash32(h, "chat token hash"))
                 .transpose()?,
-        }))
+        };
+        ActionRequest::try_from_stored(stored).map_err(|err| corrupt("action", err))
     }
 }
 
@@ -95,6 +131,11 @@ struct Bound {
     risk: String,
     args: String,
     plan_hash: String,
+    plan_hash_v2: Option<String>,
+    approved_plan_hash: Option<String>,
+    approval_session_ref: Option<String>,
+    approval_client: Option<String>,
+    authorization_kind: Option<&'static str>,
     status: String,
     proposed_kind: &'static str,
     proposed_by: String,
@@ -120,6 +161,17 @@ fn bound(action: &ActionRequest) -> Result<Bound, StoreError> {
         risk: name(&action.risk())?,
         args: json(action.args())?,
         plan_hash: name(&action.plan_hash())?,
+        plan_hash_v2: action.plan_hash_v2().map(|hash| name(&hash)).transpose()?,
+        approved_plan_hash: action
+            .approved_plan_hash()
+            .map(|hash| name(&hash))
+            .transpose()?,
+        approval_session_ref: action
+            .provenance()
+            .and_then(|p| p.session_ref())
+            .map(str::to_owned),
+        approval_client: action.provenance().map(|p| p.client().to_owned()),
+        authorization_kind: action.authorization_kind().map(AuthorizationKind::name),
         status: json(action.status())?,
         proposed_kind,
         proposed_by,
@@ -142,6 +194,11 @@ macro_rules! bind_columns {
             .bind($b.risk)
             .bind($b.args)
             .bind($b.plan_hash)
+            .bind($b.plan_hash_v2)
+            .bind($b.approved_plan_hash)
+            .bind($b.approval_session_ref)
+            .bind($b.approval_client)
+            .bind($b.authorization_kind)
             .bind($b.status)
             .bind($b.proposed_kind)
             .bind($b.proposed_by)
@@ -161,9 +218,10 @@ pub(crate) async fn insert_action(
     action: &ActionRequest,
 ) -> Result<(), StoreError> {
     const SQL: &str = "INSERT INTO actions (id, incident_id, host_id, skill, risk, args, \
-        plan_hash, status, proposed_by_kind, proposed_by, approved_by, approved_channel, \
+        plan_hash, plan_hash_v2, approved_plan_hash, approval_session_ref, approval_client, \
+        authorization_kind, status, proposed_by_kind, proposed_by, approved_by, approved_channel, \
         approved_at, expires_at, created_at, updated_at, chat_token_hash) \
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
     let b = bound(action)?;
     let query = sqlx::query(SQL).bind(action.id().to_string());
     bind_columns!(query, b)
@@ -180,9 +238,10 @@ pub(crate) async fn update_action_from(
     expected: &str,
 ) -> Result<u64, StoreError> {
     const SQL: &str = "UPDATE actions SET incident_id = ?, host_id = ?, skill = ?, \
-        risk = ?, args = ?, plan_hash = ?, status = ?, proposed_by_kind = ?, \
-        proposed_by = ?, approved_by = ?, approved_channel = ?, approved_at = ?, \
-        expires_at = ?, created_at = ?, updated_at = ?, chat_token_hash = ? \
+        risk = ?, args = ?, plan_hash = ?, plan_hash_v2 = ?, approved_plan_hash = ?, \
+        approval_session_ref = ?, approval_client = ?, authorization_kind = ?, status = ?, \
+        proposed_by_kind = ?, proposed_by = ?, approved_by = ?, approved_channel = ?, \
+        approved_at = ?, expires_at = ?, created_at = ?, updated_at = ?, chat_token_hash = ? \
         WHERE id = ? AND json_extract(status, '$.type') = ?";
     let b = bound(action)?;
     let done = bind_columns!(sqlx::query(SQL), b)

@@ -38,3 +38,4 @@ An ADR records one decision that shapes the codebase: the context, the decision 
 | [0018](0018-detect-the-container-runtime.md) | Detect the container runtime and let the hub switch it | Accepted |
 | [0019](0019-single-writer-for-actions.md) | Action decisions have a single writer, and the store refuses stale writes | Accepted |
 | [0020](0020-license-polyform-noncommercial.md) | License: PolyForm Noncommercial 1.0.0; commercial use paid above €100k revenue | Accepted |
+| [0021](0021-plan-hash-v2-and-authorization.md) | Plan hash v2 and the authorization wrapper | Accepted |

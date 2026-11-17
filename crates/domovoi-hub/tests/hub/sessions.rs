@@ -6,8 +6,9 @@ use domovoi_core::{
 };
 use domovoi_hub::agent_server::{LOCAL_SESSION_HINT, MAX_FRAMES_PER_SECOND, MemoryTransport};
 use domovoi_proto::messages::{
-    AgentStatus, Challenge, ChallengeResponse, DigestFacts, ErrorMessage, HelperStatus, Logs, Ping,
-    RejectReason, Signals, SkillRunnerStatus, ToolOutcome, ToolResult, ToolSuccess, Unsupported,
+    AgentStatus, Challenge, ChallengeResponse, DigestFacts, Enrolled, ErrorMessage, HelperStatus,
+    Logs, Ping, RejectReason, Signals, SkillRunnerStatus, ToolOutcome, ToolResult, ToolSuccess,
+    Unsupported,
 };
 use domovoi_proto::{
     MAX_FRAME_BYTES, Message, PROTOCOL_VERSION, Signature, Transport, challenge_message, decode,
@@ -16,7 +17,7 @@ use domovoi_proto::{
 use ed25519_dalek::Signer;
 use jiff::SignedDuration;
 
-use crate::agent::{FakeAgent, enroll, hello, online, rejected};
+use crate::agent::{FakeAgent, Ident, enroll, hello, online, rejected};
 use crate::harness::{Hub, guard, pump, t0};
 
 fn signal(host: HostId, check: &str) -> Signal {
@@ -450,4 +451,114 @@ async fn agent_status_is_recorded_per_session() {
     let mut second = FakeAgent::connect(hub.addr).await;
     second.authenticate(&ident).await;
     assert_eq!(hub.server.agent_status(ident.host), None);
+}
+
+#[tokio::test]
+async fn a_handshake_that_finishes_after_reenrollment_is_refused() {
+    let hub = Hub::start().await;
+    let old = enroll(&hub, "nas").await;
+    let mut stale = FakeAgent::connect(hub.addr).await;
+    let Message::Challenge(challenge) = stale.hello(old.agent, PROTOCOL_VERSION).await else {
+        panic!("expected a challenge");
+    };
+    // The host is re-enrolled while the old agent is still answering the challenge.
+    let new = enroll(&hub, "nas").await;
+    assert_ne!(new.agent, old.agent, "re-enrollment issues a new identity");
+
+    // The old signature is genuine and its key was never changed, but the identity is gone.
+    let reply = stale.answer(&challenge, old.agent, &old.key).await;
+    assert_eq!(rejected(&reply), Some(RejectReason::Revoked));
+    stale.closed().await;
+    assert!(
+        hub.server.link().snapshot(old.host).is_none(),
+        "the stale handshake never became the live session"
+    );
+    assert!(matches!(
+        hub.server.link().presence(old.host),
+        Presence::Disconnected { .. }
+    ));
+}
+
+#[tokio::test]
+async fn replacing_a_live_enrollment_ends_its_session_and_pending_work() {
+    let hub = Hub::start().await;
+    let (old, mut stale) = online(&hub, "nas").await;
+    let link = hub.server.link();
+    let deadline = t0() + SignedDuration::from_secs(30);
+    let asked = tokio::spawn({
+        let link = link.clone();
+        async move {
+            link.run_tool(old.host, ReadToolCall::DockerPs { all: true }, deadline)
+                .await
+        }
+    });
+    assert!(
+        matches!(stale.expect().await.message, Message::RunTool(_)),
+        "the old session has the request in flight"
+    );
+
+    // A second token re-enrolls the host: the old identity is retired and its session ends.
+    let (new, _) = online(&hub, "nas").await;
+    assert_ne!(new.agent, old.agent);
+    stale.closed().await;
+    assert!(
+        guard(asked).await.unwrap().is_err(),
+        "pending work on the retired session does not survive"
+    );
+    assert!(
+        link.snapshot(old.host).is_some(),
+        "the replacement enrollment is the live one"
+    );
+}
+
+#[tokio::test]
+async fn revocation_refuses_a_handshake_already_answering() {
+    let hub = Hub::start().await;
+    let ident = enroll(&hub, "nas").await;
+    let mut agent = FakeAgent::connect(hub.addr).await;
+    let Message::Challenge(challenge) = agent.hello(ident.agent, PROTOCOL_VERSION).await else {
+        panic!("expected a challenge");
+    };
+    assert!(hub.server.revoke_agent(ident.host).await.unwrap());
+
+    let reply = agent.answer(&challenge, ident.agent, &ident.key).await;
+    assert_eq!(rejected(&reply), Some(RejectReason::Revoked));
+    agent.closed().await;
+    assert!(hub.server.link().snapshot(ident.host).is_none());
+}
+
+#[tokio::test]
+async fn reenrollment_with_the_same_key_still_retires_the_old_agent() {
+    let hub = Hub::start().await;
+    let (old, mut first) = online(&hub, "nas").await;
+    let (_, token) = hub.token("nas").await;
+    let mut enroll_again = FakeAgent::connect(hub.addr).await;
+    let Message::Enrolled(Enrolled { agent_id, .. }) = enroll_again.enroll(&token, &old.key).await
+    else {
+        panic!("enrollment failed");
+    };
+    assert_ne!(
+        agent_id, old.agent,
+        "the same key still gets a new identity"
+    );
+    first.closed().await;
+
+    let mut fresh = FakeAgent::connect(hub.addr).await;
+    let ident = Ident {
+        key: old.key.clone(),
+        agent: agent_id,
+        host: old.host,
+    };
+    fresh.authenticate(&ident).await;
+    assert!(
+        hub.server.link().snapshot(old.host).is_some(),
+        "the new identity is live"
+    );
+
+    // The old identity cannot come back, even though the key still exists.
+    let mut stale = FakeAgent::connect(hub.addr).await;
+    assert_eq!(
+        rejected(&stale.hello(old.agent, PROTOCOL_VERSION).await),
+        Some(RejectReason::Revoked)
+    );
 }

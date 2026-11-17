@@ -42,7 +42,7 @@ function useActionChange<T>(change: (input: T) => Promise<unknown>) {
 /** What approving an action sends. */
 export interface ApproveInput {
   id: string;
-  /** The v1 plan hash the card showed; the hub refuses a different plan. */
+  /** The plan hash the card showed for this action's family; the hub refuses a different plan. */
   planHash: string;
   /** For destructive skills: the skill's name, typed by the user. */
   confirmText?: string;

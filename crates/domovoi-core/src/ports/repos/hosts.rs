@@ -34,9 +34,11 @@ pub trait HostRepo: Send + Sync {
     /// Every host, sorted by name.
     async fn list_hosts(&self) -> Result<Vec<Host>, StoreError>;
 
-    /// Records an enrolled agent, or replaces the record with the same agent id (for a new
-    /// version after a handshake).
+    /// Records an enrolled agent, or updates the version of an existing one.
     ///
+    /// An `AgentId` names one enrollment for life: only `version` may change on an existing
+    /// record. A changed host, public key or enrollment time, or an incoming `revoked_at`,
+    /// is [`StoreError::Conflict`]; revocation goes through [`HostRepo::revoke_agent`].
     /// [`StoreError::NotFound`] when the host does not exist. [`StoreError::Conflict`] when
     /// the host already has a different agent that is not revoked, or when `agent` was
     /// revoked: a revoked agent never comes back.

@@ -4,7 +4,7 @@ expression: rendered
 ---
 **[ACTION NEEDED] nas**
 plex is crash-looping after the 1.41 image update
-Waiting: restart_container on nas (write), no arguments · plan ebf4c79d
+Waiting: restart_container on nas (write), no arguments · plan 31b7958e
 - restarts: 7 in 10 minutes
 - last error: migration 42 failed
 Next: Pin the previous image tag and restart.

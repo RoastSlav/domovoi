@@ -26,8 +26,8 @@ mod tools;
 use std::sync::Arc;
 
 use domovoi_core::ports::{
-    ActionRepo, AdmissionRepo, AdvisoryRepo, AgentLink, Clock, IncidentRepo, LlmProvider, NoteRepo,
-    Redactor, SignalRepo, TriageCacheRepo, UsageRepo,
+    ActionRepo, AdmissionRepo, AdvisoryRepo, AgentLink, Clock, HostRepo, IncidentRepo, LlmProvider,
+    NoteRepo, Redactor, SignalRepo, TriageCacheRepo, UsageRepo,
 };
 use domovoi_core::{HostId, Incident, IncidentId, TriageBudget, TriageOutcome, UserId};
 use tokio::sync::broadcast;
@@ -141,6 +141,8 @@ pub struct TriageDeps {
     pub signals: Arc<dyn SignalRepo>,
     /// Host notes.
     pub notes: Arc<dyn NoteRepo>,
+    /// Enrolled hosts and their agent keys, for the v2 plan target.
+    pub hosts: Arc<dyn HostRepo>,
     /// Where proposed actions are read for the duplicate check.
     pub actions: Arc<dyn ActionRepo>,
     /// The action writer, where proposals and chat token rotations are stored.

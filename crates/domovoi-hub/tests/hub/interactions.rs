@@ -110,14 +110,15 @@ pub async fn proposed(a: &Api, risk: Risk) -> (ActionRequest, String) {
     let args = summary.validate_args(&BTreeMap::new()).unwrap();
     let token = mint_token();
     let action = ActionRequest::propose(
-        a.incident.id(),
-        a.nas.id,
+        &a.incident,
         &summary,
         &args,
+        Some(domovoi_testkit::build::key_fingerprint()),
         Principal::System("triage".into()),
         SignedDuration::from_hours(1),
         a.now(),
     )
+    .unwrap()
     .with_chat_token_hash(token_hash(&token));
     ActionRepo::insert(&*a.store, &action).await.unwrap();
     (action, token)
@@ -136,7 +137,9 @@ pub fn approve(action: &ActionRequest, token: &str) -> CardButton {
     CardButton::Approve {
         action: action.id(),
         token: token.to_owned(),
-        plan_prefix: Some(hex::encode(&action.plan_hash().as_bytes()[..3])),
+        plan_prefix: Some(hex::encode(
+            &action.plan_hash_for_approval().as_bytes()[..3],
+        )),
     }
 }
 
@@ -351,7 +354,7 @@ async fn chat_approve_with_wrong_prefix_is_refused_and_keeps_the_token() {
     a.admin().await;
     let c = chat(&a).await;
     let (action, token) = proposed(&a, Risk::Write).await;
-    let mut wrong = action.plan_hash().as_bytes()[..3].to_vec();
+    let mut wrong = action.plan_hash_for_approval().as_bytes()[..3].to_vec();
     wrong[0] ^= 0xff;
     let stale = CardButton::Approve {
         action: action.id(),

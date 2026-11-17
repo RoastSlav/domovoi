@@ -16,9 +16,13 @@ pub(crate) use overrides::{stored_docker, stored_overrides};
 mod presence;
 mod probes;
 mod registry;
+mod registry_state;
 mod session;
 mod settings;
 mod skill_policy;
+mod skill_policy_key;
+#[cfg(test)]
+mod tests;
 mod tls;
 mod tokens;
 mod ws;
@@ -45,7 +49,8 @@ pub use memory::MemoryTransport;
 pub use probes::{NetProbes, RealNetProbes};
 pub use registry::{AGENTS_CONNECTED, MAX_PENDING};
 pub use settings::ServerSettings;
-pub use skill_policy::{DISABLED_REASON, PolicyLink, SkillPolicy, host_skills_key};
+pub use skill_policy::{DISABLED_REASON, PolicyLink, SkillPolicy};
+pub use skill_policy_key::host_skills_key;
 pub use tls::{CHANNEL_BINDING_LABEL, HUB_SAN, TlsIdentity, colon_hex};
 pub use tokens::{EnrollmentInvite, TOKEN_TTL, token_hash};
 pub use ws::MAX_FRAMES_PER_SECOND;
@@ -261,20 +266,37 @@ impl AgentServer {
     /// agent that is not already revoked.
     pub async fn revoke_agent(&self, host: HostId) -> Result<bool, AgentServerError> {
         let inner = &self.inner;
-        let revoked = match inner.deps.hosts.live_agent(host).await? {
+        let now = inner.deps.clock.now();
+        match inner.deps.hosts.live_agent(host).await? {
             Some(agent) => {
-                inner
-                    .deps
-                    .hosts
-                    .revoke_agent(agent.agent, inner.deps.clock.now())
-                    .await?;
+                inner.deps.hosts.revoke_agent(agent.agent, now).await?;
+                // Retirement, not a plain close: a handshake for this identity that is still
+                // in flight must not register itself after the revocation.
+                inner.registry.retire(agent.agent, now);
                 tracing::info!(%host, agent = %agent.agent, "agent revoked");
-                true
+                Ok(true)
             }
-            None => false,
-        };
-        inner.registry.close(host, inner.deps.clock.now());
-        Ok(revoked)
+            None => {
+                inner.registry.close(host, now);
+                Ok(false)
+            }
+        }
+    }
+
+    /// Retires `agent` in the live registry when its identity is revoked outside this module,
+    /// as the local agent path does through the store. Closes its session and refuses any
+    /// registration that began before the revocation.
+    pub(crate) fn retire_agent(&self, agent: domovoi_core::AgentId) {
+        self.inner
+            .registry
+            .retire(agent, self.inner.deps.clock.now());
+    }
+
+    /// Whether the live registry has retired `agent`. Test support for the local enrollment
+    /// path; it is not part of the production API.
+    #[cfg(test)]
+    pub(crate) fn is_retired(&self, agent: domovoi_core::AgentId) -> bool {
+        self.inner.registry.is_retired(agent)
     }
 
     /// Runs one presence check now. [`serve`](Self::serve) does this every heartbeat.

@@ -13,26 +13,30 @@ async fn chat_approval_requires_matching_single_use_token() {
     let discord = || chat(UserId::new(), "discord", "1234");
 
     for wrong in [None, Some("not-the-token"), Some(&*token.to_uppercase())] {
+        let (authorization, provenance) = a.authorization(discord());
         assert_eq!(
             a.service
                 .approve(
                     first.id(),
-                    discord(),
+                    authorization,
                     wrong,
-                    PlanBinding::Full(first.plan_hash()),
+                    PlanBinding::Full(first.plan_hash_for_approval()),
+                    provenance,
                 )
                 .await
                 .err(),
             Some(ApprovalError::BadToken)
         );
     }
+    let (authorization, provenance) = a.authorization(discord());
     assert_eq!(
         a.service
             .approve(
                 second.id(),
-                discord(),
+                authorization,
                 Some(&token),
-                PlanBinding::Full(second.plan_hash()),
+                PlanBinding::Full(second.plan_hash_for_approval()),
+                provenance,
             )
             .await
             .err(),
@@ -41,13 +45,15 @@ async fn chat_approval_requires_matching_single_use_token() {
     );
     assert_eq!(a.get(first.id()).await.status(), &ActionStatus::Proposed);
 
+    let (authorization, provenance) = a.authorization(discord());
     let approved = a
         .service
         .approve(
             first.id(),
-            discord(),
+            authorization,
             Some(&token),
-            PlanBinding::Full(first.plan_hash()),
+            PlanBinding::Full(first.plan_hash_for_approval()),
+            provenance,
         )
         .await
         .unwrap();
@@ -57,13 +63,15 @@ async fn chat_approval_requires_matching_single_use_token() {
         None,
         "single use"
     );
+    let (authorization, provenance) = a.authorization(discord());
     assert_eq!(
         a.service
             .approve(
                 first.id(),
-                discord(),
+                authorization,
                 Some(&token),
-                PlanBinding::Full(first.plan_hash()),
+                PlanBinding::Full(first.plan_hash_for_approval()),
+                provenance,
             )
             .await
             .err(),
@@ -76,13 +84,15 @@ async fn expired_action_cannot_be_approved() {
     let a = actions(ActionSettings::default()).await;
     let (action, _) = a.propose().await;
     a.clock.advance(SignedDuration::from_mins(61));
+    let (authorization, provenance) = a.authorization(human(UserId::new()));
     assert_eq!(
         a.service
             .approve(
                 action.id(),
-                human(UserId::new()),
+                authorization,
                 None,
-                PlanBinding::Full(action.plan_hash()),
+                PlanBinding::Full(action.plan_hash_for_approval()),
+                provenance,
             )
             .await
             .err(),
@@ -125,13 +135,15 @@ async fn denied_action_is_audited_and_cannot_be_approved() {
         .await
         .unwrap();
     assert_eq!(denied.status(), &ActionStatus::Denied);
+    let (authorization, provenance) = a.authorization(human(UserId::new()));
     assert!(matches!(
         a.service
             .approve(
                 action.id(),
-                human(UserId::new()),
+                authorization,
                 None,
-                PlanBinding::Full(action.plan_hash()),
+                PlanBinding::Full(action.plan_hash_for_approval()),
+                provenance,
             )
             .await,
         Err(ApprovalError::Refused(ActionError::NotAllowed { .. }))

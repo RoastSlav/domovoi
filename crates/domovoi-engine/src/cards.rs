@@ -109,7 +109,7 @@ fn plan_for(action: &ActionRequest, host: &HostName) -> CardPlan {
             .iter()
             .map(|(name, value)| (name.clone(), value.clone()))
             .collect(),
-        plan_short: action.plan_hash().short(),
+        plan_short: action.plan_hash_for_approval().short(),
         expires_at: action.expires_at(),
     }
 }
@@ -132,7 +132,7 @@ fn waiting_plans_and_buttons(
         let token = links.tokens.get(&action.id());
         match (plan.risk, token) {
             (Risk::Read | Risk::Write, Some(token)) if plan.args_text().is_some() => {
-                let prefix: String = hex::encode(&action.plan_hash().as_bytes()[..3])
+                let prefix: String = hex::encode(&action.plan_hash_for_approval().as_bytes()[..3])
                     .chars()
                     .take(PLAN_PREFIX_CHARS)
                     .collect();

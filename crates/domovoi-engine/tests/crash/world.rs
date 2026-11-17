@@ -10,13 +10,14 @@ use std::sync::Arc;
 
 use domovoi_core::ports::{
     ActionFilter, ActionRepo, AdvisoryRepo, AgentLink, CheckRecheck, Clock, EffectQueue,
-    EffectRead, EffectStatus, HostReconciler, IncidentFilter, IncidentRepo, Page, Presence,
-    SkillOutput,
+    EffectRead, EffectStatus, HostReconciler, HostRepo, IncidentFilter, IncidentRepo, Page,
+    Presence, SkillOutput,
 };
 use domovoi_core::{
-    ActionId, ActionRequest, ActionStatus, CheckKey, Evidence, HostId, Incident, IncidentId,
-    JournalEpoch, ParamKind, ParamName, ParamSpec, Principal, Risk, Severity, Signal, SignalClass,
-    SignalStatus, SkillManifest, SkillSummary, SourceKind, TargetKey, UserId, Verdict, VerifySpec,
+    ActionId, ActionRequest, ActionStatus, AgentId, AgentIdentity, CheckKey, Evidence, HostId,
+    Incident, IncidentId, JournalEpoch, KeyFingerprint, ParamKind, ParamName, ParamSpec, Principal,
+    Risk, Severity, Signal, SignalClass, SignalStatus, SkillManifest, SkillSummary, SourceKind,
+    TargetKey, UserId, Verdict, VerifySpec,
 };
 use domovoi_engine::triage::{mint_token, token_hash};
 use domovoi_engine::{
@@ -243,7 +244,7 @@ impl<S: SweepStore> Drop for World<S> {
     }
 }
 
-impl<S: SweepStore + EffectQueue + AdvisoryRepo> World<S> {
+impl<S: SweepStore + EffectQueue + AdvisoryRepo + domovoi_core::ports::HostRepo> World<S> {
     /// A world over a fresh store, with one open container incident already stored.
     pub async fn new(store: Arc<S>) -> Self {
         let incident = open_incident(host_id(), "docker.container", Some("nginx"))
@@ -251,18 +252,42 @@ impl<S: SweepStore + EffectQueue + AdvisoryRepo> World<S> {
         IncidentRepo::insert(&*store, &incident)
             .await
             .expect("the seeded incident is stored");
-        Self::build(store)
+        Self::build(store).await
     }
 
     /// A world over the state a crashed process left behind: no seeding, fresh services and
     /// a fresh [`CrashingStore`] that only records.
-    pub fn restarted(store: Arc<S>) -> Self {
-        Self::build(store)
+    pub async fn restarted(store: Arc<S>) -> Self {
+        Self::build(store).await
     }
 
-    fn build(store: Arc<S>) -> Self {
+    async fn build(store: Arc<S>) -> Self {
+        let mut registered = domovoi_testkit::build::host("crash").unwrap();
+        registered.id = host_id();
+        HostRepo::upsert_host(&*store, &registered).await.unwrap();
+        let agent_id = AgentId::new();
+        if HostRepo::live_agent(&*store, host_id())
+            .await
+            .unwrap()
+            .is_none()
+        {
+            HostRepo::put_agent(
+                &*store,
+                &AgentIdentity {
+                    agent: agent_id,
+                    host: host_id(),
+                    public_key: [7; 32],
+                    version: "0.1.0".to_owned(),
+                    enrolled_at: T0,
+                    revoked_at: None,
+                },
+            )
+            .await
+            .unwrap();
+        }
         let clock = Arc::new(FakeClock::new(T0));
         let link = Arc::new(FakeAgentLink::new());
+        link.set_agent(host_id(), agent_id);
         script(&link);
         let crashing = Arc::new(CrashingStore::new(store.clone()));
         let (bus, _events) = broadcast::channel(256);
@@ -287,6 +312,7 @@ impl<S: SweepStore + EffectQueue + AdvisoryRepo> World<S> {
                 effects: store.clone(),
                 advisories: store.clone(),
                 link: link.clone(),
+                hosts: store.clone(),
                 redactor: Arc::new(PatternRedactor::default()),
                 clock: clock.clone(),
                 manager: manager.clone(),
@@ -452,16 +478,21 @@ impl<S: SweepStore> World<S> {
         let validated = skill
             .validate_args(&args)
             .expect("the args match the manifest");
+        let incident =
+            domovoi_testkit::build::incident(host_id(), "docker.container", Some("nginx"))
+                .expect("a valid incident")
+                .with_id(incident);
         let token = mint_token();
         let action = ActionRequest::propose(
-            incident,
-            host_id(),
+            &incident,
             skill,
             &validated,
+            Some(KeyFingerprint::of_public_key(&[7u8; 32])),
             Principal::System("triage".into()),
             ttl,
             self.now(),
         )
+        .expect("the proposal is valid")
         .with_chat_token_hash(token_hash(&token));
         (action, token)
     }
@@ -632,9 +663,12 @@ impl<S: SweepStore> World<S> {
             .service
             .approve(
                 action.id(),
-                domovoi_testkit::approvals::human(UserId::new()),
+                domovoi_core::Authorization::human(
+                    domovoi_testkit::approvals::human(UserId::new()),
+                ),
                 None,
-                domovoi_core::PlanBinding::Full(action.plan_hash()),
+                domovoi_core::PlanBinding::Full(action.plan_hash_for_approval()),
+                domovoi_core::ApprovalProvenance::new(None, "test"),
             )
             .await
             .expect("the writer approves the action");

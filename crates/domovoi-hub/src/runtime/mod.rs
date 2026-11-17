@@ -229,6 +229,7 @@ impl HubRuntime {
                 effects: store.clone(),
                 advisories: store.clone(),
                 link: policy_link.clone(),
+                hosts: store.clone(),
                 redactor: redactor.clone(),
                 clock: clock.clone(),
                 manager: manager.clone(),

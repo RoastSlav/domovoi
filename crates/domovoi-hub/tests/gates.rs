@@ -296,7 +296,7 @@ mod api {
             json!({ "confirm_text": "restart" }),
         ] {
             let mut body = confirm.clone();
-            body["plan_hash"] = json!(action.plan_hash().to_string());
+            body["plan_hash"] = json!(action.plan_hash_for_approval().to_string());
             let reply = a.post(&uri, &login, body).await;
             assert_eq!(reply.status, StatusCode::FORBIDDEN, "{confirm}");
             let stored = domovoi_core::ports::ActionRepo::get(&*a.store, action.id())
@@ -311,7 +311,7 @@ mod api {
                 &login,
                 json!({
                     "confirm_text": "restart_container",
-                    "plan_hash": action.plan_hash().to_string(),
+                    "plan_hash": action.plan_hash_for_approval().to_string(),
                 }),
             )
             .await;

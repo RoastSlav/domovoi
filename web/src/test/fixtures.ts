@@ -49,6 +49,8 @@ export function action(overrides: Partial<Action> = {}): Action {
     args: { name: "web" },
     status: "proposed",
     plan_hash: "9f2c1a4b".repeat(8),
+    plan_hash_v1: "1a4b9f2c".repeat(8),
+    plan_binding: "v2",
     proposed_by: "system:triage",
     expires_at: "2099-01-01T00:00:00Z",
     created_at: T0,

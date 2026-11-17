@@ -22,6 +22,7 @@ pub(crate) mod incidents;
 mod logs;
 mod notes;
 mod overview;
+mod plan_binding;
 pub(crate) mod profile;
 pub mod readiness;
 mod rules;

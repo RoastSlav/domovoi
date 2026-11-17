@@ -8,8 +8,8 @@ use async_trait::async_trait;
 
 use domovoi_core::ports::{ActionFilter, ActionRepo, Clock, Page, Paged, StoreError};
 use domovoi_core::{
-    ActionError, ActionId, ActionRequest, ActionStatus, HostId, IncidentId, PlanBinding, Principal,
-    SkillName, UserId,
+    ActionError, ActionId, ActionRequest, ActionStatus, ApprovalProvenance, Authorization, HostId,
+    IncidentId, PlanBinding, Principal, SkillName, UserId,
 };
 use domovoi_engine::actions::audit;
 use domovoi_engine::{
@@ -118,6 +118,7 @@ async fn swept(settings: ActionSettings, lists: Arc<Mutex<Vec<ActionFilter>>>) -
             effects: store.clone(),
             advisories: store.clone(),
             link: Arc::new(FakeAgentLink::new()),
+            hosts: store.clone(),
             redactor: Arc::new(PatternRedactor::default()),
             clock: clock.clone(),
             manager,
@@ -154,7 +155,11 @@ async fn approve_and_deny_at_once_leave_exactly_one_outcome() {
     let (action, _) = a.propose().await;
     let id = action.id();
 
-    let approved = tokio::spawn(approve(a.service.clone(), id, action.plan_hash()));
+    let approved = tokio::spawn(approve(
+        a.service.clone(),
+        id,
+        action.plan_hash_for_approval(),
+    ));
     let denied = tokio::spawn(deny(a.service.clone(), id));
     let approved = approved.await.unwrap();
     let denied = denied.await.unwrap();
@@ -239,16 +244,20 @@ async fn expire_due_reads_only_what_is_due() {
     let (incident, host) = (IncidentId::new(), HostId::new());
     let skill = verified_restart();
     let args = skill.validate_args(&restart_params()).unwrap();
+    let incident = domovoi_testkit::build::incident(host, "disk.usage", None)
+        .expect("a valid incident")
+        .with_id(incident);
     let open_for = |ttl: SignedDuration, at: Timestamp| {
         ActionRequest::propose(
-            incident,
-            host,
+            &incident,
             &skill,
             &args,
+            Some(domovoi_testkit::build::key_fingerprint()),
             Principal::System("triage".into()),
             ttl,
             at,
         )
+        .unwrap()
     };
 
     for _ in 0..DUE {
@@ -338,7 +347,13 @@ async fn approve(
     plan: domovoi_core::PlanHash,
 ) -> Result<ActionStatus, ApprovalError> {
     handle
-        .approve(id, human(UserId::new()), None, PlanBinding::Full(plan))
+        .approve(
+            id,
+            Authorization::human(human(UserId::new())),
+            None,
+            PlanBinding::Full(plan),
+            ApprovalProvenance::new(None, "test"),
+        )
         .await
         .map(|action| action.status().clone())
 }

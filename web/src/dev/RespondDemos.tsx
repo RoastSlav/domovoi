@@ -32,6 +32,8 @@ function sample(overrides: Partial<Action>): Action {
     args: { name: "web", compose_file: "/srv/stacks/media/docker-compose.yml" },
     status: "proposed",
     plan_hash: "9f2c1a4b".repeat(8),
+    plan_hash_v1: "1a4b9f2c".repeat(8),
+    plan_binding: "v2",
     proposed_by: "system:triage",
     expires_at: new Date(NOW + 45 * 60_000).toISOString(),
     created_at: new Date(NOW - 15 * 60_000).toISOString(),

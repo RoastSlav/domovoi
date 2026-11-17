@@ -10,7 +10,7 @@ use domovoi_engine::ApprovalError;
 use super::dto::{ActionDto, ActionPage, ActionQuery, ApproveRequest};
 use super::error::{ApiError, ErrorBody};
 use super::{ApiState, Authed, host_named, page};
-use crate::auth::approval::web_approval;
+use crate::auth::approval::web_authorization;
 
 fn parse_id(id: &str) -> Result<ActionId, ApiError> {
     id.parse().map_err(|_| ApiError::NotFound)
@@ -23,6 +23,14 @@ fn approval_error(err: ApprovalError) -> ApiError {
         ApprovalError::PlanChanged => ApiError::Conflict(
             "the plan changed since you opened it; reload the page and review it again".to_owned(),
         ),
+        ApprovalError::NotYetSupported => ApiError::Conflict(
+            "policy authorizations are not supported yet; a person must approve".to_owned(),
+        ),
+        ApprovalError::MissingAuthorization | ApprovalError::InconsistentAuthorization => {
+            ApiError::Conflict(
+                "the action's stored approval is not valid; reload and review it again".to_owned(),
+            )
+        }
         ApprovalError::Refused(ActionError::DestructiveNeedsTypedConfirmation) => {
             ApiError::Forbidden("type the skill's name to approve a destructive action".to_owned())
         }
@@ -124,16 +132,23 @@ pub(super) async fn approve(
                 "plan_hash is required: 64 hex characters, as shown on the action".to_owned(),
             )
         })?;
-    let approval = web_approval(
+    let (authorization, provenance) = web_authorization(
         current.user.id,
         req.confirm_text.as_deref(),
         action.skill(),
+        &current.session_hash,
         state.deps.clock.now(),
     );
     let approved = state
         .deps
         .actions_service
-        .approve(action.id(), approval, None, PlanBinding::Full(plan_hash))
+        .approve(
+            action.id(),
+            authorization,
+            None,
+            PlanBinding::Full(plan_hash),
+            provenance,
+        )
         .await
         .map_err(approval_error)?;
     Ok(Json(ActionDto::from(&approved)))
@@ -157,7 +172,7 @@ pub(super) async fn deny(
     Path(id): Path<String>,
 ) -> Result<Json<ActionDto>, ApiError> {
     let action = load(&state, parse_id(&id)?).await?;
-    let approval = web_approval(
+    let approval = crate::auth::approval::web_approval(
         current.user.id,
         None,
         action.skill(),

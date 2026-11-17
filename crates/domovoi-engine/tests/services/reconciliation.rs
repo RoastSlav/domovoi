@@ -13,19 +13,20 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use domovoi_core::ports::{
     ActionAnswer, ActionAnswerEntry, ActionAnswers, ActionFilter, ActionRepo, AgentLink,
-    AuditFilter, AuditLog, HostReconciler, LinkError, Page, Paged, Presence, RAN_STATUSES,
-    StoreError, UnknownReason,
+    AuditFilter, AuditLog, HostReconciler, HostRepo, IncidentFilter, IncidentRepo, LinkError, Page,
+    Paged, Presence, RAN_STATUSES, StoreError, UnknownReason,
 };
 use domovoi_core::{
-    ActionId, ActionRequest, ActionStatus, HostId, IncidentId, JournalEpoch, PlanBinding, PlanHash,
-    Principal, UserId,
+    ActionId, ActionRequest, ActionStatus, AgentId, AgentIdentity, ApprovalProvenance,
+    Authorization, HostId, IncidentId, JournalEpoch, KeyFingerprint, PlanBinding, Principal,
+    UserId,
 };
 use domovoi_engine::ActionSettings;
 use domovoi_engine::actions::MAX_RECONCILE_PASSES;
 use domovoi_engine::actions::audit;
 use domovoi_testkit::InMemoryStore;
 use domovoi_testkit::approvals::human;
-use domovoi_testkit::build::T0;
+use domovoi_testkit::build::{T0, open_incident};
 use domovoi_testkit::link::LinkRequest;
 use jiff::SignedDuration;
 use tokio::sync::Semaphore;
@@ -66,18 +67,30 @@ fn dispatched_for(incident: IncidentId, epoch: Option<JournalEpoch>) -> ActionRe
 fn dispatched_to(incident: IncidentId, host: HostId, epoch: Option<JournalEpoch>) -> ActionRequest {
     let skill = verified_restart();
     let validated = skill.validate_args(&restart_params()).unwrap();
-    let plan = PlanHash::compute(&skill.name, skill.manifest_hash, host, &validated);
+    let incident = domovoi_testkit::build::incident(host, "disk.usage", None)
+        .expect("a valid incident")
+        .with_id(incident);
     let mut action = ActionRequest::propose(
-        incident,
-        host,
+        &incident,
         &skill,
         &validated,
+        Some(domovoi_testkit::build::key_fingerprint()),
         Principal::System("triage".into()),
         SignedDuration::from_hours(1),
         T0,
-    );
-    action.approve(human(UserId::new()), T0).unwrap();
-    action.dispatch(plan, epoch, T0).unwrap();
+    )
+    .unwrap();
+    action
+        .approve(
+            Authorization::human(human(UserId::new())),
+            ApprovalProvenance::new(None, "test"),
+            &PlanBinding::Full(action.plan_hash_for_approval()),
+            T0,
+        )
+        .unwrap();
+    action
+        .dispatch(action.plan_hash_for_approval(), epoch, T0)
+        .unwrap();
     action
 }
 
@@ -684,9 +697,10 @@ async fn outcome_unknown_is_not_the_loop_guard() {
     a.service
         .approve(
             action.id(),
-            human(UserId::new()),
+            Authorization::human(human(UserId::new())),
             None,
-            PlanBinding::Full(action.plan_hash()),
+            PlanBinding::Full(action.plan_hash_for_approval()),
+            ApprovalProvenance::new(None, "test"),
         )
         .await
         .unwrap();
@@ -836,9 +850,10 @@ async fn approve(a: &Actions, action: &ActionRequest) {
     a.service
         .approve(
             action.id(),
-            human(UserId::new()),
+            Authorization::human(human(UserId::new())),
             None,
-            PlanBinding::Full(action.plan_hash()),
+            PlanBinding::Full(action.plan_hash_for_approval()),
+            ApprovalProvenance::new(None, "test"),
         )
         .await
         .unwrap();
@@ -1878,7 +1893,29 @@ async fn a_legacy_lost_reply_becomes_outcome_unknown() {
 }
 
 /// Adds a connected agent with a journal and the same skills to `host`.
-fn connect_host(world: &Seeded, host: HostId, epoch: JournalEpoch) {
+async fn connect_host(world: &Seeded, host: HostId, epoch: JournalEpoch) {
+    // A v2 plan binds the host's enrolled key, so every host these tests dispatch to has one.
+    let mut registered =
+        domovoi_testkit::build::host(&format!("h{}", host.as_uuid().as_u128())).unwrap();
+    registered.id = host;
+    HostRepo::upsert_host(&*world.store, &registered)
+        .await
+        .unwrap();
+    let agent_id = AgentId::new();
+    HostRepo::put_agent(
+        &*world.store,
+        &AgentIdentity {
+            agent: agent_id,
+            host,
+            public_key: [7; 32],
+            version: "0.1.0".to_owned(),
+            enrolled_at: T0,
+            revoked_at: None,
+        },
+    )
+    .await
+    .unwrap();
+    world.link.set_agent(host, agent_id);
     world.link.set_presence(
         host,
         Presence::Connected {
@@ -1893,7 +1930,14 @@ fn connect_host(world: &Seeded, host: HostId, epoch: JournalEpoch) {
 /// An approved `restart_container` on `host`, ready for the executor's catch-up.
 fn approved_for_host(incident: IncidentId, host: HostId) -> ActionRequest {
     let mut action = proposed_for_host(incident, host);
-    action.approve(human(UserId::new()), T0).unwrap();
+    action
+        .approve(
+            Authorization::human(human(UserId::new())),
+            ApprovalProvenance::new(None, "test"),
+            &PlanBinding::Full(action.plan_hash_for_approval()),
+            T0,
+        )
+        .unwrap();
     action
 }
 
@@ -1901,15 +1945,19 @@ fn approved_for_host(incident: IncidentId, host: HostId) -> ActionRequest {
 fn proposed_for_host(incident: IncidentId, host: HostId) -> ActionRequest {
     let skill = verified_restart();
     let validated = skill.validate_args(&restart_params()).unwrap();
+    let incident = domovoi_testkit::build::incident(host, "docker.container", Some("nginx"))
+        .expect("a valid incident")
+        .with_id(incident);
     ActionRequest::propose(
-        incident,
-        host,
+        &incident,
         &skill,
         &validated,
+        Some(KeyFingerprint::of_public_key(&[7u8; 32])),
         Principal::System("triage".into()),
         SignedDuration::from_hours(1),
         T0,
     )
+    .unwrap()
 }
 
 /// Waits until the executor has handed `id`'s skill to the agent exactly once.
@@ -2258,9 +2306,13 @@ async fn a_slow_host_does_not_hold_up_another_host() {
     let world = seeded().await;
     let slow = host_id();
     let fast = HostId::new();
-    connect_host(&world, fast, JournalEpoch::from_uuid(uuid::Uuid::now_v7()));
+    connect_host(&world, fast, JournalEpoch::from_uuid(uuid::Uuid::now_v7())).await;
+    let fast_incident = open_incident(fast, "docker.container", Some("nginx")).unwrap();
+    IncidentRepo::insert(&*world.store, &fast_incident)
+        .await
+        .unwrap();
     let slow_run = approved_for_host(world.incident.id(), slow);
-    let fast_run = approved_for_host(world.incident.id(), fast);
+    let fast_run = approved_for_host(fast_incident.id(), fast);
     ActionRepo::insert(&*world.store, &slow_run).await.unwrap();
     ActionRepo::insert(&*world.store, &fast_run).await.unwrap();
     let gate = Arc::new(Semaphore::new(0));
@@ -2311,9 +2363,16 @@ async fn a_full_pool_delays_passes_without_losing_them() {
     for i in 0..6 {
         let host = if i == 0 { host_id() } else { HostId::new() };
         if i > 0 {
-            connect_host(&world, host, JournalEpoch::from_uuid(uuid::Uuid::now_v7()));
+            connect_host(&world, host, JournalEpoch::from_uuid(uuid::Uuid::now_v7())).await;
         }
-        let run = approved_for_host(world.incident.id(), host);
+        let incident = if i == 0 {
+            world.incident.id()
+        } else {
+            let row = open_incident(host, "docker.container", Some("nginx")).unwrap();
+            IncidentRepo::insert(&*world.store, &row).await.unwrap();
+            row.id()
+        };
+        let run = approved_for_host(incident, host);
         ActionRepo::insert(&*world.store, &run).await.unwrap();
         hosts.push(host);
         runs.push(run);
@@ -2361,7 +2420,10 @@ async fn a_full_pool_delays_passes_without_losing_them() {
     let before = a.runs();
     let extra = a
         .service
-        .propose(proposed_for_host(a.incident.id(), waiting))
+        .propose(proposed_for_host(
+            incident_on(&world.store, waiting).await,
+            waiting,
+        ))
         .await
         .unwrap();
     approve(&a, &extra).await;
@@ -2407,11 +2469,18 @@ async fn shutdown_joins_passes_held_in_a_query() {
     let world = seeded().await;
     let mut hosts = vec![host_id()];
     let other = HostId::new();
-    connect_host(&world, other, JournalEpoch::from_uuid(uuid::Uuid::now_v7()));
+    connect_host(&world, other, JournalEpoch::from_uuid(uuid::Uuid::now_v7())).await;
     hosts.push(other);
     let mut runs = Vec::new();
     for host in &hosts {
-        let run = approved_for_host(world.incident.id(), *host);
+        let incident = if *host == host_id() {
+            world.incident.id()
+        } else {
+            let row = open_incident(*host, "docker.container", Some("nginx")).unwrap();
+            IncidentRepo::insert(&*world.store, &row).await.unwrap();
+            row.id()
+        };
+        let run = approved_for_host(incident, *host);
         ActionRepo::insert(&*world.store, &run).await.unwrap();
         runs.push(run);
     }
@@ -2716,7 +2785,7 @@ async fn hello_passes_take_the_same_bounded_pool() {
     for i in 0..6 {
         let host = if i == 0 { host_id() } else { HostId::new() };
         if i > 0 {
-            connect_host(&world, host, JournalEpoch::from_uuid(uuid::Uuid::now_v7()));
+            connect_host(&world, host, JournalEpoch::from_uuid(uuid::Uuid::now_v7())).await;
         }
         let epoch = world.link.journal_epoch(host).expect("a journal");
         let action = dispatched_to(world.incident.id(), host, Some(epoch));
@@ -2785,13 +2854,37 @@ async fn wait_for_scheduler_attempts(a: &Actions, count: u64) {
     .expect("the scheduler never considered the pending trigger");
 }
 
+/// An incident on `host`, reusing the one a test already created.
+async fn incident_on(store: &InMemoryStore, host: HostId) -> IncidentId {
+    if let Some(existing) = IncidentRepo::list(
+        store,
+        &IncidentFilter {
+            host: Some(host),
+            ..IncidentFilter::default()
+        },
+        &Page::first(1),
+    )
+    .await
+    .unwrap()
+    .items
+    .into_iter()
+    .next()
+    {
+        return existing.id();
+    }
+    let incident = open_incident(host, "docker.container", Some("nginx")).unwrap();
+    IncidentRepo::insert(store, &incident).await.unwrap();
+    incident.id()
+}
+
 /// Runs one approved action on `host` whose reply is lost, so the executor asks for a pass.
 /// Returns the run's id once the request has been handed over.
 async fn lose_a_reply_on(a: &Actions, host: HostId) -> ActionId {
     let before = a.runs();
+    let incident = incident_on(&a.store, host).await;
     let action = a
         .service
-        .propose(proposed_for_host(a.incident.id(), host))
+        .propose(proposed_for_host(incident, host))
         .await
         .unwrap();
     approve(a, &action).await;
@@ -2813,7 +2906,7 @@ async fn a_pending_scheduler_pass_is_reawakened_when_hello_passes_release_slots(
     let mut hosts = vec![host_id()];
     for _ in 0..4 {
         let host = HostId::new();
-        connect_host(&world, host, JournalEpoch::from_uuid(uuid::Uuid::now_v7()));
+        connect_host(&world, host, JournalEpoch::from_uuid(uuid::Uuid::now_v7())).await;
         hosts.push(host);
     }
     let mut waiting = Vec::new();
@@ -2911,7 +3004,7 @@ async fn a_cancelled_hello_pass_releases_its_slot_and_wakes_the_scheduler() {
     let mut hosts = vec![host_id()];
     for _ in 0..4 {
         let host = HostId::new();
-        connect_host(&world, host, JournalEpoch::from_uuid(uuid::Uuid::now_v7()));
+        connect_host(&world, host, JournalEpoch::from_uuid(uuid::Uuid::now_v7())).await;
         hosts.push(host);
     }
     for host in &hosts[..4] {
@@ -2981,7 +3074,7 @@ async fn a_scheduler_pass_releasing_its_slot_wakes_the_next_hosts() {
     let mut hosts = vec![host_id()];
     for _ in 0..5 {
         let host = HostId::new();
-        connect_host(&world, host, JournalEpoch::from_uuid(uuid::Uuid::now_v7()));
+        connect_host(&world, host, JournalEpoch::from_uuid(uuid::Uuid::now_v7())).await;
         hosts.push(host);
     }
     for host in &hosts[..3] {
@@ -3070,7 +3163,7 @@ async fn a_hello_pass_with_nothing_to_do_releases_its_slot_for_a_waiting_host() 
     let mut hosts = vec![host_id()];
     for _ in 0..4 {
         let host = HostId::new();
-        connect_host(&world, host, JournalEpoch::from_uuid(uuid::Uuid::now_v7()));
+        connect_host(&world, host, JournalEpoch::from_uuid(uuid::Uuid::now_v7())).await;
         hosts.push(host);
     }
     for host in &hosts[..3] {
@@ -3170,7 +3263,7 @@ async fn a_hello_pass_waiting_for_its_host_gate_does_not_reserve_a_global_slot()
     let mut hosts = vec![host_id()];
     for _ in 0..4 {
         let host = HostId::new();
-        connect_host(&world, host, JournalEpoch::from_uuid(uuid::Uuid::now_v7()));
+        connect_host(&world, host, JournalEpoch::from_uuid(uuid::Uuid::now_v7())).await;
         hosts.push(host);
     }
     let held = Arc::new(Semaphore::new(0));
@@ -3247,7 +3340,7 @@ async fn cancelling_a_hello_pass_waiting_for_its_host_gate_keeps_the_pool_usable
     let mut hosts = vec![host_id()];
     for _ in 0..4 {
         let host = HostId::new();
-        connect_host(&world, host, JournalEpoch::from_uuid(uuid::Uuid::now_v7()));
+        connect_host(&world, host, JournalEpoch::from_uuid(uuid::Uuid::now_v7())).await;
         hosts.push(host);
     }
     let held = Arc::new(Semaphore::new(0));
@@ -3309,7 +3402,7 @@ async fn cancelling_a_hello_pass_that_waits_for_a_slot_releases_its_host_gate() 
     let mut hosts = vec![host_id()];
     for _ in 0..4 {
         let host = HostId::new();
-        connect_host(&world, host, JournalEpoch::from_uuid(uuid::Uuid::now_v7()));
+        connect_host(&world, host, JournalEpoch::from_uuid(uuid::Uuid::now_v7())).await;
         hosts.push(host);
     }
     let held = Arc::new(Semaphore::new(0));

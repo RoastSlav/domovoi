@@ -6,7 +6,7 @@ use domovoi_core::TriageOutcome;
 use domovoi_core::Verdict;
 use domovoi_core::ports::{ActionRepo, Transaction};
 use domovoi_core::triage::{MANUAL_STEP_MAX_CHARS, MAX_MANUAL_STEPS};
-use domovoi_core::{ActionRequest, Principal};
+use domovoi_core::{ActionRequest, KeyFingerprint, Principal};
 use domovoi_testkit::InMemoryStore;
 use domovoi_testkit::build::T0;
 use jiff::SignedDuration;
@@ -159,14 +159,15 @@ async fn triage_proposals_use_the_writer() {
         .collect();
     let args = skill.validate_args(&params).unwrap();
     let waiting = ActionRequest::propose(
-        w.incident.id(),
-        host_id(),
+        &w.incident,
         &skill,
         &args,
+        Some(KeyFingerprint::of_public_key(&[7; 32])),
         Principal::System("triage".into()),
         SignedDuration::from_hours(1),
         T0,
-    );
+    )
+    .unwrap();
     let waiting_id = waiting.id();
     ActionRepo::insert(&*w.store, &waiting).await.unwrap();
     let before = waiting.chat_token_hash().copied();

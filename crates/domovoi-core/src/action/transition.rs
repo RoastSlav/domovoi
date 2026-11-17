@@ -2,7 +2,8 @@
 
 use jiff::Timestamp;
 
-use super::approval::{ApprovalChannel, HumanApproval, PlanHash};
+use super::approval::{ApprovalChannel, ApprovalProvenance, PlanBinding, PlanHash};
+use super::authorization::Authorization;
 use super::epoch::JournalEpoch;
 use super::request::{ActionRequest, ActionStatus};
 use crate::skill::Risk;
@@ -62,16 +63,27 @@ impl ActionRequest {
     }
 
     /// `Proposed → Approved`. Requires an open window and, for destructive skills, a typed
-    /// confirmation in the web UI.
+    /// confirmation in the web UI. Only the human authorization case can approve at M1.
+    ///
+    /// `binding` is the plan binding the approval request carried; `approved_plan_hash`
+    /// records the hash the surface displayed, from that binding and not from the plan.
     pub fn approve(
         &mut self,
-        approval: HumanApproval,
+        authorization: Authorization,
+        provenance: ApprovalProvenance,
+        binding: &PlanBinding,
         now: Timestamp,
     ) -> Result<ActionChange, ActionError> {
         self.require(self.status == ActionStatus::Proposed, "approve")?;
         if now >= self.expires_at {
             return Err(ActionError::Expired);
         }
+        let Some(approval) = authorization.human_approval() else {
+            return Err(ActionError::NotAllowed {
+                status: self.status.clone(),
+                operation: "approve",
+            });
+        };
         let typed_on_web = matches!(
             approval.channel(),
             ApprovalChannel::Web {
@@ -81,7 +93,17 @@ impl ActionRequest {
         if self.risk == Risk::Destructive && !typed_on_web {
             return Err(ActionError::DestructiveNeedsTypedConfirmation);
         }
-        self.approved_by = Some(approval);
+        let approved_plan_hash = match binding {
+            // The surface showed the full hash.
+            PlanBinding::Full(hash) => *hash,
+            // A chat button carries only a prefix; the writer already proved it matches the
+            // action's plan, so the displayed plan is that one.
+            PlanBinding::Prefix(_) => self.plan_hash_for_approval(),
+        };
+        self.approved_by = Some(approval.clone());
+        self.approved_plan_hash = Some(approved_plan_hash);
+        self.provenance = Some(provenance);
+        self.authorization_kind = Some(authorization.kind());
         Ok(self.move_to(ActionStatus::Approved, now))
     }
 
@@ -100,8 +122,9 @@ impl ActionRequest {
         Ok(self.move_to(ActionStatus::Expired, now))
     }
 
-    /// `Approved → Dispatched` if `current_plan_hash` (recomputed from the current manifest
-    /// and arguments) matches the approved plan, otherwise `Approved → Rejected` (INV-4).
+    /// `Approved → Dispatched` if `current_plan_hash` (recomputed from the current manifest,
+    /// arguments, target and identity in the action's own family) matches the approved plan,
+    /// otherwise `Approved → Rejected` (INV-4).
     pub fn dispatch(
         &mut self,
         current_plan_hash: PlanHash,
@@ -109,7 +132,7 @@ impl ActionRequest {
         now: Timestamp,
     ) -> Result<ActionChange, ActionError> {
         self.require(self.status == ActionStatus::Approved, "dispatch")?;
-        let to = if current_plan_hash == self.plan_hash {
+        let to = if current_plan_hash == self.plan_hash_for_approval() {
             ActionStatus::Dispatched { agent_epoch }
         } else {
             ActionStatus::Rejected {

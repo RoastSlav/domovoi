@@ -10,10 +10,9 @@
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
 
-use domovoi_core::ports::{LinkError, SkillDispatch, SkillOutput};
-use domovoi_core::{ActionId, ActionRequest, ActionStatus, PlanHash};
+use domovoi_core::ports::{LinkError, SkillDispatch};
+use domovoi_core::{ActionId, ActionRequest, ActionStatus, PlanFamily, PlanHash, PlanTarget};
 use jiff::SignedDuration;
-use sha2::{Digest, Sha256};
 use tokio::sync::{Semaphore, broadcast, oneshot};
 use tokio::task::JoinSet;
 
@@ -22,13 +21,10 @@ use super::audit::RunRecord;
 use super::host_wait::{self, HostWait};
 use super::preflight;
 use super::recheck::verify_after;
+use super::record::run_record;
 use super::recover::approved;
 use super::writer::{Decision, WriteCommand};
 use crate::events::{DomainEvent, EventKind};
-use crate::triage::cut;
-
-/// The largest output excerpt stored, in bytes.
-pub const EXCERPT_BYTES: usize = 4 * 1024;
 
 /// Starts running `action` as a task in `running`, stopping it on shutdown. `pool` holds
 /// the catch-up runs to a limit; an approval that arrives as an event passes `None`.
@@ -162,13 +158,27 @@ pub(crate) async fn ask(
 
 /// Queues `Dispatch` and answers with the action as the writer left it: `Dispatched`
 /// when the plan still matches, `Rejected` when it no longer does (INV-4).
-async fn ask_dispatch(shared: &Shared, id: ActionId, plan: PlanHash) -> Option<ActionRequest> {
+async fn ask_dispatch(
+    shared: &Shared,
+    id: ActionId,
+    plan: PlanHash,
+    target: Option<PlanTarget>,
+    session: domovoi_core::AgentSessionId,
+    epoch: domovoi_core::JournalEpoch,
+) -> Option<ActionRequest> {
     let (reply, answer) = oneshot::channel();
     ask(
         shared,
         id,
         "a dispatch",
-        WriteCommand::Dispatch { id, plan, reply },
+        WriteCommand::Dispatch {
+            id,
+            plan,
+            target,
+            session,
+            epoch,
+            reply,
+        },
         answer,
     )
     .await
@@ -254,11 +264,22 @@ pub(crate) async fn run(shared: &Shared, id: ActionId, pool: Option<Arc<Semaphor
     };
     let now = deps.clock.now();
     // Waiting may have taken an hour: the approval and the incident are asked again
-    // before anything is sent.
-    if !preflight::still_current(shared, id, &action, now).await {
+    // before anything is sent. The incident read is kept for the v2 target, so the plan
+    // and the freshness check are computed from one read.
+    let Some(incident) = preflight::current_incident(shared, id, &action, now).await else {
         return;
-    }
-    let (skill, args) = match preflight::revalidate(shared, &action) {
+    };
+    let Some(snapshot) = deps.link.snapshot(action.host()) else {
+        let _ = preflight::ask_reject(
+            shared,
+            id,
+            "no authenticated agent session is available".to_owned(),
+            false,
+        )
+        .await;
+        return;
+    };
+    let (skill, args) = match preflight::revalidate(&snapshot.skills, &action) {
         Ok(found) => found,
         Err(reason) => {
             let _ = preflight::ask_reject(shared, id, reason, false).await;
@@ -272,12 +293,36 @@ pub(crate) async fn run(shared: &Shared, id: ActionId, pool: Option<Arc<Semaphor
         let _ = preflight::ask_reject(shared, id, reason, true).await;
         return;
     }
-    let plan = PlanHash::compute(&skill.name, skill.manifest_hash, action.host(), &args);
+    let runskill_plan_hash =
+        PlanHash::compute(&skill.name, skill.manifest_hash, action.host(), &args);
+    let (approval_plan_hash, plan_target) = match action.approval_plan().family() {
+        PlanFamily::V2 => {
+            let Some((hash, target)) =
+                super::v2_plan::v2_plan(shared, &action, &skill, &args, &incident, &snapshot).await
+            else {
+                return;
+            };
+            (hash, Some(target))
+        }
+        PlanFamily::V1 => (
+            PlanHash::compute(&skill.name, skill.manifest_hash, action.host(), &args),
+            None,
+        ),
+    };
     // The gate closes the window between the write that says `Dispatched` and the frame
     // reaching the agent's queue: reconciliation takes it before it lists what is pending,
     // so a run that has not been handed over yet can never be in that list.
     let gate = shared.dispatch_gate(action.host()).await;
-    let Some(dispatched) = ask_dispatch(shared, id, plan).await else {
+    let Some(dispatched) = ask_dispatch(
+        shared,
+        id,
+        approval_plan_hash,
+        plan_target,
+        snapshot.session,
+        snapshot.journal_epoch,
+    )
+    .await
+    else {
         return;
     };
     let (epoch, skill_name, args) = match dispatched.status() {
@@ -334,11 +379,11 @@ pub(crate) async fn run(shared: &Shared, id: ActionId, pool: Option<Arc<Semaphor
         action: id,
         skill: skill_name,
         args,
-        plan_hash: plan,
+        plan_hash: runskill_plan_hash,
     };
     let handoff = match deps
         .link
-        .start_skill(action.host(), dispatch, epoch, deadline)
+        .start_skill(action.host(), dispatch, snapshot.session, epoch, deadline)
         .await
     {
         Ok(handoff) => handoff,
@@ -398,26 +443,6 @@ pub(crate) async fn run(shared: &Shared, id: ActionId, pool: Option<Arc<Semaphor
                 shared.schedule_reconciliation(action.host());
             }
         }
-    }
-}
-
-fn run_record(shared: &Shared, output: &SkillOutput) -> RunRecord {
-    let mut hash = Sha256::new();
-    hash.update(output.stdout.as_bytes());
-    hash.update([0u8]);
-    hash.update(output.stderr.as_bytes());
-    let text = if output.stderr.trim().is_empty() {
-        output.stdout.clone()
-    } else {
-        format!("{}\n--- stderr ---\n{}", output.stdout, output.stderr)
-    };
-    RunRecord {
-        exit_code: output.exit_code,
-        argv_hash: hex::encode(output.argv_hash),
-        output_sha256: hex::encode(hash.finalize()),
-        duration_ms: output.duration_ms,
-        truncated: output.truncated,
-        excerpt: cut(&shared.deps.redactor.redact(&text), EXCERPT_BYTES),
     }
 }
 

@@ -9,8 +9,8 @@ use domovoi_core::ports::{
     StateWrite, Transaction,
 };
 use domovoi_core::{
-    ActionError, ActionRequest, ActionStatus, PlanBinding, PlanHash, Principal, SignalStatus,
-    UserId,
+    ActionError, ActionRequest, ActionStatus, ApprovalProvenance, Authorization, PlanBinding,
+    Principal, SignalStatus, UserId,
 };
 use domovoi_engine::actions::audit;
 use domovoi_engine::triage::{mint_token, token_hash};
@@ -96,9 +96,10 @@ async fn audit_failure_rolls_back_transition() {
         .service
         .approve(
             id,
-            human(UserId::new()),
+            Authorization::human(human(UserId::new())),
             None,
-            PlanBinding::Full(action.plan_hash()),
+            PlanBinding::Full(action.plan_hash_for_approval()),
+            ApprovalProvenance::new(None, "test"),
         )
         .await;
     assert!(
@@ -147,9 +148,10 @@ async fn every_action_transition_commits_state_audit_and_journal_together() {
     a.service
         .approve(
             action.id(),
-            human(UserId::new()),
+            Authorization::human(human(UserId::new())),
             None,
-            PlanBinding::Full(action.plan_hash()),
+            PlanBinding::Full(action.plan_hash_for_approval()),
+            ApprovalProvenance::new(None, "test"),
         )
         .await
         .unwrap();
@@ -242,9 +244,10 @@ async fn denied_and_expired_and_rejected_and_blocked_and_failed_transitions_are_
     a.service
         .approve(
             action.id(),
-            human(UserId::new()),
+            Authorization::human(human(UserId::new())),
             None,
-            PlanBinding::Full(action.plan_hash()),
+            PlanBinding::Full(action.plan_hash_for_approval()),
+            ApprovalProvenance::new(None, "test"),
         )
         .await
         .unwrap();
@@ -273,9 +276,10 @@ async fn denied_and_expired_and_rejected_and_blocked_and_failed_transitions_are_
         a.service
             .approve(
                 action.id(),
-                human(UserId::new()),
+                Authorization::human(human(UserId::new())),
                 None,
-                PlanBinding::Full(action.plan_hash()),
+                PlanBinding::Full(action.plan_hash_for_approval()),
+                ApprovalProvenance::new(None, "test"),
             )
             .await
             .unwrap();
@@ -293,9 +297,10 @@ async fn denied_and_expired_and_rejected_and_blocked_and_failed_transitions_are_
     a.service
         .approve(
             fourth.id(),
-            human(UserId::new()),
+            Authorization::human(human(UserId::new())),
             None,
-            PlanBinding::Full(fourth.plan_hash()),
+            PlanBinding::Full(fourth.plan_hash_for_approval()),
+            ApprovalProvenance::new(None, "test"),
         )
         .await
         .unwrap();
@@ -329,9 +334,10 @@ async fn denied_and_expired_and_rejected_and_blocked_and_failed_transitions_are_
     a.service
         .approve(
             action.id(),
-            human(UserId::new()),
+            Authorization::human(human(UserId::new())),
             None,
-            PlanBinding::Full(action.plan_hash()),
+            PlanBinding::Full(action.plan_hash_for_approval()),
+            ApprovalProvenance::new(None, "test"),
         )
         .await
         .unwrap();
@@ -360,9 +366,10 @@ async fn denied_and_expired_and_rejected_and_blocked_and_failed_transitions_are_
     a.service
         .approve(
             action.id(),
-            human(UserId::new()),
+            Authorization::human(human(UserId::new())),
             None,
-            PlanBinding::Full(action.plan_hash()),
+            PlanBinding::Full(action.plan_hash_for_approval()),
+            ApprovalProvenance::new(None, "test"),
         )
         .await
         .unwrap();
@@ -383,17 +390,26 @@ async fn denied_and_expired_and_rejected_and_blocked_and_failed_transitions_are_
         .collect();
     let validated = skill.validate_args(&params).unwrap();
     let mut action = ActionRequest::propose(
-        world.incident.id(),
-        host_id(),
+        &world.incident,
         &skill,
         &validated,
+        Some(domovoi_testkit::build::key_fingerprint()),
         Principal::System("triage".into()),
         SignedDuration::from_hours(1),
         T0,
-    );
-    action.approve(human(UserId::new()), T0).unwrap();
-    let plan = PlanHash::compute(&skill.name, skill.manifest_hash, action.host(), &validated);
-    action.dispatch(plan, None, T0).unwrap();
+    )
+    .unwrap();
+    action
+        .approve(
+            Authorization::human(human(UserId::new())),
+            ApprovalProvenance::new(None, "test"),
+            &PlanBinding::Full(action.plan_hash_for_approval()),
+            T0,
+        )
+        .unwrap();
+    action
+        .dispatch(action.plan_hash_for_approval(), None, T0)
+        .unwrap();
     ActionRepo::insert(&*world.store, &action).await.unwrap();
     let probe = Arc::new(RecordingUow::new(world.store.clone()));
     let a = world.start(ActionSettings::default(), probe.clone());
@@ -428,9 +444,10 @@ async fn stale_decision_is_refused_and_writes_nothing() {
         .service
         .approve(
             action.id(),
-            human(UserId::new()),
+            Authorization::human(human(UserId::new())),
             None,
-            PlanBinding::Full(action.plan_hash()),
+            PlanBinding::Full(action.plan_hash_for_approval()),
+            ApprovalProvenance::new(None, "test"),
         )
         .await;
     assert_eq!(
@@ -463,9 +480,10 @@ async fn chat_approval_audit_actor_is_the_user_with_the_channel_in_the_detail() 
     a.service
         .approve(
             action.id(),
-            chat(user, "discord", "42"),
+            Authorization::human(chat(user, "discord", "42")),
             Some(&token),
-            PlanBinding::Full(action.plan_hash()),
+            PlanBinding::Full(action.plan_hash_for_approval()),
+            ApprovalProvenance::new(None, "test"),
         )
         .await
         .unwrap();
@@ -523,7 +541,14 @@ async fn propose_rejects_an_action_that_is_not_proposed() {
             SignedDuration::from_hours(1),
         )
         .await;
-    action.approve(human(UserId::new()), a.now()).unwrap();
+    action
+        .approve(
+            Authorization::human(human(UserId::new())),
+            ApprovalProvenance::new(None, "test"),
+            &PlanBinding::Full(action.plan_hash_for_approval()),
+            a.now(),
+        )
+        .unwrap();
 
     let refused = a.service.propose(action.clone()).await;
     assert!(
@@ -581,9 +606,10 @@ async fn token_rotation_goes_through_the_writer() {
         a.service
             .approve(
                 action.id(),
-                chat(UserId::new(), "discord", "1"),
+                Authorization::human(chat(UserId::new(), "discord", "1")),
                 Some(&old_token),
-                PlanBinding::Full(action.plan_hash()),
+                PlanBinding::Full(action.plan_hash_for_approval()),
+                ApprovalProvenance::new(None, "test"),
             )
             .await
             .err(),
@@ -648,6 +674,45 @@ async fn token_rotation_records_no_token_material() {
             "token material reached the audit log or journal: {secret}",
         );
     }
+}
+
+#[tokio::test]
+async fn rotation_of_an_expired_proposal_is_refused_without_extending_it() {
+    let a = actions(ActionSettings::default()).await;
+    let (action, _) = a
+        .propose_via_service(
+            &verified_restart(),
+            &[("container", "nginx")],
+            SignedDuration::from_hours(1),
+        )
+        .await
+        .unwrap();
+    let before = a.get(action.id()).await;
+
+    a.clock
+        .advance(SignedDuration::from_hours(1) + SignedDuration::from_secs(1));
+    let refused = a
+        .service
+        .rotate_chat_token(action.id(), token_hash(&mint_token()))
+        .await;
+    assert_eq!(
+        refused.err(),
+        Some(ApprovalError::Refused(ActionError::Expired)),
+        "the writer checks expiry with its own clock"
+    );
+
+    let after = a.get(action.id()).await;
+    assert_eq!(
+        after.status(),
+        &ActionStatus::Proposed,
+        "the action is left for the expiry sweep"
+    );
+    assert_eq!(after.chat_token_hash(), before.chat_token_hash());
+    assert_eq!(
+        after.expires_at(),
+        before.expires_at(),
+        "a refused rotation never extends the window"
+    );
 }
 
 #[tokio::test]

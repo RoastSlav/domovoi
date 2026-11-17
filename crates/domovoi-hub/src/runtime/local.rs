@@ -54,6 +54,10 @@ impl LocalAgents {
             existing => {
                 if let Some(old) = existing {
                     self.store.revoke_agent(old.agent, now).await?;
+                    // The same retirement as a token re-enrollment or an admin revoke: the
+                    // old identity's live session ends and a handshake already in flight for
+                    // it cannot register itself later.
+                    self.server.retire_agent(old.agent);
                     tracing::info!(agent = %old.agent, "local agent key changed; previous agent revoked");
                 }
                 let agent = AgentIdentity {
@@ -79,5 +83,108 @@ impl LocalAgents {
     /// Runs one local connection over `transport` until it ends.
     pub async fn attach(&self, transport: Box<dyn Transport>) {
         self.server.attach_local(transport).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+    use std::sync::Arc;
+
+    use async_trait::async_trait;
+    use domovoi_core::ports::{HostRepo, SettingsRepo};
+    use domovoi_core::{Host, HostId, HostKind, HostName};
+    use domovoi_store::{Store, StoreOptions};
+    use domovoi_testkit::FakeClock;
+    use jiff::Timestamp;
+
+    use super::LocalAgents;
+    use crate::agent_server::{AgentServer, AgentServerDeps, NetProbes, ServerSettings};
+
+    const T0: Timestamp = Timestamp::constant(1_700_000_000, 0);
+
+    struct NoProbes;
+
+    #[async_trait]
+    impl NetProbes for NoProbes {
+        async fn gateway_reachable(&self) -> bool {
+            true
+        }
+
+        async fn tcp_reachable(&self, _target: &str) -> bool {
+            true
+        }
+    }
+
+    fn settings(dir: &std::path::Path) -> ServerSettings {
+        ServerSettings {
+            hub_name: "testhub".to_owned(),
+            data_dir: dir.to_path_buf(),
+            bind: "127.0.0.1:0".parse().unwrap(),
+            public_url: url::Url::parse("wss://testhub:7421").unwrap(),
+            self_check: "1.1.1.1:53".to_owned(),
+            heartbeat: jiff::SignedDuration::from_secs(10),
+            probes: BTreeMap::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn replacing_a_local_key_retires_the_previous_agent() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("hub.db");
+        let store = Arc::new(
+            Store::open(&path, StoreOptions::beside(&path, T0))
+                .await
+                .unwrap(),
+        );
+        let host = HostId::new();
+        HostRepo::upsert_host(
+            &*store,
+            &Host {
+                id: host,
+                name: HostName::parse("hubbox").unwrap(),
+                kind: HostKind::Local,
+                labels: BTreeMap::new(),
+                created_at: T0,
+            },
+        )
+        .await
+        .unwrap();
+        SettingsRepo::set(&*store, "hub_host_id", &serde_json::json!(host.to_string()))
+            .await
+            .unwrap();
+
+        let clock: Arc<dyn domovoi_core::ports::Clock> = Arc::new(FakeClock::new(T0));
+        let deps = AgentServerDeps {
+            clock: clock.clone(),
+            hosts: store.clone(),
+            facts: store.clone(),
+            sink: Arc::new(domovoi_testkit::RecordingSignalSink::new()),
+            audit: store.clone(),
+            probes: Arc::new(NoProbes),
+            hub_host: host,
+        };
+        let server = AgentServer::new(settings(dir.path()), deps).unwrap();
+        let local = LocalAgents::new(server.clone(), store.clone(), clock);
+
+        let first = local.register([1; 32], "0.1.0").await.unwrap();
+        assert_eq!(first.host_id, host);
+        assert!(!server.is_retired(first.agent_id));
+
+        let second = local.register([2; 32], "0.1.0").await.unwrap();
+        assert_ne!(first.agent_id, second.agent_id);
+        assert!(
+            server.is_retired(first.agent_id),
+            "the local path uses the shared retirement, closing the old session"
+        );
+        assert!(!server.is_retired(second.agent_id));
+        assert_eq!(
+            store.live_agent(host).await.unwrap().unwrap().agent,
+            second.agent_id
+        );
+
+        let again = local.register([2; 32], "0.1.0").await.unwrap();
+        assert_eq!(again.agent_id, second.agent_id, "the same key keeps its id");
+        assert!(!server.is_retired(second.agent_id));
     }
 }

@@ -7,11 +7,11 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use domovoi_core::ports::{
-    ActionRepo, AuditFilter, AuditLog, HostAvailability, IncidentRepo, Page, Presence,
+    ActionRepo, AuditFilter, AuditLog, HostAvailability, HostRepo, IncidentRepo, Page, Presence,
 };
 use domovoi_core::{
-    ActionId, ActionRequest, ActionStatus, JournalEpoch, PlanBinding, PlanHash, Principal,
-    SignalStatus, UserId,
+    ActionId, ActionRequest, ActionStatus, AgentId, AgentIdentity, ApprovalProvenance,
+    Authorization, JournalEpoch, KeyFingerprint, PlanBinding, Principal, SignalStatus, UserId,
 };
 use domovoi_engine::actions::audit;
 use domovoi_engine::{
@@ -66,8 +66,26 @@ async fn restarted_with(
     set_up: impl FnOnce(&Arc<FakeClock>, &Arc<FakeAgentLink>),
 ) -> (Actions, Vec<ActionId>) {
     let store = Arc::new(InMemoryStore::new());
+    let mut registered = domovoi_testkit::build::host("nas").unwrap();
+    registered.id = host_id();
+    HostRepo::upsert_host(&*store, &registered).await.unwrap();
+    let agent_id = AgentId::new();
+    HostRepo::put_agent(
+        &*store,
+        &AgentIdentity {
+            agent: agent_id,
+            host: host_id(),
+            public_key: [7; 32],
+            version: "0.1.0".to_owned(),
+            enrolled_at: T0,
+            revoked_at: None,
+        },
+    )
+    .await
+    .unwrap();
     let clock = Arc::new(FakeClock::new(T0));
     let link = Arc::new(FakeAgentLink::new());
+    link.set_agent(host_id(), agent_id);
     link.set_presence(
         host_id(),
         Presence::Connected {
@@ -90,19 +108,27 @@ async fn restarted_with(
     let mut ids = Vec::new();
     for (index, state) in states.iter().enumerate() {
         let mut action = ActionRequest::propose(
-            incident.id(),
-            host_id(),
+            &incident,
             &skill,
             &validated,
+            Some(KeyFingerprint::of_public_key(&[7u8; 32])),
             Principal::System("triage".into()),
             SignedDuration::from_hours(1),
             T0,
-        );
-        action.approve(human(UserId::new()), T0).unwrap();
+        )
+        .unwrap();
+        action
+            .approve(
+                Authorization::human(human(UserId::new())),
+                ApprovalProvenance::new(None, "test"),
+                &PlanBinding::Full(action.plan_hash_for_approval()),
+                T0,
+            )
+            .unwrap();
         if matches!(state, LeftBehind::Dispatched | LeftBehind::Ran) {
-            let plan =
-                PlanHash::compute(&skill.name, skill.manifest_hash, action.host(), &validated);
-            action.dispatch(plan, None, T0).unwrap();
+            action
+                .dispatch(action.plan_hash_for_approval(), None, T0)
+                .unwrap();
             assert!(
                 matches!(action.status(), ActionStatus::Dispatched { .. }),
                 "the plan the agent has now is the approved one, so the previous session ran it",
@@ -150,6 +176,7 @@ async fn restarted_with(
             effects: store.clone(),
             advisories: store.clone(),
             link: link.clone(),
+            hosts: store.clone(),
             redactor: Arc::new(PatternRedactor::new([SecretString::from(
                 SECRET.to_owned(),
             )])),
@@ -432,9 +459,10 @@ async fn loop_guard_reloads_dispatches_that_were_committed_with_their_audit_rows
             .service
             .approve(
                 action.id(),
-                human(UserId::new()),
+                Authorization::human(human(UserId::new())),
                 None,
-                PlanBinding::Full(action.plan_hash()),
+                PlanBinding::Full(action.plan_hash_for_approval()),
+                ApprovalProvenance::new(None, "test"),
             )
             .await
             .unwrap();
@@ -459,9 +487,10 @@ async fn loop_guard_reloads_dispatches_that_were_committed_with_their_audit_rows
         .service
         .approve(
             fourth.id(),
-            human(UserId::new()),
+            Authorization::human(human(UserId::new())),
             None,
-            PlanBinding::Full(fourth.plan_hash()),
+            PlanBinding::Full(fourth.plan_hash_for_approval()),
+            ApprovalProvenance::new(None, "test"),
         )
         .await
         .unwrap();

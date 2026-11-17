@@ -3,12 +3,27 @@
 //! Never delete or weaken these tests; extend them.
 
 use domovoi_core::{
-    ActionChange, ActionError, ActionRequest, ApprovalChannel, HostId, HumanApproval, IncidentId,
-    ManifestHash, Principal, ReadTool, ReadToolCall, Risk, SkillName, SkillSummary, ToolArgError,
-    UserId,
+    ActionChange, ActionError, ActionRequest, ApprovalChannel, ApprovalProvenance, Authorization,
+    CheckKey, HostId, HumanApproval, Incident, IncidentId, KeyFingerprint, ManifestHash,
+    PlanBinding, PolicyPermit, PolicyPermitParts, Principal, ReadTool, ReadToolCall, Risk,
+    Severity, Signal, SkillName, SkillSummary, SourceKind, TargetKey, ToolArgError, UserId,
 };
 use jiff::{SignedDuration, Timestamp};
 use serde_json::json;
+
+#[cfg(test)]
+fn incident(id: IncidentId, host: HostId, check: &str, target: Option<&str>) -> Incident {
+    let signal = Signal::firing(
+        SourceKind::BuiltIn,
+        host,
+        CheckKey::parse(check).unwrap(),
+        target.map(|t| TargetKey::parse(t).unwrap()),
+        Severity::Warning,
+        "test",
+        Timestamp::UNIX_EPOCH,
+    );
+    Incident::new_pending(&signal, Timestamp::UNIX_EPOCH).with_id(id)
+}
 
 #[test]
 fn read_tool_catalogue_is_read_only() {
@@ -65,13 +80,67 @@ fn read_tool_call_rejects_unknown_tool_names() {
 
 #[test]
 fn no_approval_without_human() {
-    // `approve` must take a `HumanApproval`; if its signature changes, this stops compiling.
+    // `approve` must take an `Authorization`; if its signature changes, this stops compiling.
     let approve: fn(
         &mut ActionRequest,
-        HumanApproval,
+        Authorization,
+        ApprovalProvenance,
+        &PlanBinding,
         Timestamp,
     ) -> Result<ActionChange, ActionError> = ActionRequest::approve;
     let _ = approve;
+
+    // A policy authorization is refused at M1 even though the type can produce one in a test.
+    let ceiling = "cd".repeat(32);
+    let permit = PolicyPermit::issue(PolicyPermitParts {
+        decision_id: "dec-1",
+        rule_ids: Vec::new(),
+        policy_version: "1",
+        plan_hash: "ab".repeat(32).parse().unwrap(),
+        issued_at: Timestamp::UNIX_EPOCH,
+        expires_at: Timestamp::UNIX_EPOCH + SignedDuration::from_hours(1),
+        ceiling_hash: &ceiling,
+        safety_identity: None,
+    })
+    .unwrap();
+    let skill = SkillSummary {
+        name: SkillName::parse("restart_container").unwrap(),
+        description: "Restart a container".to_owned(),
+        risk: Risk::Write,
+        params: Vec::new(),
+        applies_to: Vec::new(),
+        manifest_hash: "00".repeat(32).parse::<ManifestHash>().unwrap(),
+        entry_script_digest: domovoi_core::ScriptDigest::of_bytes(b"entry"),
+        timeout: SignedDuration::from_secs(60),
+        verify: None,
+        readme: None,
+    };
+    let args = skill.validate_args(&Default::default()).unwrap();
+    let host = HostId::new();
+    let incident = incident(IncidentId::new(), host, "disk.usage", None);
+    let mut req = ActionRequest::propose(
+        &incident,
+        &skill,
+        &args,
+        Some(KeyFingerprint::of_public_key(&[7u8; 32])),
+        Principal::System("triage".into()),
+        SignedDuration::from_hours(1),
+        Timestamp::UNIX_EPOCH,
+    )
+    .unwrap();
+    let binding = PlanBinding::Full(req.plan_hash_for_approval());
+    assert_eq!(
+        req.approve(
+            Authorization::policy(permit),
+            ApprovalProvenance::new(None, "test"),
+            &binding,
+            Timestamp::UNIX_EPOCH,
+        ),
+        Err(ActionError::NotAllowed {
+            status: domovoi_core::ActionStatus::Proposed,
+            operation: "approve",
+        }),
+    );
 }
 
 #[test]
@@ -90,15 +159,18 @@ fn destructive_actions_cannot_be_approved_from_chat() {
     };
     let args = skill.validate_args(&Default::default()).unwrap();
     let now = Timestamp::UNIX_EPOCH;
+    let host = HostId::new();
+    let incident = incident(IncidentId::new(), host, "disk.usage", None);
     let mut req = ActionRequest::propose(
-        IncidentId::new(),
-        HostId::new(),
+        &incident,
         &skill,
         &args,
+        Some(KeyFingerprint::of_public_key(&[7u8; 32])),
         Principal::System("triage".into()),
         SignedDuration::from_hours(1),
         now,
-    );
+    )
+    .unwrap();
     let chat = HumanApproval::new(
         UserId::new(),
         ApprovalChannel::Chat {
@@ -107,8 +179,14 @@ fn destructive_actions_cannot_be_approved_from_chat() {
         },
         now,
     );
+    let binding = PlanBinding::Full(req.plan_hash_for_approval());
     assert_eq!(
-        req.approve(chat, now),
+        req.approve(
+            Authorization::human(chat),
+            ApprovalProvenance::new(None, "test"),
+            &binding,
+            now,
+        ),
         Err(ActionError::DestructiveNeedsTypedConfirmation)
     );
 }
@@ -177,6 +255,8 @@ fn approvals_and_actions_cannot_be_deserialized() {
         };
     }
     assert!(!deserializable!(HumanApproval));
+    assert!(!deserializable!(Authorization));
+    assert!(!deserializable!(PolicyPermit));
     assert!(!deserializable!(ActionRequest));
     assert!(!deserializable!(Principal));
     // The probe does detect a type that can be deserialized.

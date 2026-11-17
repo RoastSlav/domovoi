@@ -8,7 +8,9 @@ use domovoi_core::ports::{
     ActionGuard, AggregateRef, AuditDraft, IncidentRepo, IncidentTimelineEntry, JournalDraft,
     JournalKind, SignalRepo, StateWrite, Transaction, UnitOfWork,
 };
-use domovoi_core::{ActionRequest, Actor, Incident, Risk, UserId};
+use domovoi_core::{
+    ActionRequest, Actor, ApprovalProvenance, Authorization, Incident, PlanBinding, Risk, UserId,
+};
 use serde_json::json;
 
 use super::snapshot::Snapshot;
@@ -20,6 +22,19 @@ use crate::repos::InMemoryStore;
 
 fn host() -> domovoi_core::HostId {
     domovoi_core::HostId::new()
+}
+
+/// Approves `action` as a human at `at(1)`, bound to the plan it shows.
+fn approve(action: &mut ActionRequest) {
+    let binding = PlanBinding::Full(action.plan_hash_for_approval());
+    action
+        .approve(
+            Authorization::human(crate::approvals::human(UserId::new())),
+            ApprovalProvenance::new(None, "test"),
+            &binding,
+            at(1),
+        )
+        .unwrap();
 }
 
 fn new_incident_tx(incident: &Incident) -> Transaction {
@@ -297,9 +312,7 @@ async fn consistent_store() -> (Arc<InMemoryStore>, Incident, ActionRequest) {
         .audit(proposal_audit(&action));
     store.commit(proposed).await.unwrap();
 
-    action
-        .approve(crate::approvals::human(UserId::new()), at(1))
-        .unwrap();
+    approve(&mut action);
     let approved = Transaction::new()
         .write(StateWrite::Action {
             action: action.clone(),
@@ -430,9 +443,7 @@ async fn invariants_report_an_action_whose_journal_disagrees_with_its_status() {
         .unwrap();
 
     let mut approved = action.clone();
-    approved
-        .approve(crate::approvals::human(UserId::new()), at(1))
-        .unwrap();
+    approve(&mut approved);
     domovoi_core::ports::ActionRepo::update_from(&*store, &approved, "proposed")
         .await
         .unwrap();

@@ -4,7 +4,7 @@
 //! The executor asks these; nothing here writes action state. A stale approval is queued for
 //! the writer as an expiry or a rejection, so the one commit path stays the writer's.
 
-use domovoi_core::{ActionId, ActionRequest, SkillSummary, ValidatedArgs};
+use domovoi_core::{ActionId, ActionRequest, Incident, SkillSummary, ValidatedArgs};
 use jiff::{SignedDuration, Timestamp};
 use tokio::sync::oneshot;
 
@@ -92,11 +92,10 @@ pub(crate) fn reserve_dispatch(
 /// the reason the action must be rejected before dispatch (INV-4). The rejection itself
 /// is queued for the writer, which audits it.
 pub(crate) fn revalidate(
-    shared: &Shared,
+    skills: &[SkillSummary],
     action: &ActionRequest,
 ) -> Result<(SkillSummary, ValidatedArgs), String> {
-    let skills = shared.deps.link.skills(action.host());
-    let found = skills.into_iter().find(|s| &s.name == action.skill());
+    let found = skills.iter().find(|s| &s.name == action.skill());
     match found {
         None => Err("the skill is no longer on the host".to_owned()),
         Some(skill) if skill.risk != action.risk() => {
@@ -104,7 +103,7 @@ pub(crate) fn revalidate(
         }
         Some(skill) => skill
             .validate_args(action.args())
-            .map(|args| (skill, args))
+            .map(|args| (skill.clone(), args))
             .map_err(|err| format!("the arguments are no longer valid: {err}")),
     }
 }
@@ -118,15 +117,26 @@ pub(crate) async fn still_current(
     action: &ActionRequest,
     now: Timestamp,
 ) -> bool {
+    current_incident(shared, id, action, now).await.is_some()
+}
+
+/// Like [`still_current`], but hands back the incident it read, so a v2 dispatch guard can
+/// recompute the target without reading the incident a second time.
+pub(crate) async fn current_incident(
+    shared: &Shared,
+    id: ActionId,
+    action: &ActionRequest,
+    now: Timestamp,
+) -> Option<Incident> {
     match freshness::check(shared, action, now).await {
-        Ok(None) => true,
-        Ok(Some(old)) => {
+        Ok(freshness::Fresh::Current(incident)) => Some(*incident),
+        Ok(freshness::Fresh::Stale(old)) => {
             if old == freshness::Stale::Expired {
                 let _ = ask_expire(shared, id).await;
             } else {
                 let _ = ask_reject(shared, id, old.reason().to_owned(), false).await;
             }
-            false
+            None
         }
         Err(err) => {
             tracing::error!(
@@ -134,7 +144,7 @@ pub(crate) async fn still_current(
                 action = %id,
                 "could not check whether the approval is still current; it stays approved",
             );
-            false
+            None
         }
     }
 }

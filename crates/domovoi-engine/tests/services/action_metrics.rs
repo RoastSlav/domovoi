@@ -8,7 +8,9 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 use domovoi_core::ports::ActionRepo;
-use domovoi_core::{ActionError, ActionRequest, PlanBinding, Risk, UserId};
+use domovoi_core::{
+    ActionError, ActionRequest, ApprovalProvenance, Authorization, PlanBinding, Risk, UserId,
+};
 use domovoi_engine::triage::{mint_token, token_hash};
 use domovoi_engine::{ActionSettings, ApprovalError};
 use domovoi_testkit::approvals::human;
@@ -138,9 +140,10 @@ async fn a_status_transition_increments_the_destination_counter() {
     a.service
         .approve(
             action.id(),
-            human(UserId::new()),
+            Authorization::human(human(UserId::new())),
             None,
-            PlanBinding::Full(action.plan_hash()),
+            PlanBinding::Full(action.plan_hash_for_approval()),
+            ApprovalProvenance::new(None, "test"),
         )
         .await
         .unwrap();
@@ -204,9 +207,10 @@ async fn a_failed_commit_does_not_increment_the_counter() {
         .service
         .approve(
             id,
-            human(UserId::new()),
+            Authorization::human(human(UserId::new())),
             None,
-            PlanBinding::Full(action.plan_hash()),
+            PlanBinding::Full(action.plan_hash_for_approval()),
+            ApprovalProvenance::new(None, "test"),
         )
         .await;
 
@@ -235,9 +239,10 @@ async fn a_conflicted_commit_does_not_increment_the_counter() {
         .service
         .approve(
             action.id(),
-            human(UserId::new()),
+            Authorization::human(human(UserId::new())),
             None,
-            PlanBinding::Full(action.plan_hash()),
+            PlanBinding::Full(action.plan_hash_for_approval()),
+            ApprovalProvenance::new(None, "test"),
         )
         .await;
 

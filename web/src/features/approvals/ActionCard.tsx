@@ -164,7 +164,7 @@ export function ActionCard({
             {suggestedBy(action.proposed_by)} <RelativeTime at={action.created_at} />
           </Text>
           {waiting && <Expiry until={action.expires_at} />}
-          {waiting && <PlanTag planHash={action.plan_hash} />}
+          {waiting && <PlanTag planHash={action.plan_hash} binding={action.plan_binding} />}
           {showIncident && (
             <Link to={`/incidents/${action.incident_id}`}>{incidentTitle ?? "View incident"}</Link>
           )}
