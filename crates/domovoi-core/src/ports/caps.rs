@@ -50,7 +50,13 @@ pub trait HostObservation: Send + Sync {
 /// Reading one tool's output from a host.
 ///
 /// This is the only capability that lets a caller see a host's tool output; it
-/// reaches one read tool call, honouring the caller's `deadline`.
+/// reaches one read tool call.
+///
+/// Deadline contract: every await inside `read_host`, the error classification and any
+/// fallback lookup included, ends by `deadline` with [`LinkError::Timeout`], and a request
+/// the implementation registered is released however the call ends, a dropped future
+/// included. `Evidence` races only the availability check itself; this contract is what
+/// bounds the read.
 #[async_trait]
 pub trait HostRead: Send + Sync {
     /// Runs one read tool on `host` and answers with its output.

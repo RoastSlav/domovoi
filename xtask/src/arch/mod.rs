@@ -1,11 +1,15 @@
 //! `cargo xtask arch-check`: enforce the rules in ARCHITECTURE.md.
 
+mod alias;
 pub mod ast;
 mod git;
 mod graph;
+mod lex;
 mod manifest;
+pub mod reach;
 pub mod rules;
 mod scan;
+pub mod wiring;
 
 use std::fmt;
 use std::path::Path;

@@ -308,6 +308,15 @@ impl Registry {
         Ok((id, rx, facts))
     }
 
+    /// How many requests the live session of `host` is still awaiting answers for.
+    #[cfg(test)]
+    pub fn pending_len(&self, host: HostId) -> usize {
+        self.lock()
+            .get(&host)
+            .and_then(|e| e.live.as_ref())
+            .map_or(0, |live| live.pending.len())
+    }
+
     /// Stops waiting for the answer to `id`.
     pub fn forget(&self, host: HostId, id: RequestId) {
         if let Some(live) = self.lock().get_mut(&host).and_then(|e| e.live.as_mut()) {

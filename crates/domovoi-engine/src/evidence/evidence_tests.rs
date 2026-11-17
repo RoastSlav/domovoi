@@ -449,3 +449,90 @@ async fn unavailable_and_incompatible_hosts_never_reach_the_read() {
         "run_tool is never reached for an unavailable or incompatible host"
     );
 }
+
+/// A read capability that follows the deadline contract the production adapter implements:
+/// it holds the read behind a stalled lookup, as `WsAgentLink` does when a session vanished
+/// and the store is slow, and gives up with `Timeout` when the clock reaches the deadline.
+struct StalledFallbackRead {
+    clock: Arc<FakeClock>,
+    entered: Arc<tokio::sync::Notify>,
+}
+
+#[async_trait::async_trait]
+impl domovoi_core::ports::HostRead for StalledFallbackRead {
+    async fn read_host(
+        &self,
+        _host: HostId,
+        _call: ReadToolCall,
+        deadline: jiff::Timestamp,
+    ) -> Result<ToolOutput, domovoi_core::ports::LinkError> {
+        use domovoi_core::ports::Clock;
+        self.entered.notify_one();
+        tokio::select! {
+            () = std::future::pending::<()>() => unreachable!("the lookup never answers"),
+            () = self.clock.sleep_until(deadline) => Err(domovoi_core::ports::LinkError::Timeout),
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_read_stalled_after_availability_answers_timeout_not_a_late_result() {
+    let link = Arc::new(FakeAgentLink::new());
+    let host = HostId::new();
+    connected(&link, host);
+    let clock = Arc::new(FakeClock::new(T0));
+    let entered = Arc::new(tokio::sync::Notify::new());
+    let mut caps = evidence_caps(link.clone());
+    caps.read = Arc::new(StalledFallbackRead {
+        clock: clock.clone(),
+        entered: entered.clone(),
+    });
+    let evidence = Evidence::new(caps, clock.clone());
+    let request = EvidenceRequest::for_host(host, ReadToolCall::HostOverview, deadline());
+
+    let pending = tokio::spawn(async move { evidence.collect_evidence(request).await });
+    entered.notified().await;
+    assert!(!pending.is_finished(), "the read is still stalled");
+    clock.advance(SignedDuration::from_secs(16));
+    assert_eq!(pending.await.unwrap().unwrap_err(), EvidenceError::Timeout);
+    assert!(
+        !read_reached_the_agent(&link),
+        "the replaced read capability, not the fake agent, answered"
+    );
+}
+
+#[tokio::test]
+async fn a_deadline_already_passed_calls_no_capability() {
+    let link = Arc::new(FakeAgentLink::new());
+    let host = HostId::new();
+    connected(&link, host);
+    let clock = Arc::new(FakeClock::new(T0));
+    clock.advance(SignedDuration::from_secs(16));
+    let evidence = evidence_at(&link, clock);
+    let request = EvidenceRequest::for_host(host, ReadToolCall::HostOverview, deadline());
+    assert_eq!(
+        evidence.collect_evidence(request).await.unwrap_err(),
+        EvidenceError::Timeout
+    );
+    assert!(link.requests().is_empty(), "no capability was asked");
+}
+
+#[tokio::test]
+async fn link_failures_before_the_deadline_keep_their_classification() {
+    use domovoi_core::ports::LinkError;
+    for (failure, expected) in [
+        (LinkError::NotConnected, EvidenceError::NotConnected),
+        (LinkError::Incompatible, EvidenceError::Incompatible),
+        (LinkError::Timeout, EvidenceError::Timeout),
+    ] {
+        let link = Arc::new(FakeAgentLink::new());
+        let host = HostId::new();
+        connected(&link, host);
+        link.on_tool(move |_, _| Err(failure.clone()));
+        let request = EvidenceRequest::for_host(host, ReadToolCall::HostOverview, deadline());
+        assert_eq!(
+            evidence(&link).collect_evidence(request).await.unwrap_err(),
+            expected
+        );
+    }
+}

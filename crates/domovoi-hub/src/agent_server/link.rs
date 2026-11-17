@@ -5,17 +5,16 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use async_trait::async_trait;
 use domovoi_core::ports::{
-    ActionAnswer, ActionAnswerEntry, ActionAnswers, AgentLink, CheckRecheck, Clock,
-    HostAvailability, HostRepo, LinkError, LogLine, Presence, SkillDispatch, SkillHandoff,
-    SkillOutput, ToolOutput, UnknownReason,
+    ActionAnswers, AgentLink, CheckRecheck, Clock, HostAvailability, HostRepo, LinkError, LogLine,
+    Presence, SkillDispatch, SkillHandoff, SkillOutput, ToolOutput,
 };
 use domovoi_core::{
     ActionId, AgentSessionId, CheckKey, HostId, JournalEpoch, ReadToolCall, RequestId,
     SkillSummary, TargetKey,
 };
 use domovoi_proto::messages::{
-    ActionState, ActionStatusAnswers, ActionStatusQuery, CapabilityOutcome, GetLogs,
-    OutcomeUnknownReason, RunCheck, RunSkill, RunTool, SkillOutcome, ToolFailureCode, ToolOutcome,
+    ActionStatusQuery, GetLogs, RunCheck, RunSkill, RunTool, SkillOutcome, ToolFailureCode,
+    ToolOutcome,
 };
 use domovoi_proto::{Message, PROTOCOL_VERSION};
 use jiff::SignedDuration;
@@ -23,6 +22,7 @@ use jiff::Timestamp;
 use tokio::sync::oneshot;
 
 use super::compat::{ProtocolState, protocol_state};
+use super::link_answers::answers_from;
 use super::registry::{Registry, SessionFacts, SessionState};
 
 /// Routes requests to the host's current session. Fails fast with
@@ -62,7 +62,20 @@ impl WsAgentLink {
     /// Why a request found no live session: the hub rejected this agent's protocol, or it
     /// is simply not connected. A prediction that it would be incompatible is not a
     /// finding, so that case stays [`LinkError::NotConnected`].
-    async fn not_connected(&self, host: HostId) -> LinkError {
+    ///
+    /// The lookups read the store, which has no deadline of its own, so they are raced against
+    /// `deadline`: a request that failed before anything was queued answers
+    /// [`LinkError::Timeout`] when the deadline passes first. Nothing is registered at this
+    /// point, so abandoning the lookups leaves no state behind.
+    async fn not_connected(&self, host: HostId, deadline: Timestamp) -> LinkError {
+        tokio::select! {
+            found = self.classify_missing_session(host) => found,
+            () = self.clock.sleep_until(deadline) => LinkError::Timeout,
+        }
+    }
+
+    /// The store lookups behind [`Self::not_connected`], without a deadline.
+    async fn classify_missing_session(&self, host: HostId) -> LinkError {
         let report = match self.hosts.live_agent(host).await {
             Ok(Some(agent)) => self.hosts.agent_report(agent.agent).await,
             Ok(None) => return LinkError::NotConnected,
@@ -133,8 +146,15 @@ impl WsAgentLink {
         }
         let (id, answer, facts) = match self.registry.dispatch(host, message, None, expected) {
             Ok(parts) => parts,
-            Err(LinkError::NotConnected) => return Err(self.not_connected(host).await),
+            Err(LinkError::NotConnected) => return Err(self.not_connected(host, deadline).await),
             Err(err) => return Err(err),
+        };
+        // The guard forgets the request however this future ends, including being dropped
+        // by a caller that gave up, so a registered request is never left behind.
+        let _pending = PendingRequest {
+            registry: &self.registry,
+            host,
+            id,
         };
         let reply = tokio::select! {
             reply = answer => reply.map_err(|_| {
@@ -142,7 +162,6 @@ impl WsAgentLink {
             }),
             () = self.clock.sleep_until(deadline) => Err(LinkError::Timeout),
         };
-        self.registry.forget(host, id);
         Ok((reply?, facts))
     }
 
@@ -197,79 +216,22 @@ impl WsAgentLink {
     }
 }
 
+/// Forgets a registered request when dropped, so every exit path, a dropped future included,
+/// releases it.
+struct PendingRequest<'a> {
+    registry: &'a Registry,
+    host: HostId,
+    id: RequestId,
+}
+
+impl Drop for PendingRequest<'_> {
+    fn drop(&mut self) {
+        self.registry.forget(self.host, self.id);
+    }
+}
+
 fn unexpected(message: &Message) -> LinkError {
     LinkError::Rejected(format!("the agent answered with {}", message.kind()))
-}
-
-/// The engine's view of the journal's answers, mapped against what the answering session
-/// promised.
-///
-/// `not_found` is positive evidence only when the agent records every action execution in
-/// its journal. An older agent, or one that still serves an unjournaled execution path,
-/// can run a request and still have no record of it, so its `not_found` is reported as an
-/// unknowable outcome instead.
-fn answers_from(reply: ActionStatusAnswers, authoritative_absence: bool) -> ActionAnswers {
-    ActionAnswers {
-        epoch: JournalEpoch::from_uuid(reply.epoch),
-        answers: reply
-            .answers
-            .into_iter()
-            .map(|answer| ActionAnswerEntry {
-                execution: ActionId::from_uuid(answer.execution_id),
-                answer: answer_from(answer.state, authoritative_absence),
-            })
-            .collect(),
-    }
-}
-
-/// What one journal state means to the engine. A finished run keeps whether it succeeded and
-/// the agent's message; the output itself is not needed to settle an action.
-fn answer_from(state: ActionState, authoritative_absence: bool) -> ActionAnswer {
-    match state {
-        ActionState::Finished { result } => match result.outcome {
-            CapabilityOutcome::Succeeded { .. } => ActionAnswer::Finished {
-                succeeded: true,
-                detail: None,
-            },
-            // Keep the failure class as it came off the wire, so a code this build does not
-            // know is reported rather than flattened into a generic failure.
-            CapabilityOutcome::Failed { code, message } => ActionAnswer::Finished {
-                succeeded: false,
-                detail: Some(format!("{}: {message}", code.raw())),
-            },
-        },
-        ActionState::Running => ActionAnswer::Running,
-        ActionState::NotFound if authoritative_absence => ActionAnswer::NotFound,
-        ActionState::NotFound => {
-            tracing::warn!(
-                "the agent has no record of a run but does not promise that every execution is journaled; \
-                 its absence is not proof the run never happened",
-            );
-            ActionAnswer::Unknown {
-                reason: UnknownReason::JournalLost,
-            }
-        }
-        ActionState::OutcomeUnknown { reason } => ActionAnswer::Unknown {
-            reason: unknown_reason(&reason),
-        },
-    }
-}
-
-/// Why the journal could not establish an outcome. A reason this build does not know is
-/// reported as a lost record: the run may have happened, so nothing is assumed.
-fn unknown_reason(reason: &domovoi_proto::Open<OutcomeUnknownReason>) -> UnknownReason {
-    match reason.known() {
-        Some(OutcomeUnknownReason::NoStartRecord) => UnknownReason::NoStartRecord,
-        Some(OutcomeUnknownReason::AgentRestarted) => UnknownReason::AgentRestarted,
-        Some(OutcomeUnknownReason::JournalLost) => UnknownReason::JournalLost,
-        None => {
-            tracing::warn!(
-                reason = reason.raw(),
-                "the agent reported an unknown outcome reason; treating the record as lost",
-            );
-            UnknownReason::JournalLost
-        }
-    }
 }
 
 #[async_trait]
@@ -344,7 +306,7 @@ impl AgentLink for WsAgentLink {
             Some(expected_epoch),
         ) {
             Ok(parts) => parts,
-            Err(LinkError::NotConnected) => return Err(self.not_connected(host).await),
+            Err(LinkError::NotConnected) => return Err(self.not_connected(host, deadline).await),
             Err(err) => return Err(err),
         };
         self.sends().insert((host, id), answer);
@@ -363,6 +325,11 @@ impl AgentLink for WsAgentLink {
                 "the request was no longer awaited".to_owned(),
             ));
         };
+        let _pending = PendingRequest {
+            registry: &self.registry,
+            host,
+            id,
+        };
         let reply = tokio::select! {
             reply = answer => reply.map_err(|_| {
                 LinkError::Indeterminate(
@@ -371,7 +338,6 @@ impl AgentLink for WsAgentLink {
             }),
             () = self.clock.sleep_until(deadline) => Err(LinkError::Timeout),
         };
-        self.registry.forget(host, id);
         match reply? {
             Message::SkillResult(result) => match result.outcome {
                 SkillOutcome::Ok(out) => Ok(out.into()),
@@ -460,3 +426,7 @@ impl AgentLink for WsAgentLink {
         self.registry.skills(host)
     }
 }
+
+#[cfg(test)]
+#[path = "link_tests.rs"]
+mod tests;

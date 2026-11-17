@@ -161,9 +161,13 @@ impl Evidence {
 
     /// Checks that the host is reachable, then that the read is enabled, then reads once.
     ///
-    /// The request's deadline bounds the whole operation: a passed deadline answers as
+    /// The request's deadline bounds the whole operation. A passed deadline answers as
     /// timed out before anything is asked, and an availability check that stays pending
-    /// past it does the same. Availability comes first, so a host that is unknown, absent or
+    /// past it does the same. After that the read itself is bounded by the
+    /// [`HostRead`] deadline contract, which the hub's `WsAgentLink` meets for the
+    /// fallback lookups of a vanished session as well as for the network wait; this method
+    /// does not wrap the read in a second race, because dropping it mid-flight is exactly
+    /// what the adapter's own bounds avoid. Availability comes first, so a host that is unknown, absent or
     /// speaks another protocol version always answers as such; a skill that is missing, not
     /// read-only or called with arguments its manifest rejects can only be reported for a
     /// host that is connected now. Enablement at M1 is structural: [`ReadToolCall`] is a

@@ -209,8 +209,10 @@ pub const RAW_OPS: &[&str] = &[
     "run_capability",
 ];
 
-/// Boundary constructions, `Type::assoc` as written (EXEC-2, ADR 0022, ADR 0023): the one
-/// authorizing constructor, the one dispatch, and the two halves of the writer confirmation.
+/// Boundary paths, `Type::assoc` as written (EXEC-2, ADR 0022, ADR 0023): the one authorizing
+/// constructor, the one dispatch, and `WriteCommand::Dispatch`. A `WriteCommand::Dispatch` that
+/// is the path of a struct expression or a struct pattern is counted by the construction and
+/// pattern cards instead; this card sees every other mention of it.
 pub const BOUNDARY_PAIRS: &[&str] = &[
     "AuthorizedExecution::of",
     "execute::execute",
@@ -221,15 +223,28 @@ pub const BOUNDARY_PAIRS: &[&str] = &[
 /// a transport, a service or a new module would reach the unrestricted link.
 pub const LINK_NAMES: &[&str] = &["AgentLink", "WsAgentLink", "PolicyLink"];
 
-/// Methods and fields that hand out or hold the raw link (EXEC-4, ADR 0023).
+/// Methods and fields that hand out or hold the raw link (EXEC-4, ADR 0023), by the name
+/// written after a `.`.
 pub const LINK_ACCESSORS: &[&str] = &["link", "link_for_tests"];
+
+/// The same accessors as associated paths, `Type::accessor` after `use` renames and type
+/// aliases are resolved (EXEC-4, ADR 0023): `AgentServer::link(&server)`, the function item
+/// `AgentServer::link`, and `<AgentServer>::link`. The type is part of the match so an
+/// unrelated `link` function on another type is not an accessor.
+pub const LINK_ACCESSOR_PATHS: &[(&str, &str)] =
+    &[("AgentServer", "link"), ("AgentServer", "link_for_tests")];
 
 /// One operation a boundary card counts.
 pub enum BoundaryOp {
     /// A raw link operation, by [`RAW_OPS`] name.
     Call(&'static str),
-    /// A construction, by [`BOUNDARY_PAIRS`] key.
+    /// A path mention that is neither a struct expression nor a struct pattern, by
+    /// [`BOUNDARY_PAIRS`] key.
     Pair(&'static str),
+    /// A struct expression (`Type::Variant { .. }` building a value), by [`BOUNDARY_PAIRS`] key.
+    Construct(&'static str),
+    /// A struct pattern (`Type::Variant { .. }` matching a value), by [`BOUNDARY_PAIRS`] key.
+    Pattern(&'static str),
 }
 
 /// One file allowed to hold a card's operation, and how many times it may appear there.
@@ -338,18 +353,27 @@ pub const BOUNDARY_CARDS: &[BoundaryCard] = &[
     },
     BoundaryCard {
         id: "EXEC-2",
+        op: BoundaryOp::Construct("WriteCommand::Dispatch"),
+        sites: &[BoundarySite {
+            file: "crates/domovoi-engine/src/actions/execute.rs",
+            count: 1,
+        }],
+        message: "`WriteCommand::Dispatch { .. }` is built once, in execute.rs; a second struct expression is a second dispatch path (ADR 0022)",
+    },
+    BoundaryCard {
+        id: "EXEC-2",
+        op: BoundaryOp::Pattern("WriteCommand::Dispatch"),
+        sites: &[BoundarySite {
+            file: "crates/domovoi-engine/src/actions/writer.rs",
+            count: 1,
+        }],
+        message: "`WriteCommand::Dispatch { .. }` is matched once, in writer.rs; a second struct pattern is a second place that acts on a dispatch (ADR 0022)",
+    },
+    BoundaryCard {
+        id: "EXEC-2",
         op: BoundaryOp::Pair("WriteCommand::Dispatch"),
-        sites: &[
-            BoundarySite {
-                file: "crates/domovoi-engine/src/actions/execute.rs",
-                count: 1,
-            },
-            BoundarySite {
-                file: "crates/domovoi-engine/src/actions/writer.rs",
-                count: 1,
-            },
-        ],
-        message: "`WriteCommand::Dispatch` is constructed in execute.rs and matched in writer.rs; a second construction or match is a second dispatch path (ADR 0022)",
+        sites: &[],
+        message: "`WriteCommand::Dispatch` may appear only as the struct expression in execute.rs and the struct pattern in writer.rs; any other mention (a path, a tuple pattern, a macro body) is not one of the two sites (ADR 0022)",
     },
     BoundaryCard {
         id: "EXEC-3",
@@ -416,6 +440,10 @@ pub const PURE_FORBIDDEN_PATHS: &[&str] = &[
     "tokio::fs",
     "tokio::process",
 ];
+
+/// Rule id for source the checker cannot inspect (SRC-1, ADR 0023): a module or `include!`
+/// that is missing, escapes the workspace, or is spelled in a form the checker cannot resolve.
+pub const SRC_RULE: &str = "SRC-1";
 
 /// Maximum lines in a non-test Rust source file (R8).
 pub const MAX_FILE_LINES: usize = 500;

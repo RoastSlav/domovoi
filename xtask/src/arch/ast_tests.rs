@@ -1,5 +1,6 @@
-//! Tests for the syntax-aware EXEC checks: formatting, aliases, macros, comments, derefs and
-//! the test-only wiring that decides which files are production.
+//! Tests for the syntax-aware EXEC checks: formatting, aliases, macros, comments, derefs, the
+//! link accessor in every spelling, and the dispatch construction and match cards. Which files
+//! are production is tested in `reach_tests.rs`.
 
 use super::*;
 
@@ -262,35 +263,267 @@ fn test_only_files_follow_wiring_not_names() {
     );
 }
 
+// ---- the link accessor as a path (EXEC-4) ----
+
+const HOSTS: &str = "crates/domovoi-hub/src/api/hosts.rs";
+
+fn accessor_violations(text: &str) -> Vec<Violation> {
+    exec_violations(&files(&[(HOSTS, text)]))
+}
+
 #[test]
-fn test_target_roots_reach_their_modules() {
-    let root = "crates/domovoi-engine/tests/services/main.rs";
-    let tree = files(&[
-        (root, "mod gates;\nmod harness;\n"),
-        (
-            "crates/domovoi-engine/tests/services/gates.rs",
-            "#[path = \"gates_inner.rs\"]\nmod gates_inner;\n",
-        ),
-        (
-            "crates/domovoi-engine/tests/services/harness.rs",
-            "fn h() {}\n",
-        ),
-        (
-            "crates/domovoi-engine/tests/services/gates_inner.rs",
-            "fn g() {}\n",
-        ),
-    ]);
-    let roots: BTreeSet<String> = [root.to_string()].into_iter().collect();
-    let test_only = test_only_files(&tree, &roots);
-    for expected in [
-        root,
-        "crates/domovoi-engine/tests/services/gates.rs",
-        "crates/domovoi-engine/tests/services/harness.rs",
-        "crates/domovoi-engine/tests/services/gates_inner.rs",
+fn the_accessor_is_refused_in_every_path_spelling() {
+    for text in [
+        "fn f(server: &S) { let raw = AgentServer::link(&server); }\n",
+        "fn f(server: &S) { let get_link = AgentServer::link; let raw = get_link(&server); }\n",
+        "use crate::agent_server::AgentServer as Server;\nfn f(s: &S) { let raw = Server::link(&s); }\n",
+        "use crate::agent_server::AgentServer::link as obtain;\nfn f(s: &S) { let raw = obtain(&s); }\n",
+        "use crate::agent_server::AgentServer::link;\nfn f(s: &S) { let raw = link(&s); }\n",
+        "use crate::agent_server::AgentServer;\ntype Server = AgentServer;\nfn f(s: &S) { let raw = Server::link(&s); }\n",
+        "fn f(s: &S) { let raw = crate::agent_server::AgentServer::link(&s); }\n",
+        "fn f(s: &S) { let raw = <AgentServer>::link(&s); }\n",
+        "fn f(s: &S) { let raw = <crate::agent_server::AgentServer as Any>::link(&s); }\n",
+        "impl AgentServer { fn g(&self) { let raw = Self::link(self); } }\n",
+        "fn f(s: &S) { let raw = AgentServer::link_for_tests(&s); }\n",
+        "fn f(s: &S) { let get = AgentServer::link_for_tests; let raw = get(&s); }\n",
+        "use crate::agent_server::AgentServer as Server;\nfn f(s: &S) { let raw = Server::link_for_tests(&s); }\n",
+        "use crate::agent_server::AgentServer::link_for_tests as test_link;\nfn f(s: &S) { let raw = test_link(&s); }\n",
+        "fn f(s: &S) { wrap!(AgentServer::link(&s)); }\n",
     ] {
+        let violations = accessor_violations(text);
+        let found = violations
+            .iter()
+            .find(|violation| violation.rule == "EXEC-4");
+        assert!(found.is_some(), "{text}\n{violations:#?}");
         assert!(
-            test_only.contains(expected),
-            "{expected} was left production"
+            found.is_some_and(|violation| violation.location.starts_with(HOSTS)),
+            "{text}: {violations:#?}"
+        );
+    }
+}
+
+#[test]
+fn the_accessor_check_names_the_line() {
+    let text = "fn f() {}\n\nfn g(s: &S) {\n    let raw = AgentServer::link(&s);\n}\n";
+    let violations = accessor_violations(text);
+    let found = violations.iter().find(|v| v.rule == "EXEC-4").unwrap();
+    assert_eq!(found.location, format!("{HOSTS}:4"));
+}
+
+#[test]
+fn an_unrelated_link_is_not_an_accessor() {
+    for text in [
+        "fn f() { let a = Other::link(&x); }\n",
+        "fn f() { let get = Other::link; get(&x); }\n",
+        "use crate::elsewhere::Other as Server;\nfn f() { Server::link(&x); }\n",
+        "use crate::elsewhere::Other::link as obtain;\nfn f() { obtain(&x); }\n",
+        "type Server = Other;\nfn f() { Server::link(&x); }\n",
+        "impl Other { fn g(&self) { Self::link(self); } }\n",
+        "fn link() {}\nfn f() { link(); }\n",
+        "// AgentServer::link(&server)\nfn f() {}\n",
+        "fn f() { let m = \"AgentServer::link(&server)\"; }\n",
+        "fn f() { let m = \"AgentServer::link_for_tests\"; /* AgentServer::link */ }\n",
+    ] {
+        let violations = accessor_violations(text);
+        assert!(
+            !violations
+                .iter()
+                .any(|violation| violation.rule == "EXEC-4"),
+            "{text}\n{violations:#?}"
+        );
+    }
+}
+
+#[test]
+fn the_accessor_paths_are_allowed_where_the_link_is_owned() {
+    for rel in [
+        "crates/domovoi-hub/src/agent_server/mod.rs",
+        "crates/domovoi-hub/src/runtime/mod.rs",
+    ] {
+        let violations = exec_violations(&files(&[(
+            rel,
+            "fn f() { let raw = AgentServer::link(&s); }\n",
+        )]));
+        assert!(!has(&violations, "EXEC-4"), "{rel}: {violations:#?}");
+    }
+}
+
+// ---- Dispatch: construction and match are separate cards (EXEC-2) ----
+
+const EXECUTE_PATH: &str = "crates/domovoi-engine/src/actions/execute.rs";
+const WRITER_PATH: &str = "crates/domovoi-engine/src/actions/writer.rs";
+const OTHER_PATH: &str = "crates/domovoi-engine/src/actions/other.rs";
+
+/// The engine's card sites with the file at `rel` replaced by `text`.
+fn engine_with_site(rel: &str, text: &str) -> Vec<(String, String)> {
+    let mut tree: Vec<(String, String)> = engine_sites()
+        .into_iter()
+        .filter(|(path, _)| path != rel)
+        .collect();
+    tree.push((rel.to_string(), text.to_string()));
+    tree
+}
+
+fn messages(violations: &[Violation]) -> String {
+    violations
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[test]
+fn one_construction_in_execute_and_one_pattern_in_writer_pass() {
+    assert!(exec_violations(&engine_sites()).is_empty());
+}
+
+#[test]
+fn a_second_construction_in_execute_is_refused() {
+    let text =
+        format!("{EXECUTE}fn again() -> WriteCommand {{ WriteCommand::Dispatch {{ id: 2 }} }}\n");
+    let violations = exec_violations(&engine_with_site(EXECUTE_PATH, &text));
+    assert!(
+        messages(&violations).contains("struct expression"),
+        "{violations:#?}"
+    );
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.location.starts_with(EXECUTE_PATH))
+    );
+}
+
+#[test]
+fn a_second_pattern_in_writer_is_refused() {
+    let text = format!(
+        "{WRITER}fn again(c: WriteCommand) {{ if let WriteCommand::Dispatch {{ .. }} = c {{}} }}\n"
+    );
+    let violations = exec_violations(&engine_with_site(WRITER_PATH, &text));
+    assert!(
+        messages(&violations).contains("struct pattern"),
+        "{violations:#?}"
+    );
+}
+
+#[test]
+fn a_construction_in_writer_is_refused_even_beside_its_pattern() {
+    let text =
+        format!("{WRITER}fn build() -> WriteCommand {{ WriteCommand::Dispatch {{ id: 1 }} }}\n");
+    let violations = exec_violations(&engine_with_site(WRITER_PATH, &text));
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.location.starts_with(WRITER_PATH) && v.message.contains("struct expression")),
+        "{violations:#?}"
+    );
+}
+
+#[test]
+fn a_pattern_in_execute_is_refused_even_beside_its_construction() {
+    let text = format!(
+        "{EXECUTE}fn m(c: WriteCommand) {{ match c {{ WriteCommand::Dispatch {{ .. }} => {{}} }} }}\n"
+    );
+    let violations = exec_violations(&engine_with_site(EXECUTE_PATH, &text));
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.location.starts_with(EXECUTE_PATH) && v.message.contains("struct pattern")),
+        "{violations:#?}"
+    );
+}
+
+#[test]
+fn the_wrong_node_kind_at_each_site_is_refused() {
+    let swapped = vec![
+        (
+            EXECUTE_PATH.to_string(),
+            "fn m(c: WriteCommand) { match c { WriteCommand::Dispatch { .. } => {} } }\n"
+                .to_string(),
+        ),
+        (
+            WRITER_PATH.to_string(),
+            "fn build() -> WriteCommand { WriteCommand::Dispatch { id: 1 } }\n".to_string(),
+        ),
+        (
+            "crates/domovoi-engine/src/actions/executor.rs".to_string(),
+            EXECUTOR.to_string(),
+        ),
+    ];
+    let violations = exec_violations(&swapped);
+    for path in [EXECUTE_PATH, WRITER_PATH] {
+        assert!(
+            violations
+                .iter()
+                .filter(|v| v.location.starts_with(path))
+                .count()
+                >= 2,
+            "{path}: {violations:#?}"
+        );
+    }
+}
+
+#[test]
+fn a_dispatch_in_an_unrelated_production_module_is_refused() {
+    for text in [
+        "fn b() -> WriteCommand { WriteCommand::Dispatch { id: 1 } }\n",
+        "fn m(c: WriteCommand) { match c { WriteCommand::Dispatch { .. } => {} } }\n",
+    ] {
+        let violations = exec_violations(&engine_with(OTHER_PATH, text));
+        assert!(
+            violations.iter().any(|v| v.location.contains("other.rs")),
+            "{text}\n{violations:#?}"
+        );
+    }
+}
+
+#[test]
+fn other_mentions_of_dispatch_are_refused() {
+    for text in [
+        "fn m(c: WriteCommand) { if matches!(c, WriteCommand::Dispatch { .. }) {} }\n",
+        "fn m() { let f = WriteCommand::Dispatch; }\n",
+        "fn m(c: WriteCommand) { match c { WriteCommand::Dispatch(..) => {} } }\n",
+    ] {
+        let violations = exec_violations(&engine_with(OTHER_PATH, text));
+        assert!(
+            violations.iter().any(|v| v.location.contains("other.rs")),
+            "{text}\n{violations:#?}"
+        );
+    }
+}
+
+#[test]
+fn comments_and_strings_naming_dispatch_do_not_count() {
+    let text = "// WriteCommand::Dispatch { id }\nfn f() { let s = \"WriteCommand::Dispatch { id: 1 }\"; }\n/* WriteCommand::Dispatch { .. } */\n";
+    let violations = exec_violations(&engine_with(OTHER_PATH, text));
+    assert!(violations.is_empty(), "{violations:#?}");
+}
+
+#[test]
+fn renamed_dispatch_imports_are_resolved() {
+    let text = "use crate::actions::WriteCommand as Cmd;\nfn b() -> Cmd { Cmd::Dispatch { id: 1 } }\nfn m(c: Cmd) { match c { Cmd::Dispatch { .. } => {} } }\n";
+    let violations = exec_violations(&engine_with(OTHER_PATH, text));
+    assert!(
+        violations
+            .iter()
+            .filter(|v| v.location.contains("other.rs"))
+            .count()
+            >= 2,
+        "{violations:#?}"
+    );
+}
+
+#[test]
+fn a_missing_construction_or_match_site_is_refused() {
+    for (site, kind) in [
+        (EXECUTE_PATH, "struct expression"),
+        (WRITER_PATH, "struct pattern"),
+    ] {
+        let violations = exec_violations(&engine_with_site(site, "fn nothing() {}\n"));
+        assert!(
+            violations
+                .iter()
+                .any(|v| v.location.starts_with(site) && v.message.contains(kind)),
+            "{site}: {violations:#?}"
         );
     }
 }

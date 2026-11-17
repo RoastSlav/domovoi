@@ -16,19 +16,25 @@ use proc_macro2::{TokenStream, TokenTree};
 use syn::spanned::Spanned;
 use syn::visit::Visit;
 use syn::{
-    Attribute, Expr, ExprField, ExprMethodCall, ItemMod, ItemUse, Macro, Meta, Path, Token, UseTree,
+    ExprField, ExprMethodCall, ExprPath, ExprStruct, ItemImpl, ItemMod, Macro, PatStruct, Path,
+    Type,
 };
 
 use super::Violation;
+use super::alias::aliases;
+use super::reach::{MapSource, Roots, explore};
 use super::rules::{
     BOUNDARY_CARDS, BOUNDARY_PAIRS, BoundaryOp, EXEC_LINK_CRATES, EXEC_OPERATION_CRATES,
-    LINK_ACCESSORS, LINK_NAMES, LINK_NAMES_ALLOWED_FILES, RAW_OPS,
+    LINK_ACCESSOR_PATHS, LINK_ACCESSORS, LINK_NAMES, LINK_NAMES_ALLOWED_FILES, RAW_OPS,
 };
+use super::wiring::{Target, edges_of, is_cfg_test};
 
 /// Check the counted boundary operations and the link names over production files.
 ///
 /// `files` holds `(workspace-relative path, contents)` pairs; test-only files must already be
-/// filtered out by the caller (see [`test_only_files`]). The check is default-deny: a counted
+/// filtered out by the caller (see [`cfg_test_closure`]). A file outside `crates/` was loaded
+/// by `#[path]` or `include!` from one inside it; it is checked against every crate's rules,
+/// because which crate loaded it is not known from the path. The check is default-deny: a counted
 /// operation in a file no card lists is a violation, a listed file must hold exactly its
 /// card's count, and a card whose file is missing from a crate that is present is a violation
 /// because the boundary moved without the card.
@@ -47,10 +53,7 @@ pub fn exec_violations(files: &[(String, String)]) -> Vec<Violation> {
             if !in_crates(rel, EXEC_OPERATION_CRATES) {
                 continue;
             }
-            let (found, line) = match &card.op {
-                BoundaryOp::Call(name) => (file.op_count(name), file.op_line(name)),
-                BoundaryOp::Pair(key) => (file.pair_count(key), file.pair_line(key)),
-            };
+            let (found, line) = (file.count(&card.op), file.line(&card.op));
             match card.sites.iter().find(|site| site.file == *rel) {
                 Some(site) if site.count == found => {}
                 Some(site) => out.push(Violation {
@@ -66,7 +69,7 @@ pub fn exec_violations(files: &[(String, String)]) -> Vec<Violation> {
                     rule: card.id,
                     location: at(rel, line),
                     message: format!(
-                        "{} may not be called here. {}",
+                        "{} may not appear here. {}",
                         describe(&card.op),
                         card.message
                     ),
@@ -113,87 +116,41 @@ pub fn exec_violations(files: &[(String, String)]) -> Vec<Violation> {
     out
 }
 
-/// One external module declaration: where the file may live, and whether only tests compile it.
-pub struct ModRef {
-    /// Candidate workspace-relative paths: one for `#[path]`, otherwise `name.rs` then
-    /// `name/mod.rs`. The caller keeps the candidate that exists.
-    pub candidates: Vec<String>,
-    /// True when the declaration or an enclosing module is gated by `#[cfg(test)]`.
-    pub cfg_test: bool,
-}
-
-/// External `mod` declarations in one file, resolved from the file's own location.
+/// The files only `#[cfg(test)]` module wiring reaches, for callers that have no Cargo
+/// metadata (the engine and hub gate tests).
 ///
-/// `#[path]` is taken relative to the declaring file's directory and plain modules relative to
-/// the module's directory (`mod.rs`/`lib.rs`/`main.rs` use their own directory, `foo.rs` uses
-/// `foo/`), which is how `rustc` resolves them. Inline modules are followed, and `cfg(test)`
-/// gating is inherited.
-pub fn mod_refs(rel: &str, text: &str) -> Vec<ModRef> {
-    let Ok(file) = syn::parse_file(text) else {
-        return Vec::new();
-    };
-    let mut walker = ModuleWalker {
-        plain: module_dir(rel),
-        attr_base: parent_dir(rel),
-        tainted: false,
-        refs: Vec::new(),
-    };
-    walker.visit_file(&file);
-    walker.refs
-}
-
-/// The files compiled only for tests, from the given test-target roots and `#[cfg(test)]`
-/// module wiring. Files are workspace-relative with `/` separators.
-///
-/// A file counts as test-only when a test target owns it, when a production module declares
-/// it under `#[cfg(test)]`, or when a test-only module reaches it. Names decide nothing.
-pub fn test_only_files(files: &[(String, String)], roots: &BTreeSet<String>) -> BTreeSet<String> {
-    let existing: BTreeSet<&str> = files.iter().map(|(rel, _)| rel.as_str()).collect();
-    let refs: Vec<(&str, Vec<ModRef>)> = files
-        .iter()
-        .map(|(rel, text)| (rel.as_str(), mod_refs(rel, text)))
-        .collect();
-
-    let mut test: BTreeSet<String> = roots
-        .iter()
-        .filter(|root| existing.contains(root.as_str()))
-        .cloned()
-        .collect();
-    for (_, modules) in &refs {
-        for module in modules.iter().filter(|module| module.cfg_test) {
-            for candidate in resolve(module, &existing) {
-                test.insert(candidate);
-            }
-        }
-    }
-    loop {
-        let mut grew = false;
-        let reached: Vec<String> = test.iter().cloned().collect();
-        for rel in reached {
-            let Some((_, modules)) = refs.iter().find(|(file, _)| *file == rel) else {
-                continue;
-            };
-            for module in modules {
-                for candidate in resolve(module, &existing) {
-                    grew |= test.insert(candidate);
-                }
-            }
-        }
-        if !grew {
-            return test;
-        }
-    }
-}
-
-/// The test-only files reached from `#[cfg(test)]` module wiring alone, without Cargo
-/// metadata. Gate tests call this to keep their crate's test modules out of the production
-/// set, and `crate::arch::scan` adds the metadata's test-target roots on top.
+/// The files no other given file loads are the production roots; the wiring is followed from
+/// them, and a file is returned only when test-gated declarations reach it and no ordinary
+/// declaration does. Names decide nothing.
 pub fn cfg_test_closure(files: &[(String, String)]) -> BTreeSet<String> {
-    test_only_files(files, &BTreeSet::new())
+    let map: BTreeMap<String, String> = files.iter().cloned().collect();
+    let mut loaded: BTreeSet<String> = BTreeSet::new();
+    for (rel, text) in &map {
+        for edge in edges_of(rel, text, false).unwrap_or_default() {
+            match edge.target {
+                Target::Module(candidates) => {
+                    loaded.extend(candidates.into_iter().filter(|c| map.contains_key(c)));
+                }
+                Target::Include(Some(path)) if map.contains_key(&path) => {
+                    loaded.insert(path);
+                }
+                _ => {}
+            }
+        }
+    }
+    let roots = Roots {
+        production: map
+            .keys()
+            .filter(|rel| !loaded.contains(*rel))
+            .cloned()
+            .collect(),
+        test: BTreeSet::new(),
+    };
+    explore(&mut MapSource(&map), &roots).test_only()
 }
 
 fn in_crates(rel: &str, crates: &[&str]) -> bool {
-    crates.iter().any(|prefix| rel.starts_with(prefix))
+    !rel.starts_with("crates/") || crates.iter().any(|prefix| rel.starts_with(prefix))
 }
 
 fn crate_prefix(file: &str) -> String {
@@ -206,7 +163,11 @@ fn crate_prefix(file: &str) -> String {
 fn describe(op: &BoundaryOp) -> String {
     match op {
         BoundaryOp::Call(name) => format!("`{name}`"),
-        BoundaryOp::Pair(key) => format!("`{key}`"),
+        BoundaryOp::Pair(key) => {
+            format!("`{key}` (as a path, not a struct expression or pattern)")
+        }
+        BoundaryOp::Construct(key) => format!("a `{key} {{ .. }}` struct expression"),
+        BoundaryOp::Pattern(key) => format!("a `{key} {{ .. }}` struct pattern"),
     }
 }
 
@@ -227,30 +188,28 @@ fn static_of(names: &[&'static str], name: &str) -> Option<&'static str> {
 struct FileFacts {
     ops: BTreeMap<&'static str, Vec<usize>>,
     pairs: BTreeMap<&'static str, Vec<usize>>,
+    constructs: BTreeMap<&'static str, Vec<usize>>,
+    patterns: BTreeMap<&'static str, Vec<usize>>,
     names: BTreeMap<&'static str, Vec<usize>>,
     accessors: BTreeMap<&'static str, Vec<usize>>,
 }
 
 impl FileFacts {
-    fn op_count(&self, name: &str) -> usize {
-        self.ops.get(name).map_or(0, Vec::len)
+    fn occurrences(&self, op: &BoundaryOp) -> Option<&Vec<usize>> {
+        match op {
+            BoundaryOp::Call(name) => self.ops.get(name),
+            BoundaryOp::Pair(key) => self.pairs.get(key),
+            BoundaryOp::Construct(key) => self.constructs.get(key),
+            BoundaryOp::Pattern(key) => self.patterns.get(key),
+        }
     }
 
-    fn op_line(&self, name: &str) -> usize {
-        self.ops
-            .get(name)
-            .and_then(|lines| lines.first())
-            .copied()
-            .unwrap_or(0)
+    fn count(&self, op: &BoundaryOp) -> usize {
+        self.occurrences(op).map_or(0, Vec::len)
     }
 
-    fn pair_count(&self, key: &str) -> usize {
-        self.pairs.get(key).map_or(0, Vec::len)
-    }
-
-    fn pair_line(&self, key: &str) -> usize {
-        self.pairs
-            .get(key)
+    fn line(&self, op: &BoundaryOp) -> usize {
+        self.occurrences(op)
             .and_then(|lines| lines.first())
             .copied()
             .unwrap_or(0)
@@ -277,7 +236,18 @@ impl FileFacts {
             .unwrap_or(0)
     }
 
+    /// Record a path written anywhere except as the path of a struct expression or pattern.
     fn record(&mut self, segments: &[String], line: usize) {
+        self.record_names(segments, line);
+        for &key in BOUNDARY_PAIRS {
+            if ends_with_pair(segments, key) {
+                self.pairs.entry(key).or_default().push(line);
+            }
+        }
+    }
+
+    /// The operation, link-name and accessor-path facts of a path.
+    fn record_names(&mut self, segments: &[String], line: usize) {
         if let Some(last) = segments.last() {
             if let Some(name) = static_of(RAW_OPS, last) {
                 self.ops.entry(name).or_default().push(line);
@@ -286,17 +256,40 @@ impl FileFacts {
                 self.names.entry(name).or_default().push(line);
             }
         }
-        for &key in BOUNDARY_PAIRS {
-            let parts: Vec<&str> = key.split("::").collect();
-            if parts.len() == 2
-                && segments.len() >= 2
-                && segments[segments.len() - 2] == parts[0]
-                && segments[segments.len() - 1] == parts[1]
+        for &(ty, accessor) in LINK_ACCESSOR_PATHS {
+            if segments.len() >= 2
+                && segments[segments.len() - 2] == ty
+                && segments[segments.len() - 1] == accessor
+                && let Some(name) = static_of(LINK_ACCESSORS, accessor)
             {
-                self.pairs.entry(key).or_default().push(line);
+                self.accessors.entry(name).or_default().push(line);
             }
         }
     }
+
+    /// Record the path of a struct expression (`construct`) or struct pattern, once.
+    fn record_struct(&mut self, segments: &[String], line: usize, construct: bool) {
+        self.record_names(segments, line);
+        for &key in BOUNDARY_PAIRS {
+            if ends_with_pair(segments, key) {
+                let bucket = if construct {
+                    &mut self.constructs
+                } else {
+                    &mut self.patterns
+                };
+                bucket.entry(key).or_default().push(line);
+            }
+        }
+    }
+}
+
+/// Whether the last two segments are the `Type::assoc` pair `key` names.
+fn ends_with_pair(segments: &[String], key: &str) -> bool {
+    let parts: Vec<&str> = key.split("::").collect();
+    parts.len() == 2
+        && segments.len() >= 2
+        && segments[segments.len() - 2] == parts[0]
+        && segments[segments.len() - 1] == parts[1]
 }
 
 /// Parse one file and collect its facts. A file that cannot be parsed is a violation: the
@@ -308,6 +301,7 @@ fn file_facts(rel: &str, text: &str) -> Result<FileFacts, Violation> {
             let mut counter = Counter {
                 aliases: &aliases,
                 facts: FileFacts::default(),
+                self_types: Vec::new(),
             };
             counter.visit_file(&file);
             Ok(counter.facts)
@@ -319,6 +313,7 @@ fn file_facts(rel: &str, text: &str) -> Result<FileFacts, Violation> {
                     let mut counter = Counter {
                         aliases: &aliases,
                         facts: FileFacts::default(),
+                        self_types: Vec::new(),
                     };
                     counter.visit_item_fn(&item);
                     Ok(counter.facts)
@@ -339,6 +334,8 @@ fn file_facts(rel: &str, text: &str) -> Result<FileFacts, Violation> {
 struct Counter<'a> {
     aliases: &'a BTreeMap<String, Vec<String>>,
     facts: FileFacts,
+    /// The self type of each enclosing `impl`, innermost last, so `Self::link` resolves.
+    self_types: Vec<Option<Vec<String>>>,
 }
 
 impl<'a, 'ast> Visit<'ast> for Counter<'a> {
@@ -347,6 +344,51 @@ impl<'a, 'ast> Visit<'ast> for Counter<'a> {
             return;
         }
         syn::visit::visit_item_mod(self, node);
+    }
+
+    fn visit_item_impl(&mut self, node: &'ast ItemImpl) {
+        let own = match (&node.trait_, &*node.self_ty) {
+            (None, Type::Path(path)) if path.qself.is_none() => Some(self.expanded(&path.path)),
+            _ => None,
+        };
+        self.self_types.push(own);
+        syn::visit::visit_item_impl(self, node);
+        self.self_types.pop();
+    }
+
+    fn visit_expr_path(&mut self, node: &'ast ExprPath) {
+        // `<AgentServer>::link`: the type is in the qualified self, the accessor is the path.
+        if let Some(qself) = &node.qself
+            && let Type::Path(ty) = &*qself.ty
+            && let Some(accessor) = node.path.segments.last()
+        {
+            let mut segments = self.expanded(&ty.path);
+            segments.push(accessor.ident.to_string());
+            let line = accessor.ident.span().start().line;
+            self.facts.record_names(&segments, line);
+        }
+        syn::visit::visit_expr_path(self, node);
+    }
+
+    fn visit_expr_struct(&mut self, node: &'ast ExprStruct) {
+        let segments = self.expanded(&node.path);
+        self.facts
+            .record_struct(&segments, node.path.span().start().line, true);
+        for field in &node.fields {
+            self.visit_field_value(field);
+        }
+        if let Some(rest) = &node.rest {
+            self.visit_expr(rest);
+        }
+    }
+
+    fn visit_pat_struct(&mut self, node: &'ast PatStruct) {
+        let segments = self.expanded(&node.path);
+        self.facts
+            .record_struct(&segments, node.path.span().start().line, false);
+        for field in &node.fields {
+            self.visit_field_pat(field);
+        }
     }
 
     fn visit_path(&mut self, node: &'ast Path) {
@@ -396,6 +438,13 @@ impl Counter<'_> {
             .iter()
             .map(|segment| segment.ident.to_string())
             .collect();
+        if segments.first().is_some_and(|first| first == "Self")
+            && let Some(Some(own)) = self.self_types.last()
+        {
+            let mut expanded = own.clone();
+            expanded.extend(segments.drain(1..));
+            return expanded;
+        }
         if let Some(first) = segments.first()
             && let Some(full) = self.aliases.get(first)
         {
@@ -446,206 +495,6 @@ fn scan_tokens(
             facts.record(&pair, next.span().start().line);
         }
     }
-}
-
-/// Aliases a file's `use` declarations introduce: local name to imported path segments.
-fn aliases(file: &syn::File) -> BTreeMap<String, Vec<String>> {
-    let mut walker = AliasWalker::default();
-    walker.visit_file(file);
-    walker.aliases
-}
-
-#[derive(Default)]
-struct AliasWalker {
-    aliases: BTreeMap<String, Vec<String>>,
-}
-
-impl<'ast> Visit<'ast> for AliasWalker {
-    fn visit_item_use(&mut self, node: &'ast ItemUse) {
-        collect_use(&node.tree, &mut Vec::new(), &mut self.aliases);
-    }
-
-    fn visit_item_mod(&mut self, node: &'ast ItemMod) {
-        if is_cfg_test(&node.attrs) {
-            return;
-        }
-        syn::visit::visit_item_mod(self, node);
-    }
-}
-
-fn collect_use(
-    tree: &UseTree,
-    prefix: &mut Vec<String>,
-    aliases: &mut BTreeMap<String, Vec<String>>,
-) {
-    match tree {
-        UseTree::Path(path) => {
-            prefix.push(path.ident.to_string());
-            collect_use(&path.tree, prefix, aliases);
-            prefix.pop();
-        }
-        UseTree::Name(name) => {
-            let mut full = prefix.clone();
-            full.push(name.ident.to_string());
-            aliases.insert(name.ident.to_string(), full);
-        }
-        UseTree::Rename(rename) => {
-            let mut full = prefix.clone();
-            full.push(rename.ident.to_string());
-            aliases.insert(rename.rename.to_string(), full);
-        }
-        UseTree::Glob(_) => {}
-        UseTree::Group(group) => {
-            for item in &group.items {
-                collect_use(item, prefix, aliases);
-            }
-        }
-    }
-}
-
-/// Whether the attributes gate an item on `#[cfg(test)]`.
-///
-/// `cfg(test)` is test-only, `cfg(all(test, ...))` is test-only when one conjunct is,
-/// `cfg(any(...))` only when every alternative is, and `cfg(not(...))` never is: the item then
-/// compiles outside tests too. Anything unreadable is treated as production, so it is scanned.
-fn is_cfg_test(attrs: &[Attribute]) -> bool {
-    attrs.iter().any(|attr| match &attr.meta {
-        Meta::List(list) if list.path.is_ident("cfg") => list
-            .parse_args_with(syn::punctuated::Punctuated::<Meta, Token![,]>::parse_terminated)
-            .map(|args| args.iter().any(cfg_is_test))
-            .unwrap_or(false),
-        _ => false,
-    })
-}
-
-fn cfg_is_test(meta: &Meta) -> bool {
-    match meta {
-        Meta::Path(path) => path.is_ident("test"),
-        Meta::List(list) => {
-            let Ok(args) = list
-                .parse_args_with(syn::punctuated::Punctuated::<Meta, Token![,]>::parse_terminated)
-            else {
-                return false;
-            };
-            if list.path.is_ident("all") {
-                args.iter().any(cfg_is_test)
-            } else if list.path.is_ident("any") {
-                !args.is_empty() && args.iter().all(cfg_is_test)
-            } else {
-                false
-            }
-        }
-        Meta::NameValue(_) => false,
-    }
-}
-
-/// The `#[path = "..."]` value of a module, if it has one.
-fn path_attr(attrs: &[Attribute]) -> Option<String> {
-    attrs.iter().find_map(|attr| match &attr.meta {
-        Meta::NameValue(pair) if pair.path.is_ident("path") => match &pair.value {
-            Expr::Lit(lit) => match &lit.lit {
-                syn::Lit::Str(value) => Some(value.value()),
-                _ => None,
-            },
-            _ => None,
-        },
-        _ => None,
-    })
-}
-
-/// The directory plain `mod name;` declarations resolve in for this file.
-fn module_dir(rel: &str) -> String {
-    let parent = parent_dir(rel);
-    let name = rel.rsplit('/').next().unwrap_or_default();
-    match name {
-        "lib.rs" | "main.rs" | "mod.rs" => parent,
-        _ => {
-            let stem = name.strip_suffix(".rs").unwrap_or(name);
-            format!("{parent}{stem}/")
-        }
-    }
-}
-
-/// The directory containing this file, with a trailing slash.
-fn parent_dir(rel: &str) -> String {
-    match rel.rsplit_once('/') {
-        Some((dir, _)) => format!("{dir}/"),
-        None => String::new(),
-    }
-}
-
-/// Follow external modules, tracking `#[cfg(test)]` and switching directory for inline modules.
-struct ModuleWalker {
-    plain: String,
-    attr_base: String,
-    tainted: bool,
-    refs: Vec<ModRef>,
-}
-
-impl<'ast> Visit<'ast> for ModuleWalker {
-    fn visit_item_mod(&mut self, node: &'ast ItemMod) {
-        let outer_taint = self.tainted;
-        self.tainted = outer_taint || is_cfg_test(&node.attrs);
-        if node.content.is_none() {
-            self.refs.push(external_ref(
-                node,
-                &self.plain,
-                &self.attr_base,
-                self.tainted,
-            ));
-            self.tainted = outer_taint;
-            return;
-        }
-        let inner_plain = format!("{}{}/", self.plain, node.ident);
-        let outer_plain = std::mem::replace(&mut self.plain, inner_plain);
-        let inner_attr = self.plain.clone();
-        let outer_attr = std::mem::replace(&mut self.attr_base, inner_attr);
-        syn::visit::visit_item_mod(self, node);
-        self.plain = outer_plain;
-        self.attr_base = outer_attr;
-        self.tainted = outer_taint;
-    }
-}
-
-fn external_ref(node: &ItemMod, plain: &str, attr_base: &str, cfg_test: bool) -> ModRef {
-    let candidates = match path_attr(&node.attrs) {
-        Some(path) => vec![normalize(&format!("{attr_base}{path}"))],
-        None => {
-            let name = node.ident.to_string();
-            vec![
-                normalize(&format!("{plain}{name}.rs")),
-                normalize(&format!("{plain}{name}/mod.rs")),
-            ]
-        }
-    };
-    ModRef {
-        candidates,
-        cfg_test,
-    }
-}
-
-fn resolve(module: &ModRef, existing: &BTreeSet<&str>) -> Vec<String> {
-    module
-        .candidates
-        .iter()
-        .filter(|candidate| existing.contains(candidate.as_str()))
-        .cloned()
-        .collect()
-}
-
-/// Resolve `a/b/../c` and `./` in a workspace-relative path.
-fn normalize(path: &str) -> String {
-    let mut parts: Vec<&str> = Vec::new();
-    for part in path.split('/') {
-        match part {
-            "" | "." => {}
-            ".." => {
-                parts.pop();
-            }
-            other => parts.push(other),
-        }
-    }
-    parts.join("/")
 }
 
 #[cfg(test)]

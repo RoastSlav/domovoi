@@ -56,7 +56,8 @@ fn scans(dir: &std::path::Path, offenders: &mut Vec<String>) {
 }
 
 /// There is exactly one module that dispatches a skill and exactly one that reads a host's
-/// tool output, one sender of `Dispatch`, one constructor of `AuthorizedExecution`, one call
+/// tool output, one `WriteCommand::Dispatch { .. }` struct expression, one such struct pattern,
+/// one constructor of `AuthorizedExecution`, one call
 /// site of the execution boundary, and one caller of the check re-run (EXEC-1..3, ADR 0022).
 ///
 /// The check is the workspace's one implementation, `xtask::arch::ast::exec_violations`, which
@@ -94,10 +95,11 @@ fn production_sources() -> Vec<(String, String)> {
 /// The fixture's `executor.rs`: the one authorizing constructor and the one dispatch.
 const EXECUTOR: &str = "let authorized = AuthorizedExecution::of(action)?;\nexecute::execute(shared, authorized, skill, args, session, incident).await?;\n";
 
-/// The fixture's `execute.rs`: the handoff capability and the one dispatch command.
+/// The fixture's `execute.rs`: the handoff capability and the one dispatch command, a struct
+/// expression.
 const EXECUTE: &str = "deps.handoff.hand_off(host, dispatch, session, epoch, deadline).await;\nask(shared, id, \"a dispatch\", WriteCommand::Dispatch { id, plan }, answer).await;\n";
 
-/// The fixture's `writer.rs`: the one match on the dispatch command.
+/// The fixture's `writer.rs`: the one match on the dispatch command, a struct pattern.
 const WRITER: &str = "match command {\n    WriteCommand::Dispatch { id, plan, .. } => {}\n}\n";
 
 /// Collects every `.rs` file under `dir` with its workspace-relative path and text.
@@ -940,6 +942,47 @@ mod actions {
                 .await
                 .is_err(),
             "a failed action cannot be approved again"
+        );
+    }
+}
+
+/// The dispatch command's two sites are different syntax: a struct expression in `execute.rs`
+/// and a struct pattern in `writer.rs`. Swapping the node kind at either site, or adding a
+/// second of either kind anywhere, fails, and the real sources hold exactly one of each.
+#[test]
+fn dispatch_construction_and_match_are_separate_sites() {
+    assert_passed(
+        &production_sources(),
+        "the engine's real sources (one dispatch expression, one dispatch pattern)",
+    );
+
+    let construction = "fn build() -> WriteCommand { WriteCommand::Dispatch { id, plan } }
+";
+    let pattern = "fn act(c: WriteCommand) { match c { WriteCommand::Dispatch { .. } => {} } }
+";
+
+    let mut tree = boundary_tree();
+    tree.retain(|(rel, _)| !rel.ends_with("actions/writer.rs"));
+    push_line(&mut tree, "actions/writer.rs", construction);
+    assert_refused(&tree, "a construction where the writer's match belongs");
+
+    let mut tree = boundary_tree();
+    tree.retain(|(rel, _)| !rel.ends_with("actions/execute.rs"));
+    push_line(&mut tree, "actions/execute.rs", pattern);
+    assert_refused(&tree, "a match where the dispatch construction belongs");
+
+    for (rel, text, what) in [
+        ("actions/execute.rs", construction, "a second construction"),
+        ("actions/writer.rs", pattern, "a second pattern"),
+        ("actions/other.rs", construction, "a construction elsewhere"),
+        ("actions/other.rs", pattern, "a pattern elsewhere"),
+    ] {
+        let mut tree = boundary_tree();
+        push_line(&mut tree, rel, text);
+        let violations = xtask::arch::ast::exec_violations(&tree);
+        assert!(
+            violations.iter().any(|v| v.rule == "EXEC-2"),
+            "{what} passed: {violations:#?}"
         );
     }
 }

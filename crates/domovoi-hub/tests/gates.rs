@@ -99,6 +99,66 @@ fn push_text(tree: &mut Vec<(String, String)>, rel: &str, text: &str) {
     }
 }
 
+/// A new transport source file dropped into the real hub tree is refused when it reaches the
+/// raw link through an associated path: a call, a function item, a renamed type, a renamed
+/// accessor, or the test-support accessor. The fixture is added to the hub's actual
+/// production sources, so the gate is shown to cover a file nobody listed.
+#[test]
+fn a_new_transport_file_cannot_take_the_link_by_path() {
+    let real = hub_sources();
+    for (what, text) in [
+        (
+            "UFCS call",
+            "fn f(s: &S) { let raw = AgentServer::link(&s); }
+",
+        ),
+        (
+            "function item",
+            "fn f(s: &S) { let get = AgentServer::link; let raw = get(&s); }
+",
+        ),
+        (
+            "renamed type",
+            "use crate::agent_server::AgentServer as Server;
+fn f(s: &S) { let raw = Server::link(&s); }
+",
+        ),
+        (
+            "renamed accessor",
+            "use crate::agent_server::AgentServer::link as obtain;
+fn f(s: &S) { let raw = obtain(&s); }
+",
+        ),
+        (
+            "test accessor",
+            "fn f(s: &S) { let raw = AgentServer::link_for_tests(&s); }
+",
+        ),
+    ] {
+        let mut tree = real.clone();
+        tree.push((crate_path("sse/new_transport.rs"), text.to_owned()));
+        let violations = xtask::arch::ast::exec_violations(&tree);
+        assert!(
+            violations
+                .iter()
+                .any(|v| v.rule == "EXEC-4" && v.location.contains("sse/new_transport.rs")),
+            "{what} was accepted in a new transport file: {violations:#?}",
+        );
+    }
+
+    let mut tree = real;
+    tree.push((
+        crate_path("sse/new_transport.rs"),
+        "fn f() { let a = Other::link(&x); } // AgentServer::link
+"
+        .to_owned(),
+    ));
+    assert!(
+        xtask::arch::ast::exec_violations(&tree).is_empty(),
+        "an unrelated `link` is not the accessor",
+    );
+}
+
 /// The scan sees an inferred accessor, and spares the composition root that legitimately
 /// builds the boundaries from the link and the server module that owns it.
 #[test]

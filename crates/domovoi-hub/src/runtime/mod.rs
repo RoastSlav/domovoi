@@ -34,8 +34,7 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::agent_server::{
-    AgentServer, AgentServerDeps, AgentServerError, PolicyLink, RealNetProbes, ServerSettings,
-    SkillPolicy,
+    AgentServer, AgentServerDeps, AgentServerError, RealNetProbes, ServerSettings, SkillPolicy,
 };
 use caps::{action_caps, evidence_caps, observer_of};
 
@@ -222,7 +221,7 @@ impl HubRuntime {
         let skill_policy = Arc::new(
             SkillPolicy::load(store.clone(), &HostRepo::list_hosts(&*store).await?).await?,
         );
-        let policy_link = Arc::new(PolicyLink::wrap(server.link(), skill_policy.clone()));
+        let policy_link = Arc::new(server.policy_link(skill_policy.clone()));
         // The one read boundary and the narrow catalogue view are built once here, from
         // the same policy link the engine dispatches through; each handle receives only
         // the capabilities it needs, never the link itself (ADR 0023).

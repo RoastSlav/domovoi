@@ -10,6 +10,7 @@ mod conn;
 mod error;
 mod handshake;
 mod link;
+mod link_answers;
 mod memory;
 mod overrides;
 pub(crate) use overrides::{stored_docker, stored_overrides};
@@ -147,16 +148,23 @@ impl AgentServer {
         self.inner.tls.fingerprint_text()
     }
 
-    /// The link the engine uses to reach agents.
+    /// The raw link, private to this module: the server's own methods and its tests are the
+    /// only code that can hold it.
     ///
-    /// Crate-private on purpose: a transport reaches agents through
-    /// [`crate::api::AgentAdmin`], and the engine through its one execution and one read
-    /// boundary, never by holding a link (EXEC-4). Only the composition root in `runtime`
-    /// builds those from it, and `xtask arch-check` refuses a `.link()` call anywhere in the
-    /// hub outside `agent_server/` and `runtime/`.
-    #[must_use]
-    pub(crate) fn link(&self) -> Arc<WsAgentLink> {
+    /// Nothing outside `agent_server/` can call it. The runtime composes the engine's
+    /// capabilities through [`AgentServer::policy_link`], which hands out the link already
+    /// wrapped in the skill policy, and a transport reaches agents through
+    /// [`crate::api::AgentAdmin`] (EXEC-4, ADR 0023).
+    fn link(&self) -> Arc<WsAgentLink> {
         self.inner.link.clone()
+    }
+
+    /// The link wrapped in the hub's skill policy: the one value the runtime turns into the
+    /// engine's capability objects. It is the only way outside this module to obtain the
+    /// link, and what it returns enforces the policy on every skill call.
+    #[must_use]
+    pub(crate) fn policy_link(&self, policy: Arc<SkillPolicy>) -> PolicyLink {
+        PolicyLink::wrap(self.link(), policy)
     }
 
     /// The link this server owns, for the test suites that drive an agent's wire directly.

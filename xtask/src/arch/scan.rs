@@ -3,16 +3,20 @@
 //! syntax-aware EXEC boundary checks in [`super::ast`].
 //!
 //! The rules left here are inherently local to one line of source (a call to a constructor, a
-//! vocabulary word, a shell literal), so they read the text. The EXEC boundary rules count
+//! vocabulary word, a shell literal), so they read the text, through the lexer in
+//! [`super::lex`]: comments and string contents are blanked before a rule looks for code, and
+//! only comments are blanked before a rule looks for a string. The EXEC boundary rules count
 //! syntax nodes instead: a line-based scan cannot see a call split across lines, a macro body
 //! or an alias, and these rules protect the execution boundary.
 
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use cargo_metadata::{Metadata, TargetKind};
 
 use super::Violation;
+use super::lex::lex;
+use super::reach::{DiskSource, Roots, explore};
 use super::rules::{
     AUTHORIZATION_HUMAN_ALLOWED_PREFIXES, AUTHORIZATION_MODULE,
     AUTHORIZATION_POLICY_ALLOWED_PREFIXES, HUMAN_APPROVAL_ALLOWED_PREFIXES,
@@ -21,38 +25,51 @@ use super::rules::{
     PURE_FORBIDDEN_PATHS,
 };
 
-/// Scan every `.rs` file under `crates/` and check every rule.
+/// Scan every `.rs` file under `crates/`, and every Rust file those files load from elsewhere
+/// in the workspace, and check every rule.
 ///
-/// Test-only code is told apart by module wiring and Cargo's test targets, not by filename:
-/// `test_only_files` follows the test targets and `#[cfg(test)]` declarations, and everything
-/// they do not reach is production, whatever it is called.
+/// Which files only tests compile is decided by module wiring and Cargo targets, never by
+/// name: [`explore`] follows `mod`, `#[path]` and `include!` from every target root in two
+/// contexts, and a file is test-only only when the test context alone reaches it. A file that
+/// is not reached at all is production, and so is one both contexts reach.
+///
+/// Target kinds: `test` targets are test roots. Libraries, binaries, build scripts, examples
+/// and benches are production roots: they are not exempt, because they ship in the repository
+/// and a production module can load their files. Rust that production wiring loads from
+/// outside `crates/` is read and scanned like the rest; a path that leaves the workspace or
+/// enters `target/`, a missing file or an `include!` argument that is not a literal is an
+/// SRC-1 violation naming the declaring file and line.
 pub fn check_tree(root: &Path, metadata: &Metadata) -> anyhow::Result<Vec<Violation>> {
     let mut paths = Vec::new();
     collect_rs(&root.join("crates"), &mut paths)?;
     paths.sort();
 
-    let mut files: Vec<(String, String)> = Vec::with_capacity(paths.len());
+    let mut files: BTreeMap<String, String> = BTreeMap::new();
     for path in paths {
         let rel = path
             .strip_prefix(root)?
             .to_string_lossy()
             .replace('\\', "/");
         let text = std::fs::read_to_string(&path)?;
-        files.push((rel, text));
+        files.insert(rel, text);
     }
 
-    let roots = test_target_roots(metadata, root);
-    let test_only = super::ast::test_only_files(&files, &roots);
+    let mut source = DiskSource::new(root)?;
+    let reach = explore(&mut source, &target_roots(metadata, root));
+    for (rel, text) in &reach.texts {
+        files.entry(rel.clone()).or_insert_with(|| text.clone());
+    }
+    let test_only = reach.test_only();
 
-    let mut out = Vec::new();
+    let mut out = reach.problems;
+    let mut production: Vec<(String, String)> = Vec::new();
     for (rel, text) in &files {
-        out.extend(check_file(rel, text, test_only.contains(rel)));
+        let is_test = test_only.contains(rel);
+        out.extend(check_file(rel, text, is_test));
+        if !is_test {
+            production.push((rel.clone(), text.clone()));
+        }
     }
-    let production: Vec<(String, String)> = files
-        .iter()
-        .filter(|(rel, _)| !test_only.contains(rel))
-        .cloned()
-        .collect();
     out.extend(super::ast::exec_violations(&production));
     Ok(out)
 }
@@ -78,21 +95,29 @@ fn collect_rs(dir: &Path, out: &mut Vec<std::path::PathBuf>) -> anyhow::Result<(
     Ok(())
 }
 
-/// The roots Cargo compiles as test targets, workspace-relative with `/` separators.
-fn test_target_roots(metadata: &Metadata, root: &Path) -> BTreeSet<String> {
+/// The roots Cargo compiles, workspace-relative with `/` separators: `test` targets apart from
+/// every other kind (see [`check_tree`]).
+fn target_roots(metadata: &Metadata, root: &Path) -> Roots {
     let workspace = metadata.workspace_root.as_std_path();
-    let mut roots = BTreeSet::new();
+    let mut roots = Roots::default();
     for package in &metadata.packages {
         for target in &package.targets {
-            if !target.kind.contains(&TargetKind::Test) {
-                continue;
-            }
             let src = target.src_path.as_std_path();
             let rel = src
                 .strip_prefix(workspace)
                 .or_else(|_| src.strip_prefix(root));
-            if let Ok(rel) = rel {
-                roots.insert(rel.to_string_lossy().replace('\\', "/"));
+            let Ok(rel) = rel else {
+                continue;
+            };
+            let rel = rel.to_string_lossy().replace('\\', "/");
+            // The tool itself (`xtask/`) is not product code and is not scanned.
+            if !rel.starts_with("crates/") {
+                continue;
+            }
+            if target.kind.contains(&TargetKind::Test) {
+                roots.test.insert(rel);
+            } else {
+                roots.production.insert(rel);
             }
         }
     }
@@ -107,15 +132,6 @@ fn path_matches(rel: &str, allowed: &str) -> bool {
     } else {
         rel == allowed
     }
-}
-
-/// Whether `line` is inside a comment: a rule never counts a mention in prose.
-///
-/// This is the one heuristic left, and only for the line rules: they read text, and a
-/// doc comment mentioning `HumanApproval::new` or `std::fs` must not count.
-fn is_comment(line: &str) -> bool {
-    let t = line.trim_start();
-    t.starts_with("//") || t.starts_with("/*") || t.starts_with('*')
 }
 
 /// Check one file's line rules. `rel` is the path relative to the workspace root, with `/`
@@ -151,15 +167,13 @@ pub fn check_file(rel: &str, text: &str, test_only: bool) -> Vec<Violation> {
             .any(|p| path_matches(rel, p));
     let pure = !test_only && PURE_CRATE_DIRS.iter().any(|p| rel.starts_with(p));
 
-    for (i, line) in text.lines().enumerate() {
+    let lexed = lex(text);
+    for (i, (code, literals)) in lexed.code.lines().zip(lexed.literals.lines()).enumerate() {
         let at = format!("{rel}:{}", i + 1);
-        if is_comment(line) {
-            continue;
-        }
-        let spawns = line.contains("std::process::Command")
-            || line.contains("tokio::process::Command")
-            || line.contains("use std::process")
-            || line.contains("use tokio::process");
+        let spawns = code.contains("std::process::Command")
+            || code.contains("tokio::process::Command")
+            || code.contains("use std::process")
+            || code.contains("use tokio::process");
         if spawns && !in_runner && !test_only {
             out.push(v(
                 "R3",
@@ -167,63 +181,63 @@ pub fn check_file(rel: &str, text: &str, test_only: bool) -> Vec<Violation> {
                 "only domovoi-runner may spawn processes; use the ProcessExecutor port",
             ));
         }
-        if line.contains("allow(clippy::disallowed_methods)") && !in_runner {
+        if code.contains("allow(clippy::disallowed_methods)") && !in_runner {
             out.push(v(
                 "R3",
                 &at,
                 "`allow(clippy::disallowed_methods)` is only permitted in domovoi-runner",
             ));
         }
-        if !test_only && is_shell_invocation(line) {
+        if !test_only && is_shell_invocation(literals) {
             out.push(v(
                 "R4",
                 &at,
                 "never invoke a shell; build an argv vector from validated parameters",
             ));
         }
-        if line.contains("HumanApproval::restore(") && !restore_ok {
+        if code.contains("HumanApproval::restore(") && !restore_ok {
             out.push(v(
                 "INV-1",
                 &at,
                 "HumanApproval::restore may only be called in crates/domovoi-store/src/",
             ));
         }
-        if line.contains("HumanApproval::new(") && !approval_ok {
+        if code.contains("HumanApproval::new(") && !approval_ok {
             out.push(v(
                 "INV-1",
                 &at,
                 "HumanApproval may only be constructed in crates/domovoi-hub/src/auth/",
             ));
         }
-        if line.contains("PolicyPermit::issue(") && !permit_ok {
+        if code.contains("PolicyPermit::issue(") && !permit_ok {
             out.push(v(
                 "INV-1",
                 &at,
                 "PolicyPermit::issue may only be called in crates/domovoi-hub/src/policy/",
             ));
         }
-        if line.contains("Authorization::human(") && !authorization_human_ok {
+        if code.contains("Authorization::human(") && !authorization_human_ok {
             out.push(v(
                 "INV-1",
                 &at,
                 "Authorization::human may only be called in crates/domovoi-hub/src/auth/",
             ));
         }
-        if line.contains("Authorization::policy(") && !authorization_policy_ok {
+        if code.contains("Authorization::policy(") && !authorization_policy_ok {
             out.push(v(
                 "INV-1",
                 &at,
                 "Authorization::policy may only be called in crates/domovoi-hub/src/policy/",
             ));
         }
-        if line.contains("plan:v2") && !plan_v2_ok {
+        if literals.contains("plan:v2") && !plan_v2_ok {
             out.push(v(
                 "INV-1",
                 &at,
                 "the plan:v2 domain line has one implementation, in crates/domovoi-core/src/action/",
             ));
         }
-        if (line.contains("pub enum Authorization {") || line.contains("pub enum Authorization{"))
+        if (code.contains("pub enum Authorization {") || code.contains("pub enum Authorization{"))
             && rel != AUTHORIZATION_MODULE
         {
             out.push(v(
@@ -234,7 +248,7 @@ pub fn check_file(rel: &str, text: &str, test_only: bool) -> Vec<Violation> {
         }
         if pure {
             for forbidden in PURE_FORBIDDEN_PATHS {
-                if line.contains(forbidden) {
+                if code.contains(forbidden) {
                     out.push(v(
                         "R2",
                         &at,
