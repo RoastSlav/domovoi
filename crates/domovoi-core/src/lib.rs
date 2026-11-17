@@ -33,10 +33,10 @@ pub mod verdict;
 
 pub use ack::{AckRule, EvidencePredicate, MaintenanceWindow, TargetPattern};
 pub use action::{
-    ActionChange, ActionError, ActionRequest, ActionStatus, ApprovalChannel, ApprovalPlan,
-    ApprovalProvenance, Authorization, AuthorizationKind, HumanApproval, ImplHash, JournalEpoch,
-    PermitError, PlanBinding, PlanContract, PlanError, PlanFamily, PlanHash, PlanTarget,
-    PolicyPermit, PolicyPermitParts, Principal, StoredAction,
+    ActionChange, ActionError, ActionRequest, ActionStatus, ApprovalChannel, ApprovalEvidenceError,
+    ApprovalPlan, ApprovalProvenance, Authorization, AuthorizationKind, HumanApproval, ImplHash,
+    JournalEpoch, PermitError, PlanBinding, PlanContract, PlanError, PlanFamily, PlanHash,
+    PlanTarget, PolicyPermit, PolicyPermitParts, Principal, StoredAction, StoredActionError,
 };
 pub use actor::{Actor, ActorParseError, SYSTEM_ACTIONS, SYSTEM_AUDIT, SYSTEM_INCIDENTS};
 pub use addr::{in_cidr, valid_cidr};

@@ -5,7 +5,7 @@
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
-use domovoi_core::ports::{ActionFilter, Page};
+use domovoi_core::ports::{ActionFilter, AgentSnapshot, Page};
 use domovoi_core::{
     ActionId, ActionProposal, ActionRequest, Incident, KeyFingerprint, PlanTarget, Principal,
     SkillSummary, TriageReport, ValidatedArgs,
@@ -63,6 +63,7 @@ fn check<'a>(
 pub(crate) async fn store(
     shared: &Shared,
     incident: &Incident,
+    snapshot: Option<&AgentSnapshot>,
     skills: &[SkillSummary],
     proposals: Vec<ActionProposal>,
 ) -> (BTreeMap<ActionId, String>, Vec<ActionProposal>, Vec<String>) {
@@ -130,11 +131,41 @@ pub(crate) async fn store(
             continue;
         }
         let token = mint_token();
+        // The catalogue this report was built from must still belong to the host's current
+        // session, and its enrolled identity must still be current. A session replacement
+        // during triage must not mix one session's skills with another identity's key.
+        let Some(snapshot) = snapshot else {
+            dropped.push(format!(
+                "{}: no authenticated agent session to bind the action to",
+                proposal.skill
+            ));
+            continue;
+        };
+        if shared
+            .deps
+            .link
+            .snapshot(incident.host())
+            .is_none_or(|current| {
+                current.session != snapshot.session || current.agent != snapshot.agent
+            })
+        {
+            dropped.push(format!(
+                "{}: the agent session changed while triage ran",
+                proposal.skill
+            ));
+            continue;
+        }
         let target = match shared.deps.hosts.live_agent(incident.host()).await {
-            Ok(Some(agent)) => Some(PlanTarget::of_incident(
-                incident,
-                KeyFingerprint::of_public_key(&agent.public_key),
-            )),
+            Ok(Some(agent)) if agent.agent == snapshot.agent => {
+                PlanTarget::of_incident(incident, KeyFingerprint::of_public_key(&agent.public_key))
+            }
+            Ok(Some(_)) => {
+                dropped.push(format!(
+                    "{}: the host's enrolled agent changed while triage ran",
+                    proposal.skill
+                ));
+                continue;
+            }
             Ok(None) => {
                 dropped.push(format!(
                     "{}: the host has no enrolled agent key",
@@ -155,7 +186,7 @@ pub(crate) async fn store(
             incident.id(),
             skill,
             &args,
-            target,
+            Some(target),
             Principal::System(PROPOSER.into()),
             PROPOSAL_TTL,
             now,
@@ -189,12 +220,14 @@ pub(crate) async fn store(
 pub(crate) async fn create(
     shared: &Shared,
     incident: &Incident,
+    snapshot: Option<&AgentSnapshot>,
     skills: &[SkillSummary],
     report: &mut TriageReport,
 ) -> BTreeMap<ActionId, String> {
     let (tokens, kept, dropped) = store(
         shared,
         incident,
+        snapshot,
         skills,
         std::mem::take(&mut report.proposals),
     )

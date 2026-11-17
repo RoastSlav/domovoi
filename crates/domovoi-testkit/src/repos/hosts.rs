@@ -94,8 +94,11 @@ impl HostRepo for InMemoryStore {
         now: Timestamp,
     ) -> Result<ReportOutcome, StoreError> {
         let mut state = self.begin()?;
-        if !state.agents.contains_key(&agent) {
+        let Some(identity) = state.agents.get(&agent) else {
             return Err(StoreError::NotFound);
+        };
+        if identity.revoked_at.is_some() {
+            return Err(StoreError::Conflict("the agent is revoked".to_owned()));
         }
         let previous = state.reports.get(&agent).cloned();
         let since_was = previous

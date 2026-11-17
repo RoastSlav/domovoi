@@ -348,7 +348,7 @@ async fn changed_args_invalidate_approval() {
     let (action, _) = a.propose().await;
 
     let stored = a.get(action.id()).await;
-    let changed = ActionRequest::from_stored(StoredAction {
+    let changed = ActionRequest::try_from_stored(StoredAction {
         id: stored.id(),
         incident: stored.incident(),
         host: stored.host(),
@@ -367,7 +367,8 @@ async fn changed_args_invalidate_approval() {
         created_at: stored.created_at(),
         updated_at: stored.updated_at(),
         chat_token_hash: stored.chat_token_hash().copied(),
-    });
+    })
+    .expect("the changed proposal is still a valid stored action");
     ActionRepo::update_from(&*a.store, &changed, "proposed")
         .await
         .unwrap();
@@ -403,6 +404,33 @@ async fn dispatch_refuses_after_host_reenrollment() {
         a.get(action.id()).await.status(),
         ActionStatus::Rejected { .. }
     ));
+}
+
+#[tokio::test]
+#[cfg(test)]
+async fn a_legacy_v1_action_is_not_dispatched_to_a_replacement_enrollment() {
+    let a = stalled().await;
+    let legacy = ActionRequest::try_from_stored(legacy_action(&a))
+        .expect("a legacy proposed action is a valid stored action");
+    ActionRepo::insert(&*a.store, &legacy).await.unwrap();
+    approve(&a, &legacy).await;
+
+    // A re-enrollment revokes the old identity and enrolls a new `AgentId`, even when the
+    // operator reused the same key.
+    let enrolled = HostRepo::live_agent(&*a.store, host_id())
+        .await
+        .unwrap()
+        .expect("the harness host has an agent");
+    HostRepo::revoke_agent(&*a.store, enrolled.agent, a.now())
+        .await
+        .unwrap();
+    let mut replacement = enrolled.clone();
+    replacement.agent = AgentId::new();
+    replacement.public_key = [8; 32];
+    HostRepo::put_agent(&*a.store, &replacement).await.unwrap();
+
+    reconnect(&a);
+    rejected(&a, legacy.id()).await;
 }
 
 #[tokio::test]
@@ -542,9 +570,12 @@ async fn policy_authorization_is_refused_at_m1() {
     let world = seeded().await;
     let stored = authorized_row(&world, Some(AuthorizationKind::Policy), false);
     let id = stored.id;
-    ActionRepo::insert(&*world.store, &ActionRequest::from_stored(stored))
-        .await
-        .unwrap();
+    ActionRepo::insert(
+        &*world.store,
+        &ActionRequest::try_from_stored(stored).expect("an approved policy row is loadable"),
+    )
+    .await
+    .unwrap();
     let a = world.start(ActionSettings::default(), world.store.clone());
     wait_for_snapshot(&a).await;
     assert_eq!(
@@ -611,18 +642,16 @@ fn authorized_row(
 }
 
 #[tokio::test]
-async fn dispatch_refuses_an_approved_action_without_authorization_evidence() {
+async fn an_approved_action_without_authorization_evidence_cannot_be_loaded() {
     let world = seeded().await;
     let stored = authorized_row(&world, None, false);
-    let id = stored.id;
-    ActionRepo::insert(&*world.store, &ActionRequest::from_stored(stored))
-        .await
-        .unwrap();
-    let a = world.start(ActionSettings::default(), world.store.clone());
-    wait_for_snapshot(&a).await;
-    assert_eq!(a.get(id).await.status(), &ActionStatus::Approved);
-    assert_eq!(a.runs(), 0);
-    assert!(a.trail(id).await.is_empty());
+    assert!(
+        matches!(
+            ActionRequest::try_from_stored(stored),
+            Err(domovoi_core::StoredActionError::MissingAuthorization { .. })
+        ),
+        "an approved action with no authorization case fails closed at the load boundary",
+    );
 }
 
 /// Waits until the executor took a session snapshot, proving a negative dispatch test
@@ -711,7 +740,8 @@ fn legacy_action(a: &Actions) -> StoredAction {
 #[cfg(test)]
 async fn v1_actions_keep_v1_binding_after_upgrade() {
     let a = actions(ActionSettings::default()).await;
-    let legacy = ActionRequest::from_stored(legacy_action(&a));
+    let legacy = ActionRequest::try_from_stored(legacy_action(&a))
+        .expect("a legacy proposed action is a valid stored action");
     ActionRepo::insert(&*a.store, &legacy).await.unwrap();
 
     assert_eq!(legacy.plan_hash_v2(), None);
@@ -745,7 +775,8 @@ async fn v1_actions_keep_v1_binding_after_upgrade() {
 #[cfg(test)]
 async fn legacy_v1_action_keeps_v1_for_approval_and_runskill() {
     let a = actions(ActionSettings::default()).await;
-    let legacy = ActionRequest::from_stored(legacy_action(&a));
+    let legacy = ActionRequest::try_from_stored(legacy_action(&a))
+        .expect("a legacy proposed action is a valid stored action");
     ActionRepo::insert(&*a.store, &legacy).await.unwrap();
     a.service
         .approve(
@@ -779,10 +810,60 @@ async fn legacy_v1_action_keeps_v1_for_approval_and_runskill() {
 }
 
 #[tokio::test]
+async fn a_historical_v1_approval_without_displayed_fields_dispatches() {
+    let world = seeded().await;
+    let skill = verified_restart();
+    let args = skill
+        .validate_args(&BTreeMap::from([(
+            "container".to_owned(),
+            "nginx".to_owned(),
+        )]))
+        .unwrap();
+    let id = ActionId::new();
+    let action = ActionRequest::try_from_stored(StoredAction {
+        id,
+        incident: world.incident.id(),
+        host: host_id(),
+        skill: skill.name.clone(),
+        risk: skill.risk,
+        args: args.to_map(),
+        plan_hash: PlanHash::compute(&skill.name, skill.manifest_hash, host_id(), &args),
+        plan_hash_v2: None,
+        // A pre-migration approval recorded neither the displayed hash nor provenance.
+        approved_plan_hash: None,
+        provenance: None,
+        authorization_kind: Some(AuthorizationKind::Human),
+        status: ActionStatus::Approved,
+        proposed_by: Principal::System("triage".into()),
+        approved_by: Some(human(UserId::new())),
+        expires_at: T0.checked_add(SignedDuration::from_hours(1)).unwrap(),
+        created_at: T0,
+        updated_at: T0,
+        chat_token_hash: None,
+    })
+    .expect("a pre-migration approval is a valid stored action");
+    ActionRepo::insert(&*world.store, &action).await.unwrap();
+
+    let a = world.start(ActionSettings::default(), world.store.clone());
+    let settled = a
+        .until(id, |status| {
+            !matches!(status, ActionStatus::Approved | ActionStatus::Proposed)
+        })
+        .await;
+    assert!(
+        !matches!(settled.status(), ActionStatus::Rejected { .. }),
+        "a historical v1 approval still dispatches: {:?}",
+        settled.status(),
+    );
+    assert_eq!(a.runs(), 1);
+}
+
+#[tokio::test]
 #[cfg(test)]
 async fn v1_action_dispatch_recomputes_the_v1_hash() {
     let a = actions(ActionSettings::default()).await;
-    let legacy = ActionRequest::from_stored(legacy_action(&a));
+    let legacy = ActionRequest::try_from_stored(legacy_action(&a))
+        .expect("a legacy proposed action is a valid stored action");
     ActionRepo::insert(&*a.store, &legacy).await.unwrap();
     a.service
         .approve(

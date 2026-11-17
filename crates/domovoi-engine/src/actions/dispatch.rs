@@ -56,6 +56,37 @@ pub(crate) async fn dispatch(
         let reason = "the agent session changed before dispatch".to_owned();
         return reject::stop(shared, id, &mut action, reason, false, now).await;
     }
+    // The enrolled identity that supplied the session must still be the host's current one.
+    // An `AgentId` is never reused, so a fingerprint match alone is not enough: a legacy v1
+    // action must not run on a replacement enrollment either.
+    let enrolled = shared
+        .deps
+        .hosts
+        .live_agent(action.host())
+        .await
+        .map_err(|err| ApprovalError::Store(err.to_string()))?;
+    let Some(enrolled) = enrolled else {
+        return reject::stop(
+            shared,
+            id,
+            &mut action,
+            "the host has no enrolled agent; the plan can no longer be verified".to_owned(),
+            false,
+            now,
+        )
+        .await;
+    };
+    if enrolled.agent != snapshot.agent {
+        return reject::stop(
+            shared,
+            id,
+            &mut action,
+            "the host's enrolled agent changed before dispatch".to_owned(),
+            false,
+            now,
+        )
+        .await;
+    }
     // For v2 the target the executor hashed must still be the one the store and the
     // enrolled key describe now, not just the same host.
     if action.approval_plan().family() == PlanFamily::V2 {
@@ -70,25 +101,10 @@ pub(crate) async fn dispatch(
             )
             .await;
         };
-        let agent = shared
-            .deps
-            .hosts
-            .live_agent(action.host())
-            .await
-            .map_err(|err| ApprovalError::Store(err.to_string()))?;
-        let Some(agent) = agent else {
-            return reject::stop(
-                shared,
-                id,
-                &mut action,
-                "the plan changed after approval".to_owned(),
-                false,
-                now,
-            )
-            .await;
-        };
-        let current =
-            PlanTarget::of_incident(&incident, KeyFingerprint::of_public_key(&agent.public_key));
+        let current = PlanTarget::of_incident(
+            &incident,
+            KeyFingerprint::of_public_key(&enrolled.public_key),
+        );
         if current != expected {
             return reject::stop(
                 shared,
@@ -130,21 +146,7 @@ fn check_authorization(action: &ActionRequest) -> Result<(), ApprovalError> {
     if action.approved_by().is_none() {
         return Err(ApprovalError::MissingAuthorization);
     }
-    let plan = action.approval_plan();
-    match plan.family() {
-        PlanFamily::V2 => {
-            if action.approved_plan_hash() != Some(plan.hash()) || action.provenance().is_none() {
-                return Err(ApprovalError::InconsistentAuthorization);
-            }
-        }
-        PlanFamily::V1 => {
-            if action
-                .approved_plan_hash()
-                .is_some_and(|approved| approved != plan.hash())
-            {
-                return Err(ApprovalError::InconsistentAuthorization);
-            }
-        }
-    }
-    Ok(())
+    action
+        .check_approval_evidence()
+        .map_err(|_| ApprovalError::InconsistentAuthorization)
 }

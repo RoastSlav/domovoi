@@ -9,7 +9,8 @@ use domovoi_core::{
     ActionId, ActionRequest, ActionStatus, ArgError, CheckKey, Host, HostId, HostKind, HostName,
     Incident, IncidentEvent, IncidentId, IncidentPolicy, KeyFingerprint, PlanError, PlanTarget,
     Principal, Risk, Severity, Signal, SignalClass, SkillManifest, SkillName, SkillSummary,
-    SourceKind, StoredAction, TargetKey, TransitionError, ValidatedArgs, ValidationError, apply,
+    SourceKind, StoredAction, StoredActionError, TargetKey, TransitionError, ValidatedArgs,
+    ValidationError, apply,
 };
 use jiff::{SignedDuration, Timestamp};
 
@@ -31,6 +32,9 @@ pub enum BuildError {
     /// A v2 plan could not be built.
     #[error(transparent)]
     Plan(#[from] PlanError),
+    /// A stored action's approval fields contradict its status or plan.
+    #[error(transparent)]
+    Stored(#[from] StoredActionError),
 }
 
 /// [`T0`] plus `secs` seconds (negative goes back). Returns [`T0`] if the result would be
@@ -178,7 +182,7 @@ pub fn action_from(
         args,
         ExecutionId::from_action(id),
     );
-    Ok(ActionRequest::from_stored(StoredAction {
+    Ok(ActionRequest::try_from_stored(StoredAction {
         id,
         incident,
         host,
@@ -197,7 +201,7 @@ pub fn action_from(
         created_at: at,
         updated_at: at,
         chat_token_hash: None,
-    }))
+    })?)
 }
 
 /// An action proposed by triage at [`T0`] for the [`manifest`] `restart_container` with

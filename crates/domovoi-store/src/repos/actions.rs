@@ -95,16 +95,7 @@ impl ActionRow {
             .as_deref()
             .map(|hash| from_name(hash, "approved plan hash"))
             .transpose()?;
-        validate_approval(
-            &status,
-            approved_by.is_some(),
-            authorization_kind,
-            plan_hash_v2,
-            approved_plan_hash,
-            provenance.is_some(),
-            plan_hash,
-        )?;
-        Ok(ActionRequest::from_stored(StoredAction {
+        let stored = StoredAction {
             id: parse(&self.id, "action id")?,
             incident: parse(&self.incident_id, "incident id")?,
             host: parse(&self.host_id, "host id")?,
@@ -127,76 +118,8 @@ impl ActionRow {
                 .as_deref()
                 .map(|h| hash32(h, "chat token hash"))
                 .transpose()?,
-        }))
-    }
-}
-
-/// Rejects rows whose approval columns disagree with the status and plan they store.
-///
-/// A pre-migration human-approved v1 row may legitimately have no `approved_plan_hash` and no
-/// provenance; the migration backfilled its authorization kind. Nothing is repaired here.
-fn validate_approval(
-    status: &ActionStatus,
-    has_approver: bool,
-    kind: Option<AuthorizationKind>,
-    plan_hash_v2: Option<domovoi_core::PlanHash>,
-    approved_plan_hash: Option<domovoi_core::PlanHash>,
-    has_provenance: bool,
-    plan_hash_v1: domovoi_core::PlanHash,
-) -> Result<(), StoreError> {
-    let decided = !matches!(
-        status,
-        ActionStatus::Proposed | ActionStatus::Denied | ActionStatus::Expired
-    );
-    if !decided {
-        if has_approver || kind.is_some() || approved_plan_hash.is_some() || has_provenance {
-            return Err(corrupt(
-                "approval binding",
-                "an undecided action carries approval metadata",
-            ));
-        }
-        return Ok(());
-    }
-    let kind = kind.ok_or_else(|| {
-        corrupt(
-            "authorization kind",
-            "a decided action has no authorization case",
-        )
-    })?;
-    match kind {
-        AuthorizationKind::Human => {
-            if !has_approver {
-                return Err(corrupt(
-                    "approval",
-                    "a human-approved action has no approver",
-                ));
-            }
-            match (plan_hash_v2, approved_plan_hash) {
-                (Some(v2), Some(approved)) if approved == v2 && has_provenance => Ok(()),
-                (Some(_), Some(_)) => Err(corrupt(
-                    "approval binding",
-                    "the displayed hash or provenance does not match the v2 plan",
-                )),
-                (Some(_), None) => Err(corrupt(
-                    "approval binding",
-                    "a v2 approved action has no displayed plan hash",
-                )),
-                (None, Some(approved)) if approved == plan_hash_v1 => Ok(()),
-                (None, Some(_)) => Err(corrupt(
-                    "approval binding",
-                    "the displayed hash does not match the v1 plan",
-                )),
-                // A pre-migration human approval did not record these fields.
-                (None, None) => Ok(()),
-            }
-        }
-        // No policy permit is issued in this milestone. A row carrying one can be hydrated so
-        // the writer can refuse it with a named error, but it cannot also claim a human.
-        AuthorizationKind::Policy if has_approver => Err(corrupt(
-            "authorization kind",
-            "a policy row also carries a human approver",
-        )),
-        AuthorizationKind::Policy => Ok(()),
+        };
+        ActionRequest::try_from_stored(stored).map_err(|err| corrupt("action", err))
     }
 }
 

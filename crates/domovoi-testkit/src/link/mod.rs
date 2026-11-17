@@ -1,6 +1,6 @@
 //! A fake agent link, and the recording doubles next to it.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
@@ -17,6 +17,7 @@ use jiff::Timestamp;
 
 mod recorders;
 mod request;
+mod script;
 
 pub use recorders::{RecordingReconciler, RecordingSignalSink};
 pub use request::LinkRequest;
@@ -70,6 +71,8 @@ pub struct FakeAgentLink {
     handlers: Mutex<Handlers>,
     requests: Mutex<Vec<LinkRequest>>,
     snapshot_calls: std::sync::atomic::AtomicUsize,
+    /// Test support: answers the next `snapshot` calls in order, before the live state.
+    scripted_snapshots: Mutex<VecDeque<Option<AgentSnapshot>>>,
 }
 
 impl FakeAgentLink {
@@ -94,6 +97,7 @@ impl FakeAgentLink {
             handlers: Mutex::new(Handlers::default()),
             requests: Mutex::new(Vec::new()),
             snapshot_calls: std::sync::atomic::AtomicUsize::new(0),
+            scripted_snapshots: Mutex::new(VecDeque::new()),
         }
     }
 
@@ -243,17 +247,8 @@ impl FakeAgentLink {
 
     /// Every request so far, oldest first.
     #[must_use]
-    /// Every request made so far, oldest first.
     pub fn requests(&self) -> Vec<LinkRequest> {
         lock(&self.requests).clone()
-    }
-
-    /// How many times the executor asked for a session snapshot. Test support: it proves a
-    /// negative dispatch test actually reached the dispatch path.
-    #[must_use]
-    pub fn snapshot_calls(&self) -> usize {
-        self.snapshot_calls
-            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     fn connected(&self, host: HostId) -> Result<(), LinkError> {
@@ -391,11 +386,14 @@ impl AgentLink for FakeAgentLink {
     fn snapshot(&self, host: HostId) -> Option<AgentSnapshot> {
         self.snapshot_calls
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if let Some(scripted) = lock(&self.scripted_snapshots).pop_front() {
+            return scripted;
+        }
         match self.presence(host) {
             Presence::Connected { .. } => Some(AgentSnapshot {
                 session: self.session_id(host),
                 agent: self.agent_id(host),
-                journal_epoch: self.journal_epoch(host)?,
+                journal_epoch: self.journal_epoch(host).unwrap_or_default(),
                 skills: self.skills(host),
             }),
             Presence::Disconnected { .. } => None,

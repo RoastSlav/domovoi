@@ -109,7 +109,7 @@ async fn enroll_agent(
     // host's agent, as after a reinstall.
     if let Some(old) = hosts.live_agent(host).await? {
         hosts.revoke_agent(old.agent, now).await?;
-        inner.registry.close(host, now);
+        inner.registry.retire(old.agent, now);
         tracing::info!(%host, agent = %old.agent, "re-enrolled; the previous agent is revoked");
     }
     let agent = AgentIdentity {
@@ -166,6 +166,20 @@ async fn authenticate(
     if !valid {
         return Err(reject(transport, RejectReason::BadSignature, answer.id).await);
     }
+    // The agent answered with a valid signature, but it may have been revoked or replaced
+    // while it waited. A retired identity must not finish authenticating, even when the
+    // signature is genuine and the journal would survive the reconnection.
+    let Some(current) = hosts.get_agent(agent.agent).await? else {
+        return Err(reject(transport, RejectReason::Revoked, answer.id).await);
+    };
+    if current.revoked_at.is_some() {
+        return Err(reject(transport, RejectReason::Revoked, answer.id).await);
+    }
+    let enrolled = hosts.live_agent(current.host).await?;
+    if enrolled.as_ref().map(|live| live.agent) != Some(current.agent) {
+        return Err(reject(transport, RejectReason::Revoked, answer.id).await);
+    }
+    agent = current;
     // The exact protocol rule is decided only once the agent proved its key: an
     // unauthenticated client that knows an agent id must not be able to record anything.
     let compatible = compatible(hello.protocol, PROTOCOL_VERSION);

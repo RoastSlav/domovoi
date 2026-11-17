@@ -57,7 +57,28 @@ pub(crate) async fn run_session(
     };
     let journal_epoch = live.journal_epoch;
     let authoritative_absence = live.authoritative_absence;
-    inner.registry.register(host, live, remote_ip);
+    // Test support: let a test retire the agent between the handshake and this registration.
+    if let Some(gate) = inner.registry.registration_gate() {
+        // The permit is only a release signal; registration itself is the next step.
+        drop(gate.acquire_owned().await.map_err(|_| ConnError::Closed)?);
+    }
+    // The handshake proved the key, but enrollment may have changed while the agent answered.
+    // The accepted identity must still be the host's current one before it is registered.
+    let current = inner.deps.hosts.live_agent(host).await?;
+    if current.as_ref().map(|agent| agent.agent) != Some(agent.agent) {
+        tracing::info!(
+            %host,
+            agent = %agent.agent,
+            "refused a session for an agent that is no longer enrolled"
+        );
+        let _ = transport.close().await;
+        return Ok(());
+    }
+    if let Err(err) = inner.registry.register(host, live, remote_ip) {
+        tracing::info!(%host, agent = %agent.agent, %err, "refused a session for a retired agent");
+        let _ = transport.close().await;
+        return Ok(());
+    }
     tracing::info!(
         %host,
         agent = %agent.agent,

@@ -2,14 +2,16 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::net::IpAddr;
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use domovoi_core::ports::{AgentSnapshot, LinkError, Presence};
 use domovoi_core::{AgentId, AgentSessionId, HostId, JournalEpoch, RequestId, SkillSummary};
 use domovoi_proto::messages::{AgentStatus, CheckInfo, DockerReport, HostFacts, SessionId};
 use domovoi_proto::{Message, encode};
 use jiff::Timestamp;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{Semaphore, mpsc, oneshot};
+
+use super::registry_state::{RegisterError, State};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -64,7 +66,7 @@ pub(crate) struct SessionFacts {
 
 /// What the hub knows about one host's agent.
 #[derive(Default)]
-struct Entry {
+pub(super) struct Entry {
     live: Option<Live>,
     last_seen: Option<Timestamp>,
     /// When this hub session last saw a live session end, if it ever had one.
@@ -105,12 +107,12 @@ pub(crate) struct Watch {
 /// Sessions by host. A host has at most one live session.
 #[derive(Default)]
 pub(crate) struct Registry {
-    hosts: Mutex<BTreeMap<HostId, Entry>>,
+    state: Mutex<State>,
 }
 
 impl Registry {
-    fn lock(&self) -> MutexGuard<'_, BTreeMap<HostId, Entry>> {
-        self.hosts.lock().unwrap_or_else(PoisonError::into_inner)
+    fn lock(&self) -> MutexGuard<'_, State> {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Publishes how many hosts have a live session, from inside the lock.
@@ -128,8 +130,19 @@ impl Registry {
     }
 
     /// Makes `live` the host's session, closing the one it replaces.
-    pub fn register(&self, host: HostId, live: Live, remote_ip: Option<IpAddr>) {
+    ///
+    /// A retired `AgentId` is refused. Its handshake may have finished after the agent was
+    /// revoked or replaced, and the registry is the last place that can stop it.
+    pub fn register(
+        &self,
+        host: HostId,
+        live: Live,
+        remote_ip: Option<IpAddr>,
+    ) -> Result<(), RegisterError> {
         let mut hosts = self.lock();
+        if hosts.retired.contains(&live.agent) {
+            return Err(RegisterError::Retired(live.agent));
+        }
         let entry = hosts.entry(host).or_default();
         if let Some(old) = entry.live.take() {
             old.cancel.cancel();
@@ -141,6 +154,48 @@ impl Registry {
         }
         entry.live = Some(live);
         Self::report(&hosts);
+        Ok(())
+    }
+
+    /// Retires `agent` for good: records the identity, closes its live session if one is
+    /// registered, and makes every later registration of it fail.
+    ///
+    /// This is the one retirement operation every enrollment path uses, so a handshake that
+    /// is still in flight when the agent is revoked or replaced cannot become live later.
+    pub fn retire(&self, agent: AgentId, at: Timestamp) {
+        let mut state = self.lock();
+        state.retired.insert(agent);
+        let hosts: Vec<HostId> = state
+            .iter()
+            .filter(|(_, entry)| entry.live.as_ref().is_some_and(|live| live.agent == agent))
+            .map(|(host, _)| *host)
+            .collect();
+        for host in hosts {
+            let Some(entry) = state.get_mut(&host) else {
+                continue;
+            };
+            if let Some(live) = entry.live.take() {
+                live.cancel.cancel();
+                entry.absent_since = Some(at);
+            }
+        }
+        Self::report(&state);
+    }
+
+    /// Whether `agent` has been retired. Test support, for the local enrollment path.
+    pub fn is_retired(&self, agent: AgentId) -> bool {
+        self.lock().retired.contains(&agent)
+    }
+
+    /// Test support: holds every registration until a permit is added to `gate`, so a test
+    /// can retire an agent between its successful handshake and its registration.
+    pub fn hold_registrations(&self, gate: Arc<Semaphore>) {
+        self.lock().registration_gate = Some(gate);
+    }
+
+    /// Test support: the gate registrations wait on, if a test installed one.
+    pub fn registration_gate(&self) -> Option<Arc<Semaphore>> {
+        self.lock().registration_gate.clone()
     }
 
     /// Ends `session` if it is still the host's session, at `at`. Waiting requests fail and

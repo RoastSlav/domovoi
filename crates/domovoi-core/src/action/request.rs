@@ -9,6 +9,7 @@ use super::approval::{ApprovalProvenance, HumanApproval, PlanHash};
 use super::authorization::AuthorizationKind;
 use super::epoch::JournalEpoch;
 use super::plan::{ImplHash, PlanContract, PlanError, PlanTarget};
+use super::stored::{ApprovalEvidence, ApprovalEvidenceError, StoredActionError};
 use crate::id::{ActionId, ExecutionId, HostId, IncidentId, UserId};
 use crate::skill::{Risk, SkillName, SkillSummary, ValidatedArgs};
 
@@ -276,10 +277,14 @@ impl ActionRequest {
         })
     }
 
-    /// Loads a request the store persisted, unchanged.
-    #[must_use]
-    pub fn from_stored(stored: StoredAction) -> Self {
-        Self {
+    /// Loads a request the store persisted, refusing one whose approval fields contradict its
+    /// status or plan.
+    ///
+    /// A store maps [`StoredActionError`] onto its own corruption error; nothing is repaired
+    /// here. This is the only way to turn a [`StoredAction`] into a usable action.
+    pub fn try_from_stored(stored: StoredAction) -> Result<Self, StoredActionError> {
+        super::stored::validate(&stored)?;
+        Ok(Self {
             id: stored.id,
             incident: stored.incident,
             host: stored.host,
@@ -298,7 +303,22 @@ impl ActionRequest {
             created_at: stored.created_at,
             updated_at: stored.updated_at,
             chat_token_hash: stored.chat_token_hash,
+        })
+    }
+
+    /// Checks that the recorded approval evidence covers exactly this action's plan.
+    ///
+    /// A legacy v1 approval may have no displayed hash and no provenance; a current approval
+    /// has both. Either partial form is refused.
+    pub fn check_approval_evidence(&self) -> Result<(), ApprovalEvidenceError> {
+        let plan = self.approval_plan();
+        ApprovalEvidence {
+            family: plan.family(),
+            plan_hash: plan.hash(),
+            approved_plan_hash: self.approved_plan_hash,
+            provenance: self.provenance.as_ref(),
         }
+        .check()
     }
 
     /// Stores the hash of the single-use token carried by chat approval buttons.

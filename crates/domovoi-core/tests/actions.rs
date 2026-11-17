@@ -7,10 +7,11 @@ use std::collections::BTreeMap;
 
 use domovoi_core::{
     ActionChange, ActionError, ActionId, ActionRequest, ActionStatus, ApprovalChannel,
-    ApprovalProvenance, Authorization, CheckKey, ExecutionId, HostId, HumanApproval, ImplHash,
-    IncidentId, JournalEpoch, KeyFingerprint, ManifestHash, ParamKind, ParamName, ParamSpec,
-    PlanBinding, PlanContract, PlanHash, PlanTarget, Principal, Risk, SkillName, SkillSummary,
-    StoredAction, UserId, ValidatedArgs,
+    ApprovalEvidenceError, ApprovalProvenance, Authorization, AuthorizationKind, CheckKey,
+    ExecutionId, HostId, HumanApproval, ImplHash, IncidentId, JournalEpoch, KeyFingerprint,
+    ManifestHash, ParamKind, ParamName, ParamSpec, PlanBinding, PlanContract, PlanFamily, PlanHash,
+    PlanTarget, Principal, Risk, SkillName, SkillSummary, StoredAction, StoredActionError, UserId,
+    ValidatedArgs,
 };
 use jiff::{SignedDuration, Timestamp};
 use uuid::Uuid;
@@ -462,7 +463,7 @@ fn action_request_json_snapshot() {
         &validated,
         ExecutionId::from_action(id),
     );
-    let req = ActionRequest::from_stored(StoredAction {
+    let req = ActionRequest::try_from_stored(StoredAction {
         id,
         incident: IncidentId::from_uuid(Uuid::from_u128(0x0190_0000_0000_7000_8000_0000_0000_0002)),
         host: host(),
@@ -481,7 +482,8 @@ fn action_request_json_snapshot() {
         created_at: at(0),
         updated_at: at(60),
         chat_token_hash: None,
-    });
+    })
+    .expect("the stored approval is consistent");
     insta::assert_json_snapshot!(req);
 }
 
@@ -515,4 +517,216 @@ fn chat_token_hash_can_be_cleared() {
     assert_eq!(req.chat_token_hash(), Some(&[7; 32]));
     req.clear_chat_token_hash();
     assert_eq!(req.chat_token_hash(), None);
+}
+
+/// The stored form of `req`, for exercising the validated constructor.
+#[cfg(test)]
+fn stored(req: &ActionRequest) -> StoredAction {
+    StoredAction {
+        id: req.id(),
+        incident: req.incident(),
+        host: req.host(),
+        skill: req.skill().clone(),
+        risk: req.risk(),
+        args: req.args().clone(),
+        plan_hash: req.plan_hash(),
+        plan_hash_v2: req.plan_hash_v2(),
+        approved_plan_hash: req.approved_plan_hash(),
+        provenance: req.provenance().cloned(),
+        authorization_kind: req.authorization_kind(),
+        status: req.status().clone(),
+        proposed_by: req.proposed_by().clone(),
+        approved_by: req.approved_by().cloned(),
+        expires_at: req.expires_at(),
+        created_at: req.created_at(),
+        updated_at: req.updated_at(),
+        chat_token_hash: req.chat_token_hash().copied(),
+    }
+}
+
+/// A stored approval with the v1 family and the approval fields `hash` and `provenance`.
+#[cfg(test)]
+fn historical_v1(
+    approved_plan_hash: Option<PlanHash>,
+    provenance: Option<ApprovalProvenance>,
+) -> StoredAction {
+    let req = approved(Risk::Write);
+    let mut stored = stored(&req);
+    stored.plan_hash_v2 = None;
+    stored.approved_plan_hash = approved_plan_hash;
+    stored.provenance = provenance;
+    stored
+}
+
+#[test]
+fn a_valid_stored_v2_approval_loads() {
+    let req = approved(Risk::Write);
+    assert_eq!(
+        ActionRequest::try_from_stored(stored(&req)).unwrap(),
+        req,
+        "a consistent v2 approval round-trips"
+    );
+}
+
+#[test]
+fn a_stored_v2_approval_without_a_displayed_hash_is_refused() {
+    let mut stored = stored(&approved(Risk::Write));
+    stored.approved_plan_hash = None;
+    assert_eq!(
+        ActionRequest::try_from_stored(stored),
+        Err(StoredActionError::Evidence(
+            ApprovalEvidenceError::MissingDisplayedHash
+        ))
+    );
+}
+
+#[test]
+fn a_stored_v2_approval_with_a_mismatched_hash_is_refused() {
+    let mut stored = stored(&approved(Risk::Write));
+    stored.approved_plan_hash = Some(stored.plan_hash);
+    assert_eq!(
+        ActionRequest::try_from_stored(stored),
+        Err(StoredActionError::Evidence(
+            ApprovalEvidenceError::MismatchedDisplayedHash { family: "v2" }
+        ))
+    );
+}
+
+#[test]
+fn a_stored_v2_approval_without_provenance_is_refused() {
+    let mut stored = stored(&approved(Risk::Write));
+    stored.provenance = None;
+    assert_eq!(
+        ActionRequest::try_from_stored(stored),
+        Err(StoredActionError::Evidence(
+            ApprovalEvidenceError::MissingProvenance
+        ))
+    );
+}
+
+#[test]
+fn a_stored_approval_without_an_approver_is_refused() {
+    let mut stored = stored(&approved(Risk::Write));
+    stored.approved_by = None;
+    assert_eq!(
+        ActionRequest::try_from_stored(stored),
+        Err(StoredActionError::MissingApprover)
+    );
+}
+
+#[test]
+fn a_proposed_row_with_approval_metadata_is_refused() {
+    let mut stored = stored(&proposed(Risk::Write));
+    stored.authorization_kind = Some(AuthorizationKind::Human);
+    stored.approved_by = Some(web(true));
+    stored.approved_plan_hash = stored.plan_hash_v2;
+    stored.provenance = Some(ApprovalProvenance::new(None, "web"));
+    assert_eq!(
+        ActionRequest::try_from_stored(stored),
+        Err(StoredActionError::UndecidedApproval)
+    );
+}
+
+#[test]
+fn a_historical_v1_approval_without_displayed_fields_loads() {
+    let loaded = ActionRequest::try_from_stored(historical_v1(None, None))
+        .expect("a pre-migration approval is valid");
+    assert_eq!(loaded.approval_plan().family(), PlanFamily::V1);
+    assert_eq!(loaded.approved_plan_hash(), None);
+    assert_eq!(loaded.provenance(), None);
+}
+
+#[test]
+fn a_current_v1_approval_with_matching_hash_and_provenance_loads() {
+    let req = approved(Risk::Write);
+    let v1 = req.plan_hash();
+    let loaded = ActionRequest::try_from_stored(historical_v1(
+        Some(v1),
+        Some(ApprovalProvenance::new(None, "web")),
+    ))
+    .expect("a current v1 approval with both fields is valid");
+    assert_eq!(loaded.approved_plan_hash(), Some(v1));
+}
+
+#[test]
+fn a_v1_approval_with_only_a_displayed_hash_is_refused() {
+    let req = approved(Risk::Write);
+    assert_eq!(
+        ActionRequest::try_from_stored(historical_v1(Some(req.plan_hash()), None)),
+        Err(StoredActionError::Evidence(
+            ApprovalEvidenceError::MissingProvenance
+        ))
+    );
+}
+
+#[test]
+fn a_v1_approval_with_only_provenance_is_refused() {
+    assert_eq!(
+        ActionRequest::try_from_stored(historical_v1(
+            None,
+            Some(ApprovalProvenance::new(None, "web")),
+        )),
+        Err(StoredActionError::Evidence(
+            ApprovalEvidenceError::MissingDisplayedHash
+        ))
+    );
+}
+
+#[test]
+fn a_v1_approval_with_a_mismatched_hash_is_refused() {
+    let mut stored = historical_v1(
+        Some(PlanHash::compute(
+            &summary(Risk::Write).name,
+            summary(Risk::Write).manifest_hash,
+            host(),
+            &args(&summary(Risk::Write), "sonarr"),
+        )),
+        Some(ApprovalProvenance::new(None, "web")),
+    );
+    stored.plan_hash = approved(Risk::Write).plan_hash();
+    assert_eq!(
+        ActionRequest::try_from_stored(stored),
+        Err(StoredActionError::Evidence(
+            ApprovalEvidenceError::MismatchedDisplayedHash { family: "v1" }
+        ))
+    );
+}
+
+#[test]
+fn a_policy_row_with_a_human_approver_is_refused() {
+    let mut stored = stored(&approved(Risk::Write));
+    stored.authorization_kind = Some(AuthorizationKind::Policy);
+    assert_eq!(
+        ActionRequest::try_from_stored(stored),
+        Err(StoredActionError::PolicyWithApprover)
+    );
+}
+
+#[test]
+fn a_policy_row_that_claims_to_have_run_is_refused() {
+    let mut stored = stored(&approved(Risk::Write));
+    stored.authorization_kind = Some(AuthorizationKind::Policy);
+    stored.approved_by = None;
+    stored.approved_plan_hash = None;
+    stored.provenance = None;
+    stored.status = ActionStatus::Dispatched { agent_epoch: None };
+    assert_eq!(
+        ActionRequest::try_from_stored(stored),
+        Err(StoredActionError::PolicyNotApproved {
+            status: "dispatched"
+        })
+    );
+}
+
+#[test]
+fn an_approved_policy_row_loads_so_dispatch_can_refuse_it() {
+    let mut stored = stored(&approved(Risk::Write));
+    stored.authorization_kind = Some(AuthorizationKind::Policy);
+    stored.approved_by = None;
+    stored.approved_plan_hash = None;
+    stored.provenance = None;
+    assert!(
+        ActionRequest::try_from_stored(stored).is_ok(),
+        "the writer needs to load an approved policy row to refuse it by name"
+    );
 }

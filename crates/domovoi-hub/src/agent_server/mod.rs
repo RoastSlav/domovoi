@@ -16,6 +16,7 @@ pub(crate) use overrides::{stored_docker, stored_overrides};
 mod presence;
 mod probes;
 mod registry;
+mod registry_state;
 mod session;
 mod settings;
 mod skill_policy;
@@ -263,20 +264,44 @@ impl AgentServer {
     /// agent that is not already revoked.
     pub async fn revoke_agent(&self, host: HostId) -> Result<bool, AgentServerError> {
         let inner = &self.inner;
-        let revoked = match inner.deps.hosts.live_agent(host).await? {
+        let now = inner.deps.clock.now();
+        match inner.deps.hosts.live_agent(host).await? {
             Some(agent) => {
-                inner
-                    .deps
-                    .hosts
-                    .revoke_agent(agent.agent, inner.deps.clock.now())
-                    .await?;
+                inner.deps.hosts.revoke_agent(agent.agent, now).await?;
+                // Retirement, not a plain close: a handshake for this identity that is still
+                // in flight must not register itself after the revocation.
+                inner.registry.retire(agent.agent, now);
                 tracing::info!(%host, agent = %agent.agent, "agent revoked");
-                true
+                Ok(true)
             }
-            None => false,
-        };
-        inner.registry.close(host, inner.deps.clock.now());
-        Ok(revoked)
+            None => {
+                inner.registry.close(host, now);
+                Ok(false)
+            }
+        }
+    }
+
+    /// Retires `agent` in the live registry when its identity is revoked outside this module,
+    /// as the local agent path does through the store. Closes its session and refuses any
+    /// registration that began before the revocation.
+    pub(crate) fn retire_agent(&self, agent: domovoi_core::AgentId) {
+        self.inner
+            .registry
+            .retire(agent, self.inner.deps.clock.now());
+    }
+
+    /// Test support: whether the live registry has retired `agent`. The local enrollment
+    /// path uses the same retirement as a token re-enrollment, and its test checks that.
+    #[doc(hidden)]
+    pub fn is_retired(&self, agent: domovoi_core::AgentId) -> bool {
+        self.inner.registry.is_retired(agent)
+    }
+
+    /// Test support: holds every session registration until a permit is added to `gate`, so a
+    /// test can retire an agent between its successful handshake and its registration.
+    #[doc(hidden)]
+    pub fn hold_registrations(&self, gate: Arc<tokio::sync::Semaphore>) {
+        self.inner.registry.hold_registrations(gate);
     }
 
     /// Runs one presence check now. [`serve`](Self::serve) does this every heartbeat.

@@ -171,7 +171,11 @@ pub(crate) async fn answer(
             Refusal::Unverifiable => TriageError::AdmissionUnavailable,
         });
     }
-    let skills = deps.link.skills(incident.host());
+    let snapshot = deps.link.snapshot(incident.host());
+    let skills = snapshot
+        .as_ref()
+        .map(|session| session.skills.clone())
+        .unwrap_or_default();
     let scope = tools::Scope::of(&incident);
     let bundle = context::build(shared, &incident, &skills).await;
     // The incident itself: its latest report, its actions and its recent timeline.
@@ -284,7 +288,7 @@ pub(crate) async fn answer(
     proposed.truncate(MAX_CHAT_PROPOSALS);
     if !proposed.is_empty() {
         let (tokens, stored, dropped) =
-            proposals::store(shared, &incident, &skills, proposed).await;
+            proposals::store(shared, &incident, snapshot.as_ref(), &skills, proposed).await;
         // Each action the chat stored is a change to this incident: the hub turns it into
         // an SSE event, so the Approvals page and the incident page show it right away.
         for action in tokens.keys() {

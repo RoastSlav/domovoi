@@ -375,3 +375,65 @@ async fn pre_upgrade_dispatched_status_loads_without_an_epoch() {
         "the dispatched filter finds the old row",
     );
 }
+
+#[tokio::test]
+async fn hydration_rejects_a_v1_approval_with_only_a_displayed_hash() {
+    let fresh = Fresh::new().await;
+    let action = inserted(&fresh).await;
+    sqlx::query(
+        "UPDATE actions SET plan_hash_v2 = NULL, approved_plan_hash = plan_hash, \
+         approval_session_ref = NULL, approval_client = NULL WHERE id = ?",
+    )
+    .bind(action.id().to_string())
+    .execute(fresh.store.pool_for_tests())
+    .await
+    .unwrap();
+    assert!(
+        matches!(
+            ActionRepo::get(&fresh.store, action.id()).await,
+            Err(StoreError::Backend(message)) if message.contains("provenance")
+        ),
+        "a current v1 approval must record where it was made",
+    );
+}
+
+#[tokio::test]
+async fn hydration_rejects_a_v1_approval_with_only_provenance() {
+    let fresh = Fresh::new().await;
+    let action = inserted(&fresh).await;
+    sqlx::query("UPDATE actions SET plan_hash_v2 = NULL, approved_plan_hash = NULL WHERE id = ?")
+        .bind(action.id().to_string())
+        .execute(fresh.store.pool_for_tests())
+        .await
+        .unwrap();
+    assert!(
+        matches!(
+            ActionRepo::get(&fresh.store, action.id()).await,
+            Err(StoreError::Backend(message)) if message.contains("displayed plan hash")
+        ),
+        "a current v1 approval must record the hash it approved",
+    );
+}
+
+#[tokio::test]
+async fn hydration_rejects_a_policy_row_that_claims_to_have_run() {
+    let fresh = Fresh::new().await;
+    let action = inserted(&fresh).await;
+    sqlx::query(
+        "UPDATE actions SET authorization_kind = 'policy', approved_by = NULL, \
+         approved_channel = NULL, approved_at = NULL, approved_plan_hash = NULL, \
+         approval_session_ref = NULL, approval_client = NULL, \
+         status = '{\"type\":\"dispatched\"}' WHERE id = ?",
+    )
+    .bind(action.id().to_string())
+    .execute(fresh.store.pool_for_tests())
+    .await
+    .unwrap();
+    assert!(
+        matches!(
+            ActionRepo::get(&fresh.store, action.id()).await,
+            Err(StoreError::Backend(message)) if message.contains("policy action is only accepted")
+        ),
+        "a policy row cannot claim to be a terminal execution at M1",
+    );
+}

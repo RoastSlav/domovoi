@@ -64,6 +64,8 @@ struct ReportRow {
     reported_release: Option<String>,
     last_authenticated_at: Option<i64>,
     incompatible_since: Option<i64>,
+    /// Whether the agent was revoked at the time of the read; not part of the report.
+    revoked_at: Option<i64>,
 }
 
 impl ReportRow {
@@ -223,7 +225,7 @@ impl HostRepo for Store {
 
     async fn agent_report(&self, agent: AgentId) -> Result<Option<AgentReport>, StoreError> {
         const SQL: &str = "SELECT reported_protocol, reported_release, last_authenticated_at, \
-            incompatible_since FROM agents WHERE agent_id = ?";
+            incompatible_since, revoked_at FROM agents WHERE agent_id = ?";
         let row: Option<ReportRow> = sqlx::query_as(SQL)
             .bind(agent.to_string())
             .fetch_optional(&self.read)
@@ -241,7 +243,7 @@ impl HostRepo for Store {
         now: Timestamp,
     ) -> Result<ReportOutcome, StoreError> {
         const READ: &str = "SELECT reported_protocol, reported_release, last_authenticated_at, \
-            incompatible_since FROM agents WHERE agent_id = ?";
+            incompatible_since, revoked_at FROM agents WHERE agent_id = ?";
         const WRITE_ALL: &str = "UPDATE agents SET reported_protocol = ?, reported_release = ?, \
             last_authenticated_at = ?, incompatible_since = ? WHERE agent_id = ?";
         const REFRESH: &str = "UPDATE agents SET last_authenticated_at = ? WHERE agent_id = ?";
@@ -254,6 +256,11 @@ impl HostRepo for Store {
         let Some(stored) = row else {
             return Err(StoreError::NotFound);
         };
+        // A revoked identity must not collect a report, even if its handshake was already
+        // under way when it was retired.
+        if stored.revoked_at.is_some() {
+            return Err(StoreError::Conflict("the agent is revoked".to_owned()));
+        }
         let existing_since = from_ms_opt(stored.incompatible_since)?;
         let stored_last = stored.last_authenticated_at.map(from_ms).transpose()?;
         let protocol = seen.protocol.to_string();
@@ -265,6 +272,7 @@ impl HostRepo for Store {
             reported_release: stored.reported_release,
             last_authenticated_at: stored.last_authenticated_at,
             incompatible_since: stored.incompatible_since,
+            revoked_at: stored.revoked_at,
         }
         .into_report()?;
         let since = if seen.compatible {

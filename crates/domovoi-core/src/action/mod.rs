@@ -5,6 +5,7 @@ mod authorization;
 mod epoch;
 mod plan;
 mod request;
+mod stored;
 mod transition;
 
 pub use approval::{ApprovalChannel, ApprovalProvenance, HumanApproval, PlanBinding, PlanHash};
@@ -14,4 +15,5 @@ pub use authorization::{
 pub use epoch::JournalEpoch;
 pub use plan::{ImplHash, PlanContract, PlanError, PlanTarget};
 pub use request::{ActionRequest, ActionStatus, ApprovalPlan, PlanFamily, Principal, StoredAction};
+pub use stored::{ApprovalEvidenceError, StoredActionError};
 pub use transition::{ActionChange, ActionError};
