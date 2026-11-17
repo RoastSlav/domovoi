@@ -288,3 +288,88 @@ fn a_path_into_target_is_refused_and_a_file_is_parsed_once() {
     assert!(!reach.texts.contains_key("target/gen.rs"));
     assert!(reach.production.contains("crates/x/src/shared.rs"));
 }
+
+/// The context of `#[cfg(<predicate>)] mod m;` in a one-file crate.
+fn cfg_context(predicate: &str) -> &'static str {
+    let dir = tree(&[
+        (LIB, &format!("#[cfg({predicate})]\nmod m;\n")),
+        ("crates/x/src/m.rs", ""),
+    ]);
+    let reach = run(dir.path(), &[LIB], &[]);
+    if reach.test_only().contains("crates/x/src/m.rs") {
+        "test"
+    } else {
+        "production"
+    }
+}
+
+#[test]
+fn cfg_predicates_follow_boolean_semantics_with_test_false() {
+    for (predicate, expected) in [
+        ("test", "test"),
+        ("not(test)", "production"),
+        ("not(not(test))", "test"),
+        ("all(test, unix)", "test"),
+        ("all(unix, test)", "test"),
+        ("all(unix, feature = \"x\")", "production"),
+        ("any(test, unix)", "production"),
+        ("any(test, test)", "test"),
+        ("any(test, not(unix))", "production"),
+        ("not(any(test, unix))", "production"),
+        ("not(all(test, unix))", "production"),
+        ("not(all(unix, not(test)))", "production"),
+        ("all(not(test), unix)", "production"),
+        ("all(test, not(test))", "test"),
+        ("any(not(test), test)", "production"),
+        ("not(any(not(test), unix))", "test"),
+        ("feature = \"x\"", "production"),
+        ("unix", "production"),
+        ("all()", "production"),
+        ("any()", "test"),
+    ] {
+        assert_eq!(cfg_context(predicate), expected, "cfg({predicate})");
+    }
+}
+
+#[test]
+fn several_cfg_attributes_must_all_hold() {
+    let dir = tree(&[
+        (LIB, "#[cfg(unix)]\n#[cfg(test)]\nmod m;\n"),
+        ("crates/x/src/m.rs", ""),
+    ]);
+    let reach = run(dir.path(), &[LIB], &[]);
+    assert!(reach.test_only().contains("crates/x/src/m.rs"));
+}
+
+#[test]
+fn include_is_recognised_however_the_macro_path_is_written() {
+    for text in [
+        "include!(\"gone.rs\");\n",
+        "std::include!(\"gone.rs\");\n",
+        "::core::include!(\"gone.rs\");\n",
+        "other::include!(\"gone.rs\");\n",
+        "use std::include as inc;\ninc!(\"gone.rs\");\n",
+        "use std::include as inc;\nmacro_rules! m { () => { inc!(\"gone.rs\") } }\n",
+        "macro_rules! m { () => { include!(\"gone.rs\") } }\n",
+        "macro_rules! m { ($p:literal) => { include!($p) } }\n",
+    ] {
+        let dir = tree(&[(LIB, text)]);
+        let reach = run(dir.path(), &[LIB], &[]);
+        assert!(
+            reach.problems.iter().any(|p| p.rule == "SRC-1"),
+            "{text:?} was not followed or refused: {:#?}",
+            reach.problems
+        );
+    }
+}
+
+#[test]
+fn include_inside_an_inline_module_resolves_from_the_file_not_the_module() {
+    let dir = tree(&[
+        (LIB, "mod inner {\n    include!(\"beside.rs\");\n}\n"),
+        ("crates/x/src/beside.rs", "fn b() {}\n"),
+    ]);
+    let reach = run(dir.path(), &[LIB], &[]);
+    assert!(reach.problems.is_empty(), "{:#?}", reach.problems);
+    assert!(reach.production.contains("crates/x/src/beside.rs"));
+}

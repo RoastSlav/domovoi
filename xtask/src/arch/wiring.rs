@@ -10,10 +10,14 @@
 //! string literal, a path that climbs out of the workspace. `include_str!` and
 //! `include_bytes!` load data, not Rust, and are not declarations.
 
+use std::collections::BTreeMap;
+
 use proc_macro2::{TokenStream, TokenTree};
 use syn::spanned::Spanned;
 use syn::visit::Visit;
 use syn::{Attribute, Expr, ItemMod, Macro, Meta, Token};
+
+use super::alias::aliases;
 
 /// What a declaration loads.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -48,6 +52,7 @@ pub fn edges_of(rel: &str, text: &str, root: bool) -> Option<Vec<Edge>> {
         plain: module_dir(rel, root),
         attr_base: parent_dir(rel),
         tainted: false,
+        aliases: aliases(&file),
         edges: Vec::new(),
     };
     walker.visit_file(&file);
@@ -96,6 +101,8 @@ struct Walker {
     plain: String,
     attr_base: String,
     tainted: bool,
+    /// `use` renames in this file, so `use std::include as inc; inc!(..)` is an include.
+    aliases: BTreeMap<String, Vec<String>>,
     edges: Vec<Edge>,
 }
 
@@ -125,7 +132,7 @@ impl<'ast> Visit<'ast> for Walker {
     }
 
     fn visit_macro(&mut self, node: &'ast Macro) {
-        if is_include(&node.path) {
+        if is_include(&node.path, &self.aliases) {
             let line = node.path.span().start().line;
             let target = include_target(&node.tokens, &self.dir);
             self.edges.push(Edge {
@@ -151,7 +158,12 @@ impl Walker {
             let TokenTree::Ident(ident) = token else {
                 continue;
             };
-            if ident != "include" {
+            let name = ident.to_string();
+            let renamed_include = self
+                .aliases
+                .get(&name)
+                .is_some_and(|full| full.last().is_some_and(|last| last == "include"));
+            if name != "include" && !renamed_include {
                 continue;
             }
             if let (Some(TokenTree::Punct(bang)), Some(TokenTree::Group(body))) =
@@ -168,14 +180,19 @@ impl Walker {
     }
 }
 
-/// Whether a macro path is `include`, `std::include` or `core::include`.
-fn is_include(path: &syn::Path) -> bool {
-    let names: Vec<String> = path.segments.iter().map(|s| s.ident.to_string()).collect();
-    match names.as_slice() {
-        [only] => only == "include",
-        [krate, name] => (krate == "std" || krate == "core") && name == "include",
-        _ => false,
+/// Whether a macro path names `include`: the last segment is `include` however the path is
+/// qualified (`include!`, `std::include!`, `::core::include!`, `other::include!`), or the path
+/// is one name that a `use` renamed to such a path (`use std::include as inc;`). A path
+/// ending in `include` is refused or followed even when it is not the standard macro: failing
+/// closed costs one reviewed edit, a miss costs unscanned source.
+fn is_include(path: &syn::Path, aliases: &BTreeMap<String, Vec<String>>) -> bool {
+    let mut names: Vec<String> = path.segments.iter().map(|s| s.ident.to_string()).collect();
+    if names.len() == 1
+        && let Some(full) = aliases.get(&names[0])
+    {
+        names = full.clone();
     }
+    names.last().is_some_and(|last| last == "include")
 }
 
 /// Resolve an `include!` body: one string literal, taken relative to the including file.
@@ -250,38 +267,47 @@ fn path_attr(attrs: &[Attribute]) -> Option<String> {
     })
 }
 
-/// Whether the attributes gate an item on `#[cfg(test)]`.
+/// Whether the attributes gate an item so it can only compile in test builds.
 ///
-/// `cfg(test)` is test-only, `cfg(all(test, ...))` is test-only when one conjunct is,
-/// `cfg(any(...))` only when every alternative is, and `cfg(not(...))` never is: the item then
-/// compiles outside tests too. Anything unreadable is treated as production, so it is scanned.
+/// The `cfg` predicate is read as a boolean expression with `test` fixed to false: the item
+/// is test-only exactly when no assignment of the other predicates (`unix`, `feature = ..`,
+/// `target_os = ..`) can make it true. `cfg(test)`, `all(test, ..)` and `not(not(test))` are
+/// test-only; `not(test)`, `any(test, unix)` and `not(any(test, unix))` can compile without
+/// `test` and are production. Other predicates are free and independent of each other, which
+/// can only make an item look compilable, so the approximation errs towards production. An
+/// attribute whose arguments cannot be read is production, so it is scanned. Several `cfg`
+/// attributes on one item must all hold, so one test-only attribute is enough.
 pub fn is_cfg_test(attrs: &[Attribute]) -> bool {
     attrs.iter().any(|attr| match &attr.meta {
         Meta::List(list) if list.path.is_ident("cfg") => list
-            .parse_args_with(syn::punctuated::Punctuated::<Meta, Token![,]>::parse_terminated)
-            .map(|args| args.iter().any(cfg_is_test))
+            .parse_args::<Meta>()
+            .map(|predicate| !can_hold(&predicate).0)
             .unwrap_or(false),
         _ => false,
     })
 }
 
-fn cfg_is_test(meta: &Meta) -> bool {
+/// Whether a `cfg` predicate can be true and whether it can be false, with `test` false.
+fn can_hold(meta: &Meta) -> (bool, bool) {
     match meta {
-        Meta::Path(path) => path.is_ident("test"),
+        Meta::Path(path) if path.is_ident("test") => (false, true),
+        Meta::Path(_) | Meta::NameValue(_) => (true, true),
         Meta::List(list) => {
             let Ok(args) = list
                 .parse_args_with(syn::punctuated::Punctuated::<Meta, Token![,]>::parse_terminated)
             else {
-                return false;
+                return (true, true);
             };
-            if list.path.is_ident("all") {
-                args.iter().any(cfg_is_test)
+            let parts: Vec<(bool, bool)> = args.iter().map(can_hold).collect();
+            if list.path.is_ident("not") && parts.len() == 1 {
+                (parts[0].1, parts[0].0)
+            } else if list.path.is_ident("all") {
+                (parts.iter().all(|p| p.0), parts.iter().any(|p| p.1))
             } else if list.path.is_ident("any") {
-                !args.is_empty() && args.iter().all(cfg_is_test)
+                (parts.iter().any(|p| p.0), parts.iter().all(|p| p.1))
             } else {
-                false
+                (true, true)
             }
         }
-        Meta::NameValue(_) => false,
     }
 }
