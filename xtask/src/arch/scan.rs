@@ -74,6 +74,17 @@ fn is_test_path(rel: &str) -> bool {
     rel.contains("/tests/") || rel.ends_with("/tests.rs") || rel.ends_with("_tests.rs")
 }
 
+/// Whether a path allowlist entry covers `rel`: an entry ending in `/` is a directory scope,
+/// any other entry names one file exactly, so a sibling file cannot inherit the exception.
+fn path_matches(rel: &str, allowed: &str) -> bool {
+    if allowed.ends_with('/') {
+        rel.starts_with(allowed)
+    } else {
+        rel == allowed
+    }
+}
+
+/// Whether `line` is inside a comment: a rule never counts a mention in prose.
 fn is_comment(line: &str) -> bool {
     let t = line.trim_start();
     t.starts_with("//") || t.starts_with("/*") || t.starts_with('*')
@@ -83,48 +94,58 @@ fn is_comment(line: &str) -> bool {
 pub fn check_file(rel: &str, text: &str) -> Vec<Violation> {
     let mut out = Vec::new();
     let test = is_test_path(rel);
-    let in_runner = PROCESS_ALLOWED_PREFIXES.iter().any(|p| rel.starts_with(p));
+    let in_runner = PROCESS_ALLOWED_PREFIXES
+        .iter()
+        .any(|p| path_matches(rel, p));
     let approval_ok = test
         || HUMAN_APPROVAL_ALLOWED_PREFIXES
             .iter()
-            .any(|p| rel.starts_with(p));
+            .any(|p| path_matches(rel, p));
     let restore_ok = test
         || HUMAN_APPROVAL_RESTORE_ALLOWED_PREFIXES
             .iter()
-            .any(|p| rel.starts_with(p));
+            .any(|p| path_matches(rel, p));
     let permit_ok = test
         || POLICY_PERMIT_ALLOWED_PREFIXES
             .iter()
-            .any(|p| rel.starts_with(p));
+            .any(|p| path_matches(rel, p));
     let authorization_human_ok = test
         || AUTHORIZATION_HUMAN_ALLOWED_PREFIXES
             .iter()
-            .any(|p| rel.starts_with(p));
+            .any(|p| path_matches(rel, p));
     let authorization_policy_ok = test
         || AUTHORIZATION_POLICY_ALLOWED_PREFIXES
             .iter()
-            .any(|p| rel.starts_with(p));
+            .any(|p| path_matches(rel, p));
     let plan_v2_ok = test
         || PLAN_HASH_V2_ALLOWED_PREFIXES
             .iter()
-            .any(|p| rel.starts_with(p));
+            .any(|p| path_matches(rel, p));
     let run_tool_ok = test
-        || RUN_TOOL_ALLOWED_PREFIXES.iter().any(|p| rel.starts_with(p))
-        || LINK_DEFINITION_PREFIXES.iter().any(|p| rel.starts_with(p));
+        || RUN_TOOL_ALLOWED_PREFIXES
+            .iter()
+            .any(|p| path_matches(rel, p))
+        || LINK_DEFINITION_PREFIXES
+            .iter()
+            .any(|p| path_matches(rel, p));
     let run_skill_ok = test
         || RUN_SKILL_ALLOWED_PREFIXES
             .iter()
-            .any(|p| rel.starts_with(p))
-        || LINK_DEFINITION_PREFIXES.iter().any(|p| rel.starts_with(p));
+            .any(|p| path_matches(rel, p))
+        || LINK_DEFINITION_PREFIXES
+            .iter()
+            .any(|p| path_matches(rel, p));
     let run_check_ok = test
         || RUN_CHECK_ALLOWED_PREFIXES
             .iter()
-            .any(|p| rel.starts_with(p))
-        || LINK_DEFINITION_PREFIXES.iter().any(|p| rel.starts_with(p));
+            .any(|p| path_matches(rel, p))
+        || LINK_DEFINITION_PREFIXES
+            .iter()
+            .any(|p| path_matches(rel, p));
     let link_name_ok = test
         || AGENT_LINK_ALLOWED_PREFIXES
             .iter()
-            .any(|p| rel.starts_with(p));
+            .any(|p| path_matches(rel, p));
     let execution_scope = EXECUTION_SCANNED_CRATES.iter().any(|p| rel.starts_with(p));
     let link_scope = LINK_SCANNED_CRATES.iter().any(|p| rel.starts_with(p));
     let pure = !test && PURE_CRATE_DIRS.iter().any(|p| rel.starts_with(p));

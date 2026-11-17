@@ -239,6 +239,90 @@ fn the_core_ports_exceptions_are_the_trait_file_and_its_reexport() {
     );
 }
 
+/// An allowlist entry that does not end in `/` names one file exactly: a path that merely
+/// starts with it inherits nothing, and a directory entry still covers its subpaths.
+#[test]
+fn a_sibling_path_does_not_inherit_a_file_exception() {
+    let naming = "let l: Arc<dyn AgentLink> = s.link();\n";
+    // The exact file entries keep their own exception.
+    for exact in [
+        "crates/domovoi-core/src/ports/agent_link.rs",
+        "crates/domovoi-core/src/ports/mod.rs",
+        "crates/domovoi-hub/src/agent_server/link.rs",
+        "crates/domovoi-hub/src/agent_server/skill_policy.rs",
+        "crates/domovoi-engine/src/actions/execute.rs",
+        "crates/domovoi-engine/src/actions/verify_wake.rs",
+    ] {
+        assert!(
+            check_file(exact, naming).is_empty(),
+            "{exact} lost its EXEC-4 exception"
+        );
+    }
+    // A directory entry covers anything below it.
+    for under in [
+        "crates/domovoi-hub/src/agent_server/transports/ws.rs",
+        "crates/domovoi-hub/src/runtime/compose.rs",
+        "crates/domovoi-engine/src/evidence/collect.rs",
+        "crates/domovoi-engine/src/actions/schedule.rs",
+        "crates/domovoi-testkit/src/link/fake.rs",
+    ] {
+        assert!(
+            check_file(under, naming).is_empty(),
+            "{under} is under a directory exception"
+        );
+    }
+    // A sibling whose name merely starts with an exact entry is refused (EXEC-4).
+    for path in [
+        "crates/domovoi-core/src/ports/agent_link.rs_extra.rs",
+        "crates/domovoi-core/src/ports/mod.rs_extra.rs",
+    ] {
+        let refused = check_file(path, naming);
+        assert!(
+            refused.iter().any(|x| x.rule == "EXEC-4"),
+            "{path} inherited a core ports EXEC-4 exception"
+        );
+    }
+    // The same sibling cannot use the trait file's EXEC-1..3 exception either.
+    let sibling = "crates/domovoi-core/src/ports/agent_link.rs_extra.rs";
+    for (text, rule) in [
+        (
+            "let out = link.run_tool(host, call, deadline).await;\n",
+            "EXEC-1",
+        ),
+        (
+            "link.start_skill(host, req, session, epoch, deadline).await;\n",
+            "EXEC-2",
+        ),
+        (
+            "link.run_check(host, check, None, deadline).await;\n",
+            "EXEC-3",
+        ),
+    ] {
+        let refused = check_file(sibling, text);
+        assert!(
+            refused.iter().any(|x| x.rule == rule),
+            "{sibling} inherited the trait file's {rule} exception"
+        );
+    }
+    // The engine's two boundary files are named exactly as well.
+    let refused = check_file(
+        "crates/domovoi-engine/src/actions/execute.rs_extra.rs",
+        "deps.link.start_skill(host, req, session, epoch, deadline).await;\n",
+    );
+    assert!(
+        refused.iter().any(|x| x.rule == "EXEC-2"),
+        "a file beside `execute.rs` inherited the execution boundary"
+    );
+    let refused = check_file(
+        "crates/domovoi-engine/src/actions/verify_wake.rs_extra.rs",
+        "deps.link.run_check(host, check, None, deadline).await;\n",
+    );
+    assert!(
+        refused.iter().any(|x| x.rule == "EXEC-3"),
+        "a file beside `verify_wake.rs` inherited verification"
+    );
+}
+
 #[test]
 fn a_transport_naming_the_link_is_rejected() {
     for text in [

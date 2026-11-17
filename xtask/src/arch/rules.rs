@@ -196,9 +196,11 @@ pub const PLAN_HASH_V2_ALLOWED_PREFIXES: &[&str] = &["crates/domovoi-core/src/ac
 /// direct construction path (ADR 0021).
 pub const AUTHORIZATION_MODULE: &str = "crates/domovoi-core/src/action/authorization.rs";
 
-/// Path prefixes where an `AgentLink` may be declared, implemented or composed (EXEC-4,
-/// ADR 0022): the one trait file and its fakes, the real link, the policy wrapper and the
-/// composition root. Adding a new implementation is a deliberate edit to this list.
+/// Where an `AgentLink` may be declared, implemented or faked, and the extra exception those
+/// files have for `EXEC-1` to `EXEC-3` (ADR 0022): the one trait file, the hub's real link and
+/// policy wrapper, and the fakes. An entry ending in `/` is a directory; any other entry names
+/// one file exactly, so a file beside it inherits nothing. Adding an implementation means a
+/// deliberate edit here.
 pub const LINK_DEFINITION_PREFIXES: &[&str] = &[
     "crates/domovoi-core/src/ports/agent_link.rs",
     "crates/domovoi-hub/src/agent_server/link.rs",
@@ -206,17 +208,16 @@ pub const LINK_DEFINITION_PREFIXES: &[&str] = &[
     "crates/domovoi-testkit/",
 ];
 
-/// Path prefixes where `run_tool(` may be called: the one read boundary (EXEC-1, ADR 0022).
-/// The trait's declaration and implementations are allowed through
-/// [`LINK_DEFINITION_PREFIXES`].
+/// Where a host may be read: the one read boundary directory (EXEC-1, ADR 0022), plus the
+/// declaration files through [`LINK_DEFINITION_PREFIXES`].
 pub const RUN_TOOL_ALLOWED_PREFIXES: &[&str] = &["crates/domovoi-engine/src/evidence/"];
 
-/// Path prefixes where a skill may be handed to an agent: the one execution boundary
+/// Where a skill may be handed to an agent: the one execution boundary file, named exactly
 /// (EXEC-2, ADR 0022). `run_capability` is scanned before the capability registry adds it, so
 /// the rule starts enforcing the day it lands.
 pub const RUN_SKILL_ALLOWED_PREFIXES: &[&str] = &["crates/domovoi-engine/src/actions/execute.rs"];
 
-/// Path prefixes where a check may be re-run on an agent: verification only (EXEC-3,
+/// Where a check may be re-run on an agent: the one verification file, named exactly (EXEC-3,
 /// ADR 0022).
 pub const RUN_CHECK_ALLOWED_PREFIXES: &[&str] =
     &["crates/domovoi-engine/src/actions/verify_wake.rs"];
@@ -225,7 +226,8 @@ pub const RUN_CHECK_ALLOWED_PREFIXES: &[&str] =
 /// or composes it, plus the engine's two boundaries. The core `ports/` exceptions are exact
 /// files - the trait declaration and the module that re-exports it - so another port module
 /// added beside them is denied. Everything else is default-deny: a new transport directory
-/// is refused without an edit here, and a new allowed area is a deliberate, reviewable one.
+/// is refused without an edit here, and a new allowed area is a deliberate, reviewable one. An
+/// entry ending in `/` is a directory; any other entry names one file exactly.
 pub const AGENT_LINK_ALLOWED_PREFIXES: &[&str] = &[
     "crates/domovoi-core/src/ports/agent_link.rs",
     "crates/domovoi-core/src/ports/mod.rs",
