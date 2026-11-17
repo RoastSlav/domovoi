@@ -24,6 +24,8 @@ mod effects;
 #[cfg(test)]
 mod effects_triage;
 #[cfg(test)]
+mod evidence;
+#[cfg(test)]
 mod execute;
 #[cfg(test)]
 mod expiry;

@@ -3,9 +3,9 @@
 use std::sync::Arc;
 
 use domovoi_config::hub::HubConfig;
-use domovoi_core::ports::{AgentLink, Clock, ProcessExecutor};
+use domovoi_core::ports::{Clock, ProcessExecutor};
 use domovoi_engine::triage::{TriageDeps, TriageHandle, TriageService};
-use domovoi_engine::{DomainEvent, ManagerHandle, PatternRedactor};
+use domovoi_engine::{DomainEvent, Evidence, HostCatalog, ManagerHandle, PatternRedactor};
 use domovoi_store::Store;
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
@@ -17,7 +17,8 @@ use super::{AdapterOverrides, RuntimeError, settings};
 pub(super) struct TriageBuild<'a> {
     pub(super) config: &'a HubConfig,
     pub(super) store: &'a Arc<Store>,
-    pub(super) link: Arc<dyn AgentLink>,
+    pub(super) evidence: Evidence,
+    pub(super) catalog: HostCatalog,
     pub(super) manager: &'a ManagerHandle,
     pub(super) bus: &'a broadcast::Sender<DomainEvent>,
     pub(super) clock: &'a Arc<dyn Clock>,
@@ -36,7 +37,8 @@ pub(super) async fn build(
     let TriageBuild {
         config,
         store,
-        link,
+        evidence,
+        catalog,
         manager,
         bus,
         clock,
@@ -86,7 +88,8 @@ pub(super) async fn build(
         TriageDeps {
             primary,
             fallbacks,
-            link,
+            evidence,
+            catalog,
             incidents: store.clone(),
             signals: store.clone(),
             notes: store.clone(),

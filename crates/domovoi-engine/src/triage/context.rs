@@ -10,6 +10,7 @@ use jiff::SignedDuration;
 
 use super::Shared;
 use super::tools::cut;
+use crate::evidence::EvidenceRequest;
 
 /// The largest single part of the bundle, in bytes.
 pub const PART_BYTES: usize = 4 * 1024;
@@ -146,7 +147,7 @@ async fn changes(shared: &Shared, incident: &Incident) -> String {
         }
     }
     if matches!(
-        deps.link.presence(incident.host()),
+        deps.catalog.presence(incident.host()),
         Presence::Connected { .. }
     ) {
         let deadline = now.checked_add(CHANGES_DEADLINE).unwrap_or(now);
@@ -154,7 +155,8 @@ async fn changes(shared: &Shared, incident: &Incident) -> String {
             container: None,
             since_minutes: 24 * 60,
         };
-        match deps.link.run_tool(incident.host(), call, deadline).await {
+        let request = EvidenceRequest::for_incident(incident, call, deadline);
+        match deps.evidence.collect_evidence(request).await {
             Ok(events) if !events.text.trim().is_empty() => {
                 let _ = writeln!(out, "Docker events:\n{}", events.text.trim());
             }

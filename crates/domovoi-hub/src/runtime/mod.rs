@@ -23,8 +23,8 @@ use domovoi_core::ports::{
     ChatGateway, Clock, HostRepo, InteractionSink, LogSource, Notifier, ProcessExecutor,
 };
 use domovoi_engine::{
-    ActionDeps, ActionService, DomainEvent, IncidentManager, ManagerDeps, ManagerHandle,
-    PatternRedactor,
+    ActionDeps, ActionService, DomainEvent, Evidence, HostCatalog, IncidentManager, ManagerDeps,
+    ManagerHandle, PatternRedactor,
 };
 use domovoi_llm::LlmBuildError;
 use domovoi_store::{Store, StoreOpenError};
@@ -220,6 +220,10 @@ impl HubRuntime {
             SkillPolicy::load(store.clone(), &HostRepo::list_hosts(&*store).await?).await?,
         );
         let policy_link = Arc::new(PolicyLink::wrap(server.link(), skill_policy.clone()));
+        // The one read boundary and the narrow catalogue view are built once here, from the
+        // same link the engine dispatches through, and handed to everyone that reads a host.
+        let evidence = Evidence::new(policy_link.clone());
+        let catalog = HostCatalog::new(policy_link.clone());
         let (actions_service, actions_task) = ActionService::spawn(
             ActionDeps {
                 actions: store.clone(),
@@ -242,7 +246,8 @@ impl HubRuntime {
         let triage = triage_build::build(triage_build::TriageBuild {
             config: &config,
             store: &store,
-            link: policy_link.clone(),
+            evidence: evidence.clone(),
+            catalog: catalog.clone(),
             manager: &manager,
             bus: &bus,
             clock: &clock,
@@ -279,7 +284,8 @@ impl HubRuntime {
             })
         });
         let profile_deps = crate::profile::ProfileDeps {
-            link: policy_link.clone(),
+            evidence: evidence.clone(),
+            catalog: catalog.clone(),
             agents: Arc::new(server.clone()),
             hosts: store.clone(),
             notes: store.clone(),

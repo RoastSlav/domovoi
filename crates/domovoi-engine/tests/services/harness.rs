@@ -276,7 +276,8 @@ async fn world_over_with_actions(
     let deps = TriageDeps {
         primary: primary_dyn.clone(),
         fallbacks: fallbacks.clone(),
-        link: link.clone(),
+        evidence: domovoi_engine::Evidence::new(link.clone()),
+        catalog: domovoi_engine::HostCatalog::new(link.clone()),
         incidents: store.clone(),
         signals: store.clone(),
         notes: store.clone(),
@@ -333,7 +334,8 @@ impl World {
         let deps = TriageDeps {
             primary: self.primary_dyn.clone(),
             fallbacks: self.fallbacks.clone(),
-            link: self.link.clone(),
+            evidence: domovoi_engine::Evidence::new(self.link.clone()),
+            catalog: domovoi_engine::HostCatalog::new(self.link.clone()),
             incidents: self.store.clone(),
             signals: self.store.clone(),
             notes: self.store.clone(),

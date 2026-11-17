@@ -11,7 +11,7 @@ use domovoi_core::ports::{HostRepo, LinkError, NoteRepo, Presence, SettingsRepo,
 use domovoi_core::{
     CheckKey, HostId, ParamKind, ParamName, ParamSpec, ReadToolCall, Risk, SkillSummary,
 };
-use domovoi_engine::PatternRedactor;
+use domovoi_engine::{Evidence, HostCatalog, PatternRedactor};
 use domovoi_hub::agent_server::{PolicyLink, SkillPolicy};
 use domovoi_hub::profile::diff::{MAX_CHANGES, changes, recent_changes};
 use domovoi_hub::profile::{
@@ -139,7 +139,8 @@ fn seed(a: &Api, version: &str) {
 /// The hub's pieces put together as the profile task and the API use them.
 fn profile_deps(a: &Api) -> ProfileDeps {
     ProfileDeps {
-        link: a.link.clone(),
+        evidence: Evidence::new(a.link.clone()),
+        catalog: HostCatalog::new(a.link.clone()),
         agents: Arc::new(TestAgents {
             link: a.link.clone(),
             hosts: a.store.clone(),
@@ -149,6 +150,60 @@ fn profile_deps(a: &Api) -> ProfileDeps {
         settings: a.store.clone(),
         clock: a.clock.clone(),
         redactor: Arc::new(PatternRedactor::default()),
+    }
+}
+
+#[tokio::test]
+async fn profile_collection_reads_through_the_evidence_boundary() {
+    let a = api().await;
+    seed(&a, "0.6.0");
+    a.link.set_skills(a.nas.id, announced_skills());
+    // One read fails at the agent: the page has to say so, with the agent's own words.
+    a.link.on_tool(|_, call| {
+        if matches!(call, ReadToolCall::ListeningPorts) {
+            return Err(LinkError::Rejected(
+                "the port table is unreadable".to_owned(),
+            ));
+        }
+        Ok(ToolOutput {
+            text: answered(call),
+            truncated: false,
+        })
+    });
+
+    let profile = refresh(&profile_deps(&a), &a.nas).await.unwrap();
+    let titles: Vec<&str> = profile
+        .sections
+        .iter()
+        .map(|section| section.title.as_str())
+        .collect();
+    assert!(
+        [
+            "Overview",
+            "Containers",
+            "Listening ports",
+            "Kernel messages (24 h)"
+        ]
+        .iter()
+        .all(|fixed| titles.contains(fixed)),
+        "the fixed sections are still there: {titles:?}"
+    );
+    let ports = profile
+        .sections
+        .iter()
+        .find(|section| section.title == "Listening ports")
+        .expect("the failed section stays on the page");
+    assert!(!ports.ok, "a failed read is never shown as an empty one");
+    assert_eq!(
+        ports.text,
+        "rejected by agent: the port table is unreadable"
+    );
+
+    // Every read that reached the agent was on the host being profiled.
+    for request in a.link.requests() {
+        if let LinkRequest::Tool { host, .. } = request {
+            assert_eq!(host, a.nas.id, "a profile read reached another host");
+        }
     }
 }
 
@@ -293,8 +348,10 @@ async fn a_disabled_read_skill_is_never_asked_for_a_profile() {
     let policy = SkillPolicy::load(a.store.clone(), std::slice::from_ref(&a.nas))
         .await
         .unwrap();
+    let policy_link = Arc::new(PolicyLink::wrap(a.link.clone(), Arc::new(policy)));
     let deps = ProfileDeps {
-        link: Arc::new(PolicyLink::wrap(a.link.clone(), Arc::new(policy))),
+        evidence: Evidence::new(policy_link.clone()),
+        catalog: HostCatalog::new(policy_link),
         agents: Arc::new(TestAgents {
             link: a.link.clone(),
             hosts: a.store.clone(),

@@ -505,7 +505,7 @@ async fn link_to_incompatible_host_is_unavailable() {
     let ident = enroll(&hub, "nas").await;
     let (reply, _) = reject_protocol(&hub, &ident, ProtocolVersion { major: 1, minor: 0 }).await;
     assert!(matches!(reply, Message::Reject(_)));
-    let link = hub.server.link();
+    let link = hub.server.link_for_tests();
     let deadline = hub.clock.now() + SignedDuration::from_secs(5);
     assert_eq!(
         link.run_tool(ident.host, ReadToolCall::DockerPs { all: false }, deadline)

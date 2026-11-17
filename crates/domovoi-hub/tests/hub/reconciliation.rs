@@ -99,7 +99,7 @@ async fn incompatible_agent_keeps_dispatched_action() {
         "a rejected agent has no session to reconcile against",
     );
     assert_eq!(
-        hub.server.link().journal_epoch(ident.host),
+        hub.server.link_for_tests().journal_epoch(ident.host),
         None,
         "with no live session there is no journal epoch, so the run stays dispatched",
     );
@@ -147,7 +147,7 @@ async fn agent_that_never_reconnects_keeps_dispatched_action() {
         reconciler.hosts().is_empty(),
         "a host that never reconnects is never reconciled",
     );
-    assert_eq!(hub.server.link().journal_epoch(ident), None);
+    assert_eq!(hub.server.link_for_tests().journal_epoch(ident), None);
 }
 
 #[tokio::test]
@@ -171,7 +171,7 @@ async fn a_host_already_connected_is_reconciled_when_the_action_service_arrives(
 #[tokio::test]
 async fn the_link_reports_the_journal_epoch_the_agent_announced() {
     let hub = Hub::start().await;
-    let link = hub.server.link();
+    let link = hub.server.link_for_tests();
     let epoch = uuid::Uuid::now_v7();
     let ident = enroll(&hub, "nas").await;
     let _agent = authenticate_with(&hub, &ident, epoch).await;
@@ -191,7 +191,7 @@ async fn the_link_reports_the_journal_epoch_the_agent_announced() {
 #[tokio::test]
 async fn the_link_asks_the_journal_about_each_run_and_maps_the_answers() {
     let hub = Hub::start().await;
-    let link = hub.server.link();
+    let link = hub.server.link_for_tests();
     let epoch = uuid::Uuid::now_v7();
     let ident = enroll(&hub, "nas").await;
     // The mapping of all four journal states is about an agent that can prove absence.
@@ -322,7 +322,7 @@ async fn the_link_asks_the_journal_about_each_run_and_maps_the_answers() {
 #[tokio::test]
 async fn an_unrecognised_journal_reason_is_treated_as_a_lost_record() {
     let hub = Hub::start().await;
-    let link = hub.server.link();
+    let link = hub.server.link_for_tests();
     let epoch = uuid::Uuid::now_v7();
     let ident = enroll(&hub, "nas").await;
     let mut agent = authenticate_with(&hub, &ident, epoch).await;
@@ -418,7 +418,7 @@ async fn until(done: impl Fn() -> bool) {
 #[tokio::test]
 async fn an_action_status_query_is_not_sent_to_a_replacement_session() {
     let hub = Hub::start().await;
-    let link = hub.server.link();
+    let link = hub.server.link_for_tests();
     let ident = enroll(&hub, "nas").await;
     let first = uuid::Uuid::now_v7();
     let _old = authenticate_with(&hub, &ident, first).await;
@@ -450,7 +450,7 @@ async fn an_action_status_query_is_not_sent_to_a_replacement_session() {
 #[tokio::test]
 async fn a_same_epoch_reconnect_is_still_answered() {
     let hub = Hub::start().await;
-    let link = hub.server.link();
+    let link = hub.server.link_for_tests();
     let ident = enroll(&hub, "nas").await;
     let epoch = uuid::Uuid::now_v7();
     let _old = authenticate_with(&hub, &ident, epoch).await;
@@ -570,7 +570,7 @@ async fn answer_status(
     let host = ident.host;
     let deadline = hub.clock.now() + SignedDuration::from_secs(10);
     let waiting = tokio::spawn({
-        let link = hub.server.link();
+        let link = hub.server.link_for_tests();
         async move {
             link.action_status(host, vec![run], JournalEpoch::from_uuid(epoch), deadline)
                 .await

@@ -10,8 +10,61 @@ use jiff::SignedDuration;
 use crate::agent::{FakeAgent, enroll, new_key};
 use crate::harness::{Hub, t0};
 
+/// A transport reads host state through `AgentAdmin`; it never names, holds or calls the
+/// agent link itself (EXEC-4, ADR 0022). The scan is textual, like every other arch rule.
+#[test]
+fn transports_do_not_name_the_agent_link() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut offenders = Vec::new();
+    for area in ["api", "auth"] {
+        link_scan(&root, &root.join(area), &mut offenders);
+    }
+    assert!(
+        offenders.is_empty(),
+        "a transport names or reaches the agent link: {offenders:?}",
+    );
+}
+
+/// Collects every non-comment line under `dir` that names `AgentLink`, `WsAgentLink` or
+/// `PolicyLink`.
+fn link_scan(root: &std::path::Path, dir: &std::path::Path, offenders: &mut Vec<String>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            link_scan(root, &path, offenders);
+            continue;
+        }
+        if path.extension().and_then(|ext| ext.to_str()) != Some("rs") {
+            continue;
+        }
+        let rel = path
+            .strip_prefix(root)
+            .unwrap_or(&path)
+            .to_string_lossy()
+            .replace('\\', "/");
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        for (index, line) in text.lines().enumerate() {
+            let code = line.trim_start();
+            if code.starts_with("//") {
+                continue;
+            }
+            if ["AgentLink", "WsAgentLink", "PolicyLink", "link_for_tests("]
+                .iter()
+                .any(|named| code.contains(named))
+            {
+                offenders.push(format!("{rel}:{}: {code}", index + 1));
+            }
+        }
+    }
+}
+
 async fn reachable(hub: &Hub, host: domovoi_core::HostId) -> bool {
-    let link = hub.server.link();
+    let link = hub.server.link_for_tests();
     let call = link
         .run_tool(
             host,
@@ -58,7 +111,7 @@ async fn agent_link_requires_completed_handshake() {
     agent.authenticate(&ident).await;
     assert!(
         matches!(
-            hub.server.link().presence(ident.host),
+            hub.server.link_for_tests().presence(ident.host),
             Presence::Connected { .. }
         ),
         "the full handshake does"

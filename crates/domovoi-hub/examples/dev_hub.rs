@@ -469,7 +469,8 @@ async fn main() -> Result<()> {
     let config = config()?;
     let server = agent_server(dir.path(), clock.clone(), store.clone(), manager.clone())?;
     let profile_deps = ProfileDeps {
-        link: link.clone(),
+        evidence: domovoi_engine::Evidence::new(link.clone()),
+        catalog: domovoi_engine::HostCatalog::new(link.clone()),
         agents: Arc::new(DevAgents {
             server: server.clone(),
             link: link.clone(),

@@ -31,7 +31,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, OnceLock};
 
 use domovoi_core::ports::{
-    AuditLog, Clock, FactRepo, HostReconciler, HostRepo, SignalSink, StoreError,
+    AgentLink, AuditLog, Clock, FactRepo, HostReconciler, HostRepo, SignalSink, StoreError,
 };
 use domovoi_core::{HostId, HostKind, HostName};
 use domovoi_proto::messages::{CheckInfo, HostFacts};
@@ -144,9 +144,49 @@ impl AgentServer {
     }
 
     /// The link the engine uses to reach agents.
+    ///
+    /// Crate-private on purpose: a transport reaches agents through
+    /// [`crate::api::AgentAdmin`], and the engine through its one execution and one read
+    /// boundary, never by holding a link (EXEC-4). Only the composition root in `runtime`
+    /// builds those from it.
     #[must_use]
-    pub fn link(&self) -> Arc<WsAgentLink> {
+    pub(crate) fn link(&self) -> Arc<WsAgentLink> {
         self.inner.link.clone()
+    }
+
+    /// The link this server owns, for the test suites that drive an agent's wire directly.
+    ///
+    /// A transport never needs it: host state is read through
+    /// [`crate::api::AgentAdmin`], and the engine reaches the link only from its boundaries.
+    /// `xtask arch-check` refuses a call to this outside `agent_server/` and test paths, so
+    /// it cannot become a second way in.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn link_for_tests(&self) -> Arc<WsAgentLink> {
+        self.link()
+    }
+
+    /// The connection state of `host`'s agent, for a transport reading it through
+    /// [`crate::api::AgentAdmin`].
+    #[must_use]
+    pub fn host_presence(&self, host: HostId) -> domovoi_core::ports::Presence {
+        self.inner.link.presence(host)
+    }
+
+    /// The skills `host`'s agent announced on its last handshake.
+    #[must_use]
+    pub fn host_skills(&self, host: HostId) -> Vec<domovoi_core::SkillSummary> {
+        self.inner.link.skills(host)
+    }
+
+    /// The agent's recent log lines, as the log page asks for them.
+    pub async fn host_logs(
+        &self,
+        host: HostId,
+        lines: u16,
+        min_level: String,
+    ) -> Result<Vec<domovoi_core::ports::LogLine>, domovoi_core::ports::LinkError> {
+        self.inner.link.logs(host, lines, min_level).await
     }
 
     /// Gives the server the action service, so every authenticated agent's dispatched

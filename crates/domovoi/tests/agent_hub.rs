@@ -212,7 +212,7 @@ mod common {
 
     /// Yields until the hub sees the agent connected.
     pub async fn connected(hub: &Hub, host: HostId) {
-        let link = hub.server.link();
+        let link = hub.server.link_for_tests();
         tokio::time::timeout(GUARD, async {
             while !matches!(link.presence(host), Presence::Connected { .. }) {
                 tokio::task::yield_now().await;
@@ -264,7 +264,7 @@ async fn run_tool_round_trips_and_times_out() {
     let hub = hub().await;
     let agent = agent(&hub, |_| {}).await;
     connected(&hub, agent.host).await;
-    let link = hub.server.link();
+    let link = hub.server.link_for_tests();
     let deadline = t0() + SignedDuration::from_secs(30);
     let out = link
         .run_tool(agent.host, ReadToolCall::HostOverview, deadline)
@@ -293,7 +293,7 @@ async fn run_skill_reaches_agent_and_plan_mismatch_is_reported() {
     let agent = agent(&hub, |dir| install(&dir.join("skills"), "restart_app")).await;
     connected(&hub, agent.host).await;
     let skill = SkillName::parse("restart_app").unwrap();
-    let link = hub.server.link();
+    let link = hub.server.link_for_tests();
     // The hub validates against what the agent announced. Skills load on Unix only;
     // elsewhere a bare manifest stands in and the agent reports it has no such skill.
     let (validated, manifest_hash) = match link.skills(agent.host).into_iter().next() {

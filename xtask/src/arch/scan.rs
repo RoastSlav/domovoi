@@ -5,12 +5,28 @@ use std::path::Path;
 
 use super::Violation;
 use super::rules::{
-    AUTHORIZATION_HUMAN_ALLOWED_PREFIXES, AUTHORIZATION_MODULE,
+    AGENT_LINK_ALLOWED_PREFIXES, AUTHORIZATION_HUMAN_ALLOWED_PREFIXES, AUTHORIZATION_MODULE,
     AUTHORIZATION_POLICY_ALLOWED_PREFIXES, HUMAN_APPROVAL_ALLOWED_PREFIXES,
-    HUMAN_APPROVAL_RESTORE_ALLOWED_PREFIXES, MAX_FILE_LINES, PLAN_HASH_V2_ALLOWED_PREFIXES,
-    POLICY_PERMIT_ALLOWED_PREFIXES, PROCESS_ALLOWED_PREFIXES, PURE_CRATE_DIRS,
-    PURE_FORBIDDEN_PATHS,
+    HUMAN_APPROVAL_RESTORE_ALLOWED_PREFIXES, LINK_DEFINITION_PREFIXES, MAX_FILE_LINES,
+    PLAN_HASH_V2_ALLOWED_PREFIXES, POLICY_PERMIT_ALLOWED_PREFIXES, PROCESS_ALLOWED_PREFIXES,
+    PURE_CRATE_DIRS, PURE_FORBIDDEN_PATHS, RUN_CHECK_ALLOWED_PREFIXES, RUN_SKILL_ALLOWED_PREFIXES,
+    RUN_TOOL_ALLOWED_PREFIXES,
 };
+
+/// Crates whose source may not start a skill or read a host outside a boundary (EXEC-1..3).
+const EXECUTION_SCANNED_CRATES: &[&str] = &[
+    "crates/domovoi-core/src/",
+    "crates/domovoi-engine/src/",
+    "crates/domovoi-hub/src/",
+    "crates/domovoi-store/src/",
+];
+
+/// Crates in which a transport must not even name the link types (EXEC-4).
+const LINK_SCANNED_CRATES: &[&str] = &[
+    "crates/domovoi-core/src/",
+    "crates/domovoi-engine/src/",
+    "crates/domovoi-hub/src/",
+];
 
 /// Scan every `.rs` file under `crates/`.
 pub fn check_tree(root: &Path) -> anyhow::Result<Vec<Violation>> {
@@ -89,6 +105,25 @@ pub fn check_file(rel: &str, text: &str) -> Vec<Violation> {
         || PLAN_HASH_V2_ALLOWED_PREFIXES
             .iter()
             .any(|p| rel.starts_with(p));
+    let run_tool_ok = test
+        || RUN_TOOL_ALLOWED_PREFIXES.iter().any(|p| rel.starts_with(p))
+        || LINK_DEFINITION_PREFIXES.iter().any(|p| rel.starts_with(p));
+    let run_skill_ok = test
+        || RUN_SKILL_ALLOWED_PREFIXES
+            .iter()
+            .any(|p| rel.starts_with(p))
+        || LINK_DEFINITION_PREFIXES.iter().any(|p| rel.starts_with(p));
+    let run_check_ok = test
+        || RUN_CHECK_ALLOWED_PREFIXES
+            .iter()
+            .any(|p| rel.starts_with(p))
+        || LINK_DEFINITION_PREFIXES.iter().any(|p| rel.starts_with(p));
+    let link_name_ok = test
+        || AGENT_LINK_ALLOWED_PREFIXES
+            .iter()
+            .any(|p| rel.starts_with(p));
+    let execution_scope = EXECUTION_SCANNED_CRATES.iter().any(|p| rel.starts_with(p));
+    let link_scope = LINK_SCANNED_CRATES.iter().any(|p| rel.starts_with(p));
     let pure = !test && PURE_CRATE_DIRS.iter().any(|p| rel.starts_with(p));
 
     for (i, line) in text.lines().enumerate() {
@@ -181,6 +216,49 @@ pub fn check_file(rel: &str, text: &str) -> Vec<Violation> {
                         &format!("pure crates must not use `{forbidden}`"),
                     ));
                 }
+            }
+        }
+        if execution_scope && !run_tool_ok && line.contains("run_tool(") {
+            out.push(v(
+                "EXEC-1",
+                &at,
+                "a host is read only through Evidence::collect_evidence, in crates/domovoi-engine/src/evidence/",
+            ));
+        }
+        if execution_scope && !run_skill_ok {
+            for call in ["run_skill(", "start_skill(", "run_capability("] {
+                if line.contains(call) {
+                    out.push(v(
+                        "EXEC-2",
+                        &at,
+                        "a skill runs only through execute(AuthorizedExecution), in crates/domovoi-engine/src/actions/execute.rs",
+                    ));
+                }
+            }
+        }
+        if execution_scope && !run_check_ok && line.contains("run_check(") {
+            out.push(v(
+                "EXEC-3",
+                &at,
+                "a check is re-run only by verification, in crates/domovoi-engine/src/actions/verify_wake.rs",
+            ));
+        }
+        if link_scope && !link_name_ok {
+            for named in ["AgentLink", "WsAgentLink", "PolicyLink"] {
+                if line.contains(named) {
+                    out.push(v(
+                        "EXEC-4",
+                        &at,
+                        "a transport reads host state through AgentAdmin, never by naming or holding the link",
+                    ));
+                }
+            }
+            if line.contains("link_for_tests(") {
+                out.push(v(
+                    "EXEC-4",
+                    &at,
+                    "link_for_tests is for test suites; a transport reaches agents through AgentAdmin",
+                ));
             }
         }
     }
@@ -338,6 +416,69 @@ mod tests {
             "INV-1"
         );
         assert!(check_file(AUTHORIZATION_MODULE, text).is_empty());
+    }
+
+    #[test]
+    fn a_host_read_outside_evidence_is_rejected() {
+        let text = "let out = link.run_tool(host, call, deadline).await;\n";
+        assert_eq!(
+            check_file("crates/domovoi-hub/src/profile/collect.rs", text)[0].rule,
+            "EXEC-1"
+        );
+        assert!(check_file("crates/domovoi-engine/src/evidence/mod.rs", text).is_empty());
+        assert!(
+            check_file("crates/domovoi-engine/src/evidence/evidence_tests.rs", text).is_empty()
+        );
+        assert!(
+            check_file("crates/domovoi-agent/src/handler.rs", text).is_empty(),
+            "the agent's own request handler is not a hub read"
+        );
+    }
+
+    #[test]
+    fn a_skill_start_outside_execute_is_rejected() {
+        for text in [
+            "link.run_skill(host, req).await;\n",
+            "link.start_skill(host, req, session, epoch, deadline).await;\n",
+            "link.run_capability(host, req).await;\n",
+        ] {
+            assert_eq!(
+                check_file("crates/domovoi-engine/src/triage/tools.rs", text)[0].rule,
+                "EXEC-2",
+                "{text} was accepted outside the execution boundary"
+            );
+            assert!(check_file("crates/domovoi-engine/src/actions/execute.rs", text).is_empty());
+            assert!(check_file("crates/domovoi-engine/src/triage/tools_tests.rs", text).is_empty());
+        }
+    }
+
+    #[test]
+    fn a_check_rerun_outside_verification_is_rejected() {
+        let text = "link.run_check(host, check, None, deadline).await;\n";
+        assert_eq!(
+            check_file("crates/domovoi-engine/src/triage/tools.rs", text)[0].rule,
+            "EXEC-3"
+        );
+        assert!(check_file("crates/domovoi-engine/src/actions/verify_wake.rs", text).is_empty());
+    }
+
+    #[test]
+    fn a_transport_naming_the_link_is_rejected() {
+        for text in [
+            "let link: Arc<dyn AgentLink> = server.link();\n",
+            "let link = WsAgentLink::new(registry, clock, hosts);\n",
+            "let link = PolicyLink::wrap(inner, policy);\n",
+            "let link = server.link_for_tests();\n",
+        ] {
+            assert_eq!(
+                check_file("crates/domovoi-hub/src/api/hosts.rs", text)[0].rule,
+                "EXEC-4",
+                "{text} was accepted in a transport"
+            );
+            assert!(check_file("crates/domovoi-hub/src/agent_server/mod.rs", text).is_empty());
+            assert!(check_file("crates/domovoi-hub/tests/hub/sessions.rs", text).is_empty());
+            assert!(check_file("crates/domovoi-engine/src/actions/mod.rs", text).is_empty());
+        }
     }
 
     #[test]

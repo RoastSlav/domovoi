@@ -102,7 +102,7 @@ impl AgentAdmin for AgentServer {
     }
 
     fn presence(&self, host: HostId) -> Presence {
-        domovoi_core::ports::AgentLink::presence(&*self.link(), host)
+        self.host_presence(host)
     }
 
     fn facts(&self, host: HostId) -> Option<HostFacts> {
@@ -114,7 +114,7 @@ impl AgentAdmin for AgentServer {
     }
 
     fn skills(&self, host: HostId) -> Vec<SkillSummary> {
-        domovoi_core::ports::AgentLink::skills(&*self.link(), host)
+        self.host_skills(host)
     }
 
     async fn logs(
@@ -123,7 +123,7 @@ impl AgentAdmin for AgentServer {
         lines: u16,
         min_level: String,
     ) -> Result<Vec<LogLine>, LinkError> {
-        self.link().logs(host, lines, min_level).await
+        self.host_logs(host, lines, min_level).await
     }
 }
 

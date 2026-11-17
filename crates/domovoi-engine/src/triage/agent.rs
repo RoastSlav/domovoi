@@ -377,15 +377,7 @@ pub(crate) async fn converse(
                 }
             } else {
                 calls_used += 1;
-                tools::call(
-                    shared,
-                    brief.scope,
-                    brief.skills,
-                    &name,
-                    input,
-                    run.deadline(),
-                )
-                .await
+                tools::call(shared, brief.scope, &name, input, run.deadline()).await
             };
             let (tool, used_skill, raw) = target_of(&name, skill, brief.skills);
             used.push(ToolUse {

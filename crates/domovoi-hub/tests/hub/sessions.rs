@@ -115,7 +115,7 @@ async fn unsupported_message_does_not_end_session() {
 #[tokio::test]
 async fn run_tool_round_trips_and_times_out() {
     let hub = Hub::start().await;
-    let link = hub.server.link();
+    let link = hub.server.link_for_tests();
     let (ident, mut agent) = online(&hub, "nas").await;
     assert!(matches!(
         link.presence(ident.host),
@@ -166,9 +166,78 @@ async fn run_tool_round_trips_and_times_out() {
 }
 
 #[tokio::test]
+async fn api_host_state_is_read_without_the_link() {
+    use domovoi_hub::api::AgentAdmin;
+
+    let hub = Hub::start().await;
+    let ident = enroll(&hub, "nas").await;
+    let skill = domovoi_testkit::build::manifest("disk_report", domovoi_core::Risk::Read)
+        .unwrap()
+        .summary(domovoi_core::ScriptDigest::of_bytes(b"fixture entry"));
+    let mut agent = FakeAgent::connect(hub.addr).await;
+    let Message::Hello(mut greeting) = hello(ident.agent, PROTOCOL_VERSION) else {
+        panic!("expected a hello");
+    };
+    greeting.skills = vec![skill];
+    agent.send(Message::Hello(greeting), None).await;
+    let Message::Challenge(challenge) = agent.expect().await.message else {
+        panic!("expected a challenge");
+    };
+    assert!(matches!(
+        agent.answer(&challenge, ident.agent, &ident.key).await,
+        Message::Welcome(_)
+    ));
+
+    // Presence and skills are what the agent reported on its handshake.
+    assert!(
+        matches!(
+            AgentAdmin::presence(&hub.server, ident.host),
+            Presence::Connected { .. }
+        ),
+        "the API reads presence through AgentAdmin"
+    );
+    let announced: Vec<String> = AgentAdmin::skills(&hub.server, ident.host)
+        .iter()
+        .map(|skill| skill.name.to_string())
+        .collect();
+    assert_eq!(
+        announced,
+        ["disk_report"],
+        "the agent's catalogue, unmodified"
+    );
+
+    // Logs are answered once, through the same seam.
+    let asked = tokio::spawn({
+        let server = hub.server.clone();
+        async move { server.logs(ident.host, 1, "warn".to_owned()).await }
+    });
+    let request = agent.expect().await;
+    let Message::GetLogs(get) = request.message else {
+        panic!("expected get_logs");
+    };
+    assert_eq!(get.min_level, "warn");
+    let mine = [LogLine {
+        at: t0(),
+        level: "warn".to_owned(),
+        target: "agent.checks".to_owned(),
+        message: "/srv is 97% full".to_owned(),
+    }];
+    agent
+        .send(
+            Message::Logs(Logs {
+                lines: mine.to_vec(),
+                has_more: false,
+            }),
+            Some(request.id),
+        )
+        .await;
+    assert_eq!(guard(asked).await.unwrap().unwrap(), mine.to_vec());
+}
+
+#[tokio::test]
 async fn logs_are_requested_and_answered_or_rejected() {
     let hub = Hub::start().await;
-    let link = hub.server.link();
+    let link = hub.server.link_for_tests();
     let (ident, mut agent) = online(&hub, "nas").await;
 
     let asked = tokio::spawn({
@@ -233,7 +302,7 @@ async fn logs_are_requested_and_answered_or_rejected() {
 #[tokio::test]
 async fn a_log_window_too_big_for_one_frame_is_asked_for_in_chunks() {
     let hub = Hub::start().await;
-    let link = hub.server.link();
+    let link = hub.server.link_for_tests();
     let (ident, mut agent) = online(&hub, "nas").await;
 
     let asked = tokio::spawn({
@@ -305,7 +374,7 @@ async fn a_log_window_too_big_for_one_frame_is_asked_for_in_chunks() {
 #[tokio::test]
 async fn a_busy_agent_answers_the_log_request_right_away() {
     let hub = Hub::start().await;
-    let link = hub.server.link();
+    let link = hub.server.link_for_tests();
     let (ident, mut agent) = online(&hub, "nas").await;
 
     let asked = tokio::spawn({
@@ -342,7 +411,7 @@ async fn new_session_replaces_old_session_for_same_agent() {
     second.authenticate(&ident).await;
     first.closed().await;
     assert!(matches!(
-        hub.server.link().presence(ident.host),
+        hub.server.link_for_tests().presence(ident.host),
         Presence::Connected { .. }
     ));
     let ping = second.send(Message::Ping(Ping { at: t0() }), None).await;
@@ -359,7 +428,7 @@ async fn revocation_closes_live_session() {
     let (ident, mut agent) = online(&hub, "nas").await;
     assert!(hub.server.revoke_agent(ident.host).await.unwrap());
     agent.closed().await;
-    let link = hub.server.link();
+    let link = hub.server.link_for_tests();
     assert!(matches!(
         link.presence(ident.host),
         Presence::Disconnected { .. }
@@ -424,7 +493,7 @@ async fn local_attach_runs_the_same_handshake() {
     let welcome = decode(&guard(ours.recv()).await.unwrap().unwrap()).unwrap();
     assert!(matches!(welcome.message, Message::Welcome(w) if w.config.heartbeat_seconds == 10));
     assert!(matches!(
-        hub.server.link().presence(ident.host),
+        hub.server.link_for_tests().presence(ident.host),
         Presence::Connected { .. }
     ));
 }
@@ -470,11 +539,11 @@ async fn a_handshake_that_finishes_after_reenrollment_is_refused() {
     assert_eq!(rejected(&reply), Some(RejectReason::Revoked));
     stale.closed().await;
     assert!(
-        hub.server.link().snapshot(old.host).is_none(),
+        hub.server.link_for_tests().snapshot(old.host).is_none(),
         "the stale handshake never became the live session"
     );
     assert!(matches!(
-        hub.server.link().presence(old.host),
+        hub.server.link_for_tests().presence(old.host),
         Presence::Disconnected { .. }
     ));
 }
@@ -483,7 +552,7 @@ async fn a_handshake_that_finishes_after_reenrollment_is_refused() {
 async fn replacing_a_live_enrollment_ends_its_session_and_pending_work() {
     let hub = Hub::start().await;
     let (old, mut stale) = online(&hub, "nas").await;
-    let link = hub.server.link();
+    let link = hub.server.link_for_tests();
     let deadline = t0() + SignedDuration::from_secs(30);
     let asked = tokio::spawn({
         let link = link.clone();
@@ -524,7 +593,7 @@ async fn revocation_refuses_a_handshake_already_answering() {
     let reply = agent.answer(&challenge, ident.agent, &ident.key).await;
     assert_eq!(rejected(&reply), Some(RejectReason::Revoked));
     agent.closed().await;
-    assert!(hub.server.link().snapshot(ident.host).is_none());
+    assert!(hub.server.link_for_tests().snapshot(ident.host).is_none());
 }
 
 #[tokio::test]
@@ -551,7 +620,7 @@ async fn reenrollment_with_the_same_key_still_retires_the_old_agent() {
     };
     fresh.authenticate(&ident).await;
     assert!(
-        hub.server.link().snapshot(old.host).is_some(),
+        hub.server.link_for_tests().snapshot(old.host).is_some(),
         "the new identity is live"
     );
 

@@ -336,7 +336,8 @@ async fn build(
             TriageDeps {
                 primary,
                 fallbacks: Vec::new(),
-                link: link.clone(),
+                evidence: domovoi_engine::Evidence::new(link.clone()),
+                catalog: domovoi_engine::HostCatalog::new(link.clone()),
                 incidents: store.clone(),
                 signals: store.clone(),
                 notes: store.clone(),
@@ -428,7 +429,8 @@ async fn build(
         logs: if logs { Some(source) } else { None },
         redactor: Arc::new(PatternRedactor::default()),
         profiles: profiles.then(|| ProfileDeps {
-            link: link.clone(),
+            evidence: domovoi_engine::Evidence::new(link.clone()),
+            catalog: domovoi_engine::HostCatalog::new(link.clone()),
             agents: Arc::new(TestAgents {
                 link: link.clone(),
                 hosts: store.clone(),

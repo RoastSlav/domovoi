@@ -55,6 +55,82 @@ fn scans(dir: &std::path::Path, offenders: &mut Vec<String>) {
     }
 }
 
+/// There is exactly one module that dispatches a skill and exactly one that reads a host's
+/// tool output, one sender of `Dispatch`, one call site of the execution boundary, and one
+/// caller of the check re-run (EXEC-1..3, ADR 0022). A source scan cannot see a renamed
+/// re-export or a macro; it makes the ordinary second path fail here.
+#[test]
+fn single_execution_boundary() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let rules: [(&str, &[&str]); 7] = [
+        ("run_tool(", &["evidence/"]),
+        ("run_skill(", &["actions/execute.rs"]),
+        ("start_skill(", &["actions/execute.rs"]),
+        ("run_check(", &["actions/verify_wake.rs"]),
+        (
+            "WriteCommand::Dispatch {",
+            &["actions/execute.rs", "actions/writer.rs"],
+        ),
+        ("AuthorizedExecution::of(", &["actions/executor.rs"]),
+        ("execute::execute(", &["actions/executor.rs"]),
+    ];
+    let mut offenders = Vec::new();
+    boundary_scan(&root, &root, &rules, &mut offenders);
+    assert!(
+        offenders.is_empty(),
+        "a second execution or read path exists: {offenders:?}",
+    );
+}
+
+/// Collects every non-comment line under `dir` that uses one of `rules`' literals outside
+/// the `src/`-relative paths those rules allow. `*_tests.rs` modules are test code.
+fn boundary_scan(
+    root: &std::path::Path,
+    dir: &std::path::Path,
+    rules: &[(&str, &[&str])],
+    offenders: &mut Vec<String>,
+) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            boundary_scan(root, &path, rules, offenders);
+            continue;
+        }
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_default();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("rs")
+            || name.ends_with("_tests.rs")
+            || name == "tests.rs"
+        {
+            continue;
+        }
+        let rel = path
+            .strip_prefix(root)
+            .unwrap_or(&path)
+            .to_string_lossy()
+            .replace('\\', "/");
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        for (index, line) in text.lines().enumerate() {
+            let code = line.trim_start();
+            if code.starts_with("//") {
+                continue;
+            }
+            for (literal, allowed) in rules {
+                if code.contains(literal) && !allowed.iter().any(|prefix| rel.starts_with(prefix)) {
+                    offenders.push(format!("{rel}:{}: {code}", index + 1));
+                }
+            }
+        }
+    }
+}
+
 use crate::harness::{
     SECRET, Setup, World, calls, disk, host_id, report, report_json, restart_skill, results, seen,
     world,

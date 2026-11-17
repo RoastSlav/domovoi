@@ -2,15 +2,15 @@
 //!
 //! Only [`ActionHandle::approve`] moves an action to `Approved`, and it takes a
 //! [`HumanApproval`] by value, which only the hub's auth layer can construct (INV-1). Chat
-//! approvals also need the action's single-use token. The executor then applies a loop
-//! guard, re-validates the plan against the agent's current manifest (INV-4), dispatches,
-//! and verifies by re-running the originating check. Every transition is audited and
-//! published as an event.
+//! approvals also need the action's single-use token. The executor then applies a loop guard,
+//! re-validates the plan (INV-4), dispatches through [`execute::execute`], and verifies by
+//! re-running the originating check. Every transition is audited and published as an event.
 
 mod approvals;
 pub mod audit;
 mod commit;
 mod dispatch;
+mod execute;
 mod executor;
 mod expire;
 mod freshness;
@@ -120,8 +120,7 @@ pub enum ApprovalError {
     /// No action has that id.
     #[error("no such action {0}")]
     NotFound(ActionId),
-    /// A chat approval without the action's token, with a wrong one, or with one already
-    /// used.
+    /// A chat approval without the action's token, with a wrong one, or with one already used.
     #[error("the approval link is not valid")]
     BadToken,
     /// The plan hash in the approve request is not the action's plan hash: the card the

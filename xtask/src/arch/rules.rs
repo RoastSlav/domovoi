@@ -196,6 +196,43 @@ pub const PLAN_HASH_V2_ALLOWED_PREFIXES: &[&str] = &["crates/domovoi-core/src/ac
 /// direct construction path (ADR 0021).
 pub const AUTHORIZATION_MODULE: &str = "crates/domovoi-core/src/action/authorization.rs";
 
+/// Path prefixes where an `AgentLink` may be declared, implemented or composed (EXEC-4,
+/// ADR 0022): the trait and its fakes, the real link, the policy wrapper and the composition
+/// root. Adding a new implementation is a deliberate edit to this list.
+pub const LINK_DEFINITION_PREFIXES: &[&str] = &[
+    "crates/domovoi-core/src/ports/",
+    "crates/domovoi-hub/src/agent_server/link.rs",
+    "crates/domovoi-hub/src/agent_server/skill_policy.rs",
+    "crates/domovoi-testkit/",
+];
+
+/// Path prefixes where `run_tool(` may be called: the one read boundary (EXEC-1, ADR 0022).
+/// The trait's declaration and implementations are allowed through
+/// [`LINK_DEFINITION_PREFIXES`].
+pub const RUN_TOOL_ALLOWED_PREFIXES: &[&str] = &["crates/domovoi-engine/src/evidence/"];
+
+/// Path prefixes where a skill may be handed to an agent: the one execution boundary
+/// (EXEC-2, ADR 0022). `run_capability` is scanned before the capability registry adds it, so
+/// the rule starts enforcing the day it lands.
+pub const RUN_SKILL_ALLOWED_PREFIXES: &[&str] = &["crates/domovoi-engine/src/actions/execute.rs"];
+
+/// Path prefixes where a check may be re-run on an agent: verification only (EXEC-3,
+/// ADR 0022).
+pub const RUN_CHECK_ALLOWED_PREFIXES: &[&str] =
+    &["crates/domovoi-engine/src/actions/verify_wake.rs"];
+
+/// Path prefixes where a transport may not even name the link types (EXEC-4, ADR 0022).
+/// Only the code that declares, implements or composes the link, and the engine's two
+/// boundaries, may name `AgentLink`, `WsAgentLink` or `PolicyLink`.
+pub const AGENT_LINK_ALLOWED_PREFIXES: &[&str] = &[
+    "crates/domovoi-core/src/ports/",
+    "crates/domovoi-hub/src/agent_server/",
+    "crates/domovoi-hub/src/runtime/",
+    "crates/domovoi-engine/src/evidence/",
+    "crates/domovoi-engine/src/actions/",
+    "crates/domovoi-testkit/",
+];
+
 /// Crates whose sources must stay free of I/O (R2).
 pub const PURE_CRATE_DIRS: &[&str] = &[
     "crates/domovoi-core/src/",

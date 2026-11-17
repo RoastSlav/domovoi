@@ -313,7 +313,8 @@ pub async fn run(drill: &Drill, model: Model) -> Outcome {
     let deps = TriageDeps {
         primary,
         fallbacks: Vec::new(),
-        link: link.clone(),
+        evidence: domovoi_engine::Evidence::new(link.clone()),
+        catalog: domovoi_engine::HostCatalog::new(link.clone()),
         incidents: store.clone(),
         signals: store.clone(),
         notes: store.clone(),
