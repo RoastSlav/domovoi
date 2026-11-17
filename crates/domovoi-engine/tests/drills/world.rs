@@ -23,6 +23,7 @@ use domovoi_engine::{
 };
 use domovoi_testkit::build::{T0, open_incident};
 use domovoi_testkit::link::LinkRequest;
+use domovoi_testkit::link::{action_caps, evidence_caps, observer_of};
 use domovoi_testkit::{FakeAgentLink, FakeClock, InMemoryStore, ScriptedLlm};
 use jiff::{SignedDuration, Timestamp};
 use secrecy::SecretString;
@@ -292,6 +293,7 @@ pub async fn run(drill: &Drill, model: Model) -> Outcome {
         requests: Mutex::new(Vec::new()),
     });
     let primary: Arc<dyn LlmProvider> = recording.clone();
+    let caps = action_caps(link.clone());
     let (actions_service, _actions_task) = ActionService::spawn(
         ActionDeps {
             actions: store.clone(),
@@ -300,7 +302,11 @@ pub async fn run(drill: &Drill, model: Model) -> Outcome {
             uow: store.clone(),
             effects: store.clone(),
             advisories: store.clone(),
-            link: link.clone(),
+            probe: caps.probe,
+            observer: caps.observer,
+            journal: caps.journal,
+            handoff: caps.handoff,
+            rerun: caps.rerun,
             hosts: store.clone(),
             redactor: redactor.clone(),
             clock: clock.clone(),
@@ -313,8 +319,8 @@ pub async fn run(drill: &Drill, model: Model) -> Outcome {
     let deps = TriageDeps {
         primary,
         fallbacks: Vec::new(),
-        evidence: domovoi_engine::Evidence::new(link.clone()),
-        catalog: domovoi_engine::HostCatalog::new(link.clone()),
+        evidence: domovoi_engine::Evidence::new(evidence_caps(link.clone()), clock.clone()),
+        catalog: domovoi_engine::HostCatalog::new(observer_of(link.clone())),
         incidents: store.clone(),
         signals: store.clone(),
         notes: store.clone(),

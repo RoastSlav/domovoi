@@ -1075,6 +1075,7 @@ dependencies = [
  "url",
  "uuid",
  "wiremock",
+ "xtask",
 ]
 
 [[package]]
@@ -1130,6 +1131,7 @@ dependencies = [
  "utoipa-axum",
  "uuid",
  "wiremock",
+ "xtask",
 ]
 
 [[package]]
@@ -4662,7 +4664,9 @@ dependencies = [
  "anyhow",
  "cargo_metadata",
  "clap",
+ "proc-macro2",
  "serde_json",
+ "syn 3.0.9",
  "toml",
 ]
 

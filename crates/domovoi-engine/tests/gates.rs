@@ -55,94 +55,68 @@ fn scans(dir: &std::path::Path, offenders: &mut Vec<String>) {
     }
 }
 
-/// One operation a boundary allows, and the exact number of non-comment occurrences each
-/// file may hold. No other source file may hold the literal at all.
-struct BoundaryCall {
-    /// The literal the scan counts.
-    literal: &'static str,
-    /// Each file that may contain it, with the exact count it must have. A file that owns a
-    /// definition or a match is listed with its own count rather than exempted, so it
-    /// cannot quietly grow a second occurrence.
-    sites: &'static [(&'static str, usize)],
-}
-
 /// There is exactly one module that dispatches a skill and exactly one that reads a host's
 /// tool output, one sender of `Dispatch`, one constructor of `AuthorizedExecution`, one call
 /// site of the execution boundary, and one caller of the check re-run (EXEC-1..3, ADR 0022).
-/// The counts are exact: a second call anywhere, including a second one in the same file, a
-/// second one in the writer, or two on the same line, fails here. A source scan cannot see a
-/// renamed re-export or a macro; it makes the ordinary second path fail.
+///
+/// The check is the workspace's one implementation, `xtask::arch::ast::exec_violations`, which
+/// `cargo xtask arch-check` runs too. It counts syntax nodes, so a call split across lines, a
+/// renamed import or a macro body cannot hide a second path, and it tells test code apart by
+/// module wiring rather than by filename.
 #[test]
 fn single_execution_boundary() {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    let mut files = Vec::new();
-    source_files(&root, &root, &mut files);
-    let offenders = boundary_offenders(&files);
+    let violations = xtask::arch::ast::exec_violations(&production_sources());
     assert!(
-        offenders.is_empty(),
-        "a second execution or read path exists: {offenders:?}",
+        violations.is_empty(),
+        "the engine holds an execution path of its own: {violations:#?}",
     );
 }
 
-/// The required call sites and the exact count each permitted file must have.
-const BOUNDARY_CALLS: &[BoundaryCall] = &[
-    BoundaryCall {
-        literal: "AuthorizedExecution::of(",
-        sites: &[("actions/executor.rs", 1)],
-    },
-    BoundaryCall {
-        literal: "execute::execute(",
-        sites: &[("actions/executor.rs", 1)],
-    },
-    BoundaryCall {
-        literal: "start_skill(",
-        sites: &[("actions/execute.rs", 1)],
-    },
-    BoundaryCall {
-        literal: "run_tool(",
-        sites: &[("evidence/mod.rs", 1)],
-    },
-    BoundaryCall {
-        literal: "run_check(",
-        sites: &[("actions/verify_wake.rs", 1)],
-    },
-    // `execute.rs` builds the one command; the writer matches that command in `process()`
-    // exactly once. Both sites are counted, so neither file may hold a second one.
-    BoundaryCall {
-        literal: "WriteCommand::Dispatch {",
-        sites: &[("actions/execute.rs", 1), ("actions/writer.rs", 1)],
-    },
-    // Names an earlier interface used: a re-appearance would be a second path.
-    BoundaryCall {
-        literal: "run_skill(",
-        sites: &[("actions/execute.rs", 0)],
-    },
-    BoundaryCall {
-        literal: "run_capability(",
-        sites: &[("actions/execute.rs", 0)],
-    },
-];
+/// The workspace-relative path of a file under this crate's `src/`.
+fn crate_path(rel: &str) -> String {
+    format!("crates/{}/src/{rel}", env!("CARGO_PKG_NAME"))
+}
 
-/// Collects every non-test source file under `dir`, with its text and its path relative to
-/// `root`. `*_tests.rs` modules and `tests.rs` are test code.
-fn source_files(root: &std::path::Path, dir: &std::path::Path, out: &mut Vec<(String, String)>) {
+/// The crate's production sources: every `.rs` file under `src/` that no test target or
+/// `#[cfg(test)]` module reaches, as (workspace-relative path, text).
+fn production_sources() -> Vec<(String, String)> {
+    let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let prefix = format!("crates/{}/src", env!("CARGO_PKG_NAME"));
+    let mut files = Vec::new();
+    source_files(&src, &src, &prefix, &mut files);
+    let test_only = xtask::arch::ast::cfg_test_closure(&files);
+    files
+        .into_iter()
+        .filter(|(rel, _)| !test_only.contains(rel))
+        .collect()
+}
+
+/// The fixture's `executor.rs`: the one authorizing constructor and the one dispatch.
+const EXECUTOR: &str = "let authorized = AuthorizedExecution::of(action)?;\nexecute::execute(shared, authorized, skill, args, session, incident).await?;\n";
+
+/// The fixture's `execute.rs`: the handoff capability and the one dispatch command.
+const EXECUTE: &str = "deps.handoff.hand_off(host, dispatch, session, epoch, deadline).await;\nask(shared, id, \"a dispatch\", WriteCommand::Dispatch { id, plan }, answer).await;\n";
+
+/// The fixture's `writer.rs`: the one match on the dispatch command.
+const WRITER: &str = "match command {\n    WriteCommand::Dispatch { id, plan, .. } => {}\n}\n";
+
+/// Collects every `.rs` file under `dir` with its workspace-relative path and text.
+fn source_files(
+    root: &std::path::Path,
+    dir: &std::path::Path,
+    prefix: &str,
+    out: &mut Vec<(String, String)>,
+) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
-            source_files(root, &path, out);
+            source_files(root, &path, prefix, out);
             continue;
         }
-        let name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or_default();
-        if path.extension().and_then(|ext| ext.to_str()) != Some("rs")
-            || name.ends_with("_tests.rs")
-            || name == "tests.rs"
-        {
+        if path.extension().and_then(|ext| ext.to_str()) != Some("rs") {
             continue;
         }
         let rel = path
@@ -151,118 +125,54 @@ fn source_files(root: &std::path::Path, dir: &std::path::Path, out: &mut Vec<(St
             .to_string_lossy()
             .replace('\\', "/");
         if let Ok(text) = std::fs::read_to_string(&path) {
-            out.push((rel, text));
+            out.push((format!("{prefix}/{rel}"), text));
         }
     }
 }
 
-/// Counts non-comment occurrences of `literal` in `text`, including several on one line.
-fn count_occurrences(text: &str, literal: &str) -> usize {
-    text.lines()
-        .filter(|line| {
-            let code = line.trim_start();
-            !(code.starts_with("//") || code.starts_with("/*") || code.starts_with('*'))
-        })
-        .map(|line| line.matches(literal).count())
-        .sum()
-}
-
-/// Every way the files fall short of [`BOUNDARY_CALLS`]: a permitted file missing or with
-/// the wrong count, or an occurrence anywhere else.
-fn boundary_offenders(files: &[(String, String)]) -> Vec<String> {
-    let mut out = Vec::new();
-    for call in BOUNDARY_CALLS {
-        for &(file, expected) in call.sites {
-            match files.iter().find(|(rel, _)| rel.as_str() == file) {
-                None => out.push(format!(
-                    "{file}: missing; `{}` must appear {expected} time(s) there",
-                    call.literal
-                )),
-                Some((_, text)) => {
-                    let got = count_occurrences(text, call.literal);
-                    if got != expected {
-                        out.push(format!(
-                            "{file}: `{}` appears {got} time(s); expected {expected}",
-                            call.literal
-                        ));
-                    }
-                }
-            }
-        }
-        for (rel, text) in files {
-            if call.sites.iter().any(|(site, _)| *site == rel.as_str()) {
-                continue;
-            }
-            let got = count_occurrences(text, call.literal);
-            if got > 0 {
-                let allowed: Vec<&str> = call.sites.iter().map(|(site, _)| *site).collect();
-                out.push(format!(
-                    "{rel}: `{}` appears {got} time(s); only {} may have it",
-                    call.literal,
-                    allowed.join(", ")
-                ));
-            }
-        }
-    }
-    out
-}
-
-/// The smallest tree that satisfies [`BOUNDARY_CALLS`], used to prove the gate refuses a
-/// second path without touching the real sources. `actions/writer.rs` holds the one
-/// `Dispatch` match the gate counts; it is a permitted site, not an exempt file.
+/// The smallest tree that satisfies the engine's boundary cards: one authorizing constructor,
+/// one dispatch call, one dispatch command and its one writer match. `writer.rs` is a counted
+/// site, not an exempt file.
 fn boundary_tree() -> Vec<(String, String)> {
-    [
-        (
-            "actions/executor.rs",
-            "let authorized = AuthorizedExecution::of(action)?;\nexecute::execute(shared, authorized, skill, args, session, incident).await?;\n",
-        ),
-        (
-            "actions/execute.rs",
-            "deps.link.start_skill(host, dispatch, session, epoch, deadline).await;\nask(shared, id, \"a dispatch\", WriteCommand::Dispatch { id, plan }, answer).await;\n",
-        ),
-        (
-            "actions/writer.rs",
-            "match command {\n    WriteCommand::Dispatch { id, plan, .. } => {}\n}\n",
-        ),
-        (
-            "evidence/mod.rs",
-            "self.link.run_tool(host, request.call, request.deadline).await\n",
-        ),
-        (
-            "actions/verify_wake.rs",
-            "deps.link.run_check(host, check, target, deadline).await;\n",
-        ),
+    vec![
+        (crate_path("actions/executor.rs"), EXECUTOR.to_owned()),
+        (crate_path("actions/execute.rs"), EXECUTE.to_owned()),
+        (crate_path("actions/writer.rs"), WRITER.to_owned()),
     ]
-    .iter()
-    .map(|(rel, text)| ((*rel).to_owned(), (*text).to_owned()))
-    .collect()
 }
 
 /// Appends `line` to `rel`'s text, adding the file when the tree does not have it.
 fn push_line(tree: &mut Vec<(String, String)>, rel: &str, line: &str) {
-    match tree.iter_mut().find(|(path, _)| path == rel) {
+    let path = crate_path(rel);
+    match tree.iter_mut().find(|(file, _)| *file == path) {
         Some((_, text)) => text.push_str(line),
-        None => tree.push((rel.to_owned(), line.to_owned())),
+        None => tree.push((path, line.to_owned())),
     }
 }
 
+/// Fails unless the tree breaks a boundary rule.
 fn assert_refused(tree: &[(String, String)], what: &str) {
-    let offenders = boundary_offenders(tree);
+    let violations = xtask::arch::ast::exec_violations(tree);
+    assert!(!violations.is_empty(), "{what} passed the boundary gate");
+}
+
+/// Fails unless the tree satisfies every boundary rule.
+fn assert_passed(tree: &[(String, String)], what: &str) {
+    let violations = xtask::arch::ast::exec_violations(tree);
     assert!(
-        !offenders.is_empty(),
-        "{what} passed the boundary gate: {offenders:?}",
+        violations.is_empty(),
+        "{what} broke a boundary rule: {violations:#?}",
     );
 }
 
-/// The gate counts call sites in each permitted file, not whole files: a second constructor,
-/// a second boundary call, a second skill start, read or re-check, a second dispatch
-/// construction, and a second dispatch match in the writer all fail.
+/// The gate counts call sites in each card site, not whole files: a second constructor, a
+/// second dispatch, a second skill start, read or re-check, a second dispatch match and a
+/// module reaching the raw link from a new `actions/` file all fail. The bypasses a line scan
+/// missed fail too: a call split across lines, a production file with a test-like name, and a
+/// missing card site.
 #[test]
 fn the_boundary_gate_counts_each_operation_exactly_once() {
-    assert!(
-        boundary_offenders(&boundary_tree()).is_empty(),
-        "the fixture tree is the shape the gate requires",
-    );
+    assert_passed(&boundary_tree(), "the fixture tree");
 
     let mut tree = boundary_tree();
     push_line(
@@ -286,7 +196,7 @@ fn the_boundary_gate_counts_each_operation_exactly_once() {
         "actions/execute.rs",
         "deps.link.start_skill(host, other, ..).await;\n",
     );
-    assert_refused(&tree, "a second skill start in the execution boundary");
+    assert_refused(&tree, "a raw skill start in the engine");
 
     let mut tree = boundary_tree();
     push_line(
@@ -294,7 +204,7 @@ fn the_boundary_gate_counts_each_operation_exactly_once() {
         "evidence/collect.rs",
         "self.link.run_tool(host, call, at).await;\n",
     );
-    assert_refused(&tree, "a second host read in the evidence directory");
+    assert_refused(&tree, "a raw host read in the evidence directory");
 
     let mut tree = boundary_tree();
     push_line(
@@ -302,7 +212,7 @@ fn the_boundary_gate_counts_each_operation_exactly_once() {
         "actions/verify_wake.rs",
         "deps.link.run_check(host, other, ..).await;\n",
     );
-    assert_refused(&tree, "a second check re-run in the verification file");
+    assert_refused(&tree, "a raw check re-run in the verification file");
 
     let mut tree = boundary_tree();
     push_line(
@@ -312,7 +222,6 @@ fn the_boundary_gate_counts_each_operation_exactly_once() {
     );
     assert_refused(&tree, "a constructor call in a disallowed module");
 
-    // The writer's match is counted, so a second dispatch there is a second path.
     let mut tree = boundary_tree();
     push_line(
         &mut tree,
@@ -340,9 +249,26 @@ fn the_boundary_gate_counts_each_operation_exactly_once() {
     );
     assert_refused(&tree, "a dispatch command built in another module");
 
+    // A new module under `actions/` is ordinary production code: it gets no ambient link,
+    // however the call is formatted.
+    let mut tree = boundary_tree();
+    push_line(
+        &mut tree,
+        "actions/schedule.rs",
+        "let out = deps\n    .link\n    .run_tool(host, call, deadline)\n    .await;\n",
+    );
+    assert_refused(&tree, "a new actions module taking the raw link");
+
+    // A production file whose name looks like a test file is still scanned.
+    for rel in ["tests/probe.rs", "probe_tests.rs"] {
+        let mut tree = boundary_tree();
+        push_line(&mut tree, rel, "fn f() { run_tool(a, b, c); }\n");
+        assert_refused(&tree, "production code with a test-like name");
+    }
+
     // A permitted file that is missing or renamed fails instead of being skipped.
     let mut tree = boundary_tree();
-    tree.retain(|(rel, _)| rel != "actions/writer.rs");
+    tree.retain(|(rel, _)| !rel.ends_with("actions/writer.rs"));
     assert_refused(&tree, "a missing permitted file");
 
     // Two calls on one line are two calls.
@@ -361,10 +287,7 @@ fn the_boundary_gate_counts_each_operation_exactly_once() {
         "actions/executor.rs",
         "// AuthorizedExecution::of(x)\n",
     );
-    assert!(
-        boundary_offenders(&tree).is_empty(),
-        "a comment was counted as a call",
-    );
+    assert_passed(&tree, "a comment mention");
 }
 
 use crate::harness::{

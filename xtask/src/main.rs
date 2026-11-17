@@ -10,7 +10,6 @@
 
 #![allow(clippy::print_stdout, clippy::print_stderr, clippy::disallowed_methods)]
 
-mod arch;
 mod ci;
 mod docs_config;
 mod docs_links;
@@ -19,6 +18,7 @@ mod openapi;
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
+use xtask::arch;
 
 /// Command-line interface for xtask.
 #[derive(Debug, Parser)]

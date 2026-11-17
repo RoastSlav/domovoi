@@ -35,6 +35,7 @@ use domovoi_proto::EnrollToken;
 use domovoi_proto::messages::{CheckInfo, HostFacts};
 use domovoi_store::{Store, StoreOptions};
 use domovoi_testkit::build::{host, manifest, open_incident};
+use domovoi_testkit::link::{action_caps, evidence_caps, observer_of};
 use domovoi_testkit::{
     CannedLogSource, FakeAgentLink, FakeClock, RecordingSignalSink, ScriptedLlm,
 };
@@ -311,6 +312,7 @@ async fn build(
         bus: bus.clone(),
         shutdown: shutdown.clone(),
     });
+    let caps = action_caps(link.clone());
     let (actions_service, action_task) = ActionService::spawn(
         ActionDeps {
             actions: store.clone(),
@@ -319,7 +321,11 @@ async fn build(
             uow: store.clone(),
             effects: store.clone(),
             advisories: store.clone(),
-            link: link.clone(),
+            probe: caps.probe,
+            observer: caps.observer,
+            journal: caps.journal,
+            handoff: caps.handoff,
+            rerun: caps.rerun,
             hosts: store.clone(),
             redactor: Arc::new(PatternRedactor::default()),
             clock: clock.clone(),
@@ -336,8 +342,8 @@ async fn build(
             TriageDeps {
                 primary,
                 fallbacks: Vec::new(),
-                evidence: domovoi_engine::Evidence::new(link.clone()),
-                catalog: domovoi_engine::HostCatalog::new(link.clone()),
+                evidence: domovoi_engine::Evidence::new(evidence_caps(link.clone()), clock.clone()),
+                catalog: domovoi_engine::HostCatalog::new(observer_of(link.clone())),
                 incidents: store.clone(),
                 signals: store.clone(),
                 notes: store.clone(),
@@ -429,8 +435,8 @@ async fn build(
         logs: if logs { Some(source) } else { None },
         redactor: Arc::new(PatternRedactor::default()),
         profiles: profiles.then(|| ProfileDeps {
-            evidence: domovoi_engine::Evidence::new(link.clone()),
-            catalog: domovoi_engine::HostCatalog::new(link.clone()),
+            evidence: domovoi_engine::Evidence::new(evidence_caps(link.clone()), clock.clone()),
+            catalog: domovoi_engine::HostCatalog::new(observer_of(link.clone())),
             agents: Arc::new(TestAgents {
                 link: link.clone(),
                 hosts: store.clone(),

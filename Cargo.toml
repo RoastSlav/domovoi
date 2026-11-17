@@ -29,6 +29,7 @@ domovoi-runner = { path = "crates/domovoi-runner" }
 domovoi-agent = { path = "crates/domovoi-agent" }
 domovoi-hub = { path = "crates/domovoi-hub" }
 domovoi-testkit = { path = "crates/domovoi-testkit" }
+xtask = { path = "xtask" }
 
 # Foundation
 serde = { version = "1.0.229", features = ["derive"] }
@@ -104,6 +105,8 @@ predicates = "3.1.4"
 
 # xtask
 cargo_metadata = "0.23.1"
+proc-macro2 = { version = "1.0.107", features = ["span-locations"] }
+syn = { version = "3.0.9", features = ["full", "visit"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

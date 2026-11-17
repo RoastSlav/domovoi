@@ -1,6 +1,7 @@
 //! Assembly and lifecycle of a complete hub.
 
 pub(crate) mod adapters;
+pub mod caps;
 mod delivery;
 mod dispatcher;
 pub(crate) mod every;
@@ -36,6 +37,8 @@ use crate::agent_server::{
     AgentServer, AgentServerDeps, AgentServerError, PolicyLink, RealNetProbes, ServerSettings,
     SkillPolicy,
 };
+use caps::{action_caps, evidence_caps, observer_of};
+
 use crate::api::{ApiDeps, ApiState, MetricsRender};
 use crate::auth::{AuthState, WebIdentity};
 use crate::digest::DigestDeps;
@@ -220,10 +223,12 @@ impl HubRuntime {
             SkillPolicy::load(store.clone(), &HostRepo::list_hosts(&*store).await?).await?,
         );
         let policy_link = Arc::new(PolicyLink::wrap(server.link(), skill_policy.clone()));
-        // The one read boundary and the narrow catalogue view are built once here, from the
-        // same link the engine dispatches through, and handed to everyone that reads a host.
-        let evidence = Evidence::new(policy_link.clone());
-        let catalog = HostCatalog::new(policy_link.clone());
+        // The one read boundary and the narrow catalogue view are built once here, from
+        // the same policy link the engine dispatches through; each handle receives only
+        // the capabilities it needs, never the link itself (ADR 0023).
+        let evidence = Evidence::new(evidence_caps(policy_link.clone()), clock.clone());
+        let catalog = HostCatalog::new(observer_of(policy_link.clone()));
+        let caps_bundle = action_caps(policy_link);
         let (actions_service, actions_task) = ActionService::spawn(
             ActionDeps {
                 actions: store.clone(),
@@ -232,7 +237,11 @@ impl HubRuntime {
                 uow: store.clone(),
                 effects: store.clone(),
                 advisories: store.clone(),
-                link: policy_link.clone(),
+                probe: caps_bundle.probe,
+                observer: caps_bundle.observer,
+                journal: caps_bundle.journal,
+                handoff: caps_bundle.handoff,
+                rerun: caps_bundle.rerun,
                 hosts: store.clone(),
                 redactor: redactor.clone(),
                 clock: clock.clone(),

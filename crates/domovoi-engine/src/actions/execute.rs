@@ -248,8 +248,8 @@ pub(crate) async fn execute(
         plan_hash: runskill_plan_hash,
     };
     let handoff = match deps
-        .link
-        .start_skill(action.host(), dispatch, session.session, epoch, deadline)
+        .handoff
+        .hand_off(action.host(), dispatch, session.session, epoch, deadline)
         .await
     {
         Ok(handoff) => handoff,
@@ -269,8 +269,8 @@ pub(crate) async fn execute(
     };
     drop(gate);
     match deps
-        .link
-        .skill_result(action.host(), handoff, deadline)
+        .handoff
+        .await_handoff_result(action.host(), handoff, deadline)
         .await
     {
         Ok(output) => {
@@ -307,7 +307,7 @@ pub(crate) async fn execute(
                 %err,
                 "the run's result is unavailable; it stays dispatched for reconciliation",
             );
-            if deps.link.journal_epoch(action.host()) == Some(epoch) {
+            if deps.journal.epoch_of(action.host()) == Some(epoch) {
                 shared.schedule_reconciliation(action.host());
             }
             Ok(())

@@ -9,6 +9,7 @@ use domovoi_core::ports::Presence;
 use domovoi_core::{ReadToolCall, Risk, SkillName, SkillSummary};
 use domovoi_engine::{Evidence, EvidenceError, EvidenceRequest};
 use domovoi_hub::agent_server::{PolicyLink, SkillPolicy};
+use domovoi_hub::runtime::caps::evidence_caps;
 use domovoi_testkit::build::manifest;
 use jiff::SignedDuration;
 
@@ -38,7 +39,7 @@ async fn a_switched_off_skill_is_refused_as_one_the_host_does_not_have() {
     let skill = SkillName::parse("listening_ports").unwrap();
     policy.set(&a.nas, skill.clone(), false).await.unwrap();
     let link = Arc::new(PolicyLink::wrap(a.link.clone(), Arc::new(policy)));
-    let evidence = Evidence::new(link);
+    let evidence = Evidence::new(evidence_caps(link), a.clock.clone());
 
     let call = ReadToolCall::RunReadSkill {
         skill,

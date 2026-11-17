@@ -9,6 +9,7 @@
 mod approvals;
 pub mod audit;
 mod commit;
+mod deps;
 mod dispatch;
 mod execute;
 mod executor;
@@ -27,92 +28,23 @@ mod verify_wake;
 mod writer;
 mod writer_propose;
 
+pub use deps::{ActionDeps, ActionSettings};
 pub use reconcile::MAX_RECONCILE_PASSES;
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::{Arc, Mutex};
 
-use domovoi_core::ports::{
-    ActionRepo, AdvisoryRepo, AgentLink, AuditLog, Clock, EffectKind, EffectQueue, HostRepo,
-    IncidentRepo, Redactor, UnitOfWork,
-};
+use domovoi_core::ports::EffectKind;
 use domovoi_core::{
     ActionError, ActionId, ActionRequest, ApprovalProvenance, Authorization, HostId, HumanApproval,
     PlanBinding,
 };
-use jiff::{SignedDuration, Timestamp};
-use tokio::sync::{Notify, broadcast, mpsc, oneshot};
+use jiff::Timestamp;
+use tokio::sync::{Notify, mpsc, oneshot};
 use tokio::task::JoinHandle;
-use tokio_util::sync::CancellationToken;
 
 use crate::effects::{EffectRunner, EffectRunnerDeps, EffectSettings};
 use crate::events::{DomainEvent, EventKind};
-use crate::manager::ManagerHandle;
-
-/// Limits and waits for running actions.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ActionSettings {
-    /// Dispatches of one skill on one host per rolling hour; more are blocked.
-    pub loop_guard_per_hour: u32,
-    /// The longest an approved action waits for its host's agent before it is rejected.
-    pub offline_wait: SignedDuration,
-    /// How often to look for the agent while waiting.
-    pub presence_poll: SignedDuration,
-    /// The wait before re-checking a write skill that declares no `verify`.
-    pub verify_default_delay: SignedDuration,
-    /// Added to the skill's own timeout for the dispatch deadline.
-    pub dispatch_grace: SignedDuration,
-    /// How long reconciliation waits before asking an agent again about a run that is
-    /// still running.
-    pub reconcile_interval: SignedDuration,
-    /// How long one `action_status` request may take before its batch is skipped.
-    pub reconcile_query_timeout: SignedDuration,
-}
-
-impl Default for ActionSettings {
-    fn default() -> Self {
-        Self {
-            loop_guard_per_hour: 3,
-            offline_wait: SignedDuration::from_mins(30),
-            presence_poll: SignedDuration::from_secs(5),
-            verify_default_delay: SignedDuration::from_secs(30),
-            dispatch_grace: SignedDuration::from_secs(30),
-            reconcile_interval: SignedDuration::from_secs(30),
-            reconcile_query_timeout: SignedDuration::from_secs(10),
-        }
-    }
-}
-
-/// What the action services need. Everything is a port; the engine does no I/O.
-#[derive(Clone)]
-pub struct ActionDeps {
-    /// Stored actions.
-    pub actions: Arc<dyn ActionRepo>,
-    /// Incidents, read only, for events and the check to verify.
-    pub incidents: Arc<dyn IncidentRepo>,
-    /// The append-only audit log, for reading back what past transitions recorded.
-    pub audit: Arc<dyn AuditLog>,
-    /// One atomic commit for an action write, its audit entry and its journal entry.
-    pub uow: Arc<dyn UnitOfWork>,
-    /// Claims and recovers durable effects.
-    pub effects: Arc<dyn EffectQueue>,
-    /// Where a dead effect is reported.
-    pub advisories: Arc<dyn AdvisoryRepo>,
-    /// Skill catalogues, dispatch and re-checks.
-    pub link: Arc<dyn AgentLink>,
-    /// Enrolled hosts and their agent keys, read for the v2 target.
-    pub hosts: Arc<dyn HostRepo>,
-    /// Runs on skill output before it is stored.
-    pub redactor: Arc<dyn Redactor>,
-    /// Time.
-    pub clock: Arc<dyn Clock>,
-    /// The incident manager, for the `Fixed` verdict.
-    pub manager: ManagerHandle,
-    /// The event bus: `ActionApproved` comes from it, every change goes to it.
-    pub bus: broadcast::Sender<DomainEvent>,
-    /// Stops the executor.
-    pub shutdown: CancellationToken,
-}
 
 /// Why an approval or denial was refused. Nothing changed.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]

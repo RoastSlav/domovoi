@@ -5,6 +5,7 @@
 //! suites live in `domovoi-testkit`.
 
 pub mod agent_link;
+pub mod caps;
 pub mod chat;
 pub mod clock;
 pub mod hostfs;
@@ -21,6 +22,10 @@ pub use agent_link::{
     ActionAnswer, ActionAnswerEntry, ActionAnswers, AgentLink, AgentSnapshot, CheckRecheck,
     HostAvailability, IngestError, LinkError, Presence, SignalSink, SkillDispatch, SkillHandoff,
     SkillOutput, ToolOutput, UnknownReason,
+};
+pub use caps::{
+    ActionCaps, AvailabilityProbe, CheckRerun, EvidenceCaps, HandoffRunner, HostObservation,
+    HostRead, JournalStatus,
 };
 pub use chat::{
     ChatError, ChatGateway, InteractionSink, MessageRef, Notifier, OutboundMessage, ThreadRef,

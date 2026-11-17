@@ -21,6 +21,7 @@ use domovoi_engine::actions::audit;
 use domovoi_engine::{ActionDeps, ActionService, ActionSettings, PatternRedactor};
 use domovoi_testkit::approvals::human;
 use domovoi_testkit::build::{T0, open_incident};
+use domovoi_testkit::link::action_caps_of;
 use domovoi_testkit::{FakeAgentLink, FakeClock};
 use jiff::SignedDuration;
 use secrecy::SecretString;
@@ -534,6 +535,7 @@ fn slow_service(world: &Seeded, settings: ActionSettings) -> Actions {
     });
     let shutdown = world.shutdown.child_token();
     let events = world.bus.subscribe();
+    let caps = action_caps_of(link.clone());
     let (service, action_task) = ActionService::spawn(
         ActionDeps {
             actions: world.store.clone(),
@@ -542,7 +544,11 @@ fn slow_service(world: &Seeded, settings: ActionSettings) -> Actions {
             uow: world.store.clone(),
             effects: world.store.clone(),
             advisories: world.store.clone(),
-            link,
+            probe: caps.probe,
+            observer: caps.observer,
+            journal: caps.journal,
+            handoff: caps.handoff,
+            rerun: caps.rerun,
             hosts: world.store.clone(),
             redactor: Arc::new(PatternRedactor::new([SecretString::from(
                 SECRET.to_owned(),

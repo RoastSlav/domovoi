@@ -1,9 +1,11 @@
 //! The one path to an agent's tool output.
 //!
 //! [`Evidence::collect_evidence`] is the only caller of
-//! [`AgentLink::run_tool`]: the model, the
+//! [`domovoi_core::ports::AgentLink::run_tool`]: the model, the
 //! Operator, the triage context and the hub's profile collection all read a host through it,
 //! and `xtask arch-check` (EXEC-1) fails when another module reads a host directly.
+//! The request deadline bounds the whole operation: an availability check that stays
+//! pending past the deadline answers as timed out, and the read never runs after it.
 //!
 //! The boundary decides *whether* a read may happen (the host the request was built for,
 //! the host's availability, then the read's enablement) and hands back the agent's
@@ -13,14 +15,15 @@
 //!
 //! It is not the only way to obtain information about a host: the hub reads host metadata
 //! through `AgentAdmin`, and verification re-runs a check with
-//! [`AgentLink::run_check`]. [`HostCatalog`] is
+//! [`domovoi_core::ports::AgentLink::run_check`]. [`HostCatalog`] is
 //! the narrow, non-tool view of an agent (its session, announced skills and presence) that
 //! triage and profile collection need beside the reads.
 
 use std::sync::Arc;
 
 use domovoi_core::ports::{
-    AgentLink, AgentSnapshot, HostAvailability, LinkError, Presence, ToolOutput,
+    AgentSnapshot, AvailabilityProbe, Clock, EvidenceCaps, HostAvailability, HostObservation,
+    HostRead, LinkError, Presence, ToolOutput,
 };
 use domovoi_core::{HostId, Incident, ReadToolCall, Risk, SkillSummary};
 use jiff::Timestamp;
@@ -133,42 +136,72 @@ impl From<LinkError> for EvidenceError {
 /// The one read-capable handle to the agents; cheap to clone.
 #[derive(Clone)]
 pub struct Evidence {
-    link: Arc<dyn AgentLink>,
+    /// Asks whether a host is reachable, before any read.
+    probe: Arc<dyn AvailabilityProbe>,
+    /// The catalogue view used to validate a read skill before running it.
+    observer: Arc<dyn HostObservation>,
+    /// The one capability that can see a host's tool output.
+    read: Arc<dyn HostRead>,
+    /// The time the request deadline is measured against.
+    clock: Arc<dyn Clock>,
 }
 
 impl Evidence {
-    /// Wraps the link the hub composes for the engine.
+    /// Wraps the capabilities the hub composes for the engine, and the clock the
+    /// deadline is measured against.
     #[must_use]
-    pub fn new(link: Arc<dyn AgentLink>) -> Self {
-        Self { link }
+    pub fn new(caps: EvidenceCaps, clock: Arc<dyn Clock>) -> Self {
+        Self {
+            probe: caps.probe,
+            observer: caps.observer,
+            read: caps.read,
+            clock,
+        }
     }
 
     /// Checks that the host is reachable, then that the read is enabled, then reads once.
     ///
-    /// Availability comes first, so a host that is unknown, absent or speaks another
-    /// protocol version always answers as such; a skill that is missing, not read-only or
-    /// called with arguments its manifest rejects can only be reported for a host that is
-    /// connected now. Enablement at M1 is structural: [`ReadToolCall`] is a closed enum, so
-    /// the tools that exist are the tools that may run, and the one extra rule is that a
-    /// read skill must be installed, read-only and given arguments its manifest accepts.
-    /// The agent's output is returned verbatim.
+    /// The request's deadline bounds the whole operation: a passed deadline answers as
+    /// timed out before anything is asked, and an availability check that stays pending
+    /// past it does the same. Availability comes first, so a host that is unknown, absent or
+    /// speaks another protocol version always answers as such; a skill that is missing, not
+    /// read-only or called with arguments its manifest rejects can only be reported for a
+    /// host that is connected now. Enablement at M1 is structural: [`ReadToolCall`] is a
+    /// closed enum, so the tools that exist are the tools that may run, and the one extra
+    /// rule is that a read skill must be installed, read-only and given arguments its
+    /// manifest accepts. The agent's output is returned verbatim.
     pub async fn collect_evidence(
         &self,
         request: EvidenceRequest,
     ) -> Result<ToolOutput, EvidenceError> {
         let host = request.host();
-        match self.link.availability(host).await {
+        if self.clock.now() >= request.deadline {
+            return Err(EvidenceError::Timeout);
+        }
+        // Availability is awaited under the same deadline: a probe that stays pending
+        // past it is answered as a timeout, and a host that is unknown, absent or
+        // incompatible never reaches the read.
+        let availability = tokio::select! {
+            found = self.probe.check_availability(host) => found,
+            () = self.clock.sleep_until(request.deadline) => {
+                return Err(EvidenceError::Timeout);
+            }
+        };
+        match availability {
             HostAvailability::Known { .. } => {}
             HostAvailability::Unknown | HostAvailability::Absent { .. } => {
                 return Err(EvidenceError::NotConnected);
             }
             HostAvailability::Incompatible { .. } => return Err(EvidenceError::Incompatible),
         }
+        if self.clock.now() >= request.deadline {
+            return Err(EvidenceError::Timeout);
+        }
         if let ReadToolCall::RunReadSkill { skill, args } = &request.call {
             self.read_skill_is_enabled(host, skill, args)?;
         }
-        self.link
-            .run_tool(host, request.call, request.deadline)
+        self.read
+            .read_host(host, request.call, request.deadline)
             .await
             .map_err(EvidenceError::from)
     }
@@ -182,8 +215,8 @@ impl Evidence {
         args: &std::collections::BTreeMap<String, String>,
     ) -> Result<(), EvidenceError> {
         let summary = self
-            .link
-            .skills(host)
+            .observer
+            .observed_skills(host)
             .into_iter()
             .find(|candidate| &candidate.name == skill)
             .ok_or_else(|| {
@@ -207,32 +240,32 @@ impl Evidence {
 /// It never runs a tool; using it cannot read a host's output.
 #[derive(Clone)]
 pub struct HostCatalog {
-    link: Arc<dyn AgentLink>,
+    observer: Arc<dyn HostObservation>,
 }
 
 impl HostCatalog {
-    /// Wraps the same link [`Evidence`] was built from.
+    /// Wraps the same catalogue capability [`Evidence`] was built from.
     #[must_use]
-    pub fn new(link: Arc<dyn AgentLink>) -> Self {
-        Self { link }
+    pub fn new(observer: Arc<dyn HostObservation>) -> Self {
+        Self { observer }
     }
 
     /// The coherent session snapshot for `host`, or `None` with no live session.
     #[must_use]
     pub fn snapshot(&self, host: HostId) -> Option<AgentSnapshot> {
-        self.link.snapshot(host)
+        self.observer.observe_snapshot(host)
     }
 
     /// The skills the host's agent announced on its last handshake.
     #[must_use]
     pub fn skills(&self, host: HostId) -> Vec<SkillSummary> {
-        self.link.skills(host)
+        self.observer.observed_skills(host)
     }
 
     /// Current connection state of the host's agent.
     #[must_use]
     pub fn presence(&self, host: HostId) -> Presence {
-        self.link.presence(host)
+        self.observer.observe_presence(host)
     }
 }
 

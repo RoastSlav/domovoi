@@ -84,7 +84,7 @@ async fn pass(shared: &Shared, host: HostId) {
 
 /// The rows a pass settles, collecting where the writer will answer.
 async fn pass_rows(shared: &Shared, host: HostId, writes: &mut Vec<oneshot::Receiver<Decision>>) {
-    let Some(epoch) = shared.deps.link.journal_epoch(host) else {
+    let Some(epoch) = shared.deps.journal.epoch_of(host) else {
         return;
     };
     // Take the host's dispatch gate before reading what is pending, so a dispatch that was
@@ -96,7 +96,7 @@ async fn pass_rows(shared: &Shared, host: HostId, writes: &mut Vec<oneshot::Rece
     // The session may have been replaced while the rows were being read. Classifying them
     // against the epoch that is gone would make a new session's runs look foreign, so the
     // pass stops instead: the replacement's own pass will settle them.
-    if shared.deps.link.journal_epoch(host) != Some(epoch) {
+    if shared.deps.journal.epoch_of(host) != Some(epoch) {
         tracing::debug!(
             %host,
             "the agent's journal changed while dispatched runs were being read; not reconciling",
@@ -133,7 +133,7 @@ async fn pass_rows(shared: &Shared, host: HostId, writes: &mut Vec<oneshot::Rece
         for batch in remaining.chunks(BATCH) {
             // A replaced session must not be asked, and its epoch must not be used to
             // classify anything: stop before the query rather than after.
-            if shared.deps.link.journal_epoch(host) != Some(epoch) {
+            if shared.deps.journal.epoch_of(host) != Some(epoch) {
                 tracing::debug!(
                     %host,
                     "the agent's journal changed during reconciliation; stopping this pass",
@@ -151,8 +151,8 @@ async fn pass_rows(shared: &Shared, host: HostId, writes: &mut Vec<oneshot::Rece
                     .unwrap_or(now);
                 match shared
                     .deps
-                    .link
-                    .action_status(host, batch.to_vec(), epoch, deadline)
+                    .journal
+                    .status_batch(host, batch.to_vec(), epoch, deadline)
                     .await
                 {
                     Ok(answers) => break Some(answers),
@@ -255,7 +255,7 @@ async fn pass_rows(shared: &Shared, host: HostId, writes: &mut Vec<oneshot::Rece
             );
             return;
         }
-        if shared.deps.link.journal_epoch(host) != Some(epoch) {
+        if shared.deps.journal.epoch_of(host) != Some(epoch) {
             return;
         }
         let now = shared.deps.clock.now();

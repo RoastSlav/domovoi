@@ -38,7 +38,7 @@ cd web && npx vitest run src/features/<area>      # web: only the tests for the 
 - Touched `web/`: run the tests for the changed area, plus `npm run lint` and `npm run typecheck`.
 - Without nextest, use `cargo test -p <crate>`.
 
-When a changed crate has a `tests/gates.rs`, run it too; it is part of the crate's tests already.
+When a changed crate has a `tests/gates.rs`, run it too; it is part of the crate's tests already. The engine's and the hub's execution-boundary gates compile `xtask` as a dev-only dependency and call the same checker `cargo xtask arch-check` runs, so a boundary finding arrives from one implementation to both the tool and the gate.
 
 `domovoi-hub`'s `test-support` feature and `domovoi`'s matching dev-dependency are what let the hub and binary integration tests drive an agent's wire directly. The feature is non-default and those packages' test builds turn it on through their dev-dependencies, so the plain commands above need no feature flag and a normal build has no such accessor. Asking for it explicitly (`--features test-support`, or `--all-features`) compiles it, as any Cargo feature would; nothing in CI or `cargo xtask ci` does.
 

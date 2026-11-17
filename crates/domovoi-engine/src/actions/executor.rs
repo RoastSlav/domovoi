@@ -211,7 +211,7 @@ pub(crate) async fn run(shared: &Shared, id: ActionId, pool: Option<Arc<Semaphor
     let Some(incident) = preflight::current_incident(shared, id, &action, now).await else {
         return;
     };
-    let Some(snapshot) = deps.link.snapshot(action.host()) else {
+    let Some(snapshot) = deps.observer.observe_snapshot(action.host()) else {
         let _ = preflight::ask_reject(
             shared,
             id,

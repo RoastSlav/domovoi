@@ -153,8 +153,9 @@ pub const CRATES: &[CrateRule] = &[
     },
 ];
 
-/// Crates that may only be used as dev-dependencies (R5).
-pub const DEV_ONLY: &[&str] = &["domovoi-testkit"];
+/// Crates that may only be used as dev-dependencies (R5). `xtask` exports the architecture
+/// checker, which the engine and hub gate tests call; that is a test-only use.
+pub const DEV_ONLY: &[&str] = &["domovoi-testkit", "xtask"];
 
 /// Crates allowed to depend on `anyhow` (R9).
 pub const ANYHOW_ALLOWED: &[&str] = &["domovoi", "xtask"];
@@ -196,46 +197,207 @@ pub const PLAN_HASH_V2_ALLOWED_PREFIXES: &[&str] = &["crates/domovoi-core/src/ac
 /// direct construction path (ADR 0021).
 pub const AUTHORIZATION_MODULE: &str = "crates/domovoi-core/src/action/authorization.rs";
 
-/// Where an `AgentLink` may be declared, implemented or faked, and the extra exception those
-/// files have for `EXEC-1` to `EXEC-3` (ADR 0022): the one trait file, the hub's real link and
-/// policy wrapper, and the fakes. An entry ending in `/` is a directory; any other entry names
-/// one file exactly, so a file beside it inherits nothing. Adding an implementation means a
-/// deliberate edit here.
-pub const LINK_DEFINITION_PREFIXES: &[&str] = &[
-    "crates/domovoi-core/src/ports/agent_link.rs",
-    "crates/domovoi-hub/src/agent_server/link.rs",
-    "crates/domovoi-hub/src/agent_server/skill_policy.rs",
-    "crates/domovoi-testkit/",
+/// Raw link operations, by the name written at the call site (ADR 0023). A name matches the
+/// last segment of a path (`AgentLink::run_tool`) and the method of a call
+/// (`self.link.run_tool`), so an operation is counted wherever it is called.
+pub const RAW_OPS: &[&str] = &[
+    "run_tool",
+    "start_skill",
+    "skill_result",
+    "run_check",
+    "run_skill",
+    "run_capability",
 ];
 
-/// Where a host may be read: the one read boundary directory (EXEC-1, ADR 0022), plus the
-/// declaration files through [`LINK_DEFINITION_PREFIXES`].
-pub const RUN_TOOL_ALLOWED_PREFIXES: &[&str] = &["crates/domovoi-engine/src/evidence/"];
+/// Boundary constructions, `Type::assoc` as written (EXEC-2, ADR 0022, ADR 0023): the one
+/// authorizing constructor, the one dispatch, and the two halves of the writer confirmation.
+pub const BOUNDARY_PAIRS: &[&str] = &[
+    "AuthorizedExecution::of",
+    "execute::execute",
+    "WriteCommand::Dispatch",
+];
 
-/// Where a skill may be handed to an agent: the one execution boundary file, named exactly
-/// (EXEC-2, ADR 0022). `run_capability` is scanned before the capability registry adds it, so
-/// the rule starts enforcing the day it lands.
-pub const RUN_SKILL_ALLOWED_PREFIXES: &[&str] = &["crates/domovoi-engine/src/actions/execute.rs"];
+/// The raw link's type names (EXEC-4, ADR 0023). Naming one outside the allowed files is how
+/// a transport, a service or a new module would reach the unrestricted link.
+pub const LINK_NAMES: &[&str] = &["AgentLink", "WsAgentLink", "PolicyLink"];
 
-/// Where a check may be re-run on an agent: the one verification file, named exactly (EXEC-3,
-/// ADR 0022).
-pub const RUN_CHECK_ALLOWED_PREFIXES: &[&str] =
-    &["crates/domovoi-engine/src/actions/verify_wake.rs"];
+/// Methods and fields that hand out or hold the raw link (EXEC-4, ADR 0023).
+pub const LINK_ACCESSORS: &[&str] = &["link", "link_for_tests"];
 
-/// Where a link may be named or taken (EXEC-4, ADR 0022): the code that declares, implements
-/// or composes it, plus the engine's two boundaries. The core `ports/` exceptions are exact
-/// files - the trait declaration and the module that re-exports it - so another port module
-/// added beside them is denied. Everything else is default-deny: a new transport directory
-/// is refused without an edit here, and a new allowed area is a deliberate, reviewable one. An
-/// entry ending in `/` is a directory; any other entry names one file exactly.
-pub const AGENT_LINK_ALLOWED_PREFIXES: &[&str] = &[
+/// One operation a boundary card counts.
+pub enum BoundaryOp {
+    /// A raw link operation, by [`RAW_OPS`] name.
+    Call(&'static str),
+    /// A construction, by [`BOUNDARY_PAIRS`] key.
+    Pair(&'static str),
+}
+
+/// One file allowed to hold a card's operation, and how many times it may appear there.
+pub struct BoundarySite {
+    /// Workspace-relative path with `/` separators, named exactly.
+    pub file: &'static str,
+    /// Exact number of occurrences in that file.
+    pub count: usize,
+}
+
+/// One counted boundary operation: the files allowed to hold it, with exact counts, and the
+/// message a violation carries. A card is default-deny: every other production file must
+/// contain none of the operation, and a listed file must contain exactly its count.
+pub struct BoundaryCard {
+    /// Rule identifier, `EXEC-1` to `EXEC-3`.
+    pub id: &'static str,
+    /// The operation this card counts.
+    pub op: BoundaryOp,
+    /// Every file allowed to hold it. An empty list means the operation has no caller.
+    pub sites: &'static [BoundarySite],
+    /// What the operation is for and where it belongs.
+    pub message: &'static str,
+}
+
+/// Every counted boundary operation (EXEC-1 to EXEC-3, ADR 0023). Counts are checked against
+/// the syntax tree, so a second call site, a call split across lines or a call inside a macro
+/// body cannot slip past. The hub's policy wrapper and the runtime capability are the only
+/// callers of a raw link operation: the first is the link's own `AgentLink` implementation,
+/// the second the composition root that turns it into capability objects. Adding a caller is
+/// a deliberate edit here, with an ADR.
+pub const BOUNDARY_CARDS: &[BoundaryCard] = &[
+    BoundaryCard {
+        id: "EXEC-1",
+        op: BoundaryOp::Call("run_tool"),
+        sites: &[
+            BoundarySite {
+                file: "crates/domovoi-hub/src/agent_server/skill_policy.rs",
+                count: 1,
+            },
+            BoundarySite {
+                file: "crates/domovoi-hub/src/runtime/caps.rs",
+                count: 1,
+            },
+        ],
+        message: "a host is read only through `HostRead::read_host`; the raw `run_tool` call belongs to the link's policy wrapper and the runtime capability (ADR 0023)",
+    },
+    BoundaryCard {
+        id: "EXEC-2",
+        op: BoundaryOp::Call("start_skill"),
+        sites: &[
+            BoundarySite {
+                file: "crates/domovoi-hub/src/agent_server/skill_policy.rs",
+                count: 1,
+            },
+            BoundarySite {
+                file: "crates/domovoi-hub/src/runtime/caps.rs",
+                count: 1,
+            },
+        ],
+        message: "a skill is dispatched only through `HandoffRunner::hand_off` in execute.rs; the raw `start_skill` call belongs to the link's policy wrapper and the runtime capability (ADR 0023)",
+    },
+    BoundaryCard {
+        id: "EXEC-2",
+        op: BoundaryOp::Call("skill_result"),
+        sites: &[
+            BoundarySite {
+                file: "crates/domovoi-hub/src/agent_server/skill_policy.rs",
+                count: 1,
+            },
+            BoundarySite {
+                file: "crates/domovoi-hub/src/runtime/caps.rs",
+                count: 1,
+            },
+        ],
+        message: "a skill result is awaited only through `HandoffRunner::await_handoff_result` in execute.rs; the raw `skill_result` call belongs to the link's policy wrapper and the runtime capability (ADR 0023)",
+    },
+    BoundaryCard {
+        id: "EXEC-2",
+        op: BoundaryOp::Call("run_skill"),
+        sites: &[],
+        message: "`run_skill` has no caller: a skill runs only through execute(AuthorizedExecution) (ADR 0023)",
+    },
+    BoundaryCard {
+        id: "EXEC-2",
+        op: BoundaryOp::Call("run_capability"),
+        sites: &[],
+        message: "`run_capability` has no caller; a skill runs only through execute(AuthorizedExecution) (ADR 0023)",
+    },
+    BoundaryCard {
+        id: "EXEC-2",
+        op: BoundaryOp::Pair("AuthorizedExecution::of"),
+        sites: &[BoundarySite {
+            file: "crates/domovoi-engine/src/actions/executor.rs",
+            count: 1,
+        }],
+        message: "`AuthorizedExecution::of` is the one authorizing constructor and runs once per action, in executor.rs (ADR 0022)",
+    },
+    BoundaryCard {
+        id: "EXEC-2",
+        op: BoundaryOp::Pair("execute::execute"),
+        sites: &[BoundarySite {
+            file: "crates/domovoi-engine/src/actions/executor.rs",
+            count: 1,
+        }],
+        message: "`execute::execute` is the one dispatch and is called once, from executor.rs (ADR 0022)",
+    },
+    BoundaryCard {
+        id: "EXEC-2",
+        op: BoundaryOp::Pair("WriteCommand::Dispatch"),
+        sites: &[
+            BoundarySite {
+                file: "crates/domovoi-engine/src/actions/execute.rs",
+                count: 1,
+            },
+            BoundarySite {
+                file: "crates/domovoi-engine/src/actions/writer.rs",
+                count: 1,
+            },
+        ],
+        message: "`WriteCommand::Dispatch` is constructed in execute.rs and matched in writer.rs; a second construction or match is a second dispatch path (ADR 0022)",
+    },
+    BoundaryCard {
+        id: "EXEC-3",
+        op: BoundaryOp::Call("run_check"),
+        sites: &[
+            BoundarySite {
+                file: "crates/domovoi-hub/src/agent_server/skill_policy.rs",
+                count: 1,
+            },
+            BoundarySite {
+                file: "crates/domovoi-hub/src/runtime/caps.rs",
+                count: 1,
+            },
+        ],
+        message: "a check is re-run only through `CheckRerun::rerun_check` in verify_wake.rs; the raw `run_check` call belongs to the link's policy wrapper and the runtime capability (ADR 0023)",
+    },
+];
+
+/// Crates whose production sources the counted operations cover (EXEC-1 to EXEC-3).
+pub const EXEC_OPERATION_CRATES: &[&str] = &[
+    "crates/domovoi-core/src/",
+    "crates/domovoi-engine/src/",
+    "crates/domovoi-hub/src/",
+    "crates/domovoi-store/src/",
+];
+
+/// Crates whose production sources may not name the raw link (EXEC-4). The binary is included
+/// because it composes the hub: a first-party source there that reached for the link would
+/// bypass every boundary.
+pub const EXEC_LINK_CRATES: &[&str] = &[
+    "crates/domovoi-core/src/",
+    "crates/domovoi-engine/src/",
+    "crates/domovoi-hub/src/",
+    "crates/domovoi/src/",
+];
+
+/// Files allowed to name the raw link or take it through an accessor (EXEC-4, ADR 0023): the
+/// trait and its re-export, the hub's link with its policy wrapper and the server module that
+/// owns it, and the runtime composition root that turns it into capabilities. Exact files
+/// only: a new module in the same directory inherits nothing.
+pub const LINK_NAMES_ALLOWED_FILES: &[&str] = &[
     "crates/domovoi-core/src/ports/agent_link.rs",
     "crates/domovoi-core/src/ports/mod.rs",
-    "crates/domovoi-hub/src/agent_server/",
-    "crates/domovoi-hub/src/runtime/",
-    "crates/domovoi-engine/src/evidence/",
-    "crates/domovoi-engine/src/actions/",
-    "crates/domovoi-testkit/",
+    "crates/domovoi-hub/src/agent_server/link.rs",
+    "crates/domovoi-hub/src/agent_server/mod.rs",
+    "crates/domovoi-hub/src/agent_server/skill_policy.rs",
+    "crates/domovoi-hub/src/runtime/caps.rs",
+    "crates/domovoi-hub/src/runtime/mod.rs",
 ];
 
 /// Crates whose sources must stay free of I/O (R2).

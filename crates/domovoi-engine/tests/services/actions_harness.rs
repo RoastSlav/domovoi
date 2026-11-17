@@ -19,6 +19,7 @@ use domovoi_engine::{
     EnginePolicy, IncidentManager, ManagerDeps, ManagerHandle, PatternRedactor,
 };
 use domovoi_testkit::build::{T0, open_incident};
+use domovoi_testkit::link::action_caps;
 use domovoi_testkit::{FakeAgentLink, FakeClock, InMemoryStore};
 use jiff::{SignedDuration, Timestamp};
 use secrecy::SecretString;
@@ -192,6 +193,7 @@ impl Seeded {
     pub fn start(&self, settings: ActionSettings, uow: Arc<dyn UnitOfWork>) -> Actions {
         let shutdown = self.shutdown.child_token();
         let events = self.bus.subscribe();
+        let caps = action_caps(self.link.clone());
         let deps = ActionDeps {
             actions: self.actions.clone(),
             incidents: self.store.clone(),
@@ -199,7 +201,11 @@ impl Seeded {
             uow,
             effects: self.store.clone(),
             advisories: self.store.clone(),
-            link: self.link.clone(),
+            probe: caps.probe,
+            observer: caps.observer,
+            journal: caps.journal,
+            handoff: caps.handoff,
+            rerun: caps.rerun,
             hosts: self.hosts.clone(),
             redactor: Arc::new(PatternRedactor::new([SecretString::from(
                 SECRET.to_owned(),

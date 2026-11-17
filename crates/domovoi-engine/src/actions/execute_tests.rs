@@ -15,6 +15,7 @@ use domovoi_core::{
 use domovoi_testkit::approvals::{approve, human};
 use domovoi_testkit::build::{T0, manifest, open_incident};
 use domovoi_testkit::link::LinkRequest;
+use domovoi_testkit::link::action_caps;
 use domovoi_testkit::{FakeAgentLink, FakeClock, InMemoryStore};
 use jiff::SignedDuration;
 use tokio::sync::{Notify, broadcast};
@@ -102,6 +103,7 @@ impl World {
         });
         let (commands, incoming) = writer::queue();
         let (deferred, _deferred_incoming) = tokio::sync::mpsc::unbounded_channel();
+        let caps = action_caps(link.clone());
         let shared = Arc::new(Shared {
             deps: ActionDeps {
                 actions: store.clone(),
@@ -110,7 +112,11 @@ impl World {
                 uow: store.clone(),
                 effects: store.clone(),
                 advisories: store.clone(),
-                link: link.clone(),
+                probe: caps.probe,
+                observer: caps.observer,
+                journal: caps.journal,
+                handoff: caps.handoff,
+                rerun: caps.rerun,
                 hosts: store.clone(),
                 redactor: Arc::new(PatternRedactor::default()),
                 clock: clock.clone(),

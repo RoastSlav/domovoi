@@ -74,6 +74,7 @@ insta = { workspace = true }
 sqlx = { workspace = true }
 tracing-subscriber = { workspace = true }
 wiremock = { workspace = true }
+xtask = { workspace = true }
 
 [[test]]
 name = "hub"

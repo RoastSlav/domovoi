@@ -6,9 +6,9 @@ use std::sync::Arc;
 
 use domovoi_core::ports::{HostAvailability, Presence, ToolOutput};
 use domovoi_core::{HostId, ReadToolCall, Risk, SkillName, SkillSummary};
-use domovoi_testkit::FakeAgentLink;
 use domovoi_testkit::build::{T0, manifest, open_incident};
-use domovoi_testkit::link::LinkRequest;
+use domovoi_testkit::link::{LinkRequest, evidence_caps, observer_of};
+use domovoi_testkit::{FakeAgentLink, FakeClock};
 use jiff::SignedDuration;
 
 use super::{Evidence, EvidenceError, EvidenceRequest, HostCatalog};
@@ -16,6 +16,23 @@ use super::{Evidence, EvidenceError, EvidenceRequest, HostCatalog};
 /// The deadline every request here uses; the fake link records it but never enforces it.
 fn deadline() -> jiff::Timestamp {
     T0.checked_add(SignedDuration::from_secs(15)).unwrap()
+}
+
+/// The read boundary over the fake link, with a clock at [`T0`].
+fn evidence(link: &Arc<FakeAgentLink>) -> Evidence {
+    Evidence::new(evidence_caps(link.clone()), Arc::new(FakeClock::new(T0)))
+}
+
+/// The read boundary over the fake link and a clock the test moves.
+fn evidence_at(link: &Arc<FakeAgentLink>, clock: Arc<FakeClock>) -> Evidence {
+    Evidence::new(evidence_caps(link.clone()), clock)
+}
+
+/// Whether any read reached the agent. An availability check is not a request here.
+fn read_reached_the_agent(link: &FakeAgentLink) -> bool {
+    link.requests()
+        .iter()
+        .any(|request| matches!(request, LinkRequest::Tool { .. }))
 }
 
 fn connected(link: &FakeAgentLink, host: HostId) {
@@ -96,7 +113,7 @@ async fn evidence_collect_uses_the_scope_host() {
         })
     });
     let incident = open_incident(incident_host, "docker.container", Some("nginx")).unwrap();
-    let evidence = Evidence::new(link.clone());
+    let evidence = evidence(&link);
 
     let request =
         EvidenceRequest::for_incident(&incident, ReadToolCall::DockerPs { all: true }, deadline());
@@ -128,7 +145,7 @@ async fn a_read_tool_answers_the_hosts_availability_first() {
             truncated: false,
         })
     });
-    let evidence = Evidence::new(link.clone());
+    let evidence = evidence(&link);
 
     for state in unavailable_states() {
         let host = HostId::new();
@@ -159,7 +176,7 @@ async fn a_read_skill_is_not_validated_until_the_host_is_available() {
             truncated: false,
         })
     });
-    let evidence = Evidence::new(link.clone());
+    let evidence = evidence(&link);
 
     for state in unavailable_states() {
         set_unavailable(&link, host, &state);
@@ -195,7 +212,7 @@ async fn a_read_skill_must_be_installed_read_only_and_given_valid_arguments() {
             truncated: false,
         })
     });
-    let evidence = Evidence::new(link.clone());
+    let evidence = evidence(&link);
 
     let write = ReadToolCall::RunReadSkill {
         skill: SkillName::parse("restart_container").unwrap(),
@@ -284,8 +301,8 @@ async fn evidence_collect_returns_the_agent_output_unchanged() {
             truncated: true,
         })
     });
-    let evidence = Evidence::new(link.clone());
-    let catalog = HostCatalog::new(link.clone());
+    let evidence = evidence(&link);
+    let catalog = HostCatalog::new(observer_of(link.clone()));
 
     let out = evidence
         .collect_evidence(EvidenceRequest::for_host(
@@ -312,4 +329,123 @@ async fn evidence_collect_returns_the_agent_output_unchanged() {
     );
     assert!(catalog.snapshot(host).is_some());
     assert!(catalog.skills(host).is_empty());
+}
+
+#[tokio::test]
+async fn an_available_host_is_probed_then_read_once() {
+    let link = Arc::new(FakeAgentLink::new());
+    let host = HostId::new();
+    connected(&link, host);
+    link.on_tool(|_, _| {
+        Ok(ToolOutput {
+            text: "up 3 days".to_owned(),
+            truncated: false,
+        })
+    });
+    let evidence = evidence(&link);
+
+    let out = evidence
+        .collect_evidence(EvidenceRequest::for_host(
+            host,
+            ReadToolCall::HostOverview,
+            deadline(),
+        ))
+        .await
+        .expect("an available host is read");
+    assert_eq!(out.text, "up 3 days");
+    assert_eq!(
+        link.requests()
+            .iter()
+            .filter(|request| matches!(request, LinkRequest::Tool { .. }))
+            .count(),
+        1,
+        "the read reached the agent exactly once, after the availability check"
+    );
+}
+
+#[tokio::test]
+async fn a_deadline_already_passed_answers_as_timed_out_without_asking() {
+    let link = Arc::new(FakeAgentLink::new());
+    let host = HostId::new();
+    connected(&link, host);
+    link.on_tool(|_, _| {
+        Ok(ToolOutput {
+            text: "unreachable".to_owned(),
+            truncated: false,
+        })
+    });
+    let evidence = evidence(&link);
+
+    let refused = evidence
+        .collect_evidence(EvidenceRequest::for_host(
+            host,
+            ReadToolCall::HostOverview,
+            T0,
+        ))
+        .await
+        .unwrap_err();
+    assert_eq!(refused, EvidenceError::Timeout);
+    assert!(
+        !read_reached_the_agent(&link),
+        "a passed deadline does not reach the agent"
+    );
+}
+
+#[tokio::test]
+async fn an_availability_check_pending_past_the_deadline_answers_as_timed_out() {
+    let link = Arc::new(FakeAgentLink::new());
+    let host = HostId::new();
+    connected(&link, host);
+    link.on_tool(|_, _| {
+        Ok(ToolOutput {
+            text: "read".to_owned(),
+            truncated: false,
+        })
+    });
+    // The check is held with no permit, so it stays pending until the clock moves.
+    let entered = link.hold_availability(host, Arc::new(tokio::sync::Semaphore::new(0)));
+    let clock = Arc::new(FakeClock::new(T0));
+    let evidence = evidence_at(&link, clock.clone());
+    let request = EvidenceRequest::for_host(host, ReadToolCall::HostOverview, deadline());
+
+    let pending = tokio::spawn(async move { evidence.collect_evidence(request).await });
+    entered.notified().await;
+    clock.advance(SignedDuration::from_secs(16));
+
+    let refused = pending.await.unwrap().unwrap_err();
+    assert_eq!(refused, EvidenceError::Timeout);
+    assert!(
+        !read_reached_the_agent(&link),
+        "the read never ran after the availability check passed its deadline"
+    );
+}
+
+#[tokio::test]
+async fn unavailable_and_incompatible_hosts_never_reach_the_read() {
+    let link = Arc::new(FakeAgentLink::new());
+    link.on_tool(|_, _| {
+        Ok(ToolOutput {
+            text: "unreachable".to_owned(),
+            truncated: false,
+        })
+    });
+    let evidence = evidence(&link);
+
+    for state in unavailable_states() {
+        let host = HostId::new();
+        set_unavailable(&link, host, &state);
+        let refused = evidence
+            .collect_evidence(EvidenceRequest::for_host(
+                host,
+                ReadToolCall::HostOverview,
+                deadline(),
+            ))
+            .await
+            .unwrap_err();
+        assert_eq!(refused, state.2, "availability answers before the read");
+    }
+    assert!(
+        !read_reached_the_agent(&link),
+        "run_tool is never reached for an unavailable or incompatible host"
+    );
 }

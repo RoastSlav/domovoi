@@ -1,50 +1,59 @@
-//! Source scans: R3 (process spawning), R4 (no shell), R2 (pure crates),
-//! R8 (file size), R10 (crate root docs), INV-1 (approval call sites).
+//! Source scans: R3 (process spawning), R4 (no shell), R2 (pure crates), R8 (file size),
+//! R10 (crate root docs), INV-1 (approval call sites), and the entry point for the
+//! syntax-aware EXEC boundary checks in [`super::ast`].
+//!
+//! The rules left here are inherently local to one line of source (a call to a constructor, a
+//! vocabulary word, a shell literal), so they read the text. The EXEC boundary rules count
+//! syntax nodes instead: a line-based scan cannot see a call split across lines, a macro body
+//! or an alias, and these rules protect the execution boundary.
 
+use std::collections::BTreeSet;
 use std::path::Path;
+
+use cargo_metadata::{Metadata, TargetKind};
 
 use super::Violation;
 use super::rules::{
-    AGENT_LINK_ALLOWED_PREFIXES, AUTHORIZATION_HUMAN_ALLOWED_PREFIXES, AUTHORIZATION_MODULE,
+    AUTHORIZATION_HUMAN_ALLOWED_PREFIXES, AUTHORIZATION_MODULE,
     AUTHORIZATION_POLICY_ALLOWED_PREFIXES, HUMAN_APPROVAL_ALLOWED_PREFIXES,
-    HUMAN_APPROVAL_RESTORE_ALLOWED_PREFIXES, LINK_DEFINITION_PREFIXES, MAX_FILE_LINES,
-    PLAN_HASH_V2_ALLOWED_PREFIXES, POLICY_PERMIT_ALLOWED_PREFIXES, PROCESS_ALLOWED_PREFIXES,
-    PURE_CRATE_DIRS, PURE_FORBIDDEN_PATHS, RUN_CHECK_ALLOWED_PREFIXES, RUN_SKILL_ALLOWED_PREFIXES,
-    RUN_TOOL_ALLOWED_PREFIXES,
+    HUMAN_APPROVAL_RESTORE_ALLOWED_PREFIXES, MAX_FILE_LINES, PLAN_HASH_V2_ALLOWED_PREFIXES,
+    POLICY_PERMIT_ALLOWED_PREFIXES, PROCESS_ALLOWED_PREFIXES, PURE_CRATE_DIRS,
+    PURE_FORBIDDEN_PATHS,
 };
 
-/// Crates whose source may not start a skill or read a host outside a boundary (EXEC-1..3).
-const EXECUTION_SCANNED_CRATES: &[&str] = &[
-    "crates/domovoi-core/src/",
-    "crates/domovoi-engine/src/",
-    "crates/domovoi-hub/src/",
-    "crates/domovoi-store/src/",
-];
+/// Scan every `.rs` file under `crates/` and check every rule.
+///
+/// Test-only code is told apart by module wiring and Cargo's test targets, not by filename:
+/// `test_only_files` follows the test targets and `#[cfg(test)]` declarations, and everything
+/// they do not reach is production, whatever it is called.
+pub fn check_tree(root: &Path, metadata: &Metadata) -> anyhow::Result<Vec<Violation>> {
+    let mut paths = Vec::new();
+    collect_rs(&root.join("crates"), &mut paths)?;
+    paths.sort();
 
-/// Crates whose sources may not name the link types or take the raw link (EXEC-4). The
-/// binary is included because it composes the hub: a first-party source there that reached
-/// for the link would bypass every boundary, and only `tests/` is exempt.
-const LINK_SCANNED_CRATES: &[&str] = &[
-    "crates/domovoi-core/src/",
-    "crates/domovoi-engine/src/",
-    "crates/domovoi-hub/src/",
-    "crates/domovoi/src/",
-];
-
-/// Scan every `.rs` file under `crates/`.
-pub fn check_tree(root: &Path) -> anyhow::Result<Vec<Violation>> {
-    let mut files = Vec::new();
-    collect_rs(&root.join("crates"), &mut files)?;
-    files.sort();
-    let mut out = Vec::new();
-    for path in files {
+    let mut files: Vec<(String, String)> = Vec::with_capacity(paths.len());
+    for path in paths {
         let rel = path
             .strip_prefix(root)?
             .to_string_lossy()
             .replace('\\', "/");
         let text = std::fs::read_to_string(&path)?;
-        out.extend(check_file(&rel, &text));
+        files.push((rel, text));
     }
+
+    let roots = test_target_roots(metadata, root);
+    let test_only = super::ast::test_only_files(&files, &roots);
+
+    let mut out = Vec::new();
+    for (rel, text) in &files {
+        out.extend(check_file(rel, text, test_only.contains(rel)));
+    }
+    let production: Vec<(String, String)> = files
+        .iter()
+        .filter(|(rel, _)| !test_only.contains(rel))
+        .cloned()
+        .collect();
+    out.extend(super::ast::exec_violations(&production));
     Ok(out)
 }
 
@@ -69,9 +78,25 @@ fn collect_rs(dir: &Path, out: &mut Vec<std::path::PathBuf>) -> anyhow::Result<(
     Ok(())
 }
 
-/// Whether a path is test-only code (integration tests or `*_tests.rs` / `tests.rs` modules).
-fn is_test_path(rel: &str) -> bool {
-    rel.contains("/tests/") || rel.ends_with("/tests.rs") || rel.ends_with("_tests.rs")
+/// The roots Cargo compiles as test targets, workspace-relative with `/` separators.
+fn test_target_roots(metadata: &Metadata, root: &Path) -> BTreeSet<String> {
+    let workspace = metadata.workspace_root.as_std_path();
+    let mut roots = BTreeSet::new();
+    for package in &metadata.packages {
+        for target in &package.targets {
+            if !target.kind.contains(&TargetKind::Test) {
+                continue;
+            }
+            let src = target.src_path.as_std_path();
+            let rel = src
+                .strip_prefix(workspace)
+                .or_else(|_| src.strip_prefix(root));
+            if let Ok(rel) = rel {
+                roots.insert(rel.to_string_lossy().replace('\\', "/"));
+            }
+        }
+    }
+    roots
 }
 
 /// Whether a path allowlist entry covers `rel`: an entry ending in `/` is a directory scope,
@@ -85,70 +110,46 @@ fn path_matches(rel: &str, allowed: &str) -> bool {
 }
 
 /// Whether `line` is inside a comment: a rule never counts a mention in prose.
+///
+/// This is the one heuristic left, and only for the line rules: they read text, and a
+/// doc comment mentioning `HumanApproval::new` or `std::fs` must not count.
 fn is_comment(line: &str) -> bool {
     let t = line.trim_start();
     t.starts_with("//") || t.starts_with("/*") || t.starts_with('*')
 }
 
-/// Check one file. `rel` is the path relative to the workspace root, with `/` separators.
-pub fn check_file(rel: &str, text: &str) -> Vec<Violation> {
+/// Check one file's line rules. `rel` is the path relative to the workspace root, with `/`
+/// separators; `test_only` says whether only test builds compile it.
+pub fn check_file(rel: &str, text: &str, test_only: bool) -> Vec<Violation> {
     let mut out = Vec::new();
-    let test = is_test_path(rel);
     let in_runner = PROCESS_ALLOWED_PREFIXES
         .iter()
         .any(|p| path_matches(rel, p));
-    let approval_ok = test
+    let approval_ok = test_only
         || HUMAN_APPROVAL_ALLOWED_PREFIXES
             .iter()
             .any(|p| path_matches(rel, p));
-    let restore_ok = test
+    let restore_ok = test_only
         || HUMAN_APPROVAL_RESTORE_ALLOWED_PREFIXES
             .iter()
             .any(|p| path_matches(rel, p));
-    let permit_ok = test
+    let permit_ok = test_only
         || POLICY_PERMIT_ALLOWED_PREFIXES
             .iter()
             .any(|p| path_matches(rel, p));
-    let authorization_human_ok = test
+    let authorization_human_ok = test_only
         || AUTHORIZATION_HUMAN_ALLOWED_PREFIXES
             .iter()
             .any(|p| path_matches(rel, p));
-    let authorization_policy_ok = test
+    let authorization_policy_ok = test_only
         || AUTHORIZATION_POLICY_ALLOWED_PREFIXES
             .iter()
             .any(|p| path_matches(rel, p));
-    let plan_v2_ok = test
+    let plan_v2_ok = test_only
         || PLAN_HASH_V2_ALLOWED_PREFIXES
             .iter()
             .any(|p| path_matches(rel, p));
-    let run_tool_ok = test
-        || RUN_TOOL_ALLOWED_PREFIXES
-            .iter()
-            .any(|p| path_matches(rel, p))
-        || LINK_DEFINITION_PREFIXES
-            .iter()
-            .any(|p| path_matches(rel, p));
-    let run_skill_ok = test
-        || RUN_SKILL_ALLOWED_PREFIXES
-            .iter()
-            .any(|p| path_matches(rel, p))
-        || LINK_DEFINITION_PREFIXES
-            .iter()
-            .any(|p| path_matches(rel, p));
-    let run_check_ok = test
-        || RUN_CHECK_ALLOWED_PREFIXES
-            .iter()
-            .any(|p| path_matches(rel, p))
-        || LINK_DEFINITION_PREFIXES
-            .iter()
-            .any(|p| path_matches(rel, p));
-    let link_name_ok = test
-        || AGENT_LINK_ALLOWED_PREFIXES
-            .iter()
-            .any(|p| path_matches(rel, p));
-    let execution_scope = EXECUTION_SCANNED_CRATES.iter().any(|p| rel.starts_with(p));
-    let link_scope = LINK_SCANNED_CRATES.iter().any(|p| rel.starts_with(p));
-    let pure = !test && PURE_CRATE_DIRS.iter().any(|p| rel.starts_with(p));
+    let pure = !test_only && PURE_CRATE_DIRS.iter().any(|p| rel.starts_with(p));
 
     for (i, line) in text.lines().enumerate() {
         let at = format!("{rel}:{}", i + 1);
@@ -159,7 +160,7 @@ pub fn check_file(rel: &str, text: &str) -> Vec<Violation> {
             || line.contains("tokio::process::Command")
             || line.contains("use std::process")
             || line.contains("use tokio::process");
-        if spawns && !in_runner && !test {
+        if spawns && !in_runner && !test_only {
             out.push(v(
                 "R3",
                 &at,
@@ -173,7 +174,7 @@ pub fn check_file(rel: &str, text: &str) -> Vec<Violation> {
                 "`allow(clippy::disallowed_methods)` is only permitted in domovoi-runner",
             ));
         }
-        if !test && is_shell_invocation(line) {
+        if !test_only && is_shell_invocation(line) {
             out.push(v(
                 "R4",
                 &at,
@@ -242,53 +243,10 @@ pub fn check_file(rel: &str, text: &str) -> Vec<Violation> {
                 }
             }
         }
-        if execution_scope && !run_tool_ok && line.contains("run_tool(") {
-            out.push(v(
-                "EXEC-1",
-                &at,
-                "a host is read only through Evidence::collect_evidence, in crates/domovoi-engine/src/evidence/",
-            ));
-        }
-        if execution_scope && !run_skill_ok {
-            for call in ["run_skill(", "start_skill(", "run_capability("] {
-                if line.contains(call) {
-                    out.push(v(
-                        "EXEC-2",
-                        &at,
-                        "a skill runs only through execute(AuthorizedExecution), in crates/domovoi-engine/src/actions/execute.rs",
-                    ));
-                }
-            }
-        }
-        if execution_scope && !run_check_ok && line.contains("run_check(") {
-            out.push(v(
-                "EXEC-3",
-                &at,
-                "a check is re-run only by verification, in crates/domovoi-engine/src/actions/verify_wake.rs",
-            ));
-        }
-        if link_scope && !link_name_ok {
-            for named in ["AgentLink", "WsAgentLink", "PolicyLink"] {
-                if line.contains(named) {
-                    out.push(v(
-                        "EXEC-4",
-                        &at,
-                        "a transport reads host state through AgentAdmin, never by naming or holding the link",
-                    ));
-                }
-            }
-            if names_the_raw_link_accessor(line) {
-                out.push(v(
-                    "EXEC-4",
-                    &at,
-                    "a transport may not take the agent link through the server's accessor, whatever its inferred type; read host state through AgentAdmin",
-                ));
-            }
-        }
     }
 
     let lines = text.lines().count();
-    if !test && rel.contains("/src/") && lines > MAX_FILE_LINES {
+    if !test_only && rel.contains("/src/") && lines > MAX_FILE_LINES {
         out.push(v(
             "R8",
             rel,
@@ -312,13 +270,6 @@ pub fn check_file(rel: &str, text: &str) -> Vec<Violation> {
         }
     }
     out
-}
-
-/// Whether `line` takes the raw link from the server: `server.link()`, `self.link()` or
-/// `server.link_for_tests()`. The returned type need not appear, which is why the type-name
-/// scan cannot see this on its own, and a transport is never allowed one.
-fn names_the_raw_link_accessor(line: &str) -> bool {
-    line.contains(".link()") || line.contains(".link_for_tests()")
 }
 
 fn is_shell_invocation(line: &str) -> bool {

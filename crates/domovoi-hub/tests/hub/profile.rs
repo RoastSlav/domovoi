@@ -5,7 +5,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use crate::api_harness::{Api, TestAgents, api};
+use crate::api_harness::{Api, TestAgents, api, api_without_profiles};
 use axum::http::{Method, StatusCode};
 use domovoi_core::ports::{HostRepo, LinkError, NoteRepo, Presence, SettingsRepo, ToolOutput};
 use domovoi_core::{
@@ -20,10 +20,12 @@ use domovoi_hub::profile::{
 };
 use domovoi_proto::messages::{CheckInfo, HostFacts};
 use domovoi_testkit::build::{host, manifest};
-use domovoi_testkit::link::LinkRequest;
+use domovoi_testkit::link::{LinkRequest, evidence_caps, observer_of};
 use serde_json::json;
 
+use jiff::SignedDuration;
 use jiff::Timestamp;
+use tokio::sync::Semaphore;
 
 /// What the agent's `HostOverview` answers with.
 const OVERVIEW_TEXT: &str = "uptime: 41 days\nload: 0.08 0.11 0.09\nmemory: 31 GiB total, 6.2 GiB used\ndisks:\n  /srv 2.0T 91%";
@@ -139,8 +141,8 @@ fn seed(a: &Api, version: &str) {
 /// The hub's pieces put together as the profile task and the API use them.
 fn profile_deps(a: &Api) -> ProfileDeps {
     ProfileDeps {
-        evidence: Evidence::new(a.link.clone()),
-        catalog: HostCatalog::new(a.link.clone()),
+        evidence: Evidence::new(evidence_caps(a.link.clone()), a.clock.clone()),
+        catalog: HostCatalog::new(observer_of(a.link.clone())),
         agents: Arc::new(TestAgents {
             link: a.link.clone(),
             hosts: a.store.clone(),
@@ -350,8 +352,11 @@ async fn a_disabled_read_skill_is_never_asked_for_a_profile() {
         .unwrap();
     let policy_link = Arc::new(PolicyLink::wrap(a.link.clone(), Arc::new(policy)));
     let deps = ProfileDeps {
-        evidence: Evidence::new(policy_link.clone()),
-        catalog: HostCatalog::new(policy_link),
+        evidence: Evidence::new(
+            domovoi_hub::runtime::caps::evidence_caps(policy_link.clone()),
+            a.clock.clone(),
+        ),
+        catalog: HostCatalog::new(domovoi_hub::runtime::caps::observer_of(policy_link)),
         agents: Arc::new(TestAgents {
             link: a.link.clone(),
             hosts: a.store.clone(),
@@ -424,6 +429,60 @@ async fn a_tool_that_never_answers_leaves_a_visible_gap_in_the_profile() {
         profile.containers.len(),
         2,
         "the rest of the profile was still collected"
+    );
+}
+
+#[tokio::test]
+async fn an_availability_check_pending_past_the_deadline_times_out_every_section() {
+    let a = api_without_profiles().await;
+    connect(&a, a.nas.id, "0.6.0");
+    a.link.set_checks(a.nas.id, announced());
+    a.link.on_tool(|_, call| {
+        Ok(ToolOutput {
+            text: answered(call),
+            truncated: false,
+        })
+    });
+    // One gate with no permit, so every availability the profile asks stays pending,
+    // and a notifier that fires on entry: the test moves the clock only while a check
+    // is on hold, exactly where the deadline has to cut in.
+    let entered = a
+        .link
+        .hold_availability(a.nas.id, Arc::new(Semaphore::new(0)));
+    let clock = a.clock.clone();
+    let deps = profile_deps(&a);
+    let nas = a.nas.clone();
+    let task = tokio::spawn(async move { refresh(&deps, &nas).await });
+    // Each section asks for its own availability check with its own deadline: past the
+    // deadline, the boundary times out the pending ask and the next check enters.
+    for _ in 0..4 {
+        entered.notified().await;
+        clock.advance(SignedDuration::from_secs(21));
+    }
+    let profile = task.await.unwrap().unwrap();
+    assert_eq!(
+        profile.sections.len(),
+        4,
+        "the four fixed sections are all there is"
+    );
+    for section in profile.sections.iter() {
+        assert!(
+            !section.ok,
+            "no availability check ever answered, so no section did"
+        );
+        assert_eq!(
+            section.text, "timed out",
+            "every gap says the deadline passed"
+        );
+    }
+    let asked = a
+        .link
+        .requests()
+        .iter()
+        .any(|call| matches!(call, LinkRequest::Tool { .. }));
+    assert!(
+        !asked,
+        "the read never ran past a pending availability check"
     );
 }
 
