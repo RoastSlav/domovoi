@@ -1,19 +1,26 @@
 use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex};
 
-use domovoi_core::ports::{ActionRepo, AgentLink, HostRepo, IncidentRepo, LlmError, Part};
+use async_trait::async_trait;
+use domovoi_core::ports::{
+    ActionFilter, ActionRepo, AgentLink, HostRepo, IncidentRepo, LlmError, Page, Paged, Part,
+    StoreError,
+};
 use domovoi_core::{
-    ActionId, ActionRequest, ActionStatus, AgentSessionId, CheckKey, ExecutionId, ImplHash,
-    KeyFingerprint, PlanContract, PlanHash, PlanTarget, Principal, ReadToolCall, Risk,
-    StoredAction, TriageOutcome, UserId,
+    ActionId, ActionRequest, ActionStatus, AgentSessionId, ApprovalProvenance, Authorization,
+    CheckKey, ExecutionId, ImplHash, KeyFingerprint, PlanBinding, PlanContract, PlanHash,
+    PlanTarget, Principal, ReadToolCall, Risk, SkillName, StoredAction, TriageOutcome, UserId,
 };
 use domovoi_engine::triage::{MAX_ANSWER_CHARS, PROPOSAL_TTL, TriageError, token_hash};
 use domovoi_testkit::build::{T0, open_incident};
 use domovoi_testkit::link::LinkRequest;
-use jiff::SignedDuration;
+use domovoi_testkit::{InMemoryStore, approvals};
+use jiff::{SignedDuration, Timestamp};
 use serde_json::json;
 
 use crate::harness::{
     Setup, World, add_signal, calls, disk, host_id, report, report_json, restart_skill, world,
+    world_with_actions,
 };
 
 #[tokio::test]
@@ -449,6 +456,7 @@ async fn an_unchanged_proposal_reuses_the_action_and_rotates_its_token() {
     w.link.set_skills(host_id(), vec![restart_skill()]);
     let first = triage_once(&mut w).await;
     let before = first.chat_token_hash().copied();
+    let expiry = first.expires_at();
     assert!(before.is_some(), "the first proposal carries a chat token");
 
     let TriageOutcome::Report(second) = triage_again(&mut w).await else {
@@ -465,6 +473,11 @@ async fn an_unchanged_proposal_reuses_the_action_and_rotates_its_token() {
         actions[0].chat_token_hash(),
         before.as_ref(),
         "the waiting action's chat token rotated"
+    );
+    assert_eq!(
+        actions[0].expires_at(),
+        expiry,
+        "rotation does not extend the approval window"
     );
 }
 
@@ -672,4 +685,257 @@ async fn a_session_change_before_matching_does_not_rotate_the_token() {
         before.as_ref(),
         "a replaced session does not rotate the stale action's token"
     );
+}
+
+/// What another task does to an action between triage's listing and the writer's rotation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Race {
+    Expire,
+    Approve,
+    Deny,
+}
+
+/// An action repository that settles an armed action on the next `get` for it, as another
+/// task would between triage's listing and the writer's rotation.
+struct RacingActions {
+    inner: Arc<InMemoryStore>,
+    arm: Mutex<Option<(ActionId, Race)>>,
+}
+
+impl RacingActions {
+    fn new(inner: Arc<InMemoryStore>) -> Self {
+        Self {
+            inner,
+            arm: Mutex::new(None),
+        }
+    }
+
+    fn arm(&self, id: ActionId, race: Race) {
+        *self.arm.lock().unwrap() = Some((id, race));
+    }
+
+    fn take(&self, id: ActionId) -> Option<Race> {
+        let mut arm = self.arm.lock().unwrap();
+        match *arm {
+            Some((armed, race)) if armed == id => {
+                *arm = None;
+                Some(race)
+            }
+            _ => None,
+        }
+    }
+
+    async fn settle(&self, id: ActionId, race: Race) -> Result<(), StoreError> {
+        let Some(mut action) = ActionRepo::get(&*self.inner, id).await? else {
+            return Ok(());
+        };
+        if action.status() != &ActionStatus::Proposed {
+            return Ok(());
+        }
+        match race {
+            Race::Expire => {
+                action
+                    .expire(action.expires_at())
+                    .map_err(|e| StoreError::Backend(e.to_string()))?;
+            }
+            Race::Approve => {
+                let hash = action.plan_hash_for_approval();
+                action
+                    .approve(
+                        Authorization::human(approvals::human(UserId::new())),
+                        ApprovalProvenance::new(None, "test"),
+                        &PlanBinding::Full(hash),
+                        T0,
+                    )
+                    .map_err(|e| StoreError::Backend(e.to_string()))?;
+            }
+            Race::Deny => {
+                action
+                    .deny(T0)
+                    .map_err(|e| StoreError::Backend(e.to_string()))?;
+            }
+        }
+        ActionRepo::update_from(&*self.inner, &action, "proposed").await
+    }
+}
+
+#[async_trait]
+impl ActionRepo for RacingActions {
+    async fn insert(&self, action: &ActionRequest) -> Result<(), StoreError> {
+        ActionRepo::insert(&*self.inner, action).await
+    }
+
+    async fn update_from(&self, action: &ActionRequest, expected: &str) -> Result<(), StoreError> {
+        ActionRepo::update_from(&*self.inner, action, expected).await
+    }
+
+    async fn get(&self, id: ActionId) -> Result<Option<ActionRequest>, StoreError> {
+        if let Some(race) = self.take(id) {
+            self.settle(id, race).await?;
+        }
+        ActionRepo::get(&*self.inner, id).await
+    }
+
+    async fn list(
+        &self,
+        filter: &ActionFilter,
+        page: &Page,
+    ) -> Result<Paged<ActionRequest>, StoreError> {
+        ActionRepo::list(&*self.inner, filter, page).await
+    }
+
+    async fn find_by_chat_token_hash(
+        &self,
+        hash: &[u8; 32],
+    ) -> Result<Option<ActionRequest>, StoreError> {
+        ActionRepo::find_by_chat_token_hash(&*self.inner, hash).await
+    }
+
+    async fn last_run_by_skill(
+        &self,
+        host: domovoi_core::HostId,
+    ) -> Result<BTreeMap<SkillName, Timestamp>, StoreError> {
+        ActionRepo::last_run_by_skill(&*self.inner, host).await
+    }
+}
+
+#[tokio::test]
+async fn an_expired_proposal_is_not_reused() {
+    let mut w = world(Setup::default()).await;
+    w.link.set_skills(host_id(), vec![restart_skill()]);
+    let first = triage_once(&mut w).await;
+    let before = first.chat_token_hash().copied();
+    let old_expiry = first.expires_at();
+
+    // The periodic sweep has not run: the stored status is still proposed, but the window
+    // has closed.
+    w.clock.advance(PROPOSAL_TTL + SignedDuration::from_secs(1));
+    let TriageOutcome::Report(report) = triage_again(&mut w).await else {
+        panic!("a report");
+    };
+    assert_eq!(report.proposals.len(), 1, "a fresh proposal is stored");
+
+    let actions = w.actions().await;
+    assert_eq!(
+        actions.len(),
+        2,
+        "the expired action does not suppress a fresh one"
+    );
+    let old = actions.iter().find(|a| a.id() == first.id()).unwrap();
+    assert_eq!(
+        old.status(),
+        &ActionStatus::Proposed,
+        "the sweep has not run"
+    );
+    assert_eq!(
+        old.chat_token_hash(),
+        before.as_ref(),
+        "the expired token is not rotated"
+    );
+    let fresh = actions.iter().find(|a| a.id() != first.id()).unwrap();
+    assert!(
+        fresh.expires_at() > old_expiry,
+        "the new action has its own window"
+    );
+    assert_eq!(
+        fresh.expires_at(),
+        w.now().checked_add(PROPOSAL_TTL).unwrap(),
+        "the new window starts now",
+    );
+}
+
+#[tokio::test]
+async fn an_action_expired_before_rotation_stores_a_fresh_proposal() {
+    let store = Arc::new(InMemoryStore::new());
+    let racing = Arc::new(RacingActions::new(store.clone()));
+    let mut w = world_with_actions(Setup::default(), store, racing.clone()).await;
+    w.link.set_skills(host_id(), vec![restart_skill()]);
+    let first = triage_once(&mut w).await;
+    let before = first.chat_token_hash().copied();
+    let old_expiry = first.expires_at();
+
+    // The action is still unexpired when triage lists it, then the sweep settles it before
+    // the writer can rotate its token.
+    racing.arm(first.id(), Race::Expire);
+    let TriageOutcome::Report(report) = triage_again(&mut w).await else {
+        panic!("a report");
+    };
+    assert_eq!(
+        report.proposals.len(),
+        1,
+        "an expiry during rotation does not drop the proposal"
+    );
+
+    let actions = w.actions().await;
+    assert_eq!(actions.len(), 2);
+    let old = actions.iter().find(|a| a.id() == first.id()).unwrap();
+    assert_eq!(old.status(), &ActionStatus::Expired);
+    assert_eq!(
+        old.chat_token_hash(),
+        before.as_ref(),
+        "the expired token is not rotated"
+    );
+    let fresh = actions.iter().find(|a| a.id() != first.id()).unwrap();
+    assert_eq!(
+        fresh.expires_at(),
+        w.now().checked_add(PROPOSAL_TTL).unwrap()
+    );
+    assert!(fresh.expires_at() >= old_expiry);
+}
+
+#[tokio::test]
+async fn a_decided_action_is_not_duplicated_during_rotation() {
+    for (race, expected) in [
+        (Race::Approve, ActionStatus::Approved),
+        (Race::Deny, ActionStatus::Denied),
+    ] {
+        let store = Arc::new(InMemoryStore::new());
+        let racing = Arc::new(RacingActions::new(store.clone()));
+        let mut w = world_with_actions(Setup::default(), store, racing.clone()).await;
+        w.link.set_skills(host_id(), vec![restart_skill()]);
+        let first = triage_once(&mut w).await;
+        let before = first.chat_token_hash().copied();
+
+        racing.arm(first.id(), race);
+        let TriageOutcome::Report(report) = triage_again(&mut w).await else {
+            panic!("a report");
+        };
+        assert!(
+            report.proposals.is_empty(),
+            "{race:?}: a decided action gets no second proposal"
+        );
+        let actions = w.actions().await;
+        assert_eq!(
+            actions.len(),
+            1,
+            "{race:?}: no replacement action is created"
+        );
+        assert_eq!(actions[0].id(), first.id());
+        assert_eq!(actions[0].status(), &expected);
+        assert_eq!(
+            actions[0].chat_token_hash(),
+            before.as_ref(),
+            "{race:?}: a decided action's token is not rotated"
+        );
+    }
+}
+
+#[tokio::test]
+async fn an_expired_changed_plan_stores_a_new_proposal() {
+    let mut w = world(Setup::default()).await;
+    let skill = restart_skill();
+    w.link.set_skills(host_id(), vec![skill.clone()]);
+    let first = triage_once(&mut w).await;
+    let before = first.chat_token_hash().copied();
+
+    w.clock.advance(PROPOSAL_TTL + SignedDuration::from_secs(1));
+    let mut changed = skill;
+    changed.entry_script_digest = domovoi_core::ScriptDigest::of_bytes(b"a replaced entry");
+    w.link.set_skills(host_id(), vec![changed]);
+    let _ = triage_again(&mut w).await;
+
+    let actions = w.actions().await;
+    assert_eq!(actions.len(), 2);
+    let old = actions.iter().find(|a| a.id() == first.id()).unwrap();
+    assert_eq!(old.chat_token_hash(), before.as_ref());
 }

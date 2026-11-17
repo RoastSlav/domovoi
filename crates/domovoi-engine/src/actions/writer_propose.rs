@@ -35,19 +35,28 @@ pub(super) async fn propose(shared: &Shared, action: ActionRequest) -> Decision 
     Ok(action)
 }
 
-/// Replaces the chat approval token hash of a still-proposed action. The previous token
-/// stops working, and the action's `updated_at` does not change. A decided action is
-/// refused as changed meanwhile, so a rotation never reopens a decision.
+/// Replaces the chat approval token hash of a still-proposed, unexpired action. The previous
+/// token stops working, and neither `updated_at` nor `expires_at` changes. A decided action
+/// is refused as changed meanwhile, so a rotation never reopens a decision, and an action
+/// whose approval window has closed is refused as expired so triage can store a fresh one.
 pub(super) async fn rotate_chat_token(
     shared: &Shared,
     id: ActionId,
     token_hash: [u8; 32],
 ) -> Decision {
     let action = load(shared, id).await?;
-    if action.status() != &ActionStatus::Proposed {
-        return Err(ApprovalError::Refused(ActionError::ChangedMeanwhile));
+    match action.status() {
+        ActionStatus::Proposed => {}
+        // The expiry sweep already settled it: this is still an expiry, not a decision.
+        ActionStatus::Expired => return Err(ApprovalError::Refused(ActionError::Expired)),
+        _ => return Err(ApprovalError::Refused(ActionError::ChangedMeanwhile)),
     }
     let now = shared.deps.clock.now();
+    // The window may have closed after the caller read the action but before this command
+    // reached the writer. Check the writer's own clock and leave the row for the sweep.
+    if action.expires_at() <= now {
+        return Err(ApprovalError::Refused(ActionError::Expired));
+    }
     let rotated = action.with_chat_token_hash(token_hash);
     shared
         .commit_action(

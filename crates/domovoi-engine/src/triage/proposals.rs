@@ -7,9 +7,12 @@ use std::fmt::Write as _;
 
 use domovoi_core::ports::{ActionFilter, AgentSnapshot, Page};
 use domovoi_core::{
-    ActionId, ActionProposal, ActionRequest, HostId, Incident, KeyFingerprint, PlanFamily,
-    PlanTarget, Principal, SkillSummary, TriageReport, ValidatedArgs,
+    ActionError, ActionId, ActionProposal, ActionRequest, ActionStatus, HostId, Incident,
+    KeyFingerprint, PlanFamily, PlanTarget, Principal, SkillSummary, TriageReport, ValidatedArgs,
 };
+use jiff::Timestamp;
+
+use crate::ApprovalError;
 use sha2::{Digest, Sha256};
 
 use super::{PROPOSAL_TTL, Shared};
@@ -70,8 +73,11 @@ fn same_plan(
     args: &ValidatedArgs,
     wanted: &BTreeMap<String, String>,
     target: &PlanTarget,
+    now: Timestamp,
 ) -> bool {
-    existing.skill() == &skill.name
+    existing.status() == &ActionStatus::Proposed
+        && existing.expires_at() > now
+        && existing.skill() == &skill.name
         && existing.args() == wanted
         && existing.risk() == skill.risk
         && existing.approval_plan().family() == PlanFamily::V2
@@ -80,10 +86,12 @@ fn same_plan(
 }
 
 /// Stores a `Proposed` action for each of `proposals` that names a skill on this host,
-/// fits that skill's manifest and is not already waiting for a human, including one this
-/// very batch stored. One whose identical action is already waiting gets that action's
-/// chat token rotated instead of a second action: the replacement is returned keyed to
-/// the waiting action, and the token the previous card carried stops working. Returns the
+/// fits that skill's manifest and is not already waiting for a human with an open window,
+/// including one this very batch stored. One whose identical, unexpired action is already
+/// waiting gets that action's chat token rotated instead of a second action: the replacement
+/// is returned keyed to the waiting action, and the token the previous card carried stops
+/// working. If the waiting action's window closes before the rotation, a fresh proposal is
+/// stored instead. Returns the
 /// plain chat token of each stored or rotated action keyed by its id, the proposals that
 /// were stored in the order given, and why each of the others was dropped, one line each
 /// and already redacted.
@@ -174,7 +182,7 @@ pub(crate) async fn store(
         let wanted = args.to_map();
         let waiting = existing
             .iter()
-            .position(|action| same_plan(action, skill, &args, &wanted, &target));
+            .position(|action| same_plan(action, skill, &args, &wanted, &target, now));
         if let Some(i) = waiting {
             // An identical action is already waiting for a human; do not store a second one.
             // The card this run publishes is built from this batch's tokens, so without one
@@ -202,13 +210,19 @@ pub(crate) async fn store(
                 Ok(rotated) => {
                     tokens.insert(rotated.id(), token);
                     existing[i] = rotated;
+                    continue;
                 }
-                Err(err) => tracing::warn!(
-                    %err,
-                    "could not rotate the chat token of a waiting action"
-                ),
+                // The window closed between listing and rotation. Fall through and store a
+                // fresh proposal; the expired action is left for the sweep to settle.
+                Err(ApprovalError::Refused(ActionError::Expired)) => {}
+                Err(err) => {
+                    tracing::warn!(
+                        %err,
+                        "could not rotate the chat token of a waiting action"
+                    );
+                    continue;
+                }
             }
-            continue;
         }
         let token = mint_token();
         // Recheck as close as practical to persisting the proposal; dispatch remains the

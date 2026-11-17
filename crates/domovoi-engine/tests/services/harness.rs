@@ -146,12 +146,32 @@ pub async fn world(setup: Setup) -> World {
     world_over(setup, store.clone(), store).await
 }
 
+/// A world whose action repository is `actions` for both the writer and triage, so a test
+/// can change an action between triage's listing and the writer's rotation.
+pub async fn world_with_actions(
+    setup: Setup,
+    store: Arc<InMemoryStore>,
+    actions: Arc<dyn ActionRepo>,
+) -> World {
+    world_over_with_actions(setup, store.clone(), store, actions).await
+}
+
 /// A world whose stores `uow` commits the action service's writes, so a test can watch
 /// what the writer commits. `store` must be the same store `uow` forwards to.
 pub async fn world_over(
     setup: Setup,
     store: Arc<InMemoryStore>,
     uow: Arc<dyn UnitOfWork>,
+) -> World {
+    let actions: Arc<dyn ActionRepo> = store.clone();
+    world_over_with_actions(setup, store, uow, actions).await
+}
+
+async fn world_over_with_actions(
+    setup: Setup,
+    store: Arc<InMemoryStore>,
+    uow: Arc<dyn UnitOfWork>,
+    actions: Arc<dyn ActionRepo>,
 ) -> World {
     let clock = Arc::new(FakeClock::new(T0));
     let link = Arc::new(FakeAgentLink::new());
@@ -237,7 +257,7 @@ pub async fn world_over(
     };
     let (actions_service, _actions_task) = ActionService::spawn(
         ActionDeps {
-            actions: store.clone(),
+            actions: actions.clone(),
             incidents: store.clone(),
             audit: store.clone(),
             uow,
@@ -261,7 +281,7 @@ pub async fn world_over(
         signals: store.clone(),
         notes: store.clone(),
         hosts: store.clone(),
-        actions: store.clone(),
+        actions,
         actions_service: actions_service.clone(),
         cache: store.clone(),
         usage: setup.usage.clone().unwrap_or_else(|| store.clone()),

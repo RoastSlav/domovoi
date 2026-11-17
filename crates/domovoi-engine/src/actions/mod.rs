@@ -448,9 +448,9 @@ impl ActionHandle {
         }
     }
 
-    /// Replaces the chat approval token hash of a still-proposed action. The previous
-    /// token stops working. Refused with `ChangedMeanwhile` when the action is no longer
-    /// `proposed`, and `NotFound` when it does not exist.
+    /// Replaces the chat approval token hash of a still-proposed, unexpired action without
+    /// extending its window. Refused with `ChangedMeanwhile` when decided, `Expired` when
+    /// the window closed, and `NotFound` when missing.
     pub async fn rotate_chat_token(
         &self,
         id: ActionId,

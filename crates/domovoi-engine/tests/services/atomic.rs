@@ -677,6 +677,45 @@ async fn token_rotation_records_no_token_material() {
 }
 
 #[tokio::test]
+async fn rotation_of_an_expired_proposal_is_refused_without_extending_it() {
+    let a = actions(ActionSettings::default()).await;
+    let (action, _) = a
+        .propose_via_service(
+            &verified_restart(),
+            &[("container", "nginx")],
+            SignedDuration::from_hours(1),
+        )
+        .await
+        .unwrap();
+    let before = a.get(action.id()).await;
+
+    a.clock
+        .advance(SignedDuration::from_hours(1) + SignedDuration::from_secs(1));
+    let refused = a
+        .service
+        .rotate_chat_token(action.id(), token_hash(&mint_token()))
+        .await;
+    assert_eq!(
+        refused.err(),
+        Some(ApprovalError::Refused(ActionError::Expired)),
+        "the writer checks expiry with its own clock"
+    );
+
+    let after = a.get(action.id()).await;
+    assert_eq!(
+        after.status(),
+        &ActionStatus::Proposed,
+        "the action is left for the expiry sweep"
+    );
+    assert_eq!(after.chat_token_hash(), before.chat_token_hash());
+    assert_eq!(
+        after.expires_at(),
+        before.expires_at(),
+        "a refused rotation never extends the window"
+    );
+}
+
+#[tokio::test]
 async fn rotation_of_a_decided_action_is_refused() {
     let a = actions(ActionSettings::default()).await;
     let (action, _) = a.propose().await;
