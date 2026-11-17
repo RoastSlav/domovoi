@@ -97,6 +97,14 @@ async fn agents(repo: &dyn HostRepo) -> ContractResult {
         matches!(repo.put_agent(&first).await, Err(StoreError::Conflict(_))),
         "a revoked agent never comes back"
     );
+    assert!(
+        matches!(
+            repo.record_agent_report(first.agent, &seen(1, 1, "0.1.0"), at(15))
+                .await,
+            Err(StoreError::Conflict(_))
+        ),
+        "a revoked agent cannot update its stored report"
+    );
     assert_eq!(
         repo.live_agent(box1.id).await?,
         None,
