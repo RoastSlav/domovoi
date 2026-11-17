@@ -34,6 +34,8 @@ mod dismiss;
 #[cfg(test)]
 mod enrollment;
 #[cfg(test)]
+mod evidence;
+#[cfg(test)]
 #[path = "../gates.rs"]
 mod gates;
 #[cfg(test)]

@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use domovoi_core::ports::{Presence, ToolOutput};
+use domovoi_core::ports::{HostAvailability, Presence, ToolOutput};
 use domovoi_core::{HostId, ReadToolCall, Risk, SkillName, SkillSummary};
 use domovoi_testkit::FakeAgentLink;
 use domovoi_testkit::build::{T0, manifest, open_incident};
@@ -33,6 +33,53 @@ fn read_skill(name: &str) -> SkillSummary {
     manifest(name, Risk::Read)
         .unwrap()
         .summary(domovoi_core::ScriptDigest::of_bytes(b"read entry"))
+}
+
+/// A write skill on the host, as the agent would have announced it.
+fn write_skill(name: &str) -> SkillSummary {
+    manifest(name, Risk::Write)
+        .unwrap()
+        .summary(domovoi_core::ScriptDigest::of_bytes(b"write entry"))
+}
+
+/// The three ways a host can be unavailable, with the presence and availability that say
+/// so and the error the boundary must answer with. `Absent` and `Unknown` share an error
+/// but stay separate cases: a host seen before and one never seen are different states.
+fn unavailable_states() -> Vec<(Presence, HostAvailability, EvidenceError)> {
+    vec![
+        (
+            Presence::Disconnected { last_seen: None },
+            HostAvailability::Unknown,
+            EvidenceError::NotConnected,
+        ),
+        (
+            Presence::Disconnected {
+                last_seen: Some(T0),
+            },
+            HostAvailability::Absent { since: T0 },
+            EvidenceError::NotConnected,
+        ),
+        (
+            Presence::Connected {
+                since: T0,
+                version: "0.1.0".to_owned(),
+            },
+            HostAvailability::Incompatible {
+                reported: "0.9.0".to_owned(),
+            },
+            EvidenceError::Incompatible,
+        ),
+    ]
+}
+
+/// Puts `host` in one of the unavailable states.
+fn set_unavailable(
+    link: &FakeAgentLink,
+    host: HostId,
+    state: &(Presence, HostAvailability, EvidenceError),
+) {
+    link.set_presence(host, state.0.clone());
+    link.set_availability(host, state.1.clone());
 }
 
 #[tokio::test]
@@ -73,16 +120,8 @@ async fn evidence_collect_uses_the_scope_host() {
 }
 
 #[tokio::test]
-async fn evidence_collect_returns_not_connected_for_an_absent_host() {
+async fn a_read_tool_answers_the_hosts_availability_first() {
     let link = Arc::new(FakeAgentLink::new());
-    let never_seen = HostId::new();
-    let left = HostId::new();
-    link.set_presence(
-        left,
-        Presence::Disconnected {
-            last_seen: Some(T0),
-        },
-    );
     link.on_tool(|_, _| {
         Ok(ToolOutput {
             text: "unreachable".to_owned(),
@@ -91,33 +130,64 @@ async fn evidence_collect_returns_not_connected_for_an_absent_host() {
     });
     let evidence = Evidence::new(link.clone());
 
-    for host in [never_seen, left] {
+    for state in unavailable_states() {
+        let host = HostId::new();
+        set_unavailable(&link, host, &state);
         let request = EvidenceRequest::for_host(host, ReadToolCall::HostOverview, deadline());
         assert_eq!(
             evidence.collect_evidence(request).await.unwrap_err(),
-            EvidenceError::NotConnected,
-            "an absent host answers before a request is built"
+            state.2,
+            "an unavailable host answers before a request is built"
         );
     }
     assert!(
         link.requests().is_empty(),
-        "no request reached the link for an absent host"
+        "no request reached the link for an unavailable host"
     );
 }
 
 #[tokio::test]
-async fn evidence_collect_refuses_a_write_skill_as_a_read() {
+async fn a_read_skill_is_not_validated_until_the_host_is_available() {
+    let link = Arc::new(FakeAgentLink::new());
+    let host = HostId::new();
+    // A write skill would be refused for its own reason if enablement ran first, so this
+    // test fails with the ordering it is here to protect.
+    link.set_skills(host, vec![write_skill("restart_container")]);
+    link.on_tool(|_, _| {
+        Ok(ToolOutput {
+            text: "ran".to_owned(),
+            truncated: false,
+        })
+    });
+    let evidence = Evidence::new(link.clone());
+
+    for state in unavailable_states() {
+        set_unavailable(&link, host, &state);
+        let call = ReadToolCall::RunReadSkill {
+            skill: SkillName::parse("restart_container").unwrap(),
+            args: BTreeMap::new(),
+        };
+        let request = EvidenceRequest::for_host(host, call, deadline());
+        assert_eq!(
+            evidence.collect_evidence(request).await.unwrap_err(),
+            state.2,
+            "availability answers before the read skill is validated"
+        );
+    }
+    assert!(
+        link.requests().is_empty(),
+        "nothing was sent for an unavailable host"
+    );
+}
+
+#[tokio::test]
+async fn a_read_skill_must_be_installed_read_only_and_given_valid_arguments() {
     let link = Arc::new(FakeAgentLink::new());
     let host = HostId::new();
     connected(&link, host);
     link.set_skills(
         host,
-        vec![
-            read_skill("disk_report"),
-            manifest("restart_container", Risk::Write)
-                .unwrap()
-                .summary(domovoi_core::ScriptDigest::of_bytes(b"write entry")),
-        ],
+        vec![read_skill("disk_report"), write_skill("restart_container")],
     );
     link.on_tool(|_, _| {
         Ok(ToolOutput {
@@ -155,17 +225,52 @@ async fn evidence_collect_refuses_a_write_skill_as_a_read() {
             "skill `not_on_this_host` is not installed on this host".to_owned()
         )
     );
-    assert!(link.requests().is_empty(), "nothing was sent to the agent");
+
+    let extra = ReadToolCall::RunReadSkill {
+        skill: SkillName::parse("disk_report").unwrap(),
+        args: BTreeMap::from([("unexpected".to_owned(), "1".to_owned())]),
+    };
+    let refused = evidence
+        .collect_evidence(EvidenceRequest::for_host(host, extra, deadline()))
+        .await
+        .unwrap_err();
+    assert_eq!(
+        refused,
+        EvidenceError::NotEnabled("unknown argument `unexpected`".to_owned()),
+        "the manifest's own words, not a message written here"
+    );
+    assert!(
+        link.requests().is_empty(),
+        "none of the refusals reached the agent"
+    );
 
     let read = ReadToolCall::RunReadSkill {
         skill: SkillName::parse("disk_report").unwrap(),
         args: BTreeMap::new(),
     };
-    evidence
+    let out = evidence
         .collect_evidence(EvidenceRequest::for_host(host, read, deadline()))
         .await
-        .expect("a read-only skill is enabled");
-    assert_eq!(link.requests().len(), 1);
+        .expect("an installed read-only skill with valid arguments is enabled");
+    assert_eq!(out.text, "ran");
+    assert_eq!(
+        link.requests().len(),
+        1,
+        "the enabled read reached the agent exactly once"
+    );
+}
+
+#[test]
+fn evidence_errors_keep_the_text_the_tools_already_returned() {
+    assert_eq!(
+        EvidenceError::NotConnected.to_string(),
+        "agent not connected"
+    );
+    assert_eq!(
+        EvidenceError::Incompatible.to_string(),
+        "agent_incompatible: the agent speaks another protocol version; upgrade it"
+    );
+    assert_eq!(EvidenceError::Timeout.to_string(), "timed out");
 }
 
 #[tokio::test]

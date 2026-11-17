@@ -2,7 +2,7 @@
 //!
 //! A TLS WebSocket listener with a self-signed certificate that agents pin, single-use
 //! enrollment tokens, a challenge signed with each agent's enrolled key, one session per
-//! host, [`WsAgentLink`] for the engine, and presence checks that tell host down, agent
+//! host, `WsAgentLink` for the engine, and presence checks that tell host down, agent
 //! down and the hub's own network trouble apart.
 
 mod compat;
@@ -44,6 +44,7 @@ use tokio_util::sync::CancellationToken;
 pub use compat::{ProtocolState, protocol_state};
 pub use error::AgentServerError;
 pub use handshake::{BAD_TOKEN_DELAY, FIRST_FRAME_TIMEOUT, STEP_TIMEOUT};
+#[cfg(any(test, feature = "test-support"))]
 pub use link::WsAgentLink;
 pub use memory::MemoryTransport;
 pub use probes::{NetProbes, RealNetProbes};
@@ -54,6 +55,9 @@ pub use skill_policy_key::host_skills_key;
 pub use tls::{CHANNEL_BINDING_LABEL, HUB_SAN, TlsIdentity, colon_hex};
 pub use tokens::{EnrollmentInvite, TOKEN_TTL, token_hash};
 pub use ws::MAX_FRAMES_PER_SECOND;
+
+#[cfg(not(any(test, feature = "test-support")))]
+pub(crate) use link::WsAgentLink;
 
 use registry::Registry;
 
@@ -148,7 +152,8 @@ impl AgentServer {
     /// Crate-private on purpose: a transport reaches agents through
     /// [`crate::api::AgentAdmin`], and the engine through its one execution and one read
     /// boundary, never by holding a link (EXEC-4). Only the composition root in `runtime`
-    /// builds those from it.
+    /// builds those from it, and `xtask arch-check` refuses a `.link()` call anywhere in the
+    /// hub outside `agent_server/` and `runtime/`.
     #[must_use]
     pub(crate) fn link(&self) -> Arc<WsAgentLink> {
         self.inner.link.clone()
@@ -156,11 +161,11 @@ impl AgentServer {
 
     /// The link this server owns, for the test suites that drive an agent's wire directly.
     ///
-    /// A transport never needs it: host state is read through
-    /// [`crate::api::AgentAdmin`], and the engine reaches the link only from its boundaries.
-    /// `xtask arch-check` refuses a call to this outside `agent_server/` and test paths, so
-    /// it cannot become a second way in.
-    #[doc(hidden)]
+    /// Only compiled with the `test-support` feature, which is not a default feature and is
+    /// turned on by nothing but this crate's and the binary's test builds: a normal or
+    /// release build has no method that hands out the link. The suites that use it live
+    /// under `tests/`, which every architecture scan exempts.
+    #[cfg(any(test, feature = "test-support"))]
     #[must_use]
     pub fn link_for_tests(&self) -> Arc<WsAgentLink> {
         self.link()

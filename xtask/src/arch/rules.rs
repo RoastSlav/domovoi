@@ -197,10 +197,10 @@ pub const PLAN_HASH_V2_ALLOWED_PREFIXES: &[&str] = &["crates/domovoi-core/src/ac
 pub const AUTHORIZATION_MODULE: &str = "crates/domovoi-core/src/action/authorization.rs";
 
 /// Path prefixes where an `AgentLink` may be declared, implemented or composed (EXEC-4,
-/// ADR 0022): the trait and its fakes, the real link, the policy wrapper and the composition
-/// root. Adding a new implementation is a deliberate edit to this list.
+/// ADR 0022): the one trait file and its fakes, the real link, the policy wrapper and the
+/// composition root. Adding a new implementation is a deliberate edit to this list.
 pub const LINK_DEFINITION_PREFIXES: &[&str] = &[
-    "crates/domovoi-core/src/ports/",
+    "crates/domovoi-core/src/ports/agent_link.rs",
     "crates/domovoi-hub/src/agent_server/link.rs",
     "crates/domovoi-hub/src/agent_server/skill_policy.rs",
     "crates/domovoi-testkit/",
@@ -221,9 +221,11 @@ pub const RUN_SKILL_ALLOWED_PREFIXES: &[&str] = &["crates/domovoi-engine/src/act
 pub const RUN_CHECK_ALLOWED_PREFIXES: &[&str] =
     &["crates/domovoi-engine/src/actions/verify_wake.rs"];
 
-/// Path prefixes where a transport may not even name the link types (EXEC-4, ADR 0022).
-/// Only the code that declares, implements or composes the link, and the engine's two
-/// boundaries, may name `AgentLink`, `WsAgentLink` or `PolicyLink`.
+/// Path prefixes where a transport may not name the link types, nor call the server's
+/// accessor to one (EXEC-4, ADR 0022). Only the code that declares, implements or composes
+/// the link, and the engine's two boundaries, may name `AgentLink`, `WsAgentLink` or
+/// `PolicyLink`, or call `.link()` / `.link_for_tests()`. The rule is a default-deny over
+/// every scanned crate: a new transport directory is covered without an edit here.
 pub const AGENT_LINK_ALLOWED_PREFIXES: &[&str] = &[
     "crates/domovoi-core/src/ports/",
     "crates/domovoi-hub/src/agent_server/",

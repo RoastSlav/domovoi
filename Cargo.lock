@@ -1090,6 +1090,7 @@ dependencies = [
  "domovoi-config",
  "domovoi-core",
  "domovoi-engine",
+ "domovoi-hub",
  "domovoi-llm",
  "domovoi-proto",
  "domovoi-store",

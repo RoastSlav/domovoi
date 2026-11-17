@@ -10,57 +10,117 @@ use jiff::SignedDuration;
 use crate::agent::{FakeAgent, enroll, new_key};
 use crate::harness::{Hub, t0};
 
-/// A transport reads host state through `AgentAdmin`; it never names, holds or calls the
-/// agent link itself (EXEC-4, ADR 0022). The scan is textual, like every other arch rule.
+/// The hub's source areas that may hold the link: the agent server that owns it, and the
+/// runtime composition root that builds the boundaries from it.
+const LINK_ALLOWED_AREAS: &[&str] = &["agent_server/", "runtime/"];
+
+/// A transport reads host state through `AgentAdmin`; it never names, holds or takes the
+/// agent link itself (EXEC-4, ADR 0022). The scan is textual, like every other architecture
+/// rule, and it is default-deny over the hub's whole source tree, so a transport directory
+/// added later is covered without an edit here.
 #[test]
 fn transports_do_not_name_the_agent_link() {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let mut offenders = Vec::new();
-    for area in ["api", "auth"] {
-        link_scan(&root, &root.join(area), &mut offenders);
-    }
+    link_scan(&src, &src, &mut offenders);
     assert!(
         offenders.is_empty(),
         "a transport names or reaches the agent link: {offenders:?}",
     );
 }
 
-/// Collects every non-comment line under `dir` that names `AgentLink`, `WsAgentLink` or
-/// `PolicyLink`.
-fn link_scan(root: &std::path::Path, dir: &std::path::Path, offenders: &mut Vec<String>) {
+/// Collects every non-comment line in a non-test source file under `dir` that names the
+/// link or takes it from the server, unless the file is in [`LINK_ALLOWED_AREAS`].
+fn link_scan(src: &std::path::Path, dir: &std::path::Path, offenders: &mut Vec<String>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
-            link_scan(root, &path, offenders);
+            link_scan(src, &path, offenders);
             continue;
         }
-        if path.extension().and_then(|ext| ext.to_str()) != Some("rs") {
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_default();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("rs")
+            || name.ends_with("_tests.rs")
+            || name == "tests.rs"
+        {
             continue;
         }
         let rel = path
-            .strip_prefix(root)
+            .strip_prefix(src)
             .unwrap_or(&path)
             .to_string_lossy()
             .replace('\\', "/");
         let Ok(text) = std::fs::read_to_string(&path) else {
             continue;
         };
-        for (index, line) in text.lines().enumerate() {
+        offenders.extend(link_offenders(&rel, &text));
+    }
+}
+
+/// The non-comment lines in `text` that name the link or take it from the server, keyed by
+/// their line number in a source tree rooted at the hub's `src/`.
+///
+/// The accessor check is what catches `let link = server.link();`: nothing on that line
+/// writes the returned type down, so the type-name check alone could not see it.
+fn link_offenders(rel: &str, text: &str) -> Vec<String> {
+    if LINK_ALLOWED_AREAS.iter().any(|area| rel.starts_with(area)) {
+        return Vec::new();
+    }
+    text.lines()
+        .enumerate()
+        .filter_map(|(index, line)| {
             let code = line.trim_start();
             if code.starts_with("//") {
-                continue;
+                return None;
             }
-            if ["AgentLink", "WsAgentLink", "PolicyLink", "link_for_tests("]
+            let named = ["AgentLink", "WsAgentLink", "PolicyLink"]
                 .iter()
-                .any(|named| code.contains(named))
-            {
-                offenders.push(format!("{rel}:{}: {code}", index + 1));
-            }
-        }
+                .any(|named| code.contains(named));
+            let took_the_link = code.contains(".link()") || code.contains(".link_for_tests()");
+            (named || took_the_link).then(|| format!("{rel}:{}: {code}", index + 1))
+        })
+        .collect()
+}
+
+/// The scan sees an inferred accessor, and spares the composition root that legitimately
+/// builds the boundaries from the link.
+#[test]
+fn the_link_scan_sees_an_untyped_accessor() {
+    for text in [
+        "let link = server.link();\n",
+        "let presence = self.link().presence(host);\n",
+        "let link = hub.server.link_for_tests();\n",
+        "let link: Arc<dyn AgentLink> = server.link();\n",
+    ] {
+        assert_eq!(
+            link_offenders("api/hosts.rs", text).len(),
+            1,
+            "{text} was accepted in a transport"
+        );
+        assert_eq!(
+            link_offenders("sse/events.rs", text).len(),
+            1,
+            "a transport directory added later is covered: {text}"
+        );
     }
+    assert!(
+        link_offenders("auth/interactions/web.rs", "// let link = server.link();\n").is_empty(),
+        "a comment is not a call"
+    );
+    assert!(
+        link_offenders("runtime/mod.rs", "let link = server.link();\n").is_empty(),
+        "the composition root builds the boundaries from the link"
+    );
+    assert!(
+        link_offenders("agent_server/mod.rs", "let link = self.link();\n").is_empty(),
+        "the agent server owns the link"
+    );
 }
 
 async fn reachable(hub: &Hub, host: domovoi_core::HostId) -> bool {

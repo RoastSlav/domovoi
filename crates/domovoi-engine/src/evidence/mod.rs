@@ -5,11 +5,11 @@
 //! Operator, the triage context and the hub's profile collection all read a host through it,
 //! and `xtask arch-check` (EXEC-1) fails when another module reads a host directly.
 //!
-//! The boundary decides *whether* a read may happen (enablement, availability and the host
-//! the request was built for) and hands back the agent's [`ToolOutput`] unchanged. Anything
-//! that shapes what is shown - redaction, truncation, the "[the agent cut this output]"
-//! note - stays with the caller that owns it, so moving a read here never changes the text
-//! a person or the model sees.
+//! The boundary decides *whether* a read may happen (the host the request was built for,
+//! the host's availability, then the read's enablement) and hands back the agent's
+//! [`ToolOutput`] unchanged. Anything that shapes what is shown - redaction, truncation,
+//! the "[the agent cut this output]" note - stays with the caller that owns it, so moving
+//! a read here never changes the text a person or the model sees.
 //!
 //! It is not the only way to obtain information about a host: the hub reads host metadata
 //! through `AgentAdmin`, and verification re-runs a check with
@@ -143,27 +143,29 @@ impl Evidence {
         Self { link }
     }
 
-    /// Checks that the read is enabled and the host reachable, then reads once.
+    /// Checks that the host is reachable, then that the read is enabled, then reads once.
     ///
-    /// Enablement at M1 is structural: [`ReadToolCall`] is a closed enum, so the tools that
-    /// exist are the tools that may run, and the one extra rule is that a read skill must be
-    /// installed, read-only and given arguments its manifest accepts. Availability is checked
-    /// here, so an unknown, absent or incompatible host answers before any request is built.
+    /// Availability comes first, so a host that is unknown, absent or speaks another
+    /// protocol version always answers as such; a skill that is missing, not read-only or
+    /// called with arguments its manifest rejects can only be reported for a host that is
+    /// connected now. Enablement at M1 is structural: [`ReadToolCall`] is a closed enum, so
+    /// the tools that exist are the tools that may run, and the one extra rule is that a
+    /// read skill must be installed, read-only and given arguments its manifest accepts.
     /// The agent's output is returned verbatim.
     pub async fn collect_evidence(
         &self,
         request: EvidenceRequest,
     ) -> Result<ToolOutput, EvidenceError> {
         let host = request.host();
-        if let ReadToolCall::RunReadSkill { skill, args } = &request.call {
-            self.read_skill_is_enabled(host, skill, args)?;
-        }
         match self.link.availability(host).await {
             HostAvailability::Known { .. } => {}
             HostAvailability::Unknown | HostAvailability::Absent { .. } => {
                 return Err(EvidenceError::NotConnected);
             }
             HostAvailability::Incompatible { .. } => return Err(EvidenceError::Incompatible),
+        }
+        if let ReadToolCall::RunReadSkill { skill, args } = &request.call {
+            self.read_skill_is_enabled(host, skill, args)?;
         }
         self.link
             .run_tool(host, request.call, request.deadline)

@@ -21,11 +21,14 @@ const EXECUTION_SCANNED_CRATES: &[&str] = &[
     "crates/domovoi-store/src/",
 ];
 
-/// Crates in which a transport must not even name the link types (EXEC-4).
+/// Crates whose sources may not name the link types or take the raw link (EXEC-4). The
+/// binary is included because it composes the hub: a first-party source there that reached
+/// for the link would bypass every boundary, and only `tests/` is exempt.
 const LINK_SCANNED_CRATES: &[&str] = &[
     "crates/domovoi-core/src/",
     "crates/domovoi-engine/src/",
     "crates/domovoi-hub/src/",
+    "crates/domovoi/src/",
 ];
 
 /// Scan every `.rs` file under `crates/`.
@@ -253,11 +256,11 @@ pub fn check_file(rel: &str, text: &str) -> Vec<Violation> {
                     ));
                 }
             }
-            if line.contains("link_for_tests(") {
+            if names_the_raw_link_accessor(line) {
                 out.push(v(
                     "EXEC-4",
                     &at,
-                    "link_for_tests is for test suites; a transport reaches agents through AgentAdmin",
+                    "a transport may not take the agent link through the server's accessor, whatever its inferred type; read host state through AgentAdmin",
                 ));
             }
         }
@@ -290,6 +293,13 @@ pub fn check_file(rel: &str, text: &str) -> Vec<Violation> {
     out
 }
 
+/// Whether `line` takes the raw link from the server: `server.link()`, `self.link()` or
+/// `server.link_for_tests()`. The returned type need not appear, which is why the type-name
+/// scan cannot see this on its own, and a transport is never allowed one.
+fn names_the_raw_link_accessor(line: &str) -> bool {
+    line.contains(".link()") || line.contains(".link_for_tests()")
+}
+
 fn is_shell_invocation(line: &str) -> bool {
     let shells = [
         "\"sh\"",
@@ -313,205 +323,5 @@ fn v(rule: &'static str, location: &str, message: &str) -> Violation {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    const DOC: &str = "//! Crate doc.\n";
-
-    #[test]
-    fn process_spawn_outside_runner_is_rejected() {
-        let text = format!("{DOC}use std::process::Command;\n");
-        let v = check_file("crates/domovoi-hub/src/lib.rs", &text);
-        assert!(v.iter().any(|x| x.rule == "R3"));
-    }
-
-    #[test]
-    fn process_spawn_in_runner_is_allowed() {
-        let text = format!("{DOC}use std::process::Command;\n");
-        assert!(check_file("crates/domovoi-runner/src/lib.rs", &text).is_empty());
-    }
-
-    #[test]
-    fn shell_invocation_is_rejected() {
-        let text = format!("{DOC}let argv = vec![\"sh\", \"-c\", cmd];\n");
-        let v = check_file("crates/domovoi-runner/src/exec.rs", &text);
-        assert!(v.iter().any(|x| x.rule == "R4"));
-    }
-
-    #[test]
-    fn human_approval_outside_auth_is_rejected() {
-        let text = "let a = HumanApproval::new(user);\n";
-        let v = check_file("crates/domovoi-engine/src/approvals.rs", text);
-        assert_eq!(v[0].rule, "INV-1");
-        assert!(check_file("crates/domovoi-hub/src/auth/session.rs", text).is_empty());
-        assert!(check_file("crates/domovoi-engine/tests/gates.rs", text).is_empty());
-    }
-
-    #[test]
-    fn human_approval_restore_outside_store_is_rejected() {
-        let text = "let a = HumanApproval::restore(user, channel, at);
-";
-        let v = check_file("crates/domovoi-hub/src/auth/session.rs", text);
-        assert_eq!(v[0].rule, "INV-1");
-        assert_eq!(
-            check_file("crates/domovoi-engine/src/actions.rs", text)[0].rule,
-            "INV-1"
-        );
-        assert!(check_file("crates/domovoi-store/src/rows/action.rs", text).is_empty());
-        assert!(check_file("crates/domovoi-store/tests/actions.rs", text).is_empty());
-    }
-
-    #[test]
-    fn authorization_constructors_are_confined() {
-        let cases = [
-            ("HumanApproval::new(", "crates/domovoi-hub/src/auth/"),
-            ("HumanApproval::restore(", "crates/domovoi-store/src/"),
-            ("PolicyPermit::issue(", "crates/domovoi-hub/src/policy/"),
-            ("Authorization::human(", "crates/domovoi-hub/src/auth/"),
-            ("Authorization::policy(", "crates/domovoi-hub/src/policy/"),
-        ];
-        for (call, allowed) in cases {
-            let text = format!("let a = {call}value);\n");
-            assert!(
-                check_file("crates/domovoi-engine/src/actions.rs", &text)
-                    .iter()
-                    .any(|x| x.rule == "INV-1"),
-                "{call} was accepted in the engine"
-            );
-            if allowed != "crates/domovoi-store/src/" {
-                assert!(
-                    check_file("crates/domovoi-store/src/repos/actions.rs", &text)
-                        .iter()
-                        .any(|x| x.rule == "INV-1"),
-                    "{call} was accepted in the store"
-                );
-            }
-            assert!(
-                check_file(&format!("{allowed}gate.rs"), &text).is_empty(),
-                "{call} was rejected in its allowed prefix"
-            );
-            assert!(
-                check_file("crates/domovoi-engine/tests/gates.rs", &text).is_empty(),
-                "{call} was rejected in a test file"
-            );
-        }
-    }
-
-    #[test]
-    fn plan_hash_v2_has_one_implementation() {
-        let text = "let text = \"plan:v2\\n\";\n";
-        assert_eq!(
-            check_file("crates/domovoi-engine/src/actions/executor.rs", text)[0].rule,
-            "INV-1"
-        );
-        assert!(check_file("crates/domovoi-core/src/action/plan.rs", text).is_empty());
-        assert!(check_file("crates/domovoi-core/tests/plan_v2.rs", text).is_empty());
-    }
-
-    #[test]
-    fn authorization_is_not_a_public_enum() {
-        let text = "pub enum Authorization { Human, Policy }\n";
-        assert_eq!(
-            check_file("crates/domovoi-core/src/action/mod.rs", text)[0].rule,
-            "INV-1"
-        );
-        assert!(check_file(AUTHORIZATION_MODULE, text).is_empty());
-    }
-
-    #[test]
-    fn a_host_read_outside_evidence_is_rejected() {
-        let text = "let out = link.run_tool(host, call, deadline).await;\n";
-        assert_eq!(
-            check_file("crates/domovoi-hub/src/profile/collect.rs", text)[0].rule,
-            "EXEC-1"
-        );
-        assert!(check_file("crates/domovoi-engine/src/evidence/mod.rs", text).is_empty());
-        assert!(
-            check_file("crates/domovoi-engine/src/evidence/evidence_tests.rs", text).is_empty()
-        );
-        assert!(
-            check_file("crates/domovoi-agent/src/handler.rs", text).is_empty(),
-            "the agent's own request handler is not a hub read"
-        );
-    }
-
-    #[test]
-    fn a_skill_start_outside_execute_is_rejected() {
-        for text in [
-            "link.run_skill(host, req).await;\n",
-            "link.start_skill(host, req, session, epoch, deadline).await;\n",
-            "link.run_capability(host, req).await;\n",
-        ] {
-            assert_eq!(
-                check_file("crates/domovoi-engine/src/triage/tools.rs", text)[0].rule,
-                "EXEC-2",
-                "{text} was accepted outside the execution boundary"
-            );
-            assert!(check_file("crates/domovoi-engine/src/actions/execute.rs", text).is_empty());
-            assert!(check_file("crates/domovoi-engine/src/triage/tools_tests.rs", text).is_empty());
-        }
-    }
-
-    #[test]
-    fn a_check_rerun_outside_verification_is_rejected() {
-        let text = "link.run_check(host, check, None, deadline).await;\n";
-        assert_eq!(
-            check_file("crates/domovoi-engine/src/triage/tools.rs", text)[0].rule,
-            "EXEC-3"
-        );
-        assert!(check_file("crates/domovoi-engine/src/actions/verify_wake.rs", text).is_empty());
-    }
-
-    #[test]
-    fn a_transport_naming_the_link_is_rejected() {
-        for text in [
-            "let link: Arc<dyn AgentLink> = server.link();\n",
-            "let link = WsAgentLink::new(registry, clock, hosts);\n",
-            "let link = PolicyLink::wrap(inner, policy);\n",
-            "let link = server.link_for_tests();\n",
-        ] {
-            assert_eq!(
-                check_file("crates/domovoi-hub/src/api/hosts.rs", text)[0].rule,
-                "EXEC-4",
-                "{text} was accepted in a transport"
-            );
-            assert!(check_file("crates/domovoi-hub/src/agent_server/mod.rs", text).is_empty());
-            assert!(check_file("crates/domovoi-hub/tests/hub/sessions.rs", text).is_empty());
-            assert!(check_file("crates/domovoi-engine/src/actions/mod.rs", text).is_empty());
-        }
-    }
-
-    #[test]
-    fn pure_crate_io_is_rejected() {
-        let text = "let f = std::fs::read(\"x\");\n";
-        assert_eq!(
-            check_file("crates/domovoi-core/src/incident.rs", text)[0].rule,
-            "R2"
-        );
-        assert!(check_file("crates/domovoi-store/src/db.rs", text).is_empty());
-    }
-
-    #[test]
-    fn long_file_is_rejected_but_tests_are_exempt() {
-        let text = "fn a() {}\n".repeat(MAX_FILE_LINES + 1);
-        assert_eq!(
-            check_file("crates/domovoi-engine/src/big.rs", &text)[0].rule,
-            "R8"
-        );
-        assert!(check_file("crates/domovoi-engine/tests/big.rs", &text).is_empty());
-    }
-
-    #[test]
-    fn crate_root_without_doc_is_rejected() {
-        assert_eq!(
-            check_file("crates/domovoi-core/src/lib.rs", "pub mod a;\n")[0].rule,
-            "R10"
-        );
-    }
-
-    #[test]
-    fn comments_are_ignored() {
-        let text = "// Never call std::process::Command here.\n";
-        assert!(check_file("crates/domovoi-engine/src/a.rs", text).is_empty());
-    }
-}
+#[path = "scan_tests.rs"]
+mod tests;
