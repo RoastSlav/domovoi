@@ -81,6 +81,7 @@ General rules for debugging, delegation and staging live in the global `~/.confi
 - Run one failing test with `cargo test -p <crate> --test <bin> <name> -- --nocapture` (`--lib` in place of `--test <bin>` for unit tests).
 - Temporary debug output means `eprintln!` or `dbg!` in test code. Hard rule 5 still applies to library code.
 - The checks that go through `general` are `cargo xtask ci`, `cargo test`, `cargo nextest`, `npm test` and `git diff`. Scoped runs (one crate, or one web area) are short: run those yourself when you are fixing a failure.
+- Subagents use a smaller model than the main session, so give them mechanical, well-specified jobs and verify their reports. Run at most one at a time, starting the next only after the previous one has reported.
 
 ## Workflow for each prompt
 
