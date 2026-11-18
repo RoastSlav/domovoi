@@ -1,10 +1,21 @@
-use domovoi_core::ports::{LlmMessage, Part, Role, StopReason, ToolSpec};
-use domovoi_llm::build;
+use domovoi_core::ports::{LlmMessage, Part, Role, StopReason, ToolSpec, UsageSource};
+use domovoi_llm::{Price, build};
 use serde_json::{Value, json};
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use crate::support::{KEY, anthropic, ask, user};
+
+const PRICE: Price = Price {
+    input_per_mtok_usd: 2.0,
+    output_per_mtok_usd: 10.0,
+};
+
+fn priced(base: &str) -> domovoi_llm::ProviderSettings {
+    let mut settings = anthropic(base);
+    settings.price = Some(PRICE);
+    settings
+}
 
 #[tokio::test]
 async fn anthropic_text_response_maps_to_parts_and_usage() {
@@ -100,4 +111,186 @@ async fn anthropic_tool_use_round_trip_request_shape() {
     let received = server.received_requests().await.unwrap();
     let body: Value = serde_json::from_slice(&received[0].body).unwrap();
     insta::assert_json_snapshot!("anthropic_tool_round_trip_request", body);
+}
+
+/// Thinking is billed output but private: it counts toward usage and never appears in the
+/// answer's parts.
+#[tokio::test]
+async fn anthropic_thinking_is_counted_but_never_returned() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "content": [
+                {"type": "thinking", "thinking": "reason ".repeat(80)},
+                {"type": "text", "text": "The disk is full."}
+            ],
+            "stop_reason": "end_turn"
+        })))
+        .mount(&server)
+        .await;
+
+    let provider = build(&priced(&server.uri()), None).unwrap();
+    let response = provider.complete(ask("Why is nas down?")).await.unwrap();
+    assert_eq!(
+        response.parts,
+        vec![Part::Text("The disk is full.".to_owned())],
+        "thinking is not answer text"
+    );
+    assert_eq!(response.usage.source, UsageSource::Estimated);
+    assert!(
+        response.usage.output_tokens >= 100,
+        "the thinking is counted: {:?}",
+        response.usage
+    );
+    assert!(
+        response.usage.cost_micros.is_some_and(|cost| cost > 0),
+        "thinking is billed: {:?}",
+        response.usage
+    );
+}
+
+/// A whole response that ran out of room with no usage is estimated at its whole allowance.
+#[tokio::test]
+async fn anthropic_max_tokens_without_usage_estimates_the_allowance() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "content": [{"type": "text", "text": "The disk is"}],
+            "stop_reason": "max_tokens"
+        })))
+        .mount(&server)
+        .await;
+
+    let provider = build(&priced(&server.uri()), None).unwrap();
+    let mut req = ask("Why is nas down?");
+    req.max_output_tokens = 2000;
+    let response = provider.complete(req).await.unwrap();
+    assert_eq!(response.stop, StopReason::MaxTokens);
+    assert_eq!(response.usage.output_tokens, 2000);
+    assert_eq!(response.usage.source, UsageSource::Estimated);
+    assert!(response.usage.cost_micros.is_some_and(|cost| cost > 0));
+}
+
+/// Complete reported totals already include thinking tokens: they win, and are priced once.
+#[tokio::test]
+async fn anthropic_reported_usage_wins_over_thinking() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "content": [
+                {"type": "thinking", "thinking": "a long private chain of thought"},
+                {"type": "text", "text": "The disk is full."}
+            ],
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 120, "output_tokens": 9}
+        })))
+        .mount(&server)
+        .await;
+
+    let provider = build(&priced(&server.uri()), None).unwrap();
+    let response = provider.complete(ask("Why is nas down?")).await.unwrap();
+    assert_eq!(response.usage.source, UsageSource::Reported);
+    assert_eq!(response.usage.input_tokens, 120);
+    assert_eq!(response.usage.output_tokens, 9, "not doubled by thinking");
+    assert_eq!(response.usage.cost_micros, Some(120 * 2 + 9 * 10));
+}
+
+/// Redacted reasoning has no text to count, so visible text alone would understate the turn.
+/// Without output usage the whole authorised allowance is charged, and the encrypted payload
+/// never reaches the answer.
+#[tokio::test]
+async fn anthropic_redacted_thinking_without_usage_charges_the_allowance() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "content": [
+                {"type": "redacted_thinking", "data": "emr_this_payload_is_private"},
+                {"type": "text", "text": "The disk is full."}
+            ],
+            "stop_reason": "end_turn"
+        })))
+        .mount(&server)
+        .await;
+
+    let provider = build(&priced(&server.uri()), None).unwrap();
+    let mut req = ask("Why is nas down?");
+    req.max_output_tokens = 2000;
+    let response = provider.complete(req).await.unwrap();
+    assert_eq!(
+        response.parts,
+        vec![Part::Text("The disk is full.".to_owned())],
+        "redacted reasoning never reaches the answer"
+    );
+    assert_eq!(response.usage.source, UsageSource::Estimated);
+    assert_eq!(
+        response.usage.output_tokens, 2000,
+        "visible text alone would understate the turn"
+    );
+    assert!(response.usage.cost_micros.is_some_and(|cost| cost > 0));
+}
+
+/// A whole response that reported its input but not its output keeps the reported input and
+/// charges the conservative allowance for the redacted output.
+#[tokio::test]
+async fn anthropic_redacted_thinking_with_input_usage_keeps_input() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "content": [
+                {"type": "redacted_thinking", "data": "emr_private"},
+                {"type": "text", "text": "The disk is full."}
+            ],
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 120}
+        })))
+        .mount(&server)
+        .await;
+
+    let provider = build(&priced(&server.uri()), None).unwrap();
+    let mut req = ask("Why is nas down?");
+    req.max_output_tokens = 2000;
+    let response = provider.complete(req).await.unwrap();
+    assert_eq!(
+        response.usage.input_tokens, 120,
+        "the reported input is kept"
+    );
+    assert_eq!(response.usage.output_tokens, 2000);
+    assert_eq!(response.usage.source, UsageSource::Estimated);
+    assert_eq!(response.usage.cost_micros, Some(120 * 2 + 2000 * 10));
+}
+
+/// Complete reported totals already cover redacted reasoning: they win, with no allowance
+/// added.
+#[tokio::test]
+async fn anthropic_complete_usage_wins_over_redacted_thinking() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "content": [
+                {"type": "redacted_thinking", "data": "emr_private"},
+                {"type": "text", "text": "The disk is full."}
+            ],
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 120, "output_tokens": 9}
+        })))
+        .mount(&server)
+        .await;
+
+    let provider = build(&priced(&server.uri()), None).unwrap();
+    let mut req = ask("Why is nas down?");
+    req.max_output_tokens = 2000;
+    let response = provider.complete(req).await.unwrap();
+    assert_eq!(response.usage.source, UsageSource::Reported);
+    assert_eq!(response.usage.input_tokens, 120);
+    assert_eq!(
+        response.usage.output_tokens, 9,
+        "not replaced by the allowance"
+    );
+    assert_eq!(response.usage.cost_micros, Some(120 * 2 + 9 * 10));
 }

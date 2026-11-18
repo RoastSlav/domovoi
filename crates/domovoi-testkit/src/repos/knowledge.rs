@@ -83,6 +83,7 @@ impl NoteRepo for InMemoryStore {
         host: Option<HostId>,
         max: u16,
     ) -> Result<Vec<NoteHit>, StoreError> {
+        self.pause().await;
         let query = words(query);
         let state = self.begin()?;
         let mut hits: Vec<NoteHit> = state

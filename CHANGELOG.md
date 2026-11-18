@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.0.11](https://github.com/RoastSlav/domovoi/compare/v0.0.10...v0.0.11) - 2026-11-14
+
+### Fixed
+
+- *(engine)* make triage work with reasoning-heavy and minimal models ([#123](https://github.com/RoastSlav/domovoi/pull/123))
+
 ## [0.0.10](https://github.com/RoastSlav/domovoi/compare/v0.0.9...v0.0.10) - 2026-11-12
 
 ### Added

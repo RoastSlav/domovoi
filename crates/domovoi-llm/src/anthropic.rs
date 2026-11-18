@@ -2,7 +2,7 @@
 
 use async_trait::async_trait;
 use domovoi_core::ports::{
-    LlmError, LlmMessage, LlmProvider, LlmRequest, LlmResponse, Part, Role, StopReason, Usage,
+    LlmError, LlmMessage, LlmProvider, LlmRequest, LlmResponse, Part, Role, StopReason,
 };
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
@@ -12,7 +12,7 @@ use url::Url;
 use crate::anthropic_stream;
 use crate::error::LlmBuildError;
 use crate::http::{self, Reply};
-use crate::settings::{Price, cost_micros};
+use crate::settings::Price;
 
 /// Where the API lives when no base URL is configured.
 pub const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
@@ -67,6 +67,10 @@ impl LlmProvider for Anthropic {
         true
     }
 
+    fn prices_usage(&self) -> bool {
+        self.price.is_some()
+    }
+
     async fn complete(&self, req: LlmRequest) -> Result<LlmResponse, LlmError> {
         let mut body = request_body(&self.model, &req);
         body["stream"] = Value::Bool(true);
@@ -82,7 +86,7 @@ impl LlmProvider for Anthropic {
             Reply::Whole(response) => response,
             Reply::Stream(mut events) => anthropic_stream::assemble(&mut events, secret).await?,
         };
-        Ok(into_response(response, self.price.as_ref()))
+        Ok(into_response(response, &req, self.price.as_ref()))
     }
 }
 
@@ -180,7 +184,13 @@ pub(crate) struct WireResponse {
     pub(crate) content: Vec<WireContent>,
     pub(crate) stop_reason: Option<String>,
     #[serde(default)]
-    pub(crate) usage: WireUsage,
+    pub(crate) usage: Option<WireUsage>,
+    /// Input tokens a stream reported before output usage arrived, if any.
+    #[serde(skip)]
+    pub(crate) input_tokens: Option<u32>,
+    /// Output tokens a stream reported even when the input total never arrived.
+    #[serde(skip)]
+    pub(crate) output_tokens: Option<u32>,
 }
 
 #[derive(Deserialize)]
@@ -194,39 +204,82 @@ pub(crate) enum WireContent {
         name: String,
         input: Value,
     },
+    /// Private reasoning. Used for usage estimation only, never returned as answer text.
+    Thinking {
+        #[serde(default)]
+        thinking: String,
+    },
+    /// Reasoning the provider encrypted. There is no text to count or expose; its presence
+    /// alone says the turn generated hidden output. The payload is skipped, never stored.
+    RedactedThinking {
+        #[serde(skip)]
+        _data: (),
+    },
     #[serde(other)]
     Other,
 }
 
 #[derive(Deserialize, Default)]
 pub(crate) struct WireUsage {
+    /// Present when the provider reported the prompt total.
     #[serde(default)]
-    pub(crate) input_tokens: u32,
+    pub(crate) input_tokens: Option<u32>,
+    /// Present when the provider reported the generated total.
     #[serde(default)]
-    pub(crate) output_tokens: u32,
+    pub(crate) output_tokens: Option<u32>,
 }
 
-fn into_response(response: WireResponse, price: Option<&Price>) -> LlmResponse {
-    let parts = response
-        .content
-        .into_iter()
-        .filter_map(|block| match block {
-            WireContent::Text { text } => Some(Part::Text(text)),
-            WireContent::ToolUse { id, name, input } => Some(Part::ToolCall { id, name, input }),
-            WireContent::Other => None,
-        })
-        .collect();
+fn into_response(response: WireResponse, req: &LlmRequest, price: Option<&Price>) -> LlmResponse {
+    let mut parts = Vec::new();
+    let mut reasoning = String::new();
+    let mut redacted_thinking = false;
+    for block in response.content {
+        match block {
+            WireContent::Text { text } => parts.push(Part::Text(text)),
+            WireContent::ToolUse { id, name, input } => {
+                parts.push(Part::ToolCall { id, name, input });
+            }
+            // Thinking is billed output, but it is private reasoning: count it, never show it.
+            WireContent::Thinking { thinking } => reasoning.push_str(&thinking),
+            // Nothing to count and nothing to show, but its presence means the visible text
+            // is not the whole output.
+            WireContent::RedactedThinking { .. } => redacted_thinking = true,
+            WireContent::Other => {}
+        }
+    }
     let stop = match response.stop_reason.as_deref() {
         Some("end_turn" | "stop_sequence") | None => StopReason::EndTurn,
         Some("tool_use") => StopReason::ToolUse,
         Some("max_tokens") => StopReason::MaxTokens,
         Some(other) => StopReason::Other(other.to_owned()),
     };
-    let mut usage = Usage {
-        input_tokens: response.usage.input_tokens,
-        output_tokens: response.usage.output_tokens,
-        cost_micros: None,
+    // Complete reported totals are authoritative. A response that reported only one half
+    // keeps it and has the other estimated; a response with no totals at all is estimated
+    // from what it contains â€” or, with redacted reasoning, from the whole authorised
+    // allowance.
+    let answer = crate::usage::Answer {
+        parts: &parts,
+        reasoning: &reasoning,
+        stop: &stop,
+        allowance: req.max_output_tokens,
+        redacted_thinking,
     };
-    usage.cost_micros = cost_micros(price, &usage);
+    let (input, output) = match response.usage {
+        Some(reported) => (
+            reported.input_tokens.or(response.input_tokens),
+            reported.output_tokens.or(response.output_tokens),
+        ),
+        None => (response.input_tokens, response.output_tokens),
+    };
+    let usage = match (input, output) {
+        (Some(input), Some(output)) => crate::usage::reported(input, output, price),
+        _ => crate::usage::partial_or_estimated(
+            input,
+            output,
+            crate::usage::request_tokens(req),
+            &answer,
+            price,
+        ),
+    };
     LlmResponse { parts, stop, usage }
 }

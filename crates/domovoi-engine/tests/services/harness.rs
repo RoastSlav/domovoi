@@ -38,6 +38,10 @@ pub struct Setup {
     pub third: bool,
     pub cli: bool,
     pub evidence: Evidence,
+    /// A real provider to use as the primary instead of the scripted one.
+    pub provider: Option<Arc<dyn LlmProvider>>,
+    /// How long incident listings and note searches take, for deadline tests.
+    pub store_delay: Option<std::time::Duration>,
 }
 
 impl Default for Setup {
@@ -48,6 +52,8 @@ impl Default for Setup {
             third: false,
             cli: false,
             evidence: disk(92.4),
+            provider: None,
+            store_delay: None,
         }
     }
 }
@@ -116,7 +122,10 @@ pub async fn add_signal(
 }
 
 pub async fn world(setup: Setup) -> World {
-    let store = Arc::new(InMemoryStore::new());
+    let store = Arc::new(match setup.store_delay {
+        Some(delay) => InMemoryStore::new().with_delay(delay),
+        None => InMemoryStore::new(),
+    });
     let clock = Arc::new(FakeClock::new(T0));
     let link = Arc::new(FakeAgentLink::new());
     link.set_presence(
@@ -155,7 +164,10 @@ pub async fn world(setup: Setup) -> World {
     });
     let secondary = Arc::new(ScriptedLlm::new());
     let third = Arc::new(ScriptedLlm::new());
-    let primary_dyn: Arc<dyn LlmProvider> = primary.clone();
+    let primary_dyn: Arc<dyn LlmProvider> = match setup.provider.clone() {
+        Some(provider) => provider,
+        None => primary.clone(),
+    };
     let secondary_dyn: Arc<dyn LlmProvider> = secondary.clone();
     let third_dyn: Arc<dyn LlmProvider> = third.clone();
     let fallbacks: Vec<Arc<dyn LlmProvider>> = match (setup.secondary, setup.third) {
@@ -290,6 +302,7 @@ pub fn calls(list: &[(&str, &str, Value)]) -> LlmResponse {
             input_tokens: 100,
             output_tokens: 10,
             cost_micros: Some(50),
+            source: domovoi_core::ports::UsageSource::Reported,
         },
     }
 }

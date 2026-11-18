@@ -4,7 +4,7 @@
 #
 # It runs as root inside the container. What it can see of the host is decided by the
 # mounts: see deploy/compose/agent.yml.
-FROM alpine:3.22
+FROM alpine:3.24
 
 RUN apk add --no-cache ca-certificates smartmontools util-linux
 

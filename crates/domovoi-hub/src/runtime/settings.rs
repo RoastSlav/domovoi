@@ -43,11 +43,26 @@ pub(super) fn triage(config: &HubConfig) -> TriageSettings {
             (budget.is_finite() && budget >= 0.0).then_some((budget * 1_000_000.0).round() as u64)
         }),
         cache_days: config.triage.cache_days,
-        budget: domovoi_core::TriageBudget {
-            max_tool_calls: config.triage.per_run.tool_calls,
-            max_seconds: config.triage.per_run.seconds,
-            max_output_tokens: config.triage.per_run.output_tokens,
-        },
+        budget: triage_budget(config),
+    }
+}
+
+/// The triage budget: the configured per-turn allowance clamped to the engine's supported
+/// maximum, and the cumulative budget, which defaults to every normal turn plus one
+/// full-ceiling turn for a growth retry or the report repair.
+fn triage_budget(config: &HubConfig) -> domovoi_core::TriageBudget {
+    let per_run = &config.triage.per_run;
+    let per_turn = per_run
+        .output_tokens
+        .min(domovoi_engine::triage::MAX_OUTPUT_ALLOWANCE);
+    let total = per_run.total_tokens.unwrap_or_else(|| {
+        domovoi_engine::triage::default_total_output_tokens(per_turn, per_run.tool_calls)
+    });
+    domovoi_core::TriageBudget {
+        max_tool_calls: per_run.tool_calls,
+        max_seconds: per_run.seconds,
+        max_output_tokens: per_turn,
+        max_total_output_tokens: total,
     }
 }
 
@@ -135,4 +150,42 @@ pub(crate) fn fallback_models_for(
         }
     }
     Ok(chain)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::triage_budget;
+
+    fn budget(toml: &str) -> domovoi_core::TriageBudget {
+        let config: domovoi_config::hub::HubConfig = toml::from_str(toml).expect("a config");
+        triage_budget(&config)
+    }
+
+    #[test]
+    fn the_default_run_budget_covers_every_turn_a_ladder_and_the_repair() {
+        let budget = budget("");
+        assert_eq!(budget.max_output_tokens, 2000);
+        assert_eq!(
+            budget.max_total_output_tokens,
+            2000 * 16 + (8000 + 16_000) + (2000 + 8000 + 16_000),
+            "16 normal turns, one turn retried to the ceiling, and a repair retried to the ceiling"
+        );
+    }
+
+    #[test]
+    fn an_output_allowance_above_the_maximum_is_clamped() {
+        let budget = budget("[triage.per_run]\noutput_tokens = 32000\n");
+        assert_eq!(budget.max_output_tokens, 16_000);
+        assert_eq!(
+            budget.max_total_output_tokens,
+            16_000 * 16 + 16_000,
+            "a full ladder at the ceiling is its first request, with no retries"
+        );
+    }
+
+    #[test]
+    fn an_explicit_total_is_kept() {
+        let budget = budget("[triage.per_run]\ntotal_tokens = 5000\n");
+        assert_eq!(budget.max_total_output_tokens, 5000);
+    }
 }
