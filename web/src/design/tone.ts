@@ -2,6 +2,7 @@ import type { Host, IncidentSummary } from "../api/types";
 import { ACTION_STATUSES, RISKS, TRIAGE } from "./actionVocab";
 import {
   CHECK_STATES,
+  CAPABILITY_STATES,
   CONTAINER_STATES,
   HOST_CONNECTIONS,
   HOST_KINDS,
@@ -151,6 +152,11 @@ export function hostKindMeta(kind: string): StatusMeta {
 /** How a check's state on a host is shown. */
 export function checkStateMeta(state: string): StatusMeta {
   return lookup(CHECK_STATES, state);
+}
+
+/** How a capability's availability is shown, for the state code the hub sent. */
+export function capabilityStateMeta(state: string): StatusMeta {
+  return lookup(CAPABILITY_STATES, state);
 }
 
 /** How a container's state is shown. */

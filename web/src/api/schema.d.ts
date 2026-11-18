@@ -276,6 +276,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/hosts/{name}/capabilities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The capability inventory of host `name`. */
+        get: operations["list_capabilities"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/hosts/{name}/checks": {
         parameters: {
             query?: never;
@@ -1078,6 +1095,49 @@ export interface components {
             /** @description Plain text, at most 4000 characters. */
             answer: string;
         };
+        /** @description One host's whole inventory, plus the ids the agent reported that the hub does not know. */
+        CapabilitiesDto: {
+            /** @description One row per capability this hub knows. */
+            entries: components["schemas"]["CapabilityDto"][];
+            /** @description The host's name. */
+            host: string;
+            /** @description Ids the agent reported that no contract describes. Diagnostics only. */
+            unknown_contracts: string[];
+        };
+        /** @description One capability as this host sees it. */
+        CapabilityDto: {
+            /** @description How much of the host's implementation list the hub has read. */
+            catalogue: components["schemas"]["CatalogueDto"];
+            /** @description Coarse family used for policy specificity. */
+            category: string;
+            /** @description Contract id, `<family>.<verb>`. */
+            contract: string;
+            /** @description A short owner-facing sentence about the state. */
+            describe: string;
+            /** @description The effect class the contract carries. */
+            effect: string;
+            /** @description Where it executes. */
+            execution: string;
+            /** @description Whether the implementation came from `hello.skills[]`. */
+            from_hello_skills: boolean;
+            /** @description The reason code of a refusal, when it has one. */
+            reason?: string | null;
+            /** @description Whether the agent runs as root. A label, never a refusal. */
+            root_agent: boolean;
+            /** @description Whether the agent reported a working isolated skill runner. */
+            runner_installed: boolean;
+            /** @description The availability state code: one of the eight. */
+            state: string;
+            /** @description What kind of thing it acts on. */
+            target_kind: string;
+            /** @description Short title for the inventory. */
+            title: string;
+            /**
+             * Format: int32
+             * @description Contract version.
+             */
+            version: number;
+        };
         /** @description The incident's chat card, as it would be posted. */
         CardDto: {
             /**
@@ -1095,6 +1155,15 @@ export interface components {
             next_step?: string | null;
             /** @description Whether the incident resolved. */
             resolved: boolean;
+        };
+        /** @description The catalogue state of one host, as far as the hub has read it. */
+        CatalogueDto: {
+            /** @description The gap code when the list is not verified. */
+            gap?: string | null;
+            /** @description The hash the entries were walked under, when there is one. */
+            hash?: string | null;
+            /** @description `complete`, `partial` or `stale`. */
+            state: string;
         };
         /** @description A general question, the host it is about and the conversation so far. */
         ChatRequest: {
@@ -2664,6 +2733,47 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HostDetailDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such host */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_capabilities: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Host name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The inventory */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CapabilitiesDto"];
                 };
             };
             /** @description Not logged in */

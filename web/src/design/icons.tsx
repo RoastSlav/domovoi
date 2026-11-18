@@ -36,6 +36,7 @@ import {
   Search,
   Server,
   Settings,
+  ShieldAlert,
   SkipForward,
   SquareTerminal,
   Sun,
@@ -78,6 +79,7 @@ const ICONS = {
   ban: Ban,
   mute: BellOff,
   offline: WifiOff,
+  shield: ShieldAlert,
   // Actions
   copy: Copy,
   external: ExternalLink,

@@ -851,6 +851,58 @@
         }
       }
     },
+    "/api/v1/hosts/{name}/capabilities": {
+      "get": {
+        "tags": [
+          "hosts"
+        ],
+        "summary": "The capability inventory of host `name`.",
+        "operationId": "list_capabilities",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Host name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The inventory",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapabilitiesDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such host",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/hosts/{name}/checks": {
       "get": {
         "tags": [
@@ -3655,6 +3707,117 @@
           }
         }
       },
+      "CapabilitiesDto": {
+        "type": "object",
+        "description": "One host's whole inventory, plus the ids the agent reported that the hub does not know.",
+        "required": [
+          "host",
+          "entries",
+          "unknown_contracts"
+        ],
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CapabilityDto"
+            },
+            "description": "One row per capability this hub knows."
+          },
+          "host": {
+            "type": "string",
+            "description": "The host's name."
+          },
+          "unknown_contracts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Ids the agent reported that no contract describes. Diagnostics only."
+          }
+        }
+      },
+      "CapabilityDto": {
+        "type": "object",
+        "description": "One capability as this host sees it.",
+        "required": [
+          "contract",
+          "version",
+          "title",
+          "category",
+          "effect",
+          "target_kind",
+          "execution",
+          "state",
+          "describe",
+          "catalogue",
+          "root_agent",
+          "runner_installed",
+          "from_hello_skills"
+        ],
+        "properties": {
+          "catalogue": {
+            "$ref": "#/components/schemas/CatalogueDto",
+            "description": "How much of the host's implementation list the hub has read."
+          },
+          "category": {
+            "type": "string",
+            "description": "Coarse family used for policy specificity."
+          },
+          "contract": {
+            "type": "string",
+            "description": "Contract id, `<family>.<verb>`."
+          },
+          "describe": {
+            "type": "string",
+            "description": "A short owner-facing sentence about the state."
+          },
+          "effect": {
+            "type": "string",
+            "description": "The effect class the contract carries."
+          },
+          "execution": {
+            "type": "string",
+            "description": "Where it executes."
+          },
+          "from_hello_skills": {
+            "type": "boolean",
+            "description": "Whether the implementation came from `hello.skills[]`."
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The reason code of a refusal, when it has one."
+          },
+          "root_agent": {
+            "type": "boolean",
+            "description": "Whether the agent runs as root. A label, never a refusal."
+          },
+          "runner_installed": {
+            "type": "boolean",
+            "description": "Whether the agent reported a working isolated skill runner."
+          },
+          "state": {
+            "type": "string",
+            "description": "The availability state code: one of the eight."
+          },
+          "target_kind": {
+            "type": "string",
+            "description": "What kind of thing it acts on."
+          },
+          "title": {
+            "type": "string",
+            "description": "Short title for the inventory."
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Contract version.",
+            "minimum": 0
+          }
+        }
+      },
       "CardDto": {
         "type": "object",
         "description": "The incident's chat card, as it would be posted.",
@@ -3697,6 +3860,33 @@
           "resolved": {
             "type": "boolean",
             "description": "Whether the incident resolved."
+          }
+        }
+      },
+      "CatalogueDto": {
+        "type": "object",
+        "description": "The catalogue state of one host, as far as the hub has read it.",
+        "required": [
+          "state"
+        ],
+        "properties": {
+          "gap": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The gap code when the list is not verified."
+          },
+          "hash": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The hash the entries were walked under, when there is one."
+          },
+          "state": {
+            "type": "string",
+            "description": "`complete`, `partial` or `stale`."
           }
         }
       },
