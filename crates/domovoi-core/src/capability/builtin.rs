@@ -147,6 +147,7 @@ fn contract_for(tool: ReadTool) -> Option<CapabilityContract> {
         constrainable_args: Vec::new(),
         safety_facts: Vec::new(),
         execution,
+        containment: None,
         source: ContractSource::BuiltIn,
     })
 }

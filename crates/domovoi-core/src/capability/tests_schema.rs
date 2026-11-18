@@ -421,3 +421,79 @@ fn schema_refuses_default_outside_its_own_pattern() {
         "the canonical text of the default is what the pattern sees"
     );
 }
+
+#[test]
+fn schema_refuses_enum_member_outside_its_own_pattern() {
+    assert_eq!(
+        validate_schema(&one_argument(
+            "n",
+            json!({
+                "type": "string",
+                "pattern": "^[a-z]+$",
+                "enum": ["yes", "no1"],
+                "description": "x",
+            })
+        )),
+        Err(SchemaError::EnumValueOutsidePattern {
+            name: "n".to_string(),
+            value: "no1".to_string(),
+        },),
+        "the enumeration promises a value the boundary will not accept"
+    );
+}
+
+#[test]
+fn schema_refuses_enum_member_outside_its_own_lengths() {
+    assert_eq!(
+        validate_schema(&one_argument(
+            "n",
+            json!({
+                "type": "string",
+                "minLength": 3,
+                "enum": ["ab", "abc"],
+                "description": "x",
+            })
+        )),
+        Err(SchemaError::EnumValueOutsideLengths {
+            name: "n".to_string(),
+            value: "ab".to_string(),
+        },),
+        "the short member could never be supplied"
+    );
+    assert_eq!(
+        validate_schema(&one_argument(
+            "n",
+            json!({
+                "type": "string",
+                "maxLength": 3,
+                "enum": ["abc", "abcd"],
+                "description": "x",
+            })
+        )),
+        Err(SchemaError::EnumValueOutsideLengths {
+            name: "n".to_string(),
+            value: "abcd".to_string(),
+        },),
+        "the long member could never be supplied"
+    );
+}
+
+#[test]
+fn schema_accepts_enum_whose_members_all_satisfy_its_constraints() {
+    assert_eq!(
+        validate_schema(&one_argument(
+            "n",
+            json!({
+                "type": "string",
+                "pattern": "^[a-z]+$",
+                "minLength": 2,
+                "maxLength": 4,
+                "enum": ["ab", "abcd"],
+                "default": "ab",
+                "description": "x",
+            })
+        )),
+        Ok(()),
+        "every member passes the pattern and lengths, and the default stays valid beside them"
+    );
+}

@@ -61,6 +61,12 @@ pub struct CapabilityContract {
     pub execution: ExecutionPath,
     /// Where this contract comes from.
     pub source: ContractSource,
+    /// What a `contain` capability guarantees about how its containment ends (RW-39 §9.2).
+    /// `None` for every other effect class, where there is no containment to end. A `contain`
+    /// contract without it is refused, because the helper path alone says nothing about how the
+    /// containment expires or is undone.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub containment: Option<Containment>,
 }
 
 /// One argument an unattended host ceiling may constrain, and how its bound is read.
@@ -82,6 +88,49 @@ pub enum ConstraintKind {
     IntAtLeast,
     /// The argument must be at most the ceiling's value.
     IntAtMost,
+}
+
+/// What a `contain` capability promises about the containment it installs (§9.2).
+///
+/// A containment is not a run that ends when the agent ends: it holds a host down on its own
+/// timer, and undoing it has to be possible after a crash. A contract that cannot say all of
+/// this is refused by [`containment_rules`](../rules), so the helper path alone never makes an
+/// incomplete containment look accepted.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Containment {
+    /// The schema argument carrying the TTL, in whole seconds, the containment must expire on.
+    pub ttl_argument: String,
+    /// What ends the containment.
+    pub expiry: ExpiryOwner,
+    /// The schema argument that arms a watchdog of its own, when the containment affects
+    /// connectivity and must not leave the host unreachable; `None` when it does not.
+    pub watchdog_argument: Option<String>,
+    /// How the apply and its undo are recorded.
+    pub rollback: RollbackDeclaration,
+}
+
+/// What ends a containment.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExpiryOwner {
+    /// A timer outside the agent ends it, which is the only shape that still holds when the agent
+    /// is stopped, killed or crashed.
+    KernelTimer,
+    /// Ending the agent's own process is what would end it, so a stopped agent leaves the
+    /// containment holding.
+    AgentProcess,
+}
+
+/// How a containment's apply and its undo are recorded.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RollbackDeclaration {
+    /// The journal holds both the apply and the undo, so the host can be brought back after a
+    /// partial run.
+    Journaled,
+    /// Nothing records how to undo it, so a crash leaves a host that cannot be recovered from the
+    /// hub's own records.
+    Unrecorded,
 }
 
 /// Where a contract comes from.
@@ -193,6 +242,81 @@ pub enum ContractError {
     /// `contain` is a typed privileged operation, so only the root helper path may run it.
     #[error("{id}: a `contain` capability must run through the root helper")]
     ContainNeedsHelper {
+        /// The contract that failed.
+        id: ContractId,
+    },
+    /// A `contain` contract states no containment guarantee, so nothing says when the containment
+    /// expires or how it is undone.
+    #[error(
+        "{id}: a `contain` contract must state the TTL, the independent expiry and the journalled undo of its containment"
+    )]
+    ContainmentUndeclared {
+        /// The contract that failed.
+        id: ContractId,
+    },
+    /// A contract that does not contain carries containment metadata, which would read as
+    /// authoritative for a containment that is never installed.
+    #[error("{id}: a containment guarantee belongs to a `contain` contract only")]
+    ContainmentNotApplicable {
+        /// The contract that failed.
+        id: ContractId,
+    },
+    /// The named containment argument is outside the argument grammar.
+    #[error("{id}: containment argument `{key}` must match [a-z][a-z0-9_]{{0,63}}")]
+    ContainmentArgumentBadName {
+        /// The contract that failed.
+        id: ContractId,
+        /// The rejected name.
+        key: String,
+    },
+    /// The schema does not declare the containment argument, so the containment names a TTL that
+    /// cannot be supplied.
+    #[error("{id}: the input schema does not declare containment argument `{key}`")]
+    ContainmentArgumentUndeclared {
+        /// The contract that failed.
+        id: ContractId,
+        /// The missing argument.
+        key: String,
+    },
+    /// The containment argument is not an integer, so its TTL cannot be compared with a ceiling.
+    #[error("{id}: containment argument `{key}` must be an integer")]
+    ContainmentArgumentNotInteger {
+        /// The contract that failed.
+        id: ContractId,
+        /// The argument.
+        key: String,
+    },
+    /// The containment argument is optional, so a run could install a containment with no TTL at
+    /// all.
+    #[error("{id}: containment argument `{key}` must be required")]
+    ContainmentArgumentNotRequired {
+        /// The contract that failed.
+        id: ContractId,
+        /// The argument.
+        key: String,
+    },
+    /// The containment argument states no bounded positive range, so the TTL it carries could be
+    /// zero, negative or unbounded.
+    #[error(
+        "{id}: containment argument `{key}` must state a range from at least one second up to a bound"
+    )]
+    ContainmentRangeUnbounded {
+        /// The contract that failed.
+        id: ContractId,
+        /// The argument.
+        key: String,
+    },
+    /// The containment expires only when the agent ends, which is not a containment the host can
+    /// rely on.
+    #[error("{id}: a containment must expire on a timer outside the agent")]
+    ContainmentExpiryNotIndependent {
+        /// The contract that failed.
+        id: ContractId,
+    },
+    /// The containment's apply and undo are not journalled, so a partial run leaves a host the hub
+    /// cannot bring back.
+    #[error("{id}: a containment must journal its apply and its undo")]
+    ContainmentRollbackNotJournalled {
         /// The contract that failed.
         id: ContractId,
     },

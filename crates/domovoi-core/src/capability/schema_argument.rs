@@ -173,6 +173,9 @@ pub fn check_argument(name: &str, definition: &Value) -> Option<SchemaError> {
                     name: name.to_owned(),
                 });
             }
+            if let Some(reason) = enum_member_violates(name, definition, &pattern, text) {
+                return Some(reason);
+            }
         }
     }
 
@@ -284,6 +287,39 @@ pub(crate) fn check_default(
         }
         _ => None,
     }
+}
+
+/// Why an enumerated text cannot be supplied: the argument's own pattern or lengths refuse it, so
+/// the schema would list a value the boundary rejects. An enumeration is text-only, which is what
+/// the boundary carries, so the member is compared as itself.
+pub(crate) fn enum_member_violates(
+    name: &str,
+    definition: &Value,
+    pattern: &Option<regex::Regex>,
+    text: &str,
+) -> Option<SchemaError> {
+    if !default_allowed(pattern, text) {
+        return Some(SchemaError::EnumValueOutsidePattern {
+            name: name.to_owned(),
+            value: text.to_owned(),
+        });
+    }
+    let length = text.chars().count() as i64;
+    let outside = match (
+        stated_int(definition, "minLength"),
+        stated_int(definition, "maxLength"),
+    ) {
+        (Some(low), _) if length < low => true,
+        (_, Some(high)) if length > high => true,
+        _ => false,
+    };
+    if outside {
+        return Some(SchemaError::EnumValueOutsideLengths {
+            name: name.to_owned(),
+            value: text.to_owned(),
+        });
+    }
+    None
 }
 
 /// The text a boolean default is carried as at the boundary.

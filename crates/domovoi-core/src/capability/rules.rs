@@ -18,7 +18,9 @@ use std::collections::BTreeSet;
 
 use jiff::SignedDuration;
 
-use super::contract::{CapabilityContract, ContractError, ContractSource};
+use super::contract::{
+    CapabilityContract, ContractError, ContractSource, ExpiryOwner, RollbackDeclaration,
+};
 use super::effect::{
     EffectClass, ExecutionPath, Idempotency, Reversibility, TargetKind, VerificationHint,
 };
@@ -70,6 +72,7 @@ impl CapabilityContract {
             id: self.id.clone(),
             reason,
         })?;
+        containment_rules(self)?;
         Ok(())
     }
 }
@@ -327,6 +330,94 @@ fn fact_rules(contract: &CapabilityContract) -> Result<(), ContractError> {
             return Err(ContractError::DuplicateSafetyFact {
                 id: contract.id.clone(),
                 fact: fact.clone(),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// Checks what §9.2 asks of a containment, once the argument schema is known to be well formed.
+///
+/// A containment holds a host down on its own, so it must name the TTL it expires on, decide that
+/// expiry outside the main agent, arm a watchdog of its own when it affects connectivity, and
+/// journal both its apply and its undo. A `contain` contract that cannot say all of it is refused
+/// here rather than accepted because it runs through the helper, and containment metadata on any
+/// other class would read as authoritative for a containment that is never installed. `CeilingEntry`'s
+/// `max_ttl` is a stricter-only agent-side limit and is never read as the containment's TTL.
+fn containment_rules(contract: &CapabilityContract) -> Result<(), ContractError> {
+    match &contract.containment {
+        None if contract.effect == EffectClass::Contain => {
+            Err(ContractError::ContainmentUndeclared {
+                id: contract.id.clone(),
+            })
+        }
+        None => Ok(()),
+        Some(_) if contract.effect != EffectClass::Contain => {
+            Err(ContractError::ContainmentNotApplicable {
+                id: contract.id.clone(),
+            })
+        }
+        Some(spec) => {
+            check_containment_argument(contract, &spec.ttl_argument)?;
+            if spec.expiry != ExpiryOwner::KernelTimer {
+                return Err(ContractError::ContainmentExpiryNotIndependent {
+                    id: contract.id.clone(),
+                });
+            }
+            if spec.rollback != RollbackDeclaration::Journaled {
+                return Err(ContractError::ContainmentRollbackNotJournalled {
+                    id: contract.id.clone(),
+                });
+            }
+            if let Some(key) = &spec.watchdog_argument {
+                check_containment_argument(contract, key)?;
+            }
+            Ok(())
+        }
+    }
+}
+
+/// Checks one containment argument against the schema that carries it: a required integer with a
+/// range of at least one second up to a stated bound, so the containment always carries a TTL that
+/// can be compared with what the host allows and can never mean "hold forever".
+fn check_containment_argument(
+    contract: &CapabilityContract,
+    key: &str,
+) -> Result<(), ContractError> {
+    if !valid_arg_key(key) {
+        return Err(ContractError::ContainmentArgumentBadName {
+            id: contract.id.clone(),
+            key: key.to_owned(),
+        });
+    }
+    if !declares_argument(&contract.input_schema, key) {
+        return Err(ContractError::ContainmentArgumentUndeclared {
+            id: contract.id.clone(),
+            key: key.to_owned(),
+        });
+    }
+    match declared_type(&contract.input_schema, key) {
+        Some(type_name) if type_name == "integer" => {}
+        _ => {
+            return Err(ContractError::ContainmentArgumentNotInteger {
+                id: contract.id.clone(),
+                key: key.to_owned(),
+            });
+        }
+    }
+    if !requires_argument(&contract.input_schema, key) {
+        return Err(ContractError::ContainmentArgumentNotRequired {
+            id: contract.id.clone(),
+            key: key.to_owned(),
+        });
+    }
+    let (low, high) = stated_bounds(&contract.input_schema, key);
+    match (low, high) {
+        (Some(low), Some(high)) if low >= 1 && high >= low => {}
+        _ => {
+            return Err(ContractError::ContainmentRangeUnbounded {
+                id: contract.id.clone(),
+                key: key.to_owned(),
             });
         }
     }

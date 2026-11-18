@@ -118,6 +118,24 @@ pub enum SchemaError {
         /// The argument.
         name: String,
     },
+    /// An enumerated text is one the argument's own pattern refuses, so that value can never be
+    /// supplied and the schema promises a rule it will not enforce.
+    #[error("argument `{name}` enumerates `{value}`, which its own pattern refuses")]
+    EnumValueOutsidePattern {
+        /// The argument.
+        name: String,
+        /// The rejected member.
+        value: String,
+    },
+    /// An enumerated text is outside the lengths the argument states, so it could never be
+    /// supplied.
+    #[error("argument `{name}` enumerates `{value}`, outside its own lengths")]
+    EnumValueOutsideLengths {
+        /// The argument.
+        name: String,
+        /// The rejected member.
+        value: String,
+    },
     /// A pattern is blank, so the schema describes no text the boundary can match.
     #[error("argument `{name}` needs a pattern that is not blank")]
     BlankPattern {

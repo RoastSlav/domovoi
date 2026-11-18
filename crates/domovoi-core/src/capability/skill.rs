@@ -246,6 +246,8 @@ pub fn skill_contract(
             declared,
             floor: floor.map(|floor| floor.class()),
         },
+        // No skill contains, so no skill installs a containment of its own.
+        containment: None,
     };
     contract
         .validate()

@@ -6,12 +6,13 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use jiff::SignedDuration;
 use proptest::prelude::*;
-use serde_json::json;
+use serde_json::{Value, json};
 
 use super::builtin::READ_OUTPUT_LIMIT;
 use super::ceiling::{CeilingEntry, CeilingSummary, CeilingTargets};
 use super::contract::{
-    CapabilityContract, ConstrainableArg, ConstraintKind, ContractError, ContractSource,
+    CapabilityContract, ConstrainableArg, ConstraintKind, Containment, ContractError,
+    ContractSource, ExpiryOwner, RollbackDeclaration,
 };
 use super::effect::{
     EffectClass, ExecutionPath, Idempotency, Reversibility, TargetKind, VerificationHint,
@@ -86,6 +87,7 @@ pub(super) fn crafted(id: &str, category: &str, effect: EffectClass) -> Capabili
         safety_facts: Vec::new(),
         execution: ExecutionPath::Agent,
         source: ContractSource::BuiltIn,
+        containment: None,
     }
 }
 
@@ -374,6 +376,75 @@ pub(super) fn bounded_constrainable() -> CapabilityContract {
         description: "Most seconds the host may wait".to_owned(),
     }];
     contract
+}
+
+/// The containment guarantee a helper jail states, in the form §9.2 asks for: the TTL argument,
+/// a kernel timer that ends the containment without the agent, a watchdog of its own because the
+/// jail blocks a network path, and a journalled apply and undo.
+fn jail_containment() -> Containment {
+    Containment {
+        ttl_argument: "hold_seconds".to_owned(),
+        expiry: ExpiryOwner::KernelTimer,
+        watchdog_argument: Some("watchdog_seconds".to_owned()),
+        rollback: RollbackDeclaration::Journaled,
+    }
+}
+
+/// The TTL definition the accepted jail contract states: a whole number of seconds from one
+/// second to an hour.
+fn jail_ttl() -> Value {
+    json!({
+        "type": "integer",
+        "pattern": "^-?[0-9]+$",
+        "minimum": 1,
+        "maximum": 3600,
+        "description": "How long the containment holds",
+    })
+}
+
+/// The arguments the accepted jail contract requires: it cannot run without a TTL or leave the
+/// watchdog unarmed.
+fn jail_required() -> Vec<String> {
+    ["hold_seconds".to_owned(), "watchdog_seconds".to_owned()].to_vec()
+}
+
+/// The schema of the jail contract, carrying `hold` as its TTL argument.
+fn jail_schema(hold: Value, required: Vec<String>) -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "hold_seconds": hold,
+            "watchdog_seconds": {
+                "type": "integer",
+                "pattern": "^-?[0-9]+$",
+                "minimum": 1,
+                "maximum": 600,
+                "description": "How long the watchdog of its own waits",
+            },
+        },
+        "required": required,
+        "additionalProperties": false,
+    })
+}
+
+/// A helper containment contract naming `spec` over a TTL declared as `hold` and a required list
+/// of `required`, so a test can break exactly one containment guarantee.
+pub(super) fn containment_over(
+    spec: Containment,
+    hold: Value,
+    required: Vec<String>,
+) -> CapabilityContract {
+    let mut contract = crafted("host.jail", "host.contain", EffectClass::Contain);
+    contract.execution = ExecutionPath::Helper;
+    contract.input_schema = jail_schema(hold, required);
+    contract.containment = Some(spec);
+    contract
+}
+
+/// The containment contract the hub accepts: a helper jail that says when its containment ends,
+/// how it is undone and what arms its watchdog.
+pub(super) fn containment_contract() -> CapabilityContract {
+    containment_over(jail_containment(), jail_ttl(), jail_required())
 }
 
 #[test]
@@ -767,7 +838,183 @@ fn contain_requires_helper_path() {
     );
     let mut privileged = crafted("host.arrest", "host.mutate", EffectClass::Contain);
     privileged.execution = ExecutionPath::Helper;
-    privileged.validate().unwrap();
+    assert_eq!(
+        privileged.validate(),
+        Err(ContractError::ContainmentUndeclared {
+            id: privileged.id.clone()
+        }),
+        "the helper path alone installs nothing: an empty schema cannot name a TTL",
+    );
+}
+
+#[test]
+fn accepted_helper_containment_states_every_guarantee() {
+    containment_contract().validate().unwrap();
+    assert_eq!(
+        containment_contract().containment,
+        Some(jail_containment()),
+        "the accepted shape carries the TTL argument, the independent expiry, the watchdog and the journalled undo",
+    );
+}
+
+#[test]
+fn containment_ttl_argument_must_be_declared_and_well_named() {
+    let undeclared = Containment {
+        ttl_argument: "ghost_ttl".to_owned(),
+        expiry: ExpiryOwner::KernelTimer,
+        watchdog_argument: Some("watchdog_seconds".to_owned()),
+        rollback: RollbackDeclaration::Journaled,
+    };
+    let contract = containment_over(undeclared, jail_ttl(), jail_required());
+    assert_eq!(
+        contract.validate(),
+        Err(ContractError::ContainmentArgumentUndeclared {
+            id: contract.id.clone(),
+            key: "ghost_ttl".to_owned(),
+        },),
+        "a ceiling's `max_ttl` cannot stand in for a TTL the contract carries",
+    );
+    let badly_named = Containment {
+        ttl_argument: "Hold Seconds".to_owned(),
+        expiry: ExpiryOwner::KernelTimer,
+        watchdog_argument: Some("watchdog_seconds".to_owned()),
+        rollback: RollbackDeclaration::Journaled,
+    };
+    let misnamed = containment_over(badly_named, jail_ttl(), jail_required());
+    assert_eq!(
+        misnamed.validate(),
+        Err(ContractError::ContainmentArgumentBadName {
+            id: misnamed.id.clone(),
+            key: "Hold Seconds".to_owned(),
+        },),
+    );
+}
+
+#[test]
+fn containment_ttl_argument_must_be_a_required_bounded_integer() {
+    let not_integer = containment_over(
+        jail_containment(),
+        json!({
+            "type": "string",
+            "pattern": "^[0-9]+$",
+            "minLength": 1,
+            "maxLength": 4,
+            "description": "Not a duration the host can compare",
+        }),
+        jail_required(),
+    );
+    assert_eq!(
+        not_integer.validate(),
+        Err(ContractError::ContainmentArgumentNotInteger {
+            id: not_integer.id.clone(),
+            key: "hold_seconds".to_owned(),
+        },),
+        "the TTL must be a whole number of seconds",
+    );
+    let mut required: Vec<String> = ["watchdog_seconds".to_owned()].to_vec();
+    let optional_ttl = containment_over(jail_containment(), jail_ttl(), required.clone());
+    assert_eq!(
+        optional_ttl.validate(),
+        Err(ContractError::ContainmentArgumentNotRequired {
+            id: optional_ttl.id.clone(),
+            key: "hold_seconds".to_owned(),
+        },),
+        "an optional TTL lets a run install a containment that never expires",
+    );
+    required.push("hold_seconds".to_owned());
+    for unbounded in [
+        json!({
+            "type": "integer",
+            "pattern": "^-?[0-9]+$",
+            "minimum": 1,
+            "description": "No upper bound",
+        }),
+        json!({
+            "type": "integer",
+            "pattern": "^-?[0-9]+$",
+            "minimum": 0,
+            "maximum": 3600,
+            "description": "Zero seconds means it may never expire",
+        }),
+    ] {
+        let unbounded_contract = containment_over(jail_containment(), unbounded, required.clone());
+        assert_eq!(
+            unbounded_contract.validate(),
+            Err(ContractError::ContainmentRangeUnbounded {
+                id: unbounded_contract.id.clone(),
+                key: "hold_seconds".to_owned(),
+            },),
+            "the TTL it names must be positive and bounded",
+        );
+    }
+}
+
+#[test]
+fn containment_expiry_and_rollback_must_be_independent_and_journalled() {
+    let agent_held = Containment {
+        ttl_argument: "hold_seconds".to_owned(),
+        expiry: ExpiryOwner::AgentProcess,
+        watchdog_argument: Some("watchdog_seconds".to_owned()),
+        rollback: RollbackDeclaration::Journaled,
+    };
+    let dependent = containment_over(agent_held, jail_ttl(), jail_required());
+    assert_eq!(
+        dependent.validate(),
+        Err(ContractError::ContainmentExpiryNotIndependent {
+            id: dependent.id.clone()
+        }),
+        "ending the agent is not what ends a containment",
+    );
+    let blind = Containment {
+        ttl_argument: "hold_seconds".to_owned(),
+        expiry: ExpiryOwner::KernelTimer,
+        watchdog_argument: Some("watchdog_seconds".to_owned()),
+        rollback: RollbackDeclaration::Unrecorded,
+    };
+    let unrecoverable = containment_over(blind, jail_ttl(), jail_required());
+    assert_eq!(
+        unrecoverable.validate(),
+        Err(ContractError::ContainmentRollbackNotJournalled {
+            id: unrecoverable.id.clone()
+        }),
+        "a partial run must leave a host the hub can bring back",
+    );
+}
+
+#[test]
+fn connectivity_containment_needs_a_watchdog_argument() {
+    let mut ghost = jail_containment();
+    ghost.watchdog_argument = Some("ghost_watchdog".to_owned());
+    let contract = containment_over(ghost, jail_ttl(), jail_required());
+    assert_eq!(
+        contract.validate(),
+        Err(ContractError::ContainmentArgumentUndeclared {
+            id: contract.id.clone(),
+            key: "ghost_watchdog".to_owned(),
+        },),
+        "the watchdog it claims cannot be armed",
+    );
+    let mut quiet = jail_containment();
+    quiet.watchdog_argument = None;
+    assert!(
+        containment_over(quiet, jail_ttl(), jail_required())
+            .validate()
+            .is_ok(),
+        "a containment that does not affect connectivity needs no watchdog"
+    );
+}
+
+#[test]
+fn containment_guarantee_only_belongs_to_a_contain_contract() {
+    let mut mutate = crafted("host.arrest", "host.mutate", EffectClass::Mutate);
+    mutate.containment = Some(jail_containment());
+    assert_eq!(
+        mutate.validate(),
+        Err(ContractError::ContainmentNotApplicable {
+            id: mutate.id.clone()
+        }),
+        "the guarantee would read as authoritative for nothing installed",
+    );
 }
 
 #[test]

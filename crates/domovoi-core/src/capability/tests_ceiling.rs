@@ -7,10 +7,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use jiff::SignedDuration;
 
 use super::ceiling::{CeilingEntry, CeilingError, CeilingSummary, CeilingTargets};
-use super::effect::{EffectClass, ExecutionPath};
+use super::effect::EffectClass;
 use super::ids::{ContractId, TargetName};
 use super::index::ContractIndex;
 use super::tests::bounded_constrainable;
+use super::tests::containment_contract;
 use super::tests::crafted;
 
 /// A summary of the given entries, enabled.
@@ -275,9 +276,7 @@ fn ceiling_names_targets_only_for_named_kinds() {
 /// The hub's contracts for the containment-only fields: one `contain` helper capability, the only
 /// class that has runs whose width and lifetime the ceiling can bound.
 fn containment_index() -> ContractIndex {
-    let mut jail = crafted("host.jail", "host.contain", EffectClass::Contain);
-    jail.execution = ExecutionPath::Helper;
-    ContractIndex::new(vec![jail]).unwrap()
+    ContractIndex::new(vec![containment_contract()]).unwrap()
 }
 
 #[test]

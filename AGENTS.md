@@ -10,7 +10,7 @@ You are working on **Domovoi**, a self-hosted server overseer written in Rust wi
 
 If the prompt and `ARCHITECTURE.md` disagree, stop and say so. Do not pick one silently.
 
-Never re-read a file, or a region of one, that is already in your context: not to confirm your own edit, not to re-check a line you already have. Make the edit, then run the check that proves it.
+Avoid re-reading a file, or a region of one, that is already in your context: do not read it back just to confirm your own edit or re-check a line you already have. Make the edit, then run the check that proves it. Inspecting the final diff and reading the resulting code before you push are still worth doing, and a re-read is fine when something looks wrong.
 
 ## Commands
 
