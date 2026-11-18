@@ -312,3 +312,30 @@ fn ceiling_summary_serde_round_trip() {
     let round_tripped: CeilingSummary = serde_json::from_value(value).unwrap();
     assert_eq!(round_tripped, summary);
 }
+
+#[test]
+fn ceiling_summary_missing_entries_refused() {
+    let missing = json!({
+        "enabled": true,
+        "hash": "ab",
+    });
+    assert!(
+        serde_json::from_value::<CeilingSummary>(missing).is_err(),
+        "a summary without the entries key invents an empty ceiling"
+    );
+}
+
+#[test]
+fn ceiling_entry_missing_args_refused() {
+    let missing = json!({
+        "contract": "container.restart",
+        "targets": {
+            "kind": "any",
+        },
+        "max_per_hour": 4,
+    });
+    assert!(
+        serde_json::from_value::<CeilingEntry>(missing).is_err(),
+        "an entry without the args key claims bounds that were never stated"
+    );
+}

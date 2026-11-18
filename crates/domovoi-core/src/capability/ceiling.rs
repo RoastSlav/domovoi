@@ -16,8 +16,8 @@ use super::ids::{ContractId, TargetName};
 pub struct CeilingSummary {
     /// `[unattended].enabled`.
     pub enabled: bool,
-    /// One entry per contract the ceiling covers.
-    #[serde(default)]
+    /// One entry per contract the ceiling covers. A summary without this list invents
+    /// an empty ceiling, so deserialization requires the key.
     pub entries: Vec<CeilingEntry>,
     /// Opaque hash of the agent's ceiling configuration, as reported. The hub compares it
     /// for change detection and never interprets it.
@@ -45,8 +45,8 @@ pub struct CeilingEntry {
     )]
     pub max_ttl: Option<SignedDuration>,
     /// Bounds on the contract's declared constrainable args: key to integer bound. The
-    /// contract's `ConstraintKind` says whether the bound is a minimum or a maximum.
-    #[serde(default)]
+    /// contract's `ConstraintKind` says whether the bound is a minimum or a maximum. An entry
+    /// without this map claims bounds that were never stated, so deserialization requires it.
     pub args: BTreeMap<String, i64>,
 }
 

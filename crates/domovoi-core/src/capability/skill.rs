@@ -102,10 +102,10 @@ pub fn skill_contract(summary: &SkillSummary, floor: Option<SkillFloor>) -> Capa
             },
         },
     };
+    // Upper clamp only: a zero or negative timeout is left exactly as declared, so the
+    // contract fails `validate` rather than being silently repaired here.
     let timeout = if summary.timeout > MAX_TIMEOUT {
         MAX_TIMEOUT
-    } else if summary.timeout <= SignedDuration::ZERO {
-        SignedDuration::from_secs(1)
     } else {
         summary.timeout
     };

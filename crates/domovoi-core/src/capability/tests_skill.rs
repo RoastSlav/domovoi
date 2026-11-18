@@ -2,8 +2,10 @@
 
 use serde_json::json;
 
+use jiff::SignedDuration;
+
 use super::builtin::{builtin_contracts, contract_id_of};
-use super::contract::ContractSource;
+use super::contract::{ContractError, ContractSource};
 use super::effect::{EffectClass, TargetKind};
 use super::ids::ContractId;
 use super::index::ContractIndex;
@@ -50,6 +52,57 @@ fn skill_floor_rejects_contain() {
     ] {
         assert!(SkillFloor::new(class).is_ok());
     }
+}
+
+#[test]
+fn skill_timeout_clamp_is_upper_only() {
+    let mut kept = summary("look", Risk::Read, None);
+    kept.timeout = SignedDuration::from_secs(45);
+    assert_eq!(
+        skill_contract(&kept, None).timeout,
+        SignedDuration::from_secs(45),
+        "a timeout inside the hour is kept as declared"
+    );
+
+    let mut longest = summary("look", Risk::Read, None);
+    longest.timeout = SignedDuration::from_hours(2);
+    assert_eq!(
+        skill_contract(&longest, None).timeout,
+        SignedDuration::from_hours(1),
+        "a longer one clamps to exactly one hour"
+    );
+
+    let mut zero = summary("look", Risk::Read, None);
+    zero.timeout = SignedDuration::ZERO;
+    let contract = skill_contract(&zero, None);
+    assert_eq!(
+        contract.timeout,
+        SignedDuration::ZERO,
+        "the upper clamp does not repair a zero timeout"
+    );
+    assert_eq!(
+        contract.validate(),
+        Err(ContractError::Timeout {
+            id: contract.id.clone(),
+        }),
+        "validate rejects it instead"
+    );
+
+    let mut negative = summary("look", Risk::Read, None);
+    negative.timeout = SignedDuration::from_secs(-5);
+    let contract = skill_contract(&negative, None);
+    assert_eq!(
+        contract.timeout,
+        SignedDuration::from_secs(-5),
+        "a negative timeout stays negative"
+    );
+    assert_eq!(
+        contract.validate(),
+        Err(ContractError::Timeout {
+            id: contract.id.clone(),
+        }),
+        "and validate rejects it"
+    );
 }
 
 #[test]
