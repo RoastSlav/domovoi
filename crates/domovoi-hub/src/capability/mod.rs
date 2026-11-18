@@ -14,7 +14,9 @@
 mod ceiling;
 mod enablement;
 mod floors;
+mod inventory;
 
 pub use ceiling::{CeilingParse, covers, parse_ceiling};
 pub use enablement::{DISABLED_REASON, Enablement, host_skills_key};
 pub use floors::{FloorWriteError, Floors, host_floors_key};
+pub use inventory::{ContainerRef, InventoryError, parse_inspect_id, parse_ps};
