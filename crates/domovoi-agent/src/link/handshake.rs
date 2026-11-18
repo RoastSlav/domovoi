@@ -1,8 +1,10 @@
 //! The authentication handshake: `hello`, `challenge`, signed response, `welcome`.
 
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 use domovoi_core::SkillSummary;
+use domovoi_core::capability::{ContractId, ContractVersion, catalog_hash};
 use domovoi_proto::messages::{
     AgentSettings, AgentStatus, ChallengeResponse, CheckInfo, Hello, HelperIdentity, HelperStatus,
     HostFacts, RejectReason, SkillRunnerStatus, Welcome,
@@ -127,6 +129,22 @@ fn absent_status() -> AgentStatus {
         ceiling_hash: None,
         ceiling_summary: None,
     }
+}
+
+/// The `hello.catalog_hash` for the implementation list the request handler pages.
+///
+/// The hash is computed here from the list the handler will serve, through the one function
+/// the hub also uses, so a page walk that matches the announced hash read the list this agent
+/// will execute. `None` when the digest cannot be read: the hub then has no hash to compare
+/// and records the gap, instead of comparing against a wrong one.
+#[must_use]
+pub fn catalog_announcement(
+    entries: &BTreeMap<ContractId, ContractVersion>,
+) -> Option<Sha256Bytes> {
+    let text = catalog_hash(entries);
+    let bytes = hex::decode(&text).ok()?;
+    let raw = bytes.try_into().ok()?;
+    Some(Sha256Bytes(raw))
 }
 
 /// How long each handshake step may take.

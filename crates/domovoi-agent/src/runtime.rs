@@ -230,9 +230,11 @@ impl AgentRuntime {
     pub async fn run(self, shutdown: CancellationToken) -> Result<(), AgentError> {
         let stop = shutdown.child_token();
         let host = self.identity.host_id;
+        let entries = crate::requests::catalog_entries(&self.requests.catalog);
         let extensions = HelloExtensions {
             journal_epoch: self.journal.epoch(),
             runs_as_root: runs_as_root(),
+            catalog_hash: crate::link::handshake::catalog_announcement(&entries),
             ..HelloExtensions::default()
         };
         let status = crate::link::handshake::AgentStatusSource::new(extensions.status());
