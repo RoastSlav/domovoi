@@ -60,6 +60,39 @@ fn read_tool_catalogue_is_read_only() {
 }
 
 #[test]
+fn read_derived_contracts_are_read_only() {
+    let contracts = domovoi_core::capability::builtin::builtin_contracts();
+    assert_eq!(
+        contracts.len(),
+        10,
+        "the built-in read contract set changed"
+    );
+    for contract in &contracts {
+        assert_eq!(
+            contract.effect,
+            domovoi_core::capability::EffectClass::Read,
+            "{} is not a read",
+            contract.id
+        );
+        assert_eq!(
+            contract.source,
+            domovoi_core::capability::ContractSource::BuiltIn,
+            "{} is not a built-in contract",
+            contract.id
+        );
+        assert!(
+            !contract.id.as_str().starts_with("skill."),
+            "{} claims the skill family",
+            contract.id
+        );
+    }
+    assert!(
+        domovoi_core::capability::builtin::contract_id_of(ReadTool::RunReadSkill).is_none(),
+        "the skill entry point must not map to a built-in contract"
+    );
+}
+
+#[test]
 fn read_tool_call_rejects_unknown_tool_names() {
     for name in [
         "approve_action",

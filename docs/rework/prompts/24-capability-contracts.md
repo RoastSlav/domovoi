@@ -303,12 +303,18 @@ pub enum ContractError {
     #[error(...)] MutatingNeedsReversibilityAndVerification { id: ContractId },
     #[error(...)] SkillSourceMismatch { id: ContractId },
     #[error(...)] SkillEffectMismatch { id: ContractId, expected: EffectClass, found: EffectClass },
+    #[error(...)] SkillContain { id: ContractId },
     #[error(...)] DuplicateConstrainableArg { id: ContractId, key: String },
     #[error(...)] BadConstrainableKey { id: ContractId, key: String },
     #[error(...)] SchemaNotObject { id: ContractId },
 }
 ```
 (The `...` stands for a short, specific message; write them.)
+
+`SkillContain` carries the rule 6 rejection: it is returned when a skill contract declares or
+claims `Contain`, including when the floor it carries is `Contain`. Containment is reserved for
+the typed helper capabilities and is never a skill contract, so this rejection must not be mapped
+onto another variant.
 
 ### 6.4 Contract index (`index.rs`) **fixed**
 

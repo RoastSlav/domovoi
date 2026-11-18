@@ -1,0 +1,35 @@
+---
+source: crates/domovoi-core/tests/serde_snapshots.rs
+expression: contract
+---
+{
+  "id": "skill.restart_container",
+  "version": 1,
+  "title": "restart_container",
+  "description": "Restart a container managed by compose",
+  "input_schema": {
+    "additionalProperties": false,
+    "properties": {},
+    "required": [],
+    "type": "object"
+  },
+  "effect": "destructive",
+  "category": "skill.destructive",
+  "target_kind": "host",
+  "target_arg": null,
+  "reversibility": "reversible",
+  "idempotency": "not_idempotent",
+  "timeout": "1m 30s",
+  "output_limit_bytes": 65536,
+  "verification": {
+    "kind": "recheck"
+  },
+  "constrainable_args": [],
+  "safety_facts": [],
+  "execution": "skill_runner",
+  "source": {
+    "kind": "skill",
+    "declared": "mutate",
+    "floor": "destructive"
+  }
+}

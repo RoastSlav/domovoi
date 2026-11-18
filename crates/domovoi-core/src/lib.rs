@@ -11,6 +11,7 @@ pub mod addr;
 pub mod advisory;
 pub mod audit_chain;
 pub mod baseline;
+pub mod capability;
 pub mod card;
 pub mod digest;
 pub mod error;
@@ -42,6 +43,7 @@ pub use actor::{Actor, ActorParseError, SYSTEM_ACTIONS, SYSTEM_AUDIT, SYSTEM_INC
 pub use addr::{in_cidr, valid_cidr};
 pub use advisory::{Advisory, AdvisoryKind};
 pub use baseline::{BaselineEntry, BaselineKind, Criticality};
+pub use capability::{CapabilityContract, ContractId, EffectClass, TargetKind};
 pub use card::{Card, CardBadge, CardButton, CardPlan};
 pub use digest::{Digest, DigestFact, FactValue, HostDigest, Trend};
 pub use error::{TransitionError, ValidationError};
