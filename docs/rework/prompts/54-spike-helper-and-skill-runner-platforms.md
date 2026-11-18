@@ -4,7 +4,7 @@
 |---|---|
 | Branch | `spike-helper-and-skill-runner-platforms` |
 | Milestone / research item | R-3 (helper delivery and platform support) and R-9 (skill-runner isolation); validation gate for H1 and prompts 45–49 |
-| Dependencies | none. Read `03 RW-39`, `03 RW-37` (key and state surface only), `04 §8.3–8.4`, `99` R-3/R-9, D-24, D-29, O-30 |
+| Dependencies | none. Read `03 RW-39`, `03 RW-37` (key and state surface only), `04 §8.3–8.4`, `99` R-3/R-9, D-24, D-29, D-31 |
 | Can run alongside other research | yes: 53 and 56 are independent; 55 is separate and security-sensitive |
 | Produces | R-3 and R-9 evidence in one report: `docs/rework/investigations/J-r3-r9-helper-and-skill-runner.md` (next free letter if `J` is taken) |
 | Launch gate | Ubuntu WSL2 available (`investigations/H-wsl2-research-environment.md`); no other gate |
@@ -31,7 +31,7 @@ code. Nothing here authorises implementing the helper or the skill runner, and n
 - It is not R-10 (attestation). Do not design, implement or test signed attestation, key lifecycle
   semantics or `04b` vectors; another prompt covers that. You may create a dummy 0600 key-shaped file to
   test *permissions only*.
-- It does not decide O-30 (`run_as` other than `domovoi-skill`). Do not assume the recommended option.
+- `run_as` other than `domovoi-skill` is settled as unsupported (D-31); the spike tests the refusal path, not alternatives.
 - It does not accept R-3 or R-9. Acceptance is recorded by the owner in the ADRs and decision register.
 
 ## 3. Architecture in plain language
@@ -190,7 +190,7 @@ Record the actual result for each; do not adjust the design text in this prompt.
 1. Verify the checkout and environment: `git status --short --branch`, branch
    `spike-helper-and-skill-runner-platforms` from the latest `overhaul-investigation`; record `uname -r`,
    `systemctl --version`, `systemd-analyze --version`, `id`, `sudo -n true`.
-2. Read `03 RW-39`, `03 RW-37` (state/key permissions only), `04 §8.3–8.4`, `99` R-3/R-9/D-24/D-29/O-30,
+2. Read `03 RW-39`, `03 RW-37` (state/key permissions only), `04 §8.3–8.4`, `99` R-3/R-9/D-24/D-29/D-31,
    and `H-wsl2-research-environment.md`.
 3. Establish the baseline: check whether `/etc/domovoi`, `/var/lib/domovoi-agent`,
    `/var/lib/domovoi-helper`, `/run/domovoi-helper.sock` or `/run/domovoi-skill-runner.sock` already
@@ -228,7 +228,7 @@ Required sections:
 7. **Remaining security assumptions** — what the tests did not prove: real id separation, key secrecy,
    attestation, Docker API isolation, container escape, host filesystem variation, supplementary groups
    in the real units.
-8. **Non-acceptance statement** — R-3 and R-9 stay open; O-30 unanswered; no production support claim.
+8. **Non-acceptance statement** — R-3 and R-9 stay open; no production support claim.
 
 ## 11. Completion criteria
 
@@ -244,7 +244,7 @@ Required sections:
 - Whether a helper can be delivered on non-systemd hosts, and whether those hosts are supported,
   degraded or unsupported.
 - Container deployments: socket-mount semantics, group ids, and Docker API access from the helper.
-- O-30: the handling of `run_as` values other than `domovoi-skill`.
+- `run_as` values other than `domovoi-skill`: settled as unsupported (D-31).
 - Whether per-package filesystem narrowing is feasible on supported platforms.
 - Attestation and key lifecycle (R-10), which this prompt deliberately does not test.
 

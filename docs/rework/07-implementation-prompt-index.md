@@ -4,10 +4,10 @@ Each prompt is one branch and one pull request. The prompt files live in `prompt
 They are self-contained: copy one into a local coding model working in this repository.
 Shared-contract ownership and the standard blocks are in `prompts/README.md` and `prompts/_blocks.md`.
 
-**Status: partly written.** 20 of the 51 prompts in §2 have a prompt document: `08`–`25`, `39` and `57`.
-The other 31 are planned only; §6 classifies them and they must not be launched. A row in §2 is a plan,
-not a brief: only an ID with a file under `prompts/` can be implemented. Gated prompts must not be
-launched until their gate is met. Readiness per milestone is in `06` (Readiness).
+**Status: written except the gated H1, M8 and M9 prompts.** 49 of the 53 prompts in §2 have a prompt
+document; 44, 45, 46 and 47 do not, because their design waits on research evidence or an owner decision
+(§6.4). A prompt with a file is launchable only when its **Depends on** prompts are merged and its
+**Gate** is met (§1). Readiness per milestone is in `06` (Readiness).
 
 **One active V2 branch.** `overhaul-investigation` is the only long-lived V2 branch, and it holds both
 kinds of content: the internal planning documents (`docs/rework/`, `docs/design-pack/` and the prompt
@@ -17,11 +17,11 @@ and reads the planning documents and prompt files there. No second branch, workt
 documentation overlay or synchronization step is involved. The workflow is §1.1, the migration rule is
 §7, and keeping the internal documents out of `main` is §1.2.
 
-**Implementation state.** The branch contains the unit-of-work change from prompt 08, so
-`crates/domovoi-store/migrations/` on the branch begins at `0006_unit_of_work.sql`; it currently ends at
-`0009`. That number moves as prompts merge, so read the directory instead of this sentence. `main` does
-not contain prompt 08 and still ends at `0005`; it is not a prompt target. `v2-overhaul` is a historical
-ref only: it is not an active base, not a PR target, and it is not deleted or rewritten.
+**Implementation state.** Prompts 08–24 and 57 are merged into `overhaul-investigation`; as this is
+written `crates/domovoi-store/migrations/` on that branch ends at `0011`. That number moves as prompts
+merge, so read the directory instead of this sentence. `main` does not contain the V2 work and is not a
+prompt target. `v2-overhaul` is a historical ref only: it is not an active base, not a PR target, and it
+is not deleted or rewritten.
 
 ## 1. How to use this guide
 
@@ -103,7 +103,7 @@ not part of any prompt in this guide.
 
 ## 2. Prompt table
 
-The table is the plan for all 51 prompts. Only the IDs marked in §6 have a file; the others are
+The table is the plan for all 53 prompts. Only the IDs marked in §6 have a file; the others are
 not ready to launch. `Depends on` names prompts, not files. `Parallel with` names prompts that have no
 dependency forcing an order (§1): it is not permission to run them at the same time.
 
@@ -129,27 +129,29 @@ dependency forcing an order (§1): it is not permission to run them at the same 
 | 24 | `capability-contracts` | M2 | contract types, built-ins, skill adapter + floor | 23 | 53–56 | contract types | — | M |
 | 25 | `capability-registry` | M2 | availability (per `ExecutionPath`), agent catalogue + `hello.skills` consistency, replace `PolicyLink`, target identity incl. the enrolled key fingerprint, inventory UI | 23, 24 | 39 | registry | — | L |
 | 26 | `operation-aggregate` | M3 | operations/steps/edges/executions, writer, decide, effect runner, simulator, trace schema | 23, 25 | 39 | Operation model, trace schema | — | L |
-| 27 | `investigate-operation` | M3 | triage as Investigate operation (flag), parity suite, legacy projection, step approvals | 26 | 28, 29 | — | — | L |
-| 28 | `journal-sse` | M3 | SSE ids/replay/reset, `as_of_seq`, `incident_events` copy | 26 | 27, 29 | SSE contract | — | M |
-| 29 | `use-case-layer` | M3 | hub application services, module-edge rule | 26 | 27, 28 | use-case services | — | M |
-| 58 | `remove-legacy-triage-path` | M3 | remove triage queue, recheck, flip flag default, legacy expiry | 27, 28 | 30 | — | parity suite green | M |
-| 30 | `operations-ui-timeline` | U1 | shell, Operations list/detail, step tree, inspector, approval card, banners, Playwright smoke | 27, 28 | 31, 34, 36, 58 | approval card component | — | M |
-| 31 | `meta-tools-and-validation` | M4 | closed meta-tools, plan validator, target resolution, remove text protocol | 27 | 30, 34, 36 | ContextSource port | — | L |
-| 32 | `layered-context` | M4 | layered context, statuses, caps, one provider loop | 31 | 34, 36 | — | — | M |
-| 34 | `knowledge-store` | M5 | facts/relations/entities, rename, backfill, management-path facts, knowledge API | 11, 27 | 31, 32, 36 | knowledge API | — | M |
-| 35 | `experience-search` | M5 | resolution summary fields, FTS, `search_experience`, similar operations | 27, 31, 34 | 32 | — | — | M |
-| 36 | `operator-conversations` | M6 | conversation aggregate, streaming, panel + workspace | 28 | 31, 32, 34 | — | — | M |
-| 37 | `visibility-profiles` | U3 | visibility categories, profiles, preferences endpoint | 30 | 31–36 | visibility categories | — | M |
-| 39 | `policy-evaluator` | M7 | pure evaluator incl. locked Deny, hard limits, publication helpers | 24 | 26–37 | evaluator API | **O-31 answered (policy `TimeWindow` timezone)** | L |
-| 40 | `policy-shadow` | M7 | policy versions, shadow decisions, simulator, publication report, step-up | 27, 39 | 35, 36 | — | — | M |
-| 41 | `packages-agent` | P1 | agent package verification/install/uninstall over `transfer_*` | 20, 25 | 26–40 | — | — | L |
-| 42 | `packages-hub` | P1 | index, owner import, store, relay, jobs, audit | 41 | 26–40 | — | — | M |
-| 33 | `graph-spike` | U2 | R-1 spike: library choice, evidence, DESIGN.md amendment proposal | 30 | 31–37, 39–42 | R-1 evidence | — | M |
+| 27 | `investigate-operation` | M3 | triage as Investigate operation (flag), parity suite, legacy projection, operation read endpoints, step approve/deny on the web | 26, 28 | — | operation read API, parity suite | — | L |
+| 28 | `journal-sse` | M3 | SSE ids/replay/reset, topics, `as_of_seq`, `incident_events` copy, journal floor | 26 | — | SSE contract, `snapshot_seq` | — | M |
+| 29 | `use-case-layer` | M3 | hub application services (`crate::services`, `Caller`), module-edge rules, operation cancel/pause/resume/answer routes | 26, 27, 28, 59 | — | use-case services, control routes | — | M |
+| 58 | `remove-legacy-triage-path` | M3 | remove the triage queue and legacy proposal creation, follow-up answers become plain text, flip the flag default | 27, 28, 59 | 29, 30 | — | parity suite green | M |
+| 59 | `chat-step-approvals` | M3 | chat (Discord) approve/deny buttons for Execution steps, per-step chat tokens | 27 | — | step chat tokens | — | M |
+| 60 | `remove-legacy-executor` | M3 | one execute path, legacy verification retired, remaining legacy actions settled with an audited reason | 58 | — | — | actions parity checkpoint green (05 §7) | L |
+| 30 | `operations-ui-timeline` | U1 | shell right slot, Operations list/detail, step timeline, inspector, the one approval card, banners with controls, browser smoke test | 27, 28, 29 | 31, 34, 40, 41, 58 | right slot, `ApprovalCard`, smoke mock | — | M |
+| 31 | `meta-tools-and-validation` | M4 | closed meta-tools, plan validator, target resolution, remove text protocol | 27, 58 | 30, 40, 41 | ContextSource port | — | L |
+| 32 | `layered-context` | M4 | layered context aggregator, caps, statuses, one provider loop, `TriageDeps.extra_context` | 31 | 36, 37, 42 | context registration point | — | M |
+| 34 | `knowledge-store` | M5 | facts/relations/entities, rename, backfill, management-path facts, knowledge API, knowledge context source | 11, 27, 29, 31, 32 | 36, 37, 42 | knowledge API | — | M |
+| 35 | `experience-search` | M5 | resolution summary fields, FTS, `search_experience`, experience context source, similar operations | 27, 31, 32, 34 | 36, 37, 42 | experience API | — | M |
+| 36 | `operator-conversations` | M6 | conversation aggregate, streaming (`live.*`), Operator panel as a right-slot surface, workspace | 28, 29, 30 | 32, 34, 35, 37 | conversations, `live.*` | — | M |
+| 37 | `visibility-profiles` | U3 | visibility categories, profiles, preferences endpoint | 29, 30 | 32–36 | visibility categories | — | M |
+| 39 | `policy-evaluator` | M7 | pure evaluator incl. locked Deny, hard limits, publication helpers | 24 | 25, 26 | evaluator API | — (O-31 settled: UTC, D-30) | L |
+| 40 | `policy-shadow` | M7 | policy versions, shadow decisions, simulator, publication report, step-up | 27, 29, 39 | 30, 31, 41 | policy API | — | M |
+| 41 | `packages-agent` | P1 | agent package verification/install/uninstall over `transfer_*` | 20, 25 | 30, 31, 40 | `package_contracts()`, agent receiver | — | L |
+| 42 | `packages-hub` | P1 | owner import, artifact store, relay, install jobs, audit | 29, 41 | 32–37 | packages API | — | M |
+| 33 | `graph-spike` | U2 | R-1 spike: library choice, evidence, DESIGN.md amendment proposal | 30 | 32–37, 42 | R-1 evidence | — | M |
 | 38 | `graph-canvas` | U2 | interactive graph, keyboard model, motion | 33, 37 | 43, 48–51 | — | R-1 accepted | M |
 | 52 | `graph-playback` | U2 | historical playback (last in U2) | 38 | 43, 48–51 | — | — | M |
 | 43 | `policy-pages` | U4 | policy editor, explanation, simulator UI, publication report | 37, 40 | 48–51 | — | — | M |
 | 48 | `knowledge-pages` | U4 | knowledge browser and detail, proposals, management paths view | 37, 34, 35 | 43, 49–51 | — | — | M |
-| 49 | `capability-center-and-install-wizard` | U4 | inventory, owner import, install wizard, ceiling and helper views, key-enrollment screen | 37, 25, 42 | 43, 48, 50, 51 | — | — | M |
+| 49 | `capability-center-and-install-wizard` | U4 | inventory, owner import, install wizard, read-only ceiling view; helper and key-enrollment screens as labelled placeholders until 47 | 37, 25, 42 | 43, 48, 50, 51 | ceiling read endpoint | — | M |
 | 50 | `audit-and-retention-pages` | U4 | audit page (legacy and chained), retention settings | 37, 09, 57 | 43, 48, 49, 51 | — | — | S |
 | 51 | `control-room-attention-and-search` | U4 | Control Room, attention centre, global search | 37, 28, 30 | 43, 48–50 | — | — | M |
 | 53 | `spike-nft-containment` | R-2 | evidence on supported Linux platforms | — | — | R-2 evidence | WSL2 environment available (§6.3) | M |
@@ -157,7 +159,7 @@ dependency forcing an order (§1): it is not permission to run them at the same 
 | 55 | `spike-safety-attestation` | R-10 | scratch implementation reproducing `04b` vectors, parser, route state, locking, adversarial tests | — | — | R-10 evidence | — (no environment gate) | L |
 | 56 | `spike-systemd-unit-identity` | R-8 | evidence on effective unit identity | — | — | R-8 evidence | WSL2 environment available (§6.3) | S |
 | 44 | `helper-adrs` | H1 | ADRs for the three identities and for helper attestation | — | — | ADRs | 54 and 55 evidence (or unproven items recorded) | M |
-| 47 | `three-identities-helper-and-skill-runner` (may be split 47a/b/c) | H1 | helper, attestation, skill runner, installer migration, hub enrollment | 20, 22, 44 | — | helper protocol, SafetyIdentity | **O-30 answered; R-3, R-9, R-10 accepted** | L |
+| 47 | `three-identities-helper-and-skill-runner` (may be split 47a/b/c) | H1 | helper, attestation, skill runner, installer migration, hub enrollment | 20, 22, 44 | — | helper protocol, SafetyIdentity | **R-3, R-9, R-10 accepted** (O-30 settled as D-31) | L |
 | 45 | `policy-permit-autonomy` | M8 | PermitIssuer, ceiling, guardrails, `unit.restart`, `container.restart`; the unresolved-`OutcomeUnknown` unattended-reuse guard | 32, 40, 47 | — | — | **R-8 accepted; H1 complete** | L |
 | 46 | `containment` | M9 | `firewall.block_source` with kernel timeout, verified and unverified paths, drills | 45, 34, 47 | — | — | **R-2, R-10 accepted** | L |
 
@@ -172,7 +174,7 @@ does not suspend the migration rule (§7) or the shared-file order (§1).
    research prompts 53, 54, 55 and 56 have no dependencies: each can be written at any point and
    launched whenever its gate in §2 is met, including during wave A; 53, 54 and 56 run on the owner's
    Ubuntu WSL2 environment (§6.3), and 55 needs no additional environment. They change no product code
-   and add no migration. None of the four has a file yet (§6.3).
+   and add no migration. All four have a file (§6.3).
 2. **Wave B:** 09, after 13 has merged, so its audit migration takes the next number.
 3. **Wave C:** 10 ∥ 11.
 4. **Wave D:** 12 ∥ 14 ∥ 16 ∥ 18 ∥ 57, then 17, then 19: 17 and 19 each add a migration and run one at
@@ -181,13 +183,17 @@ does not suspend the migration rule (§7) or the shared-file order (§1).
 5. **Wave E, protocol bump:** 20. This is a coordinated hub and agent upgrade.
 6. **Wave F:** 21, then 22, then 23.
 7. **Wave G:** 24, then 25 ∥ 39.
-8. **Wave H:** 26. After it: 27 ∥ 28 ∥ 29.
-9. **Wave I:** 30 ∥ 31 ∥ 34 ∥ 36 ∥ 41 ∥ 40. 40 needs 27 and 39; 41 needs 20 and 25. 58 once the
-   parity suite is green.
-10. **Wave J:** 32 ∥ 35 ∥ 37 ∥ 42 ∥ 33.
-11. **Wave K, UI pages:** 43 ∥ 48 ∥ 49 ∥ 50 ∥ 51. Then 38, then 52.
+8. **Wave H, operations core:** 26, then 28, then 27, then 59, then 29. Each edits hub wiring the next
+   one builds on, so this order is fixed.
+9. **Wave I:** 58 (once 27's parity suite is green) ∥ 30 ∥ 40 ∥ 41; then 31 (after 58). 60 once its
+   gate is green.
+10. **Wave J:** 32, then 34, then 35 (each consumes the previous one's context registration or API);
+    36 ∥ 37 ∥ 42 ∥ 33 anywhere in this wave (36 and 37 need 30; 42 needs 41).
+11. **Wave K, UI pages:** 43 ∥ 48 ∥ 49 ∥ 50 ∥ 51. They share shell files (`nav.ts`, `routes.tsx`,
+    `pages.ts`, `tone.ts`, the smoke mock), so each is written against the previous one merged. Then 38
+    (gate R-1), then 52.
 12. **Wave L, privilege boundary:** 44, once the 54 and 55 evidence exists; then 47 (or 47a, 47b,
-    47c in order), once O-30 is answered and R-3, R-9 and R-10 are accepted.
+    47c in order), once R-3, R-9 and R-10 are accepted.
 13. **Wave M, autonomy:** 45, once R-8 is accepted; then 46, once R-2 and R-10 are accepted.
 
 ## 4. Integration contracts that must exist before dependants start
@@ -202,8 +208,19 @@ does not suspend the migration rule (§7) or the shared-file order (§1).
 | capability contract types | 24 | 25, 31, 39 |
 | capability registry, `Availability`, target identity | 25 | 26, 41, 49 |
 | trace schema (Rust and web fixtures) | 26 | 28, 30, 38, 52 |
+| operation read API, parity suite | 27 | 29, 30, 58 |
+| step chat tokens, `OperationHandle::authorize(.., chat_token)` | 59 | 29, 58, 60 |
+| hub use-case layer (`crate::services`, `Caller`, `MOD-*` rules) | 29 | 30, 34, 36, 37, 40, 42 |
+| right slot, `ApprovalCard`, smoke mock | 30 | 36, 43, 48–51 |
+| context registration (`TriageDeps.extra_context`) | 32 | 34, 35 |
+| knowledge API, `KnowledgeRead`, `ManagementCoverage` hook | 34 | 35, 47, 48 |
+| experience API, `SearchExperience` | 35 | 48, 51 |
+| conversations, `live.*` SSE events | 36 | — |
+| policy store and API | 40 | 43, 45 |
+| package contracts, agent receiver | 41 | 42, 47 |
+| packages API | 42 | 49 |
 | SSE contract | 28 | 30, 36, 51 |
-| ContextSource port | 31 | 32, 35 |
+| ContextSource port | 31 | 32, 34, 35 |
 | visibility categories | 37 | 38, 43, 48–51 |
 | evaluator API | 39 | 40, 43, 45 |
 | helper protocol and SafetyIdentity | 47 | 45, 46, 48, 49 |
@@ -213,9 +230,7 @@ silent edit by a later prompt.
 
 ## 5. Milestone coverage
 
-Every milestone is planned to have a prompt, and the research gates have spikes. Only the prompts listed
-in §6.1 have been written so far, and §6 classifies the rest; this table is coverage of the plan, not of
-the files.
+Every milestone has a prompt, and the research gates have spikes. All are written except 44–47 (§6.4).
 
 | Milestone | Prompts |
 |---|---|
@@ -225,7 +240,7 @@ the files.
 | F4 | 17–19, 57 |
 | M1 | 20–23 |
 | M2 | 24–25 |
-| M3 | 26–29, 58 |
+| M3 | 26–29, 58–60 |
 | M4 | 31–32 |
 | M5 | 34–35 |
 | M6 | 36 |
@@ -251,54 +266,30 @@ Deferred items (`06`, "Deferred and after-v1") get no prompts.
 
 ## 6. Prompt file status
 
-Every one of the 51 prompt IDs in §2 appears in exactly one group below. A row in §2 is a plan, not a
-brief: an ID without a file in `prompts/` cannot be launched, whatever its dependencies say.
+Every one of the 53 prompt IDs in §2 appears in exactly one group below. An ID without a file in
+`prompts/` cannot be launched, whatever its dependencies say. The launch state is a snapshot: check
+`git log --oneline overhaul-investigation` before treating a row as pending.
 
-### 6.1 Written prompts (20)
+### 6.1 Written prompts (49)
 
-These have a file. A prompt here is launchable when the prompts in its **Depends on** column are merged
-into `overhaul-investigation` (§1 step 2) and its gate is met; having the file alone is not enough. The
-right-hand column is a snapshot of the base branch at the time this guide was written: prompts merge
-into it while the plan is in use, so check `git log --oneline overhaul-investigation` before treating a
-row as pending or as still to be implemented.
+- **Merged:** 08–24, 57.
+- **Research, launchable at their gate (§6.3):** 53, 54, 55, 56.
+- **Written, waiting for their dependencies:** 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37,
+  38, 39, 40, 41, 42, 43, 48, 49, 50, 51, 52, 58, 59, 60. 25 and 39 are next (each needs only 24). 38 is also gated
+  on R-1 accepted, 58 on 27's parity suite and 60 on the actions parity
+  checkpoint.
 
-| ID | File | Launch state from `overhaul-investigation` |
-|---|---|---|
-| 08 | `08-store-unit-of-work.md` | merged into `overhaul-investigation` (#114, `f562d06`) |
-| 13 | `13-exact-protocol-rule.md` | merged into `overhaul-investigation` (#116, `4edda64`; migration `0008`) |
-| 16 | `16-delivery-durability.md` | ready: 08 is merged |
-| 17 | `17-llm-reliability.md` | ready: 08 is merged; the provider compatibility and in-memory usage work is already integrated, so it only adds persistence, deadlines, the prompt cap, redaction and host scoping; it adds a migration (take the next free number after `0009`, §7) |
-| 19 | `19-ops-readiness.md` | ready: 08 is merged; adds a migration, so run it after 17 (§7) |
-| 57 | `57-configurable-retention.md` | ready: 08 is merged; no schema change |
-| 09 | `09-audit-hash-chain.md` | merged into `overhaul-investigation` (#117, `e3252aa`; migration `0009`) |
-| 10 | `10-atomic-action-writes.md` | merged into `overhaul-investigation` (#118, `689e2df`; no migration) |
-| 11 | `11-atomic-incident-writes.md` | ready: 09 is merged; adds no migration |
-| 12 | `12-crash-harness.md` | waiting: 11 (10 is merged) |
-| 14 | `14-recovery-order.md` | ready: 10 is merged; adds no migration |
-| 15 | `15-durable-timers.md` | merged into `overhaul-investigation` (#136, `bca079d`; no migration; the effect columns came with `0006`) |
-| 18 | `18-structured-approvals.md` | ready: 10 is merged; adds no migration |
-| 20 | `20-agent-action-journal.md` | ready: 13 and 15 are merged and 14 and 16–19 are ready to land before it; carries the protocol 1.2 bump, the per-skill `entry_script_digest` (`ScriptDigest`) and the agent-side journal, and adds no hub migration |
-| 21 | `21-outcome-unknown-reconcile.md` | waiting: 20; adds no migration — `OutcomeUnknown` lives in the existing JSON `status` column |
-| 22 | `22-plan-hash-v2-and-authorization.md` | waiting: 20 and 21; consumes 20's `ScriptDigest` and `SkillSummary::entry_script_digest`; adds a migration, so take the next free number (§7) |
-| 23 | `23-single-execution-boundary.md` | waiting: 22; adds no migration |
-| 24 | `24-capability-contracts.md` | waiting: 23 to merge; the dependency is ordering only and adds no migration |
-| 25 | `25-capability-registry.md` | waiting: 23 and 24; consumes 20's 1.2 catalogue wire and `hello.catalog_hash`, owns `Availability`, replaces `PolicyLink`, adds no migration |
-| 39 | `39-policy-evaluator.md` | waiting: 24, **and `O-31` answered** (the `TimeWindow` timezone decision); the pure evaluator, its publication helpers and its simulator, with no migration and no wire change |
+Prompts that consume a contract from an unmerged prompt say so in their **Depends on** row and mark each
+borrowed name "introduced by prompt NN — verify names in code before use".
 
-### 6.2 Unwritten implementation prompts (23)
+### 6.2 Prompts added during authoring (2)
 
-No file yet. Each must be authored before its planned wave, and only then launched; its §2 row is a
-plan, not a brief.
+Writing the M3 prompts showed two pieces of work no row owned. They are in §2 as **59**
+(`chat-step-approvals`: without it, making investigations the default in 58 would remove one-tap chat
+approval) and **60** (`remove-legacy-executor`: the legacy executor removal and the audited expiry of the
+remaining legacy actions that 05 §2 requires). Both are written and counted in 6.1.
 
-26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 40, 41, 42, 43, 48, 49, 50, 51, 52, 58.
-
-Prompt 33 is also a spike, but it is planned like the rest of this group: author it before its wave. Its
-only dependency is prompt 30, and it needs no environment of its own.
-
-### 6.3 Unwritten research prompts (4)
-
-These four *produce* evidence; they are not waiting for it. Writing one needs only the design pack and
-does not require its evidence to exist. Launching one requires its own gate, listed below and in §2.
+### 6.3 Research prompts (4, written)
 
 | ID | Research | Produces | Launch gate | WSL2 assessment |
 |---|---|---|---|---|
@@ -307,26 +298,18 @@ does not require its evidence to exist. Launching one requires its own gate, lis
 | 55 | R-10 safety attestation | R-10 evidence: `04b` vectors, parser, route state, locking | **no additional environment gate** | available for cryptographic, parser, key-lifecycle and state tests |
 | 56 | R-8 systemd unit identity | R-8 evidence on effective unit identity | Ubuntu WSL2 available | available for initial systemd unit identity tests |
 
-**Research environment.** Ubuntu WSL2 on the owner's workstation is the available Linux research
-environment. It is recorded, with the environment details, the owner-executed tests and the untested
-areas, in [`investigations/H-wsl2-research-environment.md`](investigations/H-wsl2-research-environment.md).
-Read it before writing or launching 53, 54 or 56; prompt 55 does not depend on it.
+**Research environment.** Ubuntu WSL2 on the owner's workstation, recorded with its details, the
+owner-executed tests and the untested areas in
+[`investigations/H-wsl2-research-environment.md`](investigations/H-wsl2-research-environment.md). WSL2 is a
+virtualised, NAT-networking environment with a Microsoft kernel: it makes scoped experiments possible and
+is not evidence for supported conventional Linux hosts. Every research report names its environment and
+labels each finding **demonstrated on WSL2**, **not demonstrated**, or **requiring conventional Linux
+validation**.
 
-- Prompts 53, 54 and 56 can be authored and launched for WSL2-scoped research. Prompt 55 remains
-  launchable without an additional environment gate.
-- WSL2 is a virtualised, NAT-networking environment with a Microsoft kernel. It makes scoped experiments
-  possible; it is not evidence for supported conventional Linux hosts.
-- Every relevant research report must name the environment it ran in and label each finding as
-  **demonstrated on WSL2**, **not demonstrated**, or **requiring conventional Linux validation**.
-
-**Nothing is accepted by availability.** An environment being available satisfies no research item.
-R-2, R-3, R-8, R-9 and R-10 stay open until the evidence each of them requires exists, and a finding
-demonstrated on WSL2 does not close an item that needs a conventional Linux host. Acceptance is recorded
-in the ADRs and the decision register, never by a research prompt or by reaching an environment.
-
-Their outputs feed the later prompts: 44 needs the 54 and 55 evidence (or the unproven items recorded),
-47 needs R-3, R-9 and R-10 accepted, 46 needs R-2 and R-10 accepted, and 45 needs R-8 accepted. Those
-implementation gates, and the H1 and M8/M9 readiness rows in `06`, are unchanged by this record.
+**Nothing is accepted by availability.** R-2, R-3, R-8, R-9 and R-10 stay open until the evidence each
+requires exists; acceptance is recorded in the ADRs and the decision register, never by a research prompt.
+R-10 in particular stays an implementation validation gate: the attestation design is not validated
+until its implementation and tests demonstrate it.
 
 ### 6.4 Unwritten downstream prompts waiting on evidence or an owner decision (4)
 
@@ -336,10 +319,11 @@ launchable until the gate below is satisfied.
 - **44** (`helper-adrs`): needs 54 and 55 evidence, or the unproven items recorded.
 - **45** (`policy-permit-autonomy`): needs R-8 accepted and H1 complete.
 - **46** (`containment`): needs R-2 and R-10 accepted.
-- **47** (`three-identities-helper-and-skill-runner`): needs O-30 answered and R-3, R-9 and R-10
-  accepted.
+- **47** (`three-identities-helper-and-skill-runner`): needs R-3, R-9 and R-10 accepted
+  (its `run_as` rule is settled: D-31). When written it must also replace 49's helper and key-enrollment placeholders and implement
+  34's `ManagementCoverage` hook (both prompts list what it must add).
 
-Counts: 20 written + 23 unwritten implementation + 4 research + 4 downstream = 51.
+Counts: 49 written + 4 unwritten = 53.
 
 ## 7. Migration numbering
 
@@ -373,7 +357,8 @@ Rules for every prompt that adds a migration:
    (`_agent_protocol_report`, `_audit_chain`, ...). Its number is not part of the contract, and tests are
    named after the behaviour, not after a file number.
 5. **One at a time.** Migration-adding prompts run sequentially, never in parallel with each other. In
-   the recommended order of §3 they are 13, then 09, then 17 and 19 in wave D. On a branch
+   the recommended order of §3 they are 13, then 09, then 17 and 19 in wave D; later 22, 26, 28, 59, 40, 34, 35, 36 and 42 each add
+   one (check each prompt's section 8). On a branch
    that contains prompt 08 that sequence started at `0008`; the numbers it uses next depend on what has
    already merged. That sequence is an illustration of the rule, not a promise: verify the directory
    before every one of them.

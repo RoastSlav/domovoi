@@ -1373,7 +1373,7 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
       2. It parses the manifest and recomputes `impl_hash` (manifest + entry-script bytes). It
          refuses on mismatch, which closes the gap between the agent's check and execution.
       3. It re-validates the args against the manifest.
-      4. It refuses any manifest whose `run_as` names a user other than `domovoi-skill` (O-30).
+      4. It refuses any manifest whose `run_as` names a user other than `domovoi-skill` (D-31).
       5. It builds the argv through `domovoi-runner`. There is no shell (R3/R4) and no executable
          path from the request.
     - **Output.** Stdout and stderr are streamed back over the connection with the existing caps and
@@ -1481,7 +1481,7 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
     2. It creates `packages_dir`.
     3. It installs the helper and skill-runner units and a fresh-install `helper.toml`.
     4. It switches the agent unit to `User=domovoi-agent`.
-    5. `domovoi agent selftest` reports lost access and skills affected by O-30.
+    5. `domovoi agent selftest` reports lost access and skills affected by D-31 (`run_as` other than `domovoi-skill`).
 
     Root installs keep working until the owner reruns the installer. The UI labels them
     "privilege boundary not in effect", and they get no unattended execution (hard limit, `04` §7.3).
