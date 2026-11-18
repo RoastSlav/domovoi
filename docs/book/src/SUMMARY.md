@@ -18,6 +18,7 @@
 - [Signals and incidents](concepts/incidents.md)
 - [Verdicts, cards and threads](concepts/cards.md)
 - [Actions and approvals](concepts/actions.md)
+- [Capabilities](concepts/capabilities.md)
 - [Digest and advisories](concepts/digest.md)
 - [Logs in the web UI](concepts/logs.md)
 

@@ -78,6 +78,8 @@ Lists return `{"items": […], "next_cursor": "…"}`, newest first. Pass `curso
 
 `GET /api/v1/hosts` lists every host with its agent's presence, whether the agent is older than the hub (`outdated`), the protocol state (`compatible`, `incompatible`, `expected_incompatible` or `unknown`) with the reported and hub protocol versions, and how many of its incidents are not yet resolved (`open_incidents`). `GET /api/v1/hosts/{name}` adds the latest value of each digest fact the host reported in the last 24 hours.
 
+`GET /api/v1/hosts/{name}/capabilities` returns the host's capability inventory: one row per contract the hub knows, with its state (`available`, `not_installed`, `disabled_by_hub`, `not_allowed_on_host`, `unavailable`, `host_unknown`, `host_absent` or `host_incompatible`), the reason code of a refusal, how much of the host's implementation list was read (`complete`, `partial` or `stale`), the effect class, the target kind, the execution path, and whether the agent runs as root or reported an isolated skill runner. `unknown_contracts` lists ids the agent reported that no contract describes. The endpoint is read-only: it enables, disables and approves nothing.
+
 ## Asking about an incident
 
 `POST /api/v1/incidents/{id}/ask` asks the triage model one question about an incident. It reads with the same read-only tools triage has, answers in plain text, and never proposes or runs actions.

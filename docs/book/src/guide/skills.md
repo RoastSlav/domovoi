@@ -54,7 +54,7 @@ The Skills page lists the skills of the host chosen in the host selector. Under 
 
 Choose a skill's name (also on the Overview tab of a host's page) to open its details: what its risk means, its timeout, what it applies to, its verification and its manifest hash, then a **Parameters** table with the type, constraints and description of every parameter, the folder's `README.md` when it has one, and its **Recent runs** on that host. Each run links to its incident.
 
-You can also turn a skill off without touching the host. Switch **Enabled** off in its row: the skill stays on the host and in the list, shown greyed and tagged "Disabled", and the hub stops running it and stops offering it to triage. The switch is saved per host, so it survives a hub restart, and switching it on again turns the skill back on.
+You can also turn a skill off without touching the host. Switch **Enabled** off in its row: the skill stays on the host and in the list, shown greyed and tagged "Disabled", and the hub stops running it and stops offering it to triage. The switch is saved per host, so it survives a hub restart, and switching it on again turns the skill back on. The Capabilities page shows the same state for every skill on that host, and a raised floor there can only make a skill stricter.
 
 Editing a manifest changes its hash, which cancels any pending approval for that skill: you always approve exactly what runs.
 
