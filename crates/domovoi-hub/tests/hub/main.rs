@@ -26,6 +26,8 @@ mod atomic_incidents;
 #[cfg(test)]
 mod availability;
 #[cfg(test)]
+mod capability;
+#[cfg(test)]
 mod crash_sqlite;
 #[cfg(test)]
 mod csp;

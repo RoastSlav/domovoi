@@ -1,47 +1,47 @@
-//! Capability objects over the hub's policy link (ADR 0023): the one place the
-//! composition root turns the link into narrow capabilities, so no subsystem
-//! downstream of here holds the raw link. The policy wrapper stays in charge of
-//! every request; these objects only choose which operation a subsystem may ask
-//! for at all.
+//! Capability objects over the hub's link (ADR 0023): the one place the composition root
+//! turns the link into narrow capabilities, so no subsystem downstream of here holds the
+//! raw link. The policy wrapper stays in charge of every request; these objects only choose
+//! which operation a subsystem may ask for at all.
 
 use async_trait::async_trait;
 use std::sync::Arc;
 
+use domovoi_core::capability::{CatalogPageData, CatalogQuery};
 use domovoi_core::ports::AgentLink;
 use domovoi_core::ports::{
     ActionAnswers, ActionCaps, AgentSnapshot, AvailabilityProbe, CheckRecheck, CheckRerun,
-    EvidenceCaps, HandoffRunner, HostAvailability, HostObservation, HostRead, JournalStatus,
-    LinkError, Presence, SkillDispatch, SkillHandoff, SkillOutput, ToolOutput,
+    EvidenceCaps, HandoffRunner, HostAvailability, HostObservation, HostRead, HostWords,
+    JournalStatus, LinkError, Presence, SkillDispatch, SkillHandoff, SkillOutput, ToolOutput,
 };
 use domovoi_core::{
     ActionId, AgentSessionId, CheckKey, HostId, JournalEpoch, ReadToolCall, SkillSummary, TargetKey,
 };
 use jiff::Timestamp;
 
-use crate::agent_server::PolicyLink;
+use crate::capability::HostCapabilities;
 
 struct ProbeOf {
-    link: Arc<PolicyLink>,
+    link: Arc<dyn AgentLink>,
 }
 
 struct ObserverOf {
-    link: Arc<PolicyLink>,
+    link: Arc<dyn AgentLink>,
 }
 
 struct ReaderOf {
-    link: Arc<PolicyLink>,
+    link: Arc<dyn AgentLink>,
 }
 
 struct HandoffOf {
-    link: Arc<PolicyLink>,
+    link: Arc<dyn AgentLink>,
 }
 
 struct JournalOf {
-    link: Arc<PolicyLink>,
+    link: Arc<dyn AgentLink>,
 }
 
 struct RerunOf {
-    link: Arc<PolicyLink>,
+    link: Arc<dyn AgentLink>,
 }
 
 #[async_trait]
@@ -135,39 +135,72 @@ impl CheckRerun for RerunOf {
 }
 
 /// The capabilities the action services need, all over one policy link.
-pub fn action_caps(policy_link: Arc<PolicyLink>) -> ActionCaps {
+pub fn action_caps(link: Arc<dyn AgentLink>) -> ActionCaps {
     ActionCaps {
-        probe: Arc::new(ProbeOf {
-            link: policy_link.clone(),
-        }),
-        observer: Arc::new(ObserverOf {
-            link: policy_link.clone(),
-        }),
-        journal: Arc::new(JournalOf {
-            link: policy_link.clone(),
-        }),
-        handoff: Arc::new(HandoffOf {
-            link: policy_link.clone(),
-        }),
-        rerun: Arc::new(RerunOf { link: policy_link }),
+        probe: Arc::new(ProbeOf { link: link.clone() }),
+        observer: Arc::new(ObserverOf { link: link.clone() }),
+        journal: Arc::new(JournalOf { link: link.clone() }),
+        handoff: Arc::new(HandoffOf { link: link.clone() }),
+        rerun: Arc::new(RerunOf { link }),
     }
 }
 
 /// The capabilities evidence collection needs, all over one policy link.
-pub fn evidence_caps(policy_link: Arc<PolicyLink>) -> EvidenceCaps {
+pub fn evidence_caps(link: Arc<dyn AgentLink>) -> EvidenceCaps {
     EvidenceCaps {
-        probe: Arc::new(ProbeOf {
-            link: policy_link.clone(),
-        }),
-        observer: Arc::new(ObserverOf {
-            link: policy_link.clone(),
-        }),
-        read: Arc::new(ReaderOf { link: policy_link }),
+        probe: Arc::new(ProbeOf { link: link.clone() }),
+        observer: Arc::new(ObserverOf { link: link.clone() }),
+        read: Arc::new(ReaderOf { link }),
     }
 }
 
 /// A single catalogue capability over the policy link, for the narrow `HostCatalog`
 /// view that needs no read capability.
-pub fn observer_of(link: Arc<PolicyLink>) -> Arc<dyn HostObservation> {
+pub fn observer_of(link: Arc<dyn AgentLink>) -> Arc<dyn HostObservation> {
     Arc::new(ObserverOf { link })
+}
+
+/// The raw link as the capability registry reads it: availability, the announced catalogue
+/// hash, catalogue pages, the 1.2 status words and the announced skills.
+///
+/// The registry holds this view rather than the link, so a subsystem that answers "is this
+/// available here" cannot reach a tool, a skill dispatch or an approval (EXEC-4).
+pub struct LinkCapabilities {
+    link: Arc<dyn AgentLink>,
+}
+
+impl LinkCapabilities {
+    /// Wraps `link` as the registry's read-only view of one host's agent.
+    #[must_use]
+    pub fn new(link: Arc<dyn AgentLink>) -> Self {
+        Self { link }
+    }
+}
+
+#[async_trait]
+impl HostCapabilities for LinkCapabilities {
+    async fn availability(&self, host: HostId) -> HostAvailability {
+        self.link.availability(host).await
+    }
+
+    fn catalog_hash(&self, host: HostId) -> Option<String> {
+        self.link.catalog_hash(host)
+    }
+
+    async fn catalog_page(
+        &self,
+        host: HostId,
+        query: CatalogQuery,
+        deadline: Timestamp,
+    ) -> Result<CatalogPageData, LinkError> {
+        self.link.get_catalog(host, query, deadline).await
+    }
+
+    fn words(&self, host: HostId) -> Option<HostWords> {
+        self.link.host_words(host)
+    }
+
+    fn skills(&self, host: HostId) -> Vec<SkillSummary> {
+        self.link.skills(host)
+    }
 }

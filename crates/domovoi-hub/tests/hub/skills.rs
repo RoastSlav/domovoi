@@ -3,12 +3,16 @@
 //! builds a new policy, so a restart keeps the switch.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use axum::http::{Method, StatusCode};
 
-use domovoi_core::ports::{ActionRepo, AuditFilter, AuditLog, HostRepo, Page, SettingsRepo};
+use domovoi_core::capability::{ContractIndex, builtin_contracts};
+use domovoi_core::ports::{
+    ActionRepo, AuditFilter, AuditLog, CapabilityRegistry, Page, SettingsRepo,
+};
 use domovoi_core::{ActionRequest, Principal, Risk, SkillName, SkillSummary};
-use domovoi_hub::agent_server::{SkillPolicy, host_skills_key};
+use domovoi_hub::capability::{HubRegistry, RegistryDeps, host_skills_key};
 use domovoi_testkit::approvals::human;
 use domovoi_testkit::build::manifest;
 use jiff::SignedDuration;
@@ -68,9 +72,20 @@ async fn switch(a: &Api, login: &Login, skill: &str, enabled: bool) -> StatusCod
 }
 
 /// The policy the hub would have after starting again.
-async fn reloaded(a: &Api) -> SkillPolicy {
-    let hosts = HostRepo::list_hosts(&*a.store).await.unwrap();
-    SkillPolicy::load(a.store.clone(), &hosts).await.unwrap()
+async fn reloaded(a: &Api) -> Arc<HubRegistry> {
+    Arc::new(
+        HubRegistry::new(RegistryDeps {
+            contracts: Arc::new(ContractIndex::new(builtin_contracts()).unwrap()),
+            agent: Arc::new(domovoi_hub::runtime::caps::LinkCapabilities::new(
+                a.link.clone(),
+            )),
+            hosts: a.store.clone(),
+            store: a.store.clone(),
+            clock: a.clock.clone(),
+        })
+        .await
+        .unwrap(),
+    )
 }
 
 #[tokio::test]
@@ -115,11 +130,11 @@ async fn disabled_skill_stays_listed_and_survives_a_restart() {
 
     let policy = reloaded(&a).await;
     assert!(
-        policy.is_disabled(a.nas.id, &named(HIDDEN)),
+        !policy.enabled(a.nas.id, &domovoi_core::ContractId::skill(&named(HIDDEN))),
         "a new policy keeps the skill off",
     );
     assert!(
-        !policy.is_disabled(a.nas.id, &named(SHOWN)),
+        policy.enabled(a.nas.id, &domovoi_core::ContractId::skill(&named(SHOWN))),
         "a new policy leaves the other skill alone",
     );
 }
@@ -151,7 +166,9 @@ async fn enabling_a_skill_again_leaves_the_host_key_empty() {
         "the key is left empty, not dropped",
     );
     assert!(
-        !reloaded(&a).await.is_disabled(a.nas.id, &named(HIDDEN)),
+        reloaded(&a)
+            .await
+            .enabled(a.nas.id, &domovoi_core::ContractId::skill(&named(HIDDEN))),
         "a new policy runs it again",
     );
 }

@@ -8,7 +8,7 @@ use domovoi_core::ports::{HostAvailability, Presence, ToolOutput};
 use domovoi_core::{HostId, ReadToolCall, Risk, SkillName, SkillSummary};
 use domovoi_testkit::build::{T0, manifest, open_incident};
 use domovoi_testkit::link::{LinkRequest, evidence_caps, observer_of};
-use domovoi_testkit::{FakeAgentLink, FakeClock};
+use domovoi_testkit::{FakeAgentLink, FakeCapabilityRegistry, FakeClock};
 use jiff::SignedDuration;
 
 use super::{Evidence, EvidenceError, EvidenceRequest, HostCatalog};
@@ -20,12 +20,20 @@ fn deadline() -> jiff::Timestamp {
 
 /// The read boundary over the fake link, with a clock at [`T0`].
 fn evidence(link: &Arc<FakeAgentLink>) -> Evidence {
-    Evidence::new(evidence_caps(link.clone()), Arc::new(FakeClock::new(T0)))
+    Evidence::new(
+        evidence_caps(link.clone()),
+        Arc::new(FakeClock::new(T0)),
+        Arc::new(FakeCapabilityRegistry::following(link.clone())),
+    )
 }
 
 /// The read boundary over the fake link and a clock the test moves.
 fn evidence_at(link: &Arc<FakeAgentLink>, clock: Arc<FakeClock>) -> Evidence {
-    Evidence::new(evidence_caps(link.clone()), clock)
+    Evidence::new(
+        evidence_caps(link.clone()),
+        clock,
+        Arc::new(FakeCapabilityRegistry::following(link.clone())),
+    )
 }
 
 /// Whether any read reached the agent. An availability check is not a request here.
@@ -198,7 +206,7 @@ async fn a_read_skill_is_not_validated_until_the_host_is_available() {
 }
 
 #[tokio::test]
-async fn a_read_skill_must_be_installed_read_only_and_given_valid_arguments() {
+async fn a_read_skill_must_be_read_only_and_given_valid_arguments() {
     let link = Arc::new(FakeAgentLink::new());
     let host = HostId::new();
     connected(&link, host);
@@ -228,19 +236,23 @@ async fn a_read_skill_must_be_installed_read_only_and_given_valid_arguments() {
         "the text is the one the tool returned before the read moved here"
     );
 
+    // A skill the host does not announce is not a boundary refusal: the agent applies its own
+    // manifest checks and answers, so the read is sent. Only a disabled skill is refused here.
     let missing = ReadToolCall::RunReadSkill {
         skill: SkillName::parse("not_on_this_host").unwrap(),
         args: BTreeMap::new(),
     };
-    let refused = evidence
+    let sent = evidence
         .collect_evidence(EvidenceRequest::for_host(host, missing, deadline()))
-        .await
-        .unwrap_err();
+        .await;
+    assert!(
+        sent.is_ok(),
+        "a skill the host does not announce was refused at the boundary: {sent:?}"
+    );
     assert_eq!(
-        refused,
-        EvidenceError::NotEnabled(
-            "skill `not_on_this_host` is not installed on this host".to_owned()
-        )
+        link.requests().len(),
+        1,
+        "the read for an unknown skill did not reach the agent"
     );
 
     let extra = ReadToolCall::RunReadSkill {
@@ -256,9 +268,10 @@ async fn a_read_skill_must_be_installed_read_only_and_given_valid_arguments() {
         EvidenceError::NotEnabled("unknown argument `unexpected`".to_owned()),
         "the manifest's own words, not a message written here"
     );
-    assert!(
-        link.requests().is_empty(),
-        "none of the refusals reached the agent"
+    assert_eq!(
+        link.requests().len(),
+        1,
+        "the refusals after it reached the agent"
     );
 
     let read = ReadToolCall::RunReadSkill {
@@ -272,7 +285,7 @@ async fn a_read_skill_must_be_installed_read_only_and_given_valid_arguments() {
     assert_eq!(out.text, "ran");
     assert_eq!(
         link.requests().len(),
-        1,
+        2,
         "the enabled read reached the agent exactly once"
     );
 }
@@ -487,7 +500,11 @@ async fn a_read_stalled_after_availability_answers_timeout_not_a_late_result() {
         clock: clock.clone(),
         entered: entered.clone(),
     });
-    let evidence = Evidence::new(caps, clock.clone());
+    let evidence = Evidence::new(
+        caps,
+        clock.clone(),
+        Arc::new(FakeCapabilityRegistry::following(link.clone())),
+    );
     let request = EvidenceRequest::for_host(host, ReadToolCall::HostOverview, deadline());
 
     let pending = tokio::spawn(async move { evidence.collect_evidence(request).await });

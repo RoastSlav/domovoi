@@ -305,6 +305,9 @@ pub async fn run(drill: &Drill, model: Model) -> Outcome {
             probe: caps.probe,
             observer: caps.observer,
             journal: caps.journal,
+            capabilities: Arc::new(domovoi_testkit::FakeCapabilityRegistry::following(
+                link.clone(),
+            )),
             handoff: caps.handoff,
             rerun: caps.rerun,
             hosts: store.clone(),
@@ -319,8 +322,17 @@ pub async fn run(drill: &Drill, model: Model) -> Outcome {
     let deps = TriageDeps {
         primary,
         fallbacks: Vec::new(),
-        evidence: domovoi_engine::Evidence::new(evidence_caps(link.clone()), clock.clone()),
+        evidence: domovoi_engine::Evidence::new(
+            evidence_caps(link.clone()),
+            clock.clone(),
+            Arc::new(domovoi_testkit::FakeCapabilityRegistry::following(
+                link.clone(),
+            )),
+        ),
         catalog: domovoi_engine::HostCatalog::new(observer_of(link.clone())),
+        capabilities: Arc::new(domovoi_testkit::FakeCapabilityRegistry::following(
+            link.clone(),
+        )),
         incidents: store.clone(),
         signals: store.clone(),
         notes: store.clone(),

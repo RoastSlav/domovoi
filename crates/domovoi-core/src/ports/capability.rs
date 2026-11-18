@@ -12,6 +12,60 @@ use crate::capability::{Availability, CatalogSnapshot, ContractId, ContractIndex
 use crate::id::HostId;
 use crate::skill::{SkillName, SkillSummary};
 
+/// The one sentence the read boundary and the execution boundary refuse a disabled skill with.
+///
+/// Shared so the refusal a person sees does not depend on which boundary stopped the call.
+pub const DISABLED_REASON: &str = "the skill is disabled on this host";
+
+/// What a host's agent said about itself in wire 1.2's `hello`, in the terms the
+/// capability registry reads.
+///
+/// A hub-side view, not the wire types: `domovoi-core` describes what a status means to
+/// availability, and the hub converts its own message types into this.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct HostWords {
+    /// `hello.runs_as_root`: a label about the agent, never a refusal by itself.
+    pub runs_as_root: bool,
+    /// What the isolated skill runner reported about itself.
+    pub runner: RunnerState,
+    /// What the privileged helper reported about itself.
+    pub helper: HelperState,
+    /// `hello.ceiling_summary`, as the agent sent it.
+    pub ceiling_summary: Option<String>,
+    /// `hello.ceiling_hash`, as lowercase hex.
+    ///
+    /// Opaque: a caller compares it for change detection and never interprets it.
+    pub ceiling_hash: Option<String>,
+    /// Whether the agent reports a usable container runtime.
+    pub container_runtime: bool,
+}
+
+/// How the agent's isolated skill runner reported itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RunnerState {
+    /// No runner is installed or configured.
+    #[default]
+    Absent,
+    /// A runner exists but this host cannot use it.
+    Unsupported,
+    /// The runner is present and working.
+    Ready,
+    /// A runner exists but reported an error.
+    Failed,
+}
+
+/// How the agent's privileged helper reported itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum HelperState {
+    /// No helper is installed or configured.
+    #[default]
+    Absent,
+    /// The helper is present and working.
+    Ready,
+    /// The helper exists but reported an error.
+    Failed,
+}
+
 /// The hub's answer to "is this capability available here, and if not, why not".
 ///
 /// Implemented by the hub's registry, which combines the compiled contracts, the agent's

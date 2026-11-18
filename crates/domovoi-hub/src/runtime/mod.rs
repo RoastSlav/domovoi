@@ -20,8 +20,9 @@ pub mod updates;
 use std::sync::Arc;
 
 use domovoi_config::{Secrets, hub::HubConfig};
+use domovoi_core::capability::{ContractIndex, builtin_contracts};
 use domovoi_core::ports::{
-    ChatGateway, Clock, HostRepo, InteractionSink, LogSource, Notifier, ProcessExecutor,
+    AgentLink, ChatGateway, Clock, InteractionSink, LogSource, Notifier, ProcessExecutor,
 };
 use domovoi_engine::{
     ActionDeps, ActionService, DomainEvent, Evidence, HostCatalog, IncidentManager, ManagerDeps,
@@ -34,9 +35,10 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::agent_server::{
-    AgentServer, AgentServerDeps, AgentServerError, RealNetProbes, ServerSettings, SkillPolicy,
+    AgentServer, AgentServerDeps, AgentServerError, RealNetProbes, ServerSettings,
 };
-use caps::{action_caps, evidence_caps, observer_of};
+use crate::capability::{HubRegistry, RegistryDeps, RegistryError};
+use caps::{LinkCapabilities, action_caps, evidence_caps, observer_of};
 
 use crate::api::{ApiDeps, ApiState, MetricsRender};
 use crate::auth::{AuthState, WebIdentity};
@@ -81,6 +83,9 @@ pub enum RuntimeError {
     /// Persisted runtime state could not be read or written.
     #[error(transparent)]
     Store(#[from] domovoi_core::ports::StoreError),
+    /// The capability registry could not be built.
+    #[error(transparent)]
+    Registry(#[from] crate::capability::RegistryError),
     /// Agent-server settings or its TLS identity failed.
     #[error(transparent)]
     Agent(#[from] AgentServerError),
@@ -218,16 +223,28 @@ impl HubRuntime {
                 hub_host,
             },
         )?;
-        let skill_policy = Arc::new(
-            SkillPolicy::load(store.clone(), &HostRepo::list_hosts(&*store).await?).await?,
+        let link: Arc<dyn AgentLink> = server.link();
+        // The capability registry is the one place the compiled contracts, the agent's
+        // catalogue, hub enablement, the skill floors and the ceiling meet (RW-10). The
+        // engine gets it beside the narrow capabilities, never the link itself (ADR 0023).
+        let registry = Arc::new(
+            HubRegistry::new(RegistryDeps {
+                contracts: Arc::new(
+                    ContractIndex::new(builtin_contracts()).map_err(RegistryError::Index)?,
+                ),
+                agent: Arc::new(LinkCapabilities::new(link.clone())),
+                hosts: store.clone(),
+                store: store.clone(),
+                clock: clock.clone(),
+            })
+            .await?,
         );
-        let policy_link = Arc::new(server.policy_link(skill_policy.clone()));
         // The one read boundary and the narrow catalogue view are built once here, from
-        // the same policy link the engine dispatches through; each handle receives only
+        // the same link the engine dispatches through; each handle receives only
         // the capabilities it needs, never the link itself (ADR 0023).
-        let evidence = Evidence::new(evidence_caps(policy_link.clone()), clock.clone());
-        let catalog = HostCatalog::new(observer_of(policy_link.clone()));
-        let caps_bundle = action_caps(policy_link);
+        let evidence = Evidence::new(evidence_caps(link.clone()), clock.clone(), registry.clone());
+        let catalog = HostCatalog::new(observer_of(link.clone()));
+        let caps_bundle = action_caps(link);
         let (actions_service, actions_task) = ActionService::spawn(
             ActionDeps {
                 actions: store.clone(),
@@ -239,6 +256,7 @@ impl HubRuntime {
                 probe: caps_bundle.probe,
                 observer: caps_bundle.observer,
                 journal: caps_bundle.journal,
+                capabilities: registry.clone(),
                 handoff: caps_bundle.handoff,
                 rerun: caps_bundle.rerun,
                 hosts: store.clone(),
@@ -256,6 +274,7 @@ impl HubRuntime {
             store: &store,
             evidence: evidence.clone(),
             catalog: catalog.clone(),
+            capabilities: registry.clone(),
             manager: &manager,
             bus: &bus,
             clock: &clock,
@@ -294,6 +313,7 @@ impl HubRuntime {
         let profile_deps = crate::profile::ProfileDeps {
             evidence: evidence.clone(),
             catalog: catalog.clone(),
+            capabilities: registry.clone(),
             agents: Arc::new(server.clone()),
             hosts: store.clone(),
             notes: store.clone(),
@@ -317,7 +337,7 @@ impl HubRuntime {
                 actions_service: actions_service.clone(),
                 triage: triage.0,
                 agents: Arc::new(server.clone()),
-                skill_policy: skill_policy.clone(),
+                capabilities: registry.clone(),
                 profiles: Some(profile_deps.clone()),
                 clock: clock.clone(),
                 bus: bus.clone(),

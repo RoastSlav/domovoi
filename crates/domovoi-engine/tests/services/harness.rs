@@ -268,6 +268,9 @@ async fn world_over_with_actions(
             probe: caps.probe,
             observer: caps.observer,
             journal: caps.journal,
+            capabilities: Arc::new(domovoi_testkit::FakeCapabilityRegistry::following(
+                link.clone(),
+            )),
             handoff: caps.handoff,
             rerun: caps.rerun,
             hosts: store.clone(),
@@ -282,8 +285,17 @@ async fn world_over_with_actions(
     let deps = TriageDeps {
         primary: primary_dyn.clone(),
         fallbacks: fallbacks.clone(),
-        evidence: domovoi_engine::Evidence::new(evidence_caps(link.clone()), clock.clone()),
+        evidence: domovoi_engine::Evidence::new(
+            evidence_caps(link.clone()),
+            clock.clone(),
+            Arc::new(domovoi_testkit::FakeCapabilityRegistry::following(
+                link.clone(),
+            )),
+        ),
         catalog: domovoi_engine::HostCatalog::new(observer_of(link.clone())),
+        capabilities: Arc::new(domovoi_testkit::FakeCapabilityRegistry::following(
+            link.clone(),
+        )),
         incidents: store.clone(),
         signals: store.clone(),
         notes: store.clone(),
@@ -343,8 +355,14 @@ impl World {
             evidence: domovoi_engine::Evidence::new(
                 evidence_caps(self.link.clone()),
                 self.clock.clone(),
+                Arc::new(domovoi_testkit::FakeCapabilityRegistry::following(
+                    self.link.clone(),
+                )),
             ),
             catalog: domovoi_engine::HostCatalog::new(observer_of(self.link.clone())),
+            capabilities: Arc::new(domovoi_testkit::FakeCapabilityRegistry::following(
+                self.link.clone(),
+            )),
             incidents: self.store.clone(),
             signals: self.store.clone(),
             notes: self.store.clone(),

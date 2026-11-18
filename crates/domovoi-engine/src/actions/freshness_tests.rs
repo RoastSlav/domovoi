@@ -97,6 +97,7 @@ impl Writer {
                 probe: caps.probe,
                 observer: caps.observer,
                 journal: caps.journal,
+                capabilities: Arc::new(domovoi_testkit::FakeCapabilityRegistry::empty()),
                 handoff: caps.handoff,
                 rerun: caps.rerun,
                 hosts: store.clone(),

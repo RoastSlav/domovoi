@@ -162,7 +162,7 @@ pub(crate) async fn answer(
     }
     let deps = &shared.deps;
     let skills: Vec<SkillSummary> = match host {
-        Some(host) => deps.catalog.skills(host),
+        Some(host) => deps.capabilities.enabled_skills(host),
         None => Vec::new(),
     };
     // Offer only the read-only skills: the executor refuses to run anything else, so

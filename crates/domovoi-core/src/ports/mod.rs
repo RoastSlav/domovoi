@@ -21,10 +21,11 @@ pub mod target;
 pub mod uow;
 
 pub use agent_link::{
-    ActionAnswer, ActionAnswerEntry, ActionAnswers, AgentLink, AgentSnapshot, CheckRecheck,
-    HostAvailability, IngestError, LinkError, Presence, SignalSink, SkillDispatch, SkillHandoff,
-    SkillOutput, ToolOutput, UnknownReason,
+    ActionAnswer, ActionAnswerEntry, ActionAnswers, AgentLink, AgentSnapshot,
+    CATALOGUE_UNSUPPORTED, CheckRecheck, HostAvailability, IngestError, LinkError, Presence,
+    SignalSink, SkillDispatch, SkillHandoff, SkillOutput, ToolOutput, UnknownReason,
 };
+pub use capability::{CapabilityRegistry, DISABLED_REASON, HelperState, HostWords, RunnerState};
 pub use caps::{
     ActionCaps, AvailabilityProbe, CheckRerun, EvidenceCaps, HandoffRunner, HostObservation,
     HostRead, JournalStatus,

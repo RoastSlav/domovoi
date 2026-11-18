@@ -21,11 +21,12 @@
 
 use std::sync::Arc;
 
+use domovoi_core::capability::{Availability, EffectClass};
 use domovoi_core::ports::{
-    AgentSnapshot, AvailabilityProbe, Clock, EvidenceCaps, HostAvailability, HostObservation,
-    HostRead, LinkError, Presence, ToolOutput,
+    AgentSnapshot, AvailabilityProbe, CapabilityRegistry, Clock, DISABLED_REASON, EvidenceCaps,
+    HostAvailability, HostObservation, HostRead, LinkError, Presence, ToolOutput,
 };
-use domovoi_core::{HostId, Incident, ReadToolCall, Risk, SkillSummary};
+use domovoi_core::{HostId, Incident, ReadToolCall, SkillSummary};
 use jiff::Timestamp;
 
 /// Which host a caller may read.
@@ -142,19 +143,26 @@ pub struct Evidence {
     observer: Arc<dyn HostObservation>,
     /// The one capability that can see a host's tool output.
     read: Arc<dyn HostRead>,
+    /// The hub's answer to "is this capability available here, and if not, why not".
+    capabilities: Arc<dyn CapabilityRegistry>,
     /// The time the request deadline is measured against.
     clock: Arc<dyn Clock>,
 }
 
 impl Evidence {
-    /// Wraps the capabilities the hub composes for the engine, and the clock the
-    /// deadline is measured against.
+    /// Wraps the capabilities the hub composes for the engine, the capability registry the
+    /// enablement check consults, and the clock the deadline is measured against.
     #[must_use]
-    pub fn new(caps: EvidenceCaps, clock: Arc<dyn Clock>) -> Self {
+    pub fn new(
+        caps: EvidenceCaps,
+        clock: Arc<dyn Clock>,
+        capabilities: Arc<dyn CapabilityRegistry>,
+    ) -> Self {
         Self {
             probe: caps.probe,
             observer: caps.observer,
             read: caps.read,
+            capabilities,
             clock,
         }
     }
@@ -202,7 +210,7 @@ impl Evidence {
             return Err(EvidenceError::Timeout);
         }
         if let ReadToolCall::RunReadSkill { skill, args } = &request.call {
-            self.read_skill_is_enabled(host, skill, args)?;
+            self.read_skill_is_enabled(host, skill, args).await?;
         }
         self.read
             .read_host(host, request.call, request.deadline)
@@ -210,31 +218,57 @@ impl Evidence {
             .map_err(EvidenceError::from)
     }
 
-    /// The one enablement rule that exists before the capability registry: a read skill must
-    /// be on the host, declared read-only, and accept the arguments it was called with.
-    fn read_skill_is_enabled(
+    /// The probe's answer for `host`, without reading anything from it.
+    ///
+    /// A caller that must not read a host still needs to tell "never connected" from
+    /// "connected now"; this is that answer and nothing more.
+    pub async fn availability(&self, host: HostId) -> HostAvailability {
+        self.probe.check_availability(host).await
+    }
+
+    /// The clock the deadline is measured against.
+    #[must_use]
+    pub fn now(&self) -> Timestamp {
+        self.clock.now()
+    }
+
+    /// The enablement rule of the capability registry: a disabled skill is refused with the
+    /// hub's own words, and a skill whose effective class is not `Read` is not run through the
+    /// read tool at all.
+    ///
+    /// Availability states other than `DisabledByHub` are deliberately not refusals here: the
+    /// agent applies its own allowlist, manifest and plan-hash checks, and a person-approved
+    /// action may legitimately run where unattended execution is refused. Refusing them in the
+    /// registry would make it a second authorization decision.
+    async fn read_skill_is_enabled(
         &self,
         host: HostId,
         skill: &domovoi_core::SkillName,
         args: &std::collections::BTreeMap<String, String>,
     ) -> Result<(), EvidenceError> {
-        let summary = self
-            .observer
-            .observed_skills(host)
-            .into_iter()
-            .find(|candidate| &candidate.name == skill)
-            .ok_or_else(|| {
-                EvidenceError::NotEnabled(format!("skill `{skill}` is not installed on this host"))
-            })?;
-        if summary.risk != Risk::Read {
+        let contract = domovoi_core::ContractId::skill(skill);
+        if self.capabilities.availability(host, &contract).await == Availability::DisabledByHub {
+            return Err(EvidenceError::NotEnabled(DISABLED_REASON.to_owned()));
+        }
+        if let Some(effect) = self.capabilities.effective_effect(host, skill)
+            && effect != EffectClass::Read
+        {
             return Err(EvidenceError::NotEnabled(format!(
                 "skill `{skill}` is not read-only"
             )));
         }
-        summary
-            .validate_args(args)
-            .map(|_| ())
-            .map_err(|err| EvidenceError::NotEnabled(err.to_string()))
+        if let Some(summary) = self
+            .observer
+            .observed_skills(host)
+            .into_iter()
+            .find(|candidate| &candidate.name == skill)
+        {
+            summary
+                .validate_args(args)
+                .map(|_| ())
+                .map_err(|err| EvidenceError::NotEnabled(err.to_string()))?;
+        }
+        Ok(())
     }
 }
 

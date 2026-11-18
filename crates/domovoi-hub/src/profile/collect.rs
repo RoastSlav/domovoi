@@ -194,7 +194,7 @@ pub(crate) async fn collect(deps: &ProfileDeps, host: &Host) -> Result<HostProfi
         kernel_section,
     ]
     .to_vec();
-    let summaries = deps.catalog.skills(host.id);
+    let summaries = deps.capabilities.enabled_skills(host.id);
     let mut asked = 0;
     for skill in summaries.iter().filter(|skill| skill.risk == Risk::Read) {
         if skill.params.iter().any(|param| param.required) {

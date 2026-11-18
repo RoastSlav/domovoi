@@ -339,6 +339,117 @@ expression: spec
         ],
         "type": "object"
       },
+      "CapabilitiesDto": {
+        "description": "One host's whole inventory, plus the ids the agent reported that the hub does not know.",
+        "properties": {
+          "entries": {
+            "description": "One row per capability this hub knows.",
+            "items": {
+              "$ref": "#/components/schemas/CapabilityDto"
+            },
+            "type": "array"
+          },
+          "host": {
+            "description": "The host's name.",
+            "type": "string"
+          },
+          "unknown_contracts": {
+            "description": "Ids the agent reported that no contract describes. Diagnostics only.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "host",
+          "entries",
+          "unknown_contracts"
+        ],
+        "type": "object"
+      },
+      "CapabilityDto": {
+        "description": "One capability as this host sees it.",
+        "properties": {
+          "catalogue": {
+            "$ref": "#/components/schemas/CatalogueDto",
+            "description": "How much of the host's implementation list the hub has read."
+          },
+          "category": {
+            "description": "Coarse family used for policy specificity.",
+            "type": "string"
+          },
+          "contract": {
+            "description": "Contract id, `<family>.<verb>`.",
+            "type": "string"
+          },
+          "describe": {
+            "description": "A short owner-facing sentence about the state.",
+            "type": "string"
+          },
+          "effect": {
+            "description": "The effect class the contract carries.",
+            "type": "string"
+          },
+          "execution": {
+            "description": "Where it executes.",
+            "type": "string"
+          },
+          "from_hello_skills": {
+            "description": "Whether the implementation came from `hello.skills[]`.",
+            "type": "boolean"
+          },
+          "reason": {
+            "description": "The reason code of a refusal, when it has one.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "root_agent": {
+            "description": "Whether the agent runs as root. A label, never a refusal.",
+            "type": "boolean"
+          },
+          "runner_installed": {
+            "description": "Whether the agent reported a working isolated skill runner.",
+            "type": "boolean"
+          },
+          "state": {
+            "description": "The availability state code: one of the eight.",
+            "type": "string"
+          },
+          "target_kind": {
+            "description": "What kind of thing it acts on.",
+            "type": "string"
+          },
+          "title": {
+            "description": "Short title for the inventory.",
+            "type": "string"
+          },
+          "version": {
+            "description": "Contract version.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "contract",
+          "version",
+          "title",
+          "category",
+          "effect",
+          "target_kind",
+          "execution",
+          "state",
+          "describe",
+          "catalogue",
+          "root_agent",
+          "runner_installed",
+          "from_hello_skills"
+        ],
+        "type": "object"
+      },
       "CardDto": {
         "description": "The incident's chat card, as it would be posted.",
         "properties": {
@@ -381,6 +492,33 @@ expression: spec
           "headline",
           "bullets",
           "resolved"
+        ],
+        "type": "object"
+      },
+      "CatalogueDto": {
+        "description": "The catalogue state of one host, as far as the hub has read it.",
+        "properties": {
+          "gap": {
+            "description": "The gap code when the list is not verified.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hash": {
+            "description": "The hash the entries were walked under, when there is one.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "description": "`complete`, `partial` or `stale`.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state"
         ],
         "type": "object"
       },
@@ -3468,6 +3606,58 @@ expression: spec
           }
         },
         "summary": "Host `name` with its agent and the latest value of each digest fact from the last day.",
+        "tags": [
+          "hosts"
+        ]
+      }
+    },
+    "/api/v1/hosts/{name}/capabilities": {
+      "get": {
+        "operationId": "list_capabilities",
+        "parameters": [
+          {
+            "description": "Host name",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapabilitiesDto"
+                }
+              }
+            },
+            "description": "The inventory"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such host"
+          }
+        },
+        "summary": "The capability inventory of host `name`.",
         "tags": [
           "hosts"
         ]

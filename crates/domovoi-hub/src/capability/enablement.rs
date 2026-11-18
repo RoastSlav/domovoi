@@ -17,8 +17,9 @@ use domovoi_core::{Host, HostId};
 use serde_json::Value;
 use serde_json::json;
 
-/// Why the hub refuses a disabled skill.
-pub const DISABLED_REASON: &str = "the skill is disabled on this host";
+/// Why the hub refuses a disabled skill: the sentence the boundaries use, from core so the
+/// engine can refuse with exactly the same words.
+pub use domovoi_core::ports::DISABLED_REASON;
 
 /// The settings key of a host's disabled skills, like the check overrides key.
 #[must_use]

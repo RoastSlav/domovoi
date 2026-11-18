@@ -57,6 +57,8 @@ mod reliability;
 #[cfg(test)]
 mod report;
 #[cfg(test)]
+mod targets;
+#[cfg(test)]
 mod turns;
 #[cfg(test)]
 mod uow_probe;

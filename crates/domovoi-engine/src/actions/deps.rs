@@ -8,8 +8,9 @@
 use std::sync::Arc;
 
 use domovoi_core::ports::{
-    ActionRepo, AdvisoryRepo, AuditLog, AvailabilityProbe, CheckRerun, Clock, EffectQueue,
-    HandoffRunner, HostObservation, HostRepo, IncidentRepo, JournalStatus, Redactor, UnitOfWork,
+    ActionRepo, AdvisoryRepo, AuditLog, AvailabilityProbe, CapabilityRegistry, CheckRerun, Clock,
+    EffectQueue, HandoffRunner, HostObservation, HostRepo, IncidentRepo, JournalStatus, Redactor,
+    UnitOfWork,
 };
 use jiff::SignedDuration;
 use tokio::sync::broadcast;
@@ -77,6 +78,8 @@ pub struct ActionDeps {
     pub observer: Arc<dyn HostObservation>,
     /// The journal epoch and the agent's answers about actions.
     pub journal: Arc<dyn JournalStatus>,
+    /// The capability registry: whether the owner still enables this skill on this host.
+    pub capabilities: Arc<dyn CapabilityRegistry>,
     /// Skill dispatch and its terminal answer.
     pub handoff: Arc<dyn HandoffRunner>,
     /// The re-check that verifies a finished action.

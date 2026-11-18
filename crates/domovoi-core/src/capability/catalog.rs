@@ -75,6 +75,8 @@ pub enum CatalogueGap {
     HashUnannounced,
     /// The announced hash is not 64 lowercase hex characters.
     HashMalformed,
+    /// The pages that arrived do not hash to the hash the agent announced.
+    HashMismatch,
     /// The agent does not answer a catalogue request at all.
     Unsupported,
     /// A page request failed.
@@ -116,6 +118,7 @@ impl CatalogueGap {
             Self::NotWalked => "not_walked",
             Self::HashUnannounced => "hash_unannounced",
             Self::HashMalformed => "hash_malformed",
+            Self::HashMismatch => "hash_mismatch",
             Self::Unsupported => "unsupported",
             Self::PageFailed { .. } => "page_failed",
             Self::PageMalformed { .. } => "page_malformed",
@@ -134,6 +137,7 @@ impl CatalogueGap {
             Self::NotWalked => "this host's implementation list has not been read",
             Self::HashUnannounced => "this host announced no fingerprint for its list",
             Self::HashMalformed => "this host announced an unreadable fingerprint",
+            Self::HashMismatch => "this host's list does not match the fingerprint it announced",
             Self::Unsupported => "this host's agent does not report its list",
             Self::PageFailed { .. } => "one page of this list failed to arrive",
             Self::PageMalformed { .. } => "one page of this list could not be read",

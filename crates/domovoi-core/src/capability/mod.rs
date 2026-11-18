@@ -21,6 +21,7 @@ mod contract;
 mod effect;
 mod ids;
 mod index;
+pub mod inventory;
 pub mod skill;
 pub mod target;
 
@@ -46,6 +47,7 @@ pub use effect::{
 };
 pub use ids::{ContractCategory, ContractId, ContractVersion, FactId, TargetIdentity, TargetName};
 pub use index::{ContractIndex, ContractMeta, IndexError};
+pub use inventory::{ContainerRef, InventoryError, parse_inspect_id, parse_ps};
 pub use skill::{FloorError, SkillFloor, effective_effect, skill_contract, skill_input_schema};
 pub use target::{
     ContainerId, ResolvedTarget, TargetError, TargetQuery, TargetUnresolved,

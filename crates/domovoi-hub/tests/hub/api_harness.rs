@@ -11,9 +11,11 @@ use axum::body::Body;
 use axum::extract::connect_info::MockConnectInfo;
 use axum::http::{HeaderMap, Method, Request, StatusCode, header};
 use domovoi_config::{HubConfig, MapEnv};
+use domovoi_core::capability::{ContractIndex, builtin_contracts};
 use domovoi_core::ports::{
-    ActionRepo, AuditEvent, AuditFilter, AuditLog, HostRepo, IncidentRepo, IncidentTimelineEntry,
-    LinkError, LlmProvider, LogLine, LogSource, Notifier, Page, Presence, StoreHealth,
+    ActionRepo, AuditEvent, AuditFilter, AuditLog, Clock, HostRepo, IncidentRepo,
+    IncidentTimelineEntry, LinkError, LlmProvider, LogLine, LogSource, Notifier, Page, Presence,
+    StoreHealth,
 };
 use domovoi_core::{ActionRequest, HostId, HostName, Incident, Principal, Risk, SkillSummary};
 use domovoi_engine::{
@@ -22,11 +24,11 @@ use domovoi_engine::{
     TriageSettings,
 };
 use domovoi_hub::agent_server::{
-    AgentServer, AgentServerDeps, AgentServerError, EnrollmentInvite, RealNetProbes,
-    ServerSettings, SkillPolicy,
+    AgentServer, AgentServerDeps, AgentServerError, EnrollmentInvite, RealNetProbes, ServerSettings,
 };
 use domovoi_hub::api::{AgentAdmin, ApiDeps, ApiState};
 use domovoi_hub::auth::{AuthState, WebIdentity};
+use domovoi_hub::capability::{HubRegistry, RegistryDeps};
 use domovoi_hub::profile::ProfileDeps;
 use domovoi_hub::router::router;
 use domovoi_hub::runtime::updates::UpdateChecker;
@@ -224,6 +226,23 @@ impl Drop for Api {
     }
 }
 
+/// The capability registry over a test's fake link and store.
+async fn test_registry(
+    link: Arc<FakeAgentLink>,
+    store: Arc<Store>,
+    clock: Arc<dyn Clock>,
+) -> HubRegistry {
+    HubRegistry::new(RegistryDeps {
+        contracts: Arc::new(ContractIndex::new(builtin_contracts()).unwrap()),
+        agent: Arc::new(domovoi_hub::runtime::caps::LinkCapabilities::new(link)),
+        hosts: store.clone(),
+        store,
+        clock,
+    })
+    .await
+    .unwrap()
+}
+
 pub fn config() -> HubConfig {
     let mut env = MapEnv::new();
     for (name, value) in SECRETS {
@@ -324,6 +343,9 @@ async fn build(
             probe: caps.probe,
             observer: caps.observer,
             journal: caps.journal,
+            capabilities: Arc::new(domovoi_testkit::FakeCapabilityRegistry::following(
+                link.clone(),
+            )),
             handoff: caps.handoff,
             rerun: caps.rerun,
             hosts: store.clone(),
@@ -342,8 +364,17 @@ async fn build(
             TriageDeps {
                 primary,
                 fallbacks: Vec::new(),
-                evidence: domovoi_engine::Evidence::new(evidence_caps(link.clone()), clock.clone()),
+                evidence: domovoi_engine::Evidence::new(
+                    evidence_caps(link.clone()),
+                    clock.clone(),
+                    Arc::new(domovoi_testkit::FakeCapabilityRegistry::following(
+                        link.clone(),
+                    )),
+                ),
                 catalog: domovoi_engine::HostCatalog::new(observer_of(link.clone())),
+                capabilities: Arc::new(domovoi_testkit::FakeCapabilityRegistry::following(
+                    link.clone(),
+                )),
                 incidents: store.clone(),
                 signals: store.clone(),
                 notes: store.clone(),
@@ -427,16 +458,21 @@ async fn build(
             link: link.clone(),
             hosts: store.clone(),
         }),
-        skill_policy: Arc::new(
-            SkillPolicy::load(store.clone(), &HostRepo::list_hosts(&*store).await.unwrap())
-                .await
-                .unwrap(),
-        ),
+        capabilities: Arc::new(test_registry(link.clone(), store.clone(), clock.clone()).await),
         logs: if logs { Some(source) } else { None },
         redactor: Arc::new(PatternRedactor::default()),
         profiles: profiles.then(|| ProfileDeps {
-            evidence: domovoi_engine::Evidence::new(evidence_caps(link.clone()), clock.clone()),
+            evidence: domovoi_engine::Evidence::new(
+                evidence_caps(link.clone()),
+                clock.clone(),
+                Arc::new(domovoi_testkit::FakeCapabilityRegistry::following(
+                    link.clone(),
+                )),
+            ),
             catalog: domovoi_engine::HostCatalog::new(observer_of(link.clone())),
+            capabilities: Arc::new(domovoi_testkit::FakeCapabilityRegistry::following(
+                link.clone(),
+            )),
             agents: Arc::new(TestAgents {
                 link: link.clone(),
                 hosts: store.clone(),

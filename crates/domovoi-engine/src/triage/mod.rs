@@ -26,8 +26,8 @@ mod tools;
 use std::sync::Arc;
 
 use domovoi_core::ports::{
-    ActionRepo, AdmissionRepo, AdvisoryRepo, Clock, HostRepo, IncidentRepo, LlmProvider, NoteRepo,
-    Redactor, SignalRepo, TriageCacheRepo, UsageRepo,
+    ActionRepo, AdmissionRepo, AdvisoryRepo, CapabilityRegistry, Clock, HostRepo, IncidentRepo,
+    LlmProvider, NoteRepo, Redactor, SignalRepo, TriageCacheRepo, UsageRepo,
 };
 use domovoi_core::{HostId, Incident, IncidentId, TriageBudget, TriageOutcome, UserId};
 use tokio::sync::broadcast;
@@ -138,6 +138,8 @@ pub struct TriageDeps {
     pub evidence: Evidence,
     /// The agent sessions, skills and presence triage needs beside its reads.
     pub catalog: HostCatalog,
+    /// The capability registry: the skills the owner enables on each host.
+    pub capabilities: Arc<dyn CapabilityRegistry>,
     /// Incidents, read only; changes go through `manager`.
     pub incidents: Arc<dyn IncidentRepo>,
     /// Recent signals of an incident.

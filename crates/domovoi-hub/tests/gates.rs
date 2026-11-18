@@ -73,21 +73,13 @@ fn source_files(
     }
 }
 
-/// The hub's two card sites, each holding its exact count: the policy wrapper and the runtime
-/// capability forward every raw link operation exactly once.
-const POLICY: &str = "fn f() {\n    AgentLink::run_tool(a, b, c);\n    AgentLink::start_skill(a, b, c, d, e);\n    AgentLink::skill_result(a, b, c);\n    AgentLink::run_check(a, b, c, d);\n}\n";
-
+/// The hub's one raw-link consumer, holding its exact count: the capability forward every raw
+/// link operation exactly once.
 const CAPS: &str = "fn f() {\n    self.link\n        .run_tool(a, b, c);\n    self.link\n        .start_skill(a, b, c, d, e);\n    self.link\n        .skill_result(a, b, c);\n    self.link\n        .run_check(a, b, c, d);\n}\n";
 
 /// The smallest tree that satisfies the hub's boundary cards.
 fn hub_tree() -> Vec<(String, String)> {
-    vec![
-        (
-            crate_path("agent_server/skill_policy.rs"),
-            POLICY.to_owned(),
-        ),
-        (crate_path("runtime/caps.rs"), CAPS.to_owned()),
-    ]
+    vec![(crate_path("runtime/caps.rs"), CAPS.to_owned())]
 }
 
 /// Appends `text` to `rel`'s file, adding the file when the tree does not have it.
@@ -96,6 +88,39 @@ fn push_text(tree: &mut Vec<(String, String)>, rel: &str, text: &str) {
     match tree.iter_mut().find(|(file, _)| *file == path) {
         Some((_, body)) => body.push_str(text),
         None => tree.push((path, text.to_owned())),
+    }
+}
+
+/// The capability layer answers "would the hub offer this here", never "may this run": it
+/// cannot approve, cannot build an approval and cannot construct a `Contain` class.
+#[test]
+fn the_capability_layer_cannot_approve_anything() {
+    for (path, text) in hub_sources() {
+        if !path.contains("/src/capability/") {
+            continue;
+        }
+        // The test module at the end of a file may build fixtures; production code is
+        // everything before it.
+        let production = text.split("#[cfg(test)]").next().unwrap_or(&text);
+        for forbidden in [
+            "HumanApproval",
+            "PolicyPermit",
+            "Authorization",
+            "expected_safety",
+            "EffectClass::Contain",
+            "Contain {",
+        ] {
+            assert!(
+                !production.contains(forbidden),
+                "{path} mentions {forbidden}: availability is a report, never an approval",
+            );
+        }
+        for call in ["run_skill(", "run_tool(", "start_skill(", ".approve("] {
+            assert!(
+                !production.contains(call),
+                "{path} calls {call}: the capability layer dispatches nothing",
+            );
+        }
     }
 }
 

@@ -2,11 +2,8 @@
 //! connected in this hub run, known while it is connected, absent once its session ended,
 //! and incompatible when this hub rejected its protocol.
 
-use std::sync::Arc;
-
 use domovoi_core::ports::{AgentLink, Clock, HostAvailability, HostRepo};
 use domovoi_core::{AuthenticatedReport, HostName, ReportedProtocol};
-use domovoi_hub::agent_server::{PolicyLink, SkillPolicy};
 use domovoi_proto::{Message, ProtocolVersion};
 use jiff::SignedDuration;
 
@@ -108,22 +105,21 @@ async fn track_does_not_make_a_host_absent() {
 }
 
 #[tokio::test]
-async fn policy_link_forwards_availability() {
+async fn the_link_reports_the_hosts_availability_unchanged() {
     let hub = Hub::start().await;
     let (ident, _agent) = online(&hub, "nas").await;
-    let policy = SkillPolicy::load(hub.store.clone(), &[]).await.unwrap();
-    let link = PolicyLink::wrap(hub.server.link_for_tests(), Arc::new(policy));
+    let link = hub.server.link_for_tests();
     assert_eq!(
         link.availability(ident.host).await,
         hub.server.link_for_tests().availability(ident.host).await,
-        "the policy narrows skills, not whether the host is there",
+        "the link reports what the session says, and nothing else",
     );
     assert!(
         matches!(
             link.availability(ident.host).await,
             HostAvailability::Known { .. },
         ),
-        "the wrapped link still sees the live session",
+        "the link sees the live session",
     );
 }
 
