@@ -167,7 +167,10 @@ fn skill_input_schema_covers_every_param_kind() {
         "required": ["name", "force"],
         "additionalProperties": false,
     });
-    assert_eq!(skill_input_schema(&params), expected);
+    assert_eq!(
+        skill_input_schema(SkillName::parse("deploy").unwrap(), &params),
+        Ok(expected),
+    );
 }
 
 #[test]
@@ -489,5 +492,169 @@ fn skill_input_schema_structure_is_valid() {
             },
         },
     ];
-    validate_schema(&skill_input_schema(&params)).unwrap();
+    let schema = skill_input_schema(SkillName::parse("deploy").unwrap(), &params).unwrap();
+    validate_schema(&schema).unwrap();
+}
+
+/// A summary of `tune_service` declaring two parameters that share the name `level`, which is
+/// what a provider's manifest may hold before the hub has checked it.
+fn summary_duplicated(
+    first: ParamKind,
+    second: ParamKind,
+    first_required: bool,
+    second_required: bool,
+) -> SkillSummary {
+    let mut made = summary("tune_service", Risk::Write, None);
+    made.params = vec![
+        ParamSpec {
+            name: ParamName::parse("level").unwrap(),
+            description: "A level".to_owned(),
+            required: first_required,
+            kind: first,
+        },
+        ParamSpec {
+            name: ParamName::parse("level").unwrap(),
+            description: "Another level".to_owned(),
+            required: second_required,
+            kind: second,
+        },
+    ];
+    made
+}
+
+#[test]
+fn skill_contract_rejects_duplicate_optional_params() {
+    let made = summary_duplicated(
+        ParamKind::String {
+            pattern: "^[a-z]+$".to_owned(),
+            max_len: 8,
+        },
+        ParamKind::String {
+            pattern: "^[a-z0-9]+$".to_owned(),
+            max_len: 4,
+        },
+        false,
+        false,
+    );
+    assert_eq!(
+        skill_contract(&made, None),
+        Err(SkillContractError::DuplicateParam {
+            skill: SkillName::parse("tune_service").unwrap(),
+            param: "level".to_string(),
+        },),
+        "one declaration would be lost without a word about it",
+    );
+}
+
+#[test]
+fn skill_contract_rejects_duplicate_required_params() {
+    let made = summary_duplicated(
+        ParamKind::String {
+            pattern: "^[a-z]+$".to_owned(),
+            max_len: 8,
+        },
+        ParamKind::String {
+            pattern: "^[a-z]+$".to_owned(),
+            max_len: 8,
+        },
+        true,
+        true,
+    );
+    assert_eq!(
+        skill_contract(&made, None),
+        Err(SkillContractError::DuplicateParam {
+            skill: SkillName::parse("tune_service").unwrap(),
+            param: "level".to_string(),
+        },),
+    );
+}
+
+#[test]
+fn skill_contract_rejects_duplicate_params_of_conflicting_kinds() {
+    let made = summary_duplicated(
+        ParamKind::String {
+            pattern: "^[a-z]+$".to_owned(),
+            max_len: 8,
+        },
+        ParamKind::Integer { min: 0, max: 10 },
+        true,
+        false,
+    );
+    assert_eq!(
+        skill_contract(&made, None),
+        Err(SkillContractError::DuplicateParam {
+            skill: SkillName::parse("tune_service").unwrap(),
+            param: "level".to_string(),
+        },),
+        "the kind of the loser is unknowable",
+    );
+}
+
+#[test]
+fn skill_contract_rejects_duplicate_params_differing_only_in_required() {
+    let made = summary_duplicated(
+        ParamKind::String {
+            pattern: "^[a-z]+$".to_owned(),
+            max_len: 8,
+        },
+        ParamKind::String {
+            pattern: "^[a-z]+$".to_owned(),
+            max_len: 8,
+        },
+        true,
+        false,
+    );
+    assert!(
+        matches!(
+            skill_contract(&made, None),
+            Err(SkillContractError::DuplicateParam { .. }),
+        ),
+        "the required flag of the loser is unknowable",
+    );
+}
+
+#[test]
+fn skill_contract_carries_every_distinct_declaration() {
+    let mut made = summary("tune_service", Risk::Write, None);
+    made.params = vec![
+        ParamSpec {
+            name: ParamName::parse("level").unwrap(),
+            description: "A level".to_owned(),
+            required: true,
+            kind: ParamKind::String {
+                pattern: "^[a-z]+$".to_owned(),
+                max_len: 8,
+            },
+        },
+        ParamSpec {
+            name: ParamName::parse("count").unwrap(),
+            description: "How many".to_owned(),
+            required: false,
+            kind: ParamKind::Integer { min: 0, max: 10 },
+        },
+    ];
+    let contract = skill_contract(&made, None).unwrap();
+    assert_eq!(
+        contract.input_schema,
+        json!({
+            "type": "object",
+            "properties": {
+                "level": {
+                    "type": "string",
+                    "pattern": "^[a-z]+$",
+                    "maxLength": 8,
+                    "description": "A level",
+                },
+                "count": {
+                    "type": "integer",
+                    "pattern": "^-?[0-9]+$",
+                    "minimum": 0,
+                    "maximum": 10,
+                    "description": "How many",
+                },
+            },
+            "required": ["level"],
+            "additionalProperties": false,
+        }),
+    );
 }

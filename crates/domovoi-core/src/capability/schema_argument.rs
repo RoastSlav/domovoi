@@ -1,6 +1,13 @@
 //! One argument's definition inside a contract's schema: its keys, its type and the
 //! coherence of its constraints. These are the per-argument half of the checks
 //! [`validate_schema`](../schema) runs over the whole schema.
+//!
+//! A `pattern` is checked to compile but not to be anchored: read tools match it unanchored,
+//! while the skill validator requires `^…$` and wraps every pattern it compiles; that
+//! difference belongs to the boundary, not to the shape of a schema. A default is compared
+//! against a pattern in the transport's own text form, because the boundary carries every
+//! value as text: a string compares as itself, an integer as its canonical decimal form and
+//! a boolean as `true` or `false`.
 
 use std::collections::BTreeSet;
 
@@ -64,6 +71,13 @@ pub fn check_argument(name: &str, definition: &Value) -> Option<SchemaError> {
         }
     }
     for key in ["minLength", "maxLength"] {
+        if definition.get(key).is_some() && stated_int(definition, key).is_none() {
+            return Some(SchemaError::BoundNotWhole {
+                name: name.to_owned(),
+            });
+        }
+    }
+    for key in ["minLength", "maxLength"] {
         match stated_int(definition, key) {
             None => {}
             Some(value) if value < 0 => {
@@ -97,13 +111,30 @@ pub fn check_argument(name: &str, definition: &Value) -> Option<SchemaError> {
         _ => {}
     }
 
-    if let Some(pattern) = definition.get("pattern")
-        && pattern.as_str().is_none_or(|text| text.trim().is_empty())
-    {
-        return Some(SchemaError::BlankPattern {
-            name: name.to_owned(),
-        });
-    }
+    let pattern = match definition.get("pattern") {
+        None => None,
+        Some(held) => {
+            let Some(text) = held.as_str() else {
+                return Some(SchemaError::PatternNotText {
+                    name: name.to_owned(),
+                });
+            };
+            if text.trim().is_empty() {
+                return Some(SchemaError::BlankPattern {
+                    name: name.to_owned(),
+                });
+            }
+            match compile_pattern(text) {
+                Ok(compiled) => Some(compiled),
+                Err(reason) => {
+                    return Some(SchemaError::InvalidPattern {
+                        name: name.to_owned(),
+                        reason,
+                    });
+                }
+            }
+        }
+    };
     if let Some(description) = definition.get("description")
         && description
             .as_str()
@@ -145,7 +176,7 @@ pub fn check_argument(name: &str, definition: &Value) -> Option<SchemaError> {
         }
     }
 
-    if let Some(reason) = check_default(name, definition, kind) {
+    if let Some(reason) = check_default(name, definition, kind, &pattern) {
         return Some(reason);
     }
     None
@@ -169,8 +200,15 @@ pub fn stated_int(definition: &Value, key: &str) -> Option<i64> {
     definition.get(key).and_then(|value| value.as_i64())
 }
 
-/// Checks that an argument's default is one its own schema would accept.
-pub fn check_default(name: &str, definition: &Value, kind: Option<&str>) -> Option<SchemaError> {
+/// Checks that an argument's default is one its own schema would accept: the right type, inside
+/// the bounds and lengths it states, one of its enumeration, and matching its pattern in the
+/// transport's own text form, because the call boundary carries every value as text.
+pub(crate) fn check_default(
+    name: &str,
+    definition: &Value,
+    kind: Option<&str>,
+    pattern: &Option<regex::Regex>,
+) -> Option<SchemaError> {
     let default = definition.get("default")?;
     match kind {
         Some("integer") => {
@@ -188,6 +226,11 @@ pub fn check_default(name: &str, definition: &Value, kind: Option<&str>) -> Opti
             };
             if outside {
                 return Some(SchemaError::DefaultOutsideBounds {
+                    name: name.to_owned(),
+                });
+            }
+            if !default_allowed(pattern, &number.to_string()) {
+                return Some(SchemaError::DefaultOutsidePattern {
                     name: name.to_owned(),
                 });
             }
@@ -219,11 +262,21 @@ pub fn check_default(name: &str, definition: &Value, kind: Option<&str>) -> Opti
                     name: name.to_owned(),
                 });
             }
+            if !default_allowed(pattern, text) {
+                return Some(SchemaError::DefaultOutsidePattern {
+                    name: name.to_owned(),
+                });
+            }
             None
         }
         Some("boolean") => {
-            if default.as_bool().is_none() {
+            let Some(flag) = default.as_bool() else {
                 return Some(SchemaError::DefaultTypeMismatch {
+                    name: name.to_owned(),
+                });
+            };
+            if !default_allowed(pattern, bool_text(flag)) {
+                return Some(SchemaError::DefaultOutsidePattern {
                     name: name.to_owned(),
                 });
             }
@@ -231,4 +284,31 @@ pub fn check_default(name: &str, definition: &Value, kind: Option<&str>) -> Opti
         }
         _ => None,
     }
+}
+
+/// The text a boolean default is carried as at the boundary.
+fn bool_text(flag: bool) -> &'static str {
+    if flag { "true" } else { "false" }
+}
+
+/// Whether the argument's compiled pattern accepts the default's transport text; with no
+/// pattern there is nothing to satisfy.
+pub(crate) fn default_allowed(pattern: &Option<regex::Regex>, text: &str) -> bool {
+    match pattern {
+        None => true,
+        Some(compiled) => compiled.is_match(text),
+    }
+}
+
+/// The compiled-regex size cap, matching the skill validator's, so a contract cannot ask the
+/// hub to build an expensive matcher.
+const MAX_PATTERN_BYTES: usize = 1 << 20;
+
+/// Compiles one pattern the schema states, exactly as written and unanchored, which is how the
+/// read-tool boundary matches it; a skill boundary anchors the same pattern with its own rule.
+fn compile_pattern(pattern: &str) -> Result<regex::Regex, String> {
+    regex::RegexBuilder::new(pattern)
+        .size_limit(MAX_PATTERN_BYTES)
+        .build()
+        .map_err(|reason| format!("pattern does not compile: {reason}"))
 }

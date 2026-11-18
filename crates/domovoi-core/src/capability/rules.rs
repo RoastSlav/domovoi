@@ -6,10 +6,11 @@
 //! tie together, and each returns one [`ContractError`] variant so a caller knows which field to
 //! fix.
 //!
-//! Two conventions are checked here, where a hand-written contract from a later prompt would
-//! otherwise slip through: the reserved `skill.` category namespace belongs to skills only, and a
-//! skill's category names its effect class. The built-in read convention, that a read category
-//! ends in the segment `observe`, is checked where the built-ins are composed
+//! Three conventions are checked here, where a hand-written contract from a later prompt would
+//! otherwise slip through: the reserved `skill.` category namespace belongs to skills only, a
+//! skill's category names its effect class, and a skill's id is exactly `skill.<skill name>`, so
+//! the runner names no manifest that is not there. The built-in read convention, that a read
+//! category ends in the segment `observe`, is checked where the built-ins are composed
 //! ([`ContractIndex::with_builtins`]), because a rule about a category word cannot decide what a
 //! future built-in family is called.
 
@@ -104,6 +105,11 @@ fn source_rules(contract: &CapabilityContract) -> Result<(), ContractError> {
                 || contract.target_kind != TargetKind::Host
             {
                 return Err(ContractError::SkillSourceMismatch {
+                    id: contract.id.clone(),
+                });
+            }
+            if contract.id.skill_name().is_none() {
+                return Err(ContractError::SkillIdNotCanonical {
                     id: contract.id.clone(),
                 });
             }
@@ -327,11 +333,17 @@ fn fact_rules(contract: &CapabilityContract) -> Result<(), ContractError> {
     Ok(())
 }
 
-/// Refuses a recheck the hub would wait forever for, or wait no time at all.
+/// Refuses a recheck the hub would wait forever for or wait no time at all, and a postcondition
+/// that says nothing.
 fn verification_rules(contract: &CapabilityContract) -> Result<(), ContractError> {
     match &contract.verification {
         VerificationHint::Recheck { delay } if recheck_delay_out_of_range(delay) => {
             Err(ContractError::RecheckDelayInvalid {
+                id: contract.id.clone(),
+            })
+        }
+        VerificationHint::Postcondition { description } if description.trim().is_empty() => {
+            Err(ContractError::BlankPostcondition {
                 id: contract.id.clone(),
             })
         }

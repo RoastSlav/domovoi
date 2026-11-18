@@ -278,6 +278,40 @@ fn validate_ties_skill_id_to_skill_source() {
 }
 
 #[test]
+fn skill_id_carries_one_whole_skill_name() {
+    // `skill.` on its own never reaches here: the id grammar refuses it at the boundary
+    // (`skill_ids_stay_in_skill_namespace` and the parse tests).
+    let canonical = crafted_skill(
+        "skill.backup_db",
+        EffectClass::Mutate,
+        None,
+        EffectClass::Mutate,
+    );
+    canonical.validate().unwrap();
+    let split_name = crafted_skill(
+        "skill.backup_db.extra",
+        EffectClass::Mutate,
+        None,
+        EffectClass::Mutate,
+    );
+    assert_eq!(
+        split_name.validate(),
+        Err(ContractError::SkillIdNotCanonical {
+            id: split_name.id.clone()
+        }),
+        "the runner would load a manifest that no skill name matches",
+    );
+    let impostor = crafted("skill.backup_db", "skill.mutate", EffectClass::Mutate);
+    assert_eq!(
+        impostor.validate(),
+        Err(ContractError::SkillSourceMismatch {
+            id: impostor.id.clone()
+        }),
+        "a built-in may not wear a skill id",
+    );
+}
+
+#[test]
 fn validate_rejects_a_skill_that_is_contain() {
     let contract = crafted_skill("skill.x", EffectClass::Contain, None, EffectClass::Contain);
     assert_eq!(
@@ -423,6 +457,74 @@ fn recheck_delay_outside_range_rejected() {
         delay: SignedDuration::ZERO,
     };
     waiting.validate().unwrap();
+}
+
+#[test]
+fn blank_postcondition_rejected() {
+    for description in ["".to_owned(), "   ".to_owned(), "\t".to_owned()] {
+        let mut contract = crafted("x.y", "x.y", EffectClass::Mutate);
+        contract.verification = VerificationHint::Postcondition {
+            description: description.clone(),
+        };
+        assert_eq!(
+            contract.validate(),
+            Err(ContractError::BlankPostcondition {
+                id: contract.id.clone()
+            }),
+            "a mutating built-in cannot answer its verification with empty metadata",
+        );
+    }
+}
+
+#[test]
+fn meaningful_postcondition_is_kept() {
+    let mut contract = crafted("x.y", "x.y", EffectClass::Mutate);
+    contract.verification = VerificationHint::Postcondition {
+        description: "The service reports running again".to_owned(),
+    };
+    contract.validate().unwrap();
+}
+
+#[test]
+fn the_three_verification_kinds_stay_apart() {
+    let mut without = crafted("x.y", "x.y", EffectClass::Mutate);
+    without.verification = VerificationHint::None;
+    assert_eq!(
+        without.validate(),
+        Err(ContractError::BuiltInNeedsReversibilityAndVerification {
+            id: without.id.clone(),
+        },),
+        "declaring none is not the same as declaring a hollow one",
+    );
+    let mut waiting = crafted("x.y", "x.y", EffectClass::Mutate);
+    waiting.verification = VerificationHint::Recheck {
+        delay: SignedDuration::from_hours(2),
+    };
+    assert_eq!(
+        waiting.validate(),
+        Err(ContractError::RecheckDelayInvalid {
+            id: waiting.id.clone()
+        }),
+        "a recheck waits",
+    );
+    let mut hollow = crafted("x.y", "x.y", EffectClass::Mutate);
+    hollow.verification = VerificationHint::Postcondition {
+        description: " ".to_owned(),
+    };
+    assert_eq!(
+        hollow.validate(),
+        Err(ContractError::BlankPostcondition {
+            id: hollow.id.clone()
+        }),
+        "a postcondition says what must hold",
+    );
+    assert_ne!(
+        VerificationHint::None,
+        VerificationHint::Postcondition {
+            description: " ".to_owned()
+        },
+        "no procedure is not a procedure that says nothing",
+    );
 }
 
 #[test]

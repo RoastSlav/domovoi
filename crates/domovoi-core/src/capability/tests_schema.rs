@@ -312,3 +312,112 @@ fn schema_refuses_incoherent_default() {
         })
     );
 }
+
+#[test]
+fn schema_refuses_length_bounds_that_are_not_whole_numbers() {
+    for wrong in [json!(1.5), json!(-0.5), json!(true), json!("3")] {
+        assert_eq!(
+            validate_schema(&one_argument(
+                "n",
+                json!({"type": "string", "minLength": wrong, "description": "x"})
+            )),
+            Err(SchemaError::BoundNotWhole {
+                name: "n".to_string()
+            }),
+            "a length the boundary could not compare is refused by name",
+        );
+    }
+    assert_eq!(
+        validate_schema(&one_argument(
+            "n",
+            json!({"type": "string", "maxLength": 2.5, "description": "x"})
+        )),
+        Err(SchemaError::BoundNotWhole {
+            name: "n".to_string()
+        })
+    );
+    assert_eq!(
+        validate_schema(&one_argument(
+            "n",
+            json!({"type": "string", "minLength": 0, "maxLength": 8, "description": "x"})
+        )),
+        Ok(()),
+        "a whole length is a length the boundary can compare"
+    );
+}
+
+#[test]
+fn schema_refuses_pattern_that_does_not_compile() {
+    for pattern in ["[unclosed", "(unclosed", "*"] {
+        assert!(
+            matches!(
+                validate_schema(&one_argument(
+                    "n",
+                    json!({"type": "string", "pattern": pattern, "description": "x"})
+                )),
+                Err(SchemaError::InvalidPattern { .. }),
+            ),
+            "a pattern the boundary can never evaluate is named with why",
+        );
+    }
+    assert_eq!(
+        validate_schema(&one_argument(
+            "n",
+            json!({"type": "string", "pattern": 5, "description": "x"})
+        )),
+        Err(SchemaError::PatternNotText {
+            name: "n".to_string()
+        }),
+        "a pattern that is not text has nothing to match"
+    );
+    assert_eq!(
+        validate_schema(&one_argument(
+            "n",
+            json!({"type": "string", "pattern": "^[a-z]+$", "description": "x"})
+        )),
+        Ok(()),
+        "the read tools and the skill runner patterns all compile"
+    );
+}
+
+#[test]
+fn schema_refuses_default_outside_its_own_pattern() {
+    assert_eq!(
+        validate_schema(&one_argument(
+            "n",
+            json!({"type": "string", "pattern": "^[0-9]+$", "default": "abc", "description": "x"})
+        )),
+        Err(SchemaError::DefaultOutsidePattern {
+            name: "n".to_string()
+        }),
+        "applying the default would fail the check every other value goes through"
+    );
+    assert_eq!(
+        validate_schema(&one_argument(
+            "n",
+            json!({"type": "integer", "pattern": "^[0-9]+$", "default": -5, "description": "x"})
+        )),
+        Err(SchemaError::DefaultOutsidePattern {
+            name: "n".to_string()
+        }),
+        "the transport carries -5, which the pattern refuses"
+    );
+    assert_eq!(
+        validate_schema(&one_argument(
+            "n",
+            json!({"type": "boolean", "pattern": "^false$", "default": true, "description": "x"})
+        )),
+        Err(SchemaError::DefaultOutsidePattern {
+            name: "n".to_string()
+        }),
+        "the transport carries true, which the pattern refuses"
+    );
+    assert_eq!(
+        validate_schema(&one_argument(
+            "n",
+            json!({"type": "integer", "pattern": "^-?[0-9]+$", "default": -5, "description": "x"})
+        )),
+        Ok(()),
+        "the canonical text of the default is what the pattern sees"
+    );
+}

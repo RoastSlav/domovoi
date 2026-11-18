@@ -1,5 +1,7 @@
 //! The data-defined `skill.<name>` capability family and the hub's raise-only floor.
 
+use std::collections::BTreeSet;
+
 use jiff::SignedDuration;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
@@ -96,6 +98,15 @@ pub enum SkillContractError {
         /// The skill.
         skill: SkillName,
     },
+    /// Two parameters declare the same name, so the schema would carry one declaration
+    /// and lose the other.
+    #[error("parameter `{param}` is declared more than once")]
+    DuplicateParam {
+        /// The skill.
+        skill: SkillName,
+        /// The repeated parameter name.
+        param: String,
+    },
     /// A verify delay is outside 0 seconds to 1 hour.
     #[error("the verify delay must be between 0s and 1h")]
     VerifyDelay {
@@ -129,7 +140,8 @@ pub fn effective_effect(declared: EffectClass, floor: Option<SkillFloor>) -> Eff
 ///
 /// Every assumption the hub makes is checked, not assumed: the timeout must be the manifest's
 /// range (1s to 1h) rather than clamped, the parameter kinds must be the ones the skill validator
-/// accepts, the parameter count must fit the skill-call boundary, and a read skill must declare
+/// accepts, the parameter count must fit the skill-call boundary, no two parameters may share a
+/// name (so a schema can never lose a declaration silently), and a read skill must declare
 /// no verify. The result has passed [`validate`](CapabilityContract::validate), so a caller can hand it
 /// straight to the registry.
 ///
@@ -164,6 +176,7 @@ pub fn skill_contract(
         }
     }
     let declared = EffectClass::from(summary.risk);
+    let input_schema = skill_input_schema(summary.name.clone(), &summary.params)?;
     if let Some(verify) = &summary.verify {
         if declared == EffectClass::Read {
             return Err(SkillContractError::VerifyForRead {
@@ -196,7 +209,7 @@ pub fn skill_contract(
         version: ContractVersion::first(),
         title: summary.name.to_string(),
         description: summary.description.clone(),
-        input_schema: skill_input_schema(&summary.params),
+        input_schema,
         effect,
         category,
         target_kind: TargetKind::Host,
@@ -257,7 +270,9 @@ const INTEGER_TEXT: &str = r"^-?[0-9]+$";
 /// The only two texts a boolean parameter's value is carried as.
 const BOOLEAN_TEXT: &str = r"^(true|false)$";
 
-/// The model-facing schema of a skill's declared parameters.
+/// The model-facing schema of a skill's declared parameters, or why the declarations cannot
+/// be carried: two parameters share a name, so a schema built over them would silently keep
+/// one declaration and lose the other.
 ///
 /// The skill-call boundary carries every value as text, so the schema states the text the
 /// boundary accepts and not only what it means: an integer and a boolean name the pattern their
@@ -266,22 +281,33 @@ const BOOLEAN_TEXT: &str = r"^(true|false)$";
 /// number and accept only the two boolean words. Nothing here advertises an argument the
 /// boundary would reject: unknown arguments are closed off, and `skill_contract` refuses more
 /// parameters than the boundary carries.
-#[must_use]
-pub fn skill_input_schema(params: &[ParamSpec]) -> Value {
+pub(crate) fn skill_input_schema(
+    skill: SkillName,
+    params: &[ParamSpec],
+) -> Result<Value, SkillContractError> {
     let mut properties = Map::new();
     let mut required = Vec::new();
+    let mut seen: BTreeSet<String> = BTreeSet::new();
     for param in params {
-        properties.insert(param.name.to_string(), param_schema(param));
-        if param.required {
-            required.push(Value::String(param.name.to_string()));
+        let name = param.name.to_string();
+        if seen.contains(name.as_str()) {
+            return Err(SkillContractError::DuplicateParam {
+                skill: skill.clone(),
+                param: name,
+            });
         }
+        seen.insert(name.clone());
+        if param.required {
+            required.push(Value::String(name.clone()));
+        }
+        properties.insert(name, param_schema(param));
     }
-    json!({
+    Ok(json!({
         "type": "object",
         "properties": properties,
         "required": required,
         "additionalProperties": false,
-    })
+    }))
 }
 
 /// The schema of one declared parameter: its kind, the text the boundary carries, its bounds and

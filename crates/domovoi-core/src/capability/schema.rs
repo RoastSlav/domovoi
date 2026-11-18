@@ -124,6 +124,21 @@ pub enum SchemaError {
         /// The argument.
         name: String,
     },
+    /// A pattern is not text, so there is nothing for the boundary to match against.
+    #[error("argument `{name}` must state its pattern as text")]
+    PatternNotText {
+        /// The argument.
+        name: String,
+    },
+    /// A pattern does not compile, so the boundary would never evaluate it and the schema
+    /// promises a rule that cannot hold.
+    #[error("argument `{name}` has a pattern that does not compile: {reason}")]
+    InvalidPattern {
+        /// The argument.
+        name: String,
+        /// Why the pattern was refused.
+        reason: String,
+    },
     /// A description is blank, so the inventory and the approval card say nothing.
     #[error("argument `{name}` needs a description that is not blank")]
     BlankDescription {
@@ -161,6 +176,14 @@ pub enum SchemaError {
     /// A default is not one of the enumerated values.
     #[error("argument `{name}` has a default outside its enumeration")]
     DefaultOutsideEnum {
+        /// The argument.
+        name: String,
+    },
+    /// A default is text the argument's own pattern refuses, so applying the default would fail
+    /// the check every other value goes through. The comparison is in the transport's text form,
+    /// because the call boundary carries every value as text.
+    #[error("argument `{name}` has a default its own pattern refuses")]
+    DefaultOutsidePattern {
         /// The argument.
         name: String,
     },

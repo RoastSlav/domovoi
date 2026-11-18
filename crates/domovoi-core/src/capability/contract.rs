@@ -239,6 +239,20 @@ pub enum ContractError {
         /// The contract that failed.
         id: ContractId,
     },
+    /// The skill's id is not exactly `skill.<skill name>`, so the runner would not know which
+    /// manifest to load: the suffix is not one skill name.
+    #[error("{id}: a skill contract's id must be exactly `skill.<skill name>`")]
+    SkillIdNotCanonical {
+        /// The contract that failed.
+        id: ContractId,
+    },
+    /// A postcondition is blank, so the approval card would claim a verification that says
+    /// nothing was expected to hold.
+    #[error("{id}: a postcondition needs a description of what must hold after the run")]
+    BlankPostcondition {
+        /// The contract that failed.
+        id: ContractId,
+    },
     /// A skill's category does not name its effect class.
     #[error("{id}: expected category `{expected}`, found `{found}`")]
     SkillCategoryMismatch {

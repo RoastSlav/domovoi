@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use jiff::SignedDuration;
 
 use super::ceiling::{CeilingEntry, CeilingError, CeilingSummary, CeilingTargets};
-use super::effect::EffectClass;
+use super::effect::{EffectClass, ExecutionPath};
 use super::ids::{ContractId, TargetName};
 use super::index::ContractIndex;
 use super::tests::bounded_constrainable;
@@ -225,12 +225,15 @@ fn ceiling_bound_outside_contract_schema_refused() {
             key: "wait_seconds".to_string(),
         },)
     );
+    // The containment-only fields stay off this entry: it bounds a `mutate` contract, whose only
+    // limits are its rate and its argument bounds. `containment_keeps_both_limits` covers the
+    // containment side.
     let inside = ceiling_entry(
         bounded.id.as_str(),
         CeilingTargets::Any,
         4,
-        Some(2),
-        Some(SignedDuration::from_secs(900)),
+        None,
+        None,
         BTreeMap::from([("wait_seconds".to_owned(), 30i64)]),
     );
     enabled_summary(vec![inside])
@@ -267,4 +270,110 @@ fn ceiling_names_targets_only_for_named_kinds() {
     enabled_summary(vec![any_host])
         .validate_against(&index)
         .unwrap();
+}
+
+/// The hub's contracts for the containment-only fields: one `contain` helper capability, the only
+/// class that has runs whose width and lifetime the ceiling can bound.
+fn containment_index() -> ContractIndex {
+    let mut jail = crafted("host.jail", "host.contain", EffectClass::Contain);
+    jail.execution = ExecutionPath::Helper;
+    ContractIndex::new(vec![jail]).unwrap()
+}
+
+#[test]
+fn containment_ceiling_keeps_active_and_ttl() {
+    let index = containment_index();
+    let entry = ceiling_entry(
+        "host.jail",
+        CeilingTargets::Any,
+        2,
+        Some(1),
+        Some(SignedDuration::from_secs(900)),
+        BTreeMap::new(),
+    );
+    enabled_summary(vec![entry])
+        .validate_against(&index)
+        .unwrap();
+}
+
+#[test]
+fn ceiling_active_limit_refused_on_a_capability_that_does_not_contain() {
+    for effect in [
+        EffectClass::Read,
+        EffectClass::Mutate,
+        EffectClass::Destructive,
+    ] {
+        let contract = crafted("x.y", "x.y", effect);
+        let index = ContractIndex::new(vec![contract]).unwrap();
+        let entry = ceiling_entry(
+            "x.y",
+            CeilingTargets::Any,
+            4,
+            Some(2),
+            None,
+            BTreeMap::new(),
+        );
+        assert_eq!(
+            enabled_summary(vec![entry]).validate_against(&index),
+            Err(CeilingError::ActiveNotContainment {
+                contract: ContractId::parse("x.y").unwrap(),
+            },),
+            "`max_active` on it would read as authoritative and bound nothing",
+        );
+    }
+}
+
+#[test]
+fn ceiling_ttl_limit_refused_on_a_capability_that_does_not_contain() {
+    for effect in [
+        EffectClass::Read,
+        EffectClass::Mutate,
+        EffectClass::Destructive,
+    ] {
+        let contract = crafted("x.y", "x.y", effect);
+        let index = ContractIndex::new(vec![contract]).unwrap();
+        let entry = ceiling_entry(
+            "x.y",
+            CeilingTargets::Any,
+            4,
+            None,
+            Some(SignedDuration::from_secs(900)),
+            BTreeMap::new(),
+        );
+        assert_eq!(
+            enabled_summary(vec![entry]).validate_against(&index),
+            Err(CeilingError::TtlNotContainment {
+                contract: ContractId::parse("x.y").unwrap(),
+            },),
+            "`max_ttl` on it would read as authoritative and bound nothing",
+        );
+    }
+}
+
+#[test]
+fn ceiling_limits_are_optional_on_every_class() {
+    let limits = ceiling_entry(
+        "host.jail",
+        CeilingTargets::Any,
+        4,
+        None,
+        None,
+        BTreeMap::new(),
+    );
+    enabled_summary(vec![limits])
+        .validate_against(&containment_index())
+        .unwrap();
+    for contract_id in ["x.y", "host.arrest"] {
+        let plain = ceiling_entry(
+            contract_id,
+            CeilingTargets::Any,
+            4,
+            None,
+            None,
+            BTreeMap::new(),
+        );
+        enabled_summary(vec![plain])
+            .validate_against(&hub_index())
+            .unwrap();
+    }
 }

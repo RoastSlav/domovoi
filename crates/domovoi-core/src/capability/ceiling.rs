@@ -10,7 +10,9 @@
 //! hub actually holds. A ceiling key the contracts do not declare, a zero rate or a bound outside
 //! the contract's own schema is refused with a named problem, never quietly repaired. An entry is
 //! kept even when `enabled` is false, so a owner's limits stay visible and a broken one is still
-//! reported; turning the ceiling off is done by the flag, not by dropping entries.
+//! reported; turning the ceiling off is done by the flag, not by dropping entries. The
+//! containment-only fields `max_active` and `max_ttl` (D-18) are refused on a contract that does
+//! not contain, because a limit that binds no run would read as authoritative and be ignored.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -18,7 +20,7 @@ use jiff::SignedDuration;
 use serde::{Deserialize, Serialize};
 
 use super::contract::CapabilityContract;
-use super::effect::TargetKind;
+use super::effect::{EffectClass, TargetKind};
 use super::ids::{ContractId, TargetName};
 use super::index::ContractIndex;
 use super::schema::{declares_argument, stated_bounds};
@@ -137,6 +139,22 @@ pub enum CeilingError {
         /// The argument.
         key: String,
     },
+    /// An active-run limit sits on a contract that does not contain, so nothing has an active
+    /// run whose width the ceiling could narrow.
+    #[error("{contract}: `max_active` bounds containment runs, which this contract does not run")]
+    ActiveNotContainment {
+        /// The entry.
+        contract: ContractId,
+    },
+    /// A TTL limit sits on a contract that does not contain, so nothing has a lifetime the
+    /// ceiling could shorten.
+    #[error(
+        "{contract}: `max_ttl` bounds the lifetime of a containment, which this contract does not run"
+    )]
+    TtlNotContainment {
+        /// The entry.
+        contract: ContractId,
+    },
     /// The reported configuration hash is blank, not hexadecimal or too long.
     #[error("the configuration hash must be 1 to 128 lowercase hexadecimal characters")]
     MalformedHash,
@@ -182,6 +200,7 @@ impl CeilingSummary {
                 });
             };
             check_entry_targets(contract, entry)?;
+            check_entry_containment(contract, entry)?;
             check_entry_args(contract, entry)?;
         }
         Ok(())
@@ -244,6 +263,34 @@ fn check_entry_targets(
         }
         TargetKind::None | TargetKind::Host => Ok(()),
     }
+}
+
+/// Refuses an entry that puts a containment-only limit on a contract that does not contain.
+///
+/// D-18's `max_active` and `max_ttl` bound a *containment*: how many containments may be
+/// running at once, and the longest lifetime one may hold. A capability that does not contain
+/// has no such run, so on it the bound would read as authoritative and be ignored, and an
+/// agent that wants to limit an ordinary capability does it with its rate and its argument
+/// bounds. The hub's own hard limits on the helper path are separate and are not the agent's
+/// to raise or lower here.
+fn check_entry_containment(
+    contract: &CapabilityContract,
+    entry: &CeilingEntry,
+) -> Result<(), CeilingError> {
+    if contract.effect == EffectClass::Contain {
+        return Ok(());
+    }
+    if entry.max_active.is_some() {
+        return Err(CeilingError::ActiveNotContainment {
+            contract: entry.contract.clone(),
+        });
+    }
+    if entry.max_ttl.is_some() {
+        return Err(CeilingError::TtlNotContainment {
+            contract: entry.contract.clone(),
+        });
+    }
+    Ok(())
 }
 
 /// Refuses a bound the contract does not declare constrainable, and one outside the limits the

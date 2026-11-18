@@ -47,7 +47,4 @@ pub use schema::{
     SchemaError, declared_type, declares_argument, requires_argument, stated_bounds,
     validate_schema,
 };
-pub use skill::{
-    FloorError, SkillContractError, SkillFloor, effective_effect, skill_contract,
-    skill_input_schema,
-};
+pub use skill::{FloorError, SkillContractError, SkillFloor, effective_effect, skill_contract};
