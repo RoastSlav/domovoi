@@ -7,7 +7,7 @@
 | Depends on (must be merged) | `24` |
 | Parallel with | `26–37` (order-flexible; never concurrent) |
 | Produces | `domovoi_engine::policy::{evaluate, Decision, Rule}` plus pure publication-validation and simulator helpers |
-| Launch gate | none beyond prompt 24, **except `O-31` (policy `TimeWindow` timezone) must be answered before implementation starts** |
+| Launch gate | none beyond prompt 24. The `TimeWindow` timezone is decided: **UTC** (owner decision D-30) |
 | Suggested model | large |
 
 ## 1. Objective
@@ -348,7 +348,7 @@ pub struct Rule {
 ### 6.3 `Condition` (`condition.rs`) **fixed**
 
 ```rust
-/// A time of day, no date. **The zone is an open owner decision (O-31)**; the proposal is UTC.
+/// A time of day, no date, read in UTC (owner decision D-30).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct TimeOfDay { pub hour: u8, pub minute: u8 }   // hour 0..=23, minute 0..=59
 
@@ -359,8 +359,7 @@ pub struct TimeOfDay { pub hour: u8, pub minute: u8 }   // hour 0..=23, minute 0
 pub enum Condition {
     /// The canonical argument `arg` is an integer satisfying `value <op> n`.
     ArgConstraint { arg: String, op: ConstraintKind, value: i64 },
-    /// The wall clock of `request.now`, inside `[start, end)`. The zone is O-31's answer; the proposal
-    /// is UTC.
+    /// The UTC wall clock of `request.now`, inside `[start, end)`.
     TimeWindow { start: TimeOfDay, end: TimeOfDay },
     /// The fact `fact` is `Known` and equal to `expected`.
     RequiresFact { fact: FactId, expected: bool },
@@ -376,7 +375,7 @@ Exact match semantics, one clause each:
 | Condition | Matches when | Does not match when |
 |---|---|---|
 | `ArgConstraint` | `args.get(arg)` parses as `i64` and `ConstraintKind::satisfied(n, value)` holds: `IntAtLeast` → `n >= value`, `IntAtMost` → `n <= value` | the argument is absent, empty, non-numeric, out of `i64` range, or the canonical line is malformed |
-| `TimeWindow` | `start < end` and `start <= t < end`; or `start > end` (wrap) and `t >= start || t < end`; `t` per O-31 (proposed UTC) | `start == end` (an empty window; `validate_rules` rejects it as a dead rule) |
+| `TimeWindow` | `start < end` and `start <= t < end`; or `start > end` (wrap) and `t >= start || t < end`; `t` = `request.now` in UTC | `start == end` (an empty window; `validate_rules` rejects it as a dead rule) |
 | `RequiresFact` | `facts.get(fact) == Some(&FactState::Known(*expected))` | absent, `Unknown`, `Stale`, `Disputed`, or `Known` with the other value |
 | `MaxRate` | `requested_rate_per_hour` is `Some(r)` with `r <= max_per_hour`, **or** `None` | `Some(r)` with `r > max_per_hour` |
 | `MaxTtl` | `requested_ttl` is `Some(t)` with `t <= max_ttl`, **or** `None` | `Some(t)` with `t > max_ttl` |
@@ -384,21 +383,16 @@ Exact match semantics, one clause each:
 - **`ConstraintKind` is prompt 24's** (`IntAtLeast | IntAtMost`, `24` §6.3). Do not define a second
   operator enum; the ceiling reads its bound through the same two variants (`24` §6.5), so the
   operator means the same thing in both places.
-- **`TimeWindow`'s zone is an open owner decision, `O-31`.** `04 §7.1` defines the condition without
-  stating a zone, so this brief cannot settle it. The proposal is **UTC** for v1 — deterministic across
-  hosts, no DST ambiguity, replay reproduces the same decision, and no per-host timezone configuration is
-  needed. The owner has not accepted it yet. Implement nothing until `99` O-31 is answered, then apply the
-  answer exactly; the default reading of this brief is:
+- **`TimeWindow` is evaluated in UTC (owner decision D-30).** Deterministic across hosts, no DST
+  ambiguity, replay reproduces the same decision, no per-host timezone configuration:
 
   ```text
   t = request.now formatted as HH:MM in UTC (now.to_zoned(TimeZone::UTC))
   a window is [start, end); 22:00–06:00 wraps and does not include 06:00
   ```
 
-  If the owner picks a configured zone instead, the *only* change is where `t` comes from: an explicit
-  field on `EvaluateRequest` (never a clock or a host lookup inside the evaluator), and the UI must label
-  the zone. Do not add a timezone config key, do not read host local time, and do not claim UTC is
-  accepted.
+  Do not add a timezone config key, do not read host local time, and do not take time from anywhere but
+  `request.now`.
 - `MaxRate`/`MaxTtl` with `None` on the request match: nothing is being requested that could exceed
   the bound. They still contribute a constraint on an `Allow` (§6.9 stage 5), so the permit is
   capped at the rule's bound either way.
@@ -529,7 +523,7 @@ pub struct EvaluateRequest {
     pub containment: ContainmentInput,
     pub autonomy: AutonomyState,
     /// The evaluation instant. The only time input; there is no `Clock` here. Its zone reading for
-    /// `TimeWindow` is O-31's answer (proposal: UTC).
+    /// `TimeWindow` is UTC.
     pub now: Timestamp,
     /// Opaque tag of the policy version being evaluated (prompt 40 owns the table).
     pub policy_version: Option<Uuid>,
@@ -1224,8 +1218,6 @@ Each step compiles and has its own tests. Do them in this order.
    `effect_of_category`, `CeilingSummary`, `CeilingEntry`, `CeilingTargets`, `ConstraintKind`,
    `TargetName`, `TargetIdentity`'s actual definitions; confirm no `Authorization`/`PolicyPermit`
    exists. If `capability` is missing, **stop** and report.
-   **Check `99` O-31 first.** If the `TimeWindow` timezone question is still open, stop before writing
-   code and report it: the brief is complete, but the branch is not launchable.
 2. `error.rs`: `PolicyError` and its messages.
 3. `outcome.rs`: `Outcome`, `UnavailableReason`, `ConfirmationRequirement`,
    `OutcomeReason`, `HardLimit`. Unit test the severity order and the serde shape.
@@ -1502,8 +1494,8 @@ test in `tests/engine/policy.rs`, so nothing shared is touched.
     winners' resolved targets, an unknown/stale/disputed declared safety fact, an uncovered or
     unverifiable ceiling, or a root agent; and a malformed rule set or request returns
     `Err(PolicyError)`, so it produces no `Decision` to act on.
-13. `TimeWindow` implements `O-31`'s answer. Until the owner answers it, the branch is not started; the
-    code contains no host-timezone read, no config key and no clock call.
+13. `TimeWindow` reads `request.now` in UTC (D-30); the code contains no host-timezone read, no config
+    key and no clock call.
 14. No type in the module constructs, names or returns `HumanApproval`, `PolicyPermit` or
     `Authorization`; `crates/domovoi-hub/src/auth/` is untouched.
 15. `validate_publication` reports equal-scope and incomparable conflicts with their resolution, and

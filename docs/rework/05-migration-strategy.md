@@ -99,7 +99,7 @@ Restoring a pre-migration backup is never presented as a routine rollback.
   `/etc/domovoi/helper.toml` with read groups only, and switches the agent unit to
   `User=domovoi-agent`.
 - Existing owner-placed skills in `/etc/domovoi/skills` run as `domovoi-skill`; manifests whose
-  `run_as` names another user follow O-30. `domovoi agent selftest` lists affected checks and skills.
+  `run_as` names another user are refused as `Unavailable(run_as_unsupported)` (D-31). `domovoi agent selftest` lists affected checks and skills.
 - Any `[unattended.exclusions]` in agent config from a pre-release build is ignored with a warning;
   exclusions are configured only in `helper.toml` `[safety]` (RW-37).
 - Until the owner reruns the installer, root installs keep working, labelled "privilege boundary not
@@ -117,7 +117,7 @@ Restoring a pre-migration backup is never presented as a routine rollback.
 ## 5. Configuration
 
 - New optional sections with conservative defaults: hub `[orchestration]`, `[policy]`,
-  `[retention]`, `[packages] registries`; agent `[unattended]`, `[packages]`.
+  `[retention]`, `[packages]` (owner import only, no registries: D-32); agent `[unattended]`, `[packages]`.
 - Absent sections = today's behaviour (no unattended, no installs).
 - Settings managed in the UI keep their config-file source label (FACT: ADR 0017).
 - `cargo xtask docs-config` regenerated in each slice that adds config.

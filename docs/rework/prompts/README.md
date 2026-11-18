@@ -3,10 +3,10 @@
 One file per prompt: `NN-branch-name.md`. `NN` is the stable ID used in `../07-implementation-prompt-index.md`.
 Each file is a self-contained, copy-paste-ready brief for one branch and one pull request.
 
-**Not every prompt in the index has been written.** `../07-implementation-prompt-index.md` is
-authoritative for prompt status, dependencies, launch order, gates and the integration branch. Its §6
-classifies every prompt, and only those in §6.1 have a file; an index row without a file here is a plan,
-not a brief, and must not be launched.
+**Every prompt in the index has a file except 44, 45, 46 and 47**, which wait on research evidence or
+an owner decision. `../07-implementation-prompt-index.md` is authoritative for prompt status,
+dependencies, launch order, gates and the integration branch (its §6); an index row without a file
+here is a plan, not a brief, and must not be launched.
 
 - **One at a time.** Prompts are launched manually, one branch and one pull request at a time. `∥` in the
   index means the prompts have no dependency forcing an order — it never means concurrent execution.
@@ -51,9 +51,21 @@ the planned names.
 | Capability registry, availability and target identity | 25 | `domovoi_core::capability::Availability`; ports `domovoi_core::ports::{CapabilityRegistry, TargetResolver}`; `TargetQuery`, `ResolvedTarget`, `CatalogueState`, `canonical_host_identity` |
 | Operation aggregate and trace schema | 26 | `Operation`, `OperationStatus`, `Step`, `StepKind`, `StepOutcome`, `StepEdge`, `EdgeKind`; trace JSON golden fixtures |
 | Journal-backed SSE | 28 | SSE `id` = journal `seq`; topics; `as_of_seq` |
-| Context retrieval port | 31 | `ContextSource` (planned) |
+| Context retrieval port | 31 | `domovoi_core::ports::ContextSource`, `domovoi_core::context::*`, `MetaTool`, `ToolSet` |
 | Policy evaluator | 39 | `domovoi_engine::policy::{evaluate, evaluate_shadow, Decision, Rule, simulate, validate_publication}`; `EvaluateRequest`, `Outcome`, `PublicationReport`, `PolicyError` |
 | Visibility categories | 37 | `useVisibility(category)`; categories `P0` to `P3` |
+| Operation read API, parity suite | 27 | `GET /api/v1/operations`, `/{id}`, `/{id}/trace`, `/{id}/steps/{step}`, step approve/deny routes, `OperationPage`, `OperationDetailDto`, `ExecutionDto`; `tests/services/parity.rs` |
+| Journal-backed SSE details | 28 | `GET /api/v1/events`, frames `ready`/`journal`/`reset`, `JournalFeed`, `topics_of`, `snapshot_seq`, `useJournalStream`, `journal_floor` |
+| Hub use-case layer | 29 | `crate::services::{Services, Caller, OperationCommands, ...}`; arch rules `MOD-1`…`MOD-4`, `CALLER-1`; control routes `/cancel`, `/pause`, `/resume`, `/steps/{step}/answer` |
+| Right slot and approval card | 30 | `web/src/app/rightSlot/` (`RightSlotProvider`, `RightSlotHost`, `RightSlotSurface`, `useRightSlot`), kit `SidePanel`, `ApprovalCard`, smoke mock `npm run smoke` |
+| Context registration | 32 | `TriageDeps.extra_context: Vec<Arc<dyn ContextSource>>`, `run_chain` |
+| Knowledge store | 34 | `domovoi_core::knowledge::*`, `KnowledgeRead`, `ManagementCoverage`, `KnowledgeSource`, `FactRecordId`, `/api/v1/knowledge/*` (`KnowledgeFactDto`, ...) |
+| Experience | 35 | `MetaTool::SearchExperience`, `EffectKind::DraftResolution`, `/api/v1/experience/search`, similar-operation routes |
+| Conversations | 36 | `ConversationService`, `AnswerSink`, SSE `live.start`/`live.text`/`live.tool`/`live.end`, `/api/v1/conversations` |
+| Policy store | 40 | `StateWrite::Policy`, `PolicyRepo`, `ShadowRecorder`, `/api/v1/policy/*` |
+| Packages, agent side | 41 | `domovoi_core::package::*`, `package_contracts()`, `PackageFailureCode`, testkit `PackageFixture` |
+| Packages, hub side | 42 | `domovoi_core::install::*`, `PackagePlan`, `/api/v1/packages/*`, `/api/v1/hosts/{name}/packages` |
+| Step chat approvals | 59 | `executions.chat_token_hash`, `OperationHandle::authorize(.., chat_token)`, `engine/src/chat_token.rs`, `EventKind::ExecutionChanged` |
 | Helper protocol and safety attestation | 47 | helper socket request and response types; `SafetyIdentity`, `ExpectedSafety` (RW-37) |
 
 ## Standard blocks every prompt contains

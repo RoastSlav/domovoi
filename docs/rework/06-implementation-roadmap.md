@@ -229,6 +229,8 @@ recorded 1.3 coordinated upgrade; none is planned.
   - Journal SSE with `as_of_seq`; `incident_events` copy.
 - **Approvals.** The approve endpoint moves to `POST /operations/{id}/steps/{step}/approve` with the
   v2 hash; the action endpoint remains for legacy actions only (RW-11, RW-32).
+  Chat approve and deny buttons move to steps too (per-step chat token), before the triage queue is
+  removed, so the default flip loses no chat approval.
 - **Contract freeze.** Trace schema golden fixtures for steps and edges.
 - **Tests.**
   - The seeded simulator.
@@ -238,7 +240,10 @@ recorded 1.3 coordinated upgrade; none is planned.
   - `legacy_action_completes_under_original_id`
 - **Acceptance.**
   - With the flag on, the triage drills pass unchanged. With it off, behaviour matches the baseline.
-  - A follow-up PR removes the triage queue and `recheck.rs`.
+  - A follow-up PR removes the triage queue and makes follow-up answers plain text (proposals come
+    only from operations, RW-20). A later PR removes the legacy executor and the remainder of
+    `recheck.rs`, after the actions parity checkpoint (05 §7), and settles remaining legacy actions with
+    an audited reason (RW-32).
 
 ## M4 — Dynamic investigation (C)
 
@@ -309,7 +314,6 @@ recorded 1.3 coordinated upgrade; none is planned.
   - Research R-3 (helper delivery), R-9 (skill-runner isolation, including the effective
     filesystem view) and R-10 (attestation).
   - The helper and skill-runner ADR (RW-39, D-29).
-  - Owner decision O-30.
   - Not dependent on P1: the helper and runner are installed by the OS install path, not by packages.
 - **Work.**
   - `domovoi helper serve`: socket activation, peer-uid layer, typed operation groups (no pause or
@@ -329,7 +333,7 @@ recorded 1.3 coordinated upgrade; none is planned.
   - Monitoring checks via helper reads.
   - Selftest report.
   - Root-install warning.
-  - O-30 behaviour.
+  - D-31 behaviour: `run_as` other than `domovoi-skill` refused as `Unavailable(run_as_unsupported)`.
 - **Tests.**
   - All RW-39 and RW-37 tests.
   - `agent_runs_unprivileged_after_install`
@@ -414,7 +418,7 @@ Columns:
 | F3 | yes | yes (D-20) | — | none | **yes** |
 | F2 | yes | yes | R-4 wording only | F1 | after F1 merges |
 | F4 | yes | yes | R-5 for the cap value | F1 | after F1 merges |
-| H1 | yes (ADR pending) | **O-30 open** | **R-3, R-9, R-10 open** | M1 | no: needs M1, R-3, R-9, R-10, the ADR and O-30 |
+| H1 | yes (ADR pending) | yes (D-31) | **R-3, R-9, R-10 open** | M1 | no: needs M1, R-3, R-9, R-10 and the ADR |
 | M1 | yes | yes | R-6 | F2, F3, F4 | after those merge |
 | M2 | yes | yes | — | M1 | after M1 |
 | M3 | yes | yes | — | M1, M2 | after M1 and M2 |

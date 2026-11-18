@@ -3,7 +3,7 @@
 Baseline `64117f0`.
 - `docs/design-pack/` is the **product-intent** reference.
 - `docs/rework/` is the validated **technical direction**: decisions in `03` (RW-01…42), contracts in
-  `04`, decision register in `99` (D-01…D-29, open O-30, research R-1…R-10).
+  `04`, decision register in `99` (D-01…D-31, no open owner decision, research R-1…R-10).
 
 Files: `01` repository facts · `02` pack validation · `03` decisions · `04` target architecture ·
 `04b` attestation encoding and vectors ·
@@ -39,7 +39,7 @@ Evolve the existing workspace (RW-01), foundation first inside the rework (D-01)
 | **v1 but gated by safety prerequisites** | L2 unattended execution (M8: needs M4, M7, H1, host ceiling); `container.restart` unattended (needs the Docker helper ADR, D-24); L3 `firewall.block_source` (M9: kernel timeout, 30 s confirmation, management paths D-28, drills D-22); historical graph playback (last in U2, D-25) |
 | **Planned after v1** | owner-signed approvals and policy bundles; offline emergency permits; `container.pause` / `unit.stop_temporary` and other containment candidates; host tags; multi-user/RBAC; advanced audit anchoring; more integrations; customizable widgets — each in `06` "Deferred and after-v1" with conditions |
 | **Intentionally unsupported** | older protocol generations (D-20); agent self-update (INV-3); arbitrary third-party registries in v1; general Docker socket write for the agent; exactly-once external delivery; vector/graph databases without measured need |
-| **Open owner decision** | O-30: skills with `run_as` another user after D-29 (recommended: unsupported) |
+| **Owner decisions** | All settled; D-30 (policy time windows in UTC) and D-31 (`run_as` other than `domovoi-skill` unsupported) were the last |
 | **Open research** | R-1 graph library; R-2 nftables containment behaviour; R-3 helper delivery on supported platforms; R-4 Discord nonce; R-5 prompt sizes; R-6 fsync cost; R-8 systemd effective-config identity; R-9 skill-runner isolation and filesystem view; R-10 helper safety attestation (R-7 reframed into a test) |
 
 ## Key architecture choices
@@ -136,12 +136,12 @@ M1 and M2; M4, M5, M6, M7, U1 after M3; P1 backend after M2; U3 after U1; U4 pag
 (install wizard after P1 and U3).
 
 **Blocked:**
-- **H1** (three identities): M1, O-30, R-3, R-9, R-10 and the helper/runner ADR.
+- **H1** (three identities): M1, R-3, R-9, R-10 and the helper/runner ADR.
 - **M8**: H1 and R-8.
 - **M9**: M8, M5, H1, R-2 and R-10. nftables containment is not production-ready until R-2.
 - **U2 graph**: R-1 spike first.
 
 **Assessment.** Consistent and ready for review, but not fully implementation-ready: one owner
-decision (O-30) and the helper/nftables research (R-2, R-3, R-8) sit on the critical path to L2 and
+decision D-31 (settled) and the helper/nftables research (R-2, R-3, R-8) sit on the critical path to L2 and
 L3 autonomy and to the privilege boundary itself. The privilege boundary is designed, not proven: it
 holds only once R-9 shows `domovoi-skill` cannot reach the helper or agent state on each platform.
