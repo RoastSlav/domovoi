@@ -1,0 +1,395 @@
+---
+source: crates/domovoi-core/tests/serde_snapshots.rs
+expression: contracts
+---
+{
+  "container.events": {
+    "category": "container.observe",
+    "constrainable_args": [],
+    "description": "Show recent Docker events, optionally for one container.",
+    "effect": "read",
+    "execution": "agent",
+    "id": "container.events",
+    "idempotency": "idempotent",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "container": {
+          "description": "Only events for this container.",
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "since_minutes": {
+          "default": 60,
+          "description": "How many minutes back to look.",
+          "maximum": 1440,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "output_limit_bytes": 8192,
+    "reversibility": "not_applicable",
+    "safety_facts": [],
+    "source": {
+      "kind": "built_in"
+    },
+    "target_arg": null,
+    "target_kind": "host",
+    "timeout": "15s",
+    "title": "Docker events",
+    "verification": {
+      "kind": "none"
+    },
+    "version": 1
+  },
+  "container.inspect": {
+    "category": "container.observe",
+    "constrainable_args": [],
+    "description": "Show one container's configuration and state.",
+    "effect": "read",
+    "execution": "agent",
+    "id": "container.inspect",
+    "idempotency": "idempotent",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "container": {
+          "description": "Container name.",
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "container"
+      ],
+      "type": "object"
+    },
+    "output_limit_bytes": 8192,
+    "reversibility": "not_applicable",
+    "safety_facts": [],
+    "source": {
+      "kind": "built_in"
+    },
+    "target_arg": "container",
+    "target_kind": "container",
+    "timeout": "15s",
+    "title": "Docker inspect",
+    "verification": {
+      "kind": "none"
+    },
+    "version": 1
+  },
+  "container.list": {
+    "category": "container.observe",
+    "constrainable_args": [],
+    "description": "List containers on the incident host with state and health.",
+    "effect": "read",
+    "execution": "agent",
+    "id": "container.list",
+    "idempotency": "idempotent",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "all": {
+          "default": false,
+          "description": "Include stopped containers.",
+          "type": "boolean"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "output_limit_bytes": 8192,
+    "reversibility": "not_applicable",
+    "safety_facts": [],
+    "source": {
+      "kind": "built_in"
+    },
+    "target_arg": null,
+    "target_kind": "host",
+    "timeout": "15s",
+    "title": "Docker ps",
+    "verification": {
+      "kind": "none"
+    },
+    "version": 1
+  },
+  "container.logs": {
+    "category": "container.observe",
+    "constrainable_args": [],
+    "description": "Show the last lines of one container's logs.",
+    "effect": "read",
+    "execution": "agent",
+    "id": "container.logs",
+    "idempotency": "idempotent",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "container": {
+          "description": "Container name.",
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "lines": {
+          "default": 100,
+          "maximum": 500,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "container"
+      ],
+      "type": "object"
+    },
+    "output_limit_bytes": 8192,
+    "reversibility": "not_applicable",
+    "safety_facts": [],
+    "source": {
+      "kind": "built_in"
+    },
+    "target_arg": "container",
+    "target_kind": "container",
+    "timeout": "15s",
+    "title": "Docker logs",
+    "verification": {
+      "kind": "none"
+    },
+    "version": 1
+  },
+  "disk.smart_report": {
+    "category": "disk.observe",
+    "constrainable_args": [],
+    "description": "Show SMART health attributes for one disk.",
+    "effect": "read",
+    "execution": "agent",
+    "id": "disk.smart_report",
+    "idempotency": "idempotent",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "device": {
+          "description": "Disk device, for example /dev/sda.",
+          "maxLength": 64,
+          "pattern": "^/dev/",
+          "type": "string"
+        }
+      },
+      "required": [
+        "device"
+      ],
+      "type": "object"
+    },
+    "output_limit_bytes": 8192,
+    "reversibility": "not_applicable",
+    "safety_facts": [],
+    "source": {
+      "kind": "built_in"
+    },
+    "target_arg": null,
+    "target_kind": "host",
+    "timeout": "15s",
+    "title": "Smart report",
+    "verification": {
+      "kind": "none"
+    },
+    "version": 1
+  },
+  "host.overview": {
+    "category": "host.observe",
+    "constrainable_args": [],
+    "description": "Summarise CPU, memory, disks and uptime of the incident host.",
+    "effect": "read",
+    "execution": "agent",
+    "id": "host.overview",
+    "idempotency": "idempotent",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": [],
+      "type": "object"
+    },
+    "output_limit_bytes": 8192,
+    "reversibility": "not_applicable",
+    "safety_facts": [],
+    "source": {
+      "kind": "built_in"
+    },
+    "target_arg": null,
+    "target_kind": "host",
+    "timeout": "15s",
+    "title": "Host overview",
+    "verification": {
+      "kind": "none"
+    },
+    "version": 1
+  },
+  "incident.history": {
+    "category": "knowledge.observe",
+    "constrainable_args": [],
+    "description": "List past incidents with the same fingerprint.",
+    "effect": "read",
+    "execution": "hub",
+    "id": "incident.history",
+    "idempotency": "idempotent",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "default": 10,
+          "maximum": 50,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "output_limit_bytes": 8192,
+    "reversibility": "not_applicable",
+    "safety_facts": [],
+    "source": {
+      "kind": "built_in"
+    },
+    "target_arg": null,
+    "target_kind": "host",
+    "timeout": "15s",
+    "title": "Incident history",
+    "verification": {
+      "kind": "none"
+    },
+    "version": 1
+  },
+  "network.listening_ports": {
+    "category": "network.observe",
+    "constrainable_args": [],
+    "description": "List listening TCP and UDP sockets on the incident host.",
+    "effect": "read",
+    "execution": "agent",
+    "id": "network.listening_ports",
+    "idempotency": "idempotent",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": [],
+      "type": "object"
+    },
+    "output_limit_bytes": 8192,
+    "reversibility": "not_applicable",
+    "safety_facts": [],
+    "source": {
+      "kind": "built_in"
+    },
+    "target_arg": null,
+    "target_kind": "host",
+    "timeout": "15s",
+    "title": "Listening ports",
+    "verification": {
+      "kind": "none"
+    },
+    "version": 1
+  },
+  "notes.search": {
+    "category": "knowledge.observe",
+    "constrainable_args": [],
+    "description": "Search runbook notes for this host and global notes.",
+    "effect": "read",
+    "execution": "hub",
+    "id": "notes.search",
+    "idempotency": "idempotent",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "default": 5,
+          "maximum": 20,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "query": {
+          "maxLength": 200,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "type": "object"
+    },
+    "output_limit_bytes": 8192,
+    "reversibility": "not_applicable",
+    "safety_facts": [],
+    "source": {
+      "kind": "built_in"
+    },
+    "target_arg": null,
+    "target_kind": "host",
+    "timeout": "15s",
+    "title": "Notes search",
+    "verification": {
+      "kind": "none"
+    },
+    "version": 1
+  },
+  "system.journal": {
+    "category": "host.observe",
+    "constrainable_args": [],
+    "description": "Read recent systemd journal lines, optionally for one unit.",
+    "effect": "read",
+    "execution": "agent",
+    "id": "system.journal",
+    "idempotency": "idempotent",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "kernel": {
+          "default": false,
+          "description": "Kernel messages only.",
+          "type": "boolean"
+        },
+        "lines": {
+          "default": 100,
+          "maximum": 500,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "since_minutes": {
+          "default": 60,
+          "description": "How many minutes back to look.",
+          "maximum": 1440,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "unit": {
+          "description": "Only lines from this systemd unit.",
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "output_limit_bytes": 8192,
+    "reversibility": "not_applicable",
+    "safety_facts": [],
+    "source": {
+      "kind": "built_in"
+    },
+    "target_arg": null,
+    "target_kind": "host",
+    "timeout": "15s",
+    "title": "Journal",
+    "verification": {
+      "kind": "none"
+    },
+    "version": 1
+  }
+}

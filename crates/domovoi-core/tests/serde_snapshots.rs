@@ -1,10 +1,14 @@
 //! JSON wire-format snapshots for the types that cross crate and process boundaries.
 
+use domovoi_core::capability::{
+    EffectClass, SkillFloor, builtin::builtin_contracts, skill_contract,
+};
 use domovoi_core::{
     ActionId, ActionProposal, Advisory, AdvisoryId, AdvisoryKind, Card, CardBadge, CardButton,
     CardPlan, CheckKey, Digest, Evidence, EvidenceRef, EvidenceValue, HostDigest, HostId, HostName,
-    Incident, IncidentEvent, IncidentId, IncidentPolicy, ReadTool, Risk, Severity, Signal,
-    SignalClass, SignalId, SkillName, SourceKind, TargetKey, Trend, TriageReport, Verdict, apply,
+    Incident, IncidentEvent, IncidentId, IncidentPolicy, ManifestHash, ReadTool, Risk,
+    ScriptDigest, Severity, Signal, SignalClass, SignalId, SkillName, SkillSummary, SourceKind,
+    TargetKey, Trend, TriageReport, Verdict, VerifySpec, apply,
 };
 use jiff::{SignedDuration, Timestamp, civil::date};
 use uuid::Uuid;
@@ -203,4 +207,42 @@ fn read_tool_schemas_snapshot() {
         .map(|tool| (tool.name().to_owned(), tool.json_schema()))
         .collect();
     insta::assert_json_snapshot!(schemas);
+}
+
+#[test]
+fn builtin_contracts_snapshot() {
+    let contracts: serde_json::Map<String, serde_json::Value> = builtin_contracts()
+        .into_iter()
+        .map(|contract| {
+            (
+                contract.id.to_string(),
+                serde_json::to_value(contract).unwrap(),
+            )
+        })
+        .collect();
+    insta::assert_json_snapshot!(contracts);
+}
+
+#[test]
+fn skill_contract_snapshot() {
+    let summary = SkillSummary {
+        name: SkillName::parse("restart_container").unwrap(),
+        description: "Restart a container managed by compose".to_owned(),
+        risk: Risk::Write,
+        params: Vec::new(),
+        applies_to: Vec::new(),
+        manifest_hash: "00".repeat(32).parse::<ManifestHash>().unwrap(),
+        entry_script_digest: ScriptDigest::of_bytes(b"#!/bin/sh\nexit 0\n"),
+        timeout: SignedDuration::from_secs(90),
+        verify: Some(VerifySpec {
+            recheck: true,
+            delay: SignedDuration::from_secs(30),
+        }),
+        readme: None,
+    };
+    let contract = skill_contract(
+        &summary,
+        Some(SkillFloor::new(EffectClass::Destructive).unwrap()),
+    );
+    insta::assert_json_snapshot!(contract);
 }

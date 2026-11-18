@@ -222,3 +222,15 @@ pub(crate) fn prefetch(incident: &Incident) -> Vec<ReadToolCall> {
     calls.push(ReadToolCall::HostOverview);
     calls
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{MAX_RESULT_BYTES, TOOL_DEADLINE};
+    use domovoi_core::capability::builtin::{READ_OUTPUT_LIMIT, READ_TIMEOUT};
+
+    #[test]
+    fn builtin_read_limits_match_triage() {
+        assert_eq!(READ_TIMEOUT, TOOL_DEADLINE);
+        assert_eq!(READ_OUTPUT_LIMIT as usize, MAX_RESULT_BYTES);
+    }
+}
