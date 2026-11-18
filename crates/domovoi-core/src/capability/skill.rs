@@ -130,7 +130,7 @@ pub fn effective_effect(declared: EffectClass, floor: Option<SkillFloor>) -> Eff
 /// Every assumption the hub makes is checked, not assumed: the timeout must be the manifest's
 /// range (1s to 1h) rather than clamped, the parameter kinds must be the ones the skill validator
 /// accepts, the parameter count must fit the skill-call boundary, and a read skill must declare
-/// no verify. The result has passed [`validate`](Self::validate), so a caller can hand it
+/// no verify. The result has passed [`validate`](CapabilityContract::validate), so a caller can hand it
 /// straight to the registry.
 ///
 /// Verification is never invented. `verify.recheck` with its delay becomes
@@ -261,7 +261,7 @@ const BOOLEAN_TEXT: &str = r"^(true|false)$";
 ///
 /// The skill-call boundary carries every value as text, so the schema states the text the
 /// boundary accepts and not only what it means: an integer and a boolean name the pattern their
-/// text must match ([`INTEGER_TEXT`] and [`BOOLEAN_TEXT`]), and the boundary's own rules
+/// text must match (`INTEGER_TEXT` and `BOOLEAN_TEXT`), and the boundary's own rules
 /// ([`SkillSummary::validate_args`] in the skill validator) parse an integer as a signed whole
 /// number and accept only the two boolean words. Nothing here advertises an argument the
 /// boundary would reject: unknown arguments are closed off, and `skill_contract` refuses more

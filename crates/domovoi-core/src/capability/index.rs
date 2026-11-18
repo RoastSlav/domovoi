@@ -40,7 +40,7 @@ impl ContractIndex {
     ///
     /// An empty set is accepted, which means "nothing composed yet": a stage that has read the
     /// skills but not the built-ins, or a unit test of one rule. Production code composes through
-    /// [`with_builtins`], which cannot be empty, and checks that boundary before it hands the
+    /// [`with_builtins`](Self::with_builtins), which cannot be empty, and checks that boundary before it hands the
     /// index to the registry or the evaluator.
     pub fn new(contracts: Vec<CapabilityContract>) -> Result<Self, IndexError> {
         let mut by_id = BTreeMap::new();

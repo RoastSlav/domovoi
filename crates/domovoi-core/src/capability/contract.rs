@@ -102,8 +102,8 @@ pub enum ContractSource {
 
 /// Why a contract is not usable.
 ///
-/// Every variant names one rule of [`validate`](Self::validate), so a caller can tell which
-/// field it has to fix. A schema problem is reported as [`SchemaInvalid`] carrying the
+/// Every variant names one rule of [`validate`](CapabilityContract::validate), so a caller can tell which
+/// field it has to fix. A schema problem is reported as [`SchemaInvalid`](ContractError::SchemaInvalid) carrying the
 /// [`SchemaError`] that names the part of the argument schema at fault.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ContractError {
