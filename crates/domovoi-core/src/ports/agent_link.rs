@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use jiff::Timestamp;
 
 use crate::action::{JournalEpoch, PlanHash};
+use crate::capability::catalog::{CatalogPageData, CatalogQuery};
 use crate::id::{ActionId, AgentId, AgentSessionId, HostId, RequestId};
 use crate::signal::{CheckKey, Evidence, Signal, SignalStatus, TargetKey};
 use crate::skill::{SkillName, SkillSummary, ValidatedArgs};
@@ -330,6 +331,24 @@ pub trait AgentLink: Send + Sync {
 
     /// Skills the agent announced on its last handshake; empty when never connected.
     fn skills(&self, host: HostId) -> Vec<SkillSummary>;
+
+    /// Asks the agent for one page of its capability catalogue (wire 1.2).
+    ///
+    /// The answer is the agent's implementation list: contract ids and versions only. Links
+    /// that cannot page a catalogue answer `Err(LinkError::Rejected(..))`, which the
+    /// capability registry treats as an incomplete catalogue; an agent too old to answer
+    /// produces the same result through `unsupported`. The default is that failure, so a
+    /// link that never learns to page still fails closed.
+    async fn get_catalog(
+        &self,
+        _host: HostId,
+        _query: CatalogQuery,
+        _deadline: Timestamp,
+    ) -> Result<CatalogPageData, LinkError> {
+        Err(LinkError::Rejected(
+            "this link cannot page a capability catalogue".to_owned(),
+        ))
+    }
 }
 
 /// Why signals were not accepted.

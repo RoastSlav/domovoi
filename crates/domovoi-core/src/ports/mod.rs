@@ -5,6 +5,7 @@
 //! suites live in `domovoi-testkit`.
 
 pub mod agent_link;
+pub mod capability;
 pub mod caps;
 pub mod chat;
 pub mod clock;
@@ -16,6 +17,7 @@ pub mod reconcile;
 pub mod redact;
 pub mod repos;
 pub mod store_health;
+pub mod target;
 pub mod uow;
 
 pub use agent_link::{
@@ -42,4 +44,5 @@ pub use reconcile::HostReconciler;
 pub use redact::Redactor;
 pub use repos::*;
 pub use store_health::StoreHealth;
+pub use target::TargetResolver;
 pub use uow::*;
