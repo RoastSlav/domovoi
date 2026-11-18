@@ -10,6 +10,8 @@ You are working on **Domovoi**, a self-hosted server overseer written in Rust wi
 
 If the prompt and `ARCHITECTURE.md` disagree, stop and say so. Do not pick one silently.
 
+Never re-read a file, or a region of one, that is already in your context: not to confirm your own edit, not to re-check a line you already have. Make the edit, then run the check that proves it.
+
 ## Commands
 
 [`TESTING.md`](TESTING.md) is the full reference: prerequisites, every CI job and its local command, partial test runs, running the hub, agents and web UI by hand, and troubleshooting. CI runs on Linux; the hub and agent are Linux programs, so on Windows run them inside WSL 2. The `Ubuntu` distro has Rust and a working C compiler; the default `docker-desktop` distro has no shell, so always name it: `wsl.exe -d Ubuntu -- …`.
