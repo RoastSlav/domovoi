@@ -17,12 +17,13 @@ expression: contract
   "category": "skill.destructive",
   "target_kind": "host",
   "target_arg": null,
-  "reversibility": "reversible",
+  "reversibility": "irreversible",
   "idempotency": "not_idempotent",
   "timeout": "1m 30s",
   "output_limit_bytes": 65536,
   "verification": {
-    "kind": "recheck"
+    "kind": "recheck",
+    "delay": "30s"
   },
   "constrainable_args": [],
   "safety_facts": [],

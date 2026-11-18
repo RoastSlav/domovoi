@@ -189,7 +189,9 @@ impl SkillSummary {
     }
 }
 
-fn check_kind(kind: &ParamKind) -> Result<(), String> {
+/// Checks one declared parameter kind: an anchored, compiling pattern for a string; a bounded
+/// integer; a boolean; a non-empty enum with unique values.
+pub(crate) fn check_kind(kind: &ParamKind) -> Result<(), String> {
     match kind {
         ParamKind::String { pattern, max_len } => {
             if !(1..=1024).contains(max_len) {

@@ -17,15 +17,24 @@ mod contract;
 mod effect;
 mod ids;
 mod index;
+mod rules;
+mod schema;
+mod schema_argument;
 pub mod skill;
 
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_ceiling;
+#[cfg(test)]
+mod tests_ids;
+#[cfg(test)]
+mod tests_schema;
+#[cfg(test)]
 mod tests_skill;
 
 pub use builtin::{READ_OUTPUT_LIMIT, READ_TIMEOUT, builtin_contracts, contract_id_of};
-pub use ceiling::{CeilingEntry, CeilingSummary, CeilingTargets};
+pub use ceiling::{CeilingEntry, CeilingError, CeilingSummary, CeilingTargets};
 pub use contract::{
     CapabilityContract, ConstrainableArg, ConstraintKind, ContractError, ContractSource,
 };
@@ -34,4 +43,11 @@ pub use effect::{
 };
 pub use ids::{ContractCategory, ContractId, ContractVersion, FactId, TargetIdentity, TargetName};
 pub use index::{ContractIndex, ContractMeta, IndexError};
-pub use skill::{FloorError, SkillFloor, effective_effect, skill_contract, skill_input_schema};
+pub use schema::{
+    SchemaError, declared_type, declares_argument, requires_argument, stated_bounds,
+    validate_schema,
+};
+pub use skill::{
+    FloorError, SkillContractError, SkillFloor, effective_effect, skill_contract,
+    skill_input_schema,
+};

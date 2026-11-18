@@ -1,16 +1,21 @@
 //! Tests for the `skill.<name>` family and the built-in read contract table.
 
+use jiff::SignedDuration;
+
 use serde_json::json;
 
 use super::builtin::{builtin_contracts, contract_id_of};
 use super::contract::ContractSource;
-use super::effect::{EffectClass, TargetKind};
-use super::ids::ContractId;
+use super::effect::{EffectClass, TargetKind, VerificationHint};
+use super::ids::{ContractCategory, ContractId};
 use super::index::ContractIndex;
-use super::skill::{FloorError, SkillFloor, skill_contract, skill_input_schema};
+use super::schema::validate_schema;
+use super::skill::{
+    FloorError, SkillContractError, SkillFloor, skill_contract, skill_input_schema,
+};
 use super::tests::{summary, verify};
-use crate::skill::{ParamKind, ParamName, ParamSpec, Risk};
-use crate::triage::ReadTool;
+use crate::skill::{ParamKind, ParamName, ParamSpec, Risk, SkillName, SkillSummary, VerifySpec};
+use crate::triage::{MAX_SKILL_ARGS, ReadTool};
 
 #[test]
 fn provider_cannot_lower_effect_class() {
@@ -18,11 +23,13 @@ fn provider_cannot_lower_effect_class() {
     let contract = skill_contract(
         &destructive,
         Some(SkillFloor::new(EffectClass::Read).unwrap()),
-    );
+    )
+    .unwrap();
     assert_eq!(contract.effect, EffectClass::Destructive);
 
     let read = summary("look", Risk::Read, None);
-    let contract = skill_contract(&read, Some(SkillFloor::new(EffectClass::Mutate).unwrap()));
+    let contract =
+        skill_contract(&read, Some(SkillFloor::new(EffectClass::Mutate).unwrap())).unwrap();
     assert_eq!(contract.effect, EffectClass::Mutate);
 
     assert_eq!(
@@ -32,7 +39,7 @@ fn provider_cannot_lower_effect_class() {
     );
 
     let named = summary("docker_ps", Risk::Write, Some(verify()));
-    let contract = skill_contract(&named, None);
+    let contract = skill_contract(&named, None).unwrap();
     assert_eq!(contract.id.as_str(), "skill.docker_ps");
     assert_ne!(contract.id.as_str(), "container.list");
 }
@@ -56,12 +63,24 @@ fn skill_floor_rejects_contain() {
 fn skill_contract_validates_for_every_risk() {
     for risk in [Risk::Read, Risk::Write, Risk::Destructive] {
         for verify in [None, Some(verify())] {
-            let contract = skill_contract(&summary("backup_db", risk, verify.clone()), None);
+            if risk == Risk::Read && verify.is_some() {
+                assert!(
+                    matches!(
+                        skill_contract(&summary("backup_db", risk, verify.clone()), None),
+                        Err(SkillContractError::VerifyForRead { .. }),
+                    ),
+                    "a read skill that declares a verification is refused",
+                );
+                continue;
+            }
+            let contract =
+                skill_contract(&summary("backup_db", risk, verify.clone()), None).unwrap();
             contract.validate().unwrap();
             let raised = skill_contract(
                 &summary("backup_db", risk, verify),
                 Some(SkillFloor::new(EffectClass::Destructive).unwrap()),
-            );
+            )
+            .unwrap();
             raised.validate().unwrap();
         }
     }
@@ -72,7 +91,8 @@ fn skill_contract_category_follows_effective_class() {
     let contract = skill_contract(
         &summary("backup_db", Risk::Read, None),
         Some(SkillFloor::new(EffectClass::Destructive).unwrap()),
-    );
+    )
+    .unwrap();
     assert_eq!(contract.effect, EffectClass::Destructive);
     assert_eq!(contract.category.as_str(), "skill.destructive");
     assert_eq!(
@@ -128,12 +148,14 @@ fn skill_input_schema_covers_every_param_kind() {
             },
             "count": {
                 "type": "integer",
+                "pattern": "^-?[0-9]+$",
                 "minimum": 0,
                 "maximum": 10,
                 "description": "How many",
             },
             "force": {
                 "type": "boolean",
+                "pattern": "^(true|false)$",
                 "description": "Force it",
             },
             "mode": {
@@ -233,4 +255,239 @@ fn index_meta_exposes_category_effect_and_facts() {
         index.effect_of_category(&meta.category),
         Some(EffectClass::Read)
     );
+}
+
+/// A summary of one skill whose single declared parameter has the given kind.
+fn summary_with_param(kind: ParamKind) -> SkillSummary {
+    let mut made = summary("tune_service", Risk::Write, None);
+    made.params = vec![ParamSpec {
+        name: ParamName::parse("level").unwrap(),
+        description: "A level".to_owned(),
+        required: false,
+        kind,
+    }];
+    made
+}
+
+#[test]
+fn skill_contract_timeout_out_of_range_rejected() {
+    for timeout in [
+        SignedDuration::ZERO,
+        SignedDuration::from_millis(999),
+        SignedDuration::from_hours(2),
+    ] {
+        let mut made = summary("slow_one", Risk::Write, None);
+        made.timeout = timeout;
+        assert_eq!(
+            skill_contract(&made, None),
+            Err(SkillContractError::Timeout {
+                skill: SkillName::parse("slow_one").unwrap()
+            }),
+        );
+    }
+}
+
+#[test]
+fn skill_verify_delay_out_of_range_rejected() {
+    let made = summary(
+        "restart_one",
+        Risk::Write,
+        Some(VerifySpec {
+            recheck: true,
+            delay: SignedDuration::from_hours(2),
+        }),
+    );
+    assert_eq!(
+        skill_contract(&made, None),
+        Err(SkillContractError::VerifyDelay {
+            skill: SkillName::parse("restart_one").unwrap()
+        }),
+    );
+}
+
+#[test]
+fn verify_delay_preserved_in_recheck_hint() {
+    let made = summary(
+        "restart_one",
+        Risk::Write,
+        Some(VerifySpec {
+            recheck: true,
+            delay: SignedDuration::from_secs(45),
+        }),
+    );
+    let contract = skill_contract(&made, None).unwrap();
+    assert_eq!(
+        contract.verification,
+        VerificationHint::Recheck {
+            delay: SignedDuration::from_secs(45)
+        },
+    );
+}
+
+#[test]
+fn missing_verification_stays_distinct_from_postcondition() {
+    let without = skill_contract(&summary("wipe", Risk::Destructive, None), None).unwrap();
+    assert_eq!(without.verification, VerificationHint::None);
+    let declared_off = skill_contract(
+        &summary(
+            "wipe",
+            Risk::Destructive,
+            Some(VerifySpec {
+                recheck: false,
+                delay: SignedDuration::from_secs(5),
+            }),
+        ),
+        None,
+    )
+    .unwrap();
+    assert_eq!(declared_off.verification, VerificationHint::None);
+    let immediate = skill_contract(
+        &summary(
+            "wipe",
+            Risk::Destructive,
+            Some(VerifySpec {
+                recheck: true,
+                delay: SignedDuration::ZERO,
+            }),
+        ),
+        None,
+    )
+    .unwrap();
+    assert_eq!(
+        immediate.verification,
+        VerificationHint::Recheck {
+            delay: SignedDuration::ZERO
+        },
+    );
+}
+
+#[test]
+fn skill_contract_refuses_unusable_parameter() {
+    assert_eq!(
+        skill_contract(
+            &summary_with_param(ParamKind::Integer { min: 5, max: 1 }),
+            None
+        ),
+        Err(SkillContractError::ParamKind {
+            param: "level".to_owned(),
+            reason: "min must not exceed max".to_string(),
+        },)
+    );
+    assert_eq!(
+        skill_contract(
+            &summary_with_param(ParamKind::Enum { values: Vec::new() }),
+            None,
+        ),
+        Err(SkillContractError::ParamKind {
+            param: "level".to_owned(),
+            reason: "enum must have at least one value".to_string(),
+        },)
+    );
+    assert_eq!(
+        skill_contract(
+            &summary_with_param(ParamKind::String {
+                pattern: "[a-z]+".to_string(),
+                max_len: 8
+            }),
+            None,
+        ),
+        Err(SkillContractError::ParamKind {
+            param: "level".to_owned(),
+            reason: "pattern must be anchored with ^ and $".to_string(),
+        },)
+    );
+    assert_eq!(
+        skill_contract(
+            &summary_with_param(ParamKind::String {
+                pattern: "^[a-z]+$".to_string(),
+                max_len: 0
+            }),
+            None,
+        ),
+        Err(SkillContractError::ParamKind {
+            param: "level".to_owned(),
+            reason: "max_len must be between 1 and 1024".to_string(),
+        },)
+    );
+}
+
+#[test]
+fn skill_contract_refuses_too_many_parameters() {
+    let mut made = summary("many_params", Risk::Write, None);
+    for index in 0..=MAX_SKILL_ARGS {
+        made.params.push(ParamSpec {
+            name: ParamName::parse(format!("p{}", index).as_str()).unwrap(),
+            description: "A parameter".to_owned(),
+            required: false,
+            kind: ParamKind::Boolean,
+        });
+    }
+    assert_eq!(
+        skill_contract(&made, None),
+        Err(SkillContractError::TooManyParams {
+            skill: SkillName::parse("many_params").unwrap(),
+            count: MAX_SKILL_ARGS + 1,
+            limit: MAX_SKILL_ARGS,
+        },)
+    );
+}
+
+#[test]
+fn skill_can_never_be_contain() {
+    assert_eq!(
+        SkillFloor::new(EffectClass::Contain),
+        Err(FloorError::ContainNotAllowed)
+    );
+    assert_eq!(ContractCategory::skill(EffectClass::Contain), None);
+    let contract = skill_contract(
+        &summary("wipe", Risk::Write, None),
+        Some(SkillFloor::new(EffectClass::Destructive).unwrap()),
+    )
+    .unwrap();
+    assert_ne!(contract.effect, EffectClass::Contain);
+    assert_ne!(contract.category.as_str(), "skill.contain");
+    assert_eq!(
+        contract.category,
+        ContractCategory::skill(EffectClass::Destructive).unwrap()
+    );
+    assert_eq!(
+        contract.category.skill_class(),
+        Some(EffectClass::Destructive)
+    );
+}
+
+#[test]
+fn skill_input_schema_structure_is_valid() {
+    let params = vec![
+        ParamSpec {
+            name: ParamName::parse("name").unwrap(),
+            description: "A name".to_owned(),
+            required: true,
+            kind: ParamKind::String {
+                pattern: "^[a-z]+$".to_string(),
+                max_len: 8,
+            },
+        },
+        ParamSpec {
+            name: ParamName::parse("count").unwrap(),
+            description: "How many".to_owned(),
+            required: false,
+            kind: ParamKind::Integer { min: 0, max: 10 },
+        },
+        ParamSpec {
+            name: ParamName::parse("force").unwrap(),
+            description: "Force it".to_owned(),
+            required: true,
+            kind: ParamKind::Boolean,
+        },
+        ParamSpec {
+            name: ParamName::parse("mode").unwrap(),
+            description: "Which mode".to_owned(),
+            required: false,
+            kind: ParamKind::Enum {
+                values: vec!["fast".to_owned(), "safe".to_owned()],
+            },
+        },
+    ];
+    validate_schema(&skill_input_schema(&params)).unwrap();
 }

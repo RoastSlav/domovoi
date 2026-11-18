@@ -3,11 +3,24 @@
 //! Every value is an opaque string checked at parse time: a contract id or category is
 //! dot-separated lowercase words, a target name is free text an owner typed, and a target
 //! identity is the canonical `<scheme>:<rest>` string permits and plan hashes bind to.
+//!
+//! Namespaces are decided here, by grammar and not by a lookup table, so a later prompt can add
+//! a built-in family without reopening this file:
+//!
+//! - a contract id is `<family>.<name>`; the family `skill` is reserved for the skill family, so
+//!   every other first segment is a built-in family a later prompt may introduce.
+//! - a skill's id is always `skill.<name>` ([`ContractId::skill`]) and never a built-in id; a
+//!   built-in id never starts with `skill.` ([`ContractId::is_skill`]).
+//! - a skill's category is exactly `skill.<effect class>` ([`ContractCategory::skill`]); a built-in
+//!   category may not take that shape, so a rule naming a category cannot mix the two families.
+//! - `TargetIdentity::parse` checks only the shape. Resolving an owner-typed name to an identity
+//!   belongs to the target resolver, which is a separate boundary.
 
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+use super::effect::{EffectClass, TargetKind};
 use crate::error::ValidationError;
 use crate::skill::SkillName;
 
@@ -75,7 +88,10 @@ string_newtype!(
     /// The coarse family a contract belongs to, for example `container.observe`.
     ///
     /// Same grammar as [`ContractId`], at most 64 bytes. Every category belongs to exactly
-    /// one effect class, which the policy evaluator's specificity order depends on.
+    /// one effect class, which the policy evaluator's specificity order depends on. A category
+    /// in the reserved `skill.` namespace names a skill family and takes the shape `skill.`
+    /// followed by the effect class; a built-in category never takes that shape, and a built-in
+    /// read category ends in the segment `observe`.
     ContractCategory
 );
 
@@ -100,7 +116,9 @@ string_newtype!(
     ///
     /// The shape is `<scheme>:<rest>` where the scheme is `host`, `container`, `unit` or
     /// `ipnet` and the rest is 1 to 300 printable ASCII characters without spaces. Only the
-    /// shape is checked here; the registry resolves names to identities.
+    /// shape is checked here; resolving an owner-typed name to an identity is a separate
+    /// boundary. `ipnet` is validated as a shape only: no capability here binds one, because
+    /// the target kind and the resolver for network sources arrive later.
     TargetIdentity
 );
 
@@ -135,7 +153,10 @@ impl ContractId {
             .and_then(|name| SkillName::parse(name).ok())
     }
 
-    /// Whether this id belongs to the `skill.` family.
+    /// Whether this id belongs to the `skill.` family, the only namespace a skill may use.
+    ///
+    /// A built-in id never starts with `skill.`, so a skill can never name a built-in
+    /// capability, and `validate` refuses the converse.
     #[must_use]
     pub fn is_skill(&self) -> bool {
         self.0.starts_with("skill.")
@@ -155,6 +176,45 @@ impl ContractCategory {
     pub fn parse(input: &str) -> Result<Self, ValidationError> {
         check_dotted(input, "contract category", MAX_CATEGORY, 2)?;
         Ok(Self(input.to_owned()))
+    }
+
+    /// Whether this category sits in the `skill.` namespace, which only the skill family may
+    /// use. A built-in family takes any other first segment, so a later built-in family needs
+    /// no change here.
+    #[must_use]
+    pub fn is_skill_namespace(&self) -> bool {
+        self.0.starts_with("skill.")
+    }
+
+    /// The category of a skill capability whose effective class is `class`.
+    ///
+    /// `None` for `Contain`: no skill may be `contain`, so the category does not exist.
+    #[must_use]
+    pub fn skill(class: EffectClass) -> Option<ContractCategory> {
+        if class == EffectClass::Contain {
+            return None;
+        }
+        Some(Self(format!("skill.{}", class.as_str())))
+    }
+
+    /// The skill effect class this category names, when it is in the skill namespace.
+    #[must_use]
+    pub fn skill_class(&self) -> Option<EffectClass> {
+        let name = self.0.strip_prefix("skill.")?;
+        EffectClass::ALL
+            .iter()
+            .find(|class| class.as_str() == name)
+            .copied()
+    }
+
+    /// Whether this category names *observing* a built-in family, the convention every
+    /// built-in read contract follows: its last segment is `observe`.
+    #[must_use]
+    pub fn is_observation(&self) -> bool {
+        self.0
+            .rsplit(['.'])
+            .next()
+            .is_some_and(|last| last == "observe")
     }
 }
 
@@ -260,11 +320,34 @@ impl TargetIdentity {
         }
         Ok(Self(input.to_owned()))
     }
+
+    /// The identity's scheme, which says which kind of thing it names.
+    #[must_use]
+    pub fn scheme(&self) -> String {
+        split_identity(&self.0).0
+    }
+
+    /// The target kind this identity's scheme names, or `None` when no target kind exists for
+    /// it yet.
+    ///
+    /// `ipnet` has none: a network source arrives with its own target kind and resolver, so
+    /// nothing here may bind such an identity. Comparing a contract's target kind with an
+    /// identity is not name resolution; the identity must already be canonical.
+    #[must_use]
+    pub fn target_kind(&self) -> Option<TargetKind> {
+        match split_identity(&self.0).0.as_str() {
+            "host" => Some(TargetKind::Host),
+            "container" => Some(TargetKind::Container),
+            "unit" => Some(TargetKind::Unit),
+            // `ipnet`, and any scheme a value did not come through `parse`.
+            _ => None,
+        }
+    }
 }
 
 /// A capability contract's version, starting at 1 and never 0.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
+#[serde(try_from = "u32", into = "u32")]
 pub struct ContractVersion(u32);
 
 impl ContractVersion {
@@ -291,6 +374,14 @@ impl ContractVersion {
     }
 }
 
+impl TryFrom<u32> for ContractVersion {
+    type Error = ValidationError;
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        Self::new(value)
+    }
+}
+
 impl fmt::Display for ContractVersion {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
@@ -300,6 +391,15 @@ impl fmt::Display for ContractVersion {
 impl From<ContractVersion> for u32 {
     fn from(value: ContractVersion) -> Self {
         value.0
+    }
+}
+
+/// Splits an identity into scheme and rest, without validating it: an identity that did not
+/// come through `TargetIdentity::parse` can be total here and still be meaningless.
+fn split_identity(value: &str) -> (String, String) {
+    match value.split_once(':') {
+        Some((scheme, rest)) => (scheme.to_owned(), rest.to_owned()),
+        None => (String::new(), value.to_owned()),
     }
 }
 

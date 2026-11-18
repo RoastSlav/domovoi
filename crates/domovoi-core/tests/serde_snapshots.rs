@@ -243,6 +243,7 @@ fn skill_contract_snapshot() {
     let contract = skill_contract(
         &summary,
         Some(SkillFloor::new(EffectClass::Destructive).unwrap()),
-    );
+    )
+    .unwrap();
     insta::assert_json_snapshot!(contract);
 }

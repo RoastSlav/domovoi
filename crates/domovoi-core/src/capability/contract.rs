@@ -1,6 +1,12 @@
 //! The typed description of one capability.
-
-use std::collections::BTreeSet;
+//!
+//! A contract is the hub's own description: what the capability is called, what its arguments
+//! mean, what running it can do to a host and what a policy may bound. The fields are public so
+//! the registry and the policy evaluator can read them, and the type has no `Deserialize`: only
+//! the hub builds one, from its built-in table or through [`skill_contract`], so nothing an agent
+//! or a skill author sends can become a contract. Every construction path runs the contract
+//! through [`validate`](Self::validate), which refuses a contract whose fields contradict each
+//! other; the rules themselves live in `rules.rs`.
 
 use jiff::SignedDuration;
 use serde::Serialize;
@@ -9,18 +15,13 @@ use super::effect::{
     EffectClass, ExecutionPath, Idempotency, Reversibility, TargetKind, VerificationHint,
 };
 use super::ids::{ContractCategory, ContractId, ContractVersion, FactId};
-use super::skill::{SkillFloor, effective_effect};
-
-/// The largest output a contract may promise, in bytes.
-const MAX_OUTPUT_LIMIT: u32 = 1_048_576;
-/// The longest a capability may run, as contracts state it.
-const MAX_TIMEOUT: SignedDuration = SignedDuration::from_secs(3600);
+use super::schema::SchemaError;
 
 /// The hub's own description of what one capability is and how dangerous it is.
 ///
-/// Only the hub constructs these, from its built-in table or from a skill summary plus a
-/// floor. There is no `Deserialize`, so nothing an agent or a skill author sends can build
-/// one, and the effect class never comes from a wire value.
+/// Only the hub constructs these, from its built-in table or from a skill summary plus a floor.
+/// There is no `Deserialize`, so nothing an agent or a skill author sends can build one, and the
+/// effect class never comes from a wire value.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct CapabilityContract {
     /// Stable registry and policy id.
@@ -100,6 +101,10 @@ pub enum ContractSource {
 }
 
 /// Why a contract is not usable.
+///
+/// Every variant names one rule of [`validate`](Self::validate), so a caller can tell which
+/// field it has to fix. A schema problem is reported as [`SchemaInvalid`] carrying the
+/// [`SchemaError`] that names the part of the argument schema at fault.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ContractError {
     /// The output limit is outside the allowed range.
@@ -116,13 +121,55 @@ pub enum ContractError {
         /// The contract that failed.
         id: ContractId,
     },
+    /// The title or the description is blank, so the inventory would show an unnamed
+    /// capability.
+    #[error("{id}: `{field}` must not be blank")]
+    BlankText {
+        /// The contract that failed.
+        id: ContractId,
+        /// The blank field.
+        field: &'static str,
+    },
     /// The target argument and the target kind disagree.
     #[error("{id}: the target argument and target kind disagree")]
     TargetArgMismatch {
         /// The contract that failed.
         id: ContractId,
     },
-    /// A read contract set a field only a mutating contract may set.
+    /// The target argument is named outside the argument grammar.
+    #[error("{id}: target argument `{key}` must match [a-z][a-z0-9_]{{0,63}}")]
+    TargetArgBadName {
+        /// The contract that failed.
+        id: ContractId,
+        /// The rejected name.
+        key: String,
+    },
+    /// The schema does not declare the target argument, so nothing names what the capability
+    /// acts on.
+    #[error("{id}: the input schema does not declare target argument `{key}`")]
+    TargetArgUndeclared {
+        /// The contract that failed.
+        id: ContractId,
+        /// The missing argument.
+        key: String,
+    },
+    /// The target argument is not text, so no target identity can be named by it.
+    #[error("{id}: target argument `{key}` must be `string`")]
+    TargetArgNotText {
+        /// The contract that failed.
+        id: ContractId,
+        /// The argument.
+        key: String,
+    },
+    /// The schema does not require the target argument, so a call could run with no target.
+    #[error("{id}: the schema must require target argument `{key}`")]
+    TargetArgNotRequired {
+        /// The contract that failed.
+        id: ContractId,
+        /// The argument.
+        key: String,
+    },
+    /// A read contract set a field only a capability that changes state may set.
     #[error("{id}: a read contract cannot set {field}")]
     ReadHasSideEffectFields {
         /// The contract that failed.
@@ -130,15 +177,49 @@ pub enum ContractError {
         /// The field that does not apply to a read.
         field: &'static str,
     },
-    /// A mutating contract did not say how it is undone and verified.
-    #[error("{id}: a mutating contract needs a reversibility and a verification")]
-    MutatingNeedsReversibilityAndVerification {
+    /// A built-in capability that changes state did not say how it is undone and verified.
+    #[error("{id}: a built-in that changes state needs a reversibility and a verification")]
+    BuiltInNeedsReversibilityAndVerification {
         /// The contract that failed.
         id: ContractId,
     },
-    /// The id and the source disagree about whether this is a skill.
-    #[error("{id}: a skill contract needs a `skill.` id, a skill source and the skill runner")]
+    /// A `mutate` capability is neither reversible nor idempotent, so repeating it can lose
+    /// state and it is really `destructive`.
+    #[error("{id}: a `mutate` capability must be reversible or idempotent")]
+    MutateMustBeUndoable {
+        /// The contract that failed.
+        id: ContractId,
+    },
+    /// `contain` is a typed privileged operation, so only the root helper path may run it.
+    #[error("{id}: a `contain` capability must run through the root helper")]
+    ContainNeedsHelper {
+        /// The contract that failed.
+        id: ContractId,
+    },
+    /// The root helper path is only for capabilities that change state.
+    #[error("{id}: the root helper path cannot run a read")]
+    HelperPathForRead {
+        /// The contract that failed.
+        id: ContractId,
+    },
+    /// A recheck delay is negative or longer than an hour.
+    #[error("{id}: a recheck delay must be between 0s and 1h")]
+    RecheckDelayInvalid {
+        /// The contract that failed.
+        id: ContractId,
+    },
+    /// The id, the source, the execution path and the target kind disagree about whether this
+    /// is a skill.
+    #[error(
+        "{id}: a skill contract needs a `skill.` id, a skill source, the skill runner and a host target"
+    )]
     SkillSourceMismatch {
+        /// The contract that failed.
+        id: ContractId,
+    },
+    /// A built-in took the reserved `skill.` category namespace.
+    #[error("{id}: a built-in may not take the `skill.` category namespace")]
+    BuiltInSkillCategory {
         /// The contract that failed.
         id: ContractId,
     },
@@ -158,6 +239,16 @@ pub enum ContractError {
         /// The contract that failed.
         id: ContractId,
     },
+    /// A skill's category does not name its effect class.
+    #[error("{id}: expected category `{expected}`, found `{found}`")]
+    SkillCategoryMismatch {
+        /// The contract that failed.
+        id: ContractId,
+        /// The category the effect implies.
+        expected: ContractCategory,
+        /// The category the contract states.
+        found: ContractCategory,
+    },
     /// A constrainable argument is declared twice.
     #[error("{id}: constrainable argument `{key}` is declared twice")]
     DuplicateConstrainableArg {
@@ -166,7 +257,7 @@ pub enum ContractError {
         /// The repeated key.
         key: String,
     },
-    /// A constrainable argument key does not match the argument grammar.
+    /// A constrainable argument key is outside the argument grammar.
     #[error("{id}: constrainable argument `{key}` must match [a-z][a-z0-9_]{{0,63}}")]
     BadConstrainableKey {
         /// The contract that failed.
@@ -174,146 +265,54 @@ pub enum ContractError {
         /// The rejected key.
         key: String,
     },
-    /// The input schema is not a JSON Schema object.
-    #[error("{id}: the input schema must be an object with type `object`")]
-    SchemaNotObject {
+    /// The schema does not declare a constrainable argument, so a ceiling bound on it would be
+    /// ignored at the call boundary.
+    #[error("{id}: the input schema does not declare constrainable argument `{key}`")]
+    ConstrainableUndeclared {
         /// The contract that failed.
         id: ContractId,
+        /// The missing argument.
+        key: String,
     },
-}
-
-impl CapabilityContract {
-    /// Checks that every field is consistent with the others.
-    pub fn validate(&self) -> Result<(), ContractError> {
-        if !(1..=MAX_OUTPUT_LIMIT).contains(&self.output_limit_bytes) {
-            return Err(ContractError::OutputLimit {
-                id: self.id.clone(),
-                bytes: self.output_limit_bytes,
-            });
-        }
-        if self.timeout <= SignedDuration::ZERO || self.timeout > MAX_TIMEOUT {
-            return Err(ContractError::Timeout {
-                id: self.id.clone(),
-            });
-        }
-
-        let needs_target_arg = matches!(self.target_kind, TargetKind::Container | TargetKind::Unit);
-        if self.target_arg.is_some() != needs_target_arg {
-            return Err(ContractError::TargetArgMismatch {
-                id: self.id.clone(),
-            });
-        }
-
-        if self.effect == EffectClass::Read {
-            let side_effect_field = if self.reversibility != Reversibility::NotApplicable {
-                Some("reversibility")
-            } else if self.idempotency != Idempotency::Idempotent {
-                Some("idempotency")
-            } else if self.verification != VerificationHint::None {
-                Some("verification")
-            } else if !self.constrainable_args.is_empty() {
-                Some("constrainable_args")
-            } else if !self.safety_facts.is_empty() {
-                Some("safety_facts")
-            } else {
-                None
-            };
-            if let Some(field) = side_effect_field {
-                return Err(ContractError::ReadHasSideEffectFields {
-                    id: self.id.clone(),
-                    field,
-                });
-            }
-        } else if self.reversibility == Reversibility::NotApplicable
-            || self.verification == VerificationHint::None
-        {
-            return Err(ContractError::MutatingNeedsReversibilityAndVerification {
-                id: self.id.clone(),
-            });
-        }
-
-        match &self.source {
-            ContractSource::BuiltIn => {
-                if self.id.is_skill() || self.execution == ExecutionPath::SkillRunner {
-                    return Err(ContractError::SkillSourceMismatch {
-                        id: self.id.clone(),
-                    });
-                }
-            }
-            ContractSource::Skill { declared, floor } => {
-                if !self.id.is_skill()
-                    || self.execution != ExecutionPath::SkillRunner
-                    || self.target_kind != TargetKind::Host
-                {
-                    return Err(ContractError::SkillSourceMismatch {
-                        id: self.id.clone(),
-                    });
-                }
-                if *declared == EffectClass::Contain
-                    || self.effect == EffectClass::Contain
-                    || floor == &Some(EffectClass::Contain)
-                {
-                    return Err(ContractError::SkillContain {
-                        id: self.id.clone(),
-                    });
-                }
-                let floor =
-                    match floor {
-                        Some(class) => Some(SkillFloor::new(*class).map_err(|_| {
-                            ContractError::SkillContain {
-                                id: self.id.clone(),
-                            }
-                        })?),
-                        None => None,
-                    };
-                let expected = effective_effect(*declared, floor);
-                if expected != self.effect {
-                    return Err(ContractError::SkillEffectMismatch {
-                        id: self.id.clone(),
-                        expected,
-                        found: self.effect,
-                    });
-                }
-            }
-        }
-
-        let mut seen = BTreeSet::new();
-        for arg in &self.constrainable_args {
-            if !valid_arg_key(&arg.key) {
-                return Err(ContractError::BadConstrainableKey {
-                    id: self.id.clone(),
-                    key: arg.key.clone(),
-                });
-            }
-            if !seen.insert(&arg.key) {
-                return Err(ContractError::DuplicateConstrainableArg {
-                    id: self.id.clone(),
-                    key: arg.key.clone(),
-                });
-            }
-        }
-
-        if !self.input_schema.is_object()
-            || self.input_schema.get("type").and_then(|t| t.as_str()) != Some("object")
-        {
-            return Err(ContractError::SchemaNotObject {
-                id: self.id.clone(),
-            });
-        }
-
-        Ok(())
-    }
-}
-
-/// Whether `key` matches `[a-z][a-z0-9_]{0,63}`.
-fn valid_arg_key(key: &str) -> bool {
-    let bytes = key.as_bytes();
-    let Some(first) = bytes.first() else {
-        return false;
-    };
-    bytes.len() <= 64
-        && first.is_ascii_lowercase()
-        && bytes
-            .iter()
-            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || *b == b'_')
+    /// A constrainable argument is not an integer, so no ceiling bound applies to it.
+    #[error("{id}: constrainable argument `{key}` must be `integer`")]
+    ConstrainableNotInteger {
+        /// The contract that failed.
+        id: ContractId,
+        /// The argument.
+        key: String,
+    },
+    /// A constrainable argument states no bound, so the ceiling's bound has nothing to be
+    /// compared against in the schema.
+    #[error("{id}: constrainable argument `{key}` must state at least one integer bound")]
+    ConstrainableUnbounded {
+        /// The contract that failed.
+        id: ContractId,
+        /// The argument.
+        key: String,
+    },
+    /// A constrainable argument has no description, so the approval card would show a bare key.
+    #[error("{id}: constrainable argument `{key}` needs a description")]
+    ConstrainableBlankDescription {
+        /// The contract that failed.
+        id: ContractId,
+        /// The argument.
+        key: String,
+    },
+    /// A safety fact is listed twice, which reads as one fact the evaluator waits for.
+    #[error("{id}: safety fact `{fact}` is listed twice")]
+    DuplicateSafetyFact {
+        /// The contract that failed.
+        id: ContractId,
+        /// The repeated fact.
+        fact: FactId,
+    },
+    /// The argument schema is refused by the structural validator, which says which part.
+    #[error("{id}: the input schema is refused: {reason}")]
+    SchemaInvalid {
+        /// The contract that failed.
+        id: ContractId,
+        /// What is wrong with the schema.
+        reason: SchemaError,
+    },
 }

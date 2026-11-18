@@ -1,5 +1,6 @@
 //! What a capability can do, where it runs and what verifying it means.
 
+use jiff::SignedDuration;
 use serde::{Deserialize, Serialize};
 
 use crate::skill::Risk;
@@ -69,16 +70,24 @@ impl From<Risk> for EffectClass {
 }
 
 /// What kind of thing a capability acts on.
+///
+/// There is no network kind yet: `TargetIdentity` accepts the `ipnet` scheme as a shape only,
+/// and the kind and the resolver for a network source arrive with the network capabilities, so
+/// no capability here may bind one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TargetKind {
-    /// The capability has no target.
+    /// The capability has no target to name, so a policy rule that names a target never
+    /// matches it and a ceiling entry for it may not name targets either. No capability in
+    /// this prompt has this kind: host-level capabilities are `Host`.
     None,
-    /// The host itself.
+    /// The host itself is the target: a permit and a plan hash bind the host identity, and
+    /// the capability needs no target argument. This is not the same as `None`, which names
+    /// no target at all.
     Host,
-    /// One container.
+    /// One container, named by the contract's target argument.
     Container,
-    /// One systemd unit.
+    /// One systemd unit, named by the contract's target argument.
     Unit,
 }
 
@@ -105,6 +114,11 @@ pub enum Idempotency {
 }
 
 /// Where a capability executes (RW-39).
+///
+/// `validate` ties this to the rest of a contract: built-in reads answer from the hub's own
+/// store (`Hub`) or run in the agent process (`Agent`), skills run only through the skill
+/// runner, and the root helper path is reserved for typed privileged operations that change
+/// state, never for a read and never for a skill.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecutionPath {
@@ -119,13 +133,20 @@ pub enum ExecutionPath {
 }
 
 /// How an operator or the hub can check that a capability worked.
+///
+/// `None` means there is no procedure, which is honest only when the owner declared none: the
+/// hub never invents one for a capability that changes state.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum VerificationHint {
-    /// Nothing to verify, as for a read.
+    /// Nothing to verify: a read, or a capability whose owner declared no procedure.
     None,
-    /// Re-run the originating check after a delay.
-    Recheck,
+    /// Re-run the originating check after the stated delay.
+    Recheck {
+        /// How long to wait before re-running the originating check.
+        #[serde(serialize_with = "jiff::fmt::serde::duration::friendly::compact::required")]
+        delay: SignedDuration,
+    },
     /// The capability's own postcondition, described for the approval card.
     Postcondition {
         /// What should hold after the capability runs.

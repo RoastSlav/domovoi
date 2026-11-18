@@ -10,12 +10,15 @@ use serde_json::json;
 
 use super::builtin::READ_OUTPUT_LIMIT;
 use super::ceiling::{CeilingEntry, CeilingSummary, CeilingTargets};
-use super::contract::{CapabilityContract, ContractError, ContractSource};
+use super::contract::{
+    CapabilityContract, ConstrainableArg, ConstraintKind, ContractError, ContractSource,
+};
 use super::effect::{
     EffectClass, ExecutionPath, Idempotency, Reversibility, TargetKind, VerificationHint,
 };
 use super::ids::{ContractCategory, ContractId, ContractVersion, TargetIdentity, TargetName};
 use super::index::{ContractIndex, IndexError};
+use super::schema::SchemaError;
 use super::skill::{SkillFloor, effective_effect};
 use crate::ScriptDigest;
 use crate::skill::{Risk, SkillName, SkillSummary, VerifySpec};
@@ -44,7 +47,7 @@ pub(super) fn verify() -> VerifySpec {
     }
 }
 
-fn crafted(id: &str, category: &str, effect: EffectClass) -> CapabilityContract {
+pub(super) fn crafted(id: &str, category: &str, effect: EffectClass) -> CapabilityContract {
     CapabilityContract {
         id: ContractId::parse(id).unwrap(),
         version: ContractVersion::new(1).unwrap(),
@@ -75,7 +78,9 @@ fn crafted(id: &str, category: &str, effect: EffectClass) -> CapabilityContract 
         verification: if effect == EffectClass::Read {
             VerificationHint::None
         } else {
-            VerificationHint::Recheck
+            VerificationHint::Recheck {
+                delay: SignedDuration::from_secs(0),
+            }
         },
         constrainable_args: Vec::new(),
         safety_facts: Vec::new(),
@@ -84,7 +89,7 @@ fn crafted(id: &str, category: &str, effect: EffectClass) -> CapabilityContract 
     }
 }
 
-fn crafted_skill(
+pub(super) fn crafted_skill(
     id: &str,
     declared: EffectClass,
     floor: Option<EffectClass>,
@@ -242,7 +247,7 @@ fn validate_requires_verification_for_mutating() {
     contract.verification = VerificationHint::None;
     assert_eq!(
         contract.validate(),
-        Err(ContractError::MutatingNeedsReversibilityAndVerification {
+        Err(ContractError::BuiltInNeedsReversibilityAndVerification {
             id: contract.id.clone(),
         })
     );
@@ -311,4 +316,414 @@ fn ceiling_summary_serde_round_trip() {
     let value = serde_json::to_value(&summary).unwrap();
     let round_tripped: CeilingSummary = serde_json::from_value(value).unwrap();
     assert_eq!(round_tripped, summary);
+}
+
+/// A contract that declares one bounded integer argument the ceiling may constrain.
+pub(super) fn bounded_constrainable() -> CapabilityContract {
+    let mut contract = crafted("x.y", "x.y", EffectClass::Mutate);
+    contract.input_schema = json!({
+        "type": "object",
+        "properties": {
+            "wait_seconds": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 60,
+                "description": "How long to wait",
+            },
+        },
+        "required": [],
+        "additionalProperties": false,
+    });
+    contract.constrainable_args = vec![ConstrainableArg {
+        key: "wait_seconds".to_owned(),
+        kind: ConstraintKind::IntAtMost,
+        description: "Most seconds the host may wait".to_owned(),
+    }];
+    contract
+}
+
+#[test]
+fn output_limit_outside_transport_rejected() {
+    let mut contract = crafted("x.y", "x.y", EffectClass::Read);
+    contract.output_limit_bytes = 0;
+    assert_eq!(
+        contract.validate(),
+        Err(ContractError::OutputLimit {
+            id: contract.id.clone(),
+            bytes: 0
+        })
+    );
+    let mut too_big = crafted("x.y", "x.y", EffectClass::Read);
+    too_big.output_limit_bytes = 1_048_577;
+    assert_eq!(
+        too_big.validate(),
+        Err(ContractError::OutputLimit {
+            id: too_big.id.clone(),
+            bytes: 1_048_577
+        })
+    );
+}
+
+#[test]
+fn timeout_outside_range_rejected() {
+    let mut contract = crafted("x.y", "x.y", EffectClass::Read);
+    contract.timeout = SignedDuration::ZERO;
+    assert_eq!(
+        contract.validate(),
+        Err(ContractError::Timeout {
+            id: contract.id.clone()
+        })
+    );
+    let mut too_long = crafted("x.y", "x.y", EffectClass::Read);
+    too_long.timeout = SignedDuration::from_hours(2);
+    assert_eq!(
+        too_long.validate(),
+        Err(ContractError::Timeout {
+            id: too_long.id.clone()
+        })
+    );
+}
+
+#[test]
+fn blank_title_or_description_rejected() {
+    let mut contract = crafted("x.y", "x.y", EffectClass::Read);
+    contract.title = " ".to_string();
+    assert_eq!(
+        contract.validate(),
+        Err(ContractError::BlankText {
+            id: contract.id.clone(),
+            field: "title"
+        })
+    );
+    let mut blank_description = crafted("x.y", "x.y", EffectClass::Read);
+    blank_description.description = " ".to_string();
+    assert_eq!(
+        blank_description.validate(),
+        Err(ContractError::BlankText {
+            id: blank_description.id.clone(),
+            field: "description"
+        })
+    );
+}
+
+#[test]
+fn recheck_delay_outside_range_rejected() {
+    let mut contract = crafted("x.y", "x.y", EffectClass::Mutate);
+    contract.verification = VerificationHint::Recheck {
+        delay: SignedDuration::from_hours(2),
+    };
+    assert_eq!(
+        contract.validate(),
+        Err(ContractError::RecheckDelayInvalid {
+            id: contract.id.clone()
+        })
+    );
+    let mut waiting = crafted("x.y", "x.y", EffectClass::Mutate);
+    waiting.verification = VerificationHint::Recheck {
+        delay: SignedDuration::ZERO,
+    };
+    waiting.validate().unwrap();
+}
+
+#[test]
+fn target_argument_agrees_with_target_kind() {
+    let mut host_with_argument = crafted("host.restart", "host.mutate", EffectClass::Mutate);
+    host_with_argument.target_arg = Some("display".to_owned());
+    assert_eq!(
+        host_with_argument.validate(),
+        Err(ContractError::TargetArgMismatch {
+            id: host_with_argument.id.clone(),
+        })
+    );
+    let mut unit_without_argument = crafted("unit.restart", "unit.mutate", EffectClass::Mutate);
+    unit_without_argument.target_kind = TargetKind::Unit;
+    assert_eq!(
+        unit_without_argument.validate(),
+        Err(ContractError::TargetArgMismatch {
+            id: unit_without_argument.id.clone(),
+        })
+    );
+}
+
+#[test]
+fn target_argument_name_must_be_an_argument() {
+    let mut contract = crafted("container.kill", "container.mutate", EffectClass::Mutate);
+    contract.target_kind = TargetKind::Container;
+    contract.target_arg = Some("Bad Name".to_owned());
+    assert_eq!(
+        contract.validate(),
+        Err(ContractError::TargetArgBadName {
+            id: contract.id.clone(),
+            key: "Bad Name".to_string(),
+        })
+    );
+}
+
+#[test]
+fn target_argument_must_be_declared_text_and_required() {
+    let mut undeclared = crafted("container.kill", "container.mutate", EffectClass::Mutate);
+    undeclared.target_kind = TargetKind::Container;
+    undeclared.target_arg = Some("container".to_owned());
+    assert_eq!(
+        undeclared.validate(),
+        Err(ContractError::TargetArgUndeclared {
+            id: undeclared.id.clone(),
+            key: "container".to_string(),
+        })
+    );
+
+    let mut not_text = crafted("container.kill", "container.mutate", EffectClass::Mutate);
+    not_text.target_kind = TargetKind::Container;
+    not_text.target_arg = Some("container".to_owned());
+    not_text.input_schema = json!({
+        "type": "object",
+        "properties": {
+            "container": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 10,
+                "description": "Which one",
+            },
+        },
+        "required": ["container"],
+        "additionalProperties": false,
+    });
+    assert_eq!(
+        not_text.validate(),
+        Err(ContractError::TargetArgNotText {
+            id: not_text.id.clone(),
+            key: "container".to_string(),
+        })
+    );
+
+    let mut not_required = crafted("container.kill", "container.mutate", EffectClass::Mutate);
+    not_required.target_kind = TargetKind::Container;
+    not_required.target_arg = Some("container".to_owned());
+    not_required.input_schema = json!({
+        "type": "object",
+        "properties": {
+            "container": {
+                "type": "string",
+                "pattern": "^[a-z]+$",
+                "description": "Which one",
+            },
+        },
+        "required": [],
+        "additionalProperties": false,
+    });
+    assert_eq!(
+        not_required.validate(),
+        Err(ContractError::TargetArgNotRequired {
+            id: not_required.id.clone(),
+            key: "container".to_string(),
+        })
+    );
+}
+
+#[test]
+fn invalid_constrainable_arg_rejected() {
+    let mut contract = bounded_constrainable();
+    contract.constrainable_args[0].key = "Wait Seconds".to_string();
+    assert_eq!(
+        contract.validate(),
+        Err(ContractError::BadConstrainableKey {
+            id: contract.id.clone(),
+            key: "Wait Seconds".to_string(),
+        },)
+    );
+
+    let mut duplicate = bounded_constrainable();
+    duplicate
+        .constrainable_args
+        .push(duplicate.constrainable_args[0].clone());
+    assert_eq!(
+        duplicate.validate(),
+        Err(ContractError::DuplicateConstrainableArg {
+            id: duplicate.id.clone(),
+            key: "wait_seconds".to_string(),
+        },)
+    );
+
+    let mut undeclared = bounded_constrainable();
+    undeclared.constrainable_args[0].key = "extra".to_owned();
+    assert_eq!(
+        undeclared.validate(),
+        Err(ContractError::ConstrainableUndeclared {
+            id: undeclared.id.clone(),
+            key: "extra".to_string(),
+        },)
+    );
+
+    let mut not_integer = bounded_constrainable();
+    not_integer.input_schema = json!({
+        "type": "object",
+        "properties": {
+            "wait_seconds": {
+                "type": "string",
+                "pattern": "^[0-9]+$",
+                "description": "How long to wait",
+            },
+        },
+        "required": [],
+        "additionalProperties": false,
+    });
+    assert_eq!(
+        not_integer.validate(),
+        Err(ContractError::ConstrainableNotInteger {
+            id: not_integer.id.clone(),
+            key: "wait_seconds".to_string(),
+        },)
+    );
+
+    let mut unbounded = bounded_constrainable();
+    unbounded.input_schema = json!({
+        "type": "object",
+        "properties": {
+            "wait_seconds": { "type": "integer", "description": "How long to wait" },
+        },
+        "required": [],
+        "additionalProperties": false,
+    });
+    assert_eq!(
+        unbounded.validate(),
+        Err(ContractError::ConstrainableUnbounded {
+            id: unbounded.id.clone(),
+            key: "wait_seconds".to_string(),
+        },)
+    );
+
+    let mut blank = bounded_constrainable();
+    blank.constrainable_args[0].description = " ".to_string();
+    assert_eq!(
+        blank.validate(),
+        Err(ContractError::ConstrainableBlankDescription {
+            id: blank.id.clone(),
+            key: "wait_seconds".to_string(),
+        },)
+    );
+}
+
+#[test]
+fn contract_schema_structure_must_validate() {
+    bounded_constrainable().validate().unwrap();
+    let mut not_an_object = crafted("x.y", "x.y", EffectClass::Read);
+    not_an_object.input_schema = json!([]);
+    assert_eq!(
+        not_an_object.validate(),
+        Err(ContractError::SchemaInvalid {
+            id: not_an_object.id.clone(),
+            reason: SchemaError::NotObject,
+        },)
+    );
+    let mut open = crafted("x.y", "x.y", EffectClass::Read);
+    open.input_schema = json!({
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": true,
+    });
+    assert_eq!(
+        open.validate(),
+        Err(ContractError::SchemaInvalid {
+            id: open.id.clone(),
+            reason: SchemaError::OpenAdditionalProperties,
+        },)
+    );
+}
+
+#[test]
+fn built_in_may_not_take_skill_category() {
+    let contract = crafted("x.y", "skill.mutate", EffectClass::Mutate);
+    assert_eq!(
+        contract.validate(),
+        Err(ContractError::BuiltInSkillCategory {
+            id: contract.id.clone()
+        })
+    );
+}
+
+#[test]
+fn unsupported_execution_path_for_read_rejected() {
+    let mut contract = crafted("x.y", "x.y", EffectClass::Read);
+    contract.execution = ExecutionPath::Helper;
+    assert_eq!(
+        contract.validate(),
+        Err(ContractError::HelperPathForRead {
+            id: contract.id.clone()
+        })
+    );
+}
+
+#[test]
+fn contain_requires_helper_path() {
+    let contract = crafted("host.arrest", "host.mutate", EffectClass::Contain);
+    assert_eq!(
+        contract.validate(),
+        Err(ContractError::ContainNeedsHelper {
+            id: contract.id.clone()
+        })
+    );
+    let mut privileged = crafted("host.arrest", "host.mutate", EffectClass::Contain);
+    privileged.execution = ExecutionPath::Helper;
+    privileged.validate().unwrap();
+}
+
+#[test]
+fn empty_index_means_nothing_composed() {
+    let index = ContractIndex::new(Vec::new()).unwrap();
+    assert!(index.is_empty());
+    assert!(
+        index
+            .effect_of_category(&ContractCategory::parse("x.y").unwrap())
+            .is_none()
+    );
+}
+
+#[test]
+fn index_refuses_an_unvalidated_contract() {
+    let mut broken = crafted("x.y", "x.y", EffectClass::Read);
+    broken.timeout = SignedDuration::ZERO;
+    assert_eq!(
+        ContractIndex::new(vec![broken.clone()]).unwrap_err(),
+        IndexError::Invalid(ContractError::Timeout {
+            id: broken.id.clone()
+        })
+    );
+}
+
+#[test]
+fn composed_index_holds_every_builtin_once() {
+    let skill = crafted_skill(
+        "skill.restart",
+        EffectClass::Mutate,
+        None,
+        EffectClass::Mutate,
+    );
+    let index = ContractIndex::with_builtins(vec![skill]).unwrap();
+    assert_eq!(index.len(), 11);
+    assert_eq!(
+        index.effect_of_category(&ContractCategory::parse("skill.mutate").unwrap()),
+        Some(EffectClass::Mutate)
+    );
+
+    let impostor = crafted_skill(
+        "container.list",
+        EffectClass::Mutate,
+        None,
+        EffectClass::Mutate,
+    );
+    assert_eq!(
+        ContractIndex::with_builtins(vec![impostor]).unwrap_err(),
+        IndexError::Invalid(ContractError::SkillSourceMismatch {
+            id: ContractId::parse("container.list").unwrap(),
+        },)
+    );
+
+    let hidden_builtin = crafted("container.list", "container.observe", EffectClass::Read);
+    assert_eq!(
+        ContractIndex::with_builtins(vec![hidden_builtin.clone()]).unwrap_err(),
+        IndexError::NotASkill {
+            id: hidden_builtin.id.clone()
+        }
+    );
 }

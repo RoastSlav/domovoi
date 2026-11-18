@@ -10,6 +10,7 @@ pub use manifest::{
     ManifestHash, RevertSpec, Risk, SkillManifest, SkillName, SkillSummary, VerifySpec,
 };
 pub use params::{ParamKind, ParamName, ParamSpec};
+pub(crate) use validate::check_kind;
 pub use validate::{ArgError, ManifestError, ValidatedArgs};
 
 /// Defines a validated identifier newtype matching `^[a-z][a-z0-9_]{0,MAX-1}$`.
