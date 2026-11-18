@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.0.12](https://github.com/RoastSlav/domovoi/compare/v0.0.11...v0.0.12) - 2026-11-18
+
+### Other
+
+- update Cargo.lock dependencies
+
 ## [0.0.11](https://github.com/RoastSlav/domovoi/compare/v0.0.10...v0.0.11) - 2026-11-14
 
 ### Fixed
