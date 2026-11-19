@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use domovoi_core::ports::{
-    AgentSnapshot, HelperState, HostWords, LinkError, Presence, RunnerState,
+    AgentSnapshot, HelperState, HostView, HostWords, LinkError, Presence, RunnerState,
 };
 use domovoi_core::{AgentId, AgentSessionId, HostId, JournalEpoch, RequestId, SkillSummary};
 use domovoi_proto::messages::{
@@ -359,26 +359,30 @@ impl Registry {
             .and_then(|live| live.catalog_hash.clone())
     }
 
-    /// The words the host's live session announced about itself, or `None` when it has none.
-    pub fn host_words(&self, host: HostId) -> Option<HostWords> {
+    /// The words and skills the host's live session announced, read together under one lock,
+    /// or `None` when it has none.
+    pub fn host_view(&self, host: HostId) -> Option<HostView> {
         let hosts = self.lock();
         let live = hosts.get(&host)?.live.as_ref()?;
-        Some(HostWords {
-            runs_as_root: live.runs_as_root,
-            runner: match live.skill_runner_status {
-                SkillRunnerStatus::Absent => RunnerState::Absent,
-                SkillRunnerStatus::Unsupported { .. } => RunnerState::Unsupported,
-                SkillRunnerStatus::Ok { .. } => RunnerState::Ready,
-                SkillRunnerStatus::Error { .. } => RunnerState::Failed,
+        Some(HostView {
+            words: HostWords {
+                runs_as_root: live.runs_as_root,
+                runner: match live.skill_runner_status {
+                    SkillRunnerStatus::Absent => RunnerState::Absent,
+                    SkillRunnerStatus::Unsupported { .. } => RunnerState::Unsupported,
+                    SkillRunnerStatus::Ok { .. } => RunnerState::Ready,
+                    SkillRunnerStatus::Error { .. } => RunnerState::Failed,
+                },
+                helper: match live.helper_status {
+                    HelperStatus::Absent => HelperState::Absent,
+                    HelperStatus::Ok { .. } => HelperState::Ready,
+                    HelperStatus::Error { .. } => HelperState::Failed,
+                },
+                ceiling_summary: live.ceiling_summary.clone(),
+                ceiling_hash: live.ceiling_hash.clone(),
+                container_runtime: live.docker.as_ref().is_some_and(|report| report.available),
             },
-            helper: match live.helper_status {
-                HelperStatus::Absent => HelperState::Absent,
-                HelperStatus::Ok { .. } => HelperState::Ready,
-                HelperStatus::Error { .. } => HelperState::Failed,
-            },
-            ceiling_summary: live.ceiling_summary.clone(),
-            ceiling_hash: live.ceiling_hash.clone(),
-            container_runtime: live.docker.as_ref().is_some_and(|report| report.available),
+            skills: live.skills.clone(),
         })
     }
 

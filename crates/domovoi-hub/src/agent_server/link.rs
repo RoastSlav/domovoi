@@ -9,8 +9,7 @@ use domovoi_core::capability::{
 };
 use domovoi_core::ports::{
     ActionAnswers, AgentLink, CATALOGUE_UNSUPPORTED, CheckRecheck, Clock, HostAvailability,
-    HostRepo, HostWords, LinkError, LogLine, Presence, SkillDispatch, SkillHandoff, SkillOutput,
-    ToolOutput,
+    HostRepo, LinkError, LogLine, Presence, SkillDispatch, SkillHandoff, SkillOutput, ToolOutput,
 };
 use domovoi_core::{
     ActionId, AgentSessionId, CheckKey, ContractId, HostId, JournalEpoch, ReadToolCall, RequestId,
@@ -434,8 +433,8 @@ impl AgentLink for WsAgentLink {
         self.registry.catalog_hash(host)
     }
 
-    fn host_words(&self, host: HostId) -> Option<HostWords> {
-        self.registry.host_words(host)
+    fn host_view(&self, host: HostId) -> Option<domovoi_core::ports::HostView> {
+        self.registry.host_view(host)
     }
 
     async fn get_catalog(

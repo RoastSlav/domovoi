@@ -7,9 +7,9 @@
 
 use async_trait::async_trait;
 
+use domovoi_core::HostId;
 use domovoi_core::capability::{CatalogPageData, CatalogQuery};
-use domovoi_core::ports::{HostAvailability, HostWords, LinkError};
-use domovoi_core::{HostId, SkillSummary};
+use domovoi_core::ports::{HostAvailability, HostView, LinkError};
 use jiff::Timestamp;
 
 /// The read-only facts one host's agent reports to the capability registry.
@@ -29,9 +29,7 @@ pub trait HostCapabilities: Send + Sync {
         deadline: Timestamp,
     ) -> Result<CatalogPageData, LinkError>;
 
-    /// The 1.2 status words the agent announced about itself.
-    fn words(&self, host: HostId) -> Option<HostWords>;
-
-    /// The skills the agent announced on its last handshake.
-    fn skills(&self, host: HostId) -> Vec<SkillSummary>;
+    /// The 1.2 status words and announced skills of `host`'s live session, read together, or
+    /// `None` when no session is live.
+    fn view(&self, host: HostId) -> Option<HostView>;
 }

@@ -1048,3 +1048,282 @@ async fn capability_endpoint_reports_unknown_contracts() {
             .all(|entry| entry["contract"] != "container.destroy")
     );
 }
+
+/// A host whose availability and view are scripted, so a test can force a session that
+/// cannot be read.
+struct ScriptedHost {
+    availabilities:
+        std::sync::Mutex<std::collections::VecDeque<domovoi_core::ports::HostAvailability>>,
+    last: std::sync::Mutex<domovoi_core::ports::HostAvailability>,
+    view: Option<domovoi_core::ports::HostView>,
+}
+
+impl ScriptedHost {
+    fn new(
+        availabilities: Vec<domovoi_core::ports::HostAvailability>,
+        view: Option<domovoi_core::ports::HostView>,
+    ) -> Self {
+        let last = availabilities
+            .last()
+            .cloned()
+            .unwrap_or(domovoi_core::ports::HostAvailability::Unknown);
+        Self {
+            availabilities: std::sync::Mutex::new(availabilities.into()),
+            last: std::sync::Mutex::new(last),
+            view,
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl domovoi_hub::capability::HostCapabilities for ScriptedHost {
+    async fn availability(&self, _host: HostId) -> domovoi_core::ports::HostAvailability {
+        let next = self
+            .availabilities
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .pop_front();
+        match next {
+            Some(state) => {
+                *self
+                    .last
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner) = state.clone();
+                state
+            }
+            None => self
+                .last
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .clone(),
+        }
+    }
+
+    fn catalog_hash(&self, _host: HostId) -> Option<String> {
+        None
+    }
+
+    async fn catalog_page(
+        &self,
+        _host: HostId,
+        _query: domovoi_core::capability::CatalogQuery,
+        _deadline: Timestamp,
+    ) -> Result<domovoi_core::capability::CatalogPageData, domovoi_core::ports::LinkError> {
+        Err(domovoi_core::ports::LinkError::NotConnected)
+    }
+
+    fn view(&self, _host: HostId) -> Option<domovoi_core::ports::HostView> {
+        self.view.clone()
+    }
+}
+
+/// A registry over `agent` for the `nas` host, with no settings.
+async fn registry_over(agent: Arc<ScriptedHost>) -> (HubRegistry, Host) {
+    let nas = match host("nas") {
+        Ok(host) => host,
+        Err(err) => panic!("{err}"),
+    };
+    let store = Arc::new(InMemoryStore::new());
+    let hosts: Arc<dyn HostRepo> = store.clone();
+    hosts
+        .upsert_host(&nas)
+        .await
+        .unwrap_or_else(|err| panic!("{err}"));
+    let contracts = match ContractIndex::new(builtin_contracts()) {
+        Ok(index) => Arc::new(index),
+        Err(err) => panic!("{err}"),
+    };
+    let registry = HubRegistry::new(RegistryDeps {
+        contracts,
+        agent,
+        hosts: hosts.clone(),
+        store: store.clone(),
+        clock: Arc::new(FakeClock::new(T0)),
+    })
+    .await
+    .unwrap_or_else(|err| panic!("{err}"));
+    (registry, nas)
+}
+
+#[tokio::test]
+async fn a_live_session_that_cannot_be_read_proves_nothing() {
+    // Availability says connected, but the link cannot describe the session. Reading that as
+    // a default view would claim "runner absent, no ceiling, no container runtime"; the
+    // honest answer is that nothing about this host is proved.
+    let agent = Arc::new(ScriptedHost::new(
+        vec![
+            domovoi_core::ports::HostAvailability::Known { since: T0 },
+            domovoi_core::ports::HostAvailability::Known { since: T0 },
+        ],
+        None,
+    ));
+    let (registry, nas) = registry_over(agent).await;
+
+    let rows = registry.inventory(nas.id).await;
+
+    assert!(!rows.is_empty());
+    for row in &rows {
+        assert_eq!(row.state, Availability::HostUnknown, "{}", row.contract);
+        assert_eq!(
+            row.catalogue,
+            CatalogueState::Partial {
+                gap: CatalogueGap::NotWalked,
+            }
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_session_that_ends_during_collection_reports_absent() {
+    // The first read sees a live session, the view fails, and the re-read learns the session
+    // ended: the answer is what the host is now, never a report of absence for the facts.
+    let agent = Arc::new(ScriptedHost::new(
+        vec![
+            domovoi_core::ports::HostAvailability::Known { since: T0 },
+            domovoi_core::ports::HostAvailability::Absent { since: T1 },
+        ],
+        None,
+    ));
+    let (registry, nas) = registry_over(agent).await;
+
+    let rows = registry.inventory(nas.id).await;
+
+    for row in &rows {
+        assert_eq!(row.state, Availability::HostAbsent { since: T1 });
+    }
+}
+
+#[tokio::test]
+async fn a_reconnect_changes_the_skills_the_inventory_reports() {
+    let fixture = Fixture::new(Vec::new()).await;
+    fixture
+        .link
+        .set_skills(fixture.host_id(), vec![summary("prune_logs", Risk::Read)]);
+    fixture.complete(&[("skill.prune_logs", 1)]);
+    fixture.words(HostWords {
+        runs_as_root: true,
+        ..HostWords::default()
+    });
+    assert!(
+        fixture
+            .registry
+            .inventory(fixture.host_id())
+            .await
+            .iter()
+            .any(|row| row.contract == skill_id("prune_logs"))
+    );
+
+    fixture.link.new_session(fixture.host_id());
+    fixture
+        .link
+        .set_skills(fixture.host_id(), vec![summary("zpool_status", Risk::Read)]);
+    fixture.complete(&[("skill.zpool_status", 1)]);
+
+    let rows = fixture.registry.inventory(fixture.host_id()).await;
+    assert!(
+        rows.iter()
+            .all(|row| row.contract != skill_id("prune_logs")),
+        "the new session's inventory kept the old session's skill"
+    );
+    assert!(
+        rows.iter()
+            .any(|row| row.contract == skill_id("zpool_status"))
+    );
+}
+
+#[tokio::test]
+async fn a_reconnect_changes_the_words_the_answer_uses() {
+    let fixture = Fixture::new(Vec::new()).await;
+    fixture
+        .link
+        .set_skills(fixture.host_id(), vec![summary("prune_logs", Risk::Read)]);
+    fixture.complete(&[("skill.prune_logs", 1)]);
+    fixture.words(HostWords {
+        runs_as_root: true,
+        ..HostWords::default()
+    });
+    assert_eq!(
+        fixture.skill_state("prune_logs").await,
+        Availability::Available
+    );
+
+    fixture.link.new_session(fixture.host_id());
+    fixture.words(HostWords::default());
+
+    assert_eq!(
+        fixture.skill_state("prune_logs").await,
+        missing(UnavailableReason::SkillRunnerMissing),
+        "the answer used the previous session's root label"
+    );
+}
+
+#[tokio::test]
+async fn partial_catalogue_keeps_an_announced_skill_available() {
+    let fixture = Fixture::new(Vec::new()).await;
+    fixture
+        .link
+        .set_skills(fixture.host_id(), vec![summary("prune_logs", Risk::Read)]);
+    fixture.words(HostWords {
+        runs_as_root: true,
+        ..HostWords::default()
+    });
+    fixture.unreadable();
+
+    let state = fixture.skill_state("prune_logs").await;
+
+    assert_eq!(state, Availability::Available);
+    let row = fixture.row("skill.prune_logs").await;
+    assert!(
+        !row.catalogue.is_complete(),
+        "the row hid the unverified catalogue"
+    );
+}
+
+#[tokio::test]
+async fn a_disabled_skill_is_disabled_even_when_the_catalogue_echoes_it() {
+    let fixture = Fixture::with_settings(
+        Vec::new(),
+        vec![(
+            host_skills_key("nas"),
+            json!({ "disabled": ["prune_logs"] }),
+        )],
+    )
+    .await;
+    fixture
+        .link
+        .set_skills(fixture.host_id(), vec![summary("prune_logs", Risk::Read)]);
+    fixture.complete(&[("skill.prune_logs", 1)]);
+
+    assert_eq!(
+        fixture.skill_state("prune_logs").await,
+        Availability::DisabledByHub
+    );
+}
+
+#[tokio::test]
+async fn the_inventory_reports_the_floored_effect() {
+    let fixture = Fixture::new(Vec::new()).await;
+    fixture
+        .link
+        .set_skills(fixture.host_id(), vec![summary("prune_logs", Risk::Read)]);
+    fixture.complete(&[("skill.prune_logs", 1)]);
+    fixture.words(HostWords {
+        runs_as_root: true,
+        ..HostWords::default()
+    });
+    let skill = name("prune_logs");
+    fixture
+        .registry
+        .set_floor(&fixture.host, skill.clone(), Some(EffectClass::Destructive))
+        .await
+        .unwrap_or_else(|err| panic!("{err}"));
+
+    let row = fixture.row("skill.prune_logs").await;
+
+    assert_eq!(row.effect, EffectClass::Destructive);
+    assert_eq!(
+        fixture.registry.effective_effect(fixture.host_id(), &skill),
+        Some(EffectClass::Destructive),
+        "the inventory and the effective-effect answer disagree"
+    );
+}

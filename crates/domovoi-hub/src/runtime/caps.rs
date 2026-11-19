@@ -1,7 +1,6 @@
 //! Capability objects over the hub's link (ADR 0023): the one place the composition root
 //! turns the link into narrow capabilities, so no subsystem downstream of here holds the
-//! raw link. The policy wrapper stays in charge of every request; these objects only choose
-//! which operation a subsystem may ask for at all.
+//! raw link. These objects only choose which operation a subsystem may ask for at all.
 
 use async_trait::async_trait;
 use std::sync::Arc;
@@ -10,7 +9,7 @@ use domovoi_core::capability::{CatalogPageData, CatalogQuery};
 use domovoi_core::ports::AgentLink;
 use domovoi_core::ports::{
     ActionAnswers, ActionCaps, AgentSnapshot, AvailabilityProbe, CheckRecheck, CheckRerun,
-    EvidenceCaps, HandoffRunner, HostAvailability, HostObservation, HostRead, HostWords,
+    EvidenceCaps, HandoffRunner, HostAvailability, HostObservation, HostRead, HostView,
     JournalStatus, LinkError, Presence, SkillDispatch, SkillHandoff, SkillOutput, ToolOutput,
 };
 use domovoi_core::{
@@ -196,11 +195,7 @@ impl HostCapabilities for LinkCapabilities {
         self.link.get_catalog(host, query, deadline).await
     }
 
-    fn words(&self, host: HostId) -> Option<HostWords> {
-        self.link.host_words(host)
-    }
-
-    fn skills(&self, host: HostId) -> Vec<SkillSummary> {
-        self.link.skills(host)
+    fn view(&self, host: HostId) -> Option<HostView> {
+        self.link.host_view(host)
     }
 }

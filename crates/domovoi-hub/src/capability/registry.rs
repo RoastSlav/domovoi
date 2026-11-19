@@ -19,7 +19,7 @@ use domovoi_core::capability::{
     NotAllowedOnHost, TargetKind, UnavailableReason, effective_effect, skill_contract,
 };
 use domovoi_core::ports::{
-    Clock, HelperState, HostAvailability, HostRepo, HostWords, RunnerState, SettingsRepo,
+    Clock, HelperState, HostAvailability, HostRepo, HostView, HostWords, RunnerState, SettingsRepo,
     StoreError,
 };
 use domovoi_core::{Host, HostId, SkillName, SkillSummary};
@@ -127,13 +127,16 @@ impl HubRegistry {
         let Some(snapshot) = self.catalogue.cached(host) else {
             return Vec::new();
         };
-        let announced = self.skill_names(host);
+        let announced = self.agent.view(host).map(|view| view_skills(&view));
         let mut unknown = snapshot.unknown.clone();
         for id in snapshot.entries.keys() {
             let Some(name) = id.skill_name() else {
                 continue;
             };
-            if !announced.contains_key(&name) {
+            let described = announced
+                .as_ref()
+                .is_some_and(|skills| skills.contains_key(&name));
+            if !described {
                 unknown.push(id.to_string());
             }
         }
@@ -162,16 +165,30 @@ impl HubRegistry {
         self.enablement.set(host, skill, enabled).await
     }
 
-    /// The host's state as one read: availability, words, skills and catalogue.
+    /// The host's state as one read: availability, the session's words and skills, and the
+    /// catalogue.
+    ///
+    /// The words and skills come from one `view`, so a reconnect cannot mix one session's
+    /// status with another session's skills. A session that ends between the availability
+    /// read and the view is asked about again, and a link that still reports a session it
+    /// cannot describe yields no facts at all: a missing read is never read as an explicit
+    /// report of absence.
     async fn seen(&self, host: HostId) -> Seen {
-        let availability = self.agent.availability(host).await;
-        let connected = matches!(availability, HostAvailability::Known { .. });
-        let words = if connected {
-            self.agent.words(host).unwrap_or_default()
-        } else {
-            HostWords::default()
-        };
-        let catalogue = if connected {
+        let mut availability = self.agent.availability(host).await;
+        let mut view = self.view_of(&availability, host);
+        if matches!(availability, HostAvailability::Known { .. }) && view.is_none() {
+            availability = self.agent.availability(host).await;
+            if matches!(availability, HostAvailability::Known { .. }) {
+                view = self.view_of(&availability, host);
+            }
+        }
+        let facts = view.is_some();
+        let words = view
+            .as_ref()
+            .map(|view| view.words.clone())
+            .unwrap_or_default();
+        let skills = view.as_ref().map(view_skills).unwrap_or_default();
+        let catalogue = if facts && matches!(availability, HostAvailability::Known { .. }) {
             self.catalogue.catalog(host).await
         } else {
             unread(host, self.clock.now())
@@ -179,24 +196,29 @@ impl HubRegistry {
         Seen {
             availability,
             words,
-            skills: self.skill_names(host),
+            skills,
+            facts,
             catalogue,
         }
     }
 
-    /// The agent's own skill summaries, by name, read once per query.
-    fn skill_names(&self, host: HostId) -> BTreeMap<SkillName, SkillSummary> {
-        self.agent
-            .skills(host)
-            .into_iter()
-            .map(|summary| (summary.name.clone(), summary))
-            .collect()
+    /// The session's words and skills, when the host is connected now.
+    fn view_of(&self, availability: &HostAvailability, host: HostId) -> Option<HostView> {
+        match availability {
+            HostAvailability::Known { .. } => self.agent.view(host),
+            _ => None,
+        }
     }
 
     /// The class `skill` declares on `host`, from the agent's own summary.
     fn declared_of(&self, host: HostId, skill: &SkillName) -> EffectClass {
-        self.skill_names(host)
-            .get(skill)
+        self.agent
+            .view(host)
+            .and_then(|view| {
+                view.skills
+                    .into_iter()
+                    .find(|summary| &summary.name == skill)
+            })
             .map_or(EffectClass::Destructive, |summary| {
                 EffectClass::from(summary.risk)
             })
@@ -282,7 +304,18 @@ struct Seen {
     availability: HostAvailability,
     words: HostWords,
     skills: BTreeMap<SkillName, SkillSummary>,
+    /// Whether the words and skills came from one session that could be read. Without it the
+    /// answer proves nothing about this host, whatever the connection state says.
+    facts: bool,
     catalogue: CatalogSnapshot,
+}
+
+/// The agent's announced skills, by name.
+fn view_skills(view: &HostView) -> BTreeMap<SkillName, SkillSummary> {
+    view.skills
+        .iter()
+        .map(|summary| (summary.name.clone(), summary.clone()))
+        .collect()
 }
 
 /// One inventory row from a contract and the state it reached.
@@ -322,6 +355,10 @@ fn unread(host: HostId, at: Timestamp) -> CatalogSnapshot {
 /// Rows 1-3: the host itself, which outranks every other input.
 fn host_state(seen: &Seen) -> Option<Availability> {
     match &seen.availability {
+        // A live session whose facts could not be read proves nothing about the host: its
+        // status is unknown, not an explicit report of absence, so no row may claim
+        // "runner missing", "no ceiling" or "not installed" from it.
+        HostAvailability::Known { .. } if !seen.facts => Some(Availability::HostUnknown),
         HostAvailability::Known { .. } => None,
         HostAvailability::Unknown => Some(Availability::HostUnknown),
         HostAvailability::Absent { since } => Some(Availability::HostAbsent { since: *since }),
@@ -419,8 +456,11 @@ impl domovoi_core::ports::CapabilityRegistry for HubRegistry {
 
     fn effective_effect(&self, host: HostId, skill: &SkillName) -> Option<EffectClass> {
         let declared = self
-            .skill_names(host)
-            .get(skill)
+            .agent
+            .view(host)?
+            .skills
+            .into_iter()
+            .find(|summary| &summary.name == skill)
             .map(|summary| EffectClass::from(summary.risk))?;
         Some(effective_effect(declared, self.floors.get(host, skill)))
     }
@@ -435,7 +475,9 @@ impl domovoi_core::ports::CapabilityRegistry for HubRegistry {
 
     fn enabled_skills(&self, host: HostId) -> Vec<SkillSummary> {
         self.agent
-            .skills(host)
+            .view(host)
+            .map(|view| view.skills)
+            .unwrap_or_default()
             .into_iter()
             .filter(|summary| !self.enablement.is_disabled(host, &summary.name))
             .collect()

@@ -25,7 +25,9 @@ pub use agent_link::{
     CATALOGUE_UNSUPPORTED, CheckRecheck, HostAvailability, IngestError, LinkError, Presence,
     SignalSink, SkillDispatch, SkillHandoff, SkillOutput, ToolOutput, UnknownReason,
 };
-pub use capability::{CapabilityRegistry, DISABLED_REASON, HelperState, HostWords, RunnerState};
+pub use capability::{
+    CapabilityRegistry, DISABLED_REASON, HelperState, HostView, HostWords, RunnerState,
+};
 pub use caps::{
     ActionCaps, AvailabilityProbe, CheckRerun, EvidenceCaps, HandoffRunner, HostObservation,
     HostRead, JournalStatus,

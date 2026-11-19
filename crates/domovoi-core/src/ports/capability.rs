@@ -40,6 +40,19 @@ pub struct HostWords {
     pub container_runtime: bool,
 }
 
+/// One host's announced facts, all read from one authenticated session.
+///
+/// Words and skills are announced together in the handshake, so they are read together: a
+/// reconnect between two separate reads would otherwise let a caller combine one session's
+/// status with another session's skills.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct HostView {
+    /// The 1.2 status words the session announced about itself.
+    pub words: HostWords,
+    /// The skills the session announced.
+    pub skills: Vec<SkillSummary>,
+}
+
 /// How the agent's isolated skill runner reported itself.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum RunnerState {

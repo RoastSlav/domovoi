@@ -7,8 +7,8 @@ use async_trait::async_trait;
 use domovoi_core::capability::{CatalogPageData, CatalogQuery};
 use domovoi_core::ports::{
     ActionAnswer, ActionAnswerEntry, ActionAnswers, AgentLink, AgentSnapshot, CheckRecheck,
-    HostAvailability, HostWords, LinkError, Presence, SkillDispatch, SkillHandoff, SkillOutput,
-    ToolOutput,
+    HostAvailability, HostView, HostWords, LinkError, Presence, SkillDispatch, SkillHandoff,
+    SkillOutput, ToolOutput,
 };
 use domovoi_core::{
     ActionId, AgentId, AgentSessionId, CheckKey, HostId, JournalEpoch, ReadToolCall, SkillSummary,

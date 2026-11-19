@@ -192,11 +192,14 @@ impl AgentLink for FakeAgentLink {
         self.catalogue.hash(host)
     }
 
-    fn host_words(&self, host: HostId) -> Option<HostWords> {
+    fn host_view(&self, host: HostId) -> Option<HostView> {
         if !matches!(self.presence(host), Presence::Connected { .. }) {
             return None;
         }
-        Some(lock(&self.words).get(&host).cloned().unwrap_or_default())
+        Some(HostView {
+            words: lock(&self.words).get(&host).cloned().unwrap_or_default(),
+            skills: self.skills(host),
+        })
     }
 
     async fn get_catalog(
