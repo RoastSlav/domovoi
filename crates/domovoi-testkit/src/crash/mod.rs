@@ -145,6 +145,21 @@ fn summarize(tx: &Transaction) -> TxSummary {
                 },
                 OperationWrite::IncidentLink { .. } => "incident_link".to_owned(),
             }),
+            StateWrite::Policy(write) => writes.push(
+                match write {
+                    domovoi_core::policy_store::PolicyWrite::SaveDraft { .. } => {
+                        "policy:save_draft"
+                    }
+                    domovoi_core::policy_store::PolicyWrite::DiscardDraft { .. } => {
+                        "policy:discard_draft"
+                    }
+                    domovoi_core::policy_store::PolicyWrite::Publish { .. } => "policy:publish",
+                    domovoi_core::policy_store::PolicyWrite::RecordShadow { .. } => {
+                        "policy:record_shadow"
+                    }
+                }
+                .to_owned(),
+            ),
         }
     }
     journal.extend(

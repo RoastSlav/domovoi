@@ -13,6 +13,8 @@ mod incidents;
 mod knowledge;
 mod notify;
 mod operations;
+mod policy;
+mod policy_shadow;
 mod triage;
 pub mod uow;
 
@@ -27,6 +29,8 @@ pub use knowledge::{
 };
 pub use notify::notify_state_repo_contract;
 pub use operations::*;
+pub use policy::*;
+pub use policy_shadow::*;
 pub use triage::{triage_cache_repo_contract, usage_repo_contract};
 pub use uow::*;
 

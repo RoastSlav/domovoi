@@ -10,6 +10,7 @@ mod incidents;
 mod knowledge;
 mod notify;
 mod operations;
+mod policy;
 mod triage;
 mod uow;
 mod uow_apply;
@@ -99,6 +100,18 @@ struct State {
     /// Execution rows by Execution step, with their versions.
     executions: BTreeMap<StepId, (ExecutionRecord, u64)>,
     op_incidents: BTreeMap<OperationId, BTreeSet<IncidentId>>,
+    /// Every policy version, draft and published, with its rules in ordinal order.
+    policy_versions: Vec<(
+        domovoi_core::policy_store::PolicyVersionRecord,
+        Vec<domovoi_core::policy_store::StoredRule>,
+    )>,
+    /// Acknowledgements per published version.
+    policy_acks:
+        BTreeMap<domovoi_core::PolicyVersionId, Vec<domovoi_core::policy_store::AckRecord>>,
+    /// Decision rows by execution.
+    shadow: BTreeMap<domovoi_core::ExecutionId, domovoi_core::policy_store::ShadowRecord>,
+    /// The recorder's bookkeeping.
+    shadow_state: domovoi_core::policy_store::ShadowState,
 }
 
 /// An in-memory implementation of every repository port in `domovoi_core::ports`.
