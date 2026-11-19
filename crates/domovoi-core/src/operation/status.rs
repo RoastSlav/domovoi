@@ -20,7 +20,9 @@ pub enum PauseReason {
         /// The Execution step whose outcome is unknown.
         step: StepId,
     },
-    /// A person paused the operation.
+    /// A person paused this operation. It needs no budget to resume.
+    Manual,
+    /// Every operation was paused by the global switch.
     GlobalPause,
     /// Something failed that the operation cannot recover from alone.
     Error {
@@ -227,6 +229,14 @@ mod tests {
             OperationStatus::Escalated,
             OperationStatus::Cancelled,
         ]
+    }
+
+    #[test]
+    fn pause_reason_manual_round_trips_as_json() {
+        let json = serde_json::to_string(&PauseReason::Manual).unwrap();
+        assert_eq!(json, r#"{"type":"manual"}"#);
+        let back: PauseReason = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, PauseReason::Manual);
     }
 
     #[test]
