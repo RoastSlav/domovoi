@@ -1,8 +1,8 @@
 import type { Host, IncidentSummary } from "../api/types";
 import { ACTION_STATUSES, RISKS, TRIAGE } from "./actionVocab";
+import { CAPABILITY_STATES } from "./capabilityVocab";
 import {
   CHECK_STATES,
-  CAPABILITY_STATES,
   CONTAINER_STATES,
   HOST_CONNECTIONS,
   HOST_KINDS,
