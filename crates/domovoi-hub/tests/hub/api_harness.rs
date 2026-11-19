@@ -188,6 +188,8 @@ pub struct Api {
     pub audit: Arc<dyn AuditLog>,
     /// The action service, for testing what the writer commits.
     pub actions_service: ActionHandle,
+    /// The operation service, when built with [`api_with_operations`].
+    pub operations: Option<domovoi_engine::operations::OperationHandle>,
     pub incident: Incident,
     pub nas: domovoi_core::Host,
     pub shutdown: CancellationToken,
@@ -253,33 +255,52 @@ pub fn config() -> HubConfig {
 }
 
 pub async fn api() -> Api {
-    build(false, None, true, true, TriageSettings::default()).await
+    build(false, None, true, true, TriageSettings::default(), false).await
 }
 
 /// [`api`] with `notifier` taking digests.
 pub async fn api_with_notifier(notifier: Arc<dyn Notifier>) -> Api {
-    build(false, Some(notifier), true, true, TriageSettings::default()).await
+    build(
+        false,
+        Some(notifier),
+        true,
+        true,
+        TriageSettings::default(),
+        false,
+    )
+    .await
 }
 
 /// [`api`] with triage on, answering from [`Api::llm`].
 pub async fn api_with_triage() -> Api {
-    build(true, None, true, true, TriageSettings::default()).await
+    build(true, None, true, true, TriageSettings::default(), false).await
 }
 
 /// [`api`] with triage on under `settings`, for the admission refusals.
 pub async fn api_with_triage_settings(settings: TriageSettings) -> Api {
-    build(true, None, true, true, settings).await
+    build(true, None, true, true, settings, false).await
 }
 
 /// [`api`] whose hub was built without profile collection: the profile endpoints say they
 /// are unavailable, and the chat commands that only want the host's line still answer.
 pub async fn api_without_profiles() -> Api {
-    build(false, None, false, true, TriageSettings::default()).await
+    build(false, None, false, true, TriageSettings::default(), false).await
 }
 
 /// [`api`] with nothing captured behind it: the log endpoints say they are unavailable.
 pub async fn api_without_logs() -> Api {
-    build(false, None, true, false, TriageSettings::default()).await
+    build(false, None, true, false, TriageSettings::default(), false).await
+}
+
+/// [`api`] with `[orchestration] enabled` and a running operation service ([`Api::ops`]).
+pub async fn api_with_operations() -> Api {
+    build(false, None, true, true, TriageSettings::default(), true).await
+}
+
+/// [`api_with_operations`] with triage on, so investigations can start. As in the hub, the
+/// triage queue is off while operations are on.
+pub async fn api_with_triage_and_operations() -> Api {
+    build(true, None, true, true, TriageSettings::default(), true).await
 }
 
 async fn build(
@@ -287,8 +308,10 @@ async fn build(
     notifier: Option<Arc<dyn Notifier>>,
     profiles: bool,
     logs: bool,
-    triage_settings: TriageSettings,
+    mut triage_settings: TriageSettings,
+    orchestration: bool,
 ) -> Api {
+    triage_settings.run_queue = !orchestration;
     // The binary installs the process-wide provider; connection tests build HTTP clients.
     let _ = rustls::crypto::ring::default_provider().install_default();
     let dir = tempfile::tempdir().unwrap();
@@ -395,7 +418,15 @@ async fn build(
         )
         .0
     });
-    let config = config();
+    let mut config = config();
+    config.orchestration.enabled = orchestration;
+    let operations = if orchestration {
+        Some(
+            crate::ops_harness::spawn(&store, &link, &clock, &shutdown, &nas, triage.clone()).await,
+        )
+    } else {
+        None
+    };
     let web = WebIdentity {
         public_url: config.web.public_url.clone().unwrap(),
         trusted_proxies: config.web.trusted_proxies.clone(),
@@ -454,7 +485,7 @@ async fn build(
         manager: manager.clone(),
         actions_service: actions_service.clone(),
         triage,
-        operations: None,
+        operations: operations.clone(),
         operation_repo: store.clone(),
         agents: Arc::new(TestAgents {
             link: link.clone(),
@@ -510,6 +541,7 @@ async fn build(
         llm,
         incident,
         nas,
+        operations,
         shutdown,
         dir,
         manager_task,
