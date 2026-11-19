@@ -82,6 +82,10 @@
   order: 1;
 }
 
+.slot[data-slot="operations"] {
+  order: 2;
+}
+
 .slot[data-slot="waiting"] {
   order: 2;
 }
