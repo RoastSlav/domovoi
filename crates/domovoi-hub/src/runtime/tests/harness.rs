@@ -335,6 +335,9 @@ secret = {{ env = "TEST_SECRET" }}
                 let _ = task.await;
             }
             let _ = runtime.actions_task.await;
+            if let Some(task) = runtime.operations_task {
+                let _ = task.await;
+            }
             runtime.store.close().await;
         })
         .await;
