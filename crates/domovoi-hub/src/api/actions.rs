@@ -9,6 +9,7 @@ use domovoi_engine::ApprovalError;
 
 use super::dto::{ActionDto, ActionPage, ActionQuery, ApproveRequest};
 use super::error::{ApiError, ErrorBody};
+use super::snapshot::snapshot_seq;
 use super::{ApiState, Authed, host_named, page};
 use crate::auth::approval::web_authorization;
 
@@ -65,6 +66,7 @@ pub(super) async fn list(
     _auth: Authed,
     Query(query): Query<ActionQuery>,
 ) -> Result<Json<ActionPage>, ApiError> {
+    let as_of_seq = snapshot_seq(&state).await?;
     if let Some(status) = &query.status
         && !ActionStatus::NAMES.contains(&status.as_str())
     {
@@ -97,6 +99,7 @@ pub(super) async fn list(
     Ok(Json(ActionPage {
         items: got.items.iter().map(ActionDto::from).collect(),
         next_cursor: got.next_cursor,
+        as_of_seq,
     }))
 }
 

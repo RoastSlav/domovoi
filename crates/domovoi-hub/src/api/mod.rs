@@ -29,6 +29,7 @@ pub mod readiness;
 mod rules;
 pub(crate) mod settings;
 mod settings_write;
+mod snapshot;
 pub(crate) mod system;
 mod tool_usage;
 mod updates;
@@ -46,9 +47,8 @@ use domovoi_core::ports::{
 };
 use domovoi_core::{HostId, HostName, SkillSummary};
 use domovoi_engine::triage::TriageHandle;
-use domovoi_engine::{ActionHandle, DomainEvent, ManagerHandle};
+use domovoi_engine::{ActionHandle, ManagerHandle};
 use domovoi_proto::messages::{CheckInfo, HostFacts};
-use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 use utoipa::OpenApi;
 use utoipa::openapi::security::{ApiKey, ApiKeyValue, SecurityScheme};
@@ -167,8 +167,8 @@ pub struct ApiDeps {
     pub profiles: Option<crate::profile::ProfileDeps>,
     /// Time.
     pub clock: Arc<dyn Clock>,
-    /// Events for the SSE stream.
-    pub bus: broadcast::Sender<DomainEvent>,
+    /// The journal the event stream and the snapshot positions read.
+    pub journal: Arc<dyn domovoi_core::ports::JournalFeed>,
     /// The loaded configuration, for the settings page and the digest.
     pub config: Arc<HubConfig>,
     /// Where `POST /digest/send` sends; `None` answers 503.
@@ -197,6 +197,8 @@ pub struct ApiState {
     pub(crate) auth: Arc<AuthState>,
     /// Ends long-lived responses (the event stream) when the server shuts down.
     pub(crate) shutdown: CancellationToken,
+    /// How many event streams are open, against the cap.
+    pub(crate) event_streams: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl std::fmt::Debug for ApiState {
@@ -213,6 +215,7 @@ impl ApiState {
             deps: Arc::new(deps),
             auth,
             shutdown: CancellationToken::new(),
+            event_streams: Arc::default(),
         }
     }
 

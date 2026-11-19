@@ -230,6 +230,12 @@ expression: spec
       "ActionPage": {
         "description": "One page of actions, newest first.",
         "properties": {
+          "as_of_seq": {
+            "description": "The journal position this snapshot was read at; apply only events with a greater `seq`.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
           "items": {
             "description": "The actions.",
             "items": {
@@ -246,7 +252,8 @@ expression: spec
           }
         },
         "required": [
-          "items"
+          "items",
+          "as_of_seq"
         ],
         "type": "object"
       },
@@ -1265,6 +1272,12 @@ expression: spec
             },
             "type": "array"
           },
+          "as_of_seq": {
+            "description": "The journal position this snapshot was read at; apply only events with a greater `seq`.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
           "card": {
             "$ref": "#/components/schemas/CardDto",
             "description": "The chat card."
@@ -1320,7 +1333,8 @@ expression: spec
           "card",
           "timeline",
           "actions",
-          "tools_used"
+          "tools_used",
+          "as_of_seq"
         ],
         "type": "object"
       },
@@ -1370,6 +1384,12 @@ expression: spec
       "IncidentPage": {
         "description": "One page of incidents, newest first.",
         "properties": {
+          "as_of_seq": {
+            "description": "The journal position this snapshot was read at; apply only events with a greater `seq`.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
           "items": {
             "description": "The incidents.",
             "items": {
@@ -1386,7 +1406,8 @@ expression: spec
           }
         },
         "required": [
-          "items"
+          "items",
+          "as_of_seq"
         ],
         "type": "object"
       },
@@ -1770,6 +1791,12 @@ expression: spec
             "minimum": 0,
             "type": "integer"
           },
+          "as_of_seq": {
+            "description": "The journal position this snapshot was read at; apply only events with a greater `seq`.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
           "hosts_offline": {
             "description": "Hosts with an enrolled agent that is not connected.",
             "format": "int32",
@@ -1805,7 +1832,8 @@ expression: spec
           "incident_groups",
           "approvals_waiting",
           "hosts_offline",
-          "hosts_total"
+          "hosts_total",
+          "as_of_seq"
         ],
         "type": "object"
       },
@@ -2529,43 +2557,6 @@ expression: spec
           "answer",
           "asked_by",
           "at"
-        ],
-        "type": "object"
-      },
-      "UiEvent": {
-        "description": "A change the web UI should show, sent on the event stream.",
-        "properties": {
-          "action_id": {
-            "description": "The action concerned, for action events.",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "event": {
-            "description": "What happened, for example `incident_opened` or `action_changed`.",
-            "type": "string"
-          },
-          "incident_id": {
-            "description": "The incident concerned.",
-            "type": "string"
-          },
-          "kind": {
-            "description": "`incident` or `action`.",
-            "type": "string"
-          },
-          "status": {
-            "description": "The new status name, when it changed.",
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        },
-        "required": [
-          "kind",
-          "event",
-          "incident_id"
         ],
         "type": "object"
       },
@@ -3496,17 +3487,44 @@ expression: spec
     },
     "/api/v1/events": {
       "get": {
+        "description": "Frames: `ready` (`head_seq`, `resumed`, `topics`), `journal` (one row; its `id` is the journal\n`seq`) and `reset` (`reason` is `pruned`, `ahead` or `lagged`: refetch what you hold). A client\nthat reconnects sends `Last-Event-ID` (or `after`) and receives every matching row after it.\nAn idle stream sends a `: keepalive` comment every 15 seconds.",
         "operationId": "stream_events",
+        "parameters": [
+          {
+            "description": "Comma-separated topics: `incidents`, `approvals`, `operations`, `operation:<id>`,\n`hosts`, `conversations:<id>`. At most 16. Absent means `incidents,approvals,operations`.",
+            "in": "query",
+            "name": "topics",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Resume after this journal `seq`. The `Last-Event-ID` header wins when both are given.",
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
-              "text/event-stream": {
+              "text/event-stream": {}
+            },
+            "description": "An event stream"
+          },
+          "400": {
+            "content": {
+              "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/UiEvent"
+                  "$ref": "#/components/schemas/ErrorBody"
                 }
               }
             },
-            "description": "An event stream"
+            "description": "An unknown topic or a malformed position"
           },
           "401": {
             "content": {
@@ -3517,9 +3535,19 @@ expression: spec
               }
             },
             "description": "Not logged in"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many open event streams"
           }
         },
-        "summary": "A stream of incident and action changes, as `incident` and `action` events whose data is\na JSON `UiEvent`.",
+        "summary": "Committed journal rows as server-sent events.",
         "tags": [
           "system"
         ]

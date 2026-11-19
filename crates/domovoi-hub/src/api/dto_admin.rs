@@ -296,21 +296,6 @@ pub struct DigestPreview {
     pub hosts: Vec<DigestHostDto>,
 }
 
-/// A change the web UI should show, sent on the event stream.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
-pub struct UiEvent {
-    /// `incident` or `action`.
-    pub kind: String,
-    /// What happened, for example `incident_opened` or `action_changed`.
-    pub event: String,
-    /// The incident concerned.
-    pub incident_id: String,
-    /// The action concerned, for action events.
-    pub action_id: Option<String>,
-    /// The new status name, when it changed.
-    pub status: Option<String>,
-}
-
 /// One tool output in a host profile: its title and whether it answered.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
 pub struct ProfileSectionDto {

@@ -484,7 +484,7 @@ async fn build(
             redactor: Arc::new(PatternRedactor::default()),
         }),
         clock: clock.clone(),
-        bus: bus.clone(),
+        journal: store.clone(),
         config: Arc::new(config),
         notifier,
         metrics: Some(Arc::new(|| "domovoi_up 1\n".to_owned())),
