@@ -67,6 +67,8 @@ export function AppRoutes() {
             <Route index element={<PAGES.overview.Page />} />
             <Route path="/incidents" element={<IncidentListPage />} />
             <Route path="/incidents/:id" element={<IncidentDetailPage />} />
+            <Route path="/operations" element={<PAGES.operations.Page />} />
+            <Route path="/operations/:id" element={<PAGES.operation.Page />} />
             <Route path="/chat" element={<PAGES.chat.Page />} />
             <Route path="/rules" element={<PAGES.rules.Page />} />
             <Route path="/approvals" element={<PAGES.approvals.Page />} />
