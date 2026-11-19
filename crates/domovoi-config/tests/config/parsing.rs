@@ -165,3 +165,38 @@ fn discord_ids_load_from_numbers_or_strings() {
         "{bad:#?}"
     );
 }
+
+#[test]
+fn orchestration_is_disabled_by_default() {
+    let (config, warnings) = hub("").unwrap();
+    assert!(warnings.is_empty());
+    let section = &config.orchestration;
+    assert!(!section.enabled);
+    assert_eq!(section.max_running, 4);
+    assert_eq!(section.loop_guard_per_hour, 3);
+    assert_eq!(
+        section.approval_ttl.as_signed(),
+        SignedDuration::from_hours(24)
+    );
+    assert_eq!(
+        section.agent_wait_limit.as_signed(),
+        SignedDuration::from_mins(30)
+    );
+    let budgets = &section.budgets;
+    assert_eq!(budgets.model_turns, Some(20));
+    assert_eq!(budgets.evidence_requests, Some(40));
+    assert_eq!(budgets.executions, Some(5));
+    assert_eq!(budgets.cycles, Some(3));
+    assert_eq!(budgets.tokens, Some(200_000));
+    assert_eq!(budgets.cost_micros, None);
+    assert_eq!(
+        budgets.wall_time.map(Duration::as_signed),
+        Some(SignedDuration::from_hours(72))
+    );
+    let (config, _) = hub_with(
+        "",
+        &MapEnv::new().with("DOMOVOI_ORCHESTRATION__ENABLED", "true"),
+    )
+    .unwrap();
+    assert!(config.orchestration.enabled);
+}

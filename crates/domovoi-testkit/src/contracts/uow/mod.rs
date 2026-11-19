@@ -4,6 +4,7 @@ mod effects;
 mod journal;
 mod lifecycle;
 mod lifecycle_retry;
+mod lifecycle_scope;
 mod rollback;
 mod states;
 
@@ -31,6 +32,12 @@ pub use lifecycle_retry::{
     expired_lease_beyond_attempt_limit_dies_instead_of_reclaim,
     reschedule_returns_effect_to_pending_with_backoff_time,
 };
+pub use lifecycle_scope::{
+    an_empty_aggregate_scope_claims_nothing,
+    cancel_effects_cancels_only_pending_effects_of_the_aggregate, claim_filters_by_aggregate_kind,
+    claimed_of_filters_by_kind_aggregate_and_status,
+    revert_claimed_at_start_is_scoped_to_aggregates,
+};
 pub use rollback::failed_effect_completion_rolls_back_every_stage;
 pub use states::{
     action_guard_refuses_a_changed_status, chat_token_hash_must_be_unique_across_actions,
@@ -45,7 +52,7 @@ use async_trait::async_trait;
 use domovoi_core::EffectId;
 use domovoi_core::ports::{
     ActionRepo, AuditLog, ClaimToken, EffectQueue, EffectRead, IncidentRepo, JournalRead, NoteRepo,
-    SignalRepo, UnitOfWork, VersionedRead,
+    OperationRepo, SignalRepo, UnitOfWork, VersionedRead,
 };
 use jiff::Timestamp;
 
@@ -74,6 +81,8 @@ pub trait UowSubject: Send + Sync {
     fn notes(&self) -> &dyn NoteRepo;
     /// The audit log.
     fn audit(&self) -> &dyn AuditLog;
+    /// Operation reads.
+    fn operations(&self) -> &dyn OperationRepo;
     /// Claiming and recovering effects: the queue the runner works from.
     fn queue(&self) -> &dyn EffectQueue;
 
@@ -121,6 +130,10 @@ impl UowSubject for InMemoryStore {
     }
 
     fn audit(&self) -> &dyn AuditLog {
+        self
+    }
+
+    fn operations(&self) -> &dyn OperationRepo {
         self
     }
 

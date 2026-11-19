@@ -23,6 +23,7 @@ pub mod incident;
 pub mod interaction;
 pub mod note;
 pub mod notify;
+pub mod operation;
 pub mod ports;
 pub mod severity;
 mod sha256;
@@ -39,7 +40,9 @@ pub use action::{
     JournalEpoch, PermitError, PlanBinding, PlanContract, PlanError, PlanFamily, PlanHash,
     PlanTarget, PolicyPermit, PolicyPermitParts, Principal, StoredAction, StoredActionError,
 };
-pub use actor::{Actor, ActorParseError, SYSTEM_ACTIONS, SYSTEM_AUDIT, SYSTEM_INCIDENTS};
+pub use actor::{
+    Actor, ActorParseError, SYSTEM_ACTIONS, SYSTEM_AUDIT, SYSTEM_INCIDENTS, SYSTEM_OPERATIONS,
+};
 pub use addr::{in_cidr, valid_cidr};
 pub use advisory::{Advisory, AdvisoryKind};
 pub use baseline::{BaselineEntry, BaselineKind, Criticality};
@@ -58,7 +61,7 @@ pub use host::{
 };
 pub use id::{
     AckRuleId, ActionId, AdvisoryId, AgentId, AgentSessionId, EffectId, ExecutionId, HostId,
-    IncidentId, NoteId, RequestId, SignalId, UserId,
+    IncidentId, NoteId, OperationId, RequestId, SignalId, StepId, UserId,
 };
 pub use incident::{
     Incident, IncidentChange, IncidentEvent, IncidentGroup, IncidentPolicy, IncidentStatus, apply,
@@ -66,6 +69,14 @@ pub use incident::{
 pub use interaction::{Interaction, InteractionKind, InteractionReply};
 pub use note::Note;
 pub use notify::{ChatRefs, HeldItem, NotifyState};
+pub use operation::{
+    BudgetKind, BudgetLimits, BudgetUsed, Budgets, EdgeError, EdgeKind, ExecutionApproval,
+    ExecutionError, ExecutionIntent, ExecutionParts, ExecutionRecord, ExecutionState,
+    FinishOutcome, Operation, OperationKind, OperationSnapshot, OperationStatus, OperationTrace,
+    PauseReason, PinnedSubject, RetryOf, Step, StepEdge, StepIntent, StepKind, StepOutcome,
+    StepProgress, StepRecord, StepUsage, TRACE_SCHEMA_VERSION, TraceEdge, TraceOperation, TraceRef,
+    TraceStep, WaitKind, build_trace, check_edge,
+};
 pub use severity::Severity;
 pub use sha256::ScriptDigest;
 pub use signal::{

@@ -5,8 +5,8 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use async_trait::async_trait;
 use domovoi_core::ports::{
-    AdvisoryRepo, AggregateRef, ClaimBatch, ClaimToken, EffectDraft, EffectKind, EffectQueue,
-    EffectRead, EffectRecord, Transaction,
+    AdvisoryRepo, AggregateKind, AggregateRef, ClaimBatch, ClaimToken, EffectDraft, EffectKind,
+    EffectQueue, EffectRead, EffectRecord, Transaction,
 };
 use domovoi_core::{AdvisoryKind, EffectId, IncidentId};
 use domovoi_testkit::build::T0;
@@ -628,6 +628,7 @@ async fn exhausted(store: &InMemoryStore, clock: &FakeClock, count: usize) -> Ve
         .claim_due(
             "seeder",
             &[EffectKind::Wake],
+            &AggregateKind::LEGACY,
             T0,
             SignedDuration::from_secs(5),
             10,
@@ -754,16 +755,22 @@ impl EffectQueue for CountingQueue {
         &self,
         runner: &str,
         kinds: &[EffectKind],
+        aggregates: &[AggregateKind],
         now: Timestamp,
         lease: SignedDuration,
         limit: u16,
     ) -> Result<ClaimBatch, domovoi_core::ports::StoreError> {
         self.calls.fetch_add(1, Ordering::SeqCst);
         let _ = self.signal.send(());
-        self.store.claim_due(runner, kinds, now, lease, limit).await
+        self.store
+            .claim_due(runner, kinds, aggregates, now, lease, limit)
+            .await
     }
 
-    async fn revert_claimed_at_start(&self) -> Result<u64, domovoi_core::ports::StoreError> {
-        self.store.revert_claimed_at_start().await
+    async fn revert_claimed_at_start(
+        &self,
+        aggregates: &[AggregateKind],
+    ) -> Result<u64, domovoi_core::ports::StoreError> {
+        self.store.revert_claimed_at_start(aggregates).await
     }
 }

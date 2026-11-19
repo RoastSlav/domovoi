@@ -6,8 +6,8 @@ use std::sync::Arc;
 use domovoi_core::EffectId;
 use domovoi_core::ports::repos::AdvisoryRepo;
 use domovoi_core::ports::{
-    ClaimToken, Clock, EffectDeath, EffectKind, EffectQueue, EffectRecord, EffectReschedule,
-    Transaction, UnitOfWork,
+    AggregateKind, ClaimToken, Clock, EffectDeath, EffectKind, EffectQueue, EffectRecord,
+    EffectReschedule, Transaction, UnitOfWork,
 };
 use jiff::{SignedDuration, Timestamp};
 use tokio::sync::Notify;
@@ -40,6 +40,7 @@ pub struct EffectRunner {
     settings: EffectSettings,
     handlers: BTreeMap<EffectKind, Arc<dyn EffectHandler>>,
     runner_id: String,
+    aggregates: Vec<AggregateKind>,
 }
 
 impl EffectRunner {
@@ -51,7 +52,16 @@ impl EffectRunner {
             settings,
             handlers: BTreeMap::new(),
             runner_id: format!("hub-{}", ClaimToken::new()),
+            aggregates: AggregateKind::LEGACY.to_vec(),
         }
+    }
+
+    /// Limits the runner to effects of these aggregate kinds. A new runner claims only the
+    /// legacy aggregates, so it never takes another service's rows.
+    #[must_use]
+    pub fn scoped(mut self, aggregates: Vec<AggregateKind>) -> Self {
+        self.aggregates = aggregates;
+        self
     }
 
     /// Registers the handler for `kind`, replacing any previous one.
@@ -70,7 +80,12 @@ impl EffectRunner {
         if self.deps.shutdown.is_cancelled() {
             return;
         }
-        match self.deps.queue.revert_claimed_at_start().await {
+        match self
+            .deps
+            .queue
+            .revert_claimed_at_start(&self.aggregates)
+            .await
+        {
             Ok(count) if count > 0 => {
                 tracing::info!(
                     count,
@@ -104,6 +119,7 @@ impl EffectRunner {
                 claimed = self.deps.queue.claim_due(
                     &self.runner_id,
                     &kinds,
+                    &self.aggregates,
                     now,
                     self.settings.lease,
                     self.settings.batch,

@@ -41,3 +41,4 @@ An ADR records one decision that shapes the codebase: the context, the decision 
 | [0021](0021-plan-hash-v2-and-authorization.md) | Plan hash v2 and the authorization wrapper | Accepted |
 | [0022](0022-single-execution-boundary.md) | One execution boundary and one read boundary | Accepted |
 | [0023](0023-capability-objects-one-checker-bounded-evidence.md) | Capability objects, one checker, bounded evidence | Accepted |
+| [0025](0025-operation-aggregate.md) | Operation aggregate: immutable steps, derived status and one writer | Accepted |

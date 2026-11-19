@@ -1,0 +1,70 @@
+---
+source: crates/domovoi-core/tests/operation_trace.rs
+expression: intents
+---
+[
+  {
+    "kind": "reasoning_turn",
+    "context_refs": [
+      "incident"
+    ]
+  },
+  {
+    "kind": "evidence_request",
+    "host": "01900000-0000-7000-8000-000000000001",
+    "tool": "docker_ps",
+    "args": {
+      "all": true
+    }
+  },
+  {
+    "kind": "assessment",
+    "text": "plex runs out of memory"
+  },
+  {
+    "kind": "plan",
+    "text": "restart plex"
+  },
+  {
+    "kind": "policy_decision",
+    "execution": "01900000-0000-7000-8000-000000010006"
+  },
+  {
+    "kind": "approval",
+    "execution": "01900000-0000-7000-8000-000000010006",
+    "plan_hash": "abababababababababababababababababababababababababababababababab",
+    "expires_at": "2025-10-10T08:53:20Z"
+  },
+  {
+    "kind": "execution",
+    "contract": "skill.restart_container",
+    "contract_version": 1,
+    "host": "01900000-0000-7000-8000-000000000001",
+    "check": "container.down",
+    "target": "plex",
+    "args": {
+      "container": "plex"
+    },
+    "retry_of": null
+  },
+  {
+    "kind": "verification",
+    "execution": "01900000-0000-7000-8000-000000020004",
+    "delay_secs": 30
+  },
+  {
+    "kind": "notification",
+    "channel": "discord",
+    "subject": "plex needs a restart tonight"
+  },
+  {
+    "kind": "question",
+    "text": "Is plex allowed to restart during the evening?",
+    "expires_at": "2025-10-10T08:53:20Z"
+  },
+  {
+    "kind": "note",
+    "text": "yes, after 22:00",
+    "author": "user:01900000-0000-7000-8000-000000000002"
+  }
+]

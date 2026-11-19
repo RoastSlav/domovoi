@@ -308,3 +308,21 @@ fn prompt_bytes_defaults_to_128_kib_and_rejects_below_32_kib() {
     let errors = hub_errors("[triage.per_run]\nprompt_bytes = 1024\n");
     assert_issue(&errors, "triage.per_run.prompt_bytes", "at least 32768");
 }
+
+#[test]
+fn orchestration_rejects_zero_limits() {
+    let errors = hub_errors("[orchestration]\nmax_running = 0\nloop_guard_per_hour = 0\n");
+    assert_issue(&errors, "orchestration.max_running", "at least 1");
+    assert_issue(&errors, "orchestration.loop_guard_per_hour", "at least 1");
+    let errors = hub_errors("[orchestration.budgets]\nexecutions = 0\ncost_micros = 0\n");
+    assert_issue(&errors, "orchestration.budgets.executions", "at least 1");
+    assert_issue(&errors, "orchestration.budgets.cost_micros", "at least 1");
+    let errors = hub_errors("[orchestration]\napproval_ttl = \"8d\"\n");
+    assert_issue(&errors, "orchestration.approval_ttl", "at most 7d");
+    let errors = hub_errors("[orchestration]\nquestion_timeout = \"0s\"\n");
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.path == "orchestration.question_timeout")
+    );
+}

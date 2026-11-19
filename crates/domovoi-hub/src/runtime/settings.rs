@@ -6,6 +6,7 @@ use domovoi_config::hub::{HubConfig, LlmKind, LlmProvider};
 use domovoi_core::IncidentPolicy;
 use domovoi_core::ports::Clock;
 use domovoi_engine::notify::{NotifySettings, QuietHours};
+use domovoi_engine::operations::OperationSettings;
 use domovoi_engine::triage::TriageSettings;
 use domovoi_engine::{ActionSettings, EnginePolicy};
 use domovoi_llm::{Price, ProviderKind, ProviderSettings};
@@ -20,6 +21,32 @@ pub(super) fn engine(config: &HubConfig) -> EnginePolicy {
         },
         grouping_window: config.incidents.grouping_window.as_signed(),
         tick_every: SignedDuration::from_secs(30),
+    }
+}
+
+/// The operation service's limits from `[orchestration]`; the other waits keep the engine's
+/// defaults.
+pub(super) fn operations(config: &HubConfig) -> OperationSettings {
+    let section = &config.orchestration;
+    let budgets = &section.budgets;
+    OperationSettings {
+        max_running: section.max_running,
+        approval_ttl: section.approval_ttl.as_signed(),
+        question_timeout: section.question_timeout.as_signed(),
+        agent_wait_limit: section.agent_wait_limit.as_signed(),
+        loop_guard_per_hour: section.loop_guard_per_hour,
+        budgets: domovoi_core::BudgetLimits {
+            model_turns: budgets.model_turns,
+            evidence_requests: budgets.evidence_requests,
+            executions: budgets.executions,
+            cycles: budgets.cycles,
+            wall_seconds: budgets
+                .wall_time
+                .map(|time| u64::try_from(time.as_signed().as_secs()).unwrap_or(0)),
+            tokens: budgets.tokens,
+            cost_micros: budgets.cost_micros,
+        },
+        ..OperationSettings::default()
     }
 }
 

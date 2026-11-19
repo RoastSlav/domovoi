@@ -22,6 +22,7 @@ pub mod logs;
 pub mod process;
 pub mod redact;
 pub mod repos;
+pub mod target;
 
 pub use build::BuildError;
 pub use capability::FakeCapabilityRegistry;
@@ -35,6 +36,7 @@ pub use logs::CannedLogSource;
 pub use process::FakeProcessExecutor;
 pub use redact::ListRedactor;
 pub use repos::{InMemoryStore, UsageRow};
+pub use target::FakeTargetResolver;
 
 use std::sync::{Mutex, MutexGuard, PoisonError};
 

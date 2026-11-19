@@ -9,6 +9,8 @@ mod incidents;
 mod knowledge;
 mod notes;
 mod notify;
+mod operations;
+mod operations_rows;
 mod triage;
 
 pub use notes::SNIPPET_CHARS;

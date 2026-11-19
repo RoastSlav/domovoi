@@ -1,0 +1,160 @@
+---
+source: crates/domovoi-core/tests/operation_trace.rs
+expression: "build_trace(&snapshot, 100)"
+---
+{
+  "schema_version": 1,
+  "as_of_seq": 100,
+  "operation": {
+    "id": "01900000-0000-7000-8000-00000001ffff",
+    "kind": "investigate",
+    "goal": "find out why plex keeps going down",
+    "status": "waiting_approval",
+    "pause_reason": null,
+    "waiting_for": [
+      "approval"
+    ],
+    "cycle": 0,
+    "budgets": {
+      "limits": {
+        "model_turns": null,
+        "evidence_requests": null,
+        "executions": null,
+        "cycles": null,
+        "wall_seconds": null,
+        "tokens": null,
+        "cost_micros": null
+      },
+      "used": {
+        "model_turns": 0,
+        "evidence_requests": 0,
+        "executions": 0,
+        "wall_seconds": 0,
+        "tokens": 0,
+        "cost_micros": 0
+      }
+    },
+    "pinned": [
+      {
+        "host": "01900000-0000-7000-8000-000000000001",
+        "check": "container.down",
+        "target": "plex"
+      }
+    ],
+    "parent": null,
+    "incidents": [
+      "01900000-0000-7000-8000-000000000003"
+    ],
+    "created_at": "2025-10-09T08:52:20Z",
+    "started_at": "2025-10-09T08:53:20Z",
+    "ended_at": null
+  },
+  "steps": [
+    {
+      "id": "01900000-0000-7000-8000-000000010001",
+      "parent": null,
+      "kind": "reasoning_turn",
+      "phase": "diagnose",
+      "cycle": 0,
+      "outcome": "succeeded",
+      "started_at": "2025-10-09T08:53:21Z",
+      "ended_at": "2025-10-09T08:53:30Z",
+      "summary": null,
+      "refs": []
+    },
+    {
+      "id": "01900000-0000-7000-8000-000000010002",
+      "parent": null,
+      "kind": "evidence_request",
+      "phase": "diagnose",
+      "cycle": 0,
+      "outcome": "succeeded",
+      "started_at": "2025-10-09T08:54:21Z",
+      "ended_at": "2025-10-09T08:54:30Z",
+      "summary": "plex exited 3 times in an hour",
+      "refs": []
+    },
+    {
+      "id": "01900000-0000-7000-8000-000000010003",
+      "parent": null,
+      "kind": "assessment",
+      "phase": "diagnose",
+      "cycle": 0,
+      "outcome": "succeeded",
+      "started_at": "2025-10-09T08:55:21Z",
+      "ended_at": "2025-10-09T08:55:30Z",
+      "summary": null,
+      "refs": []
+    },
+    {
+      "id": "01900000-0000-7000-8000-000000010004",
+      "parent": null,
+      "kind": "plan",
+      "phase": "fix",
+      "cycle": 0,
+      "outcome": "succeeded",
+      "started_at": "2025-10-09T08:56:21Z",
+      "ended_at": "2025-10-09T08:56:30Z",
+      "summary": null,
+      "refs": []
+    },
+    {
+      "id": "01900000-0000-7000-8000-000000010005",
+      "parent": null,
+      "kind": "approval",
+      "phase": "fix",
+      "cycle": 0,
+      "outcome": "pending",
+      "started_at": null,
+      "ended_at": null,
+      "summary": null,
+      "refs": []
+    },
+    {
+      "id": "01900000-0000-7000-8000-000000010006",
+      "parent": null,
+      "kind": "execution",
+      "phase": "fix",
+      "cycle": 0,
+      "outcome": "pending",
+      "started_at": null,
+      "ended_at": null,
+      "summary": null,
+      "refs": [
+        {
+          "kind": "execution",
+          "id": "01900000-0000-7000-8000-000000010006"
+        }
+      ]
+    },
+    {
+      "id": "01900000-0000-7000-8000-000000010007",
+      "parent": null,
+      "kind": "policy_decision",
+      "phase": "fix",
+      "cycle": 0,
+      "outcome": "succeeded",
+      "started_at": "2025-10-09T08:59:21Z",
+      "ended_at": "2025-10-09T08:59:30Z",
+      "summary": "a person has to approve this",
+      "refs": []
+    }
+  ],
+  "edges": [
+    {
+      "from": "01900000-0000-7000-8000-000000010006",
+      "to": "01900000-0000-7000-8000-000000010004",
+      "kind": "caused_by"
+    },
+    {
+      "from": "01900000-0000-7000-8000-000000010006",
+      "to": "01900000-0000-7000-8000-000000010005",
+      "kind": "depends_on"
+    },
+    {
+      "from": "01900000-0000-7000-8000-000000010007",
+      "to": "01900000-0000-7000-8000-000000010006",
+      "kind": "depends_on"
+    }
+  ]
+}

@@ -9,15 +9,18 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use domovoi_core::ports::{
-    ActionFilter, ActionRepo, AdvisoryRepo, AgentLink, CheckRecheck, Clock, EffectQueue,
-    EffectRead, EffectStatus, HostReconciler, HostRepo, IncidentFilter, IncidentRepo, Page,
-    Presence, SkillOutput,
+    ActionFilter, ActionRepo, AdvisoryRepo, AgentLink, AggregateKind, CheckRecheck, Clock,
+    EffectQueue, EffectRead, EffectStatus, HostReconciler, HostRepo, IncidentFilter, IncidentRepo,
+    OperationRepo, Page, Presence, SkillOutput,
 };
 use domovoi_core::{
-    ActionId, ActionRequest, ActionStatus, AgentId, AgentIdentity, CheckKey, Evidence, HostId,
-    Incident, IncidentId, JournalEpoch, KeyFingerprint, ParamKind, ParamName, ParamSpec, Principal,
-    Risk, Severity, Signal, SignalClass, SignalStatus, SkillManifest, SkillSummary, SourceKind,
-    TargetKey, UserId, Verdict, VerifySpec,
+    ActionId, ActionRequest, ActionStatus, Actor, AgentId, AgentIdentity, CheckKey, Evidence,
+    HostId, Incident, IncidentId, JournalEpoch, KeyFingerprint, OperationKind, ParamKind,
+    ParamName, ParamSpec, PinnedSubject, Principal, Risk, Severity, Signal, SignalClass,
+    SignalStatus, SkillManifest, SkillSummary, SourceKind, TargetKey, UserId, Verdict, VerifySpec,
+};
+use domovoi_engine::operations::{
+    OperationDeps, OperationHandle, OperationSeed, OperationService, OperationSettings,
 };
 use domovoi_engine::triage::{mint_token, token_hash};
 use domovoi_engine::{
@@ -26,12 +29,32 @@ use domovoi_engine::{
 };
 use domovoi_testkit::build::{T0, manifest, open_incident};
 use domovoi_testkit::crash::{CrashingStore, SweepStore, check_invariants};
-use domovoi_testkit::link::action_caps;
-use domovoi_testkit::{FakeAgentLink, FakeClock};
+use domovoi_testkit::link::{action_caps, evidence_caps, observer_of};
+use domovoi_testkit::{FakeAgentLink, FakeCapabilityRegistry, FakeClock, FakeTargetResolver};
 use jiff::{SignedDuration, Timestamp};
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
+
+/// What an operation over the world's container incident is seeded with.
+#[must_use]
+pub fn operation_seed(incidents: Vec<IncidentId>) -> OperationSeed {
+    OperationSeed {
+        kind: OperationKind::Investigate,
+        goal: "find out why nginx is restarting".to_owned(),
+        pinned: vec![PinnedSubject {
+            host: host_id(),
+            check: CheckKey::parse("docker.container").expect("a valid check"),
+            target: Some(TargetKey::parse("nginx").expect("a valid target")),
+        }],
+        incidents,
+        parent: None,
+        budgets: None,
+        first_steps: Vec::new(),
+        effects: Vec::new(),
+        actor: Actor::System("crash-sweep".to_owned()),
+    }
+}
 
 /// The host whose agent offers the skills and whose container incident the world seeds.
 #[must_use]
@@ -234,9 +257,12 @@ pub struct World<S: SweepStore> {
     pub manager: ManagerHandle,
     /// The action service.
     pub service: ActionHandle,
+    /// The operation service.
+    pub operations: OperationHandle,
     shutdown: CancellationToken,
     manager_task: Option<JoinHandle<()>>,
     action_task: Option<JoinHandle<()>>,
+    operation_task: Option<JoinHandle<()>>,
 }
 
 impl<S: SweepStore> Drop for World<S> {
@@ -245,7 +271,7 @@ impl<S: SweepStore> Drop for World<S> {
     }
 }
 
-impl<S: SweepStore + EffectQueue + AdvisoryRepo + domovoi_core::ports::HostRepo> World<S> {
+impl<S: SweepStore + EffectQueue + AdvisoryRepo + HostRepo + OperationRepo> World<S> {
     /// A world over a fresh store, with one open container incident already stored.
     pub async fn new(store: Arc<S>) -> Self {
         let incident = open_incident(host_id(), "docker.container", Some("nginx"))
@@ -328,6 +354,34 @@ impl<S: SweepStore + EffectQueue + AdvisoryRepo + domovoi_core::ports::HostRepo>
             },
             settings(),
         );
+        let registry = Arc::new(FakeCapabilityRegistry::following(link.clone()));
+        let caps = action_caps(link.clone());
+        let (operations, operation_task) = OperationService::spawn(
+            OperationDeps {
+                operations: store.clone(),
+                uow: crashing.clone(),
+                effects: store.clone(),
+                effect_read: store.clone(),
+                advisories: store.clone(),
+                incidents: store.clone(),
+                hosts: store.clone(),
+                evidence: domovoi_engine::Evidence::new(
+                    evidence_caps(link.clone()),
+                    clock.clone(),
+                    registry.clone(),
+                ),
+                registry,
+                resolver: Arc::new(FakeTargetResolver::new()),
+                observer: observer_of(link.clone()),
+                journal: caps.journal,
+                handoff: caps.handoff,
+                rerun: caps.rerun,
+                redactor: Arc::new(PatternRedactor::default()),
+                clock: clock.clone(),
+                shutdown: shutdown.clone(),
+            },
+            OperationSettings::default(),
+        );
         Self {
             crashing,
             store,
@@ -335,9 +389,11 @@ impl<S: SweepStore + EffectQueue + AdvisoryRepo + domovoi_core::ports::HostRepo>
             link,
             manager,
             service,
+            operations,
             shutdown,
             manager_task: Some(manager_task),
             action_task: Some(action_task),
+            operation_task: Some(operation_task),
         }
     }
 }
@@ -411,6 +467,72 @@ impl<S: SweepStore> World<S> {
             self.advance(1);
         }
         panic!("the services never went quiet");
+    }
+
+    /// Waits until the operation service has nothing left to do at the current fake time: no
+    /// operation effect is claimed, and none is pending and due. Time does not move, so an
+    /// effect that is only due later (a wake, a verification) is not waited for.
+    ///
+    /// The scenario calls it after every step. Without it a handler runs beside the next step
+    /// and its commits land before or after the step's own depending on the scheduler, which
+    /// changes the commit sequence from one run to the next. Waiting for quiet makes the
+    /// sequence a function of the scenario alone.
+    ///
+    /// Returns at once when the process is down: a claimed effect then stays claimed for ever.
+    /// Ten quiet rounds in a row are needed, so a runner between a claim and its handler is
+    /// not mistaken for an idle one, and a run still out with its agent counts as work; each round reads the store, which takes as long as the
+    /// store takes.
+    pub async fn operations_quiet(&self)
+    where
+        S: OperationRepo,
+    {
+        let mut quiet = 0;
+        for _ in 0..5_000 {
+            if self.crashing.crashed() {
+                return;
+            }
+            for _ in 0..20 {
+                tokio::task::yield_now().await;
+            }
+            quiet = if self.operation_effects_busy().await {
+                0
+            } else {
+                quiet + 1
+            };
+            if quiet >= 10 {
+                return;
+            }
+        }
+        panic!("the operation service never went quiet");
+    }
+
+    /// Whether an operation effect is claimed or pending and due now, or a run is out with its
+    /// agent. A run has no effect of its own while it is out: the dispatch commit completes the
+    /// dispatch effect, and the commit that records the run's answer comes later from the
+    /// handler that is still waiting for it.
+    async fn operation_effects_busy(&self) -> bool
+    where
+        S: OperationRepo,
+    {
+        match OperationRepo::dispatched_on(&*self.store, host_id()).await {
+            Ok(running) if running.is_empty() => {}
+            _ => return true,
+        }
+        let now = self.now();
+        // Pending first: an effect that moves from pending to claimed between the two reads is
+        // then seen by the second one.
+        for status in [EffectStatus::Pending, EffectStatus::Claimed] {
+            let Ok(rows) = EffectRead::effects_with_status(&*self.store, status, 500).await else {
+                return true;
+            };
+            if rows.iter().any(|row| {
+                row.aggregate.kind == AggregateKind::Operation
+                    && (status == EffectStatus::Claimed || row.not_before <= now)
+            }) {
+                return true;
+            }
+        }
+        false
     }
 
     /// Whether a verification is still to come: a wake effect that is claimed now, or due to
@@ -581,12 +703,12 @@ impl<S: SweepStore> World<S> {
         Err("the verdict was never stored".to_owned())
     }
 
-    /// Stops the services and waits for their tasks with the fake clock only: no real
-    /// sleeps, at most 10 000 yields.
+    /// Stops the services and waits for their tasks to finish.
     pub async fn shutdown(mut self) {
         self.shutdown.cancel();
         join(self.manager_task.take()).await;
         join(self.action_task.take()).await;
+        join(self.operation_task.take()).await;
     }
 
     /// Lets the restarted services do their start-up work: one tick, the writer's expiry
@@ -627,6 +749,21 @@ impl<S: SweepStore> World<S> {
             }
             self.service.reconcile_host(host).await;
         }
+    }
+
+    /// Proves the restarted operation service still takes a command: a new operation is
+    /// stored and admitted.
+    pub async fn assert_operations_work(&self) {
+        let id = self
+            .operations
+            .create(operation_seed(Vec::new()))
+            .await
+            .expect("the operation service stores a new operation");
+        // Only a running (admitted) operation can be paused.
+        self.operations
+            .pause(id, Actor::System("crash-sweep".to_owned()))
+            .await
+            .expect("the new operation was admitted");
     }
 
     /// Proves the restarted services still do their work: one new incident, one approved
@@ -691,25 +828,23 @@ impl<S: SweepStore> World<S> {
             })
             .await;
         self.quiesce().await;
+        self.assert_operations_work().await;
         if let Err(violations) = check_invariants(&*self.store).await {
             panic!("invariants after recovery: {violations:#?}");
         }
     }
 }
 
-/// Waits for a service task without sleeping: a yield loop, at most 10 000 times.
+/// Waits for a service task to finish. The shutdown token is already cancelled, so the task
+/// ends once the commit it may be in the middle of has landed; how long that takes depends on
+/// the store and the machine, so a count of yields cannot bound it. The real-time limit only
+/// turns a task that never stops into a failure instead of a hang.
 async fn join(task: Option<JoinHandle<()>>) {
     let Some(task) = task else {
         return;
     };
-    for _ in 0..10_000 {
-        if task.is_finished() {
-            let _ = task.await;
-            return;
-        }
-        tokio::task::yield_now().await;
-    }
-    panic!("services did not stop");
+    let stopped = tokio::time::timeout(std::time::Duration::from_secs(60), task).await;
+    assert!(stopped.is_ok(), "services did not stop");
 }
 
 /// Scripts the agent: connected, announcing every skill, restarting containers and resolving

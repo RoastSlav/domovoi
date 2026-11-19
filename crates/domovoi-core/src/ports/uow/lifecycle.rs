@@ -12,7 +12,7 @@ use jiff::{SignedDuration, Timestamp};
 use crate::id::EffectId;
 use crate::ports::repos::StoreError;
 
-use super::{ClaimToken, EffectKind, EffectRecord};
+use super::{AggregateKind, AggregateRef, ClaimToken, EffectKind, EffectRecord};
 
 /// An effect this runner now holds, with the token that fences it.
 #[derive(Debug, Clone, PartialEq)]
@@ -60,26 +60,45 @@ pub struct EffectDeath {
     pub at: Timestamp,
 }
 
+/// Cancels every `pending` effect of one aggregate, inside its owner's transaction.
+///
+/// Effects that are `claimed`, `done`, `dead` or already `cancelled` are left alone: a held
+/// effect finishes under its own token.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EffectCancel {
+    /// The aggregate whose pending effects are no longer needed.
+    pub aggregate: AggregateRef,
+    /// When they were cancelled. Stored as the completion time.
+    pub at: Timestamp,
+}
+
 /// Claims and recovers effects.
 ///
 /// Completion, reschedule and dead-letter are not here: they travel inside the owner's
 /// [`Transaction`](super::Transaction) so they commit with the state change they belong to.
 #[async_trait]
 pub trait EffectQueue: Send + Sync {
-    /// Claims up to `limit` effects whose kind is in `kinds`: first `pending` ones that are
-    /// due, then `claimed` ones whose lease expired (never a `dispatch` effect). Each claimed
-    /// row gets a fresh token, the next generation and a lease; each row already past its
-    /// attempt limit is dead-lettered instead.
+    /// Claims up to `limit` effects whose kind is in `kinds` and whose aggregate kind is in
+    /// `aggregates`: first `pending` ones that are due, then `claimed` ones whose lease
+    /// expired (never a `dispatch` effect). Each claimed row gets a fresh token, the next
+    /// generation and a lease; each row already past its attempt limit is dead-lettered
+    /// instead. An empty `aggregates` claims nothing, so two services that both own a kind
+    /// such as `wake` never take each other's rows.
     async fn claim_due(
         &self,
         runner: &str,
         kinds: &[EffectKind],
+        aggregates: &[AggregateKind],
         now: Timestamp,
         lease: SignedDuration,
         limit: u16,
     ) -> Result<ClaimBatch, StoreError>;
 
-    /// At start, returns every `claimed` effect whose kind is not `dispatch` to `pending` with
-    /// a new generation and no token. Returns how many were reverted.
-    async fn revert_claimed_at_start(&self) -> Result<u64, StoreError>;
+    /// At start, returns every `claimed` effect of an aggregate kind in `aggregates` whose
+    /// kind is not `dispatch` to `pending` with a new generation and no token. Returns how
+    /// many were reverted. An empty `aggregates` reverts nothing.
+    async fn revert_claimed_at_start(
+        &self,
+        aggregates: &[AggregateKind],
+    ) -> Result<u64, StoreError>;
 }

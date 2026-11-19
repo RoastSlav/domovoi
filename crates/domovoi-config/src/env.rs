@@ -10,7 +10,7 @@ use crate::issue::ConfigIssue;
 pub const OVERRIDE_PREFIX: &str = "DOMOVOI_";
 
 /// The top-level tables of `hub.toml`.
-pub const HUB_SECTIONS: [&str; 15] = [
+pub const HUB_SECTIONS: [&str; 16] = [
     "hub",
     "web",
     "agent_server",
@@ -26,6 +26,7 @@ pub const HUB_SECTIONS: [&str; 15] = [
     "retention",
     "metrics",
     "secrets",
+    "orchestration",
 ];
 
 /// The top-level tables of `agent.toml`.

@@ -136,6 +136,7 @@ pub(super) async fn apply(
         }
         StateWrite::Action { action, expected } => apply_action(conn, action, expected).await,
         StateWrite::Note { note, expected } => apply_note(conn, note, *expected, receipt).await,
+        StateWrite::Operation(write) => super::operations::apply(conn, write, receipt).await,
     }
 }
 

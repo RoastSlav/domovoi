@@ -1,8 +1,9 @@
 //! Unit-of-work contracts about the effect queue: claiming, leases and recovery.
 
 use domovoi_core::ports::{
-    AggregateRef, ClaimBatch, ClaimToken, CommitError, EffectCompletion, EffectDeath, EffectDraft,
-    EffectKind, EffectRecord, EffectReschedule, Expected, StateWrite, Transaction,
+    AggregateKind, AggregateRef, ClaimBatch, ClaimToken, CommitError, EffectCompletion,
+    EffectDeath, EffectDraft, EffectKind, EffectRecord, EffectReschedule, Expected, StateWrite,
+    Transaction,
 };
 use domovoi_core::{EffectId, IncidentId, Note, NoteId};
 use jiff::{SignedDuration, Timestamp};
@@ -50,7 +51,14 @@ pub(super) async fn claim(
 ) -> Result<ClaimBatch, ContractError> {
     Ok(subject
         .queue()
-        .claim_due(runner, kinds, now, SignedDuration::from_secs(LEASE), 10)
+        .claim_due(
+            runner,
+            kinds,
+            &AggregateKind::LEGACY,
+            now,
+            SignedDuration::from_secs(LEASE),
+            10,
+        )
         .await?)
 }
 
@@ -131,6 +139,7 @@ pub async fn claim_prioritizes_pending_effects_before_expired_claims(
         .claim_due(
             "r1",
             &[EffectKind::Wake],
+            &AggregateKind::LEGACY,
             at(0),
             SignedDuration::from_secs(5),
             10,
@@ -148,6 +157,7 @@ pub async fn claim_prioritizes_pending_effects_before_expired_claims(
         .claim_due(
             "r2",
             &[EffectKind::Wake],
+            &AggregateKind::LEGACY,
             at(11),
             SignedDuration::from_secs(LEASE),
             1,
@@ -327,7 +337,10 @@ pub async fn restart_reverts_claimed_effects_except_dispatch(
     .await?;
     assert_eq!(batch.claimed.len(), 2);
 
-    let reverted = subject.queue().revert_claimed_at_start().await?;
+    let reverted = subject
+        .queue()
+        .revert_claimed_at_start(&AggregateKind::LEGACY)
+        .await?;
     assert_eq!(reverted, 1);
 
     let wake = fetch(subject, wake).await?;

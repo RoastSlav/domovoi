@@ -53,6 +53,7 @@ pub(super) fn apply(
         StateWrite::DiscardPendingIncident { id, expected } => apply_discard(state, *id, *expected),
         StateWrite::Action { action, expected } => apply_action(state, action, expected),
         StateWrite::Note { note, expected } => apply_note(state, note, *expected, receipt),
+        StateWrite::Operation(write) => super::uow_operations::apply(state, write, receipt),
     }
 }
 

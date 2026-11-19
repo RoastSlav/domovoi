@@ -11,6 +11,7 @@ use domovoi_testkit::InMemoryStore;
 use domovoi_testkit::build::{T0, open_incident};
 use domovoi_testkit::crash::{Snapshot, TxSummary};
 
+use crate::operations::operation_lifecycle;
 use crate::scenarios::{action_lifecycle, incident_lifecycle};
 use crate::sweep::BoxFuture;
 use crate::world::{World, host_id};
@@ -20,11 +21,19 @@ type Run = fn(&mut World<InMemoryStore>) -> BoxFuture<'_, ()>;
 
 /// The files a commit goes through. A later writer that commits anywhere else fails
 /// [`commit_sites_are_the_ones_the_sweep_exercises`] until it adds a scenario here.
-const COMMIT_SITES: [&str; 3] = ["actions/commit.rs", "effects/runner.rs", "manager/actor.rs"];
+const COMMIT_SITES: [&str; 6] = [
+    "actions/commit.rs",
+    "effects/runner.rs",
+    "manager/actor.rs",
+    "operations/startup.rs",
+    "operations/writer/commit.rs",
+    "operations/writer/create.rs",
+];
 
-/// Every audit kind the action writer can produce, including the chat-token rotation. A scenario
+/// Every audit kind the action and operation writers can produce, including the chat-token
+/// rotation. A scenario
 /// has to exercise each one, and a new producer has to be added here.
-const AUDIT_KINDS: [&str; 14] = [
+const AUDIT_KINDS: [&str; 23] = [
     "action.proposed",
     "action.approved",
     "action.denied",
@@ -39,6 +48,17 @@ const AUDIT_KINDS: [&str; 14] = [
     "action.verified",
     "action.verify_failed",
     "action.token_rotated",
+    // The operation writer's, as far as the scenarios reach them: an approved restart is
+    // dispatched and settled by the operation service's own handlers.
+    "operation.created",
+    "operation.cancelled",
+    "operation.paused",
+    "operation.resumed",
+    "execution.proposed",
+    "execution.approved",
+    "execution.denied",
+    "execution.dispatched",
+    "execution.succeeded",
 ];
 
 /// Runs a scenario once with the wrapper recording, and returns what it committed.
@@ -62,6 +82,7 @@ async fn sweep_covers_every_kind_of_write() {
     for run in [
         incident_lifecycle::<InMemoryStore>,
         action_lifecycle::<InMemoryStore>,
+        operation_lifecycle::<InMemoryStore>,
     ] {
         for summary in recorded(run).await {
             writes.extend(summary.writes);
@@ -77,6 +98,14 @@ async fn sweep_covers_every_kind_of_write() {
         "incident_event",
         "incident:discard",
         "action:new",
+        "operation:new",
+        "operation:version",
+        "step:new",
+        "step:progress",
+        "edge",
+        "execution:new",
+        "execution:version",
+        "incident_link",
     ] {
         assert!(
             writes.contains(required),
@@ -210,6 +239,7 @@ async fn scenarios_are_deterministic() {
     for run in [
         incident_lifecycle::<InMemoryStore>,
         action_lifecycle::<InMemoryStore>,
+        operation_lifecycle::<InMemoryStore>,
     ] {
         let first = recorded(run).await;
         let second = recorded(run).await;

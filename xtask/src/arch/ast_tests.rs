@@ -16,18 +16,30 @@ fn has(violations: &[Violation], rule: &str) -> bool {
 }
 
 const EXECUTOR: &str = "fn run(a: Action) -> R {\n    let authorized = AuthorizedExecution::of(a)?;\n    execute::execute(authorized)\n}\n";
-const EXECUTE: &str = "fn build() -> WriteCommand { WriteCommand::Dispatch { id: 1 } }\n";
+const EXECUTE: &str = "fn build() -> WriteCommand { WriteCommand::Dispatch { id: 1 } }\nfn send() { handoff.hand_off(a); handoff.await_handoff_result(b); }\n";
+const OP_EXECUTE: &str = "fn build() -> OperationCommand { OperationCommand::Dispatch { id: 1 } }\nfn send() { handoff.hand_off(a); handoff.await_handoff_result(b); }\n";
+const OP_DISPATCH: &str = "fn run(r: Row) -> R {\n    let authorized = AuthorizedStep::of(r)?;\n    execute::execute_step(authorized)\n}\n";
+const OP_WRITER: &str =
+    "fn write(c: OperationCommand) { match c { OperationCommand::Dispatch { .. } => {} } }\n";
 const WRITER: &str =
     "fn write(command: WriteCommand) { match command { WriteCommand::Dispatch { .. } => {} } }\n";
 
-/// The engine's three card sites, each holding its exact count.
+/// The engine's card sites, each holding its exact count: three for the action service and
+/// four for the operation service.
 fn engine_sites() -> Vec<(String, String)> {
     files(&[
         ("crates/domovoi-engine/src/actions/executor.rs", EXECUTOR),
         ("crates/domovoi-engine/src/actions/execute.rs", EXECUTE),
         ("crates/domovoi-engine/src/actions/writer.rs", WRITER),
+        (OP_EXECUTE_PATH, OP_EXECUTE),
+        (OP_DISPATCH_PATH, OP_DISPATCH),
+        (OP_WRITER_PATH, OP_WRITER),
     ])
 }
+
+const OP_EXECUTE_PATH: &str = "crates/domovoi-engine/src/operations/execute.rs";
+const OP_DISPATCH_PATH: &str = "crates/domovoi-engine/src/operations/effects/dispatch.rs";
+const OP_WRITER_PATH: &str = "crates/domovoi-engine/src/operations/writer/mod.rs";
 
 /// The hub's one card site, with the calls split across lines as ordinary formatting allows.
 const CAPS: &str = "fn f() {\n    self.link\n        .run_tool(a, b, c);\n    self.link\n        .start_skill(a, b, c, d, e);\n    self.link\n        .skill_result(a, b, c);\n    self.link\n        .run_check(a, b, c, d);\n}\n";
@@ -518,4 +530,184 @@ fn a_missing_construction_or_match_site_is_refused() {
             "{site}: {violations:#?}"
         );
     }
+}
+
+// ---- The operation service's dispatch boundary (EXEC-2) ----
+
+#[test]
+fn the_operation_sites_pass_in_their_exact_counts() {
+    assert!(exec_violations(&engine_sites()).is_empty());
+}
+
+#[test]
+fn a_second_hand_off_in_a_card_site_is_refused() {
+    for site in [OP_EXECUTE_PATH, EXECUTE_PATH] {
+        let current = if site == OP_EXECUTE_PATH {
+            OP_EXECUTE
+        } else {
+            EXECUTE
+        };
+        let text = format!(
+            "{current}fn again() {{ handoff.hand_off(a); }}
+"
+        );
+        let violations = exec_violations(&engine_with_site(site, &text));
+        assert!(
+            violations
+                .iter()
+                .any(|v| v.rule == "EXEC-2" && v.location.starts_with(site)),
+            "{site}: {violations:#?}"
+        );
+    }
+}
+
+#[test]
+fn a_second_await_handoff_result_in_a_card_site_is_refused() {
+    let text = format!(
+        "{OP_EXECUTE}fn again() {{ handoff.await_handoff_result(b); }}
+"
+    );
+    let violations = exec_violations(&engine_with_site(OP_EXECUTE_PATH, &text));
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "EXEC-2" && v.location.starts_with(OP_EXECUTE_PATH)),
+        "{violations:#?}"
+    );
+}
+
+#[test]
+fn a_hand_off_or_await_outside_the_two_execute_files_is_refused() {
+    for text in [
+        "fn f() { handoff.hand_off(a, b); }
+",
+        "fn f() { handoff.await_handoff_result(a, b); }
+",
+    ] {
+        let violations = exec_violations(&engine_with(OTHER_PATH, text));
+        assert!(
+            violations
+                .iter()
+                .any(|v| v.rule == "EXEC-2" && v.location.contains("other.rs")),
+            "{text}
+{violations:#?}"
+        );
+    }
+}
+
+#[test]
+fn a_missing_hand_off_in_an_operation_site_is_refused() {
+    let text = "fn build() -> OperationCommand { OperationCommand::Dispatch { id: 1 } }
+";
+    let violations = exec_violations(&engine_with_site(OP_EXECUTE_PATH, text));
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "EXEC-2" && v.location.starts_with(OP_EXECUTE_PATH)),
+        "{violations:#?}"
+    );
+}
+
+#[test]
+fn a_second_authorized_step_constructor_is_refused() {
+    let again = "fn again(r: Row) { let _ = AuthorizedStep::of(r); }
+";
+    let in_site = format!("{OP_DISPATCH}{again}");
+    for violations in [
+        exec_violations(&engine_with_site(OP_DISPATCH_PATH, &in_site)),
+        exec_violations(&engine_with(OTHER_PATH, again)),
+    ] {
+        assert!(
+            violations
+                .iter()
+                .any(|v| v.rule == "EXEC-2" && v.message.contains("AuthorizedStep::of")),
+            "{violations:#?}"
+        );
+    }
+}
+
+#[test]
+fn a_second_execute_step_call_is_refused() {
+    let again = "fn again(a: Step) { execute::execute_step(a); }
+";
+    let in_site = format!("{OP_DISPATCH}{again}");
+    for violations in [
+        exec_violations(&engine_with_site(OP_DISPATCH_PATH, &in_site)),
+        exec_violations(&engine_with(OTHER_PATH, again)),
+    ] {
+        assert!(
+            violations
+                .iter()
+                .any(|v| v.rule == "EXEC-2" && v.message.contains("execute::execute_step")),
+            "{violations:#?}"
+        );
+    }
+}
+
+#[test]
+fn a_second_operation_dispatch_construction_is_refused() {
+    let again = "fn again() -> OperationCommand { OperationCommand::Dispatch { id: 2 } }
+";
+    let in_site = format!("{OP_EXECUTE}{again}");
+    for violations in [
+        exec_violations(&engine_with_site(OP_EXECUTE_PATH, &in_site)),
+        exec_violations(&engine_with(OTHER_PATH, again)),
+    ] {
+        assert!(
+            messages(&violations).contains("struct expression"),
+            "{violations:#?}"
+        );
+    }
+}
+
+#[test]
+fn a_second_operation_dispatch_pattern_is_refused() {
+    let again = "fn m(c: OperationCommand) { match c { OperationCommand::Dispatch { .. } => {} } }
+";
+    let in_site = format!("{OP_WRITER}{again}");
+    for violations in [
+        exec_violations(&engine_with_site(OP_WRITER_PATH, &in_site)),
+        exec_violations(&engine_with(OTHER_PATH, again)),
+    ] {
+        assert!(
+            messages(&violations).contains("struct pattern"),
+            "{violations:#?}"
+        );
+    }
+}
+
+#[test]
+fn other_mentions_of_the_operation_dispatch_are_refused() {
+    for text in [
+        "fn m() { let f = OperationCommand::Dispatch; }
+",
+        "fn m(c: OperationCommand) { match c { OperationCommand::Dispatch(..) => {} } }
+",
+        "fn m(c: OperationCommand) { if matches!(c, OperationCommand::Dispatch { .. }) {} }
+",
+    ] {
+        let violations = exec_violations(&engine_with(OTHER_PATH, text));
+        assert!(
+            violations.iter().any(|v| v.location.contains("other.rs")),
+            "{text}
+{violations:#?}"
+        );
+    }
+}
+
+#[test]
+fn the_wrong_node_kind_at_an_operation_site_is_refused() {
+    let swapped = engine_with_site(
+        OP_EXECUTE_PATH,
+        "fn m(c: OperationCommand) { match c { OperationCommand::Dispatch { .. } => {} } }
+fn send() { handoff.hand_off(a); handoff.await_handoff_result(b); }
+",
+    );
+    let violations = exec_violations(&swapped);
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.location.starts_with(OP_EXECUTE_PATH)),
+        "{violations:#?}"
+    );
 }

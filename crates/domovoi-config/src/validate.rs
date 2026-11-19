@@ -3,7 +3,9 @@
 use url::Url;
 
 use crate::agent::AgentConfig;
-use crate::hub::{AgentServerSection, HubConfig, LlmKind, LlmProvider, Probe, ProbeKind};
+use crate::hub::{
+    AgentServerSection, HubConfig, LlmKind, LlmProvider, OrchestrationSection, Probe, ProbeKind,
+};
 use crate::issue::ConfigIssue;
 
 /// Cross-field validation run after a config deserializes.
@@ -132,6 +134,36 @@ impl Validate for HubConfig {
                     "must be 1 to 3650 days",
                 ));
             }
+        }
+        orchestration_rules(&self.orchestration, issues);
+    }
+}
+
+fn orchestration_rules(section: &OrchestrationSection, issues: &mut Vec<ConfigIssue>) {
+    if section.max_running == 0 {
+        issues.push(ConfigIssue::error(
+            "orchestration.max_running",
+            "must be at least 1",
+        ));
+    }
+    if section.loop_guard_per_hour == 0 {
+        issues.push(ConfigIssue::error(
+            "orchestration.loop_guard_per_hour",
+            "must be at least 1",
+        ));
+    }
+    if section.approval_ttl.as_signed() > jiff::SignedDuration::from_hours(7 * 24) {
+        issues.push(ConfigIssue::error(
+            "orchestration.approval_ttl",
+            "must be at most 7d; an older approval no longer matches what was shown",
+        ));
+    }
+    for (key, limit) in section.budgets.counts() {
+        if limit == Some(0) {
+            issues.push(ConfigIssue::error(
+                format!("orchestration.budgets.{key}"),
+                "must be at least 1; remove it for the default",
+            ));
         }
     }
 }

@@ -483,3 +483,86 @@ async fn disabled_capability_refused_at_boundary() {
         "the read of a disabled skill reached the agent",
     );
 }
+
+/// Starts the operation service over the same store, link and clock as the action service,
+/// so both claim from one effect outbox.
+fn spawn_operations(a: &Actions) -> domovoi_engine::operations::OperationHandle {
+    use domovoi_testkit::link::{action_caps, evidence_caps, observer_of};
+    let caps = action_caps(a.link.clone());
+    let registry = a.capabilities.clone();
+    let (handle, _task) = domovoi_engine::operations::OperationService::spawn(
+        domovoi_engine::operations::OperationDeps {
+            operations: a.store.clone(),
+            uow: a.store.clone(),
+            effects: a.store.clone(),
+            effect_read: a.store.clone(),
+            advisories: a.store.clone(),
+            incidents: a.store.clone(),
+            hosts: a.store.clone(),
+            evidence: domovoi_engine::Evidence::new(
+                evidence_caps(a.link.clone()),
+                a.clock.clone(),
+                registry.clone(),
+            ),
+            registry,
+            resolver: std::sync::Arc::new(domovoi_testkit::FakeTargetResolver::new()),
+            observer: observer_of(a.link.clone()),
+            journal: caps.journal,
+            handoff: caps.handoff,
+            rerun: caps.rerun,
+            redactor: std::sync::Arc::new(domovoi_testkit::ListRedactor::new(["hunter2"])),
+            clock: a.clock.clone(),
+            shutdown: a.shutdown.clone(),
+        },
+        domovoi_engine::operations::OperationSettings::default(),
+    );
+    handle
+}
+
+#[tokio::test]
+async fn legacy_action_completes_under_original_id() {
+    use domovoi_core::ports::{OperationFilter, OperationRepo};
+    let a = actions(ActionSettings::default()).await;
+    let operations = spawn_operations(&a);
+    assert!(operations.is_alive());
+    let (action, _) = a.propose().await;
+    approve(&a, action.id()).await;
+
+    // The action runs, is verified and is verified by its own service's wake, while the
+    // operation runner shares the outbox and leaves that wake alone.
+    let done = a
+        .until(action.id(), |s| matches!(s, ActionStatus::Verified))
+        .await;
+
+    assert_eq!(done.id(), action.id());
+    let sent: Vec<_> = a
+        .link
+        .requests()
+        .into_iter()
+        .filter_map(|request| match request {
+            LinkRequest::Skill { dispatch, .. } => Some(dispatch),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].action, action.id(), "sent under the original id");
+    let as_execution = domovoi_core::ExecutionId::from_action(action.id());
+    let stored = OperationRepo::execution(&*a.store, as_execution)
+        .await
+        .unwrap();
+    assert!(
+        stored.is_none(),
+        "an action id never appears as an execution"
+    );
+    let none = OperationRepo::list(
+        &*a.store,
+        &OperationFilter::default(),
+        &domovoi_core::ports::Page::first(10),
+    )
+    .await
+    .unwrap();
+    assert!(
+        none.items.is_empty(),
+        "the legacy path created no operation"
+    );
+}

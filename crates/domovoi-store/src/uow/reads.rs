@@ -2,8 +2,8 @@
 
 use async_trait::async_trait;
 use domovoi_core::ports::{
-    AggregateKind, AggregateRef, ClaimToken, EffectRead, EffectRecord, EffectStatus, JournalEntry,
-    JournalRead, Page, StoreError, Versioned, VersionedRead,
+    AggregateKind, AggregateRef, ClaimToken, EffectKind, EffectRead, EffectRecord, EffectStatus,
+    JournalEntry, JournalRead, Page, StoreError, Versioned, VersionedRead,
 };
 use domovoi_core::{HostId, Incident, IncidentId, Note, NoteId};
 
@@ -254,6 +254,25 @@ impl EffectRead for Store {
             format!("SELECT {EFFECT_COLUMNS} FROM effects WHERE status = ? ORDER BY seq LIMIT ?");
         let rows: Vec<EffectRow> = sqlx::query_as(sqlx::AssertSqlSafe(sql))
             .bind(status.as_str())
+            .bind(clamp(limit))
+            .fetch_all(&self.read)
+            .await
+            .map_err(db)?;
+        rows.into_iter().map(EffectRow::into_record).collect()
+    }
+
+    async fn claimed_of(
+        &self,
+        kind: EffectKind,
+        aggregate: AggregateKind,
+        limit: u16,
+    ) -> Result<Vec<EffectRecord>, StoreError> {
+        let sql = format!(
+            "SELECT {EFFECT_COLUMNS} FROM effects              WHERE status = 'claimed' AND kind = ? AND aggregate_type = ? ORDER BY seq LIMIT ?"
+        );
+        let rows: Vec<EffectRow> = sqlx::query_as(sqlx::AssertSqlSafe(sql))
+            .bind(kind.as_str())
+            .bind(aggregate.as_str())
             .bind(clamp(limit))
             .fetch_all(&self.read)
             .await

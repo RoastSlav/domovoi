@@ -12,16 +12,17 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use domovoi_core::ports::{
-    AckRepo, ActionFilter, ActionRepo, AdvisoryRepo, AggregateRef, AuditEvent, AuditFilter,
-    AuditLog, ClaimBatch, CommitError, CommitReceipt, EffectKind, EffectQueue, EffectRead,
-    EffectRecord, EffectStatus, EnrollmentToken, HostRepo, IncidentFilter, IncidentRepo,
-    IncidentTimelineEntry, JournalEntry, JournalRead, Page, Paged, SignalRepo, StoreError,
-    Transaction, UnitOfWork, Versioned, VersionedRead,
+    AckRepo, ActionFilter, ActionRepo, AdvisoryRepo, AggregateKind, AggregateRef, AuditEvent,
+    AuditFilter, AuditLog, ClaimBatch, CommitError, CommitReceipt, EffectKind, EffectQueue,
+    EffectRead, EffectRecord, EffectStatus, EnrollmentToken, HostRepo, IncidentFilter,
+    IncidentRepo, IncidentTimelineEntry, JournalEntry, JournalRead, OperationFilter, OperationRepo,
+    Page, Paged, SignalRepo, StoreError, Transaction, UnitOfWork, Versioned, VersionedRead,
 };
 use domovoi_core::{
     AckRule, AckRuleId, ActionId, ActionRequest, Advisory, AdvisoryId, AgentId, AgentIdentity,
-    AgentReport, AuthenticatedReport, Fingerprint, Host, HostId, HostName, Incident, IncidentId,
-    MaintenanceWindow, Note, NoteId, ReportOutcome, Signal, SkillName,
+    AgentReport, AuthenticatedReport, ContractId, ExecutionId, ExecutionRecord, Fingerprint, Host,
+    HostId, HostName, Incident, IncidentId, MaintenanceWindow, Note, NoteId, Operation,
+    OperationId, OperationSnapshot, ReportOutcome, Signal, SkillName,
 };
 use domovoi_store::Store;
 use domovoi_testkit::crash::{IntegrityRead, Orphan, OrphanStorage, check_invariants};
@@ -104,6 +105,15 @@ impl EffectRead for SqliteStore {
     ) -> Result<Vec<EffectRecord>, StoreError> {
         EffectRead::effects_with_status(&*self.0, status, limit).await
     }
+
+    async fn claimed_of(
+        &self,
+        kind: domovoi_core::ports::EffectKind,
+        aggregate: domovoi_core::ports::AggregateKind,
+        limit: u16,
+    ) -> Result<Vec<EffectRecord>, StoreError> {
+        EffectRead::claimed_of(&*self.0, kind, aggregate, limit).await
+    }
 }
 
 #[async_trait]
@@ -112,15 +122,19 @@ impl EffectQueue for SqliteStore {
         &self,
         runner: &str,
         kinds: &[EffectKind],
+        aggregates: &[AggregateKind],
         now: Timestamp,
         lease: SignedDuration,
         limit: u16,
     ) -> Result<ClaimBatch, StoreError> {
-        EffectQueue::claim_due(&*self.0, runner, kinds, now, lease, limit).await
+        EffectQueue::claim_due(&*self.0, runner, kinds, aggregates, now, lease, limit).await
     }
 
-    async fn revert_claimed_at_start(&self) -> Result<u64, StoreError> {
-        EffectQueue::revert_claimed_at_start(&*self.0).await
+    async fn revert_claimed_at_start(
+        &self,
+        aggregates: &[AggregateKind],
+    ) -> Result<u64, StoreError> {
+        EffectQueue::revert_claimed_at_start(&*self.0, aggregates).await
     }
 }
 
@@ -255,6 +269,57 @@ impl ActionRepo for SqliteStore {
         host: HostId,
     ) -> Result<BTreeMap<SkillName, Timestamp>, StoreError> {
         ActionRepo::last_run_by_skill(&*self.0, host).await
+    }
+}
+
+#[async_trait]
+impl OperationRepo for SqliteStore {
+    async fn get(&self, id: OperationId) -> Result<Option<Versioned<Operation>>, StoreError> {
+        OperationRepo::get(&*self.0, id).await
+    }
+
+    async fn load(&self, id: OperationId) -> Result<Option<OperationSnapshot>, StoreError> {
+        OperationRepo::load(&*self.0, id).await
+    }
+
+    async fn list(
+        &self,
+        filter: &OperationFilter,
+        page: &Page,
+    ) -> Result<Paged<Operation>, StoreError> {
+        OperationRepo::list(&*self.0, filter, page).await
+    }
+
+    async fn for_incident(&self, incident: IncidentId) -> Result<Vec<Operation>, StoreError> {
+        OperationRepo::for_incident(&*self.0, incident).await
+    }
+
+    async fn execution(
+        &self,
+        id: ExecutionId,
+    ) -> Result<Option<Versioned<ExecutionRecord>>, StoreError> {
+        OperationRepo::execution(&*self.0, id).await
+    }
+
+    async fn dispatched_on(&self, host: HostId) -> Result<Vec<ExecutionRecord>, StoreError> {
+        OperationRepo::dispatched_on(&*self.0, host).await
+    }
+
+    async fn dispatched_since(
+        &self,
+        host: HostId,
+        contract: &ContractId,
+        since: Timestamp,
+    ) -> Result<u32, StoreError> {
+        OperationRepo::dispatched_since(&*self.0, host, contract, since).await
+    }
+
+    async fn with_status(
+        &self,
+        statuses: &[&str],
+        limit: u16,
+    ) -> Result<Vec<Operation>, StoreError> {
+        OperationRepo::with_status(&*self.0, statuses, limit).await
     }
 }
 

@@ -1,7 +1,7 @@
 //! Creating and completing effects inside the transaction.
 
 use domovoi_core::ports::{
-    CommitError, EffectCompletion, EffectDeath, EffectDraft, EffectReschedule,
+    CommitError, EffectCancel, EffectCompletion, EffectDeath, EffectDraft, EffectReschedule,
 };
 use sqlx::SqliteConnection;
 
@@ -129,5 +129,24 @@ pub(super) async fn kill(conn: &mut SqliteConnection, d: &EffectDeath) -> Result
     if done.rows_affected() == 0 {
         return Err(CommitError::StaleEffect { effect: d.id });
     }
+    Ok(())
+}
+
+/// Cancels every pending effect of one aggregate. Claimed, finished and dead effects are
+/// left alone; a cancelled row records `at` as its completion time and holds no token.
+pub(super) async fn cancel(
+    conn: &mut SqliteConnection,
+    cancel: &EffectCancel,
+) -> Result<(), CommitError> {
+    const SQL: &str = "UPDATE effects SET status = 'cancelled', completed_at = ?, \
+         claim_token = NULL, lease_until = NULL, runner_id = NULL \
+         WHERE aggregate_type = ? AND aggregate_id = ? AND status = 'pending'";
+    sqlx::query(SQL)
+        .bind(ms(cancel.at))
+        .bind(cancel.aggregate.kind.as_str())
+        .bind(&cancel.aggregate.id)
+        .execute(&mut *conn)
+        .await
+        .map_err(backend)?;
     Ok(())
 }

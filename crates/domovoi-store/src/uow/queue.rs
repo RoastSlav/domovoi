@@ -5,7 +5,8 @@
 
 use async_trait::async_trait;
 use domovoi_core::ports::{
-    ClaimBatch, ClaimToken, ClaimedEffect, EffectKind, EffectQueue, EffectRecord, StoreError,
+    AggregateKind, ClaimBatch, ClaimToken, ClaimedEffect, EffectKind, EffectQueue, EffectRecord,
+    StoreError,
 };
 use jiff::{SignedDuration, Timestamp};
 use sqlx::SqliteConnection;
@@ -43,34 +44,39 @@ impl EffectQueue for Store {
         &self,
         runner: &str,
         kinds: &[EffectKind],
+        aggregates: &[AggregateKind],
         now: Timestamp,
         lease: SignedDuration,
         limit: u16,
     ) -> Result<ClaimBatch, StoreError> {
-        if kinds.is_empty() || limit == 0 {
+        if kinds.is_empty() || aggregates.is_empty() || limit == 0 {
             return Ok(ClaimBatch::default());
         }
         let list = placeholders(kinds.len());
+        let scope = placeholders(aggregates.len());
         // Due pending effects come first, expired claims second: a stale claim waits behind
         // work that has never started, even when its original due time is older. Each group is
         // ordered by due time and then insertion, and `limit` applies across both.
         let sql = format!(
             "SELECT id, status FROM effects \
-             WHERE (status = 'pending' AND not_before <= ? AND kind IN ({list})) \
+             WHERE (status = 'pending' AND not_before <= ? AND kind IN ({list}) \
+                    AND aggregate_type IN ({scope})) \
                 OR (status = 'claimed' AND lease_until IS NOT NULL AND lease_until <= ? \
-                    AND kind <> 'dispatch' AND kind IN ({list})) \
+                    AND kind <> 'dispatch' AND kind IN ({list}) \
+                    AND aggregate_type IN ({scope})) \
              ORDER BY CASE WHEN status = 'pending' THEN 0 ELSE 1 END, not_before, seq LIMIT ?"
         );
         let lease_until = now.checked_add(lease).unwrap_or(now);
         let mut dbtx = self.write.begin_with("BEGIN IMMEDIATE").await.map_err(db)?;
         let mut query = sqlx::query_as::<_, (String, String)>(sqlx::AssertSqlSafe(sql));
-        query = query.bind(ms(now));
-        for kind in kinds {
-            query = query.bind(kind.as_str());
-        }
-        query = query.bind(ms(now));
-        for kind in kinds {
-            query = query.bind(kind.as_str());
+        for _branch in 0..2 {
+            query = query.bind(ms(now));
+            for kind in kinds {
+                query = query.bind(kind.as_str());
+            }
+            for aggregate in aggregates {
+                query = query.bind(aggregate.as_str());
+            }
         }
         let candidates = query
             .bind(i64::from(limit))
@@ -128,15 +134,24 @@ impl EffectQueue for Store {
         Ok(batch)
     }
 
-    async fn revert_claimed_at_start(&self) -> Result<u64, StoreError> {
-        let done = sqlx::query(
+    async fn revert_claimed_at_start(
+        &self,
+        aggregates: &[AggregateKind],
+    ) -> Result<u64, StoreError> {
+        if aggregates.is_empty() {
+            return Ok(0);
+        }
+        let scope = placeholders(aggregates.len());
+        let sql = format!(
             "UPDATE effects SET status = 'pending', claim_token = NULL, \
              claim_generation = claim_generation + 1, lease_until = NULL, runner_id = NULL \
-             WHERE status = 'claimed' AND kind <> 'dispatch'",
-        )
-        .execute(&self.write)
-        .await
-        .map_err(db)?;
+             WHERE status = 'claimed' AND kind <> 'dispatch' AND aggregate_type IN ({scope})"
+        );
+        let mut query = sqlx::query(sqlx::AssertSqlSafe(sql));
+        for aggregate in aggregates {
+            query = query.bind(aggregate.as_str());
+        }
+        let done = query.execute(&self.write).await.map_err(db)?;
         Ok(done.rows_affected())
     }
 }

@@ -28,6 +28,7 @@ pub mod events;
 pub mod evidence;
 pub mod manager;
 pub mod notify;
+pub mod operations;
 pub mod policy;
 pub mod redact;
 pub mod render;

@@ -7,6 +7,7 @@ mod dispatcher;
 pub(crate) mod every;
 mod local;
 mod lock;
+mod orchestration;
 mod schedulers;
 mod serve;
 pub(crate) mod settings;
@@ -147,6 +148,8 @@ pub struct HubRuntime {
     pub(crate) manager_task: JoinHandle<()>,
     pub(crate) triage_task: Option<JoinHandle<()>>,
     pub(crate) actions_task: JoinHandle<()>,
+    /// The operation service, present only while `[orchestration] enabled` is set.
+    pub(crate) operations_task: Option<JoinHandle<()>>,
     pub(crate) profile_task: JoinHandle<()>,
     pub(crate) intake_shutdown: CancellationToken,
     pub(crate) worker_shutdown: CancellationToken,
@@ -253,12 +256,12 @@ impl HubRuntime {
                 uow: store.clone(),
                 effects: store.clone(),
                 advisories: store.clone(),
-                probe: caps_bundle.probe,
-                observer: caps_bundle.observer,
-                journal: caps_bundle.journal,
+                probe: caps_bundle.probe.clone(),
+                observer: caps_bundle.observer.clone(),
+                journal: caps_bundle.journal.clone(),
                 capabilities: registry.clone(),
-                handoff: caps_bundle.handoff,
-                rerun: caps_bundle.rerun,
+                handoff: caps_bundle.handoff.clone(),
+                rerun: caps_bundle.rerun.clone(),
                 hosts: store.clone(),
                 redactor: redactor.clone(),
                 clock: clock.clone(),
@@ -268,7 +271,29 @@ impl HubRuntime {
             },
             settings::actions(),
         );
-        server.set_reconciler(Arc::new(actions_service.clone()));
+        let (operations, operations_task) =
+            match orchestration::build(orchestration::OperationBuild {
+                config: &config,
+                store: &store,
+                evidence: &evidence,
+                registry: &registry,
+                caps: caps_bundle,
+                redactor: &redactor,
+                clock: &clock,
+                shutdown: &worker_shutdown,
+            }) {
+                Some((handle, task)) => (Some(handle), Some(task)),
+                None => (None, None),
+            };
+        match &operations {
+            Some(handle) => {
+                server.set_reconciler(Arc::new(orchestration::CompositeReconciler::new(vec![
+                    Arc::new(actions_service.clone()),
+                    Arc::new(handle.clone()),
+                ])));
+            }
+            None => server.set_reconciler(Arc::new(actions_service.clone())),
+        }
         let triage = triage_build::build(triage_build::TriageBuild {
             config: &config,
             store: &store,
@@ -413,6 +438,7 @@ impl HubRuntime {
             manager_task,
             triage_task: triage.1,
             actions_task,
+            operations_task,
             profile_task,
             intake_shutdown,
             worker_shutdown,
