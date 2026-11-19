@@ -279,3 +279,46 @@ pub struct ApproveStepRequest {
     /// Required when the execution says `confirm_required`: the skill's name typed exactly.
     pub confirm_text: Option<String>,
 }
+
+/// Cancelling an operation.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, ToSchema)]
+pub struct CancelOperationRequest {
+    /// Why, at most 500 characters. Empty or missing records "cancelled by a person".
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
+/// One limit to raise when resuming.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, ToSchema)]
+pub struct BudgetExtensionDto {
+    /// `model_turns`, `evidence_requests`, `executions`, `cycles`, `wall_time`, `tokens` or
+    /// `cost`.
+    pub kind: String,
+    /// The new limit: seconds for `wall_time`, micro-units for `cost`, a count otherwise.
+    /// 1 to 10000 for a count, 1 to 10000000000 otherwise.
+    pub limit: u64,
+}
+
+/// Resuming a paused operation.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, ToSchema)]
+pub struct ResumeOperationRequest {
+    /// Limits to raise first, at most 7, each kind once. A spent limit must be raised.
+    #[serde(default)]
+    pub extend: Vec<BudgetExtensionDto>,
+}
+
+/// Answering the question an operation waits on.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, ToSchema)]
+pub struct AnswerStepRequest {
+    /// The answer, 1 to 2000 characters after trimming. It reaches the model as data.
+    pub text: String,
+}
+
+/// The operation after a control, and the journal position it was read at.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
+pub struct OperationControlDto {
+    /// The journal position read after the command and before the operation.
+    pub as_of_seq: u64,
+    /// The refreshed operation.
+    pub operation: OperationSummaryDto,
+}

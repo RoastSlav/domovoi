@@ -71,7 +71,7 @@ async fn check(state: &ApiState) -> ReadyzBody {
         tracing::warn!("readiness: the incident manager is not running");
         failing.push(INCIDENT_MANAGER.to_owned());
     }
-    if !deps.actions_service.is_alive() {
+    if !deps.services.approvals.is_alive() {
         tracing::warn!("readiness: the action service is not running");
         failing.push(ACTION_SERVICE.to_owned());
     }

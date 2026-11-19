@@ -60,13 +60,18 @@ pub async fn chat(a: &Api) -> Chat {
         .await
         .unwrap();
     let authorizer = InteractionAuthorizer::new(
-        &a.state,
+        &a.services,
         ChatDeps {
             users: a.store.clone(),
             notify: a.store.clone(),
             audit: a.store.clone(),
             gateway: gateway.clone(),
             allowed: BTreeSet::from([ALLOWED.to_owned()]),
+            incidents: a.store.clone(),
+            hosts: a.store.clone(),
+            notifier: a.state.deps().notifier.clone(),
+            clock: a.clock.clone(),
+            public_url: a.state.auth().web().public_url.clone(),
         },
     );
     Chat {

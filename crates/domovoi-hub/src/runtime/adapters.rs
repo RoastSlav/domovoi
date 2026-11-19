@@ -13,8 +13,8 @@ use domovoi_core::{Actor, Host, HostId, HostKind, HostName, SYSTEM_AUDIT};
 use domovoi_store::{Store, StoreOptions};
 
 use super::{AdapterOverrides, RuntimeError, STARTUP_AUDIT_VERIFY_ROWS};
-use crate::api::ApiState;
 use crate::auth::interactions::{ChatDeps, InteractionAuthorizer};
+use crate::services::Services;
 
 /// Opens (and migrates) `<data_dir>/hub.db` with the configured backups.
 pub(crate) async fn open_store(
@@ -207,12 +207,22 @@ pub(crate) fn build_chat(
     Ok((gateways, notifiers))
 }
 
+/// What chat renders from besides the services: the store, the clock, where `/digest`
+/// sends and the hub's public URL.
+pub(crate) struct ChatReads<'a> {
+    pub(crate) store: &'a Arc<Store>,
+    pub(crate) clock: &'a Arc<dyn Clock>,
+    pub(crate) notifier: Option<Arc<dyn Notifier>>,
+    pub(crate) public_url: &'a url::Url,
+}
+
 pub(crate) fn gateway_sinks(
     config: &HubConfig,
-    api: &ApiState,
-    store: &Arc<Store>,
+    services: &Services,
+    reads: ChatReads<'_>,
     gateways: Vec<Arc<dyn ChatGateway>>,
 ) -> Vec<(Arc<dyn ChatGateway>, Arc<dyn InteractionSink>)> {
+    let store = reads.store;
     let allowed = config
         .discord
         .as_ref()
@@ -228,13 +238,18 @@ pub(crate) fn gateway_sinks(
         .into_iter()
         .map(|gateway| {
             let sink: Arc<dyn InteractionSink> = Arc::new(InteractionAuthorizer::new(
-                api,
+                services,
                 ChatDeps {
                     users: store.clone(),
                     notify: store.clone(),
                     audit: store.clone(),
                     gateway: gateway.clone(),
                     allowed: allowed.clone(),
+                    incidents: store.clone(),
+                    hosts: store.clone(),
+                    notifier: reads.notifier.clone(),
+                    clock: reads.clock.clone(),
+                    public_url: reads.public_url.clone(),
                 },
             ));
             (gateway, sink)

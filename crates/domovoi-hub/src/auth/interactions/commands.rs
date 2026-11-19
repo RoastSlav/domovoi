@@ -8,7 +8,6 @@ use jiff::SignedDuration;
 use serde_json::json;
 
 use super::{Accepted, Actor, InteractionAuthorizer};
-use crate::api::{hosts, profile, system};
 
 /// The most incidents `/incidents` lists.
 pub const LIST_MAX: usize = 10;
@@ -31,8 +30,7 @@ impl InteractionAuthorizer {
             active: Some(true),
             ..IncidentFilter::default()
         };
-        self.api
-            .deps()
+        self.chat
             .incidents
             .list(&filter, &Page::first(Page::MAX_LIMIT))
             .await
@@ -42,9 +40,7 @@ impl InteractionAuthorizer {
 
     fn incident_url(&self, incident: IncidentId) -> String {
         let base = self
-            .api
-            .auth()
-            .web()
+            .chat
             .public_url
             .as_str()
             .trim_end_matches('/')
@@ -71,8 +67,8 @@ impl InteractionAuthorizer {
     /// `/status`, or only the host named in the first argument when `/status <host>`
     /// asks about one machine; its profile summary is appended to that host's line.
     async fn status(&self, subject: String, args: &[String]) -> Result<Accepted, String> {
-        let deps = self.api.deps();
-        let all = deps
+        let all = self
+            .chat
             .hosts
             .list_hosts()
             .await
@@ -102,7 +98,10 @@ impl InteractionAuthorizer {
         };
         let mut lines = Vec::with_capacity(listed.len());
         for host in &listed {
-            let dto = hosts::host_dto(&self.api, host)
+            let dto = self
+                .services
+                .hosts
+                .status(host)
                 .await
                 .map_err(|_| TRY_AGAIN.to_owned())?;
             let agent = match (dto.connected, &dto.version) {
@@ -118,7 +117,10 @@ impl InteractionAuthorizer {
             let extra = match wanted.as_ref() {
                 None => String::new(),
                 Some(name) => {
-                    let summary = profile::summary_of_host(&self.api, host)
+                    let summary = self
+                        .services
+                        .briefing
+                        .profile_summary(host)
                         .await
                         .map_err(|_| TRY_AGAIN.to_owned())?;
                     if summary.is_empty() {
@@ -182,11 +184,11 @@ impl InteractionAuthorizer {
                 ));
             }
         };
-        let deps = self.api.deps();
-        let now = deps.clock.now();
+        let now = self.chat.clock.now();
         let until = now.checked_add(duration).unwrap_or(now);
-        deps.manager
-            .mute(incident, until, actor.admin.id)
+        self.services
+            .incidents
+            .mute(&actor.caller(), incident, until)
             .await
             .map_err(|e| format!("Not possible: {e}"))?;
         Ok(Accepted::new(
@@ -199,12 +201,14 @@ impl InteractionAuthorizer {
 
     async fn digest(&self, subject: String) -> Result<Accepted, String> {
         let notifier = self
-            .api
-            .deps()
+            .chat
             .notifier
             .clone()
             .ok_or("No chat is configured to send the digest to")?;
-        let digest = system::build(&self.api)
+        let digest = self
+            .services
+            .briefing
+            .digest()
             .await
             .map_err(|_| TRY_AGAIN.to_owned())?;
         let message = OutboundMessage {

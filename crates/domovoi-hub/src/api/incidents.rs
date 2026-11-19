@@ -19,10 +19,12 @@ use super::dto::{
     TriageStateDto,
 };
 use super::error::{ApiError, ErrorBody, busy};
+use super::operation_errors::operation_error;
 use super::rules;
 use super::snapshot::snapshot_seq;
 use super::tool_usage::tool_usage;
 use super::{ApiState, Authed, host_named, page};
+use crate::services::{FollowUpError, RetriageError, Retriaged, latest_triage};
 
 /// The longest follow-up question, in characters.
 pub const MAX_QUESTION_CHARS: usize = 1000;
@@ -110,19 +112,6 @@ async fn load(state: &ApiState, id: &str) -> Result<Incident, ApiError> {
         .get(parse_id(id)?)
         .await?
         .ok_or(ApiError::NotFound)
-}
-
-/// The latest triage outcome in the timeline.
-pub(crate) fn latest_triage(
-    timeline: &[domovoi_core::ports::IncidentTimelineEntry],
-) -> Option<TriageOutcome> {
-    timeline
-        .iter()
-        .rev()
-        .filter(|e| {
-            e.kind.starts_with("triage.") && e.kind != "triage.followup" && e.kind != "triage.tools"
-        })
-        .find_map(|e| serde_json::from_value(e.detail.clone()).ok())
 }
 
 /// Everything about one incident: report, card, timeline and actions.
@@ -221,13 +210,13 @@ const MAX_ACTIONS: u16 = 50;
 )]
 pub(super) async fn ack(
     State(state): State<ApiState>,
-    Authed(current): Authed,
+    auth: Authed,
     Path(id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
     state
-        .deps
-        .manager
-        .ack(parse_id(&id)?, current.user.id)
+        .services()
+        .incidents
+        .ack(&auth.caller(), parse_id(&id)?)
         .await
         .map_err(command)?;
     Ok(StatusCode::NO_CONTENT)
@@ -247,7 +236,7 @@ pub(super) async fn ack(
 )]
 pub(super) async fn mute(
     State(state): State<ApiState>,
-    Authed(current): Authed,
+    auth: Authed,
     Path(id): Path<String>,
     Json(req): Json<MuteRequest>,
 ) -> Result<StatusCode, ApiError> {
@@ -261,9 +250,9 @@ pub(super) async fn mute(
         .checked_add(SignedDuration::from_mins(i64::from(req.minutes)))
         .map_err(|e| ApiError::BadRequest(e.to_string()))?;
     state
-        .deps
-        .manager
-        .mute(parse_id(&id)?, until, current.user.id)
+        .services()
+        .incidents
+        .mute(&auth.caller(), parse_id(&id)?, until)
         .await
         .map_err(command)?;
     Ok(StatusCode::NO_CONTENT)
@@ -282,13 +271,13 @@ pub(super) async fn mute(
 )]
 pub(super) async fn unmute(
     State(state): State<ApiState>,
-    _auth: Authed,
+    auth: Authed,
     Path(id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
     state
-        .deps
-        .manager
-        .unmute(parse_id(&id)?)
+        .services()
+        .incidents
+        .unmute(&auth.caller(), parse_id(&id)?)
         .await
         .map_err(command)?;
     Ok(StatusCode::NO_CONTENT)
@@ -419,7 +408,7 @@ pub(super) async fn dismiss(
 )]
 pub(super) async fn ask(
     State(state): State<ApiState>,
-    Authed(current): Authed,
+    auth: Authed,
     Path(id): Path<String>,
     Json(req): Json<AskRequest>,
 ) -> Result<Json<AskResponse>, ApiError> {
@@ -429,25 +418,38 @@ pub(super) async fn ask(
             "the question must have 1 to {MAX_QUESTION_CHARS} characters"
         )));
     }
-    let triage = state.deps.triage.clone().ok_or(ApiError::TriageOff)?;
+    if !state.services().incidents.triage_enabled() {
+        return Err(ApiError::TriageOff);
+    }
     let incident = parse_id(&id)?;
     let question = question.to_owned();
-    let user = current.user.id;
+    let services = state.services().clone();
+    let caller = auth.caller();
     // A task of its own, so that a closed tab or a navigation does not cancel the model
     // call halfway through the conversation.
-    let answer = tokio::spawn(async move { triage.follow_up(incident, &question, user).await })
-        .await
-        .map_err(|e| ApiError::internal("follow-up failed", e))?
-        .map_err(|e| match e {
-            TriageError::UnknownIncident(_) => ApiError::NotFound,
-            TriageError::Provider(err) => ApiError::Unavailable(err),
-            TriageError::BudgetSpent => ApiError::BudgetSpent,
-            TriageError::Busy { retry_at } => busy(state.deps.clock.now(), retry_at),
-            TriageError::AdmissionUnavailable => ApiError::Unavailable(
-                "the model limits could not be checked; try again shortly".to_owned(),
-            ),
-            TriageError::Store(err) => ApiError::internal("follow-up failed", err),
-        })?;
+    let answer = tokio::spawn(async move {
+        services
+            .incidents
+            .follow_up(&caller, incident, &question)
+            .await
+    })
+    .await
+    .map_err(|e| ApiError::internal("follow-up failed", e))?
+    .map_err(|e| match e {
+        FollowUpError::TriageOff => ApiError::TriageOff,
+        FollowUpError::Triage(TriageError::UnknownIncident(_)) => ApiError::NotFound,
+        FollowUpError::Triage(TriageError::Provider(err)) => ApiError::Unavailable(err),
+        FollowUpError::Triage(TriageError::BudgetSpent) => ApiError::BudgetSpent,
+        FollowUpError::Triage(TriageError::Busy { retry_at }) => {
+            busy(state.deps.clock.now(), retry_at)
+        }
+        FollowUpError::Triage(TriageError::AdmissionUnavailable) => ApiError::Unavailable(
+            "the model limits could not be checked; try again shortly".to_owned(),
+        ),
+        FollowUpError::Triage(TriageError::Store(err)) => {
+            ApiError::internal("follow-up failed", err)
+        }
+    })?;
     Ok(Json(AskResponse { answer }))
 }
 
@@ -466,26 +468,35 @@ pub(super) async fn ask(
 )]
 pub(super) async fn retry_triage(
     State(state): State<ApiState>,
-    _auth: Authed,
+    auth: Authed,
     Path(id): Path<String>,
     Query(query): Query<RetryQuery>,
 ) -> Result<Json<TriageStateDto>, ApiError> {
-    let triage = state.deps.triage.clone().ok_or(ApiError::TriageOff)?;
+    if !state.services().incidents.triage_enabled() {
+        return Err(ApiError::TriageOff);
+    }
     let incident = load(&state, &id).await?;
     let fresh = query.fresh == Some(true);
-    if let Some(operations) = state.deps.operations.clone() {
-        return super::operations::retry(operations, incident, fresh).await;
-    }
+    let services = state.services().clone();
+    let caller = auth.caller();
     // A task of its own, so that a closed tab or a navigation does not cancel the run; the
     // outcome is attached to the incident either way.
-    let outcome = tokio::spawn(async move {
-        if fresh {
-            triage.retriage(&incident).await
-        } else {
-            triage.triage(&incident).await
-        }
-    })
-    .await
-    .map_err(|e| ApiError::internal("triage failed", e))?;
-    Ok(Json(TriageStateDto::from(&outcome)))
+    let result =
+        tokio::spawn(async move { services.incidents.retriage(&caller, &incident, fresh).await })
+            .await
+            .map_err(|e| ApiError::internal("triage failed", e))?;
+    match result {
+        Ok(Retriaged::Outcome(outcome)) => Ok(Json(TriageStateDto::from(&outcome))),
+        Ok(Retriaged::StillRunning) => Ok(Json(TriageStateDto {
+            kind: "skipped".to_owned(),
+            reason: Some(
+                "the investigation is still running; its result appears on the incident".to_owned(),
+            ),
+        })),
+        Err(RetriageError::TriageOff) => Err(ApiError::TriageOff),
+        Err(RetriageError::AlreadyRunning) => Err(ApiError::Conflict(
+            "an investigation is already running for this incident".to_owned(),
+        )),
+        Err(RetriageError::Operation(err)) => Err(operation_error(err)),
+    }
 }

@@ -18,6 +18,7 @@ pub mod profile;
 pub mod router;
 pub mod runtime;
 pub mod selftest;
+pub mod services;
 pub mod settings;
 pub mod spa;
 pub(crate) mod version;

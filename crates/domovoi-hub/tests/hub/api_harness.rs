@@ -32,6 +32,7 @@ use domovoi_hub::capability::{HubRegistry, RegistryDeps};
 use domovoi_hub::profile::ProfileDeps;
 use domovoi_hub::router::router;
 use domovoi_hub::runtime::updates::UpdateChecker;
+use domovoi_hub::services::{Services, ServicesDeps};
 use domovoi_hub::settings::{ConfigSources, SecretKey, SettingsDeps, SettingsService};
 use domovoi_proto::EnrollToken;
 use domovoi_proto::messages::{CheckInfo, HostFacts};
@@ -186,6 +187,8 @@ pub struct Api {
     pub llm: Arc<ScriptedLlm>,
     /// The audit log the API and the services write to, for reading back what a call recorded.
     pub audit: Arc<dyn AuditLog>,
+    /// The use-case layer the API and the chat authorizer call.
+    pub services: Services,
     /// The action service, for testing what the writer commits.
     pub actions_service: ActionHandle,
     /// The operation service, when built with [`api_with_operations`].
@@ -472,6 +475,47 @@ async fn build(
     });
     let source: Arc<dyn LogSource> = Arc::new(CannedLogSource::new(canned_logs()));
     let update = UpdateChecker::load(store.clone(), clock.clone()).await;
+    let agents: Arc<dyn AgentAdmin> = Arc::new(TestAgents {
+        link: link.clone(),
+        hosts: store.clone(),
+    });
+    let profile_deps = profiles.then(|| ProfileDeps {
+        evidence: domovoi_engine::Evidence::new(
+            evidence_caps(link.clone()),
+            clock.clone(),
+            Arc::new(domovoi_testkit::FakeCapabilityRegistry::following(
+                link.clone(),
+            )),
+        ),
+        catalog: domovoi_engine::HostCatalog::new(observer_of(link.clone())),
+        capabilities: Arc::new(domovoi_testkit::FakeCapabilityRegistry::following(
+            link.clone(),
+        )),
+        agents: agents.clone(),
+        hosts: store.clone(),
+        notes: store.clone(),
+        settings: store.clone(),
+        clock: clock.clone(),
+        redactor: Arc::new(PatternRedactor::default()),
+    });
+    let config = Arc::new(config);
+    let services = Services::new(ServicesDeps {
+        manager: manager.clone(),
+        triage: triage.clone(),
+        actions: store.clone(),
+        actions_service: actions_service.clone(),
+        operations: operations.clone(),
+        operation_repo: store.clone(),
+        incidents: store.clone(),
+        hosts: store.clone(),
+        facts: store.clone(),
+        advisories: store.clone(),
+        agents: agents.clone(),
+        profiles: profile_deps.clone(),
+        config: config.clone(),
+        clock: clock.clone(),
+        redactor: Arc::new(PatternRedactor::default()),
+    });
     let deps = ApiDeps {
         incidents: store.clone(),
         signals: store.clone(),
@@ -483,42 +527,17 @@ async fn build(
         usage: store.clone(),
         acks: store.clone(),
         manager: manager.clone(),
-        actions_service: actions_service.clone(),
+        services: services.clone(),
         triage,
-        operations: operations.clone(),
         operation_repo: store.clone(),
-        agents: Arc::new(TestAgents {
-            link: link.clone(),
-            hosts: store.clone(),
-        }),
+        agents,
         capabilities: Arc::new(test_registry(link.clone(), store.clone(), clock.clone()).await),
         logs: if logs { Some(source) } else { None },
         redactor: Arc::new(PatternRedactor::default()),
-        profiles: profiles.then(|| ProfileDeps {
-            evidence: domovoi_engine::Evidence::new(
-                evidence_caps(link.clone()),
-                clock.clone(),
-                Arc::new(domovoi_testkit::FakeCapabilityRegistry::following(
-                    link.clone(),
-                )),
-            ),
-            catalog: domovoi_engine::HostCatalog::new(observer_of(link.clone())),
-            capabilities: Arc::new(domovoi_testkit::FakeCapabilityRegistry::following(
-                link.clone(),
-            )),
-            agents: Arc::new(TestAgents {
-                link: link.clone(),
-                hosts: store.clone(),
-            }),
-            hosts: store.clone(),
-            notes: store.clone(),
-            settings: store.clone(),
-            clock: clock.clone(),
-            redactor: Arc::new(PatternRedactor::default()),
-        }),
+        profiles: profile_deps,
         clock: clock.clone(),
         journal: store.clone(),
-        config: Arc::new(config),
+        config,
         notifier,
         metrics: Some(Arc::new(|| "domovoi_up 1\n".to_owned())),
         store_health: store.clone(),
@@ -530,6 +549,7 @@ async fn build(
     let app = router(state.clone(), None).layer(MockConnectInfo(peer()));
     Api {
         audit: store.clone(),
+        services,
         actions_service,
         app,
         state,

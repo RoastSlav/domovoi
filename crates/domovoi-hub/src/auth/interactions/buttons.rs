@@ -2,8 +2,8 @@
 //! token. Destructive actions are refused here, before the approval service is asked.
 
 use domovoi_core::{
-    ActionError, ActionId, CardButton, ExecutionError, ExecutionId, ExecutionRecord, IncidentId,
-    OperationId, PlanBinding, Risk, StepId, TriageOutcome, TriageReport,
+    ActionError, ActionId, CardButton, ExecutionError, IncidentId, PlanBinding, Risk,
+    TriageOutcome, TriageReport,
 };
 use domovoi_engine::ApprovalError;
 use domovoi_engine::operations::OperationError;
@@ -11,8 +11,7 @@ use jiff::SignedDuration;
 use serde_json::json;
 
 use super::{Accepted, Actor, InteractionAuthorizer};
-use crate::api::incidents::latest_triage;
-use crate::auth::approval::{chat_approval, chat_authorization};
+use crate::services::{ApproveError, ApproveInput, OperationCommandError, StepRef, latest_triage};
 
 /// How long the Mute 1h button mutes.
 pub const MUTE_BUTTON: SignedDuration = SignedDuration::from_hours(1);
@@ -100,12 +99,21 @@ pub fn step_reason(err: &OperationError) -> String {
     .to_owned()
 }
 
-/// A button's action id resolved to an Execution step of an operation about the card's
-/// incident.
-struct StepTarget {
-    operation: OperationId,
-    step: StepId,
-    record: ExecutionRecord,
+/// Why a service command on a step was refused, in one line for the thread.
+fn command_reason(err: &OperationCommandError) -> String {
+    match err {
+        OperationCommandError::Operation(err) => step_reason(err),
+        OperationCommandError::WebOnly | OperationCommandError::TypedConfirmationRequired => {
+            WEB_ONLY.to_owned()
+        }
+        OperationCommandError::NotFound => "That action no longer exists".to_owned(),
+        OperationCommandError::NotEnabled => {
+            "Operations are not running; open the incident in the web UI".to_owned()
+        }
+        OperationCommandError::Conflict(_) | OperationCommandError::Invalid(_) => {
+            "Something went wrong; try again".to_owned()
+        }
+    }
 }
 
 /// The binding a chat press carries: the first 3 bytes of the plan hash, or a stale card.
@@ -125,20 +133,21 @@ impl InteractionAuthorizer {
         button: &CardButton,
     ) -> Result<Accepted, String> {
         let subject = format!("incident:{incident}");
-        let deps = self.api.deps();
         match button {
             CardButton::Ack => {
-                deps.manager
-                    .ack(incident, actor.admin.id)
+                self.services
+                    .incidents
+                    .ack(&actor.caller(), incident)
                     .await
                     .map_err(|e| format!("Not possible: {e}"))?;
                 Ok(Accepted::new("ack", subject, "Acknowledged"))
             }
             CardButton::Mute1h => {
-                let now = deps.clock.now();
+                let now = self.chat.clock.now();
                 let until = now.checked_add(MUTE_BUTTON).unwrap_or(now);
-                deps.manager
-                    .mute(incident, until, actor.admin.id)
+                self.services
+                    .incidents
+                    .mute(&actor.caller(), incident, until)
                     .await
                     .map_err(|e| format!("Not possible: {e}"))?;
                 Ok(Accepted::new("mute", subject, "Muted for an hour")
@@ -160,8 +169,7 @@ impl InteractionAuthorizer {
 
     async fn details(&self, incident: IncidentId, subject: String) -> Result<Accepted, String> {
         let timeline = self
-            .api
-            .deps()
+            .chat
             .incidents
             .timeline(incident)
             .await
@@ -189,9 +197,11 @@ impl InteractionAuthorizer {
         incident: IncidentId,
         action: ActionId,
     ) -> Result<domovoi_core::ActionRequest, String> {
-        match self.api.deps().actions.get(action).await {
-            Ok(Some(found)) if found.incident() == incident => Ok(found),
-            Ok(_) => Err("That action no longer exists".to_owned()),
+        match self.services.approvals.find(action).await {
+            Ok(found) if found.incident() == incident => Ok(found),
+            Ok(_) | Err(ApprovalError::NotFound(_)) => {
+                Err("That action no longer exists".to_owned())
+            }
             Err(_) => Err("Something went wrong; try again".to_owned()),
         }
     }
@@ -214,18 +224,23 @@ impl InteractionAuthorizer {
             return Err(WEB_ONLY.to_owned());
         }
         let binding = prefix_binding(plan_prefix)?;
-        let deps = self.api.deps();
-        let (authorization, provenance) = chat_authorization(
-            actor.admin.id,
-            actor.platform,
-            actor.platform_user,
-            deps.clock.now(),
-        );
-        let approved = deps
-            .actions_service
-            .approve(action, authorization, Some(token), binding, provenance)
+        let approved = self
+            .services
+            .approvals
+            .approve(
+                &actor.caller(),
+                &found,
+                ApproveInput {
+                    binding,
+                    chat_token: Some(token),
+                    confirm_text: None,
+                },
+            )
             .await
-            .map_err(|e| approval_reason(&e))?;
+            .map_err(|e| match e {
+                ApproveError::WebOnly => WEB_ONLY.to_owned(),
+                ApproveError::Approval(e) => approval_reason(&e),
+            })?;
         Ok(Accepted::new(
             "approve",
             format!("action:{action}"),
@@ -245,15 +260,9 @@ impl InteractionAuthorizer {
             return self.deny_step(actor, incident, target, token).await;
         }
         let found = self.load(incident, action).await?;
-        let deps = self.api.deps();
-        let approval = chat_approval(
-            actor.admin.id,
-            actor.platform,
-            actor.platform_user,
-            deps.clock.now(),
-        );
-        deps.actions_service
-            .deny(found.id(), approval)
+        self.services
+            .approvals
+            .deny(&actor.caller(), &found)
             .await
             .map_err(|e| approval_reason(&e))?;
         Ok(Accepted::new(
@@ -270,74 +279,53 @@ impl InteractionAuthorizer {
         &self,
         incident: IncidentId,
         action: ActionId,
-    ) -> Result<Option<StepTarget>, String> {
-        let deps = self.api.deps();
-        let failed = || "Something went wrong; try again".to_owned();
-        let execution = ExecutionId::from_action(action);
-        let Some(row) = deps
-            .operation_repo
-            .execution(execution)
+    ) -> Result<Option<StepRef>, String> {
+        let Some(target) = self
+            .services
+            .operations
+            .find_by_action(action)
             .await
-            .map_err(|_| failed())?
+            .map_err(|_| "Something went wrong; try again".to_owned())?
         else {
             return Ok(None);
         };
-        let record = row.value;
-        let snapshot = deps
-            .operation_repo
-            .load(record.operation)
-            .await
-            .map_err(|_| failed())?;
-        if !snapshot.is_some_and(|s| s.incidents.contains(&incident)) {
+        if !target.incidents.contains(&incident) {
             return Err("That action no longer exists".to_owned());
         }
-        if deps.operations.is_none() {
+        if !self.services.operations.enabled() {
             return Err("Operations are not running; open the incident in the web UI".to_owned());
         }
-        Ok(Some(StepTarget {
-            operation: record.operation,
-            step: record.step,
-            record,
-        }))
+        Ok(Some(target))
     }
 
     async fn approve_step(
         &self,
         actor: &Actor<'_>,
         incident: IncidentId,
-        target: StepTarget,
+        target: StepRef,
         token: &str,
         plan_prefix: Option<&str>,
     ) -> Result<Accepted, String> {
-        if !matches!(target.record.risk(), Some(Risk::Read | Risk::Write)) {
+        if !matches!(target.risk, Some(Risk::Read | Risk::Write)) {
             return Err(WEB_ONLY.to_owned());
         }
         let binding = prefix_binding(plan_prefix)?;
-        let deps = self.api.deps();
-        let Some(operations) = &deps.operations else {
-            return Err("Operations are not running; open the incident in the web UI".to_owned());
-        };
-        let (authorization, provenance) = chat_authorization(
-            actor.admin.id,
-            actor.platform,
-            actor.platform_user,
-            deps.clock.now(),
-        );
-        operations
-            .authorize(
+        self.services
+            .operations
+            .approve_step(
+                &actor.caller(),
                 target.operation,
                 target.step,
-                authorization,
                 binding,
-                provenance,
+                None,
                 Some(token),
             )
             .await
-            .map_err(|e| step_reason(&e))?;
+            .map_err(|e| command_reason(&e))?;
         Ok(Accepted::new(
             "approve",
             format!("execution:{}", target.step),
-            format!("Approved {}", skill_of(&target.record)),
+            format!("Approved {}", target.skill),
         )
         .with_detail(json!({
             "incident": incident.to_string(),
@@ -349,39 +337,22 @@ impl InteractionAuthorizer {
         &self,
         actor: &Actor<'_>,
         incident: IncidentId,
-        target: StepTarget,
+        target: StepRef,
         token: &str,
     ) -> Result<Accepted, String> {
-        let deps = self.api.deps();
-        let Some(operations) = &deps.operations else {
-            return Err("Operations are not running; open the incident in the web UI".to_owned());
-        };
-        let approval = chat_approval(
-            actor.admin.id,
-            actor.platform,
-            actor.platform_user,
-            deps.clock.now(),
-        );
-        operations
-            .deny_from_chat(target.operation, target.step, approval, token)
+        self.services
+            .operations
+            .deny_step(&actor.caller(), target.operation, target.step, Some(token))
             .await
-            .map_err(|e| step_reason(&e))?;
+            .map_err(|e| command_reason(&e))?;
         Ok(Accepted::new(
             "deny",
             format!("execution:{}", target.step),
-            format!("Denied {}", skill_of(&target.record)),
+            format!("Denied {}", target.skill),
         )
         .with_detail(json!({
             "incident": incident.to_string(),
             "operation": target.operation.to_string(),
         })))
     }
-}
-
-/// The skill's name, for the reply.
-fn skill_of(record: &ExecutionRecord) -> String {
-    record
-        .contract
-        .skill_name()
-        .map_or_else(|| record.contract.to_string(), |name| name.to_string())
 }

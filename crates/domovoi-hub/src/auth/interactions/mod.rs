@@ -15,12 +15,14 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use domovoi_core::ports::{
-    AuditEvent, AuditLog, ChatGateway, InteractionSink, NotifyStateRepo, ThreadRef, UserRepo,
+    AuditEvent, AuditLog, ChatGateway, Clock, HostRepo, IncidentRepo, InteractionSink, Notifier,
+    NotifyStateRepo, ThreadRef, UserRepo,
 };
 use domovoi_core::{IncidentId, Interaction, InteractionKind, InteractionReply, User};
 use serde_json::Value;
+use url::Url;
 
-use crate::api::ApiState;
+use crate::services::{Caller, FollowUpError, Services};
 
 /// The chat-facing reason for a refused approval or denial, from the card buttons.
 pub use buttons::{approval_reason, step_reason};
@@ -31,7 +33,7 @@ pub const NOT_ALLOWED: &str = "Not allowed";
 /// What chat users are told before the admin account exists.
 pub const SETUP_FIRST: &str = "Finish setup in the web UI first";
 
-/// What the authorizer needs besides the API's repositories and handles.
+/// What the authorizer needs besides the services: the read ports chat renders from.
 pub struct ChatDeps {
     /// The admin account chat acts as.
     pub users: Arc<dyn UserRepo>,
@@ -43,6 +45,16 @@ pub struct ChatDeps {
     pub gateway: Arc<dyn ChatGateway>,
     /// Platform user ids allowed to act, for example `[discord] allowed_user_ids`.
     pub allowed: BTreeSet<String>,
+    /// Incidents, for the timeline behind Details and the active list.
+    pub incidents: Arc<dyn IncidentRepo>,
+    /// Hosts, for `/status`.
+    pub hosts: Arc<dyn HostRepo>,
+    /// Where `/digest` sends; `None` when no chat is configured for it.
+    pub notifier: Option<Arc<dyn Notifier>>,
+    /// Time, for audit rows and mutes.
+    pub clock: Arc<dyn Clock>,
+    /// The hub's public URL, for links to incidents.
+    pub public_url: Url,
 }
 
 /// An accepted interaction: the reply and what goes in the audit log.
@@ -85,9 +97,17 @@ pub(crate) struct Actor<'a> {
     pub(crate) admin: User,
 }
 
+impl Actor<'_> {
+    /// The caller services act for: the allowlisted chat user, acting as the hub's admin.
+    /// The only place a chat [`Caller`] is built.
+    pub(crate) fn caller(&self) -> Caller {
+        Caller::chat(self.admin.id, self.platform, self.platform_user)
+    }
+}
+
 /// The hub's [`InteractionSink`] for chat gateways.
 pub struct InteractionAuthorizer {
-    pub(crate) api: ApiState,
+    pub(crate) services: Services,
     pub(crate) chat: ChatDeps,
 }
 
@@ -100,11 +120,11 @@ impl std::fmt::Debug for InteractionAuthorizer {
 }
 
 impl InteractionAuthorizer {
-    /// An authorizer acting through `api`'s services, for the chat platform in `chat`.
+    /// An authorizer acting through `services`, for the chat platform in `chat`.
     #[must_use]
-    pub fn new(api: &ApiState, chat: ChatDeps) -> Self {
+    pub fn new(services: &Services, chat: ChatDeps) -> Self {
         Self {
-            api: api.clone(),
+            services: services.clone(),
             chat,
         }
     }
@@ -141,12 +161,15 @@ impl InteractionAuthorizer {
         question: &str,
     ) -> Result<Accepted, String> {
         let subject = format!("incident:{incident}");
-        let answer = match &self.api.deps().triage {
-            None => "Triage is off, so there is no one to ask.".to_owned(),
-            Some(triage) => match triage.follow_up(incident, question, actor.admin.id).await {
-                Ok(answer) => answer,
-                Err(err) => format!("I could not answer that: {err}"),
-            },
+        let answer = match self
+            .services
+            .incidents
+            .follow_up(&actor.caller(), incident, question)
+            .await
+        {
+            Ok(answer) => answer,
+            Err(FollowUpError::TriageOff) => "Triage is off, so there is no one to ask.".to_owned(),
+            Err(FollowUpError::Triage(err)) => format!("I could not answer that: {err}"),
         };
         let posted = self.post_in_thread(incident, &answer).await;
         let accepted = Accepted::new("follow_up", subject, answer);
@@ -155,7 +178,7 @@ impl InteractionAuthorizer {
 
     async fn audit(&self, actor: &Actor<'_>, accepted: &Accepted) {
         let event = AuditEvent {
-            at: self.api.deps().clock.now(),
+            at: self.chat.clock.now(),
             actor: format!("chat:{}:{}", actor.platform, actor.platform_user),
             kind: format!("chat.{}", accepted.kind),
             subject: accepted.subject.clone(),

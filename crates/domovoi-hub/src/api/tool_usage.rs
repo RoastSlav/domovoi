@@ -154,7 +154,7 @@ mod tests {
             ),
         ];
         assert_eq!(
-            super::super::incidents::latest_triage(&timeline),
+            crate::services::latest_triage(&timeline),
             Some(TriageOutcome::Skipped {
                 reason: "budget".to_owned()
             })
