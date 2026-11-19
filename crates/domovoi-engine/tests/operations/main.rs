@@ -19,6 +19,8 @@ mod properties;
 #[cfg(test)]
 mod restart;
 #[cfg(test)]
+mod sim;
+#[cfg(test)]
 mod support;
 #[cfg(test)]
 mod writer;
