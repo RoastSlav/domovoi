@@ -1,0 +1,18 @@
+---
+source: crates/domovoi-engine/tests/engine/policy_shadow_inputs.rs
+expression: "serde_json::to_string_pretty(&built.gaps).unwrap()"
+---
+[
+  {
+    "input": "ceiling",
+    "reason": "not_produced_yet"
+  },
+  {
+    "input": "facts",
+    "reason": "not_produced_yet"
+  },
+  {
+    "input": "autonomy",
+    "reason": "not_produced_yet"
+  }
+]

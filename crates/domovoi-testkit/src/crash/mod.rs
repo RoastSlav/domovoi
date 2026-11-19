@@ -33,6 +33,8 @@ use domovoi_core::ports::{
     StoreError, Transaction, UnitOfWork, VersionedRead,
 };
 
+use domovoi_core::policy_store::PolicyWrite;
+
 use crate::lock;
 
 /// Where a simulated crash happens relative to one commit.
@@ -147,16 +149,10 @@ fn summarize(tx: &Transaction) -> TxSummary {
             }),
             StateWrite::Policy(write) => writes.push(
                 match write {
-                    domovoi_core::policy_store::PolicyWrite::SaveDraft { .. } => {
-                        "policy:save_draft"
-                    }
-                    domovoi_core::policy_store::PolicyWrite::DiscardDraft { .. } => {
-                        "policy:discard_draft"
-                    }
-                    domovoi_core::policy_store::PolicyWrite::Publish { .. } => "policy:publish",
-                    domovoi_core::policy_store::PolicyWrite::RecordShadow { .. } => {
-                        "policy:record_shadow"
-                    }
+                    PolicyWrite::SaveDraft { .. } => "policy:save_draft",
+                    PolicyWrite::DiscardDraft { .. } => "policy:discard_draft",
+                    PolicyWrite::Publish { .. } => "policy:publish",
+                    PolicyWrite::RecordShadow { .. } => "policy:record_shadow",
                 }
                 .to_owned(),
             ),

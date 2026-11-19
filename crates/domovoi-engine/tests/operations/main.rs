@@ -29,11 +29,16 @@ mod investigate_effects;
 #[cfg(test)]
 mod investigate_limits;
 #[cfg(test)]
+mod policy_shadow;
+#[cfg(test)]
 mod properties;
 #[cfg(test)]
 mod queued;
 #[cfg(test)]
 mod restart;
+#[cfg(test)]
+#[path = "../support/shadow_env.rs"]
+mod shadow_env;
 #[cfg(test)]
 mod sim;
 #[cfg(test)]

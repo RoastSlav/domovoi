@@ -1,0 +1,11 @@
+---
+source: crates/domovoi-engine/tests/engine/policy_shadow_codec.rs
+expression: "lines.join(\"\\n\")"
+---
+arg_constraint: {"rule":{"capability":{"kind":"any"},"conditions":[{"arg":"count","kind":"arg_constraint","op":"int_at_least","value":3}],"enabled":true,"host":"all","id":"cond","locked":false,"note":"","outcome":{"kind":"allow"},"shadow":false,"targets":{"kind":"any"},"version_id":null},"v":1}
+time_window: {"rule":{"capability":{"kind":"any"},"conditions":[{"end":{"hour":6,"minute":0},"kind":"time_window","start":{"hour":22,"minute":0}}],"enabled":true,"host":"all","id":"cond","locked":false,"note":"","outcome":{"kind":"allow"},"shadow":false,"targets":{"kind":"any"},"version_id":null},"v":1}
+requires_fact: {"rule":{"capability":{"kind":"any"},"conditions":[{"expected":true,"fact":"host.not_in_maintenance","kind":"requires_fact"}],"enabled":true,"host":"all","id":"cond","locked":false,"note":"","outcome":{"kind":"allow"},"shadow":false,"targets":{"kind":"any"},"version_id":null},"v":1}
+max_rate: {"rule":{"capability":{"kind":"any"},"conditions":[{"kind":"max_rate","max_per_hour":3}],"enabled":true,"host":"all","id":"cond","locked":false,"note":"","outcome":{"kind":"allow"},"shadow":false,"targets":{"kind":"any"},"version_id":null},"v":1}
+max_ttl: {"rule":{"capability":{"kind":"any"},"conditions":[{"kind":"max_ttl","max_ttl":"PT10M"}],"enabled":true,"host":"all","id":"cond","locked":false,"note":"","outcome":{"kind":"allow"},"shadow":false,"targets":{"kind":"any"},"version_id":null},"v":1}
+locked_deny: {"rule":{"capability":{"kind":"any"},"conditions":[],"enabled":true,"host":"all","id":"no-prune","locked":true,"note":"never prune","outcome":{"kind":"deny"},"shadow":false,"targets":{"kind":"exact","names":["nas"]},"version_id":null},"v":1}
+shadow_allow: {"rule":{"capability":{"kind":"any"},"conditions":[],"enabled":true,"host":"all","id":"try-allow","locked":false,"note":"","outcome":{"kind":"allow"},"shadow":true,"targets":{"kind":"any"},"version_id":null},"v":1}

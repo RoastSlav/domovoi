@@ -1,0 +1,64 @@
+---
+source: crates/domovoi-engine/tests/engine/policy_shadow_codec.rs
+expression: "serde_json::to_string_pretty(&doc).unwrap()"
+---
+{
+  "outcome": {
+    "kind": "allow"
+  },
+  "reason": "single_winner",
+  "matched": [
+    "broad-deny",
+    "specific-allow"
+  ],
+  "winners": [
+    "specific-allow"
+  ],
+  "locked": [],
+  "overridden": [
+    {
+      "broader": "broad-deny",
+      "by": "specific-allow"
+    }
+  ],
+  "would_have_been": null,
+  "constraints": {
+    "max_per_hour": 2,
+    "max_ttl_secs": 300,
+    "targets": [
+      "plex"
+    ],
+    "conditions": [
+      {
+        "kind": "max_rate",
+        "max_per_hour": 3
+      },
+      {
+        "kind": "max_ttl",
+        "max_ttl": "PT10M"
+      },
+      {
+        "kind": "requires_fact",
+        "fact": "host.not_in_maintenance",
+        "expected": true
+      }
+    ]
+  },
+  "hard_limits_applied": [],
+  "facts_used": [
+    {
+      "fact": "host.not_in_maintenance",
+      "status": "known"
+    }
+  ],
+  "typed_confirmation": "none",
+  "warnings": [
+    {
+      "kind": "dangerous_exception",
+      "allow": "specific-allow",
+      "deny": "broad-deny"
+    }
+  ],
+  "policy_version": null,
+  "ceiling_hash": "h1"
+}
