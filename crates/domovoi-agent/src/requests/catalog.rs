@@ -99,10 +99,11 @@ mod tests {
         let folder = dir.join(name);
         std::fs::create_dir_all(&folder).unwrap();
         let manifest = format!(
-            "name = \"{name}\"\ndescription = \"Catalogue fixture\"\nrisk = \"low\"\nentry = \"run\"\ntimeout = \"10s\"\nmax_output_bytes = 4096\n"
+            "name = \"{name}\"\ndescription = \"Catalogue fixture\"\nrisk = \"read\"\nentry = \"run\"\ntimeout = \"10s\"\nmax_output_bytes = 4096\n"
         );
         std::fs::write(folder.join("skill.toml"), manifest).unwrap();
         std::fs::write(folder.join("run"), "#!/bin/sh\necho ran\n").unwrap();
+        make_executable(&folder.join("run"));
     }
 
     /// Writes one folder that must fail a load check: the manifest names another skill.
@@ -110,9 +111,26 @@ mod tests {
         let folder = dir.join(name);
         std::fs::create_dir_all(&folder).unwrap();
         let manifest =
-            "name = \"other_name\"\ndescription = \"Catalogue fixture\"\nrisk = \"low\"\nentry = \"run\"\ntimeout = \"10s\"\nmax_output_bytes = 4096\n".to_string();
+            "name = \"other_name\"\ndescription = \"Catalogue fixture\"\nrisk = \"read\"\nentry = \"run\"\ntimeout = \"10s\"\nmax_output_bytes = 4096\n".to_string();
         std::fs::write(folder.join("skill.toml"), manifest).unwrap();
         std::fs::write(folder.join("run"), "#!/bin/sh\necho ran\n").unwrap();
+        make_executable(&folder.join("run"));
+    }
+
+    /// Makes `entry` executable where the platform has a mode: a skill whose entry is not
+    /// executable is refused by the loader on Unix.
+    fn make_executable(entry: &Path) {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            let mut permissions = std::fs::metadata(entry).unwrap().permissions();
+            permissions.set_mode(0o755);
+            std::fs::set_permissions(entry, permissions).unwrap();
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = entry;
+        }
     }
 
     /// A skills directory holding `names` valid folders plus one broken one, and the
