@@ -63,9 +63,9 @@ pub struct SimulationRequest {
     pub inputs: InputsMode,
     /// Which recorded rows; also applied to each explicit step, which is dropped when it fails.
     pub filter: ShadowFilter,
-    /// Explicit steps; at most [`MAX_EXPLICIT_IDS`].
+    /// Explicit steps; at most `MAX_EXPLICIT_IDS`.
     pub execution_ids: Vec<ExecutionId>,
-    /// How many rows to take; 0 reads as the default, and the maximum is [`MAX_LIMIT`].
+    /// How many rows to take; 0 reads as the default, and the maximum is `MAX_LIMIT`.
     pub limit: u16,
 }
 
