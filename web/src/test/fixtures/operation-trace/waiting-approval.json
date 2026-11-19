@@ -42,9 +42,7 @@
     "ended_at": null,
     "goal": "find out why plex keeps going down",
     "id": "01900000-0000-7000-8000-00000001ffff",
-    "incidents": [
-      "01900000-0000-7000-8000-000000000003"
-    ],
+    "incidents": ["01900000-0000-7000-8000-000000000003"],
     "kind": "investigate",
     "parent": null,
     "pause_reason": null,
@@ -57,9 +55,7 @@
     ],
     "started_at": "2025-10-09T08:53:20Z",
     "status": "waiting_approval",
-    "waiting_for": [
-      "approval"
-    ]
+    "waiting_for": ["approval"]
   },
   "schema_version": 1,
   "steps": [

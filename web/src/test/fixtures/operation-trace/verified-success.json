@@ -47,9 +47,7 @@
     "ended_at": "2025-10-09T09:53:20Z",
     "goal": "find out why plex keeps going down",
     "id": "01900000-0000-7000-8000-00000002ffff",
-    "incidents": [
-      "01900000-0000-7000-8000-000000000003"
-    ],
+    "incidents": ["01900000-0000-7000-8000-000000000003"],
     "kind": "investigate",
     "parent": null,
     "pause_reason": null,
