@@ -35,6 +35,12 @@ export const PAGES = {
   overview: page(() => import("../features/overview/OverviewPage").then((m) => m.OverviewPage)),
   note: page(() => import("../features/notes/NoteEditorPage").then((m) => m.NoteEditorPage)),
   notes: page(() => import("../features/notes/NotesPage").then((m) => m.NotesPage)),
+  operations: page(() =>
+    import("../features/operations/OperationsPage").then((m) => m.OperationsPage),
+  ),
+  operation: page(() =>
+    import("../features/operations/OperationDetailPage").then((m) => m.OperationDetailPage),
+  ),
   rules: page(() => import("../features/rules/RulesPage").then((m) => m.RulesPage)),
   settings: page(() => import("../features/settings/SettingsPage").then((m) => m.SettingsPage)),
   skills: page(() => import("../features/skills/SkillsPage").then((m) => m.SkillsPage)),

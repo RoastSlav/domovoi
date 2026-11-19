@@ -50,6 +50,12 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         count: { field: "incidents_action_needed", tone: "danger", label: "need attention" },
       },
       {
+        to: "/operations",
+        label: "Operations",
+        icon: "play",
+        preload: PAGES.operations.preload,
+      },
+      {
         to: "/approvals",
         label: "Approvals",
         icon: "approve",

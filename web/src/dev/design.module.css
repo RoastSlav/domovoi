@@ -148,3 +148,12 @@
   border-radius: var(--radius-sm);
   background: var(--color-surface);
 }
+
+/* A frame for the side panel demos: a transform makes position: fixed relative to it. */
+.panelFrame {
+  position: relative;
+  height: 18rem;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  transform: translateZ(0);
+}

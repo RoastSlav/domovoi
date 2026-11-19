@@ -14,6 +14,7 @@
  *   SCREENS_USER      the account to sign in with (default "screens")
  *   SCREENS_PASSWORD  its password; a throwaway one is made when SETUP_TOKEN creates the account
  *   SCREENS_OUT       where pictures go (default web/screens-out, which git ignores)
+ *   SCREENS_OPERATION an operation id, to also picture its detail page (default: list only)
  *   SCREENS_CHANNEL   the installed browser to drive (default "chrome"); set it empty to use
  *                     Playwright's own Chromium after `npx playwright install chromium`
  */
@@ -34,6 +35,7 @@ const WIDTHS = [375, 768, 1280, 1920];
 const THEMES = ["light", "dark"];
 const PAGES = [
     ["incidents", "/incidents"],
+    ["operations", "/operations"],
     ["approvals", "/approvals"],
     ["chat", "/chat"],
     ["rules", "/rules"],
@@ -47,6 +49,10 @@ const PAGES = [
     ["design", "/dev/design"],
     ["login", "/login"],
 ];
+
+if (process.env.SCREENS_OPERATION) {
+    PAGES.push(["operation", `/operations/${process.env.SCREENS_OPERATION}`]);
+}
 
 /** Creates the account straight on the hub: its setup check wants the hub's own address. */
 async function createAccount(token) {

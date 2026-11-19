@@ -22,20 +22,20 @@ WSL notes:
 - From Git Bash, prefix `wsl.exe` with `MSYS_NO_PATHCONV=1`, or `/mnt/c/...` arguments are rewritten into Windows paths.
 - Build from WSL against the Windows checkout on `/mnt/c`; edit from Windows.
 
-| Task | Command |
-| --- | --- |
-| Rust CI checks (everything CI runs; do not run it by default) | `cargo xtask ci` (`--fast` skips deny and the web checks; `--web` adds the UI and the hub with it embedded) |
-| Architecture rules only | `cargo xtask arch-check` (CI also runs `--base origin/main`) |
-| Format | `cargo fmt --all` |
-| Lint | `cargo clippy --workspace --all-targets -- -D warnings` |
-| Tests for what you changed | `cargo nextest run -p <crate>`, or `cargo nextest run -E 'rdeps(<crate>)'` when a public item changed; `cargo test -p <crate>` without nextest |
-| Snapshot review | `cargo insta review` (only accept snapshots you have read) |
-| Web | `cd web && npm ci && npm run lint && npm run typecheck && npm test && npm run format:check && npm run build` |
-| Regenerate API types | `cargo xtask openapi && cd web && npm run gen:api` |
-| Regenerate the config reference | `cargo xtask docs-config` |
-| Book links, anchors and pages | `cargo xtask docs-links` |
-| Checks `cargo xtask ci` leaves out | Rustdoc, web `format:check` and `gen:api`, `arch-check --base`: see [Before you push](TESTING.md#before-you-push) |
-| Run the UI against a dev hub | `cargo run -p domovoi-hub --example dev_hub`, then `cd web && npm run dev` |
+| Task                                                          | Command                                                                                                                                                                                                             |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Rust CI checks (everything CI runs; do not run it by default) | `cargo xtask ci` (`--fast` skips deny and the web checks; `--web` adds the UI and the hub with it embedded)                                                                                                         |
+| Architecture rules only                                       | `cargo xtask arch-check` (CI also runs `--base origin/main`)                                                                                                                                                        |
+| Format                                                        | `cargo fmt --all`                                                                                                                                                                                                   |
+| Lint                                                          | `cargo clippy --workspace --all-targets -- -D warnings`                                                                                                                                                             |
+| Tests for what you changed                                    | `cargo nextest run -p <crate>`, or `cargo nextest run -E 'rdeps(<crate>)'` when a public item changed; `cargo test -p <crate>` without nextest                                                                      |
+| Snapshot review                                               | `cargo insta review` (only accept snapshots you have read)                                                                                                                                                          |
+| Web                                                           | `cd web && npm ci && npm run lint && npm run typecheck && npm test && npm run format:check && npm run build`, then `npm run smoke` (needs the build; browser smoke test of the operations pages against a mock hub) |
+| Regenerate API types                                          | `cargo xtask openapi && cd web && npm run gen:api`                                                                                                                                                                  |
+| Regenerate the config reference                               | `cargo xtask docs-config`                                                                                                                                                                                           |
+| Book links, anchors and pages                                 | `cargo xtask docs-links`                                                                                                                                                                                            |
+| Checks `cargo xtask ci` leaves out                            | Rustdoc, web `format:check` and `gen:api`, `arch-check --base`: see [Before you push](TESTING.md#before-you-push)                                                                                                   |
+| Run the UI against a dev hub                                  | `cargo run -p domovoi-hub --example dev_hub`, then `cd web && npm run dev`                                                                                                                                          |
 
 ## Hard rules (CI enforces these; do not work around them)
 

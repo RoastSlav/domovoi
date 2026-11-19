@@ -51,6 +51,8 @@ function defaultDetail(section: string, rest: string | undefined): string | unde
       return decoded(rest);
     case "incidents":
       return "Incident";
+    case "operations":
+      return "Operation";
     case "notes":
       return rest === "new" ? "New note" : "Note";
     default:

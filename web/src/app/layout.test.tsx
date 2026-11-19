@@ -1,4 +1,4 @@
-import { act, fireEvent, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { Live } from "../api/events";
 import { calls, failure, resetApi, route } from "../test/apiMock";
@@ -6,6 +6,7 @@ import { nas } from "../test/fixtures";
 import { renderAt } from "../test/render";
 import { SELECTED_HOST_KEY } from "./HostContext";
 import { Layout } from "./Layout";
+import { ShellSkeleton } from "./PageSkeleton";
 import { SIDEBAR_KEY } from "./useSidebarRail";
 
 vi.mock("../api/client", () => import("../test/apiMock"));
@@ -99,7 +100,7 @@ test("navigation_is_grouped_by_what_the_operator_is_doing", () => {
     within(within(nav()).getByRole("group", { name: group, hidden: true }))
       .getAllByRole("link", { hidden: true })
       .map((link) => link.textContent);
-  expect(linksOf("Respond")).toEqual(["Overview", "Incidents", "Approvals", "Chat"]);
+  expect(linksOf("Respond")).toEqual(["Overview", "Incidents", "Operations", "Approvals", "Chat"]);
   expect(linksOf("Fleet")).toEqual(["Hosts", "Skills", "Capabilities", "Logs"]);
   expect(linksOf("Knowledge")).toEqual(["Known conditions", "Notes", "Digest"]);
   expect(linksOf("System")).toEqual(["Settings"]);
@@ -420,4 +421,19 @@ test("account_menu_names_the_user_switches_the_theme_and_logs_out", async () => 
   await user.click(within(sheet()).getByRole("button", { name: "Account menu" }));
   await user.click(screen.getByRole("menuitem", { name: "Log out" }));
   expect(calls.some((call) => call.route === "POST /api/v1/auth/logout")).toBe(true);
+});
+
+test("layout_renders_the_slot_host_beside_main_and_the_skeleton_has_the_same_shape", () => {
+  const { unmount } = renderLayout();
+  const body = document.getElementById("main")?.parentElement;
+  expect(Array.from(body?.children ?? []).map((child) => child.tagName)).toEqual(["MAIN", "ASIDE"]);
+  const shape = (column: Element | null | undefined) =>
+    Array.from(column?.children ?? []).map((child) => child.children.length);
+  unmount();
+
+  const { container } = render(<ShellSkeleton />);
+  const skeletonBody = container.querySelector("main")?.parentElement;
+  expect(skeletonBody?.tagName).toBe("DIV");
+  expect(skeletonBody?.parentElement?.children).toHaveLength(2);
+  expect(shape(skeletonBody)).toEqual([1]);
 });

@@ -13,6 +13,7 @@ import {
   Stack,
   Text,
 } from "../../components";
+import { IncidentOperations } from "../operations/IncidentOperations";
 import { useActionOutcomes } from "../approvals/useActionOutcomes";
 import { ActionSections } from "./ActionSections";
 import { IncidentChat } from "./IncidentChat";
@@ -105,6 +106,9 @@ export function IncidentDetailPage() {
         <div className={styles.main}>
           <div className={styles.slot} data-slot="going">
             <WhatsGoingOn detail={data} off={modelOff} />
+          </div>
+          <div className={styles.slot} data-slot="operations">
+            <IncidentOperations operations={data.operations} />
           </div>
           <div className={styles.slot} data-slot="evidence">
             <IncidentEvidence detail={data} />

@@ -96,6 +96,12 @@ export const RISKS: Table<Risk> = {
     hint: "Can lose data. Needs the skill name typed to approve; never from chat.",
     icon: "alert",
   },
+  unknown: {
+    label: "Risk unknown",
+    tone: "warning",
+    hint: "The skill is not on the host now, so its risk is unknown. It is treated as destructive: its name must be typed to approve.",
+    icon: "alert",
+  },
 };
 
 export const TRIAGE: Table<TriageKind> = {

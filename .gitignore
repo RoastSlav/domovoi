@@ -7,6 +7,7 @@
 web/node_modules
 web/dist
 web/screens-out
+web/smoke-out
 
 # Docs
 docs/book/book

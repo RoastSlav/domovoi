@@ -164,3 +164,18 @@ export function defined<T extends object>(value: T): { [K in keyof T]?: Exclude<
     Object.entries(value).filter(([, v]) => v !== undefined && v !== ""),
   ) as { [K in keyof T]?: Exclude<T[K], undefined> };
 }
+
+/** One operation in a list. */
+export type OperationSummary = Schemas["OperationSummaryDto"];
+/** One page of operations. */
+export type OperationPage = Schemas["OperationPage"];
+/** An operation with its trace and executions. */
+export type OperationDetail = Schemas["OperationDetailDto"];
+/** A run a person approves or denies. */
+export type Execution = Schemas["ExecutionDto"];
+/** One step with its stored intent and bounded output. */
+export type StepDetail = Schemas["StepDetailDto"];
+/** An operation after a control. */
+export type OperationControl = Schemas["OperationControlDto"];
+/** One limit to raise when resuming. */
+export type BudgetExtension = Schemas["BudgetExtensionDto"];

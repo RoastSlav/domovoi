@@ -42,11 +42,13 @@ export function ShellSkeleton() {
             <Skeleton shape="line" count={1} />
           </span>
         </div>
-        <main className={styles.main}>
-          <div className={styles.content}>
-            <PageSkeleton />
-          </div>
-        </main>
+        <div className={styles.body}>
+          <main className={styles.main}>
+            <div className={styles.content}>
+              <PageSkeleton />
+            </div>
+          </main>
+        </div>
       </div>
     </div>
   );

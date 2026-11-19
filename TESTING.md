@@ -6,16 +6,16 @@ CI runs on Linux (Ubuntu 24.04). The hub and the agent are Linux programs, so on
 
 ## Prerequisites
 
-| Tool | Needed for | Install |
-| --- | --- | --- |
-| Rust via rustup | everything | <https://rustup.rs>; the pinned toolchain in `rust-toolchain.toml` installs itself on first use |
-| Node.js 22 and npm | web UI checks and dev server | <https://nodejs.org> or your package manager |
-| cargo-nextest | tests with per-test timeouts, as in CI | `cargo install cargo-nextest --locked` |
-| cargo-deny | supply-chain check | `cargo install cargo-deny --locked` |
-| cargo-insta | reviewing snapshot changes | `cargo install cargo-insta --locked` |
-| Docker | container smoke test, installer test, workflow lint | optional |
-| shellcheck | shell script lint | optional, e.g. `sudo apt install shellcheck` |
-| cargo-llvm-cov | coverage | optional, `cargo install cargo-llvm-cov --locked` |
+| Tool               | Needed for                                          | Install                                                                                         |
+| ------------------ | --------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Rust via rustup    | everything                                          | <https://rustup.rs>; the pinned toolchain in `rust-toolchain.toml` installs itself on first use |
+| Node.js 22 and npm | web UI checks and dev server                        | <https://nodejs.org> or your package manager                                                    |
+| cargo-nextest      | tests with per-test timeouts, as in CI              | `cargo install cargo-nextest --locked`                                                          |
+| cargo-deny         | supply-chain check                                  | `cargo install cargo-deny --locked`                                                             |
+| cargo-insta        | reviewing snapshot changes                          | `cargo install cargo-insta --locked`                                                            |
+| Docker             | container smoke test, installer test, workflow lint | optional                                                                                        |
+| shellcheck         | shell script lint                                   | optional, e.g. `sudo apt install shellcheck`                                                    |
+| cargo-llvm-cov     | coverage                                            | optional, `cargo install cargo-llvm-cov --locked`                                               |
 
 `cargo xtask ci` works without nextest or cargo-deny. It falls back to `cargo test` and skips deny, and prints a note when it does.
 
@@ -77,31 +77,31 @@ cargo build --package domovoi --features embed-ui --locked
 
 CI (`.github/workflows/ci.yml`) only runs a job when files it covers change. The "Runs when" column says which.
 
-| CI job | Runs when | Local command |
-| --- | --- | --- |
-| PR title follows Conventional Commits | every PR | Title like `feat(engine): …`, `fix(web): …`, `docs: …` |
-| Rust (fmt, clippy, tests, docs, arch-check) | `crates/`, `xtask/`, `Cargo.*`, `ARCHITECTURE.md`, `docs/adr/` | `cargo xtask ci`, plus `arch-check --base` and rustdoc above |
-| Web (lint, typecheck, test, build) | `web/` | `cargo xtask ci --web`, plus `format:check` and `gen:api` above |
-| Build web UI for embedding | hub UI embedding files | `cd web && npm ci && npm run build` |
-| Book links, anchors and pages | `docs/book/`, `web/src/` | `cargo xtask docs-links` |
-| Locked workspace metadata | version-only `Cargo.*` bumps | `cargo metadata --locked --no-deps --format-version 1 > /dev/null` |
-| Supply chain (cargo-deny) | `Cargo.*`, `deny.toml` | `cargo deny check` |
-| MSRV | `Cargo.*`, `rust-toolchain.toml` | `rustup toolchain install 1.94 --profile minimal && cargo +1.94 check --workspace --locked` (the version is `rust-version` in `Cargo.toml`) |
-| Static musl build check | `Cargo.*` | `sudo apt install musl-tools && rustup target add x86_64-unknown-linux-musl && cargo check --workspace --locked --target x86_64-unknown-linux-musl` |
-| Workflow lint | `.github/workflows/` | `docker run --rm -v "$PWD:/repo" --workdir /repo rhysd/actionlint:1.7.12 -color` |
-| Shell scripts lint | `install.sh`, `deploy/test/`, skill `run` scripts | `shellcheck install.sh deploy/test/*.sh examples/skills/*/run` |
-| Installer on ubuntu:24.04 / debian:12 | `install.sh`, `deploy/test/installer.sh` | see [Installer test](#installer-test) |
-| systemd units verify | `deploy/systemd/` | see [systemd units](#systemd-units) |
-| Coverage | Rust changes | `cargo llvm-cov nextest --workspace --locked --no-tests=pass --html`, then open `target/llvm-cov/html/index.html` |
+| CI job                                      | Runs when                                                      | Local command                                                                                                                                       |
+| ------------------------------------------- | -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PR title follows Conventional Commits       | every PR                                                       | Title like `feat(engine): …`, `fix(web): …`, `docs: …`                                                                                              |
+| Rust (fmt, clippy, tests, docs, arch-check) | `crates/`, `xtask/`, `Cargo.*`, `ARCHITECTURE.md`, `docs/adr/` | `cargo xtask ci`, plus `arch-check --base` and rustdoc above                                                                                        |
+| Web (lint, typecheck, test, build)          | `web/`                                                         | `cargo xtask ci --web`, plus `format:check` and `gen:api` above                                                                                     |
+| Build web UI for embedding                  | hub UI embedding files                                         | `cd web && npm ci && npm run build`                                                                                                                 |
+| Book links, anchors and pages               | `docs/book/`, `web/src/`                                       | `cargo xtask docs-links`                                                                                                                            |
+| Locked workspace metadata                   | version-only `Cargo.*` bumps                                   | `cargo metadata --locked --no-deps --format-version 1 > /dev/null`                                                                                  |
+| Supply chain (cargo-deny)                   | `Cargo.*`, `deny.toml`                                         | `cargo deny check`                                                                                                                                  |
+| MSRV                                        | `Cargo.*`, `rust-toolchain.toml`                               | `rustup toolchain install 1.94 --profile minimal && cargo +1.94 check --workspace --locked` (the version is `rust-version` in `Cargo.toml`)         |
+| Static musl build check                     | `Cargo.*`                                                      | `sudo apt install musl-tools && rustup target add x86_64-unknown-linux-musl && cargo check --workspace --locked --target x86_64-unknown-linux-musl` |
+| Workflow lint                               | `.github/workflows/`                                           | `docker run --rm -v "$PWD:/repo" --workdir /repo rhysd/actionlint:1.7.12 -color`                                                                    |
+| Shell scripts lint                          | `install.sh`, `deploy/test/`, skill `run` scripts              | `shellcheck install.sh deploy/test/*.sh examples/skills/*/run`                                                                                      |
+| Installer on ubuntu:24.04 / debian:12       | `install.sh`, `deploy/test/installer.sh`                       | see [Installer test](#installer-test)                                                                                                               |
+| systemd units verify                        | `deploy/systemd/`                                              | see [systemd units](#systemd-units)                                                                                                                 |
+| Coverage                                    | Rust changes                                                   | `cargo llvm-cov nextest --workspace --locked --no-tests=pass --html`, then open `target/llvm-cov/html/index.html`                                   |
 
 Other workflows:
 
-| Workflow | Local command |
-| --- | --- |
-| Container smoke test (`docker.yml`) | see [Docker image](#docker-image) |
-| Docs (`docs.yml`) | `cargo install mdbook --locked && mdbook serve docs/book`, then open <http://localhost:3000> |
-| Drills (live model) (`drills-live.yml`) | see [Triage drills](#triage-drills) |
-| CodeQL, OpenSSF Scorecard, Release | GitHub only; nothing to run locally |
+| Workflow                                | Local command                                                                                |
+| --------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Container smoke test (`docker.yml`)     | see [Docker image](#docker-image)                                                            |
+| Docs (`docs.yml`)                       | `cargo install mdbook --locked && mdbook serve docs/book`, then open <http://localhost:3000> |
+| Drills (live model) (`drills-live.yml`) | see [Triage drills](#triage-drills)                                                          |
+| CodeQL, OpenSSF Scorecard, Release      | GitHub only; nothing to run locally                                                          |
 
 ## Running part of the test suite
 
@@ -133,6 +133,8 @@ cargo xtask docs-config             # writes the configuration reference in the 
 **Web only** (in `web/`): `npm ci`, then `npm run lint`, `npm run typecheck`, `npm test` (or `npm run test:watch` while working), `npm run format:check` and `npm run build`. `npm run format` fixes formatting. `npm test` also proves colour contrast, runs axe over every page test's output and checks the voice rules; `npm run build` ends with `npm run size`, which fails when the first download, a chunk or the CSS is over budget (`web/DESIGN.md`).
 
 To look at every page at 375, 768, 1280 and 1920 px in light and dark, start the dev hub and `npm run dev`, then run `node scripts/screens.mjs` in `web/` (it drives an installed Chrome through Playwright, writes pictures to `web/screens-out`, and lists pages that scroll sideways; the header of the script lists its settings). It is not part of CI.
+
+**Browser smoke test.** `npm run smoke` (in `web/`) drives the built bundle in a real browser against a mock hub, to check what jsdom cannot: layout, focus, the right-hand slot, reduced motion and colour contrast. It needs a built `dist/`, so run `npm run build` first. It uses Playwright's Chromium (`npx playwright install chromium`), or set `SMOKE_CHANNEL=chrome` to drive an installed Chrome. CI runs it in job `web`. `SCREENS_OPERATION=<id>` makes `scripts/screens.mjs` also capture `/operations/<id>`.
 
 ### Crash sweep
 
