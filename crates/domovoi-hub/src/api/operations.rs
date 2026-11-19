@@ -10,58 +10,20 @@ use domovoi_core::{
     OperationId, OperationKind, OperationSnapshot, OperationStatus, PlanBinding, PlanHash,
     SkillName, StepId, StepKind, build_trace,
 };
-use domovoi_engine::operations::OperationError;
 
-use super::dto::TriageStateDto;
 use super::dto_operations::{
     ApproveStepRequest, ExecutionDto, OperationDetailDto, OperationPage, OperationQuery,
     OperationSummaryDto, OperationTraceDto, StepDetailDto,
 };
 use super::error::{ApiError, ErrorBody};
+use super::operation_errors::command_error;
 use super::snapshot::snapshot_seq;
 use super::{ApiState, Authed, host_named, page};
-use crate::auth::approval::{web_approval, web_authorization};
+use crate::services::risk_of_skill;
 
 /// The 503 every operation endpoint but the list answers while orchestration is off.
 fn off() -> ApiError {
     ApiError::Unavailable("orchestration is not enabled".to_owned())
-}
-
-/// What an operation command's refusal means for the caller.
-pub(crate) fn operation_error(err: OperationError) -> ApiError {
-    use domovoi_core::ExecutionError;
-    match err {
-        OperationError::NotFound(_) => ApiError::NotFound,
-        OperationError::BadToken => {
-            ApiError::Forbidden("the approval link is not valid".to_owned())
-        }
-        OperationError::Execution(ExecutionError::NeedsTypedConfirmation) => {
-            ApiError::Forbidden("type the skill's name to approve this action".to_owned())
-        }
-        OperationError::Execution(ExecutionError::PlanChanged) => ApiError::Conflict(
-            "the plan changed since you opened it; reload the page and review it again".to_owned(),
-        ),
-        OperationError::Execution(ExecutionError::Expired) => {
-            ApiError::Conflict("the approval window has closed".to_owned())
-        }
-        OperationError::Execution(ExecutionError::AlreadyAuthorized) => {
-            ApiError::Conflict("this step was already approved".to_owned())
-        }
-        OperationError::Execution(ExecutionError::NotYetSupported) => ApiError::Conflict(
-            "policy authorizations are not supported yet; a person must approve".to_owned(),
-        ),
-        OperationError::Decide(refused) => ApiError::Conflict(refused.to_string()),
-        OperationError::Conflict | OperationError::StaleEffect => {
-            ApiError::Conflict("another change landed first; reload and try again".to_owned())
-        }
-        OperationError::HostUnavailable(_) => {
-            ApiError::Conflict("the host's agent is not connected".to_owned())
-        }
-        OperationError::Store(e) => ApiError::internal("operation change failed", e),
-        OperationError::Unavailable => {
-            ApiError::Unavailable("the operation service is restarting; try again".to_owned())
-        }
-    }
 }
 
 fn parse<T: std::str::FromStr>(text: &str) -> Result<T, ApiError> {
@@ -83,14 +45,9 @@ fn risk_of(
     host: domovoi_core::HostId,
     skill: Option<&SkillName>,
 ) -> Option<String> {
-    let skill = skill?;
-    state
-        .deps
-        .agents
-        .skills(host)
-        .iter()
-        .find(|summary| &summary.name == skill)
-        .and_then(|summary| serde_json::to_value(summary.risk).ok())
+    let risk = risk_of_skill(&state.deps.agents.skills(host), skill?)?;
+    serde_json::to_value(risk)
+        .ok()
         .and_then(|value| value.as_str().map(str::to_owned))
 }
 
@@ -129,7 +86,7 @@ pub(super) async fn list(
     Query(query): Query<OperationQuery>,
 ) -> Result<Json<OperationPage>, ApiError> {
     let as_of_seq = snapshot_seq(&state).await?;
-    if state.deps.operations.is_none() {
+    if !state.services().operations.enabled() {
         return Ok(Json(OperationPage {
             items: Vec::new(),
             next_cursor: None,
@@ -198,7 +155,7 @@ pub(super) async fn detail(
     _auth: Authed,
     Path(id): Path<String>,
 ) -> Result<Json<OperationDetailDto>, ApiError> {
-    if state.deps.operations.is_none() {
+    if !state.services().operations.enabled() {
         return Err(off());
     }
     let id: OperationId = parse(&id)?;
@@ -234,7 +191,7 @@ pub(super) async fn trace(
     _auth: Authed,
     Path(id): Path<String>,
 ) -> Result<Json<OperationTraceDto>, ApiError> {
-    if state.deps.operations.is_none() {
+    if !state.services().operations.enabled() {
         return Err(off());
     }
     let id: OperationId = parse(&id)?;
@@ -264,7 +221,7 @@ pub(super) async fn step(
     _auth: Authed,
     Path((id, step)): Path<(String, String)>,
 ) -> Result<Json<StepDetailDto>, ApiError> {
-    if state.deps.operations.is_none() {
+    if !state.services().operations.enabled() {
         return Err(off());
     }
     let (id, step): (OperationId, StepId) = (parse(&id)?, parse(&step)?);
@@ -294,14 +251,16 @@ pub(super) async fn step(
 )]
 pub(super) async fn approve_step(
     State(state): State<ApiState>,
-    Authed(current): Authed,
+    auth: Authed,
     Path((id, step)): Path<(String, String)>,
     Json(req): Json<ApproveStepRequest>,
 ) -> Result<Json<ExecutionDto>, ApiError> {
-    let operations = state.deps.operations.clone().ok_or_else(off)?;
+    if !state.services().operations.enabled() {
+        return Err(off());
+    }
     let (id, step): (OperationId, StepId) = (parse(&id)?, parse(&step)?);
     let loaded = snapshot(&state, id).await?;
-    let shown = execution(&state, &loaded, step)?;
+    execution(&state, &loaded, step)?;
     let plan_hash = req
         .plan_hash
         .as_deref()
@@ -311,34 +270,19 @@ pub(super) async fn approve_step(
                 "plan_hash is required: 64 hex characters, as shown on the execution".to_owned(),
             )
         })?;
-    let skill = loaded
-        .execution_of(step)
-        .and_then(|row| row.value.contract.skill_name())
-        .ok_or_else(|| ApiError::Conflict("only a skill can be approved from here".to_owned()))?;
-    // Checked before anything is written: an unknown risk fails closed.
-    if shown.confirm_required && req.confirm_text.as_deref() != Some(skill.as_str()) {
-        return Err(ApiError::Forbidden(
-            "type the skill's name to approve a destructive action".to_owned(),
-        ));
-    }
-    let (authorization, provenance) = web_authorization(
-        current.user.id,
-        req.confirm_text.as_deref(),
-        &skill,
-        &current.session_hash,
-        state.deps.clock.now(),
-    );
-    operations
-        .authorize(
+    state
+        .services()
+        .operations
+        .approve_step(
+            &auth.caller(),
             id,
             step,
-            authorization,
             PlanBinding::Full(plan_hash),
-            provenance,
+            req.confirm_text.as_deref(),
             None,
         )
         .await
-        .map_err(operation_error)?;
+        .map_err(command_error)?;
     let refreshed = snapshot(&state, id).await?;
     Ok(Json(execution(&state, &refreshed, step)?))
 }
@@ -360,22 +304,21 @@ pub(super) async fn approve_step(
 )]
 pub(super) async fn deny_step(
     State(state): State<ApiState>,
-    Authed(current): Authed,
+    auth: Authed,
     Path((id, step)): Path<(String, String)>,
 ) -> Result<Json<ExecutionDto>, ApiError> {
-    let operations = state.deps.operations.clone().ok_or_else(off)?;
+    if !state.services().operations.enabled() {
+        return Err(off());
+    }
     let (id, step): (OperationId, StepId) = (parse(&id)?, parse(&step)?);
     let loaded = snapshot(&state, id).await?;
     execution(&state, &loaded, step)?;
-    let skill = loaded
-        .execution_of(step)
-        .and_then(|row| row.value.contract.skill_name())
-        .ok_or_else(|| ApiError::Conflict("only a skill can be denied from here".to_owned()))?;
-    let approval = web_approval(current.user.id, None, &skill, state.deps.clock.now());
-    operations
-        .deny(id, step, approval)
+    state
+        .services()
+        .operations
+        .deny_step(&auth.caller(), id, step, None)
         .await
-        .map_err(operation_error)?;
+        .map_err(command_error)?;
     let refreshed = snapshot(&state, id).await?;
     Ok(Json(execution(&state, &refreshed, step)?))
 }
@@ -393,31 +336,4 @@ pub(super) async fn for_incident(
         rows.push(OperationSummaryDto::of(operation, loaded.as_ref()));
     }
     Ok(rows)
-}
-
-/// Investigates `incident` again as an operation and reports how the first outcome went.
-/// A task of its own, so that a closed tab does not cancel the run.
-pub(super) async fn retry(
-    operations: domovoi_engine::operations::OperationHandle,
-    incident: domovoi_core::Incident,
-    fresh: bool,
-) -> Result<Json<TriageStateDto>, ApiError> {
-    use domovoi_engine::operations::InvestigateError;
-    let result =
-        tokio::spawn(async move { operations.investigate_and_wait(&incident, fresh).await })
-            .await
-            .map_err(|e| ApiError::internal("triage failed", e))?;
-    match result {
-        Ok(outcome) => Ok(Json(TriageStateDto::from(&outcome))),
-        Err(InvestigateError::AlreadyRunning(_)) => Err(ApiError::Conflict(
-            "an investigation is already running for this incident".to_owned(),
-        )),
-        Err(InvestigateError::TimedOut(_)) => Ok(Json(TriageStateDto {
-            kind: "skipped".to_owned(),
-            reason: Some(
-                "the investigation is still running; its result appears on the incident".to_owned(),
-            ),
-        })),
-        Err(InvestigateError::Operation(err)) => Err(operation_error(err)),
-    }
 }

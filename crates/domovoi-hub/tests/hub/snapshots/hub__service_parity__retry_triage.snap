@@ -1,0 +1,27 @@
+---
+source: crates/domovoi-hub/tests/hub/service_parity.rs
+expression: "replies(&[first, cached, refused])"
+---
+[
+  {
+    "body": {
+      "kind": "report",
+      "reason": null
+    },
+    "status": 200
+  },
+  {
+    "body": {
+      "kind": "failed",
+      "reason": "scripted failed: unavailable: script exhausted"
+    },
+    "status": 200
+  },
+  {
+    "body": {
+      "error": "triage_off",
+      "message": "triage is not enabled"
+    },
+    "status": 503
+  }
+]

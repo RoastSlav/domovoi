@@ -40,6 +40,7 @@ use domovoi_hub::profile::ProfileDeps;
 use domovoi_hub::router::router;
 use domovoi_hub::runtime::caps::LinkCapabilities;
 use domovoi_hub::runtime::updates::UpdateChecker;
+use domovoi_hub::services::{Services, ServicesDeps};
 use domovoi_proto::messages::{CheckInfo, HostFacts};
 use domovoi_store::{Store, StoreOptions};
 use domovoi_testkit::build::{host, manifest};
@@ -512,6 +513,28 @@ async fn main() -> Result<()> {
         web,
     ));
     let update = UpdateChecker::load(store.clone(), clock.clone()).await;
+    let agents: Arc<dyn AgentAdmin> = Arc::new(DevAgents {
+        server: server.clone(),
+        link: link.clone(),
+    });
+    let config = Arc::new(config);
+    let services = Services::new(ServicesDeps {
+        manager: manager.clone(),
+        triage: None,
+        actions: store.clone(),
+        actions_service,
+        operations: None,
+        operation_repo: store.clone(),
+        incidents: store.clone(),
+        hosts: store.clone(),
+        facts: store.clone(),
+        advisories: store.clone(),
+        agents: agents.clone(),
+        profiles: Some(profile_deps.clone()),
+        config: config.clone(),
+        clock: clock.clone(),
+        redactor: Arc::new(PatternRedactor::default()),
+    });
     let deps = ApiDeps {
         incidents: store.clone(),
         signals: store.clone(),
@@ -523,14 +546,10 @@ async fn main() -> Result<()> {
         usage: store.clone(),
         acks: store.clone(),
         manager: manager.clone(),
-        actions_service,
+        services,
         triage: None,
-        operations: None,
         operation_repo: store.clone(),
-        agents: Arc::new(DevAgents {
-            server: server.clone(),
-            link: link.clone(),
-        }),
+        agents,
         capabilities: Arc::new(
             HubRegistry::new(RegistryDeps {
                 contracts: Arc::new(
@@ -546,7 +565,7 @@ async fn main() -> Result<()> {
         profiles: Some(profile_deps.clone()),
         clock: clock.clone(),
         journal: store.clone(),
-        config: Arc::new(config),
+        config,
         notifier: None,
         metrics: None,
         store_health: store.clone(),

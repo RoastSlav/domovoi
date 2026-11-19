@@ -52,6 +52,17 @@ curl -b cookies.txt -X POST https://domovoi.example.net/api/v1/incidents/$ID/ack
 
 `POST /api/v1/actions/{id}/approve` approves a proposed action as the logged-in user. It requires `{"plan_hash": "<64 hex characters>"}`: the plan hash shown on the card, also returned as `plan_hash` by the action endpoints. Without a valid hash the request gets a 400; with a hash that differs from the stored one it gets a 409, and the action stays proposed. Destructive skills also need `{"confirm_text": "<skill name>"}` with the skill's name typed exactly. Chat buttons can never approve them.
 
+## Operation controls
+
+Four requests control an operation. Each needs a logged-in session and the CSRF header, none needs your password again, and each answers `{"as_of_seq": <number>, "operation": {...}}` with the refreshed operation (the same object the operation list returns). `as_of_seq` is the event-stream position the answer was read at. While operations are off, all four answer 503 "orchestration is not enabled".
+
+- `POST /api/v1/operations/{id}/cancel` with `{"reason": "wrong host"}` (send `{}` for no reason; at most 500 characters). Pending steps and effects are cancelled. A run already handed to an agent is not recalled; its result is still recorded. Cancelling a cancelled operation changes nothing and answers 200. A finished operation answers 409 "the operation has already finished".
+- `POST /api/v1/operations/{id}/pause` with no body. The operation stops adding steps until you resume it, and its pause reason is `manual`. Pausing a paused operation answers 200 without a change. An operation that has not started answers 409 "the operation has not started yet; cancel it instead".
+- `POST /api/v1/operations/{id}/resume` with `{"extend": [{"kind": "executions", "limit": 6}]}` (send `{}` to raise nothing). `kind` is `model_turns`, `evidence_requests`, `executions`, `cycles`, `wall_time` (seconds), `tokens` or `cost` (millionths of a currency unit); each kind at most once, at most 7 entries, and `limit` from 1 to 10000 for a count or 1 to 10000000000 otherwise. A limit can be raised here but never removed. An operation paused because a limit ran out stays paused, with a 409, until that limit has room again. An operation that is not paused answers 409 "the operation is not paused".
+- `POST /api/v1/operations/{id}/steps/{step}/answer` with `{"text": "That disk is the backup disk; ignore it."}`, where `{step}` is the question's step id. The text is trimmed, must have 1 to 2000 characters, and is stored with secrets removed. A step that is not a question, a question that is no longer waiting, a paused operation and a finished one answer 409 with a sentence saying which.
+
+An unknown operation or step is 404, and a bad reason, limit or answer is 400 with the reason in `message`.
+
 ## Errors and paging
 
 Errors are JSON, with an HTTP status to match:

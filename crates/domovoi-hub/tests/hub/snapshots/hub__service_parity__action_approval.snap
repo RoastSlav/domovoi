@@ -1,0 +1,140 @@
+---
+source: crates/domovoi-hub/tests/hub/service_parity.rs
+expression: "json!({ \"replies\": replies(&all), \"audit\": audit_of(&a).await })"
+---
+{
+  "audit": [
+    {
+      "actor": "user:<id-2>",
+      "kind": "action.approved",
+      "subject": "action:<id-1>"
+    },
+    {
+      "actor": "user:<id-2>",
+      "kind": "action.approved",
+      "subject": "action:<id-4>"
+    },
+    {
+      "actor": "user:<id-2>",
+      "kind": "action.denied",
+      "subject": "action:<id-3>"
+    }
+  ],
+  "replies": [
+    {
+      "body": {
+        "error": "not_found",
+        "message": "not found"
+      },
+      "status": 404
+    },
+    {
+      "body": {
+        "error": "bad_request",
+        "message": "plan_hash is required: 64 hex characters, as shown on the action"
+      },
+      "status": 400
+    },
+    {
+      "body": {
+        "error": "conflict",
+        "message": "the plan changed since you opened it; reload the page and review it again"
+      },
+      "status": 409
+    },
+    {
+      "body": {
+        "approved_by": "user:<id-1>",
+        "args": {},
+        "created_at": "2026-10-31T12:00:00Z",
+        "expires_at": "2026-10-31T13:00:00Z",
+        "host_id": "<id-2>",
+        "id": "<id-3>",
+        "incident_id": "<id-4>",
+        "legacy": false,
+        "plan_binding": "v2",
+        "plan_hash": "<id-5>",
+        "plan_hash_v1": "<id-6>",
+        "proposed_by": "system:triage",
+        "reason": null,
+        "risk": "write",
+        "skill": "restart_container",
+        "status": "approved",
+        "updated_at": "2026-10-31T12:00:00Z"
+      },
+      "status": 200
+    },
+    {
+      "body": {
+        "error": "conflict",
+        "message": "cannot deny an action that is Approved"
+      },
+      "status": 409
+    },
+    {
+      "body": {
+        "approved_by": null,
+        "args": {},
+        "created_at": "2026-10-31T12:00:00Z",
+        "expires_at": "2026-10-31T13:00:00Z",
+        "host_id": "<id-2>",
+        "id": "<id-7>",
+        "incident_id": "<id-4>",
+        "legacy": false,
+        "plan_binding": "v2",
+        "plan_hash": "<id-8>",
+        "plan_hash_v1": "<id-9>",
+        "proposed_by": "system:triage",
+        "reason": null,
+        "risk": "destructive",
+        "skill": "restart_container",
+        "status": "denied",
+        "updated_at": "2026-10-31T12:00:00Z"
+      },
+      "status": 200
+    },
+    {
+      "body": {
+        "error": "conflict",
+        "message": "cannot deny an action that is Denied"
+      },
+      "status": 409
+    },
+    {
+      "body": {
+        "error": "forbidden",
+        "message": "type the skill's name to approve a destructive action"
+      },
+      "status": 403
+    },
+    {
+      "body": {
+        "error": "forbidden",
+        "message": "type the skill's name to approve a destructive action"
+      },
+      "status": 403
+    },
+    {
+      "body": {
+        "approved_by": "user:<id-1>",
+        "args": {},
+        "created_at": "2026-10-31T12:00:00Z",
+        "expires_at": "2026-10-31T13:00:00Z",
+        "host_id": "<id-2>",
+        "id": "<id-10>",
+        "incident_id": "<id-4>",
+        "legacy": false,
+        "plan_binding": "v2",
+        "plan_hash": "<id-11>",
+        "plan_hash_v1": "<id-9>",
+        "proposed_by": "system:triage",
+        "reason": null,
+        "risk": "destructive",
+        "skill": "restart_container",
+        "status": "approved",
+        "updated_at": "2026-10-31T12:00:00Z"
+      },
+      "status": 200
+    }
+  ]
+}

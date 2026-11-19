@@ -223,6 +223,8 @@ pub const BOUNDARY_PAIRS: &[&str] = &[
     "AuthorizedStep::of",
     "execute::execute_step",
     "OperationCommand::Dispatch",
+    "Caller::web",
+    "Caller::chat",
 ];
 
 /// The raw link's type names (EXEC-4, ADR 0023). Naming one outside the allowed files is how
@@ -282,6 +284,24 @@ pub struct BoundaryCard {
 /// the composition root that turns it into capability objects. Adding a caller is a deliberate
 /// edit here, with an ADR.
 pub const BOUNDARY_CARDS: &[BoundaryCard] = &[
+    BoundaryCard {
+        id: "CALLER-1",
+        op: BoundaryOp::Pair("Caller::web"),
+        sites: &[BoundarySite {
+            file: "crates/domovoi-hub/src/api/mod.rs",
+            count: 1,
+        }],
+        message: "a Caller is built only by a transport after it authenticated the person: the session extractor for the web, the allowlist check for chat",
+    },
+    BoundaryCard {
+        id: "CALLER-1",
+        op: BoundaryOp::Pair("Caller::chat"),
+        sites: &[BoundarySite {
+            file: "crates/domovoi-hub/src/auth/interactions/mod.rs",
+            count: 1,
+        }],
+        message: "a Caller is built only by a transport after it authenticated the person: the session extractor for the web, the allowlist check for chat",
+    },
     BoundaryCard {
         id: "EXEC-1",
         op: BoundaryOp::Call("run_tool"),
@@ -444,6 +464,76 @@ pub const BOUNDARY_CARDS: &[BoundaryCard] = &[
         }],
         message: "a check is re-run only through `CheckRerun::rerun_check` in verify_wake.rs; the raw `run_check` call belongs to the runtime capability (ADR 0024)",
     },
+];
+
+/// The hub's source root, workspace-relative (MOD-1 to MOD-4, ADR 0026).
+pub const HUB_SRC: &str = "crates/domovoi-hub/src/";
+
+/// Whether a zone is a way in for a person or a webhook, or the use-case layer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ZoneKind {
+    /// Authenticates, parses, calls one service and renders the answer.
+    Transport,
+    /// Holds the commands every transport shares.
+    Service,
+}
+
+/// A part of the hub the module-edge rules treat as one unit.
+pub struct Zone {
+    /// The zone's name, for messages.
+    pub name: &'static str,
+    /// The module below `crate`, `::` separated; it covers every module under it.
+    pub module: &'static str,
+    /// What the zone is.
+    pub kind: ZoneKind,
+}
+
+/// The hub's transports and its use-case layer (MOD-1, MOD-2, MOD-3).
+pub const ZONES: &[Zone] = &[
+    Zone {
+        name: "http",
+        module: "api",
+        kind: ZoneKind::Transport,
+    },
+    Zone {
+        name: "chat",
+        module: "auth::interactions",
+        kind: ZoneKind::Transport,
+    },
+    Zone {
+        name: "webhook",
+        module: "ingest",
+        kind: ZoneKind::Transport,
+    },
+    Zone {
+        name: "services",
+        module: "services",
+        kind: ZoneKind::Service,
+    },
+];
+
+/// Modules services may not import besides the transports: the composition root (MOD-2).
+pub const SERVICE_FORBIDDEN_MODULES: &[&str] = &["runtime", "router"];
+
+/// Command handles transports may not name: commands go through a service (MOD-4).
+pub const TRANSPORT_FORBIDDEN_NAMES: &[&str] = &["ActionHandle", "OperationHandle"];
+
+/// Top-level hub modules that are not a zone. A module neither here nor a zone is MOD-3.
+pub const UNZONED_MODULES: &[&str] = &[
+    "admin",
+    "agent_server",
+    "auth",
+    "capability",
+    "csp",
+    "digest",
+    "middleware",
+    "profile",
+    "router",
+    "runtime",
+    "selftest",
+    "settings",
+    "spa",
+    "version",
 ];
 
 /// Crates whose production sources the counted operations cover (EXEC-1 to EXEC-3).

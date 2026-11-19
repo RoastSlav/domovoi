@@ -6,6 +6,8 @@ use domovoi_core::{
     StepUsage,
 };
 
+use serde_json::json;
+
 use super::DecideError;
 use super::effects::{
     COLLECT_ATTEMPTS, WAKE_ATTEMPTS, collect_key, question_key, step_payload, wake_payload,
@@ -13,6 +15,7 @@ use super::effects::{
 use super::events::{NewEdge, NewStep};
 use super::status::{Allow, gate, gate_settle};
 use super::work::Work;
+use crate::operations::audit;
 
 /// Kinds a caller may propose: the writer owns approvals, executions, verifications and
 /// policy decisions.
@@ -250,5 +253,7 @@ pub(super) fn answer(
         started_at: progress.started_at.or(Some(work.now)),
         ..work.ended(&progress, StepOutcome::Succeeded, None, None, None)
     };
-    work.set_progress(question, answered)
+    work.set_progress(question, answered)?;
+    work.audit_operation(audit::OPERATION_ANSWERED, Some(question), json!({}));
+    Ok(())
 }

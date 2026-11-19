@@ -31,7 +31,7 @@ use serde_json::json;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-use crate::api::AgentAdmin;
+use crate::agent_server::AgentAdmin;
 use crate::runtime::every::every;
 
 /// The tag that marks the profile's note as written by the hub, shown as "Generated".

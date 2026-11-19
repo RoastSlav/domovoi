@@ -9,6 +9,8 @@ use domovoi_core::{
 };
 use jiff::Timestamp;
 
+use crate::services::{Caller, Surface};
+
 /// The approval by `user` at `now` for an action running `skill`. It counts as typed
 /// confirmation (needed for destructive skills, INV-6) only when `confirm_text` is exactly
 /// the skill's name.
@@ -73,4 +75,53 @@ pub fn chat_authorization(
         Authorization::human(approval),
         ApprovalProvenance::new(None, format!("chat:{platform}")),
     )
+}
+
+/// The authorization and provenance for `caller`'s approval of an action running `skill`:
+/// the web or chat constructor, by the surface the caller came from.
+#[must_use]
+pub fn authorization_for(
+    caller: &Caller,
+    confirm_text: Option<&str>,
+    skill: &SkillName,
+    now: Timestamp,
+) -> (Authorization, ApprovalProvenance) {
+    match caller.surface() {
+        Surface::Web { session_hash } => {
+            web_authorization(caller.user(), confirm_text, skill, session_hash, now)
+        }
+        Surface::Chat {
+            platform,
+            platform_user,
+        } => chat_authorization(caller.user(), platform, platform_user, now),
+    }
+}
+
+/// The approval `caller` gives to deny something: the web or chat constructor, by surface.
+/// `skill` is the skill the decision is about, when it is a skill; a web denial never counts
+/// as a typed confirmation.
+#[must_use]
+pub fn approval_for(
+    caller: &Caller,
+    confirm_text: Option<&str>,
+    skill: Option<&SkillName>,
+    now: Timestamp,
+) -> HumanApproval {
+    match (caller.surface(), skill) {
+        (Surface::Web { .. }, Some(skill)) => web_approval(caller.user(), confirm_text, skill, now),
+        (Surface::Web { .. }, None) => HumanApproval::new(
+            caller.user(),
+            ApprovalChannel::Web {
+                typed_confirmation: false,
+            },
+            now,
+        ),
+        (
+            Surface::Chat {
+                platform,
+                platform_user,
+            },
+            _,
+        ) => chat_approval(caller.user(), platform, platform_user, now),
+    }
 }

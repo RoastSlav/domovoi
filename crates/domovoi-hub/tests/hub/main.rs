@@ -47,6 +47,8 @@ mod harness;
 #[cfg(test)]
 mod interactions;
 #[cfg(test)]
+mod operation_controls;
+#[cfg(test)]
 mod operations_api;
 #[cfg(test)]
 mod operations_steps;
@@ -64,6 +66,8 @@ mod readiness;
 mod reconciliation;
 #[cfg(test)]
 mod rules;
+#[cfg(test)]
+mod service_parity;
 #[cfg(test)]
 mod sessions;
 #[cfg(test)]

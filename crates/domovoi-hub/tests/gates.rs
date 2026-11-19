@@ -24,6 +24,18 @@ fn transports_do_not_name_the_agent_link() {
     );
 }
 
+/// Transports call services and never each other; a service never imports a transport or the
+/// runtime; a new top-level module declares what it is; a transport never holds a command
+/// handle (MOD-1 to MOD-4, ADR 0026). The same implementation `cargo xtask arch-check` runs.
+#[test]
+fn hub_modules_respect_the_module_edge_rule() {
+    let violations = xtask::arch::modules::module_edge_violations(&hub_sources());
+    assert!(
+        violations.is_empty(),
+        "the hub's module edges are broken: {violations:#?}",
+    );
+}
+
 /// The workspace-relative path of a file under the hub's `src/`.
 fn crate_path(rel: &str) -> String {
     format!("crates/{}/src/{rel}", env!("CARGO_PKG_NAME"))
@@ -77,9 +89,24 @@ fn source_files(
 /// link operation exactly once.
 const CAPS: &str = "fn f() {\n    self.link\n        .run_tool(a, b, c);\n    self.link\n        .start_skill(a, b, c, d, e);\n    self.link\n        .skill_result(a, b, c);\n    self.link\n        .run_check(a, b, c, d);\n}\n";
 
-/// The smallest tree that satisfies the hub's boundary cards.
+/// The smallest tree that satisfies the hub's boundary cards, including the two sites that
+/// build a `Caller`.
 fn hub_tree() -> Vec<(String, String)> {
-    vec![(crate_path("runtime/caps.rs"), CAPS.to_owned())]
+    vec![
+        (crate_path("runtime/caps.rs"), CAPS.to_owned()),
+        (
+            crate_path("api/mod.rs"),
+            "fn f() { Caller::web(a, b); }
+"
+            .to_owned(),
+        ),
+        (
+            crate_path("auth/interactions/mod.rs"),
+            "fn f() { Caller::chat(a, b, c); }
+"
+            .to_owned(),
+        ),
+    ]
 }
 
 /// Appends `text` to `rel`'s file, adding the file when the tree does not have it.
@@ -789,23 +816,25 @@ fn no_tool_or_chat_command_reaches_settings() {
     }
 }
 
-/// INV-1: a step becomes authorized only through the step-approval endpoint. `.authorize(`
-/// on an operation handle appears in the hub's sources only in `api/operations.rs`, and a
-/// `HumanApproval` is built only under `src/auth/`. Whitespace is ignored, so a call split
-/// across lines is still seen.
+/// INV-1: a step becomes authorized only through the operation service. `.authorize(` on an
+/// operation handle appears in the hub's sources only in `services/operations/steps.rs`
+/// (the web endpoint and the chat button both reach it through `OperationCommands`), a step
+/// is denied through a handle only there, and a `HumanApproval` is built only under
+/// `src/auth/`. Whitespace is ignored, so a call split across lines is still seen.
 #[test]
-fn step_approval_is_the_only_route_to_authorized() {
+fn step_authorization_has_exactly_one_production_call_site() {
     let squeeze = |text: &str| text.split_whitespace().collect::<String>();
-    let allowed_authorize = [
-        crate_path("api/operations.rs"),
-        crate_path("auth/interactions/buttons.rs"),
-    ];
+    let allowed_authorize = [crate_path("services/operations/steps.rs")];
     let auth_prefix = crate_path("auth/");
     let mut authorize_sites = Vec::new();
+    let mut deny_sites = Vec::new();
     for (rel, text) in hub_sources() {
         let text = squeeze(&text);
         if text.contains(".authorize(") {
             authorize_sites.push(rel.clone());
+        }
+        if text.contains(".deny_from_chat(") || text.contains(".deny(op,step,") {
+            deny_sites.push(rel.clone());
         }
         if text.contains("HumanApproval::new(") {
             assert!(
@@ -817,7 +846,12 @@ fn step_approval_is_the_only_route_to_authorized() {
     authorize_sites.sort();
     assert_eq!(
         authorize_sites, allowed_authorize,
-        "only the step-approval endpoint and the chat button handler may authorize a step"
+        "only the operation service may authorize a step"
+    );
+    deny_sites.sort();
+    assert_eq!(
+        deny_sites, allowed_authorize,
+        "only the operation service may deny a step"
     );
 }
 

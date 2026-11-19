@@ -759,6 +759,60 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/operations/{id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancels an operation. Pending steps and effects are cancelled; a run already dispatched
+         *     is not recalled and its result is still recorded.
+         */
+        post: operations["cancel_operation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operations/{id}/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Pauses an operation until a person resumes it. */
+        post: operations["pause_operation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operations/{id}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resumes a paused operation, raising the named limits first. */
+        post: operations["resume_operation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/operations/{id}/steps/{step}": {
         parameters: {
             query?: never;
@@ -770,6 +824,23 @@ export interface paths {
         get: operations["get_operation_step"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operations/{id}/steps/{step}/answer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Answers the question an operation is waiting on. */
+        post: operations["answer_operation_question"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1196,6 +1267,11 @@ export interface components {
             /** @description One line. */
             title: string;
         };
+        /** @description Answering the question an operation waits on. */
+        AnswerStepRequest: {
+            /** @description The answer, 1 to 2000 characters after trimming. It reaches the model as data. */
+            text: string;
+        };
         /** @description Approving an action. */
         ApproveRequest: {
             /** @description For destructive skills: the skill's name typed exactly, as confirmation. */
@@ -1219,6 +1295,20 @@ export interface components {
         AskResponse: {
             /** @description Plain text, at most 4000 characters. */
             answer: string;
+        };
+        /** @description One limit to raise when resuming. */
+        BudgetExtensionDto: {
+            /**
+             * @description `model_turns`, `evidence_requests`, `executions`, `cycles`, `wall_time`, `tokens` or
+             *     `cost`.
+             */
+            kind: string;
+            /**
+             * Format: int64
+             * @description The new limit: seconds for `wall_time`, micro-units for `cost`, a count otherwise.
+             *     1 to 10000 for a count, 1 to 10000000000 otherwise.
+             */
+            limit: number;
         };
         /** @description The limits of an operation; `null` means no limit. */
         BudgetLimitsDto: {
@@ -1297,6 +1387,11 @@ export interface components {
             limits: components["schemas"]["BudgetLimitsDto"];
             /** @description The use. */
             used: components["schemas"]["BudgetUsedDto"];
+        };
+        /** @description Cancelling an operation. */
+        CancelOperationRequest: {
+            /** @description Why, at most 500 characters. Empty or missing records "cancelled by a person". */
+            reason?: string | null;
         };
         /** @description One host's whole inventory, plus the ids the agent reported that the hub does not know. */
         CapabilitiesDto: {
@@ -1904,6 +1999,16 @@ export interface components {
             /** @description The host the notes are about, by name; absent for global notes. */
             host?: string | null;
         };
+        /** @description The operation after a control, and the journal position it was read at. */
+        OperationControlDto: {
+            /**
+             * Format: int64
+             * @description The journal position read after the command and before the operation.
+             */
+            as_of_seq: number;
+            /** @description The refreshed operation. */
+            operation: components["schemas"]["OperationSummaryDto"];
+        };
         /** @description An operation, its trace and its executions. */
         OperationDetailDto: {
             /**
@@ -2125,6 +2230,11 @@ export interface components {
             summary: string;
             /** @description `ACTION_NEEDED`, `MONITOR`, `EXPECTED` or `FIXED`. */
             verdict: string;
+        };
+        /** @description Resuming a paused operation. */
+        ResumeOperationRequest: {
+            /** @description Limits to raise first, at most 7, each kind once. A spent limit must be raised. */
+            extend?: components["schemas"]["BudgetExtensionDto"][];
         };
         /** @description Whether an agent was revoked. */
         RevokeDto: {
@@ -4751,6 +4861,209 @@ export interface operations {
             };
         };
     };
+    cancel_operation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Operation id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CancelOperationRequest"];
+            };
+        };
+        responses: {
+            /** @description Cancelled, or already cancelled */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationControlDto"];
+                };
+            };
+            /** @description The reason is too long */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such operation */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The operation has already finished */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Orchestration is not enabled, or the service is restarting */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    pause_operation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Operation id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paused, or already paused */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationControlDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such operation */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not started yet, or already finished */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Orchestration is not enabled, or the service is restarting */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    resume_operation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Operation id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResumeOperationRequest"];
+            };
+        };
+        responses: {
+            /** @description Resumed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationControlDto"];
+                };
+            };
+            /** @description An unknown, repeated or out-of-range limit */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such operation */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not paused, or a spent limit is still spent */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Orchestration is not enabled, or the service is restarting */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     get_operation_step: {
         parameters: {
             query?: never;
@@ -4793,6 +5106,80 @@ export interface operations {
                 };
             };
             /** @description Orchestration is not enabled */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    answer_operation_question: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Operation id */
+                id: string;
+                /** @description Question step id */
+                step: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnswerStepRequest"];
+            };
+        };
+        responses: {
+            /** @description Answered; the operation goes on */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationControlDto"];
+                };
+            };
+            /** @description The answer is empty or too long */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such operation or step */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not a question, not waiting, or the operation is paused or finished */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Orchestration is not enabled, or the service is restarting */
             503: {
                 headers: {
                     [name: string]: unknown;

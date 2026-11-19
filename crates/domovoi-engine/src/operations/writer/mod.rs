@@ -209,7 +209,7 @@ pub(crate) async fn process(shared: &OpShared, command: OperationCommand) {
             reply,
         } => {
             let event = OperationEvent::Pause {
-                reason: domovoi_core::PauseReason::GlobalPause,
+                reason: domovoi_core::PauseReason::Manual,
             };
             answer(shared, Change::new(operation, actor, event), reply).await;
         }

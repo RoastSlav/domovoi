@@ -10,6 +10,10 @@
 //! [`STEP_UP_ACTIONS`] names the actions that will need the same confirmation once their
 //! features exist. Nothing enforces those entries yet; they are here so the intent is
 //! written down in one place.
+//!
+//! Cancelling, pausing, resuming and answering an operation are deliberately not on that
+//! list: an owner session is enough, as for approving an offered step. `autonomy.resume` is
+//! the future global pause switch, not the resume of one operation.
 
 /// How a rule picks settings paths. Paths are dotted leaf paths such as
 /// `llm.primary.cli.args`.
@@ -122,6 +126,15 @@ pub fn path_needs_step_up(path: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{PathRule, STEP_UP_ACTIONS, STEP_UP_SETTINGS, covers, path_needs_step_up};
+
+    #[test]
+    fn operation_controls_are_not_step_up_actions() {
+        assert!(
+            STEP_UP_ACTIONS
+                .iter()
+                .all(|action| !action.id.starts_with("operation."))
+        );
+    }
 
     #[test]
     fn step_up_rules_cover_their_paths() {

@@ -7,6 +7,8 @@ pub const OPERATION_CREATED: &str = "operation.created";
 pub const OPERATION_CANCELLED: &str = "operation.cancelled";
 /// An operation was paused, by a person or by a spent budget or an unknown outcome.
 pub const OPERATION_PAUSED: &str = "operation.paused";
+/// A person answered a question of an operation. The text is never part of the row.
+pub const OPERATION_ANSWERED: &str = "operation.answered";
 /// A paused operation was resumed.
 pub const OPERATION_RESUMED: &str = "operation.resumed";
 /// An execution was proposed and now waits for a person.

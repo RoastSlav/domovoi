@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 use axum::Json;
 use axum::extract::{Path, Query, State};
-use domovoi_core::ports::{CapabilityRegistry, IncidentFilter, LinkError, Page, Presence};
+use domovoi_core::ports::{CapabilityRegistry, LinkError};
 use domovoi_core::{DigestFact, FactValue, HostKind, HostName};
 use jiff::SignedDuration;
 
@@ -15,14 +15,10 @@ use super::dto_admin::{
 };
 use super::error::{ApiError, ErrorBody};
 use super::logs::{DEFAULT_LEVEL, DEFAULT_LINES, MAX_LINES};
-use super::version::{HUB_VERSION, is_older};
 use super::{ApiState, Authed, host_named};
 
 /// How far back host detail looks for digest facts.
 pub const FACT_WINDOW: SignedDuration = SignedDuration::from_hours(24);
-
-/// The most unresolved incidents counted per host.
-pub const OPEN_COUNT_CAP: u16 = 200;
 
 fn kind(kind: HostKind) -> &'static str {
     match kind {
@@ -44,69 +40,24 @@ pub(crate) async fn host_dto(
     state: &ApiState,
     host: &domovoi_core::Host,
 ) -> Result<HostDto, ApiError> {
-    let filter = IncidentFilter {
-        host: Some(host.id),
-        active: Some(true),
-        ..IncidentFilter::default()
-    };
-    let page = Page {
-        cursor: None,
-        limit: OPEN_COUNT_CAP,
-    };
-    let open = state.deps.incidents.list(&filter, &page).await?.items.len();
-    let presence = state.deps.agents.presence(host.id);
-    let connected = matches!(presence, Presence::Connected { .. });
-    let agent = state.deps.hosts.live_agent(host.id).await?;
-    let report = match &agent {
-        Some(agent) => state.deps.hosts.agent_report(agent.agent).await?,
-        None => None,
-    };
-    let state_name = if connected {
-        "compatible"
-    } else {
-        protocol_name(&report)
-    };
-    let mut dto = HostDto {
-        id: host.id.to_string(),
-        name: host.name.to_string(),
-        kind: kind(host.kind).to_owned(),
-        connected,
-        agent_enrolled: agent.is_some(),
-        version: None,
-        connected_since: None,
-        last_seen: None,
-        outdated: false,
-        protocol_state: state_name.to_owned(),
-        reported_protocol: report.as_ref().map(|report| report.protocol.to_string()),
-        hub_protocol: domovoi_proto::PROTOCOL_VERSION.to_string(),
-        reported_release: report.as_ref().map(|report| report.release.clone()),
-        incompatible_since: report
-            .as_ref()
-            .and_then(|report| report.incompatible_since)
-            .map(|at| at.to_string()),
-        open_incidents: u32::try_from(open).unwrap_or(u32::MAX),
-    };
-    match presence {
-        Presence::Connected { since, version } => {
-            dto.outdated = is_older(&version, HUB_VERSION);
-            dto.version = Some(version);
-            dto.connected_since = Some(since.to_string());
-        }
-        Presence::Disconnected { last_seen } => {
-            dto.last_seen = last_seen.map(|t| t.to_string());
-        }
-    }
-    Ok(dto)
-}
-
-/// The wire name of a host's protocol state.
-fn protocol_name(report: &Option<domovoi_core::AgentReport>) -> &'static str {
-    match crate::agent_server::protocol_state(report.as_ref(), domovoi_proto::PROTOCOL_VERSION) {
-        crate::agent_server::ProtocolState::Unknown => "unknown",
-        crate::agent_server::ProtocolState::Compatible => "compatible",
-        crate::agent_server::ProtocolState::Incompatible { .. } => "incompatible",
-        crate::agent_server::ProtocolState::ExpectedIncompatible { .. } => "expected_incompatible",
-    }
+    let status = state.services().hosts.status(host).await?;
+    Ok(HostDto {
+        id: status.id.to_string(),
+        name: status.name.to_string(),
+        kind: kind(status.kind).to_owned(),
+        connected: status.connected,
+        agent_enrolled: status.agent_enrolled,
+        version: status.version,
+        connected_since: status.connected_since.map(|at| at.to_string()),
+        last_seen: status.last_seen.map(|at| at.to_string()),
+        outdated: status.outdated,
+        protocol_state: status.protocol_state.to_owned(),
+        reported_protocol: status.reported_protocol,
+        hub_protocol: status.hub_protocol,
+        reported_release: status.reported_release,
+        incompatible_since: status.incompatible_since.map(|at| at.to_string()),
+        open_incidents: status.open_incidents,
+    })
 }
 
 /// Every host with its agent's presence, sorted by name.

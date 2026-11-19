@@ -94,6 +94,7 @@ flowchart BT
 - **R12 Generated artifacts.** `web/src/api/openapi.json` and `web/src/api/schema.d.ts` are generated and committed. CI fails if they are stale.
 - **R13 Migrations.** Files under `crates/domovoi-store/migrations` are append-only once merged.
 - **R14 Wire formats.** Protocol messages and the OpenAPI document are covered by snapshot tests. A breaking protocol change bumps the protocol major version.
+- **Hub module edges** (ADR 0026). `MOD-1`: transports (`api`, `auth::interactions`, `ingest`) do not import each other. `MOD-2`: `services` imports no transport and not `runtime` or `router`. `MOD-3`: a new top-level hub module is a transport, the services or an unzoned support module. `MOD-4`: a transport names neither `ActionHandle` nor `OperationHandle`. `CALLER-1`: a `Caller` is built only by the session extractor and by the chat authorizer, once each.
 
 ## 5. Domain model (`domovoi-core`)
 
@@ -228,6 +229,7 @@ Effect claims on `EffectQueue` are scoped to one aggregate: a claim names the op
 The hub is a set of tokio tasks connected by channels:
 
 - **Web server** (`axum`): REST API, SSE, SPA, webhook ingest.
+- **Use-case layer** (`crate::services`): the commands a person can give, independent of where they gave them. The HTTP handlers and the chat interactions authenticate and parse, build a `Caller` (the proof that an authenticated person asked, and from which surface), call one service method and render the answer; they do not import each other. A service holds the decision and the write: acknowledge, mute, ask, approve and deny an action or a step, cancel, pause, resume and answer an operation, a host's status and the digest. It never builds an approval itself: `auth/approval.rs` turns a `Caller` into one (ADR 0026).
 - **Agent server**: TLS WebSocket listener, enrollment, handshake, one task per connected agent.
 - **Incident manager**: the **single writer** for incident state. Everything that changes an incident (signals, acks, triage results, action results, timers) is a command on its `mpsc` channel. Each command is one atomic commit through the unit of work: the signal, the incident row, its timeline entries and the mirrored journal rows land together or not at all. Every incident write names the version it read; a version conflict reloads the incident and decides once more, and a second conflict fails the command. It publishes events on a `broadcast` bus only after the commit succeeded. Until the old table is retired, timeline entries are written to `incident_events` and mirrored into the `journal` by the store, inside the same commit.
 - **Triage workers**: a bounded pool (default 2) that takes triage jobs, enforces budgets and rate caps, and sends the `TriageReport` back to the incident manager.

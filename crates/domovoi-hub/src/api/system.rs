@@ -9,6 +9,7 @@ use domovoi_core::ports::OutboundMessage;
 use super::dto_admin::{AdvisoryDto, DigestHostDto, DigestPreview};
 use super::error::{ApiError, ErrorBody};
 use super::{ApiState, Authed};
+use crate::services::BriefingError;
 
 /// Open advisories, newest first.
 #[utoipa::path(
@@ -42,39 +43,28 @@ pub(super) async fn advisories(
 
 /// Today's digest, built now.
 pub(crate) async fn build(state: &ApiState) -> Result<DigestPreview, ApiError> {
-    let deps = &state.deps;
-    let service = domovoi_engine::digest::DigestService {
-        enabled: deps.config.notify.digest.enabled,
-        time: deps.config.notify.digest.time.time(),
-        tz: deps.config.hub.timezone.zone().clone(),
-    };
-    let rendered = crate::digest::build(&crate::digest::DigestDeps {
-        config: deps.config.clone(),
-        clock: deps.clock.clone(),
-        hosts: deps.hosts.clone(),
-        facts: deps.facts.clone(),
-        incidents: deps.incidents.clone(),
-        advisories: deps.advisories.clone(),
-    })
-    .await
-    .map_err(|err| match err {
-        crate::digest::DigestError::Store(err) => ApiError::from(err),
-        crate::digest::DigestError::DayStart(err) => ApiError::internal("digest day start", err),
-    })?;
-    let hosts = rendered
-        .hosts
-        .iter()
-        .map(|host| DigestHostDto {
-            host: host.host.to_string(),
-            quiet: host.quiet,
-            lines: host.lines.clone(),
-        })
-        .collect();
+    let briefing = state
+        .services()
+        .briefing
+        .digest()
+        .await
+        .map_err(|err| match err {
+            BriefingError::Store(err) => ApiError::from(err),
+            BriefingError::DayStart(err) => ApiError::internal("digest day start", err),
+        })?;
     Ok(DigestPreview {
-        date: rendered.date,
-        markdown: rendered.markdown,
-        next_send_at: service.next_due(deps.clock.now()).map(|at| at.to_string()),
-        hosts,
+        date: briefing.date,
+        markdown: briefing.markdown,
+        next_send_at: briefing.next_send_at.map(|at| at.to_string()),
+        hosts: briefing
+            .hosts
+            .into_iter()
+            .map(|host| DigestHostDto {
+                host: host.host.to_string(),
+                quiet: host.quiet,
+                lines: host.lines,
+            })
+            .collect(),
     })
 }
 
@@ -155,7 +145,7 @@ pub(super) async fn metrics(
         .token
         .as_ref()
         .is_some_and(|token| {
-            crate::ingest::auth::verify_bearer(token.value(), headers.get(header::AUTHORIZATION))
+            crate::auth::bearer::verify_bearer(token.value(), headers.get(header::AUTHORIZATION))
         });
     if !token_ok {
         auth?;

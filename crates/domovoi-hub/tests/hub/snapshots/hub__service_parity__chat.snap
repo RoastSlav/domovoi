@@ -1,0 +1,88 @@
+---
+source: crates/domovoi-hub/tests/hub/service_parity.rs
+expression: "json!({\n    \"replies\": out, \"digests\": digest_titles, \"audit\": chat_audit(&a).await\n})"
+---
+{
+  "audit": [
+    {
+      "actor": "chat:discord:234567890123456789",
+      "kind": "chat.ack",
+      "subject": "incident:<id-1>"
+    },
+    {
+      "actor": "chat:discord:234567890123456789",
+      "kind": "chat.approve",
+      "subject": "action:<id-4>"
+    },
+    {
+      "actor": "chat:discord:234567890123456789",
+      "kind": "chat.deny",
+      "subject": "action:<id-2>"
+    },
+    {
+      "actor": "chat:discord:234567890123456789",
+      "kind": "chat.details",
+      "subject": "incident:<id-1>"
+    },
+    {
+      "actor": "chat:discord:234567890123456789",
+      "kind": "chat.digest",
+      "subject": "command:digest"
+    },
+    {
+      "actor": "chat:discord:234567890123456789",
+      "kind": "chat.follow_up",
+      "subject": "incident:<id-1>"
+    },
+    {
+      "actor": "chat:discord:234567890123456789",
+      "kind": "chat.incidents",
+      "subject": "command:incidents"
+    },
+    {
+      "actor": "chat:discord:234567890123456789",
+      "kind": "chat.mute",
+      "subject": "incident:<id-1>"
+    },
+    {
+      "actor": "chat:discord:234567890123456789",
+      "kind": "chat.status",
+      "subject": "command:status"
+    },
+    {
+      "actor": "chat:discord:234567890123456789",
+      "kind": "chat.status",
+      "subject": "command:status"
+    },
+    {
+      "actor": "user:<id-3>",
+      "kind": "action.approved",
+      "subject": "action:<id-4>"
+    },
+    {
+      "actor": "user:<id-3>",
+      "kind": "action.denied",
+      "subject": "action:<id-2>"
+    }
+  ],
+  "digests": [
+    "Daily digest for 2026-10-31"
+  ],
+  "replies": [
+    "accepted: • **nas**: offline, 1 open incident",
+    "accepted: • **nas**: offline, 1 open incident No profile yet for nas.",
+    "rejected: No host nowhere; the hosts are nas",
+    "accepted: • `<short>` WARNING disk.usage firing — <https://domovoi.example.net/incidents/<incident>>",
+    "accepted: Posted in the thread",
+    "accepted: Acknowledged",
+    "accepted: Approved restart_container",
+    "rejected: This button no longer works",
+    "rejected: Approve this one in the web UI",
+    "accepted: Denied restart_container",
+    "accepted: ",
+    "accepted: Muted <short> for 4h",
+    "accepted: Digest sent",
+    "rejected: Not possible: not allowed now: event Mute { until: 2026-10-31T13:00:00Z } is not allowed while incident is Muted { until: 2026-10-31T16:00:00Z }",
+    "rejected: Not allowed"
+  ]
+}

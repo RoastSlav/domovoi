@@ -349,6 +349,23 @@ impl HubRuntime {
             redactor: redactor.clone(),
         };
         let updates = UpdateChecker::load(store.clone(), clock.clone()).await;
+        let services = crate::services::Services::new(crate::services::ServicesDeps {
+            manager: manager.clone(),
+            triage: triage.0.clone(),
+            actions: store.clone(),
+            actions_service: actions_service.clone(),
+            operations: operations.clone(),
+            operation_repo: store.clone(),
+            incidents: store.clone(),
+            hosts: store.clone(),
+            facts: store.clone(),
+            advisories: store.clone(),
+            agents: Arc::new(server.clone()),
+            profiles: Some(profile_deps.clone()),
+            config: Arc::new(config.clone()),
+            clock: clock.clone(),
+            redactor: redactor.clone(),
+        });
         let api = ApiState::new(
             ApiDeps {
                 incidents: store.clone(),
@@ -361,9 +378,8 @@ impl HubRuntime {
                 usage: store.clone(),
                 acks: store.clone(),
                 manager: manager.clone(),
-                actions_service: actions_service.clone(),
+                services: services.clone(),
                 triage: triage.0,
-                operations: operations.clone(),
                 operation_repo: store.clone(),
                 agents: Arc::new(server.clone()),
                 capabilities: registry.clone(),
@@ -393,7 +409,12 @@ impl HubRuntime {
         );
         let app = crate::router::router(api.clone(), Some(ingest));
         let delivery_gateways = gateways.clone();
-        let gateways = adapters::gateway_sinks(&config, &api, &store, gateways);
+        let gateways = adapters::gateway_sinks(
+            &config,
+            &services,
+            adapters::ChatReads::new(&store, &clock, FanOut::over(&notifiers), &public_url),
+            gateways,
+        );
         let config = Arc::new(config);
         let digest = DigestDeps {
             config: config.clone(),

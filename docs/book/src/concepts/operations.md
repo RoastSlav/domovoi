@@ -43,6 +43,10 @@ tokens = 200000
 - An operation that is queued because `max_running` is reached keeps the reads and questions it started with. They wait, and run once it has a slot.
 - Every value must be positive, and each duration must be longer than zero.
 
+## Cancel, pause, resume and answer
+
+You can cancel an operation, pause it, resume it and answer the question it asks, from the Operations page or the API (see [Operation controls](../reference/api.md#operation-controls)). Cancelling stops what has not started; a run already handed to an agent is not recalled, and its result is still recorded. Pausing stops the operation from adding steps until you resume it. Resuming an operation that paused because a limit ran out needs a higher limit for it; one you paused yourself needs nothing. Your answer to a question is kept with the operation and shown to the model as information, never as an instruction to Domovoi. None of these asks for your password again: a logged-in session is enough, as it is for approving a step.
+
 ## Approval
 
 An operation can propose work, but it cannot run an execution on its own. Each execution waits for a person to approve it, in the same way as an action, and the approval expires after `approval_ttl` if nobody answers. Nothing in an operation, including the model, can approve an execution.

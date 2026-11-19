@@ -6,9 +6,9 @@ use serde::Serialize;
 use utoipa::ToSchema;
 
 use super::error::{ApiError, ErrorBody};
-use super::version::HUB_VERSION;
 use super::{ApiState, Authed};
 use crate::runtime::updates::{CheckError, UpdateInfo};
+use crate::version::HUB_VERSION;
 use domovoi_proto::is_release_tag;
 
 const INSTALL: &str = "https://github.com/RoastSlav/domovoi/releases/download";
@@ -58,7 +58,7 @@ impl UpdateDto {
         let latest = info.map(|info| info.latest.clone());
         let newer = latest
             .as_deref()
-            .is_some_and(|latest| super::version::is_older(HUB_VERSION, latest));
+            .is_some_and(|latest| crate::version::is_older(HUB_VERSION, latest));
         let commands = latest.as_deref().map(commands);
         let upgrade = latest.as_deref().filter(|_| !in_container()).map(|tag| {
             format!("sudo domovoi upgrade --version {tag} && sudo systemctl restart domovoi-hub")

@@ -1,0 +1,67 @@
+---
+source: crates/domovoi-hub/tests/hub/service_parity.rs
+expression: replies(&all)
+---
+[
+  {
+    "body": {
+      "error": "not_found",
+      "message": "not found"
+    },
+    "status": 404
+  },
+  {
+    "body": {
+      "error": "bad_request",
+      "message": "minutes must be between 1 and 10080"
+    },
+    "status": 400
+  },
+  {
+    "body": {
+      "error": "bad_request",
+      "message": "minutes must be between 1 and 10080"
+    },
+    "status": 400
+  },
+  {
+    "body": {
+      "error": "conflict",
+      "message": "event Unmute is not allowed while incident is Open"
+    },
+    "status": 409
+  },
+  {
+    "body": null,
+    "status": 204
+  },
+  {
+    "body": null,
+    "status": 204
+  },
+  {
+    "body": null,
+    "status": 204
+  },
+  {
+    "body": {
+      "error": "bad_request",
+      "message": "the question must have 1 to 1000 characters"
+    },
+    "status": 400
+  },
+  {
+    "body": {
+      "error": "bad_request",
+      "message": "the question must have 1 to 1000 characters"
+    },
+    "status": 400
+  },
+  {
+    "body": {
+      "error": "triage_off",
+      "message": "triage is not enabled"
+    },
+    "status": 503
+  }
+]

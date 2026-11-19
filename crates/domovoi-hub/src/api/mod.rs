@@ -24,6 +24,8 @@ pub(crate) mod hosts;
 pub(crate) mod incidents;
 mod logs;
 mod notes;
+mod operation_controls;
+pub(crate) mod operation_errors;
 pub(crate) mod operations;
 mod overview;
 mod plan_binding;
@@ -36,100 +38,36 @@ mod snapshot;
 pub(crate) mod system;
 mod tool_usage;
 mod updates;
-mod version;
 
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use axum::extract::{DefaultBodyLimit, FromRef, FromRequestParts};
 use axum::http::request::Parts;
 use domovoi_config::HubConfig;
+use domovoi_core::HostName;
 use domovoi_core::ports::{
-    AckRepo, ActionRepo, AdvisoryRepo, Clock, FactRepo, HostRepo, IncidentRepo, LinkError, LogLine,
-    LogSource, NoteRepo, Notifier, Page, Presence, Redactor, SignalRepo, UsageRepo,
+    AckRepo, ActionRepo, AdvisoryRepo, Clock, FactRepo, HostRepo, IncidentRepo, LogSource,
+    NoteRepo, Notifier, Page, Redactor, SignalRepo, UsageRepo,
 };
-use domovoi_core::{HostId, HostName, SkillSummary};
+use domovoi_engine::ManagerHandle;
 use domovoi_engine::triage::TriageHandle;
-use domovoi_engine::{ActionHandle, ManagerHandle};
-use domovoi_proto::messages::{CheckInfo, HostFacts};
 use tokio_util::sync::CancellationToken;
 use utoipa::OpenApi;
 use utoipa::openapi::security::{ApiKey, ApiKeyValue, SecurityScheme};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
+pub use crate::agent_server::AgentAdmin;
+
 use self::error::ApiError;
-use crate::agent_server::{AgentServer, AgentServerError, EnrollmentInvite};
 use crate::auth::{AuthState, Current, csrf};
+use crate::services::{Caller, Services};
 
 /// The default page size of list endpoints.
 pub const DEFAULT_PAGE: u16 = 50;
 
 /// The largest page size of list endpoints.
 pub const MAX_PAGE: u16 = 200;
-
-/// Agent administration the API needs: enrollment, revocation, presence and catalogues.
-#[async_trait]
-pub trait AgentAdmin: Send + Sync {
-    /// A one-time enrollment invite for host `name`, creating the host if needed.
-    async fn create_invite(&self, name: &HostName) -> Result<EnrollmentInvite, AgentServerError>;
-    /// Revokes the live agent of `host`; `false` when it had none.
-    async fn revoke(&self, host: HostId) -> Result<bool, AgentServerError>;
-    /// Whether `host`'s agent is connected.
-    fn presence(&self, host: HostId) -> Presence;
-    /// What `host`'s agent said about its machine when it connected; `None` when it never
-    /// completed a handshake.
-    fn facts(&self, host: HostId) -> Option<HostFacts>;
-    /// The checks `host`'s agent left on, as its own config set them.
-    fn checks(&self, host: HostId) -> Vec<CheckInfo>;
-    /// The skills `host`'s agent reported.
-    fn skills(&self, host: HostId) -> Vec<SkillSummary>;
-    /// The recent log lines `host`'s agent keeps, oldest first. Fails with a
-    /// [`domovoi_core::ports::LinkError`] when it is not connected, did not answer,
-    /// or is too old to send logs.
-    async fn logs(
-        &self,
-        host: HostId,
-        lines: u16,
-        min_level: String,
-    ) -> Result<Vec<LogLine>, LinkError>;
-}
-
-#[async_trait]
-impl AgentAdmin for AgentServer {
-    async fn create_invite(&self, name: &HostName) -> Result<EnrollmentInvite, AgentServerError> {
-        self.create_token(name).await
-    }
-
-    async fn revoke(&self, host: HostId) -> Result<bool, AgentServerError> {
-        self.revoke_agent(host).await
-    }
-
-    fn presence(&self, host: HostId) -> Presence {
-        self.host_presence(host)
-    }
-
-    fn facts(&self, host: HostId) -> Option<HostFacts> {
-        self.host_facts(host)
-    }
-
-    fn checks(&self, host: HostId) -> Vec<CheckInfo> {
-        self.host_checks(host)
-    }
-
-    fn skills(&self, host: HostId) -> Vec<SkillSummary> {
-        self.host_skills(host)
-    }
-
-    async fn logs(
-        &self,
-        host: HostId,
-        lines: u16,
-        min_level: String,
-    ) -> Result<Vec<LogLine>, LinkError> {
-        self.host_logs(host, lines, min_level).await
-    }
-}
 
 /// A callback rendering Prometheus text for `/metrics`.
 pub type MetricsRender = Arc<dyn Fn() -> String + Send + Sync>;
@@ -141,7 +79,7 @@ pub struct ApiDeps {
     pub incidents: Arc<dyn IncidentRepo>,
     /// Recent signals, for cards.
     pub signals: Arc<dyn SignalRepo>,
-    /// Actions, read only; changes go through `actions_service`.
+    /// Actions, read only; changes go through `services.approvals`.
     pub actions: Arc<dyn ActionRepo>,
     /// Hosts.
     pub hosts: Arc<dyn HostRepo>,
@@ -157,14 +95,11 @@ pub struct ApiDeps {
     pub acks: Arc<dyn AckRepo>,
     /// The incident manager.
     pub manager: ManagerHandle,
-    /// Approvals.
-    pub actions_service: ActionHandle,
+    /// The use-case layer every command goes through.
+    pub services: Services,
     /// Follow-up questions; `None` when triage is off.
     pub triage: Option<TriageHandle>,
-    /// The operation service; `None` unless `[orchestration] enabled` is set, where the
-    /// operation endpoints answer 503 and the list is empty.
-    pub operations: Option<domovoi_engine::operations::OperationHandle>,
-    /// Stored operations, read only; changes go through `operations`.
+    /// Stored operations, read only; changes go through `services.operations`.
     pub operation_repo: Arc<dyn domovoi_core::ports::OperationRepo>,
     /// Enrollment, revocation, presence and catalogues.
     pub agents: Arc<dyn AgentAdmin>,
@@ -241,6 +176,12 @@ impl ApiState {
         &self.deps
     }
 
+    /// The use-case layer.
+    #[must_use]
+    pub fn services(&self) -> &Services {
+        &self.deps.services
+    }
+
     /// The auth state, for the CSRF guard and the setup link.
     #[must_use]
     pub fn auth(&self) -> &Arc<AuthState> {
@@ -258,6 +199,15 @@ impl FromRef<ApiState> for Arc<AuthState> {
 /// account exists.
 #[derive(Debug, Clone)]
 pub struct Authed(pub Current);
+
+impl Authed {
+    /// The caller services act for: the logged-in person on the web surface. The only place
+    /// a web [`Caller`] is built.
+    #[must_use]
+    pub fn caller(&self) -> Caller {
+        Caller::web(self.0.user.id, self.0.session_hash)
+    }
+}
 
 impl FromRequestParts<ApiState> for Authed {
     type Rejection = ApiError;
@@ -357,6 +307,10 @@ pub fn routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(operations::step))
         .routes(routes!(operations::approve_step))
         .routes(routes!(operations::deny_step))
+        .routes(routes!(operation_controls::cancel))
+        .routes(routes!(operation_controls::pause))
+        .routes(routes!(operation_controls::resume))
+        .routes(routes!(operation_controls::answer))
         .routes(routes!(hosts::list))
         .routes(routes!(hosts::detail))
         .routes(routes!(hosts::enrollment))

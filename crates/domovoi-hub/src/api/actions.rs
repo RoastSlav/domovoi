@@ -11,7 +11,7 @@ use super::dto::{ActionDto, ActionPage, ActionQuery, ApproveRequest};
 use super::error::{ApiError, ErrorBody};
 use super::snapshot::snapshot_seq;
 use super::{ApiState, Authed, host_named, page};
-use crate::auth::approval::web_authorization;
+use crate::services::{ApproveError, ApproveInput};
 
 fn parse_id(id: &str) -> Result<ActionId, ApiError> {
     id.parse().map_err(|_| ApiError::NotFound)
@@ -124,7 +124,7 @@ pub(super) async fn list(
 )]
 pub(super) async fn approve(
     State(state): State<ApiState>,
-    Authed(current): Authed,
+    auth: Authed,
     Path(id): Path<String>,
     Json(req): Json<ApproveRequest>,
 ) -> Result<Json<ActionDto>, ApiError> {
@@ -139,25 +139,25 @@ pub(super) async fn approve(
                 "plan_hash is required: 64 hex characters, as shown on the action".to_owned(),
             )
         })?;
-    let (authorization, provenance) = web_authorization(
-        current.user.id,
-        req.confirm_text.as_deref(),
-        action.skill(),
-        &current.session_hash,
-        state.deps.clock.now(),
-    );
     let approved = state
-        .deps
-        .actions_service
+        .services()
+        .approvals
         .approve(
-            action.id(),
-            authorization,
-            None,
-            PlanBinding::Full(plan_hash),
-            provenance,
+            &auth.caller(),
+            &action,
+            ApproveInput {
+                binding: PlanBinding::Full(plan_hash),
+                chat_token: None,
+                confirm_text: req.confirm_text.as_deref(),
+            },
         )
         .await
-        .map_err(approval_error)?;
+        .map_err(|err| match err {
+            ApproveError::Approval(err) => approval_error(err),
+            ApproveError::WebOnly => {
+                ApiError::Forbidden("Approve this one in the web UI".to_owned())
+            }
+        })?;
     Ok(Json(
         ActionDto::from(&approved).labelled(state.deps.config.orchestration.enabled),
     ))
@@ -177,20 +177,14 @@ pub(super) async fn approve(
 )]
 pub(super) async fn deny(
     State(state): State<ApiState>,
-    Authed(current): Authed,
+    auth: Authed,
     Path(id): Path<String>,
 ) -> Result<Json<ActionDto>, ApiError> {
     let action = load(&state, parse_id(&id)?).await?;
-    let approval = crate::auth::approval::web_approval(
-        current.user.id,
-        None,
-        action.skill(),
-        state.deps.clock.now(),
-    );
     let denied = state
-        .deps
-        .actions_service
-        .deny(action.id(), approval)
+        .services()
+        .approvals
+        .deny(&auth.caller(), &action)
         .await
         .map_err(approval_error)?;
     Ok(Json(

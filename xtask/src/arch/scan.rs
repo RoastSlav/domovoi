@@ -71,6 +71,7 @@ pub fn check_tree(root: &Path, metadata: &Metadata) -> anyhow::Result<Vec<Violat
         }
     }
     out.extend(super::ast::exec_violations(&production));
+    out.extend(super::modules::module_edge_violations(&production));
     Ok(out)
 }
 
