@@ -2,7 +2,7 @@
 //!
 //! The hub, not the agent, decides availability: it owns the contract index, the per-host
 //! enablement and skill floors, and the agent's reported status (ADR 0018, 0023). The agent
-//! only reports what it has. These modules combine the index of prompt 24, the agent's own
+//! only reports what it has. These modules combine the compiled contract index, the agent's own
 //! words (the catalogue walk, `hello.skills`, `agent_status`) and the owner's settings keys
 //! into one read-only view, the `CapabilityRegistry` port the engine and the API consume.
 //!

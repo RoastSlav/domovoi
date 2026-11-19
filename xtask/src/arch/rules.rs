@@ -269,12 +269,12 @@ pub struct BoundaryCard {
     pub message: &'static str,
 }
 
-/// Every counted boundary operation (EXEC-1 to EXEC-3, ADR 0023). Counts are checked against
-/// the syntax tree, so a second call site, a call split across lines or a call inside a macro
-/// body cannot slip past. The hub's policy wrapper and the runtime capability are the only
-/// callers of a raw link operation: the first is the link's own `AgentLink` implementation,
-/// the second the composition root that turns it into capability objects. Adding a caller is
-/// a deliberate edit here, with an ADR.
+/// Every counted boundary operation (EXEC-1 to EXEC-3, ADR 0023, 0024). Counts are checked
+/// against the syntax tree, so a second call site, a call split across lines or a call inside a
+/// macro body cannot slip past. The hub's link and its runtime capabilities are the only callers
+/// of a raw link operation: the first is the link's own `AgentLink` implementation, the second
+/// the composition root that turns it into capability objects. Adding a caller is a deliberate
+/// edit here, with an ADR.
 pub const BOUNDARY_CARDS: &[BoundaryCard] = &[
     BoundaryCard {
         id: "EXEC-1",
@@ -283,7 +283,7 @@ pub const BOUNDARY_CARDS: &[BoundaryCard] = &[
             file: "crates/domovoi-hub/src/runtime/caps.rs",
             count: 1,
         }],
-        message: "a host is read only through `HostRead::read_host`; the raw `run_tool` call belongs to the link's policy wrapper and the runtime capability (ADR 0023)",
+        message: "a host is read only through `HostRead::read_host`; the raw `run_tool` call belongs to the runtime capability (ADR 0024)",
     },
     BoundaryCard {
         id: "EXEC-2",
@@ -292,7 +292,7 @@ pub const BOUNDARY_CARDS: &[BoundaryCard] = &[
             file: "crates/domovoi-hub/src/runtime/caps.rs",
             count: 1,
         }],
-        message: "a skill is dispatched only through `HandoffRunner::hand_off` in execute.rs; the raw `start_skill` call belongs to the link's policy wrapper and the runtime capability (ADR 0023)",
+        message: "a skill is dispatched only through `HandoffRunner::hand_off` in execute.rs; the raw `start_skill` call belongs to the runtime capability (ADR 0024)",
     },
     BoundaryCard {
         id: "EXEC-2",
@@ -301,7 +301,7 @@ pub const BOUNDARY_CARDS: &[BoundaryCard] = &[
             file: "crates/domovoi-hub/src/runtime/caps.rs",
             count: 1,
         }],
-        message: "a skill result is awaited only through `HandoffRunner::await_handoff_result` in execute.rs; the raw `skill_result` call belongs to the link's policy wrapper and the runtime capability (ADR 0023)",
+        message: "a skill result is awaited only through `HandoffRunner::await_handoff_result` in execute.rs; the raw `skill_result` call belongs to the runtime capability (ADR 0024)",
     },
     BoundaryCard {
         id: "EXEC-2",
@@ -364,7 +364,7 @@ pub const BOUNDARY_CARDS: &[BoundaryCard] = &[
             file: "crates/domovoi-hub/src/runtime/caps.rs",
             count: 1,
         }],
-        message: "a check is re-run only through `CheckRerun::rerun_check` in verify_wake.rs; the raw `run_check` call belongs to the link's policy wrapper and the runtime capability (ADR 0023)",
+        message: "a check is re-run only through `CheckRerun::rerun_check` in verify_wake.rs; the raw `run_check` call belongs to the runtime capability (ADR 0024)",
     },
 ];
 

@@ -5,7 +5,7 @@
 //! by a settings value, so a class lower than the declared one or the current floor is
 //! refused with [`FloorWriteError::WouldLower`] and nothing is stored. A malformed stored
 //! entry is dropped with one warning and treated as **absent**, never as a lower class, and
-//! never fails startup. The floors feed prompt 24's `skill_contract` and `effective_effect`;
+//! never fails startup. The floors feed `skill_contract` and `effective_effect`;
 //! this module adds no second computation of the effective class. No new table, no
 //! migration, no column: one more key in the settings store, like the disabled-skills key.
 
@@ -30,7 +30,7 @@ pub enum FloorWriteError {
     /// The new class is not stricter than the declared class or the current floor.
     #[error("the requested class is not stricter than the declared or current class")]
     WouldLower,
-    /// The class asked for is not one a floor may carry (prompt 24's [`FloorError`]).
+    /// The class asked for is not one a floor may carry (the capability module's [`FloorError`]).
     #[error(transparent)]
     Invalid(#[from] FloorError),
     /// The settings store refused the write.

@@ -1,5 +1,6 @@
-//! The agent's ceiling words, read as prompt 24's types: `hello.ceiling_summary` is a JSON
-//! string on the wire (wire 1.2), and the registry needs a `CeilingSummary` it can compare.
+//! The agent's ceiling words, read as the hub's own capability types: `hello.ceiling_summary`
+//! is a JSON string on the wire (wire 1.2), and the registry needs a `CeilingSummary` it can
+//! compare.
 //!
 //! The read fails closed. A summary that does not deserialize, that names a contract the
 //! wire cannot carry, that has a target set outside the `TargetName` grammar, or that
@@ -10,7 +11,8 @@
 use domovoi_core::capability::{CeilingSummary, ContractId};
 use serde_json::from_str;
 
-/// Maps the agent's `hello.ceiling_summary` (a JSON string, wire 1.2) into prompt 24's types.
+/// Maps the agent's `hello.ceiling_summary` (a JSON string, wire 1.2) into the hub's own
+/// capability types.
 #[must_use]
 pub fn parse_ceiling(summary: Option<&str>) -> CeilingParse {
     match summary {

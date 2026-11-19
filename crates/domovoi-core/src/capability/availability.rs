@@ -94,7 +94,7 @@ pub enum UnavailableReason {
 
 impl Availability {
     /// Every state the hub can answer with, each carrying a payload value its data-carrying
-    /// variants need. A function rather than a prompt-24-style constant array because one
+    /// variants need. A function rather than a constant array because one
     /// state carries a timestamp and another a string; the UI vocabulary test walks it.
     #[must_use]
     pub fn all() -> Vec<Availability> {
