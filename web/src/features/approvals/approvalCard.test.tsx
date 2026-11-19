@@ -100,6 +100,16 @@ describe("step approval card", () => {
     expect(dialog.getByText(/Its risk is unknown, so it is treated as destructive/)).toBeVisible();
   });
 
+  it("a_destructive_risk_step_is_drawn_as_destructive_even_when_confirmation_is_not_required", async () => {
+    const user = userEvent.setup();
+    show(execution({ risk: "destructive", confirm_required: false }));
+    await user.click(screen.getByRole("button", { name: "Approve" }));
+    const dialog = within(screen.getByRole("dialog"));
+    expect(dialog.getByText(/Run destructive action restart_container\?/)).toBeVisible();
+    expect(dialog.getByText(/It can lose data, and it cannot be undone/)).toBeVisible();
+    expect(dialog.queryByRole("textbox")).toBeNull();
+  });
+
   it("a_missing_confirm_required_field_is_treated_as_required", async () => {
     const user = userEvent.setup();
     const exec = { ...execution() } as Partial<Execution>;

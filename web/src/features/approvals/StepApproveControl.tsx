@@ -24,7 +24,7 @@ function consequence(plan: ApprovalPlan): string {
   if (plan.risk === "unknown") {
     return `${base} Its risk is unknown, so it is treated as destructive.`;
   }
-  return plan.confirmRequired ? `${base} It can lose data, and it cannot be undone.` : base;
+  return plan.risk === "destructive" ? `${base} It can lose data, and it cannot be undone.` : base;
 }
 
 /**
@@ -53,7 +53,7 @@ export function StepApproveControl({
     error: "deny the action",
   });
   const expired = useRemaining(plan.expiresAt) === 0;
-  const danger = plan.confirmRequired;
+  const danger = plan.risk === "destructive" || plan.risk === "unknown" || plan.confirmRequired;
   const changed = shownHash !== null && shownHash !== plan.planHash;
 
   const close = () => {
