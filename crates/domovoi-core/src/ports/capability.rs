@@ -108,6 +108,6 @@ pub trait CapabilityRegistry: Send + Sync {
     fn enabled(&self, host: HostId, contract: &ContractId) -> bool;
 
     /// The skills the hub may offer on `host`: announced by its agent **and** enabled
-    /// here. The agent's own list stays unfiltered on [`AgentLink::skills`].
+    /// here. The agent's own list stays unfiltered on `AgentLink::skills`.
     fn enabled_skills(&self, host: HostId) -> Vec<SkillSummary>;
 }
