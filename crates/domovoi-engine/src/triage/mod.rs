@@ -46,7 +46,7 @@ pub use agent::{
 pub use chat::{CHAT_PROMPT, ChatRole, ChatTurn};
 pub use followup::{FOLLOW_UP_PROMPT, MAX_ANSWER_CHARS};
 pub use history::{CLEAR_KIND, FOLLOW_UP_KIND, Turn, count_clear, since_clear};
-pub use proposals::{PROPOSER, mint_token, token_hash};
+pub use proposals::PROPOSER;
 pub use report::parse_report;
 pub(crate) use tools::cut;
 pub use tools::{MAX_RESULT_BYTES, TOOL_DEADLINE};

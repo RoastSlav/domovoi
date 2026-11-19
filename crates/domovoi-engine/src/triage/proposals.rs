@@ -11,29 +11,14 @@ use domovoi_core::{
     KeyFingerprint, PlanFamily, PlanTarget, Principal, SkillSummary, TriageReport, ValidatedArgs,
 };
 use jiff::Timestamp;
-use sha2::{Digest, Sha256};
 
 use crate::ApprovalError;
 
 use super::{PROPOSAL_TTL, Shared};
+use crate::chat_token::{mint_token, token_hash};
 
 /// Who proposed actions that triage created.
 pub const PROPOSER: &str = "triage";
-
-/// A fresh single-use chat token: 244 random bits, hex-encoded.
-#[must_use]
-pub fn mint_token() -> String {
-    let mut bytes = Vec::with_capacity(32);
-    bytes.extend_from_slice(uuid::Uuid::new_v4().as_bytes());
-    bytes.extend_from_slice(uuid::Uuid::new_v4().as_bytes());
-    hex::encode(bytes)
-}
-
-/// The hash stored for `token`; the token itself is never stored.
-#[must_use]
-pub fn token_hash(token: &str) -> [u8; 32] {
-    Sha256::digest(token.as_bytes()).into()
-}
 
 /// The skill `proposal` names and its validated arguments, or why it cannot become an
 /// action on a host with `skills`.

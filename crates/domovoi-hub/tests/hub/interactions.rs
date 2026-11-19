@@ -13,7 +13,7 @@ use domovoi_core::{
     InteractionKind, InteractionReply, Principal, Risk,
 };
 use domovoi_engine::ApprovalError;
-use domovoi_engine::triage::{mint_token, token_hash};
+use domovoi_engine::chat_token::{mint_token, token_hash};
 use domovoi_hub::auth::interactions::{
     ChatDeps, InteractionAuthorizer, NOT_ALLOWED, SETUP_FIRST, approval_reason,
 };

@@ -17,7 +17,7 @@ use domovoi_core::{
     JournalEpoch, ManifestHash, PlanBinding, SignalClass, SignalStatus, SkillSummary,
     TriageOutcome, UserId, Verdict,
 };
-use domovoi_engine::triage::{mint_token, token_hash};
+use domovoi_engine::chat_token::{mint_token, token_hash};
 use domovoi_testkit::approvals::{chat, human};
 use domovoi_testkit::crash::SweepStore;
 use jiff::SignedDuration;

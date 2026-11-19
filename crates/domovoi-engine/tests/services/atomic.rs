@@ -13,7 +13,7 @@ use domovoi_core::{
     Principal, SignalStatus, UserId,
 };
 use domovoi_engine::actions::audit;
-use domovoi_engine::triage::{mint_token, token_hash};
+use domovoi_engine::chat_token::{mint_token, token_hash};
 use domovoi_engine::{ActionSettings, ApprovalError, EventKind};
 use domovoi_testkit::InMemoryStore;
 use domovoi_testkit::approvals::{chat, human};
