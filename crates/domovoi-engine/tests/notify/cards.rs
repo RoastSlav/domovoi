@@ -3,10 +3,10 @@
 use std::collections::BTreeMap;
 
 use domovoi_core::{
-    ActionId, ActionRequest, CardButton, Incident, ParamKind, ParamName, ParamSpec, PlanTarget,
-    Risk, Severity, Verdict,
+    ActionId, ActionRequest, CardButton, ExecutionId, Incident, ParamKind, ParamName, ParamSpec,
+    PlanTarget, Risk, Severity, Verdict,
 };
-use domovoi_engine::cards::{CardLinks, build_card};
+use domovoi_engine::cards::{CardLinks, WaitingStep, build_card};
 use domovoi_engine::render;
 use domovoi_testkit::build::{action, key_fingerprint};
 use uuid::Uuid;
@@ -453,4 +453,141 @@ fn long_headlines_are_cut() {
     assert_eq!(card.headline.chars().count(), 120);
     assert!(card.headline.ends_with('…'));
     assert!(card.validate().is_ok());
+}
+
+fn waiting_step(n: u128, risk: Option<Risk>, args: &[(&str, &str)], at: &str) -> WaitingStep {
+    let execution = ExecutionId::from_action(action_id(n));
+    WaitingStep {
+        execution,
+        skill: "restart_container".to_owned(),
+        host: host(),
+        risk,
+        args: args
+            .iter()
+            .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+            .collect(),
+        plan_short: "abcd1234".to_owned(),
+        plan_prefix: "abcd12".to_owned(),
+        expires_at: ts("2026-11-01T09:00:00Z"),
+        created_at: ts(at),
+    }
+}
+
+fn step_links(steps: Vec<WaitingStep>, with_tokens: bool) -> CardLinks {
+    let tokens = if with_tokens {
+        steps
+            .iter()
+            .map(|s| (s.execution.as_action(), format!("tok{}", s.skill.len())))
+            .collect()
+    } else {
+        BTreeMap::new()
+    };
+    CardLinks {
+        web_url: None,
+        tokens,
+        steps,
+    }
+}
+
+fn card_of(links: &CardLinks, actions: &[ActionRequest]) -> domovoi_core::Card {
+    let incident = open(Severity::Warning, ts("2026-10-31T09:00:00Z"));
+    build_card(&incident, None, actions, &host(), links, None)
+}
+
+#[test]
+fn card_lists_a_waiting_step_with_buttons_and_the_v2_plan_prefix() {
+    let step = waiting_step(
+        1,
+        Some(Risk::Write),
+        &[("container", "plex")],
+        "2026-10-31T09:01:00Z",
+    );
+    let id = step.execution.as_action();
+    let card = card_of(&step_links(vec![step], true), &[]);
+    assert_eq!(card.plans.len(), 1);
+    assert_eq!(card.plans[0].skill, "restart_container");
+    assert_eq!(card.plans[0].plan_short, "abcd1234");
+    assert!(card.buttons.iter().any(|b| matches!(
+        b,
+        CardButton::Approve { action, plan_prefix: Some(p), .. } if *action == id && p == "abcd12"
+    )));
+    assert!(
+        card.buttons
+            .iter()
+            .any(|b| matches!(b, CardButton::Deny { action, .. } if *action == id))
+    );
+}
+
+#[test]
+fn card_offers_a_web_link_for_a_destructive_unknown_or_long_step() {
+    let long = "x".repeat(600);
+    let cases = [
+        (
+            waiting_step(1, Some(Risk::Destructive), &[], "2026-10-31T09:01:00Z"),
+            true,
+        ),
+        (waiting_step(1, None, &[], "2026-10-31T09:01:00Z"), true),
+        (
+            waiting_step(
+                1,
+                Some(Risk::Write),
+                &[("c", &long)],
+                "2026-10-31T09:01:00Z",
+            ),
+            true,
+        ),
+        (
+            waiting_step(1, Some(Risk::Write), &[], "2026-10-31T09:01:00Z"),
+            false,
+        ),
+    ];
+    for (step, tokens) in cases {
+        let id = step.execution.as_action();
+        let card = card_of(&step_links(vec![step], tokens), &[]);
+        assert_eq!(card.plans.len(), 1, "the plan is still listed");
+        assert!(card.buttons.contains(&CardButton::OpenInWeb { action: id }));
+        assert!(
+            !card
+                .buttons
+                .iter()
+                .any(|b| matches!(b, CardButton::Approve { .. } | CardButton::Deny { .. }))
+        );
+    }
+}
+
+#[test]
+fn unknown_risk_is_shown_as_destructive_on_the_card() {
+    let step = waiting_step(1, None, &[], "2026-10-31T09:01:00Z");
+    let card = card_of(&step_links(vec![step], true), &[]);
+    assert_eq!(card.plans[0].risk, Risk::Destructive);
+}
+
+#[test]
+fn card_shows_at_most_three_plans_across_actions_and_steps() {
+    let incident = open(Severity::Warning, ts("2026-10-31T09:00:00Z"));
+    let first = proposed_with_args(
+        &incident,
+        action_id(10),
+        Risk::Write,
+        &[],
+        ts("2026-10-31T09:00:10Z"),
+    );
+    let second = proposed_with_args(
+        &incident,
+        action_id(11),
+        Risk::Write,
+        &[],
+        ts("2026-10-31T09:00:20Z"),
+    );
+    let steps = vec![
+        waiting_step(1, Some(Risk::Write), &[], "2026-10-31T09:00:15Z"),
+        waiting_step(2, Some(Risk::Write), &[], "2026-10-31T09:00:30Z"),
+    ];
+    let card = card_of(&step_links(steps, true), &[first.clone(), second]);
+    assert_eq!(card.plans.len(), 3);
+    assert_eq!(card.plans[0].action, first.id());
+    assert_eq!(
+        card.plans[1].action,
+        ExecutionId::from_action(action_id(1)).as_action()
+    );
 }
