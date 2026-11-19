@@ -42,3 +42,4 @@ An ADR records one decision that shapes the codebase: the context, the decision 
 | [0022](0022-single-execution-boundary.md) | One execution boundary and one read boundary | Accepted |
 | [0023](0023-capability-objects-one-checker-bounded-evidence.md) | Capability objects, one checker, bounded evidence | Accepted |
 | [0025](0025-operation-aggregate.md) | Operation aggregate: immutable steps, derived status and one writer | Accepted |
+| [0026](0026-use-case-layer.md) | The hub's use-case layer and its module-edge rules | Accepted |

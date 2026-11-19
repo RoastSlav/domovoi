@@ -45,7 +45,19 @@ const OP_WRITER_PATH: &str = "crates/domovoi-engine/src/operations/writer/mod.rs
 const CAPS: &str = "fn f() {\n    self.link\n        .run_tool(a, b, c);\n    self.link\n        .start_skill(a, b, c, d, e);\n    self.link\n        .skill_result(a, b, c);\n    self.link\n        .run_check(a, b, c, d);\n}\n";
 
 fn hub_sites() -> Vec<(String, String)> {
-    files(&[("crates/domovoi-hub/src/runtime/caps.rs", CAPS)])
+    files(&[
+        ("crates/domovoi-hub/src/runtime/caps.rs", CAPS),
+        (
+            "crates/domovoi-hub/src/api/mod.rs",
+            "fn f() { Caller::web(a, b); }
+",
+        ),
+        (
+            "crates/domovoi-hub/src/auth/interactions/mod.rs",
+            "fn f() { Caller::chat(a, b, c); }
+",
+        ),
+    ])
 }
 
 /// The complete engine card set plus one extra production file.
@@ -710,4 +722,54 @@ fn send() { handoff.hand_off(a); handoff.await_handoff_result(b); }
             .any(|v| v.location.starts_with(OP_EXECUTE_PATH)),
         "{violations:#?}"
     );
+}
+
+// ---- Who builds a Caller (CALLER-1) ----
+
+const WEB_SITE: &str = "crates/domovoi-hub/src/api/mod.rs";
+const CHAT_SITE: &str = "crates/domovoi-hub/src/auth/interactions/mod.rs";
+
+#[test]
+fn a_second_caller_web_call_is_refused() {
+    let chat = (CHAT_SITE, "fn c() { Caller::chat(a, b, c); }\n");
+
+    let twice = files(&[
+        (
+            WEB_SITE,
+            "fn w() { Caller::web(a); }\nfn again() { Caller::web(b); }\n",
+        ),
+        chat,
+    ]);
+    let violations = exec_violations(&twice);
+    assert!(has(&violations, "CALLER-1"), "{violations:#?}");
+
+    let once = files(&[(WEB_SITE, "fn w() { Caller::web(a); }\n"), chat]);
+    let violations = exec_violations(&once);
+    assert!(!has(&violations, "CALLER-1"), "{violations:#?}");
+}
+
+#[test]
+fn a_caller_chat_call_in_another_file_is_refused() {
+    let web = (WEB_SITE, "fn w() { Caller::web(a); }\n");
+
+    let elsewhere = files(&[
+        (
+            "crates/domovoi-hub/src/api/x.rs",
+            "fn f() { Caller::chat(a, b, c); }\n",
+        ),
+        web,
+        (CHAT_SITE, "fn c() { Caller::chat(a, b, c); }\n"),
+    ]);
+    let violations = exec_violations(&elsewhere);
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "CALLER-1"
+                && v.location.starts_with("crates/domovoi-hub/src/api/x.rs")),
+        "{violations:#?}"
+    );
+
+    let owner = files(&[web, (CHAT_SITE, "fn c() { Caller::chat(a, b, c); }\n")]);
+    let violations = exec_violations(&owner);
+    assert!(!has(&violations, "CALLER-1"), "{violations:#?}");
 }

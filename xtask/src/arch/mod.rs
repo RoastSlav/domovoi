@@ -6,6 +6,7 @@ mod git;
 mod graph;
 mod lex;
 mod manifest;
+pub mod modules;
 pub mod reach;
 pub mod rules;
 mod scan;

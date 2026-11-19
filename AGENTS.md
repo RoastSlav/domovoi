@@ -51,6 +51,7 @@ WSL notes:
 10. **Generated files** (R12). Never hand-edit `web/src/api/openapi.json` or `web/src/api/schema.d.ts`; regenerate them.
 11. **Time.** Anything time-dependent takes the `Clock` port. Tests never sleep; they advance the fake clock from `domovoi-testkit`.
 12. **Secrets.** Secret config values are `secrecy::SecretString`. Never log, format into prompts, or return them from the API.
+13. **Hub layering** (MOD-1 to MOD-4, CALLER-1, ADR 0026). HTTP and chat handlers call `crate::services`, never import each other and never hold `ActionHandle` or `OperationHandle`. A new command is a service method that takes a `&Caller`; only the session extractor and the chat authorizer build one. Enforced by `cargo xtask arch-check`.
 
 ## Web UI
 

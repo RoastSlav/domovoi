@@ -24,6 +24,18 @@ fn transports_do_not_name_the_agent_link() {
     );
 }
 
+/// Transports call services and never each other; a service never imports a transport or the
+/// runtime; a new top-level module declares what it is; a transport never holds a command
+/// handle (MOD-1 to MOD-4, ADR 0026). The same implementation `cargo xtask arch-check` runs.
+#[test]
+fn hub_modules_respect_the_module_edge_rule() {
+    let violations = xtask::arch::modules::module_edge_violations(&hub_sources());
+    assert!(
+        violations.is_empty(),
+        "the hub's module edges are broken: {violations:#?}",
+    );
+}
+
 /// The workspace-relative path of a file under the hub's `src/`.
 fn crate_path(rel: &str) -> String {
     format!("crates/{}/src/{rel}", env!("CARGO_PKG_NAME"))
@@ -77,9 +89,24 @@ fn source_files(
 /// link operation exactly once.
 const CAPS: &str = "fn f() {\n    self.link\n        .run_tool(a, b, c);\n    self.link\n        .start_skill(a, b, c, d, e);\n    self.link\n        .skill_result(a, b, c);\n    self.link\n        .run_check(a, b, c, d);\n}\n";
 
-/// The smallest tree that satisfies the hub's boundary cards.
+/// The smallest tree that satisfies the hub's boundary cards, including the two sites that
+/// build a `Caller`.
 fn hub_tree() -> Vec<(String, String)> {
-    vec![(crate_path("runtime/caps.rs"), CAPS.to_owned())]
+    vec![
+        (crate_path("runtime/caps.rs"), CAPS.to_owned()),
+        (
+            crate_path("api/mod.rs"),
+            "fn f() { Caller::web(a, b); }
+"
+            .to_owned(),
+        ),
+        (
+            crate_path("auth/interactions/mod.rs"),
+            "fn f() { Caller::chat(a, b, c); }
+"
+            .to_owned(),
+        ),
+    ]
 }
 
 /// Appends `text` to `rel`'s file, adding the file when the tree does not have it.
