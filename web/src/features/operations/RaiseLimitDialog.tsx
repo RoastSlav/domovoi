@@ -12,7 +12,7 @@ import {
   useActionFeedback,
 } from "../../components";
 import { budgetLabel, type BudgetKind } from "../../design/operationText";
-import { formatBudget, fromApiLimit, limitFor, toApiLimit } from "./budget";
+import { formatBudget, fromApiLimit, limitFor, limitProblem, toApiLimit } from "./budget";
 
 /** The suggested new limit, in display units: half as much again, and always above the old one. */
 function suggestion(limit: number): number {
@@ -37,7 +37,7 @@ export function RaiseLimitDialog({
   const { limit, used } = limitFor(kind, trace);
   const current = limit === null ? 0 : fromApiLimit(kind, limit);
   const [value, setValue] = useState(String(limit === null ? 1 : suggestion(current)));
-  const [invalid, setInvalid] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
   const resume = useActionFeedback(useResumeOperation(operationId), {
     success: "Limit raised. The operation resumed.",
     error: "raise the limit",
@@ -48,11 +48,15 @@ export function RaiseLimitDialog({
     limit === null ? "none" : formatBudget(kind, limit, null).replace(" (no limit)", "");
   const submit = () => {
     const next = Number(value);
-    if (!Number.isFinite(next) || value.trim() === "" || (limit !== null && next <= current)) {
-      setInvalid(true);
+    const found =
+      value.trim() === ""
+        ? "Enter a number."
+        : (limitProblem(kind, next) ??
+          (limit !== null && next <= current ? `Enter a limit above ${nowText}.` : null));
+    setProblem(found);
+    if (found) {
       return;
     }
-    setInvalid(false);
     resume.mutate({ extend: [{ kind, limit: toApiLimit(kind, next) }] }, { onSuccess: onClose });
   };
   return (
@@ -74,7 +78,7 @@ export function RaiseLimitDialog({
       <Field
         label={`New ${label.toLowerCase()} limit`}
         hint={`Enter a limit above ${nowText}.`}
-        error={invalid ? `Enter a limit above ${nowText}.` : undefined}
+        error={problem ?? undefined}
       >
         <NumberInput value={value} onChange={(event) => setValue(event.target.value)} />
       </Field>

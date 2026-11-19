@@ -31,9 +31,22 @@ export interface StepNode {
   children: StepNode[];
 }
 
-/** Nests steps by `parent`; a step whose parent is not in the list is a root. */
+/**
+ * Nests steps by `parent`; a step whose parent is not in the list is a root. A parent loop
+ * (A under B under A) is broken at the step, in order, that would close it: that step
+ * becomes a root, so no step disappears.
+ */
 export function buildTree(steps: readonly TraceStep[]): StepNode[] {
   const nodes = new Map<string, StepNode>(steps.map((step) => [step.id, { step, children: [] }]));
+  const attachedTo = new Map<string, string>();
+  const closesLoop = (id: string, parentId: string): boolean => {
+    for (let at: string | undefined = parentId; at !== undefined; at = attachedTo.get(at)) {
+      if (at === id) {
+        return true;
+      }
+    }
+    return false;
+  };
   const roots: StepNode[] = [];
   for (const step of steps) {
     const node = nodes.get(step.id);
@@ -41,8 +54,9 @@ export function buildTree(steps: readonly TraceStep[]): StepNode[] {
       continue;
     }
     const parent = step.parent ? nodes.get(step.parent) : undefined;
-    if (parent && parent !== node) {
+    if (parent && !closesLoop(step.id, step.parent as string)) {
       parent.children.push(node);
+      attachedTo.set(step.id, step.parent as string);
     } else {
       roots.push(node);
     }

@@ -70,3 +70,18 @@ export function formatBudget(kind: BudgetKind, used: number, limit: number | nul
     ? `${display(kind, used)} (no limit)`
     : `${display(kind, used)} of ${display(kind, limit)}`;
 }
+
+/**
+ * Why `input` (display units) cannot be sent as a limit, or null when it can. Counts and tokens
+ * are whole numbers and are never rounded for the person; time and cost are unit conversions
+ * (minutes to whole seconds, cost to whole micros) and keep `toApiLimit`'s rounding.
+ */
+export function limitProblem(kind: BudgetKind, input: number): string | null {
+  if (!Number.isFinite(input)) {
+    return "Enter a number.";
+  }
+  if (kind !== "wall_time" && kind !== "cost" && !Number.isInteger(input)) {
+    return "Enter a whole number.";
+  }
+  return null;
+}
