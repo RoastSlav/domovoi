@@ -33,7 +33,7 @@ const COMMIT_SITES: [&str; 6] = [
 /// Every audit kind the action and operation writers can produce, including the chat-token
 /// rotation. A scenario
 /// has to exercise each one, and a new producer has to be added here.
-const AUDIT_KINDS: [&str; 21] = [
+const AUDIT_KINDS: [&str; 23] = [
     "action.proposed",
     "action.approved",
     "action.denied",
@@ -48,7 +48,8 @@ const AUDIT_KINDS: [&str; 21] = [
     "action.verified",
     "action.verify_failed",
     "action.token_rotated",
-    // The operation writer's, as far as a scenario reaches them without effect handlers.
+    // The operation writer's, as far as the scenarios reach them: an approved restart is
+    // dispatched and settled by the operation service's own handlers.
     "operation.created",
     "operation.cancelled",
     "operation.paused",
@@ -56,6 +57,8 @@ const AUDIT_KINDS: [&str; 21] = [
     "execution.proposed",
     "execution.approved",
     "execution.denied",
+    "execution.dispatched",
+    "execution.succeeded",
 ];
 
 /// Runs a scenario once with the wrapper recording, and returns what it committed.
