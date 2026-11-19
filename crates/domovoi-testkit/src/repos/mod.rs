@@ -9,9 +9,11 @@ mod hosts;
 mod incidents;
 mod knowledge;
 mod notify;
+mod operations;
 mod triage;
 mod uow;
 mod uow_apply;
+mod uow_operations;
 mod uow_queue;
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -23,8 +25,9 @@ use domovoi_core::ports::{
 };
 use domovoi_core::{
     AckRule, AckRuleId, ActionId, ActionRequest, Advisory, AdvisoryId, AgentId, AgentIdentity,
-    AgentReport, BaselineEntry, DigestFact, Fingerprint, Host, HostId, Incident, IncidentId,
-    MaintenanceWindow, Note, NoteId, Session, Signal, SignalId, TriageReport, User, UserId,
+    AgentReport, BaselineEntry, DigestFact, ExecutionRecord, Fingerprint, Host, HostId, Incident,
+    IncidentId, MaintenanceWindow, Note, NoteId, Operation, OperationId, Session, Signal, SignalId,
+    StepEdge, StepId, StepRecord, TriageReport, User, UserId,
 };
 use jiff::Timestamp;
 use serde_json::Value;
@@ -84,6 +87,14 @@ struct State {
     users: BTreeMap<UserId, User>,
     sessions: BTreeMap<[u8; 32], Session>,
     notify: BTreeMap<IncidentId, (domovoi_core::NotifyState, Timestamp)>,
+    operations: BTreeMap<OperationId, Operation>,
+    /// Each operation's steps in ordinal order.
+    op_steps: BTreeMap<OperationId, Vec<StepRecord>>,
+    /// Each operation's edges in insertion order.
+    op_edges: BTreeMap<OperationId, Vec<StepEdge>>,
+    /// Execution rows by Execution step, with their versions.
+    executions: BTreeMap<StepId, (ExecutionRecord, u64)>,
+    op_incidents: BTreeMap<OperationId, BTreeSet<IncidentId>>,
 }
 
 /// An in-memory implementation of every repository port in `domovoi_core::ports`.

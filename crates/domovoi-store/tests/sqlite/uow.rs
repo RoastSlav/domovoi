@@ -6,8 +6,8 @@ use domovoi_core::IncidentId;
 use domovoi_core::ports::{
     ActionRepo, AggregateKind, AggregateRef, AuditLog, ClaimToken, CommitError, EffectDeath,
     EffectDraft, EffectKind, EffectQueue, EffectRead, EffectReschedule, Expected, IncidentRepo,
-    IncidentTimelineEntry, JournalRead, NoteRepo, SignalRepo, StateWrite, Transaction, UnitOfWork,
-    VersionedRead,
+    IncidentTimelineEntry, JournalRead, NoteRepo, OperationRepo, SignalRepo, StateWrite,
+    Transaction, UnitOfWork, VersionedRead,
 };
 use domovoi_store::Store;
 use domovoi_testkit::ContractError;
@@ -58,6 +58,10 @@ impl UowSubject for SqliteSubject {
     }
 
     fn audit(&self) -> &dyn AuditLog {
+        &self.0
+    }
+
+    fn operations(&self) -> &dyn OperationRepo {
         &self.0
     }
 
@@ -135,6 +139,25 @@ uow_contract_tests! {
     sqlite_reschedule_returns_effect_to_pending_with_backoff_time => reschedule_returns_effect_to_pending_with_backoff_time,
     sqlite_attempt_limit_dead_letters_at_claim => attempt_limit_dead_letters_at_claim,
     sqlite_expired_lease_beyond_attempt_limit_dies_instead_of_reclaim => expired_lease_beyond_attempt_limit_dies_instead_of_reclaim,
+    sqlite_operation_commit_writes_operation_steps_edges_journal_audit_and_effects_together => operation_commit_writes_operation_steps_edges_journal_audit_and_effects_together,
+    sqlite_operation_new_over_existing_id_conflicts => operation_new_over_existing_id_conflicts,
+    sqlite_operation_stale_version_conflicts_and_changes_nothing => operation_stale_version_conflicts_and_changes_nothing,
+    sqlite_step_progress_is_guarded_by_the_stored_outcome => step_progress_is_guarded_by_the_stored_outcome,
+    sqlite_step_ordinals_are_dense_and_unique_within_an_operation => step_ordinals_are_dense_and_unique_within_an_operation,
+    sqlite_edge_to_a_later_or_equal_ordinal_is_refused => edge_to_a_later_or_equal_ordinal_is_refused,
+    sqlite_edge_across_operations_is_refused => edge_across_operations_is_refused,
+    sqlite_edge_to_a_missing_step_is_refused => edge_to_a_missing_step_is_refused,
+    sqlite_execution_row_needs_an_execution_step_and_is_one_to_one => execution_row_needs_an_execution_step_and_is_one_to_one,
+    sqlite_execution_version_guard_refuses_a_stale_write => execution_version_guard_refuses_a_stale_write,
+    sqlite_execution_id_equal_to_an_action_id_is_refused => execution_id_equal_to_an_action_id_is_refused,
+    sqlite_execution_round_trips_a_human_approval_exactly => execution_round_trips_a_human_approval_exactly,
+    sqlite_snapshot_load_returns_steps_in_ordinal_order_with_edges_and_executions => snapshot_load_returns_steps_in_ordinal_order_with_edges_and_executions,
+    sqlite_dispatched_on_lists_only_running_executions_of_the_host => dispatched_on_lists_only_running_executions_of_the_host,
+    sqlite_dispatched_since_counts_by_host_contract_and_time => dispatched_since_counts_by_host_contract_and_time,
+    sqlite_with_status_returns_oldest_first => with_status_returns_oldest_first,
+    sqlite_incident_link_is_idempotent => incident_link_is_idempotent,
+    sqlite_failed_operation_commit_rolls_back_every_stage => failed_operation_commit_rolls_back_every_stage,
+    sqlite_operation_listing_filters_and_pages_newest_first => operation_listing_filters_and_pages_newest_first,
 }
 
 #[tokio::test]

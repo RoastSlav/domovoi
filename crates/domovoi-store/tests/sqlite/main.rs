@@ -26,6 +26,8 @@ mod durability;
 #[cfg(test)]
 mod migrations;
 #[cfg(test)]
+mod operations;
+#[cfg(test)]
 mod paging;
 #[cfg(test)]
 mod purge;

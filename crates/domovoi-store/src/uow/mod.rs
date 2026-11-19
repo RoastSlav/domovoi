@@ -2,6 +2,8 @@
 
 mod effects;
 mod journal;
+mod operation_executions;
+mod operations;
 mod queue;
 mod reads;
 mod writes;
