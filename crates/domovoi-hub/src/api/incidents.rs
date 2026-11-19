@@ -474,7 +474,7 @@ pub(super) async fn retry_triage(
             .await
             .map_err(|e| ApiError::internal("triage failed", e))?;
     match result {
-        Ok(Retriaged::Outcome(outcome)) => Ok(Json(TriageStateDto::from(&outcome))),
+        Ok(Retriaged::Outcome(outcome)) => Ok(Json(TriageStateDto::from(&*outcome))),
         Ok(Retriaged::StillRunning) => Ok(Json(TriageStateDto {
             kind: "skipped".to_owned(),
             reason: Some(

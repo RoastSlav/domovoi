@@ -328,3 +328,23 @@ async fn chat_audit(a: &Api) -> Value {
     rows.sort_by_key(|r| r.to_string());
     Value::Array(rows)
 }
+
+#[tokio::test]
+async fn chat_cannot_approve_a_destructive_action() {
+    use domovoi_core::ActionStatus;
+    let a = api().await;
+    a.admin().await;
+    let c = chat(&a).await;
+    let (action, token) = proposed(&a, Risk::Destructive).await;
+    let press = InteractionKind::Button {
+        button: approve(&action, &token),
+        incident: a.incident.id(),
+    };
+    let reply = c.authorizer.deliver(interaction(&a, ALLOWED, press)).await;
+    assert_eq!(text_of(&reply), "rejected: Approve this one in the web UI");
+    let stored = domovoi_core::ports::ActionRepo::get(&*a.store, action.id())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(*stored.status(), ActionStatus::Proposed);
+}

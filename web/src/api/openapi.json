@@ -2869,6 +2869,262 @@
         }
       }
     },
+    "/api/v1/operations/{id}/cancel": {
+      "post": {
+        "tags": [
+          "operations"
+        ],
+        "summary": "Cancels an operation. Pending steps and effects are cancelled; a run already dispatched\nis not recalled and its result is still recorded.",
+        "operationId": "cancel_operation",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Operation id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelOperationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Cancelled, or already cancelled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationControlDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The reason is too long",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The operation has already finished",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Orchestration is not enabled, or the service is restarting",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/operations/{id}/pause": {
+      "post": {
+        "tags": [
+          "operations"
+        ],
+        "summary": "Pauses an operation until a person resumes it.",
+        "operationId": "pause_operation",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Operation id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paused, or already paused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationControlDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Not started yet, or already finished",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Orchestration is not enabled, or the service is restarting",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/operations/{id}/resume": {
+      "post": {
+        "tags": [
+          "operations"
+        ],
+        "summary": "Resumes a paused operation, raising the named limits first.",
+        "operationId": "resume_operation",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Operation id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResumeOperationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Resumed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationControlDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "An unknown, repeated or out-of-range limit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Not paused, or a spent limit is still spent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Orchestration is not enabled, or the service is restarting",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/operations/{id}/steps/{step}": {
       "get": {
         "tags": [
@@ -2929,6 +3185,107 @@
           },
           "503": {
             "description": "Orchestration is not enabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/operations/{id}/steps/{step}/answer": {
+      "post": {
+        "tags": [
+          "operations"
+        ],
+        "summary": "Answers the question an operation is waiting on.",
+        "operationId": "answer_operation_question",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Operation id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "step",
+            "in": "path",
+            "description": "Question step id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnswerStepRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Answered; the operation goes on",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationControlDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The answer is empty or too long",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such operation or step",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Not a question, not waiting, or the operation is paused or finished",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Orchestration is not enabled, or the service is restarting",
             "content": {
               "application/json": {
                 "schema": {
@@ -4203,6 +4560,19 @@
           }
         }
       },
+      "AnswerStepRequest": {
+        "type": "object",
+        "description": "Answering the question an operation waits on.",
+        "required": [
+          "text"
+        ],
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "The answer, 1 to 2000 characters after trimming. It reaches the model as data."
+          }
+        }
+      },
       "ApproveRequest": {
         "type": "object",
         "description": "Approving an action.",
@@ -4272,6 +4642,26 @@
           "answer": {
             "type": "string",
             "description": "Plain text, at most 4000 characters."
+          }
+        }
+      },
+      "BudgetExtensionDto": {
+        "type": "object",
+        "description": "One limit to raise when resuming.",
+        "required": [
+          "kind",
+          "limit"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "description": "`model_turns`, `evidence_requests`, `executions`, `cycles`, `wall_time`, `tokens` or\n`cost`."
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The new limit: seconds for `wall_time`, micro-units for `cost`, a count otherwise.\n1 to 10000 for a count, 1 to 10000000000 otherwise.",
+            "minimum": 0
           }
         }
       },
@@ -4409,6 +4799,19 @@
           "used": {
             "$ref": "#/components/schemas/BudgetUsedDto",
             "description": "The use."
+          }
+        }
+      },
+      "CancelOperationRequest": {
+        "type": "object",
+        "description": "Cancelling an operation.",
+        "properties": {
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why, at most 500 characters. Empty or missing records \"cancelled by a person\"."
           }
         }
       },
@@ -5969,6 +6372,26 @@
           }
         }
       },
+      "OperationControlDto": {
+        "type": "object",
+        "description": "The operation after a control, and the journal position it was read at.",
+        "required": [
+          "as_of_seq",
+          "operation"
+        ],
+        "properties": {
+          "as_of_seq": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The journal position read after the command and before the operation.",
+            "minimum": 0
+          },
+          "operation": {
+            "$ref": "#/components/schemas/OperationSummaryDto",
+            "description": "The refreshed operation."
+          }
+        }
+      },
       "OperationDetailDto": {
         "type": "object",
         "description": "An operation, its trace and its executions.",
@@ -6512,6 +6935,19 @@
           "verdict": {
             "type": "string",
             "description": "`ACTION_NEEDED`, `MONITOR`, `EXPECTED` or `FIXED`."
+          }
+        }
+      },
+      "ResumeOperationRequest": {
+        "type": "object",
+        "description": "Resuming a paused operation.",
+        "properties": {
+          "extend": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BudgetExtensionDto"
+            },
+            "description": "Limits to raise first, at most 7, each kind once. A spent limit must be raised."
           }
         }
       },

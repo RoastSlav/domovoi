@@ -26,7 +26,7 @@ pub enum FollowUpError {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Retriaged {
     /// It finished with this outcome.
-    Outcome(TriageOutcome),
+    Outcome(Box<TriageOutcome>),
     /// It is still running; its result appears on the incident.
     StillRunning,
 }
@@ -101,17 +101,18 @@ impl IncidentService {
         tracing::debug!(user = %caller.user(), incident = %incident.id(), fresh, "retriage");
         if let Some(operations) = &self.operations {
             return match operations.investigate_and_wait(incident, fresh).await {
-                Ok(outcome) => Ok(Retriaged::Outcome(outcome)),
+                Ok(outcome) => Ok(Retriaged::Outcome(Box::new(outcome))),
                 Err(InvestigateError::AlreadyRunning(_)) => Err(RetriageError::AlreadyRunning),
                 Err(InvestigateError::TimedOut(_)) => Ok(Retriaged::StillRunning),
                 Err(InvestigateError::Operation(err)) => Err(RetriageError::Operation(err)),
             };
         }
-        Ok(Retriaged::Outcome(if fresh {
+        let outcome = if fresh {
             triage.retriage(incident).await
         } else {
             triage.triage(incident).await
-        }))
+        };
+        Ok(Retriaged::Outcome(Box::new(outcome)))
     }
 }
 

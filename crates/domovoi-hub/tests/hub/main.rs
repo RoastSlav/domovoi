@@ -47,6 +47,8 @@ mod harness;
 #[cfg(test)]
 mod interactions;
 #[cfg(test)]
+mod operation_controls;
+#[cfg(test)]
 mod operations_api;
 #[cfg(test)]
 mod operations_steps;

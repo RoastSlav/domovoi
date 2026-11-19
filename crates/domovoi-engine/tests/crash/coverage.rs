@@ -33,7 +33,7 @@ const COMMIT_SITES: [&str; 6] = [
 /// Every audit kind the action and operation writers can produce, including the chat-token
 /// rotation. A scenario
 /// has to exercise each one, and a new producer has to be added here.
-const AUDIT_KINDS: [&str; 23] = [
+const AUDIT_KINDS: [&str; 24] = [
     "action.proposed",
     "action.approved",
     "action.denied",
@@ -54,6 +54,7 @@ const AUDIT_KINDS: [&str; 23] = [
     "operation.cancelled",
     "operation.paused",
     "operation.resumed",
+    "operation.answered",
     "execution.proposed",
     "execution.approved",
     "execution.denied",
