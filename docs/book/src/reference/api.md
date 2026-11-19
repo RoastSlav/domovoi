@@ -65,7 +65,7 @@ An unknown operation or step is 404, and a bad reason, limit or answer is 400 wi
 
 ## Policy
 
-The policy routes read and change the policy draft, publish numbered versions and show shadow decisions. See [Policy](../concepts/policy.md) for what the terms mean. The routes below are not served by this build yet.
+The policy routes read and change the policy draft, publish numbered versions and show shadow decisions. See [Policy](../concepts/policy.md) for what the terms mean.
 
 Reads need a logged-in session. Every change needs the session and the CSRF header.
 
