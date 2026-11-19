@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use domovoi_core::ports::{ClaimToken, EffectRecord};
-use domovoi_core::{ReadToolCall, StepIntent, StepKind, StepOutcome};
+use domovoi_core::{OperationStatus, ReadToolCall, StepIntent, StepKind, StepOutcome};
 
 use super::{Address, address, ask, held, load, outcome, unreadable};
 use crate::effects::{EffectHandler, EffectOutcome};
@@ -34,7 +34,7 @@ impl EffectHandler for CollectEvidence {
         let Some(Address {
             operation,
             step: Some(step),
-        }) = address(&effect.payload)
+        }) = address(effect)
         else {
             return unreadable();
         };
@@ -52,7 +52,11 @@ impl EffectHandler for CollectEvidence {
         let StepIntent::EvidenceRequest { host, tool, args } = &record.step.intent else {
             return unreadable();
         };
-        if snapshot.operation.status.pause_reason().is_some() {
+        // A queued operation has no slot yet and a paused one is stopped: the read waits, it is
+        // never dropped.
+        if snapshot.operation.status.pause_reason().is_some()
+            || snapshot.operation.status == OperationStatus::Queued
+        {
             let retry = shared.settings.retry_interval;
             let again = super::spec(
                 domovoi_core::ports::EffectKind::CollectEvidence,

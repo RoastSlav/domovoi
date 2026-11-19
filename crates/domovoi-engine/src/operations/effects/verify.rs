@@ -37,7 +37,7 @@ impl EffectHandler for VerifyHandler {
             }),
             Some(execution),
         ) = (
-            address(&effect.payload),
+            address(effect),
             effect
                 .payload
                 .get("execution")

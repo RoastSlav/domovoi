@@ -14,7 +14,7 @@ mod wake;
 
 use std::sync::Arc;
 
-use domovoi_core::ports::{ClaimToken, EffectKind, EffectRecord, EffectStatus};
+use domovoi_core::ports::{AggregateKind, ClaimToken, EffectKind, EffectRecord, EffectStatus};
 use domovoi_core::{EffectId, OperationId, OperationSnapshot, StepId, StepOutcome};
 use jiff::{SignedDuration, Timestamp};
 use serde_json::Value;
@@ -57,12 +57,19 @@ pub(super) struct Address {
     pub(super) step: Option<StepId>,
 }
 
-/// The address in a version 1 payload, or `None` when it is not one.
-pub(super) fn address(payload: &Value) -> Option<Address> {
-    if payload.get("v")?.as_u64()? != 1 {
+/// The address of `effect`, or `None` when the effect cannot be trusted to be about one
+/// operation: its aggregate is not an operation, its payload is not version 1, or the
+/// operation the payload names is not the effect's aggregate. This is the one place that is
+/// checked, so a handler never touches an operation an effect is not addressed to.
+pub(super) fn address(effect: &EffectRecord) -> Option<Address> {
+    let payload = &effect.payload;
+    if effect.aggregate.kind != AggregateKind::Operation || payload.get("v")?.as_u64()? != 1 {
         return None;
     }
-    let operation = payload.get("operation")?.as_str()?.parse().ok()?;
+    let operation: OperationId = payload.get("operation")?.as_str()?.parse().ok()?;
+    if effect.aggregate.id.parse::<OperationId>().ok()? != operation {
+        return None;
+    }
     let step = match payload.get("step") {
         Some(step) => Some(step.as_str()?.parse().ok()?),
         None => None,

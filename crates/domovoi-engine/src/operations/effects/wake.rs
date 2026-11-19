@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use domovoi_core::ports::{ClaimToken, EffectKind, EffectRecord};
-use domovoi_core::{OperationSnapshot, StepId, StepKind, StepOutcome};
+use domovoi_core::{OperationSnapshot, OperationStatus, StepId, StepKind, StepOutcome};
 use jiff::SignedDuration;
 
 use super::dispatch::pending_execution;
@@ -35,7 +35,7 @@ impl EffectHandler for WakeHandler {
         let shared = &*self.shared;
         let held = held(effect, claim);
         let (Some(Address { operation, step }), Some(purpose)) = (
-            address(&effect.payload),
+            address(effect),
             effect.payload.get("purpose").and_then(|p| p.as_str()),
         ) else {
             return unreadable();
@@ -150,10 +150,22 @@ async fn question_timeout(
     step: StepId,
 ) -> EffectOutcome {
     let operation = snapshot.operation.id;
-    let pending = snapshot.step(step).is_some_and(|record| {
-        record.step.kind == StepKind::Question && record.progress.outcome == StepOutcome::Pending
-    });
-    if !pending {
+    let open = |record: &domovoi_core::StepRecord| {
+        record.step.kind == StepKind::Question && !record.progress.outcome.is_final()
+    };
+    if snapshot.operation.status == OperationStatus::Queued && snapshot.step(step).is_some_and(open)
+    {
+        // The question cannot time out before its operation has a slot: look again later.
+        let again = spec(
+            EffectKind::Wake,
+            wake_payload(operation, Some(step), "question_timeout"),
+            after(shared, shared.settings.retry_interval),
+            WAKE_ATTEMPTS,
+            None,
+        );
+        return defer(shared, held, operation, None, again, false).await;
+    }
+    if !snapshot.step(step).is_some_and(open) {
         return finish(shared, held).await;
     }
     let answered = ask(shared, |reply| OperationCommand::FinishStep {

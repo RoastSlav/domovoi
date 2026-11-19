@@ -68,6 +68,19 @@ The operation aggregate models one piece of work as a durable record. It is off 
   exists in the trace schema, but nothing writes an authorization of kind `policy`. Every
   Execution step waits for an approval by an authenticated human, under the same rule as
   [0007](0007-human-only-approvals.md). INV-1 is unchanged for steps.
+- **Some effects are created and never claimed yet.** The operation service has no handler for
+  `build_context`, `call_model`, `draft_summary`, `notify`, `evaluate_policy` or `issue_permit`.
+  A failed verification creates a `build_context` effect, and it stays pending until the
+  reasoning driver that handles it exists. This is a deliberate boundary, not an omission to be
+  worked around.
+- **A queued operation loses no work.** A seed may carry an evidence request or a question
+  before the operation has a slot. Its effects are created at once; while the operation is
+  queued their handlers put them back for another look (the same way they do for a paused
+  operation) instead of completing them, so the read runs and the timeout fires only after
+  admission.
+- **A model turn is charged when it is accepted.** A batch of turns is checked against the
+  running count, so it cannot pass a limit together; the tokens and cost a turn reports are
+  charged when it finishes.
 
 ## Consequences
 

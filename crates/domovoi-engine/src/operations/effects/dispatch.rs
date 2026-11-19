@@ -38,7 +38,7 @@ impl EffectHandler for DispatchHandler {
         let Some(Address {
             operation,
             step: Some(step),
-        }) = address(&effect.payload)
+        }) = address(effect)
         else {
             return unreadable();
         };

@@ -90,6 +90,7 @@ fn born(work: &mut Work<'_>, new: NewStep) -> Result<(), DecideError> {
                     ..StepProgress::pending()
                 };
                 work.add_step(id, &phase, parent, intent, running)?;
+                work.charge(BudgetKind::ModelTurns, 1);
             }
         }
         StepIntent::EvidenceRequest { .. } => {
@@ -163,7 +164,8 @@ pub(super) fn started(work: &mut Work<'_>, step: StepId) -> Result<(), DecideErr
     work.set_progress(step, running)
 }
 
-/// A step reaches a final outcome. A model turn also charges what it used.
+/// A step reaches a final outcome. A model turn also charges the tokens and cost it reports;
+/// the turn itself was counted when it was accepted.
 pub(super) fn finished(
     work: &mut Work<'_>,
     step: StepId,
@@ -204,7 +206,6 @@ pub(super) fn finished(
     if kind == StepKind::ReasoningTurn
         && let Some(used) = usage
     {
-        work.charge(BudgetKind::ModelTurns, 1);
         let tokens = u64::from(used.input_tokens) + u64::from(used.output_tokens);
         work.charge(BudgetKind::Tokens, tokens);
         work.charge(BudgetKind::Cost, used.cost_micros.unwrap_or(0));
@@ -228,7 +229,7 @@ pub(super) fn answer(
             "only a question can be answered".into(),
         ));
     }
-    if record.progress.outcome != StepOutcome::Pending {
+    if record.progress.outcome.is_final() {
         return Err(DecideError::StepNotOpen(question));
     }
     let progress = record.progress.clone();

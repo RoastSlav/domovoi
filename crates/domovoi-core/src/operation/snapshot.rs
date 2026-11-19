@@ -51,18 +51,19 @@ impl OperationSnapshot {
     }
 
     /// What the operation is waiting for, from its steps alone, in priority order: a pending
-    /// Approval, a pending Question, a pending Execution that was approved and is waiting for
+    /// Approval, a pending or started Question, a pending Execution that was approved and is waiting for
     /// its agent, a pending Verification.
     #[must_use]
     pub fn waits(&self) -> Vec<WaitKind> {
         let mut waits = Vec::new();
         for record in &self.steps {
-            if record.progress.outcome != StepOutcome::Pending {
-                continue;
-            }
+            let outcome = record.progress.outcome;
+            let pending = outcome == StepOutcome::Pending;
             let wait = match record.step.kind {
+                // A question that was started is still waiting for its answer.
+                StepKind::Question if !outcome.is_final() => WaitKind::User,
+                _ if !pending => continue,
                 StepKind::Approval => WaitKind::Approval,
-                StepKind::Question => WaitKind::User,
                 StepKind::Execution => {
                     let waiting = self.execution_of(record.step.id).is_some_and(|row| {
                         row.value.approval().is_some() && row.value.waiting_since.is_some()

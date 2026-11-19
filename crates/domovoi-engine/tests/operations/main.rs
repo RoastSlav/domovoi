@@ -7,6 +7,8 @@ mod decide_execution;
 #[cfg(test)]
 mod decide_finish;
 #[cfg(test)]
+mod decide_turns;
+#[cfg(test)]
 mod drive;
 #[cfg(test)]
 mod effects;
@@ -16,6 +18,8 @@ mod execution;
 mod harness;
 #[cfg(test)]
 mod properties;
+#[cfg(test)]
+mod queued;
 #[cfg(test)]
 mod restart;
 #[cfg(test)]

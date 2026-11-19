@@ -13,6 +13,8 @@ Operations are switched off unless you enable them under `[orchestration]`. With
 
 There is no page in the web UI for operations yet, so there is nothing to create or watch from the browser.
 
+The step that asks a model what to do next is not part of Domovoi yet. An operation that needs a new round of reasoning, for example after a failed check, records that it does and then waits; nothing picks that up until the reasoning step arrives.
+
 ## Settings
 
 Set them in `hub.toml` under `[orchestration]`. A change takes effect after a restart.
@@ -37,6 +39,8 @@ tokens = 200000
 
 - `loop_guard_per_hour` (default `3`) limits how many runs of the same skill on the same host may start in one hour.
 - A budget that runs out pauses the operation. It stays paused until someone raises that limit.
+- A model turn counts against `model_turns` as soon as it is accepted, whether or not it reports its usage.
+- An operation that is queued because `max_running` is reached keeps the reads and questions it started with. They wait, and run once it has a slot.
 - Every value must be positive, and each duration must be longer than zero.
 
 ## Approval
