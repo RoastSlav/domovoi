@@ -111,7 +111,8 @@ enum Field {
     Summary,
 }
 
-/// The steps of `kind` that were caused by `turn`, in ordinal order.
+/// The steps of `kind` that were caused by `turn` (or stored as its children), in ordinal
+/// order.
 pub(crate) fn caused_by(
     snapshot: &OperationSnapshot,
     turn: StepId,
@@ -122,9 +123,13 @@ pub(crate) fn caused_by(
         .iter()
         .filter(|record| record.step.kind == kind)
         .filter(|record| {
-            snapshot.edges.iter().any(|edge| {
-                edge.kind == EdgeKind::CausedBy && edge.from == record.step.id && edge.to == turn
-            })
+            // A refused Execution step is stored without edges, so its parent names the turn.
+            record.step.parent == Some(turn)
+                || snapshot.edges.iter().any(|edge| {
+                    edge.kind == EdgeKind::CausedBy
+                        && edge.from == record.step.id
+                        && edge.to == turn
+                })
         })
         .collect()
 }
