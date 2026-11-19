@@ -28,48 +28,57 @@ if (!existsSync(join(dist, "index.html"))) {
 }
 
 const server = await startServer(dist);
-const browser = await chromium.launch({ channel: process.env.SMOKE_CHANNEL || undefined });
-const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
-const page = await context.newPage();
-const problems = [];
-page.on("console", (message) => {
-    if (message.type() === "error") {
-        problems.push(`console.error: ${message.text()}`);
-    }
-});
-page.on("pageerror", (error) => problems.push(`uncaught error: ${error.message}`));
-
+let browser;
 let failed = false;
-const ctx = { page, context, browser, server, base: server.base };
-for (const [index, check] of CHECKS.entries()) {
-    try {
-        await check.run(ctx);
-        console.log(`ok ${index + 1}  ${check.name}`);
-    } catch (error) {
-        failed = true;
-        mkdirSync(out, { recursive: true });
-        const shot = join(out, `check-${index + 1}.png`);
-        await page.screenshot({ path: shot, fullPage: true }).catch(() => undefined);
-        const text = await page
-            .locator("body")
-            .innerText()
-            .catch(() => "(no page text)");
-        console.error(`FAIL ${index + 1}  ${check.name}\n${error.message}`);
-        console.error(`Screenshot: ${shot}\nPage text:\n${text.slice(0, 1500)}`);
-        break;
-    }
-}
+try {
+    browser = await chromium.launch({ channel: process.env.SMOKE_CHANNEL || undefined });
+    const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const page = await context.newPage();
+    const problems = [];
+    page.on("console", (message) => {
+        if (message.type() === "error") {
+            problems.push(`console.error: ${message.text()}`);
+        }
+    });
+    page.on("pageerror", (error) => problems.push(`uncaught error: ${error.message}`));
 
-if (!failed) {
-    const extra = [...problems, ...server.unexpected.map((key) => `unexpected request: ${key}`)];
-    if (extra.length === 0) {
-        console.log(`ok ${CHECKS.length + 1}  no console errors and no unexpected API request`);
-    } else {
-        failed = true;
-        console.error(`FAIL ${CHECKS.length + 1}  errors during the run:\n${extra.join("\n")}`);
+    const ctx = { page, context, browser, server, base: server.base };
+    for (const [index, check] of CHECKS.entries()) {
+        try {
+            await check.run(ctx);
+            console.log(`ok ${index + 1}  ${check.name}`);
+        } catch (error) {
+            failed = true;
+            mkdirSync(out, { recursive: true });
+            const shot = join(out, `check-${index + 1}.png`);
+            await page.screenshot({ path: shot, fullPage: true }).catch(() => undefined);
+            const text = await page
+                .locator("body")
+                .innerText()
+                .catch(() => "(no page text)");
+            console.error(`FAIL ${index + 1}  ${check.name}\n${error.message}`);
+            console.error(`Screenshot: ${shot}\nPage text:\n${text.slice(0, 1500)}`);
+            break;
+        }
     }
-}
 
-await browser.close();
-server.close();
+    if (!failed) {
+        const extra = [
+            ...problems,
+            ...server.unexpected.map((key) => `unexpected request: ${key}`),
+        ];
+        if (extra.length === 0) {
+            console.log(`ok ${CHECKS.length + 1}  no console errors and no unexpected API request`);
+        } else {
+            failed = true;
+            console.error(`FAIL ${CHECKS.length + 1}  errors during the run:\n${extra.join("\n")}`);
+        }
+    }
+} catch (error) {
+    failed = true;
+    console.error(`Smoke run aborted: ${error instanceof Error ? error.message : error}`);
+} finally {
+    await browser?.close().catch(() => undefined);
+    server.close();
+}
 process.exit(failed ? 1 : 0);

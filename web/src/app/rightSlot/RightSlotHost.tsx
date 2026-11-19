@@ -98,7 +98,10 @@ export function RightSlotHost() {
     if (mode !== "sheet") {
       return undefined;
     }
-    const inert = Array.from(document.querySelectorAll("[data-slot-inert]"));
+    // Only what the sheet made inert is lifted again: an element already inert stays so.
+    const inert = Array.from(document.querySelectorAll("[data-slot-inert]")).filter(
+      (element) => !element.hasAttribute("inert"),
+    );
     inert.forEach((element) => element.setAttribute("inert", ""));
     return () => inert.forEach((element) => element.removeAttribute("inert"));
   }, [mode]);
