@@ -20,6 +20,7 @@ mod incidents;
 mod knowledge;
 mod notify;
 mod operations;
+mod policy;
 mod triage;
 
 pub use accounts::{SessionRepo, SettingsRepo, UserRepo};
@@ -31,6 +32,7 @@ pub use incidents::{IncidentFilter, IncidentRepo, IncidentTimelineEntry, SignalR
 pub use knowledge::{AckRepo, AdvisoryRepo, BaselineRepo, FactRepo, NoteHit, NoteRepo};
 pub use notify::NotifyStateRepo;
 pub use operations::{OperationFilter, OperationRepo};
+pub use policy::PolicyRepo;
 pub use triage::{CallOutcome, TriageCacheRepo, UsageEntry, UsageRepo, UsageTotal};
 
 /// Why a repository call failed.

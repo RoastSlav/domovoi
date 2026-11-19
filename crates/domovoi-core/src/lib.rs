@@ -24,6 +24,7 @@ pub mod interaction;
 pub mod note;
 pub mod notify;
 pub mod operation;
+pub mod policy_store;
 pub mod ports;
 pub mod severity;
 mod sha256;
@@ -61,7 +62,7 @@ pub use host::{
 };
 pub use id::{
     AckRuleId, ActionId, AdvisoryId, AgentId, AgentSessionId, EffectId, ExecutionId, HostId,
-    IncidentId, NoteId, OperationId, RequestId, SignalId, StepId, UserId,
+    IncidentId, NoteId, OperationId, PolicyVersionId, RequestId, SignalId, StepId, UserId,
 };
 pub use incident::{
     Incident, IncidentChange, IncidentEvent, IncidentGroup, IncidentPolicy, IncidentStatus, apply,

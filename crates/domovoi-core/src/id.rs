@@ -151,6 +151,10 @@ define_id!(
     /// Identifies a pending effect in the work outbox.
     EffectId
 );
+define_id!(
+    /// Identifies one policy version, draft or published.
+    PolicyVersionId
+);
 
 #[cfg(test)]
 mod tests {

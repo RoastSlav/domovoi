@@ -31,6 +31,8 @@ pub enum JournalKind {
     ExecutionTransition,
     /// A signal folded into an existing incident.
     IncidentFolded,
+    /// A policy version was published.
+    PolicyPublished,
 }
 
 impl JournalKind {
@@ -47,6 +49,7 @@ impl JournalKind {
             Self::StepFinished => "operation.step_finished",
             Self::ExecutionTransition => "operation.execution",
             Self::IncidentFolded => "incident.folded",
+            Self::PolicyPublished => "policy.published",
         }
     }
 
@@ -63,6 +66,7 @@ impl JournalKind {
             "operation.step_finished" => Some(Self::StepFinished),
             "operation.execution" => Some(Self::ExecutionTransition),
             "incident.folded" => Some(Self::IncidentFolded),
+            "policy.published" => Some(Self::PolicyPublished),
             _ => None,
         }
     }
@@ -221,6 +225,7 @@ mod tests {
             JournalKind::StepFinished,
             JournalKind::ExecutionTransition,
             JournalKind::IncidentFolded,
+            JournalKind::PolicyPublished,
         ] {
             assert_eq!(JournalKind::parse(kind.as_str()), Some(kind));
         }

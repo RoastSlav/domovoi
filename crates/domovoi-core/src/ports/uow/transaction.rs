@@ -2,7 +2,8 @@
 
 use std::fmt;
 
-use crate::id::{ActionId, EffectId, IncidentId, NoteId, OperationId};
+use crate::id::{ActionId, EffectId, IncidentId, NoteId, OperationId, PolicyVersionId};
+use crate::policy_store::PolicyWrite;
 use crate::ports::repos::IncidentTimelineEntry;
 use crate::{ActionRequest, Incident, Note, Signal};
 
@@ -22,6 +23,8 @@ pub enum AggregateKind {
     Note,
     /// An operation.
     Operation,
+    /// A policy version, draft or published.
+    Policy,
 }
 
 impl AggregateKind {
@@ -38,6 +41,7 @@ impl AggregateKind {
             Self::Action => "action",
             Self::Note => "note",
             Self::Operation => "operation",
+            Self::Policy => "policy",
         }
     }
 
@@ -49,6 +53,7 @@ impl AggregateKind {
             "action" => Some(Self::Action),
             "note" => Some(Self::Note),
             "operation" => Some(Self::Operation),
+            "policy" => Some(Self::Policy),
             _ => None,
         }
     }
@@ -98,6 +103,17 @@ impl AggregateRef {
     pub fn operation(id: OperationId) -> Self {
         Self {
             kind: AggregateKind::Operation,
+            id: id.to_string(),
+        }
+    }
+}
+
+impl AggregateRef {
+    /// A policy version reference: the aggregate of a `policy.published` journal entry.
+    #[must_use]
+    pub fn policy(id: PolicyVersionId) -> Self {
+        Self {
+            kind: AggregateKind::Policy,
             id: id.to_string(),
         }
     }
@@ -222,6 +238,8 @@ pub enum StateWrite {
     },
     /// One change to an operation, its steps, edges, executions or incident links.
     Operation(OperationWrite),
+    /// One change to the policy store: a draft, a publication or a batch of shadow decisions.
+    Policy(PolicyWrite),
 }
 
 /// Everything one business event changes.
@@ -381,6 +399,7 @@ mod tests {
             AggregateKind::Action,
             AggregateKind::Note,
             AggregateKind::Operation,
+            AggregateKind::Policy,
         ] {
             assert_eq!(AggregateKind::parse(kind.as_str()), Some(kind));
         }
