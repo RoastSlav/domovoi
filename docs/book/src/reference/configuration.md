@@ -191,6 +191,33 @@ How often an unacknowledged incident is announced again.
 | `critical` | duration | Interval for critical incidents. Default `"4h"`. |
 | `warning` | duration | Interval for warnings. Default `"24h"`. |
 
+### `[orchestration]`
+
+The operation service: durable multi-step work with approvals. Off by default.
+
+| Key | Type | Meaning |
+| --- | --- | --- |
+| `agent_wait_limit` | duration | How long an approved action waits for its host's agent to come back. Default `"30m"`. |
+| `approval_ttl` | duration | How long a proposed action waits for a person to approve it. At most `"7d"`. Default `"24h"`. |
+| `enabled` | boolean | Whether the operation service runs. Read once at start, so changing it needs a restart. Default `false`. |
+| `loop_guard_per_hour` | integer | Runs of one skill on one host allowed per hour before the loop guard refuses the next. Default 3. |
+| `max_running` | integer | Operations that may be running, waiting or paused at once; the rest queue. Default 4. |
+| `question_timeout` | duration | How long a question waits for an answer. Default `"24h"`. |
+
+#### `[orchestration.budgets]`
+
+Limits an operation starts with.
+
+| Key | Type | Meaning |
+| --- | --- | --- |
+| `cost_micros` | integer | Model cost in millionths of a currency unit. No limit by default. |
+| `cycles` | integer | Repair cycles. Default 3. |
+| `evidence_requests` | integer | Evidence requests. Default 40. |
+| `executions` | integer | Executions. Default 5. |
+| `model_turns` | integer | Model turns. Default 20. |
+| `tokens` | integer | Model tokens, input and output together. Default 200000. |
+| `wall_time` | duration | Wall-clock time from admission. Default `"72h"`. |
+
 ### `[[probes]]`
 
 Network probes run from the hub.

@@ -59,6 +59,10 @@ expression: "HubConfig::json_schema()"
       "description": "When people are notified.",
       "$ref": "#/$defs/NotifySection"
     },
+    "orchestration": {
+      "description": "The operation service: durable multi-step work with approvals. Off by default.",
+      "$ref": "#/$defs/OrchestrationSection"
+    },
     "probes": {
       "description": "Network probes run from the hub.",
       "type": "array",
@@ -532,6 +536,127 @@ expression: "HubConfig::json_schema()"
         "renotify": {
           "description": "How often an unacknowledged incident is announced again.",
           "$ref": "#/$defs/Renotify"
+        }
+      },
+      "additionalProperties": false
+    },
+    "OrchestrationBudgets": {
+      "description": "`[orchestration.budgets]`: what one operation may spend before it pauses. A limit left\nout of the file keeps its default; `cost_micros` has no default and so no limit.",
+      "type": "object",
+      "properties": {
+        "cost_micros": {
+          "description": "Model cost in millionths of a currency unit. No limit by default.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "default": null,
+          "minimum": 0
+        },
+        "cycles": {
+          "description": "Repair cycles. Default 3.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "default": 3,
+          "minimum": 0
+        },
+        "evidence_requests": {
+          "description": "Evidence requests. Default 40.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "default": 40,
+          "minimum": 0
+        },
+        "executions": {
+          "description": "Executions. Default 5.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "default": 5,
+          "minimum": 0
+        },
+        "model_turns": {
+          "description": "Model turns. Default 20.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "default": 20,
+          "minimum": 0
+        },
+        "tokens": {
+          "description": "Model tokens, input and output together. Default 200000.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "default": 200000,
+          "minimum": 0
+        },
+        "wall_time": {
+          "description": "Wall-clock time from admission. Default `\"72h\"`.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Duration"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "OrchestrationSection": {
+      "description": "`[orchestration]`: durable operations that wait for a person, dispatch skills and verify\nthe result. Off by default; while it is off the operation service does not start and\nnothing else changes.",
+      "type": "object",
+      "properties": {
+        "agent_wait_limit": {
+          "description": "How long an approved action waits for its host's agent to come back. Default `\"30m\"`.",
+          "$ref": "#/$defs/Duration"
+        },
+        "approval_ttl": {
+          "description": "How long a proposed action waits for a person to approve it. At most `\"7d\"`.\nDefault `\"24h\"`.",
+          "$ref": "#/$defs/Duration"
+        },
+        "budgets": {
+          "description": "Limits an operation starts with.",
+          "$ref": "#/$defs/OrchestrationBudgets"
+        },
+        "enabled": {
+          "description": "Whether the operation service runs. Read once at start, so changing it needs a\nrestart. Default `false`.",
+          "type": "boolean",
+          "default": false
+        },
+        "loop_guard_per_hour": {
+          "description": "Runs of one skill on one host allowed per hour before the loop guard refuses the\nnext. Default 3.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 3,
+          "minimum": 0
+        },
+        "max_running": {
+          "description": "Operations that may be running, waiting or paused at once; the rest queue.\nDefault 4.",
+          "type": "integer",
+          "format": "uint16",
+          "default": 4,
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "question_timeout": {
+          "description": "How long a question waits for an answer. Default `\"24h\"`.",
+          "$ref": "#/$defs/Duration"
         }
       },
       "additionalProperties": false
