@@ -3,6 +3,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useReducer,
   useRef,
@@ -66,7 +67,8 @@ export function RightSlotProvider({ children }: { children: ReactNode }) {
   const wide = useMediaQuery(WIDE_QUERY);
   const handlers = useRef<Record<SurfaceId, SurfaceHandlers>>({});
   const latest = useRef(state);
-  useEffect(() => {
+  // A layout effect, so `open` and `close` called from a child's effect in this commit see it.
+  useLayoutEffect(() => {
     latest.current = state;
   }, [state]);
   const wantsFocus = useRef(new Set<SurfaceId>());
