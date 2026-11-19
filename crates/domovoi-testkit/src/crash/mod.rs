@@ -456,6 +456,15 @@ impl<S: SweepStore> EffectRead for CrashingStore<S> {
     ) -> Result<Vec<domovoi_core::ports::EffectRecord>, StoreError> {
         self.inner.effects_with_status(status, limit).await
     }
+
+    async fn claimed_of(
+        &self,
+        kind: domovoi_core::ports::EffectKind,
+        aggregate: domovoi_core::ports::AggregateKind,
+        limit: u16,
+    ) -> Result<Vec<domovoi_core::ports::EffectRecord>, StoreError> {
+        self.inner.claimed_of(kind, aggregate, limit).await
+    }
 }
 
 /// Reopens durable storage after a simulated crash.

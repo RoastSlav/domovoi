@@ -2,10 +2,10 @@
 
 use async_trait::async_trait;
 use domovoi_core::ports::{
-    AggregateRef, ClaimToken, CommitError, CommitReceipt, EffectCancel, EffectCompletion,
-    EffectDeath, EffectDraft, EffectRead, EffectRecord, EffectReschedule, EffectStatus,
-    JournalDraft, JournalEntry, JournalRead, StoreError, Transaction, UnitOfWork, Versioned,
-    VersionedRead,
+    AggregateKind, AggregateRef, ClaimToken, CommitError, CommitReceipt, EffectCancel,
+    EffectCompletion, EffectDeath, EffectDraft, EffectKind, EffectRead, EffectRecord,
+    EffectReschedule, EffectStatus, JournalDraft, JournalEntry, JournalRead, StoreError,
+    Transaction, UnitOfWork, Versioned, VersionedRead,
 };
 use domovoi_core::{EffectId, Incident, IncidentId, Note, NoteId};
 
@@ -317,6 +317,27 @@ impl EffectRead for InMemoryStore {
             .iter()
             .filter_map(|id| state.effects.get(id))
             .filter(|effect| effect.status == status.as_str())
+            .take(limit_of(limit))
+            .cloned()
+            .collect())
+    }
+
+    async fn claimed_of(
+        &self,
+        kind: EffectKind,
+        aggregate: AggregateKind,
+        limit: u16,
+    ) -> Result<Vec<EffectRecord>, StoreError> {
+        let state = self.begin()?;
+        Ok(state
+            .effect_order
+            .iter()
+            .filter_map(|id| state.effects.get(id))
+            .filter(|effect| {
+                effect.status == EffectStatus::Claimed.as_str()
+                    && effect.kind == kind.as_str()
+                    && effect.aggregate.kind == aggregate
+            })
             .take(limit_of(limit))
             .cloned()
             .collect())

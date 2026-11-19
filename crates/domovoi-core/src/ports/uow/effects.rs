@@ -10,7 +10,7 @@ use serde_json::Value;
 use crate::id::EffectId;
 use crate::ports::repos::StoreError;
 
-use super::AggregateRef;
+use super::{AggregateKind, AggregateRef};
 
 /// The kinds of pending work.
 ///
@@ -252,6 +252,18 @@ pub trait EffectRead: Send + Sync {
     async fn effects_with_status(
         &self,
         status: EffectStatus,
+        limit: u16,
+    ) -> Result<Vec<EffectRecord>, StoreError>;
+
+    /// Up to `limit` claimed effects of `kind` that belong to an aggregate of `aggregate`, in
+    /// creation order (oldest first). `limit` is clamped to 1..=500. Unlike
+    /// [`effects_with_status`](Self::effects_with_status) the filter runs in the store, so a
+    /// caller that returns what it reads to pending reaches every such effect, however many
+    /// other claimed effects there are.
+    async fn claimed_of(
+        &self,
+        kind: EffectKind,
+        aggregate: AggregateKind,
         limit: u16,
     ) -> Result<Vec<EffectRecord>, StoreError>;
 }

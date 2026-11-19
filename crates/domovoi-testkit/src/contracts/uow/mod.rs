@@ -35,6 +35,7 @@ pub use lifecycle_retry::{
 pub use lifecycle_scope::{
     an_empty_aggregate_scope_claims_nothing,
     cancel_effects_cancels_only_pending_effects_of_the_aggregate, claim_filters_by_aggregate_kind,
+    claimed_of_filters_by_kind_aggregate_and_status,
     revert_claimed_at_start_is_scoped_to_aggregates,
 };
 pub use rollback::failed_effect_completion_rolls_back_every_stage;

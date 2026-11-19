@@ -143,3 +143,57 @@ pub async fn cancel_effects_cancels_only_pending_effects_of_the_aggregate(
     assert_eq!(fetch(subject, held).await?.status, "done");
     Ok(())
 }
+
+/// `claimed_of` lists only claimed effects of the kind and the aggregate kind it is given, in
+/// creation order, and stops at its limit.
+pub async fn claimed_of_filters_by_kind_aggregate_and_status(
+    subject: &dyn UowSubject,
+) -> ContractResult {
+    let dispatch = |aggregate: AggregateRef| EffectDraft {
+        aggregate,
+        ..draft(EffectKind::Dispatch, 0)
+    };
+    let first = store(
+        subject,
+        dispatch(AggregateRef::operation(OperationId::new())),
+    )
+    .await?;
+    let second = store(
+        subject,
+        dispatch(AggregateRef::operation(OperationId::new())),
+    )
+    .await?;
+    let mut later = dispatch(AggregateRef::operation(OperationId::new()));
+    later.not_before = at(100);
+    let unclaimed = store(subject, later).await?;
+    let legacy = store(subject, draft(EffectKind::Dispatch, 0)).await?;
+    let wake = store(
+        subject,
+        owned_by(AggregateRef::operation(OperationId::new())),
+    )
+    .await?;
+    // Claim everything except `unclaimed`, which is due later.
+    let claimed = claim_in(
+        subject,
+        &[EffectKind::Dispatch, EffectKind::Wake],
+        &[AggregateKind::Operation, AggregateKind::Incident],
+    )
+    .await?;
+    assert_eq!(claimed.claimed.len(), 4, "every due effect is claimed");
+    for id in [first, second, legacy, wake] {
+        assert_eq!(fetch(subject, id).await?.status, "claimed");
+    }
+    assert_eq!(fetch(subject, unclaimed).await?.status, "pending");
+    let listed = subject
+        .effects()
+        .claimed_of(EffectKind::Dispatch, AggregateKind::Operation, 10)
+        .await?;
+    let found: Vec<_> = listed.iter().map(|record| record.id).collect();
+    assert_eq!(found, vec![first, second]);
+    let limited = subject
+        .effects()
+        .claimed_of(EffectKind::Dispatch, AggregateKind::Operation, 1)
+        .await?;
+    assert_eq!(limited.len(), 1);
+    Ok(())
+}
