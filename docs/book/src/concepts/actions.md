@@ -75,3 +75,7 @@ Every step adds an entry to the append-only audit log:
 | `action.verified`, `action.verify_failed` | what the check reported afterwards |
 
 Every entry also names the incident, host, skill, risk and plan hash.
+
+## Legacy actions
+
+When [operations](operations.md) are enabled, new proposals are steps of an investigation and are approved on the Operations page. Actions created before that, and the ones created by follow-up questions and chat, stay here: they are listed with a **Legacy** label, they finish the way they always did and can still be approved or denied here. They are never converted into steps, and nothing is invented for them.

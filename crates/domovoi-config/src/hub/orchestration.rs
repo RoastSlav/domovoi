@@ -11,8 +11,10 @@ use crate::duration::Duration;
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct OrchestrationSection {
-    /// Whether the operation service runs. Read once at start, so changing it needs a
-    /// restart. Default `false`.
+    /// Run investigations as operations: new incidents are investigated by an Investigate
+    /// operation and its proposed actions are approved per step on the Operations page.
+    /// Needs `[triage] enabled`. Read once at start, so changing it needs a restart.
+    /// Default `false`.
     #[serde(default)]
     pub enabled: bool,
     /// Operations that may be running, waiting or paused at once; the rest queue.
