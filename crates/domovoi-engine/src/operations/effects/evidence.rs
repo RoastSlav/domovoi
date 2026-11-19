@@ -3,13 +3,14 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use domovoi_core::ports::{ClaimToken, EffectRecord};
-use domovoi_core::{OperationStatus, ReadToolCall, StepIntent, StepKind, StepOutcome};
+use domovoi_core::ports::{ClaimToken, EffectKind, EffectRecord};
+use domovoi_core::{OperationId, OperationStatus, ReadToolCall, StepIntent, StepKind, StepOutcome};
 
 use super::{Address, address, ask, held, load, outcome, unreadable};
 use crate::effects::{EffectHandler, EffectOutcome};
 use crate::evidence::{EvidenceError, EvidenceRequest};
-use crate::operations::writer::{OpShared, OperationCommand};
+use crate::operations::error::OperationError;
+use crate::operations::writer::{Held, OpShared, OperationCommand};
 
 /// How many characters of the output the step's one-line summary keeps.
 const SUMMARY_CHARS: usize = 280;
@@ -52,20 +53,8 @@ impl EffectHandler for CollectEvidence {
         let StepIntent::EvidenceRequest { host, tool, args } = &record.step.intent else {
             return unreadable();
         };
-        // A queued operation has no slot yet and a paused one is stopped: the read waits, it is
-        // never dropped.
-        if snapshot.operation.status.pause_reason().is_some()
-            || snapshot.operation.status == OperationStatus::Queued
-        {
-            let retry = shared.settings.retry_interval;
-            let again = super::spec(
-                domovoi_core::ports::EffectKind::CollectEvidence,
-                effect.payload.clone(),
-                super::after(shared, retry),
-                effect.max_attempts,
-                effect.dedup_key.clone(),
-            );
-            return super::defer(shared, held, operation, None, again, false).await;
+        if snapshot.operation.status.pause_reason().is_some() {
+            return wait(shared, held, effect, operation).await;
         }
         if record.progress.outcome == StepOutcome::Pending {
             let started = ask(shared, |reply| OperationCommand::StartStep {
@@ -77,6 +66,12 @@ impl EffectHandler for CollectEvidence {
             .await;
             if let Err(err) = started {
                 tracing::debug!(%err, %step, "an evidence step could not be started");
+                // A queued operation has no slot yet: the read waits and is never dropped. The
+                // writer decides this against the stored operation, so a snapshot that was
+                // read just before admission cannot send a read away for nothing.
+                if matches!(err, OperationError::Decide(_)) && queued(shared, operation).await {
+                    return wait(shared, held, effect, operation).await;
+                }
                 return match outcome(Err(err)) {
                     EffectOutcome::Handled => super::finish(shared, held).await,
                     other => other,
@@ -122,6 +117,31 @@ impl EffectHandler for CollectEvidence {
             }
         }
     }
+}
+
+/// Whether the stored operation is still waiting for a slot.
+async fn queued(shared: &OpShared, operation: OperationId) -> bool {
+    matches!(
+        load(shared, operation).await,
+        Ok(snapshot) if snapshot.operation.status == OperationStatus::Queued
+    )
+}
+
+/// Puts the read back to be looked at again after the retry interval.
+async fn wait(
+    shared: &OpShared,
+    held: Held,
+    effect: &EffectRecord,
+    operation: OperationId,
+) -> EffectOutcome {
+    let again = super::spec(
+        EffectKind::CollectEvidence,
+        effect.payload.clone(),
+        super::after(shared, shared.settings.retry_interval),
+        effect.max_attempts,
+        effect.dedup_key.clone(),
+    );
+    super::defer(shared, held, operation, None, again, false).await
 }
 
 /// How a read ended.

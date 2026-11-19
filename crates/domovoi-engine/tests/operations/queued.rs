@@ -263,3 +263,46 @@ async fn start_returns_every_claimed_operation_dispatch_effect_to_pending() {
         .unwrap();
     assert_eq!(still.len(), 500, "the legacy dispatch effects stay claimed");
 }
+
+#[tokio::test]
+async fn start_returns_more_than_one_page_of_claimed_operation_dispatch_effects() {
+    let mut w = world_gated().await;
+    let mut tx = Transaction::new();
+    let mut ours = Vec::new();
+    for _ in 0..620 {
+        let effect = EffectDraft {
+            id: EffectId::new(),
+            kind: EffectKind::Dispatch,
+            aggregate: AggregateRef::operation(OperationId::new()),
+            payload: json!({}),
+            not_before: T0,
+            max_attempts: 5,
+            dedup_key: None,
+            created_at: T0,
+        };
+        ours.push(effect.id);
+        tx = tx.effect(effect);
+    }
+    w.uow.commit(tx).await.unwrap();
+    let store = Arc::clone(&w.store);
+    let claimed = store
+        .claim_due(
+            "old",
+            &[EffectKind::Dispatch],
+            &[AggregateKind::Operation],
+            T0,
+            SignedDuration::from_secs(600),
+            700,
+        )
+        .await
+        .unwrap();
+    assert_eq!(claimed.claimed.len(), 620);
+
+    w.restart().await;
+    w.settle().await;
+
+    for id in ours {
+        let stored = EffectRead::effect(&*store, id).await.unwrap().unwrap();
+        assert_eq!(stored.status, EffectStatus::Pending.as_str());
+    }
+}
