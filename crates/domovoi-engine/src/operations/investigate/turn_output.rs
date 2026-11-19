@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::triage::proposals::append_dropped;
 
-/// The sentence a report ends with while a proposed action waits for a person.
+/// The sentence a report ends with while a waiting step has no chat buttons.
 pub const APPROVAL_POINTER: &str =
     "Proposed actions are waiting for your approval on the Operations page of the web UI.";
 
@@ -139,6 +139,18 @@ pub(crate) fn output_of(record: &StepRecord) -> Option<TurnOutput> {
     TurnOutput::parse(record.progress.output.as_deref()?)
 }
 
+/// Adds [`APPROVAL_POINTER`] to the report of `outcome`: some waiting step has no chat
+/// buttons and is approved on the Operations page.
+pub(crate) fn add_pointer(outcome: &mut TriageOutcome) {
+    let (TriageOutcome::Report(report) | TriageOutcome::Cached { report, .. }) = outcome else {
+        return;
+    };
+    if !report.details.trim().is_empty() {
+        report.details.push_str("\n\n");
+    }
+    report.details.push_str(APPROVAL_POINTER);
+}
+
 /// The outcome the incident shows, rebuilt from the turn and the execution steps it caused.
 ///
 /// The proposals kept are the ones whose Execution step is not refused; `dropped` (the
@@ -193,15 +205,6 @@ pub(crate) fn report_view(
         })
     });
     append_dropped(&mut report, lines);
-    let waiting = executions
-        .iter()
-        .any(|record| record.progress.outcome == StepOutcome::Pending);
-    if waiting {
-        if !report.details.trim().is_empty() {
-            report.details.push_str("\n\n");
-        }
-        report.details.push_str(APPROVAL_POINTER);
-    }
     Some(match from {
         Some(from) => TriageOutcome::Cached { report, from },
         None => TriageOutcome::Report(report),
