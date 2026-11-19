@@ -1,6 +1,5 @@
 ---
 source: crates/domovoi-config/tests/config/schema.rs
-assertion_line: 5
 expression: "HubConfig::json_schema()"
 ---
 {
@@ -635,7 +634,7 @@ expression: "HubConfig::json_schema()"
           "$ref": "#/$defs/OrchestrationBudgets"
         },
         "enabled": {
-          "description": "Whether the operation service runs. Read once at start, so changing it needs a\nrestart. Default `false`.",
+          "description": "Run investigations as operations: new incidents are investigated by an Investigate\noperation and its proposed actions are approved per step on the Operations page.\nNeeds `[triage] enabled`. Read once at start, so changing it needs a restart.\nDefault `false`.",
           "type": "boolean",
           "default": false
         },
@@ -949,7 +948,7 @@ expression: "HubConfig::json_schema()"
           "minimum": 0
         },
         "concurrency": {
-          "description": "Triage runs at the same time. Default 2.",
+          "description": "Triage runs at the same time, and questions and chat at the same time. With\n`[orchestration] enabled` investigations are limited by `[orchestration] max_running`\ninstead. Default 2.",
           "type": "integer",
           "format": "uint8",
           "default": 2,
