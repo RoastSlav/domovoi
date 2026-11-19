@@ -199,6 +199,7 @@ async fn restarted_with(
             store,
             clock,
             link,
+            capabilities: Arc::new(domovoi_testkit::FakeCapabilityRegistry::empty()),
             service,
             events,
             bus,

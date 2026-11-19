@@ -172,10 +172,7 @@ pub(crate) async fn answer(
         });
     }
     let snapshot = deps.catalog.snapshot(incident.host());
-    let skills = snapshot
-        .as_ref()
-        .map(|session| session.skills.clone())
-        .unwrap_or_default();
+    let skills = deps.capabilities.enabled_skills(incident.host());
     let scope = tools::Scope::of(&incident);
     let bundle = context::build(shared, &incident, &skills).await;
     // The incident itself: its latest report, its actions and its recent timeline.

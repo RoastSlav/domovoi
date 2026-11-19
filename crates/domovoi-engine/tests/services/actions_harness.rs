@@ -32,6 +32,8 @@ pub struct Actions {
     pub store: Arc<InMemoryStore>,
     pub clock: Arc<FakeClock>,
     pub link: Arc<FakeAgentLink>,
+    /// The registry the service reads, so a test can switch a skill off.
+    pub capabilities: Arc<domovoi_testkit::FakeCapabilityRegistry>,
     pub service: ActionHandle,
     pub events: broadcast::Receiver<DomainEvent>,
     pub bus: broadcast::Sender<DomainEvent>,
@@ -194,6 +196,9 @@ impl Seeded {
         let shutdown = self.shutdown.child_token();
         let events = self.bus.subscribe();
         let caps = action_caps(self.link.clone());
+        let capabilities = Arc::new(domovoi_testkit::FakeCapabilityRegistry::following(
+            self.link.clone(),
+        ));
         let deps = ActionDeps {
             actions: self.actions.clone(),
             incidents: self.store.clone(),
@@ -204,7 +209,7 @@ impl Seeded {
             probe: caps.probe,
             observer: caps.observer,
             journal: caps.journal,
-            capabilities: Arc::new(domovoi_testkit::FakeCapabilityRegistry::empty()),
+            capabilities: capabilities.clone(),
             handoff: caps.handoff,
             rerun: caps.rerun,
             hosts: self.hosts.clone(),
@@ -221,6 +226,7 @@ impl Seeded {
             store: self.store.clone(),
             clock: self.clock.clone(),
             link: self.link.clone(),
+            capabilities,
             service,
             events,
             bus: self.bus.clone(),

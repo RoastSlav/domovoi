@@ -82,6 +82,8 @@ pub struct World {
     pub store: Arc<InMemoryStore>,
     pub clock: Arc<FakeClock>,
     pub link: Arc<FakeAgentLink>,
+    /// The registry the triage service reads, so a test can switch a skill off.
+    pub capabilities: Arc<domovoi_testkit::FakeCapabilityRegistry>,
     pub primary: Arc<ScriptedLlm>,
     pub secondary: Arc<ScriptedLlm>,
     pub third: Arc<ScriptedLlm>,
@@ -282,20 +284,19 @@ async fn world_over_with_actions(
         },
         ActionSettings::default(),
     );
+    let capabilities = Arc::new(domovoi_testkit::FakeCapabilityRegistry::following(
+        link.clone(),
+    ));
     let deps = TriageDeps {
         primary: primary_dyn.clone(),
         fallbacks: fallbacks.clone(),
         evidence: domovoi_engine::Evidence::new(
             evidence_caps(link.clone()),
             clock.clone(),
-            Arc::new(domovoi_testkit::FakeCapabilityRegistry::following(
-                link.clone(),
-            )),
+            capabilities.clone(),
         ),
         catalog: domovoi_engine::HostCatalog::new(observer_of(link.clone())),
-        capabilities: Arc::new(domovoi_testkit::FakeCapabilityRegistry::following(
-            link.clone(),
-        )),
+        capabilities: capabilities.clone(),
         incidents: store.clone(),
         signals: store.clone(),
         notes: store.clone(),
@@ -326,6 +327,7 @@ async fn world_over_with_actions(
         store,
         clock,
         link,
+        capabilities,
         primary,
         secondary,
         third,

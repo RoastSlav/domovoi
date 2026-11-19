@@ -20,6 +20,8 @@ use domovoi_testkit::{FakeAgentLink, FakeClock, InMemoryStore};
 use jiff::{SignedDuration, Timestamp};
 use serde_json::{Value, json};
 
+use crate::api_harness::api;
+
 const T0: Timestamp = Timestamp::constant(1_700_000_000, 0);
 const T1: Timestamp = Timestamp::constant(1_700_000_600, 0);
 
@@ -48,7 +50,7 @@ fn summary(text: &str, risk: Risk) -> SkillSummary {
     }
 }
 
-/// A contract built for one test, the way prompt 24's own tests build them.
+/// A contract built for one test, the way the capability module's own tests build them.
 fn crafted(text: &str, effect: EffectClass, execution: ExecutionPath) -> CapabilityContract {
     CapabilityContract {
         id: id(text),
@@ -928,4 +930,121 @@ async fn a_real_agent_catalogue_walks_to_complete() {
     );
     assert_eq!(snapshot.pages, 1);
     assert_eq!(snapshot.entries.len(), listed.len());
+}
+
+#[tokio::test]
+async fn capability_endpoint_requires_auth() {
+    let a = api().await;
+    let reply = a
+        .send(
+            axum::http::Method::GET,
+            "/api/v1/hosts/nas/capabilities",
+            None,
+            None,
+        )
+        .await;
+    assert_eq!(reply.status, axum::http::StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn capability_endpoint_404s_on_an_unknown_host() {
+    let a = api().await;
+    let login = a.admin().await;
+    let reply = a.get("/api/v1/hosts/nope/capabilities", &login).await;
+    assert_eq!(reply.status, axum::http::StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn capability_dto_covers_every_field() {
+    let a = api().await;
+    let login = a.admin().await;
+    a.link.set_presence(
+        a.nas.id,
+        domovoi_core::ports::Presence::Connected {
+            since: a.now(),
+            version: "0.6.0".to_owned(),
+        },
+    );
+    a.link.set_host_words(
+        a.nas.id,
+        domovoi_core::ports::HostWords {
+            container_runtime: true,
+            ..domovoi_core::ports::HostWords::default()
+        },
+    );
+    a.link
+        .set_catalog_hash(a.nas.id, hash_of(&[("container.logs", 1)]));
+    a.link
+        .set_catalog(a.nas.id, vec![page(&[("container.logs", 1)], None)]);
+
+    let reply = a.get("/api/v1/hosts/nas/capabilities", &login).await;
+
+    assert_eq!(reply.status, axum::http::StatusCode::OK, "{}", reply.text);
+    let entries = reply.body["entries"].as_array().expect("entries");
+    assert!(!entries.is_empty());
+    let states = Availability::all()
+        .iter()
+        .map(Availability::code)
+        .collect::<Vec<_>>();
+    for entry in entries {
+        for field in [
+            "contract",
+            "title",
+            "category",
+            "effect",
+            "state",
+            "catalogue",
+            "target_kind",
+            "execution",
+            "root_agent",
+            "runner_installed",
+        ] {
+            assert!(!entry[field].is_null(), "{field} is missing from {entry}");
+        }
+        let state = entry["state"].as_str().expect("a state code");
+        assert!(states.contains(&state), "{state} is not one of the eight");
+    }
+    let logs = entries
+        .iter()
+        .find(|entry| entry["contract"] == "container.logs")
+        .expect("the container.logs row");
+    assert_eq!(logs["state"], "available");
+}
+
+#[tokio::test]
+async fn capability_endpoint_reports_unknown_contracts() {
+    let a = api().await;
+    let login = a.admin().await;
+    a.link.set_presence(
+        a.nas.id,
+        domovoi_core::ports::Presence::Connected {
+            since: a.now(),
+            version: "0.6.0".to_owned(),
+        },
+    );
+    a.link.set_catalog_hash(
+        a.nas.id,
+        hash_of(&[("container.logs", 1), ("container.destroy", 1)]),
+    );
+    a.link.set_catalog(
+        a.nas.id,
+        vec![page(
+            &[("container.logs", 1), ("container.destroy", 1)],
+            None,
+        )],
+    );
+
+    let reply = a.get("/api/v1/hosts/nas/capabilities", &login).await;
+
+    assert_eq!(reply.status, axum::http::StatusCode::OK, "{}", reply.text);
+    let unknown = reply.body["unknown_contracts"]
+        .as_array()
+        .expect("unknown_contracts");
+    assert!(unknown.iter().any(|id| id == "container.destroy"));
+    let entries = reply.body["entries"].as_array().expect("entries");
+    assert!(
+        entries
+            .iter()
+            .all(|entry| entry["contract"] != "container.destroy")
+    );
 }

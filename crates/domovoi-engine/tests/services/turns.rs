@@ -1044,3 +1044,46 @@ async fn a_store_tool_that_finishes_in_time_is_used() {
     assert!(matches!(outcome, TriageOutcome::Report(_)), "{outcome:?}");
     assert_eq!(w.primary.requests().len(), 2);
 }
+
+/// Every text the model was shown, in order.
+fn asked_text(w: &crate::harness::World) -> String {
+    let mut out = String::new();
+    for request in w.primary.requests() {
+        out.push_str(&request.system);
+        for message in request.messages {
+            for part in message.parts {
+                if let Part::Text(text) = part {
+                    out.push_str(&text);
+                }
+            }
+        }
+    }
+    out
+}
+
+#[tokio::test]
+async fn a_disabled_skill_is_never_offered_to_triage() {
+    let w = world(Setup::default()).await;
+    let shown = restart_skill();
+    let hidden = domovoi_testkit::build::manifest("reboot_host", domovoi_core::Risk::Write)
+        .unwrap()
+        .summary(domovoi_core::ScriptDigest::of_bytes(b"fixture entry"));
+    w.link.set_skills(host_id(), vec![shown, hidden]);
+    w.capabilities.disable(
+        host_id(),
+        domovoi_core::SkillName::parse("reboot_host").unwrap(),
+    );
+    w.primary.push_text(report());
+
+    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+
+    let asked = asked_text(&w);
+    assert!(
+        asked.contains("restart_container"),
+        "the enabled skill was not offered to triage",
+    );
+    assert!(
+        !asked.contains("reboot_host"),
+        "a disabled skill was offered to triage and could only be refused at dispatch",
+    );
+}

@@ -90,7 +90,10 @@ impl TargetService {
         self.evidence
             .collect_evidence(EvidenceRequest::for_host(query.host(), call, deadline))
             .await
-            .map_err(|_| unresolved(query, TargetUnresolved::ContainerVanished))
+            // A read that failed proves nothing about the target, so the least-claiming
+            // answer is that its identity could not be established; `ContainerVanished`
+            // is reserved for a list that arrived and did not name it.
+            .map_err(|_| unresolved(query, TargetUnresolved::ContainerIdentityUnproven))
     }
 }
 

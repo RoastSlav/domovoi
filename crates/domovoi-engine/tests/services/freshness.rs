@@ -565,6 +565,7 @@ fn slow_service(world: &Seeded, settings: ActionSettings) -> Actions {
         store: world.store.clone(),
         clock: world.clock.clone(),
         link: world.link.clone(),
+        capabilities: Arc::new(domovoi_testkit::FakeCapabilityRegistry::empty()),
         service,
         events,
         bus: world.bus.clone(),

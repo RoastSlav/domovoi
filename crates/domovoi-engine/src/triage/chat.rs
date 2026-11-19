@@ -2,7 +2,7 @@
 //! a summary of every host when "All hosts" is asked, and never an action (INV-9).
 
 use domovoi_core::ports::{LlmCapability, LlmError, LlmMessage, Part, Redactor, Role};
-use domovoi_core::{HostId, ReadToolCall, Risk, SkillSummary};
+use domovoi_core::{HostId, ReadToolCall, SkillSummary};
 use jiff::Timestamp;
 
 use super::admission::{Purpose, Refusal, admit, unpriced_text};
@@ -161,17 +161,20 @@ pub(crate) async fn answer(
         });
     }
     let deps = &shared.deps;
+    // Offer only the read-only skills, by the class the registry reports: the read boundary
+    // refuses anything else, and a floor can raise a skill's class above what it declares.
     let skills: Vec<SkillSummary> = match host {
-        Some(host) => deps.capabilities.enabled_skills(host),
+        Some(host) => deps
+            .capabilities
+            .enabled_skills(host)
+            .into_iter()
+            .filter(|skill| {
+                deps.capabilities.effective_effect(host, &skill.name)
+                    == Some(domovoi_core::EffectClass::Read)
+            })
+            .collect(),
         None => Vec::new(),
     };
-    // Offer only the read-only skills: the executor refuses to run anything else, so
-    // listing those would only invite calls the model must then retry.
-    let skills: Vec<SkillSummary> = skills
-        .iter()
-        .filter(|s| s.risk == Risk::Read)
-        .cloned()
-        .collect();
     let overview = cut(&deps.redactor.redact(overview), OVERVIEW_BYTES);
     let opening = match skills.is_empty() {
         true => overview,

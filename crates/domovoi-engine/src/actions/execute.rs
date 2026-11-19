@@ -11,7 +11,7 @@
 //! the loop guard's rejection, the answer for the run and the re-check's delay. This module
 //! reads the incident and the agent session it is handed, and never stores anything.
 
-use domovoi_core::capability::{Availability, ContractId};
+use domovoi_core::capability::ContractId;
 use domovoi_core::ports::{AgentSnapshot, DISABLED_REASON};
 use domovoi_core::{
     ActionId, ActionRequest, ActionStatus, AuthorizationKind, ExecutionId, Incident, PlanFamily,
@@ -135,11 +135,9 @@ pub(crate) async fn execute(
     // before anything is reserved or sent, so a disabled skill can never reach the agent
     // through a queue that was already committed. Every other availability state stays the
     // agent's and the policy evaluator's business (RW-10).
-    if deps
+    if !deps
         .capabilities
-        .availability(action.host(), &ContractId::skill(&skill.name))
-        .await
-        == Availability::DisabledByHub
+        .enabled(action.host(), &ContractId::skill(&skill.name))
     {
         let _ = preflight::ask_reject(shared, id, DISABLED_REASON.to_owned(), true).await;
         return Err(ExecuteError::Refused(DISABLED_REASON.to_owned()));

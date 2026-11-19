@@ -21,7 +21,7 @@
 
 use std::sync::Arc;
 
-use domovoi_core::capability::{Availability, EffectClass};
+use domovoi_core::capability::EffectClass;
 use domovoi_core::ports::{
     AgentSnapshot, AvailabilityProbe, CapabilityRegistry, Clock, DISABLED_REASON, EvidenceCaps,
     HostAvailability, HostObservation, HostRead, LinkError, Presence, ToolOutput,
@@ -247,7 +247,7 @@ impl Evidence {
         args: &std::collections::BTreeMap<String, String>,
     ) -> Result<(), EvidenceError> {
         let contract = domovoi_core::ContractId::skill(skill);
-        if self.capabilities.availability(host, &contract).await == Availability::DisabledByHub {
+        if !self.capabilities.enabled(host, &contract) {
             return Err(EvidenceError::NotEnabled(DISABLED_REASON.to_owned()));
         }
         if let Some(effect) = self.capabilities.effective_effect(host, skill)

@@ -444,7 +444,12 @@ impl AgentLink for WsAgentLink {
         query: CatalogQuery,
         deadline: Timestamp,
     ) -> Result<CatalogPageData, LinkError> {
-        let page_size = query.page_size.clamp(1, MAX_CATALOG_PAGE);
+        // Zero asks for the default page: 100 entries.
+        let page_size = if query.page_size == 0 {
+            MAX_CATALOG_PAGE
+        } else {
+            query.page_size.clamp(1, MAX_CATALOG_PAGE)
+        };
         let message = Message::GetCatalog(GetCatalog {
             page: query.page,
             page_size,
