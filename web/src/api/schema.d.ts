@@ -725,6 +725,111 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/operations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Operations, newest first. */
+        get: operations["list_operations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operations/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One operation with its trace and executions. */
+        get: operations["get_operation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operations/{id}/steps/{step}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One step with its stored intent and output. */
+        get: operations["get_operation_step"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operations/{id}/steps/{step}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approves an Execution step. The body names the v2 plan hash shown on the execution; a
+         *     destructive skill, or one whose risk is not known, needs `confirm_text` equal to its name.
+         */
+        post: operations["approve_operation_step"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operations/{id}/steps/{step}/deny": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Denies an Execution step. */
+        post: operations["deny_operation_step"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operations/{id}/trace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The timeline and graph of one operation. */
+        get: operations["get_operation_trace"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/overview": {
         parameters: {
             query?: never;
@@ -1037,6 +1142,11 @@ export interface components {
             id: string;
             /** @description The incident it is for. */
             incident_id: string;
+            /**
+             * @description Whether this action belongs to the old approval path, which is read-only history
+             *     next to operations: true for every action while orchestration is enabled.
+             */
+            legacy: boolean;
             /** @description Which binding family `plan_hash` belongs to: `v1` or `v2`. */
             plan_binding: components["schemas"]["PlanBinding"];
             /**
@@ -1093,6 +1203,13 @@ export interface components {
             /** @description Required. The plan hash shown on the card, 64 hex characters. */
             plan_hash: string;
         };
+        /** @description Approving an execution step. */
+        ApproveStepRequest: {
+            /** @description Required when the execution says `confirm_required`: the skill's name typed exactly. */
+            confirm_text?: string | null;
+            /** @description Required. The v2 plan hash shown on the execution, 64 hex characters. */
+            plan_hash: string;
+        };
         /** @description A follow-up question. */
         AskRequest: {
             /** @description The question, at most 1000 characters. */
@@ -1102,6 +1219,84 @@ export interface components {
         AskResponse: {
             /** @description Plain text, at most 4000 characters. */
             answer: string;
+        };
+        /** @description The limits of an operation; `null` means no limit. */
+        BudgetLimitsDto: {
+            /**
+             * Format: int64
+             * @description Model cost in millionths of a US dollar.
+             */
+            cost_micros?: number | null;
+            /**
+             * Format: int32
+             * @description Investigation cycles.
+             */
+            cycles?: number | null;
+            /**
+             * Format: int32
+             * @description Evidence requests.
+             */
+            evidence_requests?: number | null;
+            /**
+             * Format: int32
+             * @description Executions.
+             */
+            executions?: number | null;
+            /**
+             * Format: int32
+             * @description Model turns.
+             */
+            model_turns?: number | null;
+            /**
+             * Format: int64
+             * @description Model tokens.
+             */
+            tokens?: number | null;
+            /**
+             * Format: int64
+             * @description Wall-clock seconds.
+             */
+            wall_seconds?: number | null;
+        };
+        /** @description What an operation has used so far. */
+        BudgetUsedDto: {
+            /**
+             * Format: int64
+             * @description Model cost in millionths of a US dollar.
+             */
+            cost_micros: number;
+            /**
+             * Format: int32
+             * @description Evidence requests.
+             */
+            evidence_requests: number;
+            /**
+             * Format: int32
+             * @description Executions.
+             */
+            executions: number;
+            /**
+             * Format: int32
+             * @description Model turns.
+             */
+            model_turns: number;
+            /**
+             * Format: int64
+             * @description Model tokens.
+             */
+            tokens: number;
+            /**
+             * Format: int64
+             * @description Wall-clock seconds.
+             */
+            wall_seconds: number;
+        };
+        /** @description An operation's limits and use. */
+        BudgetsDto: {
+            /** @description The limits. */
+            limits: components["schemas"]["BudgetLimitsDto"];
+            /** @description The use. */
+            used: components["schemas"]["BudgetUsedDto"];
         };
         /** @description One host's whole inventory, plus the ids the agent reported that the hub does not know. */
         CapabilitiesDto: {
@@ -1296,6 +1491,54 @@ export interface components {
             /** @description The value. */
             value: string;
         };
+        /** @description A run of a capability that a person approves or denies. */
+        ExecutionDto: {
+            /** @description The Approval step that waits for a person. */
+            approval_step?: string | null;
+            /** @description When it was approved. */
+            approved_at?: string | null;
+            /** @description Who approved it, for example `user:<id>`. */
+            approved_by?: string | null;
+            /** @description Arguments by parameter name. */
+            args: {
+                [key: string]: string;
+            };
+            /** @description The check it is about. */
+            check: string;
+            /**
+             * @description Whether approving needs the skill's name typed: for a destructive skill, and for one
+             *     whose risk is not known.
+             */
+            confirm_required: boolean;
+            /** @description The contract, for example `skill.restart_container`. */
+            contract: string;
+            /**
+             * Format: int32
+             * @description The contract version the plan was made against.
+             */
+            contract_version: number;
+            /** @description When the approval window closes. */
+            expires_at: string;
+            /** @description The host it runs on. */
+            host_id: string;
+            /** @description Always `v2`. */
+            plan_binding: string;
+            /** @description The v2 plan hash a person approves, 64 hex characters. */
+            plan_hash: string;
+            /** @description Why it was refused, not run, unavailable or failed. */
+            reason?: string | null;
+            /**
+             * @description `read`, `write` or `destructive` from the host's current skills; `null` when the
+             *     skill is not on the host now.
+             */
+            risk?: string | null;
+            /** @description The derived state, for example `awaiting_approval` or `succeeded`. */
+            state: string;
+            /** @description The Execution step id, which is also the execution id. */
+            step: string;
+            /** @description The target it is about. */
+            target?: string | null;
+        };
         /** @description One digest fact about a host. */
         FactDto: {
             /** @description Stable key, for example `zfs.tank.used_pct`. */
@@ -1471,6 +1714,8 @@ export interface components {
             host: string;
             /** @description The incident. */
             incident: components["schemas"]["IncidentSummary"];
+            /** @description Operations about this incident, newest first. */
+            operations: components["schemas"]["OperationSummaryDto"][];
             report?: components["schemas"]["ReportDto"] | null;
             /** @description The timeline, oldest first. */
             timeline: components["schemas"]["TimelineEntryDto"][];
@@ -1659,6 +1904,82 @@ export interface components {
             /** @description The host the notes are about, by name; absent for global notes. */
             host?: string | null;
         };
+        /** @description An operation, its trace and its executions. */
+        OperationDetailDto: {
+            /**
+             * Format: int64
+             * @description The journal position read before loading; equals `trace.as_of_seq`.
+             */
+            as_of_seq: number;
+            /** @description The runs a person approves or denies. */
+            executions: components["schemas"]["ExecutionDto"][];
+            /** @description The operation. */
+            operation: components["schemas"]["OperationSummaryDto"];
+            /** @description The timeline and graph. */
+            trace: components["schemas"]["OperationTraceDto"];
+        };
+        /** @description One page of operations, newest first. */
+        OperationPage: {
+            /**
+             * Format: int64
+             * @description The journal position read before the page; apply only events with a greater `seq`.
+             */
+            as_of_seq: number;
+            /** @description The operations. */
+            items: components["schemas"]["OperationSummaryDto"][];
+            /** @description Pass as `cursor` for the next page; absent on the last one. */
+            next_cursor?: string | null;
+        };
+        /** @description One operation in a list or on the incident page. */
+        OperationSummaryDto: {
+            /** @description When it was created. */
+            created_at: string;
+            /**
+             * Format: int32
+             * @description The current cycle.
+             */
+            cycle: number;
+            /** @description When it ended. */
+            ended_at?: string | null;
+            /** @description What it is trying to achieve. */
+            goal: string;
+            /** @description The hosts it may act on. */
+            hosts: string[];
+            /** @description Operation id. */
+            id: string;
+            /** @description The incidents it is about. */
+            incidents: string[];
+            /** @description The kind, for example `investigate`. */
+            kind: string;
+            pause_reason?: components["schemas"]["PauseReasonDto"] | null;
+            /** @description When it started. */
+            started_at?: string | null;
+            /** @description The status name, for example `running`. */
+            status: string;
+            /** @description When it last changed. */
+            updated_at: string;
+            /** @description What it waits for: `approval`, `user`, `agent` or `timer`. */
+            waiting_for: string[];
+        };
+        /** @description The read-only view the timeline and the graph are drawn from. */
+        OperationTraceDto: {
+            /**
+             * Format: int64
+             * @description The journal position it was read at; apply only events with a greater `seq`.
+             */
+            as_of_seq: number;
+            /** @description The links between them. */
+            edges: components["schemas"]["TraceEdgeDto"][];
+            /** @description The operation. */
+            operation: components["schemas"]["TraceOperationDto"];
+            /**
+             * Format: int32
+             * @description The version of this layout.
+             */
+            schema_version: number;
+            /** @description Its steps in order. */
+            steps: components["schemas"]["TraceStepDto"][];
+        };
         /** @description What needs the operator right now, as counts. Each count stops at 200. */
         OverviewDto: {
             /**
@@ -1704,6 +2025,26 @@ export interface components {
             name: string;
             /** @description Whether it must be given. */
             required: boolean;
+        };
+        /** @description Why an operation is paused. */
+        PauseReasonDto: {
+            /** @description For `budget`: the limit that ran out. */
+            exhausted?: string | null;
+            /** @description For `error`: what went wrong. */
+            message?: string | null;
+            /** @description For `outcome_unknown`: the Execution step whose result is not known. */
+            step?: string | null;
+            /** @description `budget`, `outcome_unknown`, `global_pause` or `error`. */
+            type: string;
+        };
+        /** @description A host, check and target an operation may act on. */
+        PinnedSubjectDto: {
+            /** @description The check, for example `container.down`. */
+            check: string;
+            /** @description Host id. */
+            host: string;
+            /** @description The target, for example `plex`. */
+            target?: string | null;
         };
         /**
          * @description Which plan-hash family an action's displayed hash belongs to.
@@ -1893,6 +2234,45 @@ export interface components {
             /** @description Why it was left out. */
             reason: string;
         };
+        /** @description One step with its stored intent and bounded output. */
+        StepDetailDto: {
+            /** @description When it was created. */
+            created_at: string;
+            /**
+             * Format: int32
+             * @description The cycle it belongs to.
+             */
+            cycle: number;
+            /** @description When it ended. */
+            ended_at?: string | null;
+            /** @description Step id. */
+            id: string;
+            /** @description What the step is for, as stored. Never changes. */
+            intent: Record<string, never>;
+            /** @description The step kind. */
+            kind: string;
+            /** @description The operation it belongs to. */
+            operation_id: string;
+            /**
+             * Format: int32
+             * @description Its position in the operation.
+             */
+            ordinal: number;
+            /** @description The outcome so far. */
+            outcome: string;
+            /** @description What it produced, redacted and at most 16 KiB. */
+            output?: string | null;
+            /** @description The step it follows from. */
+            parent?: string | null;
+            /** @description A short label of the phase of work. */
+            phase: string;
+            /** @description Why it ended as it did. */
+            reason?: string | null;
+            /** @description When it started. */
+            started_at?: string | null;
+            /** @description One line on what it came to. */
+            summary?: string | null;
+        };
         /** @description Candidate values for a connection test; nothing is saved. */
         TestRequest: {
             /** @description The same shape as a save; a secret left as `{ "keep": true }` uses the stored one. */
@@ -1947,6 +2327,81 @@ export interface components {
              * @description How many of those calls were not run because the tool-call budget was spent.
              */
             refused: number;
+        };
+        /** @description A link between two steps. */
+        TraceEdgeDto: {
+            /** @description The dependent step. */
+            from: string;
+            /** @description `depends_on`, `caused_by`, `verifies`, `retry_of` or `answers`. */
+            kind: string;
+            /** @description The earlier step it points at. */
+            to: string;
+        };
+        /** @description The operation a trace is about. */
+        TraceOperationDto: {
+            /** @description Limits and use. */
+            budgets: components["schemas"]["BudgetsDto"];
+            /** @description When it was created. */
+            created_at: string;
+            /**
+             * Format: int32
+             * @description The current cycle.
+             */
+            cycle: number;
+            /** @description When it ended. */
+            ended_at?: string | null;
+            /** @description What it is trying to achieve. */
+            goal: string;
+            /** @description Operation id. */
+            id: string;
+            /** @description The incidents it is about. */
+            incidents: string[];
+            /** @description The kind, for example `investigate`. */
+            kind: string;
+            /** @description The operation it was started from. */
+            parent?: string | null;
+            pause_reason?: components["schemas"]["PauseReasonDto"] | null;
+            /** @description What it may act on. */
+            pinned: components["schemas"]["PinnedSubjectDto"][];
+            /** @description When it started. */
+            started_at?: string | null;
+            /** @description The status name, for example `waiting_approval`. */
+            status: string;
+            /** @description What it waits for: `approval`, `user`, `agent` or `timer`. */
+            waiting_for: string[];
+        };
+        /** @description A link from a step to something stored elsewhere. */
+        TraceRefDto: {
+            /** @description Its id. */
+            id: string;
+            /** @description What it points at, for example `execution`. */
+            kind: string;
+        };
+        /** @description One step as the timeline shows it. Never carries output, intent or approval details. */
+        TraceStepDto: {
+            /**
+             * Format: int32
+             * @description The cycle it belongs to.
+             */
+            cycle: number;
+            /** @description When it ended. */
+            ended_at?: string | null;
+            /** @description Step id. */
+            id: string;
+            /** @description The step kind, for example `reasoning_turn`. */
+            kind: string;
+            /** @description The outcome so far, for example `running` or `succeeded`. */
+            outcome: string;
+            /** @description The step it follows from. */
+            parent?: string | null;
+            /** @description A short label of the phase of work. */
+            phase: string;
+            /** @description What it links to. */
+            refs: components["schemas"]["TraceRefDto"][];
+            /** @description When it started. */
+            started_at?: string | null;
+            /** @description One line on what it came to. */
+            summary?: string | null;
         };
         /** @description Triage limits. */
         TriageSettings: {
@@ -4177,6 +4632,362 @@ export interface operations {
             };
             /** @description No such note */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_operations: {
+        parameters: {
+            query?: {
+                /** @description An operation status name, for example `running`. */
+                status?: string;
+                /** @description Only operations about this incident. */
+                incident?: string;
+                /** @description Only operations that act on this host (by name). */
+                host?: string;
+                /** @description An operation kind, for example `investigate`. */
+                kind?: string;
+                /** @description The `next_cursor` of the previous page. */
+                cursor?: string;
+                /** @description Page size, 1 to 200. Default 50. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationPage"];
+                };
+            };
+            /** @description Unknown status or kind, or an incident id that does not parse */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such host */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_operation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Operation id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationDetailDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such operation */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Orchestration is not enabled */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_operation_step: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Operation id */
+                id: string;
+                /** @description Step id */
+                step: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The step */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StepDetailDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such operation, or no such step in it */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Orchestration is not enabled */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    approve_operation_step: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Operation id */
+                id: string;
+                /** @description Execution step id */
+                step: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApproveStepRequest"];
+            };
+        };
+        responses: {
+            /** @description Approved; it runs next */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExecutionDto"];
+                };
+            };
+            /** @description No valid plan hash */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Needs the typed confirmation */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such operation or execution */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Expired, already decided, or the plan hash does not match */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Orchestration is not enabled, or the service is restarting */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    deny_operation_step: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Operation id */
+                id: string;
+                /** @description Execution step id */
+                step: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Denied */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExecutionDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such operation or execution */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Already decided */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Orchestration is not enabled, or the service is restarting */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_operation_trace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Operation id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The trace */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationTraceDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such operation */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Orchestration is not enabled */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

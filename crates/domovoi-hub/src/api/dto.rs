@@ -188,6 +188,23 @@ pub struct TriageStateDto {
     pub reason: Option<String>,
 }
 
+impl From<&domovoi_core::TriageOutcome> for TriageStateDto {
+    /// How a triage run went, as the API shows it.
+    fn from(outcome: &domovoi_core::TriageOutcome) -> Self {
+        use domovoi_core::TriageOutcome;
+        let (kind, reason) = match outcome {
+            TriageOutcome::Report(_) => ("report", None),
+            TriageOutcome::Cached { .. } => ("cached", None),
+            TriageOutcome::Skipped { reason } => ("skipped", Some(reason.clone())),
+            TriageOutcome::Failed { reason } => ("failed", Some(reason.clone())),
+        };
+        Self {
+            kind: kind.to_owned(),
+            reason,
+        }
+    }
+}
+
 /// The incident's chat card, as it would be posted.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
 pub struct CardDto {
@@ -261,6 +278,8 @@ pub struct IncidentDetail {
     pub timeline: Vec<TimelineEntryDto>,
     /// Actions for this incident, newest first.
     pub actions: Vec<ActionDto>,
+    /// Operations about this incident, newest first.
+    pub operations: Vec<super::dto_operations::OperationSummaryDto>,
     /// Skills and tools used while triaging or answering, in first-call order.
     pub tools_used: Vec<ToolUsageDto>,
     /// The journal position this snapshot was read at; apply only events with a greater `seq`.
@@ -320,6 +339,18 @@ pub struct ActionDto {
     pub created_at: String,
     /// When it last changed.
     pub updated_at: String,
+    /// Whether this action belongs to the old approval path, which is read-only history
+    /// next to operations: true for every action while orchestration is enabled.
+    pub legacy: bool,
+}
+
+impl ActionDto {
+    /// The action with its `legacy` label set to `legacy`.
+    #[must_use]
+    pub fn labelled(mut self, legacy: bool) -> Self {
+        self.legacy = legacy;
+        self
+    }
 }
 
 impl From<&ActionRequest> for ActionDto {
@@ -355,6 +386,7 @@ impl From<&ActionRequest> for ActionDto {
             expires_at: a.expires_at().to_string(),
             created_at: a.created_at().to_string(),
             updated_at: a.updated_at().to_string(),
+            legacy: false,
         }
     }
 }

@@ -7,11 +7,11 @@ import verifiedSuccess from "./verified-success.json";
 import waitingApproval from "./waiting-approval.json";
 
 const FIXTURES: [string, OperationTrace][] = [
-  ["waiting-approval", waitingApproval as OperationTrace],
-  ["verified-success", verifiedSuccess as OperationTrace],
-  ["failed-verification-new-cycle", failedVerification as OperationTrace],
-  ["outcome-unknown-paused", outcomeUnknown as OperationTrace],
-  ["question-and-budget-pause", questionAndBudget as OperationTrace],
+  ["waiting-approval", waitingApproval satisfies OperationTrace],
+  ["verified-success", verifiedSuccess satisfies OperationTrace],
+  ["failed-verification-new-cycle", failedVerification satisfies OperationTrace],
+  ["outcome-unknown-paused", outcomeUnknown satisfies OperationTrace],
+  ["question-and-budget-pause", questionAndBudget satisfies OperationTrace],
 ];
 
 const FORBIDDEN_KEYS = ["output", "intent", "plan_hash"];
@@ -61,7 +61,9 @@ describe.each(FIXTURES)("operation trace fixture %s", (_name, trace) => {
   it("names an existing step for every parent", () => {
     const ids = stepIds(trace);
     for (const step of trace.steps) {
-      if (step.parent !== null) expect(ids.has(step.parent)).toBe(true);
+      if (step.parent !== null && step.parent !== undefined) {
+        expect(ids.has(step.parent)).toBe(true);
+      }
     }
   });
 

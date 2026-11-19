@@ -38,6 +38,7 @@ function sample(overrides: Partial<Action>): Action {
     expires_at: new Date(NOW + 45 * 60_000).toISOString(),
     created_at: new Date(NOW - 15 * 60_000).toISOString(),
     updated_at: new Date(NOW).toISOString(),
+    legacy: false,
     ...overrides,
   };
 }

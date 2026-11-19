@@ -525,6 +525,8 @@ async fn main() -> Result<()> {
         manager: manager.clone(),
         actions_service,
         triage: None,
+        operations: None,
+        operation_repo: store.clone(),
         agents: Arc::new(DevAgents {
             server: server.clone(),
             link: link.clone(),

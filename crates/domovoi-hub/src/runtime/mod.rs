@@ -271,29 +271,6 @@ impl HubRuntime {
             },
             settings::actions(),
         );
-        let (operations, operations_task) =
-            match orchestration::build(orchestration::OperationBuild {
-                config: &config,
-                store: &store,
-                evidence: &evidence,
-                registry: &registry,
-                caps: caps_bundle,
-                redactor: &redactor,
-                clock: &clock,
-                shutdown: &worker_shutdown,
-            }) {
-                Some((handle, task)) => (Some(handle), Some(task)),
-                None => (None, None),
-            };
-        match &operations {
-            Some(handle) => {
-                server.set_reconciler(Arc::new(orchestration::CompositeReconciler::new(vec![
-                    Arc::new(actions_service.clone()),
-                    Arc::new(handle.clone()),
-                ])));
-            }
-            None => server.set_reconciler(Arc::new(actions_service.clone())),
-        }
         let triage = triage_build::build(triage_build::TriageBuild {
             config: &config,
             store: &store,
@@ -310,6 +287,30 @@ impl HubRuntime {
             actions: actions_service.clone(),
         })
         .await?;
+        let (operations, operations_task) =
+            match orchestration::build(orchestration::OperationBuild {
+                config: &config,
+                store: &store,
+                evidence: &evidence,
+                registry: &registry,
+                caps: caps_bundle,
+                triage: triage.0.as_ref(),
+                redactor: &redactor,
+                clock: &clock,
+                shutdown: &worker_shutdown,
+            }) {
+                Some((handle, task)) => (Some(handle), Some(task)),
+                None => (None, None),
+            };
+        match &operations {
+            Some(handle) => {
+                server.set_reconciler(Arc::new(orchestration::CompositeReconciler::new(vec![
+                    Arc::new(actions_service.clone()),
+                    Arc::new(handle.clone()),
+                ])));
+            }
+            None => server.set_reconciler(Arc::new(actions_service.clone())),
+        }
         let public_url = support::public_url(&config)?;
         let (gateways, notifiers) = adapters::build_chat(&config, &clock, &public_url, &overrides)?;
         let identity = WebIdentity {
@@ -361,6 +362,8 @@ impl HubRuntime {
                 manager: manager.clone(),
                 actions_service: actions_service.clone(),
                 triage: triage.0,
+                operations: operations.clone(),
+                operation_repo: store.clone(),
                 agents: Arc::new(server.clone()),
                 capabilities: registry.clone(),
                 profiles: Some(profile_deps.clone()),

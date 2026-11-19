@@ -97,7 +97,11 @@ pub(super) async fn list(
         .list(&filter, &page(query.cursor, query.limit))
         .await?;
     Ok(Json(ActionPage {
-        items: got.items.iter().map(ActionDto::from).collect(),
+        items: got
+            .items
+            .iter()
+            .map(|a| ActionDto::from(a).labelled(state.deps.config.orchestration.enabled))
+            .collect(),
         next_cursor: got.next_cursor,
         as_of_seq,
     }))
@@ -154,7 +158,9 @@ pub(super) async fn approve(
         )
         .await
         .map_err(approval_error)?;
-    Ok(Json(ActionDto::from(&approved)))
+    Ok(Json(
+        ActionDto::from(&approved).labelled(state.deps.config.orchestration.enabled),
+    ))
 }
 
 /// Denies a proposed action.
@@ -187,5 +193,7 @@ pub(super) async fn deny(
         .deny(action.id(), approval)
         .await
         .map_err(approval_error)?;
-    Ok(Json(ActionDto::from(&denied)))
+    Ok(Json(
+        ActionDto::from(&denied).labelled(state.deps.config.orchestration.enabled),
+    ))
 }

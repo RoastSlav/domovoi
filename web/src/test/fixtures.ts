@@ -55,6 +55,7 @@ export function action(overrides: Partial<Action> = {}): Action {
     expires_at: "2099-01-01T00:00:00Z",
     created_at: T0,
     updated_at: T0,
+    legacy: false,
     ...overrides,
   };
 }
@@ -66,6 +67,7 @@ export function detail(): IncidentDetail {
     host: "nas",
     report: null,
     triage: { kind: "report" },
+    operations: [],
     card: {
       badge: "ACTION_NEEDED",
       headline: "Backups filled /srv",

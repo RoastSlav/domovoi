@@ -125,28 +125,6 @@ pub(crate) fn latest_triage(
         .find_map(|e| serde_json::from_value(e.detail.clone()).ok())
 }
 
-/// How a triage run went, as the API shows it.
-fn triage_state(outcome: &TriageOutcome) -> TriageStateDto {
-    match outcome {
-        TriageOutcome::Report(_) => TriageStateDto {
-            kind: "report".to_owned(),
-            reason: None,
-        },
-        TriageOutcome::Cached { .. } => TriageStateDto {
-            kind: "cached".to_owned(),
-            reason: None,
-        },
-        TriageOutcome::Skipped { reason } => TriageStateDto {
-            kind: "skipped".to_owned(),
-            reason: Some(reason.clone()),
-        },
-        TriageOutcome::Failed { reason } => TriageStateDto {
-            kind: "failed".to_owned(),
-            reason: Some(reason.clone()),
-        },
-    }
-}
-
 /// Everything about one incident: report, card, timeline and actions.
 #[utoipa::path(
     get, path = "/api/v1/incidents/{id}", operation_id = "get_incident", tag = "incidents",
@@ -176,7 +154,7 @@ pub(super) async fn detail(
         Some(TriageOutcome::Report(r) | TriageOutcome::Cached { report: r, .. }) => Some(r.clone()),
         _ => None,
     };
-    let triage = outcome.as_ref().map(triage_state);
+    let triage = outcome.as_ref().map(TriageStateDto::from);
     let filter = ActionFilter {
         incident: Some(incident.id()),
         ..ActionFilter::default()
@@ -207,7 +185,11 @@ pub(super) async fn detail(
         triage,
         card: CardDto::from(&card),
         timeline: timeline.iter().map(TimelineEntryDto::from).collect(),
-        actions: actions.iter().map(ActionDto::from).collect(),
+        actions: actions
+            .iter()
+            .map(|a| ActionDto::from(a).labelled(state.deps.config.orchestration.enabled))
+            .collect(),
+        operations: super::operations::for_incident(&state, incident.id()).await?,
         tools_used: tool_usage(&timeline),
         as_of_seq,
     }))
@@ -481,6 +463,9 @@ pub(super) async fn retry_triage(
     let triage = state.deps.triage.clone().ok_or(ApiError::TriageOff)?;
     let incident = load(&state, &id).await?;
     let fresh = query.fresh == Some(true);
+    if let Some(operations) = state.deps.operations.clone() {
+        return super::operations::retry(operations, incident, fresh).await;
+    }
     // A task of its own, so that a closed tab or a navigation does not cancel the run; the
     // outcome is attached to the incident either way.
     let outcome = tokio::spawn(async move {
@@ -492,5 +477,5 @@ pub(super) async fn retry_triage(
     })
     .await
     .map_err(|e| ApiError::internal("triage failed", e))?;
-    Ok(Json(triage_state(&outcome)))
+    Ok(Json(TriageStateDto::from(&outcome)))
 }

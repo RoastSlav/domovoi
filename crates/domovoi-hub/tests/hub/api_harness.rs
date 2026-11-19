@@ -454,6 +454,8 @@ async fn build(
         manager: manager.clone(),
         actions_service: actions_service.clone(),
         triage,
+        operations: None,
+        operation_repo: store.clone(),
         agents: Arc::new(TestAgents {
             link: link.clone(),
             hosts: store.clone(),
