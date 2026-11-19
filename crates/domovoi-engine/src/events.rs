@@ -2,7 +2,9 @@
 
 use std::collections::BTreeMap;
 
-use domovoi_core::{ActionId, ActionStatus, Incident, Severity, SignalId, TriageOutcome, UserId};
+use domovoi_core::{
+    ActionId, ActionStatus, ExecutionId, Incident, Severity, SignalId, TriageOutcome, UserId,
+};
 use jiff::Timestamp;
 
 /// What happened to an incident.
@@ -54,6 +56,12 @@ pub enum EventKind {
     TriageDegraded {
         /// Why, in one line.
         reason: String,
+    },
+    /// An execution step left "awaiting approval": approved, denied, expired, cancelled or
+    /// refused.
+    ExecutionChanged {
+        /// Which execution.
+        execution: ExecutionId,
     },
     /// A human approved an action; the executor picks it up.
     ActionApproved {

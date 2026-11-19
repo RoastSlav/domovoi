@@ -123,6 +123,7 @@ fn execution(
         operation,
         hash,
         at(10_000),
+        domovoi_core::Risk::Write,
         at(10 + i64::from(ordinal)),
     );
     Ok((step, record))

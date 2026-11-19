@@ -179,7 +179,12 @@ async fn copy_orders_rows_by_time_then_legacy_seq() {
 async fn copy_skips_rows_the_dual_write_already_mirrored() {
     let dir = tempfile::tempdir().unwrap();
     let path = copy_fixture(dir.path());
-    let before_copy = MIGRATOR.iter().map(|m| m.version).max().unwrap() - 1;
+    // The migration just before the one that copies the incident timeline into the journal.
+    let copy = MIGRATOR
+        .iter()
+        .find(|m| m.description.contains("journal feed"))
+        .expect("the journal feed migration exists");
+    let before_copy = copy.version - 1;
     let pool = sqlx::sqlite::SqlitePoolOptions::new()
         .max_connections(1)
         .connect_with(sqlx::sqlite::SqliteConnectOptions::new().filename(&path))

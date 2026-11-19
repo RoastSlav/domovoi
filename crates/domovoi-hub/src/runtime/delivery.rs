@@ -13,9 +13,10 @@ use domovoi_core::{
     Advisory, AdvisoryKind, Card, ChatRefs, Incident, IncidentId, NotifyState, TriageOutcome,
 };
 use domovoi_engine::advisories::advisory_id;
-use domovoi_engine::cards::{CardLinks, build_card};
+use domovoi_engine::cards::{CardLinks, MAX_PLANS, build_card};
 use domovoi_engine::events::{DomainEvent, EventKind};
 use domovoi_engine::notify::{self, NotifyAction, NotifySettings};
+use domovoi_engine::operations::waiting_steps;
 use domovoi_store::Store;
 use jiff::SignedDuration;
 
@@ -328,6 +329,12 @@ impl Delivery {
         .await
         .map(|page| page.items)
         .unwrap_or_default();
+        let steps = waiting_steps(&*self.store, incident, &host.name, MAX_PLANS)
+            .await
+            .unwrap_or_else(|err| {
+                tracing::warn!(%err, "could not list the steps waiting for approval");
+                Vec::new()
+            });
         Some(build_card(
             incident,
             report.as_ref(),
@@ -336,6 +343,7 @@ impl Delivery {
             &CardLinks {
                 web_url: self.config.web.public_url.as_ref().map(ToString::to_string),
                 tokens,
+                steps,
             },
             latest.as_ref(),
         ))

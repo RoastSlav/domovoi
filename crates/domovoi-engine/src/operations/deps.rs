@@ -45,6 +45,8 @@ pub struct OperationDeps {
     pub rerun: Arc<dyn CheckRerun>,
     /// Runs on text before it is stored.
     pub redactor: Arc<dyn Redactor>,
+    /// The event bus: a step leaving "awaiting approval" is announced on it.
+    pub bus: tokio::sync::broadcast::Sender<crate::events::DomainEvent>,
     /// Time.
     pub clock: Arc<dyn Clock>,
     /// Stops the service.

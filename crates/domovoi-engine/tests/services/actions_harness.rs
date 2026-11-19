@@ -13,7 +13,7 @@ use domovoi_core::{
     Evidence, Incident, JournalEpoch, Principal, Risk, SignalStatus, SkillSummary, VerifySpec,
 };
 use domovoi_engine::actions::audit;
-use domovoi_engine::triage::{mint_token, token_hash};
+use domovoi_engine::chat_token::{mint_token, token_hash};
 use domovoi_engine::{
     ActionDeps, ActionHandle, ActionService, ActionSettings, ApprovalError, DomainEvent,
     EnginePolicy, IncidentManager, ManagerDeps, ManagerHandle, PatternRedactor,

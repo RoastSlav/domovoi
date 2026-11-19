@@ -19,10 +19,10 @@ use domovoi_core::{
     ParamName, ParamSpec, PinnedSubject, Principal, Risk, Severity, Signal, SignalClass,
     SignalStatus, SkillManifest, SkillSummary, SourceKind, TargetKey, UserId, Verdict, VerifySpec,
 };
+use domovoi_engine::chat_token::{mint_token, token_hash};
 use domovoi_engine::operations::{
     OperationDeps, OperationHandle, OperationSeed, OperationService, OperationSettings,
 };
-use domovoi_engine::triage::{mint_token, token_hash};
 use domovoi_engine::{
     ActionDeps, ActionHandle, ActionService, ActionSettings, EnginePolicy, IncidentManager,
     ManagerDeps, ManagerHandle, PatternRedactor,
@@ -358,6 +358,7 @@ impl<S: SweepStore + EffectQueue + AdvisoryRepo + HostRepo + OperationRepo> Worl
         let caps = action_caps(link.clone());
         let (operations, operation_task) = OperationService::spawn(
             OperationDeps {
+                bus: tokio::sync::broadcast::channel(16).0,
                 operations: store.clone(),
                 uow: crashing.clone(),
                 effects: store.clone(),

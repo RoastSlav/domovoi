@@ -170,12 +170,22 @@ pub(super) async fn detail(
         .await?
         .into_iter()
         .next();
+    let steps = domovoi_engine::operations::waiting_steps(
+        &*deps.operation_repo,
+        &incident,
+        &host.name,
+        domovoi_engine::cards::MAX_PLANS,
+    )
+    .await?;
     let card = build_card(
         &incident,
         report.as_ref(),
         &actions,
         &host.name,
-        &CardLinks::default(),
+        &CardLinks {
+            steps,
+            ..CardLinks::default()
+        },
         latest.as_ref(),
     );
     Ok(Json(IncidentDetail {

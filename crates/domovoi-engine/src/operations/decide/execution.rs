@@ -133,6 +133,7 @@ fn accept(
         parent,
         caused_by,
         expires_at,
+        risk,
         ..
     } = proposal;
     let operation = work.op().id;
@@ -162,7 +163,9 @@ fn accept(
     if let Some(retry) = &intent.retry_of {
         work.add_edge(step, retry.step, EdgeKind::RetryOf)?;
     }
-    let row = ExecutionRecord::propose(&intent, step, operation, plan_hash, expires_at, work.now);
+    let row = ExecutionRecord::propose(
+        &intent, step, operation, plan_hash, expires_at, risk, work.now,
+    );
     work.add_execution(row);
     work.effect(
         EffectKind::Wake,

@@ -32,6 +32,12 @@ pub(crate) fn operation_error(err: OperationError) -> ApiError {
     use domovoi_core::ExecutionError;
     match err {
         OperationError::NotFound(_) => ApiError::NotFound,
+        OperationError::BadToken => {
+            ApiError::Forbidden("the approval link is not valid".to_owned())
+        }
+        OperationError::Execution(ExecutionError::NeedsTypedConfirmation) => {
+            ApiError::Forbidden("type the skill's name to approve this action".to_owned())
+        }
         OperationError::Execution(ExecutionError::PlanChanged) => ApiError::Conflict(
             "the plan changed since you opened it; reload the page and review it again".to_owned(),
         ),
@@ -329,6 +335,7 @@ pub(super) async fn approve_step(
             authorization,
             PlanBinding::Full(plan_hash),
             provenance,
+            None,
         )
         .await
         .map_err(operation_error)?;

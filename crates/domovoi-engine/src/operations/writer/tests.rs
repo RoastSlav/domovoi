@@ -89,6 +89,7 @@ async fn world() -> World {
     let shutdown = CancellationToken::new();
     let (handle, _task) = OperationService::spawn_bare(
         OperationDeps {
+            bus: tokio::sync::broadcast::channel(16).0,
             operations: store.clone(),
             uow: store.clone(),
             effects: store.clone(),
@@ -187,6 +188,7 @@ impl World {
                 approvals::authorize(approvals::human(self.user)),
                 PlanBinding::Full(plan),
                 approvals::provenance(),
+                None,
             )
             .await
             .unwrap();

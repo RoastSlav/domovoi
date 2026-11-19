@@ -19,13 +19,14 @@ use domovoi_core::{
 };
 use jiff::Timestamp;
 
-use super::approvals::{chat_token_ok, load, refused};
+use super::approvals::{load, refused};
 use super::audit::{self, RunRecord};
 use super::expire;
 use super::outcome::{complete, finish_effect, verify};
 use super::reconcile::ReconcileOutcome;
 use super::reject;
 use super::{ApprovalError, Publish, Shared};
+use crate::chat_token::chat_token_ok;
 use crate::events::EventKind;
 
 use jiff::SignedDuration;
@@ -342,7 +343,7 @@ async fn approve(
         return Err(ApprovalError::NotYetSupported);
     };
     if matches!(approval.channel(), ApprovalChannel::Chat { .. })
-        && !chat_token_ok(chat_token, &action)
+        && !chat_token_ok(chat_token, action.chat_token_hash())
     {
         return Err(ApprovalError::BadToken);
     }

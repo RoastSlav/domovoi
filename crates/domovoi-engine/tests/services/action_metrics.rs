@@ -11,7 +11,7 @@ use domovoi_core::ports::ActionRepo;
 use domovoi_core::{
     ActionError, ActionRequest, ApprovalProvenance, Authorization, PlanBinding, Risk, UserId,
 };
-use domovoi_engine::triage::{mint_token, token_hash};
+use domovoi_engine::chat_token::{mint_token, token_hash};
 use domovoi_engine::{ActionSettings, ApprovalError};
 use domovoi_testkit::approvals::human;
 use domovoi_testkit::build::T0;

@@ -2,7 +2,8 @@
 
 use domovoi_core::ports::Versioned;
 use domovoi_core::{
-    ExecutionRecord, Operation, OperationSnapshot, StepId, StepOutcome, StepRecord,
+    ExecutionRecord, ExecutionState, Operation, OperationSnapshot, StepId, StepIntent, StepOutcome,
+    StepRecord,
 };
 
 use super::decide::Decision;
@@ -54,6 +55,22 @@ impl OperationState {
     /// The steps that are pending or running, in ordinal order.
     pub fn open_steps(&self) -> impl Iterator<Item = &StepRecord> {
         self.snapshot.open_steps()
+    }
+
+    /// The derived state of Execution step `step`, when it has an execution row.
+    #[must_use]
+    pub fn execution_state(&self, step: StepId) -> Option<ExecutionState> {
+        let row = self.snapshot.execution_of(step)?;
+        let outcome = self.snapshot.step(step)?.progress.outcome;
+        let approval = self
+            .snapshot
+            .steps
+            .iter()
+            .find(|record| {
+                matches!(&record.step.intent, StepIntent::Approval { execution, .. } if *execution == step)
+            })
+            .map(|record| record.progress.outcome);
+        Some(row.value.state(outcome, approval))
     }
 
     /// How many steps the operation has, which is the next ordinal.

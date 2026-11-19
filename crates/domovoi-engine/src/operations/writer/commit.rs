@@ -4,17 +4,19 @@
 
 use domovoi_core::ports::{
     AggregateRef, AuditDraft, CommitError, EffectCancel, EffectCompletion, EffectDraft, EffectKind,
-    EffectReschedule, EffectStatus, ExecutionGuard, Expected, JournalDraft, OperationWrite,
-    StateWrite, Transaction,
+    EffectReschedule, ExecutionGuard, Expected, JournalDraft, OperationWrite, StateWrite,
+    Transaction,
 };
 use domovoi_core::{
-    Actor, ApprovalProvenance, Authorization, EffectId, ExecutionRecord, JournalEpoch, OperationId,
-    OperationSnapshot, PlanBinding, StepId, StepKind, StepOutcome,
+    Actor, ApprovalChannel, ApprovalProvenance, Authorization, EffectId, ExecutionId,
+    ExecutionRecord, IncidentId, JournalEpoch, OperationId, OperationSnapshot, PlanBinding, StepId,
+    StepOutcome,
 };
 use jiff::Timestamp;
 
 use super::OpShared;
 use super::commands::Held;
+use crate::chat_token::chat_token_ok;
 use crate::operations::decide::{
     DecideError, Decision, EffectSpec, IdSource, OperationEvent, RECONCILE_ATTEMPTS, decide,
     reconcile_key, step_payload,
@@ -41,6 +43,8 @@ pub(crate) struct AuthorizeEdit {
     pub(crate) authorization: Authorization,
     pub(crate) binding: PlanBinding,
     pub(crate) provenance: ApprovalProvenance,
+    /// The chat token a chat approval must carry; a web approval ignores it.
+    pub(crate) chat_token: Option<String>,
 }
 
 /// A change to an execution row that is the writer's to make, not the decision's. Applied to
@@ -50,6 +54,9 @@ pub(crate) enum Edit {
     None,
     /// Records a person's approval on the row.
     Authorize(Box<AuthorizeEdit>),
+    /// Refuses the change unless the step's outstanding chat token matches. A chat denial
+    /// carries one; the decision then clears it in the same commit.
+    CheckChatToken(StepId, String),
     /// Records when the hub began waiting for the agent, once.
     Waiting(StepId),
     /// Records the journal epoch and time of the hand-off.
@@ -68,6 +75,7 @@ impl Edit {
         let step = match self {
             Self::None => return Ok(Vec::new()),
             Self::Authorize(edit) => edit.step,
+            Self::CheckChatToken(step, _) => *step,
             Self::Waiting(step) | Self::Dispatched(step, _) | Self::Settled(step) => *step,
         };
         let row = snapshot
@@ -76,14 +84,30 @@ impl Edit {
             .find(|row| row.value.step == step)
             .ok_or(DecideError::UnknownStep(step))?;
         let record = &mut row.value;
+        if let Self::CheckChatToken(_, token) = self {
+            if !chat_token_ok(Some(token), record.chat_token_hash()) {
+                return Err(OperationError::BadToken);
+            }
+            return Ok(Vec::new());
+        }
         match self {
-            Self::None => {}
-            Self::Authorize(edit) => record.authorize(
-                edit.authorization.clone(),
-                edit.provenance.clone(),
-                &edit.binding,
-                now,
-            )?,
+            Self::None | Self::CheckChatToken(..) => {}
+            Self::Authorize(edit) => {
+                let chat = edit
+                    .authorization
+                    .human_approval()
+                    .is_some_and(|human| matches!(human.channel(), ApprovalChannel::Chat { .. }));
+                if chat && !chat_token_ok(edit.chat_token.as_deref(), record.chat_token_hash()) {
+                    return Err(OperationError::BadToken);
+                }
+                record.authorize(
+                    edit.authorization.clone(),
+                    edit.provenance.clone(),
+                    &edit.binding,
+                    now,
+                )?;
+                record.clear_chat_token_hash();
+            }
             Self::Waiting(_) => {
                 if record.waiting_since.is_some() {
                     return Ok(Vec::new());
@@ -140,6 +164,10 @@ impl Change {
 pub(crate) struct Applied {
     /// Whether the operation became terminal in this commit, which frees a slot.
     pub(crate) became_terminal: bool,
+    /// Executions that left "awaiting approval" in this commit.
+    pub(crate) left_approval: Vec<ExecutionId>,
+    /// The first incident the operation is about.
+    pub(crate) incident: Option<IncidentId>,
 }
 
 /// The error a caller sees for a failed commit.
@@ -254,6 +282,9 @@ pub(crate) async fn apply(shared: &OpShared, change: Change) -> Result<Applied, 
     if let (Err(err), Some(held)) = (&result, change.held) {
         release(shared, held, err).await;
     }
+    if let Ok(applied) = &result {
+        super::announce::left_approval(shared, applied).await;
+    }
     result
 }
 
@@ -308,11 +339,11 @@ async fn attempt(shared: &OpShared, change: &Change) -> Result<Applied, Operatio
         .map_err(|err| OperationError::Store(err.to_string()))?
         .ok_or(OperationError::NotFound(change.operation))?;
     if let Some(fence) = change.fence {
-        check_claim(shared, fence).await?;
+        super::support::check_claim(shared, fence).await?;
     }
     let mut snapshot = loaded.clone();
     let changed = change.edit.apply(&mut snapshot, now)?;
-    let updated: Vec<(ExecutionRecord, u64)> = changed
+    let mut updated: Vec<(ExecutionRecord, u64)> = changed
         .iter()
         .filter_map(|step| {
             let row = snapshot.execution_of(*step)?;
@@ -322,9 +353,13 @@ async fn attempt(shared: &OpShared, change: &Change) -> Result<Applied, Operatio
         .collect();
     let state = OperationState::new(snapshot);
     let decision = decide(&state, change.event.clone(), now, &mut UuidIds)?;
+    let after = state.apply(&decision);
+    let left_approval = super::support::spend_tokens(&loaded, &after, &mut updated);
     let mut tx = Transaction::new();
     let mut applied = Applied {
         became_terminal: false,
+        left_approval,
+        incident: loaded.incidents.first().copied(),
     };
     if !(decision.is_noop(&state) && updated.is_empty()) {
         tx = tx.write(StateWrite::Operation(OperationWrite::Operation {
@@ -338,7 +373,7 @@ async fn attempt(shared: &OpShared, change: &Change) -> Result<Applied, Operatio
                 aggregate: AggregateRef::operation(change.operation),
                 at: now,
             });
-            tx = keep_reconciling(tx, &state.apply(&decision), now);
+            tx = super::support::keep_reconciling(tx, &state.apply(&decision), now);
         }
     }
     for spec in &change.effects {
@@ -356,49 +391,6 @@ async fn attempt(shared: &OpShared, change: &Change) -> Result<Applied, Operatio
         shared.nudge.notify_one();
     }
     Ok(applied)
-}
-
-/// Refuses a stale claim: the effect must still be claimed under exactly this token.
-async fn check_claim(shared: &OpShared, held: Held) -> Result<(), OperationError> {
-    let record = shared
-        .deps
-        .effect_read
-        .effect(held.effect)
-        .await
-        .map_err(|err| OperationError::Store(err.to_string()))?;
-    let current = record.is_some_and(|record| {
-        record.status == EffectStatus::Claimed.as_str() && record.claim_token == Some(held.claim)
-    });
-    if current {
-        Ok(())
-    } else {
-        Err(OperationError::StaleEffect)
-    }
-}
-
-/// After an operation ended, a run still going is not recalled: its result must still be
-/// reconciled, so a fresh reconcile is queued for it (the cancellation just dropped the
-/// pending one). It carries no dedup key, because a claimed one may still be in flight and
-/// a second delivery is harmless.
-fn keep_reconciling(mut tx: Transaction, after: &OperationState, now: Timestamp) -> Transaction {
-    let operation = after.operation().id;
-    for record in &after.snapshot().steps {
-        if record.step.kind == StepKind::Execution
-            && record.progress.outcome == StepOutcome::Running
-        {
-            tx = tx.effect(EffectDraft {
-                id: EffectId::new(),
-                kind: EffectKind::Reconcile,
-                aggregate: AggregateRef::operation(operation),
-                payload: step_payload(operation, record.step.id),
-                not_before: now,
-                max_attempts: RECONCILE_ATTEMPTS,
-                dedup_key: None,
-                created_at: now,
-            });
-        }
-    }
-    tx
 }
 
 /// Queues one reconcile effect for Execution step `step`; already queued is not an error.
@@ -477,5 +469,11 @@ pub(crate) async fn finish_held_many(
     if created {
         shared.nudge.notify_one();
     }
+    Ok(())
+}
+
+/// Commits `tx` as one unit: the writer's only commit for changes that carry no decision.
+pub(super) async fn commit_plain(shared: &OpShared, tx: Transaction) -> Result<(), OperationError> {
+    shared.deps.uow.commit(tx).await.map_err(commit_error)?;
     Ok(())
 }

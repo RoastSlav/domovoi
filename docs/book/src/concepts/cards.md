@@ -18,12 +18,12 @@ Next: Pin the previous image tag and restart.
 - **Headline:** one line, at most 120 characters.
 - **Up to three bullets:** evidence from triage, or from the latest signal when there is no triage yet.
 - **One next step,** when triage suggests one.
-- **Buttons:** Ack and Mute 1 h while the incident is active, Details for the full reasoning, and Approve and Deny for each proposed action.
+- **Buttons:** Ack and Mute 1 h while the incident is active, Details for the full reasoning, and Approve and Deny for each proposed action, including the actions an investigation proposed as steps. Each button names the skill and the host, and the card lists the skill, host, risk, every argument, the first characters of the plan hash and when the approval expires. The first six characters of the plan hash travel with the press as a staleness check; they do not replace the dispatch-time check of the full plan.
 - **A plan block for each waiting action,** written from the stored action rather than the model's text: the skill, the host, the arguments, the risk, the short plan hash and when the approval window closes. It comes before any model prose, so you read what will run first.
 
 Alerts never wait for triage: a card without triage shows the severity, the incident title and the signal's evidence, and is updated when triage finishes.
 
-Destructive actions never get an approve button. Their card links to the web UI, where they need a typed confirmation. An action without a chat approval token also gets the link instead of buttons. An action whose arguments are too long to show in the card gets only the link too.
+Destructive actions, and actions whose risk is unknown, never get an approve button. Their card links to the web UI, where they need a typed confirmation. An action without a chat approval token also gets the link instead of buttons. An action whose arguments are too long to show in the card gets only the link too.
 
 ## The thread
 

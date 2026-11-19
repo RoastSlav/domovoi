@@ -85,6 +85,7 @@ pub async fn execution_round_trips_a_human_approval_exactly(
         at(62),
     )
     .map_err(super::setup)?;
+    let web = web.with_chat_token_hash([3; 32]);
 
     commit(
         subject,
@@ -107,11 +108,14 @@ pub async fn execution_round_trips_a_human_approval_exactly(
         Some("session-ref-1")
     );
     assert_eq!(stored.value.dispatched, Some((epoch(7)?, at(70))));
+    assert_eq!(stored.value.risk(), Some(domovoi_core::Risk::Write));
+    assert_eq!(stored.value.chat_token_hash(), None);
 
     let loaded = snapshot(subject, op.id).await?;
     assert_eq!(loaded.executions.len(), 2);
     assert_eq!(loaded.executions[0].value, chat);
     assert_eq!(loaded.executions[1].value, web);
+    assert_eq!(loaded.executions[1].value.chat_token_hash(), Some(&[3; 32]));
 
     let plain = subject.operations().execution(ExecutionId::new()).await?;
     assert_eq!(plain, None);

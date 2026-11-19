@@ -231,7 +231,26 @@ async fn refused_execution_is_listed_as_not_offered() {
 
 #[tokio::test]
 async fn report_tells_the_reader_where_to_approve() {
+    // A step with chat buttons needs no pointer; one without buttons does.
     let w = inv(InvSetup::default()).await;
+    w.llm.push_text(restart_report("nginx"));
+    let op = w.start().await;
+    w.until(op, |s| {
+        s.operation.status == OperationStatus::WaitingApproval
+    })
+    .await;
+    let buttoned = attached_report(w.last_outcome());
+    assert!(
+        !buttoned.details.contains(APPROVAL_POINTER),
+        "{}",
+        buttoned.details
+    );
+    assert_eq!(buttoned.proposals.len(), 1);
+
+    let w = inv(InvSetup::default()).await;
+    let mut skill = crate::harness::restart_skill();
+    skill.risk = domovoi_core::Risk::Destructive;
+    w.link.set_skills(crate::harness::host_id(), vec![skill]);
     w.llm.push_text(restart_report("nginx"));
     let op = w.start().await;
     w.until(op, |s| {
@@ -255,7 +274,8 @@ async fn report_tells_the_reader_where_to_approve() {
 }
 
 #[tokio::test]
-async fn no_chat_token_is_minted_for_a_step() {
+async fn notify_mints_one_token_per_chat_capable_step_and_passes_them_to_the_card() {
+    use domovoi_core::ports::OperationRepo;
     let w = inv(InvSetup::default()).await;
     w.llm.push_text(restart_report("nginx"));
     let op = w.start().await;
@@ -266,6 +286,38 @@ async fn no_chat_token_is_minted_for_a_step() {
 
     let completed = w.completed();
     assert_eq!(completed.len(), 1);
-    assert_eq!(completed[0].1, 0, "the event carries no chat tokens");
+    assert_eq!(completed[0].1, 1, "one token for the one buttoned step");
     assert!(matches!(&completed[0].0, TriageOutcome::Report(r) if r.proposals.len() == 1));
+    let tokens = w
+        .events()
+        .into_iter()
+        .find_map(|event| match event.kind {
+            EventKind::TriageCompleted { tokens, .. } => Some(tokens),
+            _ => None,
+        })
+        .unwrap();
+    let (action, token) = tokens.iter().next().unwrap();
+    assert_eq!(token.len(), 64);
+    let stored =
+        OperationRepo::execution(&*w.store, domovoi_core::ExecutionId::from_action(*action))
+            .await
+            .unwrap()
+            .unwrap();
+    assert_eq!(
+        stored.value.chat_token_hash(),
+        Some(&domovoi_engine::chat_token::token_hash(token))
+    );
+
+    // A destructive step never gets a token.
+    let w = inv(InvSetup::default()).await;
+    let mut skill = crate::harness::restart_skill();
+    skill.risk = domovoi_core::Risk::Destructive;
+    w.link.set_skills(crate::harness::host_id(), vec![skill]);
+    w.llm.push_text(restart_report("nginx"));
+    let op = w.start().await;
+    w.until(op, |s| {
+        s.operation.status == OperationStatus::WaitingApproval
+    })
+    .await;
+    assert_eq!(w.completed()[0].1, 0, "no token for a destructive step");
 }

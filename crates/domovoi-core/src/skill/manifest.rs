@@ -37,6 +37,29 @@ pub enum Risk {
     Destructive,
 }
 
+impl Risk {
+    /// The snake_case name the risk is stored and serialised under.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Read => "read",
+            Self::Write => "write",
+            Self::Destructive => "destructive",
+        }
+    }
+
+    /// The risk stored under `name`, or `None` for an unknown name.
+    #[must_use]
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "read" => Some(Self::Read),
+            "write" => Some(Self::Write),
+            "destructive" => Some(Self::Destructive),
+            _ => None,
+        }
+    }
+}
+
 /// How to check that a write skill worked.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]

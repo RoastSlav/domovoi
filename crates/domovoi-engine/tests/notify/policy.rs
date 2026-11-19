@@ -428,3 +428,24 @@ fn escalation_replies_and_updates_and_breaks_through_quiet_hours() {
     );
     assert!(!out.state.is_held());
 }
+
+#[test]
+fn execution_changed_updates_the_card_without_a_thread_reply() {
+    let now = ts("2026-10-31T09:00:00Z");
+    let incident = open(Severity::Warning, now);
+    let kind = EventKind::ExecutionChanged {
+        execution: domovoi_core::ExecutionId::new(),
+    };
+    let out = plan(
+        &event(kind, &incident),
+        &posted(now),
+        &NotifySettings::new(TimeZone::UTC),
+        now,
+    );
+    assert_eq!(
+        out.actions,
+        [NotifyAction::UpdateCard {
+            incident: incident.id()
+        }]
+    );
+}

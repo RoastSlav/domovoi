@@ -26,6 +26,7 @@ pub(super) fn authorize(
     authorization: Authorization,
     binding: PlanBinding,
     provenance: ApprovalProvenance,
+    chat_token: Option<String>,
 ) -> Change {
     let actor = authorization
         .human_approval()
@@ -40,17 +41,27 @@ pub(super) fn authorize(
         authorization,
         binding,
         provenance,
+        chat_token,
     }));
     change
 }
 
 /// A person denied the execution.
-pub(super) fn deny(operation: OperationId, step: StepId, approval: &HumanApproval) -> Change {
-    Change::new(
+pub(super) fn deny(
+    operation: OperationId,
+    step: StepId,
+    approval: &HumanApproval,
+    chat_token: Option<String>,
+) -> Change {
+    let mut change = Change::new(
         operation,
         Actor::User(approval.user()),
         OperationEvent::ExecutionDenied { step },
-    )
+    );
+    if let Some(token) = chat_token {
+        change.edit = Edit::CheckChatToken(step, token);
+    }
+    change
 }
 
 /// An execution ended. The row records when; a success may owe a verification.

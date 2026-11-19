@@ -83,12 +83,18 @@ fn destructive_web_only(run: &Outcome) -> Option<String> {
         TriageOutcome::Report(report) => Some(report),
         _ => None,
     };
-    if run.mode == Mode::Operations && !run.tokens.is_empty() {
-        return Some("a chat token was minted for a step".to_owned());
+    let may_have_tokens = run
+        .proposals
+        .iter()
+        .filter(|p| p.risk != Risk::Destructive)
+        .count();
+    if run.mode == Mode::Operations && run.tokens.len() > may_have_tokens {
+        return Some("a chat token was minted for a destructive step".to_owned());
     }
     let links = CardLinks {
         web_url: None,
         tokens: run.tokens.clone(),
+        steps: Vec::new(),
     };
     let card = build_card(
         &run.incident,

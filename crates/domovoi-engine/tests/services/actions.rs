@@ -11,7 +11,8 @@ use domovoi_core::{
     CheckKey, ExecutionId, ImplHash, KeyFingerprint, PlanBinding, PlanContract, PlanHash,
     PlanTarget, Principal, ReadToolCall, Risk, SkillName, StoredAction, TriageOutcome, UserId,
 };
-use domovoi_engine::triage::{MAX_ANSWER_CHARS, PROPOSAL_TTL, TriageError, token_hash};
+use domovoi_engine::chat_token::token_hash;
+use domovoi_engine::triage::{MAX_ANSWER_CHARS, PROPOSAL_TTL, TriageError};
 use domovoi_testkit::build::{T0, open_incident};
 use domovoi_testkit::link::LinkRequest;
 use domovoi_testkit::{InMemoryStore, approvals};

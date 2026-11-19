@@ -19,6 +19,7 @@ mod proposal;
 mod settings;
 mod startup;
 pub mod state;
+mod waiting;
 mod writer;
 
 use std::sync::Arc;
@@ -37,6 +38,7 @@ pub use handle::{ExecutionRequest, OperationHandle, OperationSeed, StepFinish};
 pub use investigate::{APPROVAL_POINTER, InvestigateDeps, InvestigateError, InvestigateSettings};
 pub use settings::OperationSettings;
 pub use state::OperationState;
+pub use waiting::waiting_steps;
 
 use crate::effects::{EffectRunner, EffectRunnerDeps, EffectSettings};
 use writer::OpShared;

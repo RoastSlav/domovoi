@@ -492,6 +492,7 @@ fn spawn_operations(a: &Actions) -> domovoi_engine::operations::OperationHandle 
     let registry = a.capabilities.clone();
     let (handle, _task) = domovoi_engine::operations::OperationService::spawn(
         domovoi_engine::operations::OperationDeps {
+            bus: tokio::sync::broadcast::channel(16).0,
             operations: a.store.clone(),
             uow: a.store.clone(),
             effects: a.store.clone(),

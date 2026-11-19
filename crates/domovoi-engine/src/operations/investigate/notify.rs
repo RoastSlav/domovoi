@@ -11,13 +11,16 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use domovoi_core::ports::{ClaimToken, EffectRecord};
-use domovoi_core::{StepKind, StepOutcome, TriageOutcome};
+use domovoi_core::{ActionId, Incident, OperationId, StepKind, StepOutcome, TriageOutcome};
 
 use super::close::try_close;
 use super::plumbing::{claim, conclude, handle_of, incident_of, runtime, short, step_of};
-use super::turn_output::{caused_by, report_view};
+use super::turn_output::{add_pointer, caused_by, report_view};
+use crate::cards::{MAX_PLANS, step_offers_chat};
+use crate::chat_token::{mint_token, token_hash};
 use crate::effects::{EffectHandler, EffectOutcome};
 use crate::operations::effects::{Address, address, finish, load, unreadable};
+use crate::operations::waiting::waiting_steps;
 use crate::operations::writer::{Conclusion, OpShared};
 use crate::triage::agent::ToolUse;
 use crate::triage::run::digest;
@@ -41,6 +44,54 @@ fn headline(outcome: &TriageOutcome) -> String {
         }
         TriageOutcome::Skipped { reason } | TriageOutcome::Failed { reason } => reason.clone(),
     }
+}
+
+/// One chat token for each waiting step of `operation` that may have chat buttons, rotated
+/// into the step's row so only the hash is stored, and how many waiting steps have no buttons
+/// and are approved in the web UI. A failure never fails the notification: that step is
+/// counted as web only.
+async fn mint_tokens(
+    shared: &Arc<OpShared>,
+    snapshot: &domovoi_core::OperationSnapshot,
+    incident: &Incident,
+    operation: OperationId,
+) -> (BTreeMap<ActionId, String>, usize) {
+    let mut tokens = BTreeMap::new();
+    let host = match shared.deps.hosts.get_host(incident.host()).await {
+        Ok(Some(host)) => host.name,
+        _ => return (tokens, 1),
+    };
+    let waiting =
+        match waiting_steps(&*shared.deps.operations, incident, &host, MAX_PLANS + 1).await {
+            Ok(waiting) => waiting,
+            Err(err) => {
+                tracing::warn!(%err, "could not list the steps waiting for approval");
+                return (tokens, 1);
+            }
+        };
+    let handle = handle_of(shared);
+    let mut web_only = 0;
+    for (index, step) in waiting.iter().enumerate() {
+        let ours = snapshot.execution_of(step.execution.as_step()).is_some();
+        if index >= MAX_PLANS || !ours || !step_offers_chat(step) {
+            web_only += 1;
+            continue;
+        }
+        let token = mint_token();
+        match handle
+            .rotate_chat_token(operation, step.execution.as_step(), token_hash(&token))
+            .await
+        {
+            Ok(()) => {
+                tokens.insert(step.execution.as_action(), token);
+            }
+            Err(err) => {
+                tracing::debug!(%err, "a step could not take a chat token");
+                web_only += 1;
+            }
+        }
+    }
+    (tokens, web_only)
 }
 
 #[async_trait]
@@ -72,7 +123,7 @@ impl EffectHandler for Notify {
             .get("tools")
             .and_then(|tools| serde_json::from_value(tools.clone()).ok())
             .unwrap_or_default();
-        let Some(outcome) =
+        let Some(mut outcome) =
             step_of(&snapshot, turn_id).and_then(|turn| report_view(&snapshot, turn, &dropped))
         else {
             return EffectOutcome::Dead {
@@ -104,10 +155,13 @@ impl EffectHandler for Notify {
         {
             tracing::warn!(%err, incident = %incident.id(), "could not record the triage tool use");
         }
-        // No step has a chat token: a step is approved only on the Operations page.
+        let (tokens, web_only) = mint_tokens(shared, &snapshot, &incident, operation).await;
+        if web_only > 0 {
+            add_pointer(&mut outcome);
+        }
         if let Err(err) = deps
             .manager
-            .attach_triage(incident.id(), outcome.clone(), BTreeMap::new())
+            .attach_triage(incident.id(), outcome.clone(), tokens)
             .await
         {
             return EffectOutcome::Retry {

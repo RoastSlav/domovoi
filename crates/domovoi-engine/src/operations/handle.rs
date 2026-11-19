@@ -153,7 +153,8 @@ impl OperationHandle {
 
     /// Records a person's approval of an execution. The binding must name the stored plan
     /// hash; a mismatch, an expired window or a second approval changes nothing. A policy
-    /// authorization is refused.
+    /// authorization is refused. A chat approval must carry the step's single-use
+    /// `chat_token`; the web passes `None`.
     pub async fn authorize(
         &self,
         operation: OperationId,
@@ -161,13 +162,34 @@ impl OperationHandle {
         authorization: Authorization,
         binding: PlanBinding,
         provenance: ApprovalProvenance,
+        chat_token: Option<&str>,
     ) -> Result<(), OperationError> {
+        let chat_token = chat_token.map(str::to_owned);
         self.ask(|reply| OperationCommand::Authorize {
             operation,
             step,
             authorization,
             binding,
             provenance,
+            chat_token,
+            reply,
+        })
+        .await
+    }
+
+    /// Replaces the chat token hash of a step that is still awaiting approval and unexpired.
+    /// Refused with `Decide(StepNotOpen)` when the step is decided or not awaiting approval,
+    /// `Execution(Expired)` when the window closed, `NotFound` when missing.
+    pub async fn rotate_chat_token(
+        &self,
+        operation: OperationId,
+        step: StepId,
+        hash: [u8; 32],
+    ) -> Result<(), OperationError> {
+        self.ask(|reply| OperationCommand::RotateToken {
+            operation,
+            step,
+            hash,
             reply,
         })
         .await
@@ -184,6 +206,28 @@ impl OperationHandle {
             operation,
             step,
             approval,
+            chat_token: None,
+            reply,
+        })
+        .await
+    }
+
+    /// Records that the person in `approval` denied an execution from chat. Like a chat
+    /// approval it must carry the step's single-use `chat_token`, which is checked and spent
+    /// in the same commit as the denial; a wrong or used token is `BadToken`.
+    pub async fn deny_from_chat(
+        &self,
+        operation: OperationId,
+        step: StepId,
+        approval: HumanApproval,
+        chat_token: &str,
+    ) -> Result<(), OperationError> {
+        let chat_token = Some(chat_token.to_owned());
+        self.ask(|reply| OperationCommand::Deny {
+            operation,
+            step,
+            approval,
+            chat_token,
             reply,
         })
         .await
