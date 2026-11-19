@@ -3,7 +3,8 @@
 //!
 //! Delivery is at least once, like every notification here: a crash between attaching the
 //! outcome and finishing the notification step attaches the outcome once more on redelivery,
-//! which shows as a second timeline entry and card edit.
+//! which shows as a second timeline entry and card edit. The tool use is recorded before the
+//! outcome, as a direct triage run does, so the timeline reads the same either way.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -95,6 +96,14 @@ impl EffectHandler for Notify {
                 tracing::warn!(%err, "could not cache the triage report");
             }
         }
+        if !tools.is_empty()
+            && let Err(err) = deps
+                .manager
+                .record_tool_use(incident.id(), "triage".to_owned(), tools)
+                .await
+        {
+            tracing::warn!(%err, incident = %incident.id(), "could not record the triage tool use");
+        }
         // No step has a chat token: a step is approved only on the Operations page.
         if let Err(err) = deps
             .manager
@@ -104,14 +113,6 @@ impl EffectHandler for Notify {
             return EffectOutcome::Retry {
                 error: err.to_string(),
             };
-        }
-        if !tools.is_empty()
-            && let Err(err) = deps
-                .manager
-                .record_tool_use(incident.id(), "triage".to_owned(), tools)
-                .await
-        {
-            tracing::warn!(%err, incident = %incident.id(), "could not record the triage tool use");
         }
         let notification = caused_by(&snapshot, turn_id, StepKind::Notification)
             .into_iter()

@@ -43,11 +43,20 @@ mod limits;
 #[cfg(test)]
 mod liveness;
 #[cfg(test)]
+mod ops_mode;
+#[cfg(test)]
+mod parity;
+#[cfg(test)]
+mod parity_limits;
+#[cfg(test)]
 mod plan_binding;
 #[cfg(test)]
 mod plan_v2;
 #[cfg(test)]
 mod profile;
+#[cfg(test)]
+#[path = "../proposal_view.rs"]
+mod proposal_view;
 #[cfg(test)]
 mod reconciliation;
 #[cfg(test)]
@@ -58,6 +67,8 @@ mod redact;
 mod reliability;
 #[cfg(test)]
 mod report;
+#[cfg(test)]
+mod run_queue;
 #[cfg(test)]
 mod targets;
 #[cfg(test)]

@@ -5,7 +5,7 @@ use domovoi_engine::EventKind;
 use domovoi_engine::triage::MAX_ANSWER_CHARS;
 use serde_json::json;
 
-use crate::harness::{Setup, host_id, report_json, restart_skill, world};
+use crate::harness::{Mode, Setup, host_id, report_json, restart_skill, world};
 
 /// Every text the model was shown in one request, in order.
 fn shown(req: &LlmRequest) -> String {
@@ -258,7 +258,7 @@ async fn the_follow_up_context_names_the_report_and_the_action_on_record() {
             {"skill": "restart_container", "args": {"container": "nginx"}, "reason": "It is stuck."}
         ]),
     ));
-    let TriageOutcome::Report(report) = w.run().await else {
+    let TriageOutcome::Report(report) = w.run(Mode::Legacy).await else {
         panic!("a report");
     };
     assert_eq!(report.cause, "A bad config file, fairly sure.");

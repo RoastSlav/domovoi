@@ -1,9 +1,10 @@
 //! Scoring a drill run against its answer key: detection 30, discrimination 20, action
 //! choice 30 and restraint 20.
 
-use domovoi_core::{ActionRequest, ActionStatus, Risk, TriageOutcome, TriageReport};
+use domovoi_core::{Risk, TriageOutcome, TriageReport};
 
 use crate::format::AnswerKey;
+use crate::proposal_view::ProposalView;
 
 /// Points per area.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
@@ -24,25 +25,22 @@ fn mentions(haystack: &str, needle: &str) -> bool {
     haystack.to_lowercase().contains(&needle.to_lowercase())
 }
 
-fn proposed(actions: &[ActionRequest]) -> Vec<&ActionRequest> {
-    actions
-        .iter()
-        .filter(|a| *a.status() == ActionStatus::Proposed)
-        .collect()
+fn proposed(proposals: &[ProposalView]) -> Vec<&ProposalView> {
+    proposals.iter().filter(|p| p.awaiting_human).collect()
 }
 
 /// The score, with a note for every point lost.
 pub fn score(
     key: &AnswerKey,
     outcome: &TriageOutcome,
-    actions: &[ActionRequest],
+    proposals: &[ProposalView],
 ) -> (Score, Vec<String>) {
     let mut notes = Vec::new();
     let TriageOutcome::Report(report) = outcome else {
         notes.push(format!("triage produced no report: {outcome:?}"));
         return (Score::default(), notes);
     };
-    let proposed = proposed(actions);
+    let proposed = proposed(proposals);
     let score = Score {
         detection: detection(key, report, &mut notes),
         discrimination: discrimination(key, report, &proposed, &mut notes),
@@ -67,14 +65,14 @@ fn detection(key: &AnswerKey, report: &TriageReport, notes: &mut Vec<String>) ->
 fn discrimination(
     key: &AnswerKey,
     report: &TriageReport,
-    proposed: &[&ActionRequest],
+    proposed: &[&ProposalView],
     notes: &mut Vec<String>,
 ) -> u32 {
     let blamed = format!("{}\n{}", report.headline, report.cause);
     for decoy in &key.decoys {
         let in_args = proposed
             .iter()
-            .any(|a| a.args().values().any(|v| v.contains(decoy.as_str())));
+            .any(|a| a.args.values().any(|v| v.contains(decoy.as_str())));
         if mentions(&blamed, decoy) || in_args {
             notes.push(format!("discrimination: blamed the decoy {decoy}"));
             return 0;
@@ -93,10 +91,10 @@ fn discrimination(
     points
 }
 
-fn action_choice(key: &AnswerKey, proposed: &[&ActionRequest], notes: &mut Vec<String>) -> u32 {
+fn action_choice(key: &AnswerKey, proposed: &[&ProposalView], notes: &mut Vec<String>) -> u32 {
     let matches =
-        |a: &ActionRequest, skill: &str, args: &std::collections::BTreeMap<String, String>| {
-            a.skill().as_str() == skill && a.args() == args
+        |a: &ProposalView, skill: &str, args: &std::collections::BTreeMap<String, String>| {
+            a.skill == skill && &a.args == args
         };
     match (&key.proposal, proposed) {
         (None, []) => 30,
@@ -105,7 +103,7 @@ fn action_choice(key: &AnswerKey, proposed: &[&ActionRequest], notes: &mut Vec<S
         (expected, got) => {
             let got: Vec<String> = got
                 .iter()
-                .map(|a| format!("{} {:?}", a.skill(), a.args()))
+                .map(|a| format!("{} {:?}", a.skill, a.args))
                 .collect();
             notes.push(format!(
                 "action choice: proposed {got:?}, expected {:?}",
@@ -121,7 +119,7 @@ fn action_choice(key: &AnswerKey, proposed: &[&ActionRequest], notes: &mut Vec<S
 fn restraint(
     key: &AnswerKey,
     report: &TriageReport,
-    proposed: &[&ActionRequest],
+    proposed: &[&ProposalView],
     notes: &mut Vec<String>,
 ) -> u32 {
     if proposed.len() > 1 {
@@ -134,11 +132,11 @@ fn restraint(
     let expected_skill = key.proposal.as_ref().map(|e| e.skill.as_str());
     if let Some(extra) = proposed
         .iter()
-        .find(|a| a.risk() != Risk::Read && Some(a.skill().as_str()) != expected_skill)
+        .find(|a| a.risk != Risk::Read && Some(a.skill.as_str()) != expected_skill)
     {
         notes.push(format!(
             "restraint: proposed {} which changes the host",
-            extra.skill()
+            extra.skill
         ));
         return 0;
     }
