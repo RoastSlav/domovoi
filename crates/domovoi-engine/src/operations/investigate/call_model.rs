@@ -8,9 +8,7 @@ use domovoi_core::{FinishOutcome, StepOutcome, StepUsage};
 use serde_json::json;
 
 use super::DRAFT_ATTEMPTS;
-use super::plumbing::{
-    claim, conclude, end_operation, incident_of, latest_turn, runtime, short, step_of,
-};
+use super::plumbing::{claim, conclude, end_operation, incident_of, runtime, short, step_of};
 use super::turn_output::{TurnKind, TurnOutput};
 use crate::effects::{EffectHandler, EffectOutcome};
 use crate::operations::effects::{Address, address, after, finish, load, spec, unreadable};
@@ -132,7 +130,6 @@ impl EffectHandler for CallModel {
             DRAFT_ATTEMPTS,
             Some(format!("draft:{turn}")),
         );
-        debug_assert!(latest_turn(&snapshot, None).is_some());
         conclude(shared, held, operation, Some(ended), vec![draft]).await
     }
 }

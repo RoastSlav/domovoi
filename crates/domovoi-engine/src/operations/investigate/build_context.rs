@@ -217,7 +217,7 @@ async fn run(
                 held,
                 operation,
                 Some(ended),
-                vec![draft(operation, turn)],
+                vec![draft(shared, operation, turn)],
             )
             .await
         }
@@ -239,7 +239,7 @@ async fn run(
                 held,
                 operation,
                 Some(ended),
-                vec![draft(operation, turn)],
+                vec![draft(shared, operation, turn)],
             )
             .await
         }
@@ -266,13 +266,14 @@ async fn run(
 
 /// The `draft_summary` effect for `turn`, with no tool use to report.
 fn draft(
+    shared: &OpShared,
     operation: domovoi_core::OperationId,
     turn: StepId,
 ) -> crate::operations::decide::EffectSpec {
     spec(
         EffectKind::DraftSummary,
         json!({ "v": 1, "operation": operation.to_string(), "step": turn.to_string(), "tools": [] }),
-        jiff::Timestamp::UNIX_EPOCH,
+        after(shared, jiff::SignedDuration::ZERO),
         DRAFT_ATTEMPTS,
         Some(format!("draft:{turn}")),
     )
