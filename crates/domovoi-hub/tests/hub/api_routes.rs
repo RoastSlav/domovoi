@@ -637,23 +637,19 @@ const TRIAGE_REPORT: &str = r#"{
 async fn retrying_triage_runs_the_model_again_and_reports_how_it_went() {
     let a = api_with_triage_and_operations().await;
     let login = a.admin().await;
-    let clock = a.clock.clone();
-    let ticker = tokio::spawn(async move {
-        loop {
-            clock.advance(jiff::SignedDuration::from_millis(100));
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
-    });
     a.llm.push_text(TRIAGE_REPORT);
 
-    let reply = a
-        .post(
+    // The investigation's effects run against the fake clock, so it moves while the route waits.
+    let reply = crate::harness::pump(
+        &a.clock,
+        jiff::SignedDuration::from_millis(100),
+        a.post(
             &format!("/api/v1/incidents/{}/triage", a.incident.id()),
             &login,
             json!({}),
-        )
-        .await;
-    ticker.abort();
+        ),
+    )
+    .await;
     assert_eq!(reply.status, StatusCode::OK, "{}", reply.text);
     assert_eq!(reply.body["kind"], "report", "{}", reply.text);
     assert_eq!(a.llm.requests().len(), 1, "the model ran once");
@@ -811,4 +807,48 @@ async fn digest_preview_says_when_the_next_send_is_due() {
     // The clock is 12:00 UTC and the digest goes out at 09:00 UTC, so the next send is
     // tomorrow morning.
     assert_eq!(preview.body["next_send_at"], "2026-11-01T09:00:00Z");
+}
+
+#[tokio::test]
+async fn orchestration_off_keeps_questions_and_chat_and_refuses_a_retry() {
+    // Triage is on, orchestration is off: nothing investigates, the conversation still works.
+    let a = api_with_triage().await;
+    let login = a.admin().await;
+    a.llm.push_text("Because the config file is bad.");
+    a.llm.push_text("The NAS is fine.");
+
+    let ask = a
+        .post(
+            &format!("/api/v1/incidents/{}/ask", a.incident.id()),
+            &login,
+            json!({ "question": "Why does nginx crash?" }),
+        )
+        .await;
+    assert_eq!(ask.status, StatusCode::OK, "{}", ask.text);
+    let chat = a
+        .post("/api/v1/chat", &login, json!({ "question": "Is it fine?" }))
+        .await;
+    assert_eq!(chat.status, StatusCode::OK, "{}", chat.text);
+
+    let retry = a
+        .post(
+            &format!("/api/v1/incidents/{}/triage", a.incident.id()),
+            &login,
+            json!({}),
+        )
+        .await;
+    assert_eq!(
+        retry.status,
+        StatusCode::SERVICE_UNAVAILABLE,
+        "{}",
+        retry.text
+    );
+    assert!(
+        retry
+            .text
+            .contains("investigations are not enabled; set [orchestration] enabled = true"),
+        "{}",
+        retry.text
+    );
+    assert_eq!(a.llm.requests().len(), 2, "the retry never asked the model");
 }

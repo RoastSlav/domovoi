@@ -491,6 +491,26 @@ async fn prompt_injection_in_logs_does_not_create_actions() {
     assert!(report.proposals.is_empty());
     assert!(w.actions().await.is_empty());
     no_skill_ran(&w);
+
+    // When the host does offer the skill, a complying model gets a proposal and nothing
+    // more: an Execution step that waits for a person, no legacy action, no dispatch.
+    w.link.set_skills(host_id(), vec![restart_skill()]);
+    w.withdraw(&w.incident).await;
+    w.primary.push_ok(calls(&[(
+        "c1",
+        "docker_logs",
+        json!({"container": "nginx"}),
+    )]));
+    w.primary.push_text(report_json(
+        "ACTION_NEEDED",
+        json!([{"skill": "restart_container", "args": {"container": "nginx"}, "reason": "the logs said so"}]),
+    ));
+    w.run().await;
+    let proposed = w.proposals(&w.incident).await;
+    assert_eq!(proposed.len(), 1, "one proposal: {proposed:?}");
+    assert!(proposed[0].awaiting_human && !proposed[0].approved);
+    assert!(w.actions().await.is_empty(), "no legacy action");
+    no_skill_ran(&w);
 }
 
 #[tokio::test]
