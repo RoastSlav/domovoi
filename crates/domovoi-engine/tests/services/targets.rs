@@ -25,7 +25,9 @@ const ID_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 #[derive(Clone)]
 struct Containers {
     name: String,
-    id: String,
+    /// The full id the inspect document reports; `None` makes the container vanish between
+    /// the list and the inspect.
+    id: Option<String>,
     rows: usize,
 }
 
@@ -71,7 +73,7 @@ impl World {
         );
         let containers = Arc::new(Mutex::new(Containers {
             name: "plex".to_owned(),
-            id: ID_A.to_owned(),
+            id: Some(ID_A.to_owned()),
             rows: 1,
         }));
         let listed = containers.clone();
@@ -97,7 +99,12 @@ impl World {
                     Err(err) => panic!("{err}"),
                 };
                 Ok(ToolOutput {
-                    text: format!("{{\"Id\": \"{}\"}}", state.id),
+                    text: match &state.id {
+                        Some(id) => format!("{{\"Id\": \"{id}\"}}"),
+                        // A container that vanished between the list and the inspect leaves
+                        // a document with no id.
+                        None => "{}".to_owned(),
+                    },
                     truncated: false,
                 })
             }
@@ -146,10 +153,18 @@ impl World {
             Ok(mut state) => {
                 *state = Containers {
                     name: name.to_owned(),
-                    id: id.to_owned(),
+                    id: Some(id.to_owned()),
                     rows,
                 }
             }
+            Err(err) => panic!("{err}"),
+        }
+    }
+
+    /// The container disappears after the list is read: the next inspect has no id.
+    fn vanish_after_list(&self) {
+        match self.containers.lock() {
+            Ok(mut state) => state.id = None,
             Err(err) => panic!("{err}"),
         }
     }
@@ -447,5 +462,31 @@ async fn container_identity_is_within_the_target_identity_limit() {
     assert!(
         validate_container_name("plex").is_ok(),
         "the fixture name is outside the grammar"
+    );
+}
+
+#[tokio::test]
+async fn a_container_that_vanishes_between_reads_is_unproven() {
+    let world = World::new([7; 32]).await;
+    world.vanish_after_list();
+
+    let refused = world.resolver.resolve(world.container_query("plex")).await;
+
+    assert!(
+        matches!(
+            refused,
+            Err(TargetError::Unresolved {
+                reason: TargetUnresolved::ContainerIdentityUnproven,
+                ..
+            })
+        ),
+        "{refused:?}"
+    );
+    assert!(
+        world
+            .reads()
+            .iter()
+            .any(|read| read.contains("DockerInspect")),
+        "the inspect was not attempted"
     );
 }
