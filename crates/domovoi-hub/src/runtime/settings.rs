@@ -73,6 +73,7 @@ pub(super) fn triage(config: &HubConfig) -> TriageSettings {
         cache_days: config.triage.cache_days,
         max_prompt_bytes: config.triage.per_run.prompt_bytes as usize,
         budget: triage_budget(config),
+        run_queue: !config.orchestration.enabled,
     }
 }
 

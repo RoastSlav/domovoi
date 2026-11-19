@@ -8,7 +8,7 @@ use domovoi_core::ports::{LlmCapability, LlmError, LlmMessage, LlmProvider, Part
 use domovoi_core::{
     ActionId, Incident, IncidentId, ReadToolCall, SkillSummary, TriageOutcome, TriageReport,
 };
-use jiff::SignedDuration;
+use jiff::{SignedDuration, Timestamp};
 
 use super::admission::{ADMISSION_RETRY, Purpose, Refusal, admit, unpriced_text};
 use super::agent::{self, ToolUse, text_of};
@@ -50,76 +50,159 @@ pub(crate) async fn triage(shared: &Shared, incident: &Incident, fresh: bool) ->
     outcome
 }
 
+/// What the gates before a model call decided.
+pub(crate) enum Prepared {
+    /// A report for the same fingerprint and evidence exists, and the resolved incident it
+    /// came from.
+    Cached {
+        /// The earlier report.
+        report: TriageReport,
+        /// The incident it was made for.
+        from: IncidentId,
+    },
+    /// Admission refused the run.
+    Refused(Refusal),
+    /// The run may go ahead; its start is recorded.
+    Admitted,
+}
+
+/// The digest of the evidence a report for `incident` would rest on: the incident and its
+/// latest signal. Equal digests mean the repeat cache may answer.
+pub(crate) async fn digest(shared: &Shared, incident: &Incident) -> [u8; 32] {
+    let latest = shared
+        .deps
+        .signals
+        .list_for_incident(incident.id(), 1)
+        .await
+        .ok()
+        .and_then(|s| s.into_iter().next());
+    evidence_digest(incident, latest.as_ref())
+}
+
+/// Runs the repeat cache and the admission gate, in that order: an answer that costs no
+/// model call must not take a run of the hour or read the monthly budget. With `fresh` the
+/// cache is skipped.
+pub(crate) async fn prepare(shared: &Shared, incident: &Incident, fresh: bool) -> Prepared {
+    if !fresh {
+        let digest = digest(shared, incident).await;
+        if let Some((report, from)) = cached(shared, incident, &digest).await {
+            return Prepared::Cached { report, from };
+        }
+    }
+    match admit(shared, Purpose::Triage).await {
+        Ok(()) => Prepared::Admitted,
+        Err(refusal) => Prepared::Refused(refusal),
+    }
+}
+
+/// The sentence a skipped run shows and the time a retry is worth trying, if any.
+pub(crate) fn refusal_text(shared: &Shared, refusal: &Refusal) -> (String, Option<Timestamp>) {
+    match refusal {
+        Refusal::BudgetSpent => ("the monthly triage budget is spent".to_owned(), None),
+        Refusal::Unpriced { provider } => (unpriced_text(provider), None),
+        Refusal::Hourly { retry_at: Some(at) } => (
+            format!(
+                "the limit of {} triage runs per hour is reached; it tries again from {}",
+                shared.settings.per_hour_runs,
+                at.strftime("%H:%M UTC"),
+            ),
+            Some(*at),
+        ),
+        Refusal::Hourly { retry_at: None } => (
+            format!(
+                "the limit of {} triage runs per hour is reached",
+                shared.settings.per_hour_runs,
+            ),
+            None,
+        ),
+        // The alert is already out, so the run ends as skipped and is retried once the
+        // limits are readable again.
+        Refusal::Unverifiable => (
+            "the model limits could not be checked, so triage did not run; it tries again \
+             shortly"
+                .to_owned(),
+            shared.deps.clock.now().checked_add(ADMISSION_RETRY).ok(),
+        ),
+    }
+}
+
+/// What one model run produced.
+pub(crate) struct Generated {
+    /// The redacted report, or the redacted reason every provider failed.
+    pub(crate) result: Result<TriageReport, String>,
+    /// The tool calls the run made.
+    pub(crate) tool_use: Vec<ToolUse>,
+    /// What the successful responses used.
+    pub(crate) usage: agent::RunUsage,
+}
+
+/// Runs the provider chain over `bundle` under the run's budgets and redacts the answer.
+pub(crate) async fn generate(
+    shared: &Shared,
+    incident: &Incident,
+    skills: &[SkillSummary],
+    bundle: &str,
+) -> Generated {
+    let deps = &shared.deps;
+    let mut tool_use: Vec<ToolUse> = Vec::new();
+    let mut run = agent::RunBudget::for_run(shared);
+    let result = providers(shared, incident, skills, bundle, &mut tool_use, &mut run)
+        .await
+        .map(|mut report| {
+            redact_report(deps.redactor.as_ref(), &mut report);
+            report
+        })
+        .map_err(|reason| deps.redactor.redact(&reason));
+    Generated {
+        result,
+        tool_use,
+        usage: run.usage(),
+    }
+}
+
 async fn outcome(
     shared: &Shared,
     incident: &Incident,
     fresh: bool,
 ) -> (TriageOutcome, BTreeMap<ActionId, String>) {
     let deps = &shared.deps;
-    let latest = deps
-        .signals
-        .list_for_incident(incident.id(), 1)
-        .await
-        .ok()
-        .and_then(|s| s.into_iter().next());
-    let digest = evidence_digest(incident, latest.as_ref());
-    // The repeat cache is read before admission: an answer that costs no model call must
-    // not take a run of the hour or read the monthly budget.
-    if !fresh && let Some((mut report, from)) = cached(shared, incident, &digest).await {
-        // The repeat incident gets the same approve buttons a fresh triage would: the
-        // cached report's proposals are re-validated against the host's current session.
-        let snapshot = deps.catalog.snapshot(incident.host());
-        let skills = deps.capabilities.enabled_skills(incident.host());
-        let tokens =
-            proposals::create(shared, incident, snapshot.as_ref(), &skills, &mut report).await;
-        return (TriageOutcome::Cached { report, from }, tokens);
-    }
-    if let Err(refusal) = admit(shared, Purpose::Triage).await {
-        let reason = match refusal {
-            Refusal::BudgetSpent => "the monthly triage budget is spent".to_owned(),
-            Refusal::Unpriced { provider } => unpriced_text(&provider),
-            Refusal::Hourly { retry_at } => {
-                if let Some(at) = retry_at {
-                    shared.defer(incident.id(), at, RetryReason::Cap);
-                    format!(
-                        "the limit of {} triage runs per hour is reached; it tries again from {}",
-                        shared.settings.per_hour_runs,
-                        at.strftime("%H:%M UTC"),
-                    )
-                } else {
-                    format!(
-                        "the limit of {} triage runs per hour is reached",
-                        shared.settings.per_hour_runs,
-                    )
-                }
+    // Read before anything runs, as the cache key of the report this run may produce.
+    let evidence = digest(shared, incident).await;
+    match prepare(shared, incident, fresh).await {
+        Prepared::Cached { mut report, from } => {
+            // The repeat incident gets the same approve buttons a fresh triage would: the
+            // cached report's proposals are re-validated against the host's current session.
+            let snapshot = deps.catalog.snapshot(incident.host());
+            let skills = deps.capabilities.enabled_skills(incident.host());
+            let tokens =
+                proposals::create(shared, incident, snapshot.as_ref(), &skills, &mut report).await;
+            return (TriageOutcome::Cached { report, from }, tokens);
+        }
+        Prepared::Refused(refusal) => {
+            let (reason, retry_at) = refusal_text(shared, &refusal);
+            if let Some(at) = retry_at {
+                shared.defer(incident.id(), at, RetryReason::Cap);
             }
-            Refusal::Unverifiable => {
-                // The alert is already out, so the run ends as skipped and is retried once
-                // the limits are readable again.
-                if let Ok(at) = deps.clock.now().checked_add(ADMISSION_RETRY) {
-                    shared.defer(incident.id(), at, RetryReason::Cap);
-                }
-                "the model limits could not be checked, so triage did not run; it tries \
-                 again shortly"
-                    .to_owned()
-            }
-        };
-        return (TriageOutcome::Skipped { reason }, BTreeMap::new());
+            return (TriageOutcome::Skipped { reason }, BTreeMap::new());
+        }
+        Prepared::Admitted => {}
     }
     let snapshot = deps.catalog.snapshot(incident.host());
     let skills = deps.capabilities.enabled_skills(incident.host());
     let bundle = context::build(shared, incident, &skills).await;
-    let mut tool_use: Vec<ToolUse> = Vec::new();
-    let mut run = agent::RunBudget::for_run(shared);
-    let outcome = match providers(shared, incident, &skills, &bundle, &mut tool_use, &mut run).await
-    {
+    let generated = generate(shared, incident, &skills, &bundle).await;
+    let outcome = match generated.result {
         Ok(mut report) => {
-            redact_report(deps.redactor.as_ref(), &mut report);
             let tokens =
                 proposals::create(shared, incident, snapshot.as_ref(), &skills, &mut report).await;
             if let Err(err) = deps
                 .cache
-                .put(&incident.fingerprint(), &digest, &report, deps.clock.now())
+                .put(
+                    &incident.fingerprint(),
+                    &evidence,
+                    &report,
+                    deps.clock.now(),
+                )
                 .await
             {
                 tracing::warn!(%err, "could not cache the triage report");
@@ -128,7 +211,6 @@ async fn outcome(
             (TriageOutcome::Report(report), tokens)
         }
         Err(reason) => {
-            let reason = deps.redactor.redact(&reason);
             tracing::warn!(incident = %incident.id(), reason = reason.as_str(), "triage failed");
             failed(shared, incident, &reason).await;
             if !limits(shared).degraded
@@ -139,10 +221,10 @@ async fn outcome(
             (TriageOutcome::Failed { reason }, BTreeMap::new())
         }
     };
-    if !tool_use.is_empty()
+    if !generated.tool_use.is_empty()
         && let Err(err) = deps
             .manager
-            .record_tool_use(incident.id(), "triage".to_owned(), tool_use)
+            .record_tool_use(incident.id(), "triage".to_owned(), generated.tool_use)
             .await
     {
         tracing::warn!(%err, incident = %incident.id(), "could not record the triage tool use");
@@ -338,7 +420,7 @@ async fn attempt(
         .map_err(|e| Failure::Invalid(format!("the model gave no usable report: {e}")))
 }
 
-async fn failed(shared: &Shared, incident: &Incident, reason: &str) {
+pub(crate) async fn failed(shared: &Shared, incident: &Incident, reason: &str) {
     let raise = {
         let mut limits = limits(shared);
         limits.failures += 1;
@@ -362,7 +444,7 @@ async fn failed(shared: &Shared, incident: &Incident, reason: &str) {
     let _ = deps.bus.send(event);
 }
 
-async fn succeeded(shared: &Shared) {
+pub(crate) async fn succeeded(shared: &Shared) {
     let clear = {
         let mut limits = limits(shared);
         limits.failures = 0;

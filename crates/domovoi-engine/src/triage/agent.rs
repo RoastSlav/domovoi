@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use domovoi_core::ports::{
     LlmCapability, LlmError, LlmMessage, LlmProvider, LlmRequest, LlmResponse, Part, Role,
-    StopReason, ToolSpec,
+    StopReason, ToolSpec, Usage,
 };
 use domovoi_core::{ReadTool, SkillSummary};
 use jiff::{SignedDuration, Timestamp};
@@ -97,6 +97,34 @@ pub(crate) struct RunBudget {
     per_turn: u32,
     remaining: u32,
     deadline: Timestamp,
+    usage: RunUsage,
+}
+
+/// What the successful model responses of one run reported, summed.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct RunUsage {
+    /// Input tokens over every response.
+    pub(crate) input_tokens: u64,
+    /// Output tokens over every response.
+    pub(crate) output_tokens: u64,
+    /// The summed price of the priced responses, or `None` when none was priced.
+    pub(crate) cost_micros: Option<u64>,
+    /// Whether some response had no known price, so the sum is not the whole cost.
+    pub(crate) any_unpriced: bool,
+}
+
+impl RunUsage {
+    /// Adds one response's usage.
+    pub(crate) fn add(&mut self, usage: Usage) {
+        self.input_tokens += u64::from(usage.input_tokens);
+        self.output_tokens += u64::from(usage.output_tokens);
+        match usage.cost_micros {
+            Some(cost) => {
+                self.cost_micros = Some(self.cost_micros.unwrap_or(0).saturating_add(cost));
+            }
+            None => self.any_unpriced = true,
+        }
+    }
 }
 
 impl RunBudget {
@@ -117,7 +145,13 @@ impl RunBudget {
                 .min(MAX_OUTPUT_ALLOWANCE),
             remaining: shared.settings.budget.max_total_output_tokens,
             deadline,
+            usage: RunUsage::default(),
         }
+    }
+
+    /// What the run's successful responses used so far.
+    pub(crate) fn usage(&self) -> RunUsage {
+        self.usage
     }
 
     /// When the run must be finished.
@@ -276,7 +310,11 @@ pub(crate) async fn ask(
             tools: tools.clone(),
             max_output_tokens: allowance,
         };
-        match complete(shared, provider, req, run.deadline()).await {
+        let answered = complete(shared, provider, req, run.deadline()).await;
+        if let Ok(response) = &answered {
+            run.usage.add(response.usage);
+        }
+        match answered {
             Ok(response) if response.stop == StopReason::MaxTokens => {
                 match grown_allowance(allowance) {
                     Some(larger) => {
@@ -404,5 +442,36 @@ pub(crate) async fn converse(
             role: Role::User,
             parts: results,
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use domovoi_core::ports::{Usage, UsageSource};
+
+    use super::RunUsage;
+
+    fn usage(input: u32, output: u32, cost: Option<u64>) -> Usage {
+        Usage {
+            input_tokens: input,
+            output_tokens: output,
+            cost_micros: cost,
+            source: UsageSource::Reported,
+        }
+    }
+
+    #[test]
+    fn run_usage_sums_every_call_and_marks_an_unpriced_one() {
+        let mut total = RunUsage::default();
+        total.add(usage(100, 10, Some(5)));
+        total.add(usage(50, 20, Some(7)));
+        assert_eq!(
+            (total.input_tokens, total.output_tokens, total.cost_micros),
+            (150, 30, Some(12))
+        );
+        assert!(!total.any_unpriced);
+        total.add(usage(1, 1, None));
+        assert!(total.any_unpriced);
+        assert_eq!(total.input_tokens, 151);
     }
 }
