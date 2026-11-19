@@ -1,0 +1,66 @@
+---
+source: crates/domovoi-hub/tests/hub/service_parity.rs
+expression: replies(&all)
+---
+[
+  {
+    "body": [
+      {
+        "agent_enrolled": false,
+        "connected": false,
+        "connected_since": null,
+        "hub_protocol": "1.2",
+        "id": "<id-1>",
+        "incompatible_since": null,
+        "kind": "remote",
+        "last_seen": null,
+        "name": "nas",
+        "open_incidents": 1,
+        "outdated": false,
+        "protocol_state": "unknown",
+        "reported_protocol": null,
+        "reported_release": null,
+        "version": null
+      }
+    ],
+    "status": 200
+  },
+  {
+    "body": {
+      "facts": [],
+      "host": {
+        "agent_enrolled": false,
+        "connected": false,
+        "connected_since": null,
+        "hub_protocol": "1.2",
+        "id": "<id-1>",
+        "incompatible_since": null,
+        "kind": "remote",
+        "last_seen": null,
+        "name": "nas",
+        "open_incidents": 1,
+        "outdated": false,
+        "protocol_state": "unknown",
+        "reported_protocol": null,
+        "reported_release": null,
+        "version": null
+      }
+    },
+    "status": 200
+  },
+  {
+    "body": {
+      "date": "2026-10-31",
+      "hosts": [
+        {
+          "host": "nas",
+          "lines": [],
+          "quiet": false
+        }
+      ],
+      "markdown": "**Daily digest, 2026-10-31**\n**nas**\n**Open incidents**\n- nas: disk.usage firing (open 1081d 13h, warning)\n",
+      "next_send_at": "2026-11-01T09:00:00Z"
+    },
+    "status": 200
+  }
+]
