@@ -315,6 +315,16 @@ async fn invariants_hold_after_upgrade_and_a_restart() {
         .expect("the upgraded fixture alone satisfies the invariants");
 
     let harness = Harness::start(store.clone());
+    // The harness's executor settles the fixture's stored approval on its own. Wait for that
+    // to finish before reading the invariants: the reader takes the action row and its journal
+    // in separate queries, so a rejection landing between them is not a torn write.
+    if let Some(approved) = actions(&store)
+        .await
+        .into_iter()
+        .find(|action| action.status() == &ActionStatus::Approved)
+    {
+        let _ = terminal(&store, approved.id()).await;
+    }
     let incident = open_incident(&store).await;
     harness
         .manager
