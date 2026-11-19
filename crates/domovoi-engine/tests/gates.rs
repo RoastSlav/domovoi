@@ -1356,3 +1356,123 @@ fn operation_dispatch_sites_are_counted_exactly() {
     );
     assert_refused(&tree, "an operation boundary that never hands the run over");
 }
+
+/// The sources of the investigate operation: every file under `operations/investigate/`.
+fn investigate_sources() -> Vec<(String, String)> {
+    let files: Vec<_> = crate_sources("domovoi-engine")
+        .into_iter()
+        .filter(|(rel, _)| rel.starts_with("crates/domovoi-engine/src/operations/investigate/"))
+        .collect();
+    assert!(
+        files.len() >= 8,
+        "the scan found only {} investigate sources",
+        files.len()
+    );
+    files
+}
+
+/// Whether `line` holds `path` (such as `Authorization::`) that is not the tail of a longer
+/// name.
+fn names_path(line: &str, path: &str) -> bool {
+    line.match_indices(path)
+        .any(|(at, _)| !line[..at].chars().next_back().is_some_and(is_ident))
+}
+
+/// The places in `files` where a code line names one of `words` as a whole identifier or
+/// holds one of `paths`.
+fn forbidden_in(files: &[(String, String)], words: &[&str], paths: &[&str]) -> Vec<String> {
+    let mut offenders = Vec::new();
+    for (rel, text) in files {
+        for (number, line) in code_lines(text) {
+            if words.iter().any(|word| names(line, word))
+                || paths.iter().any(|path| names_path(line, path))
+            {
+                offenders.push(format!("{rel}:{number}: {line}"));
+            }
+        }
+    }
+    offenders
+}
+
+/// The investigation handlers reach agents only through the operation service and the triage
+/// code they wrap; no file under `operations/investigate/` names the raw link or one of its
+/// operations.
+#[test]
+fn investigate_handlers_never_name_the_raw_link() {
+    let offenders = forbidden_in(&investigate_sources(), &RAW_LINK_NAMES, &[]);
+    assert!(
+        offenders.is_empty(),
+        "an investigate handler names the raw link: {offenders:#?}",
+    );
+
+    let probe = |text: &str| {
+        let rel = "crates/domovoi-engine/src/operations/investigate/x.rs";
+        forbidden_in(&[(rel.to_owned(), text.to_owned())], &RAW_LINK_NAMES, &[])
+    };
+    assert!(probe("// the AgentLink is not used here\n").is_empty());
+    assert!(probe("let out = deps.rerun.rerun_check(host, check, target, at).await;\n").is_empty());
+    for text in [
+        "link: Arc<dyn AgentLink>,\n",
+        "link.run_skill(host, req).await;\n",
+        "link.run_tool(host, call, at).await;\n",
+        "link.run_check(host, check, target, at).await;\n",
+        "link.start_skill(host, req, session, epoch, at).await;\n",
+    ] {
+        assert!(!probe(text).is_empty(), "{text} was not caught");
+    }
+}
+
+/// A proposal from an investigation becomes an Execution step through
+/// `OperationHandle::propose_execution` and nothing else: no legacy action is proposed, the
+/// action service is not reached and no dispatch command is built.
+#[test]
+fn investigate_proposals_only_go_through_propose_execution() {
+    const PATHS: [&str; 2] = ["ActionRequest::propose", "OperationCommand::Dispatch"];
+    const WORDS: [&str; 1] = ["actions_service"];
+    let offenders = forbidden_in(&investigate_sources(), &WORDS, &PATHS);
+    assert!(
+        offenders.is_empty(),
+        "an investigate handler proposes or dispatches by another path: {offenders:#?}",
+    );
+
+    let probe = |text: &str| {
+        let rel = "crates/domovoi-engine/src/operations/investigate/x.rs";
+        forbidden_in(&[(rel.to_owned(), text.to_owned())], &WORDS, &PATHS)
+    };
+    assert!(probe("handle.propose_execution(operation, request).await\n").is_empty());
+    assert!(probe("// triage.deps.actions_service.propose(action)\n").is_empty());
+    for text in [
+        "let action = ActionRequest::propose(incident, skill, &args, key, who, ttl, now)?;\n",
+        "triage.deps.actions_service.propose(action).await\n",
+        "let command = OperationCommand::Dispatch { held, step };\n",
+    ] {
+        assert!(!probe(text).is_empty(), "{text} was not caught");
+    }
+}
+
+/// Nothing an investigation does approves anything: no file under `operations/investigate/`
+/// builds an authorization or a human approval, or names a policy permit.
+#[test]
+fn investigate_never_constructs_an_authorization() {
+    const PATHS: [&str; 1] = ["Authorization::"];
+    const WORDS: [&str; 2] = ["HumanApproval", "PolicyPermit"];
+    let offenders = forbidden_in(&investigate_sources(), &WORDS, &PATHS);
+    assert!(
+        offenders.is_empty(),
+        "an investigate handler builds an authorization: {offenders:#?}",
+    );
+
+    let probe = |text: &str| {
+        let rel = "crates/domovoi-engine/src/operations/investigate/x.rs";
+        forbidden_in(&[(rel.to_owned(), text.to_owned())], &WORDS, &PATHS)
+    };
+    assert!(probe("// Authorization::human(approval) is for the hub\n").is_empty());
+    assert!(probe("let step = AuthorizedStep::of(row)?;\n").is_empty());
+    for text in [
+        "let auth = Authorization::human(approval);\n",
+        "let approval = HumanApproval::new(user, channel, now);\n",
+        "fn permit(permit: PolicyPermit) {}\n",
+    ] {
+        assert!(!probe(text).is_empty(), "{text} was not caught");
+    }
+}
