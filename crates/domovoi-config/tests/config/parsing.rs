@@ -1,6 +1,6 @@
 use std::net::SocketAddr;
 
-use domovoi_config::{Duration, LocalTime, MapEnv, TimeZone};
+use domovoi_config::{AgentConfig, Duration, LocalTime, MapEnv, TimeZone, parse};
 use jiff::SignedDuration;
 
 use crate::helpers::{AGENT, agent, assert_issue, hub, hub_errors, hub_with};
@@ -205,4 +205,37 @@ enabled = false
 ")
     .unwrap();
     assert!(!config.orchestration.enabled);
+}
+
+#[test]
+fn hub_reads_policy_shadow_from_the_environment() {
+    let (config, _) = hub_with("", &MapEnv::new().with("DOMOVOI_POLICY__SHADOW", "true")).unwrap();
+    assert!(config.policy.shadow);
+    assert!(!hub("").unwrap().0.policy.shadow);
+}
+
+#[test]
+fn hub_ignores_the_agents_policy_allow_risk_variable() {
+    let env = MapEnv::new().with("DOMOVOI_POLICY__ALLOW_RISK", "read");
+    let (config, warnings) = hub_with("", &env).unwrap();
+    assert!(warnings.is_empty());
+    assert!(!config.policy.shadow);
+}
+
+#[test]
+fn agent_ignores_the_hubs_policy_shadow_variable() {
+    let env = MapEnv::new().with("DOMOVOI_POLICY__SHADOW", "true");
+    let (config, warnings) = parse::<AgentConfig>(AGENT, &env).unwrap();
+    assert!(warnings.is_empty());
+    let (plain, _) = parse::<AgentConfig>(AGENT, &MapEnv::new()).unwrap();
+    assert_eq!(config.policy, plain.policy);
+}
+
+#[test]
+fn agent_still_reads_policy_allow_risk_from_the_environment() {
+    // A list cannot be set from the environment, so the variable is read and rejected at
+    // its path instead of being skipped as the hub's (which would load cleanly).
+    let env = MapEnv::new().with("DOMOVOI_POLICY__ALLOW_RISK", "read");
+    let errors = parse::<AgentConfig>(AGENT, &env).unwrap_err();
+    assert_issue(&errors, "policy.allow_risk", "expected a sequence");
 }

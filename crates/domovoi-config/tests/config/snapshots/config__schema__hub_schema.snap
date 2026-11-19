@@ -62,6 +62,10 @@ expression: "HubConfig::json_schema()"
       "description": "The operation service: durable multi-step work with approvals. On by default; `enabled = false` switches it off.",
       "$ref": "#/$defs/OrchestrationSection"
     },
+    "policy": {
+      "description": "Policy rules the hub evaluates without enforcing them.",
+      "$ref": "#/$defs/HubPolicySection"
+    },
     "probes": {
       "description": "Network probes run from the hub.",
       "type": "array",
@@ -291,6 +295,18 @@ expression: "HubConfig::json_schema()"
       "required": [
         "url"
       ]
+    },
+    "HubPolicySection": {
+      "description": "`[policy]`. Record, for every Execution step, what the active policy and its shadow\nrules would decide. Nothing is enforced.",
+      "type": "object",
+      "properties": {
+        "shadow": {
+          "description": "Record, for every Execution step, what the active policy and its shadow rules would\ndecide. Nothing is enforced. Default `false`.",
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "additionalProperties": false
     },
     "HubSection": {
       "description": "`[hub]`.",
