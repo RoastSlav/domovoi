@@ -350,6 +350,7 @@ pub async fn inv(setup: InvSetup) -> Inv {
     let ops_caps = action_caps(link.clone());
     let registry = Arc::new(FakeCapabilityRegistry::following(link.clone()));
     let deps = OperationDeps {
+        bus: tokio::sync::broadcast::channel(16).0,
         operations: store.clone(),
         uow: store.clone(),
         effects: gate.clone(),

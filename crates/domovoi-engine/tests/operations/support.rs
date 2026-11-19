@@ -228,6 +228,7 @@ impl Fixture {
             parent: None,
             caused_by: None,
             plan_hash: Some(hash(0xab)),
+            risk: domovoi_core::Risk::Write,
             expires_at: self.now + SignedDuration::from_hours(24),
             refused: None,
         }

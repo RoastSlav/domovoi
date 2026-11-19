@@ -381,6 +381,7 @@ pub async fn run(drill: &Drill, model: Model, mode: Mode) -> Outcome {
             ));
             let (ops, _ops_task) = OperationService::spawn(
                 OperationDeps {
+                    bus: tokio::sync::broadcast::channel(16).0,
                     operations: store.clone(),
                     uow: store.clone(),
                     effects: store.clone(),

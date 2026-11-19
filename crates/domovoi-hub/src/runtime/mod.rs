@@ -298,6 +298,7 @@ impl HubRuntime {
                 redactor: &redactor,
                 clock: &clock,
                 shutdown: &worker_shutdown,
+                bus: &bus,
             }) {
                 Some((handle, task)) => (Some(handle), Some(task)),
                 None => (None, None),

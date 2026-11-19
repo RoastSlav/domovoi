@@ -2,7 +2,7 @@
 //! approval encoded in the row (only a human approval is ever stored).
 
 use domovoi_core::ports::{CommitError, ExecutionGuard, Expectation, Observed};
-use domovoi_core::{ExecutionId, ExecutionRecord, StepId};
+use domovoi_core::{ExecutionId, ExecutionRecord, Risk, StepId};
 use sqlx::SqliteConnection;
 
 use crate::codec::{int, json, ms, name, uint};
@@ -91,6 +91,8 @@ struct ExecutionColumns {
     approval_client: Option<String>,
     agent_epoch: Option<String>,
     dispatched_at: Option<i64>,
+    risk: Option<&'static str>,
+    chat_token_hash: Option<Vec<u8>>,
 }
 
 fn encode_execution(execution: &ExecutionRecord) -> Result<ExecutionColumns, CommitError> {
@@ -115,6 +117,8 @@ fn encode_execution(execution: &ExecutionRecord) -> Result<ExecutionColumns, Com
         approval_client: approval.map(|a| a.provenance().client().to_owned()),
         agent_epoch: execution.dispatched.map(|(epoch, _)| epoch.to_string()),
         dispatched_at: execution.dispatched.map(|(_, at)| ms(at)),
+        risk: execution.risk().map(Risk::name),
+        chat_token_hash: execution.chat_token_hash().map(|hash| hash.to_vec()),
     })
 }
 
@@ -144,6 +148,8 @@ macro_rules! bind_execution {
             .bind($e.settled_at.map(ms))
             .bind(ms($e.created_at))
             .bind(ms($e.updated_at))
+            .bind($c.risk)
+            .bind($c.chat_token_hash)
     };
 }
 
@@ -155,8 +161,8 @@ async fn insert_execution(
         contract_version, check_key, target, args, plan_hash, expires_at, authorization_kind, \
         approved_by, approved_channel, approved_at, approved_plan_hash, approval_session_ref, \
         approval_client, waiting_since, agent_epoch, dispatched_at, settled_at, created_at, \
-        updated_at, execution_id) \
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        updated_at, risk, chat_token_hash, execution_id) \
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
     let c = encode_execution(execution)?;
     bind_execution!(sqlx::query(SQL), execution, c)
         .bind(execution.step.to_string())
@@ -176,7 +182,7 @@ async fn update_execution(
         expires_at = ?, authorization_kind = ?, approved_by = ?, approved_channel = ?, \
         approved_at = ?, approved_plan_hash = ?, approval_session_ref = ?, approval_client = ?, \
         waiting_since = ?, agent_epoch = ?, dispatched_at = ?, settled_at = ?, created_at = ?, \
-        updated_at = ?, version = version + 1 WHERE execution_id = ? AND version = ?";
+        updated_at = ?, risk = ?, chat_token_hash = ?, version = version + 1 WHERE execution_id = ? AND version = ?";
     let c = encode_execution(execution)?;
     bind_execution!(sqlx::query(SQL), execution, c)
         .bind(execution.step.to_string())

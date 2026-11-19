@@ -49,6 +49,8 @@ pub struct ExecutionProposal {
     pub plan_hash: Option<PlanHash>,
     /// When the approval window closes.
     pub expires_at: Timestamp,
+    /// The skill's declared risk, stored on the execution row. Unused when refused.
+    pub risk: domovoi_core::Risk,
     /// Why the proposal cannot be made (unknown skill, bad arguments, a contract that does
     /// not execute): the step is stored refused with this text and nothing else is created.
     pub refused: Option<String>,

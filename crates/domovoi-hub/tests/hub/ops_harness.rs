@@ -115,6 +115,7 @@ pub async fn spawn(
     let caps = action_caps(link.clone());
     OperationService::spawn(
         OperationDeps {
+            bus: tokio::sync::broadcast::channel(16).0,
             operations: store.clone(),
             uow: store.clone(),
             effects: Arc::new(Closed),

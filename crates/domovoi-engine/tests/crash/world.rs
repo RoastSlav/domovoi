@@ -358,6 +358,7 @@ impl<S: SweepStore + EffectQueue + AdvisoryRepo + HostRepo + OperationRepo> Worl
         let caps = action_caps(link.clone());
         let (operations, operation_task) = OperationService::spawn(
             OperationDeps {
+                bus: tokio::sync::broadcast::channel(16).0,
                 operations: store.clone(),
                 uow: crashing.clone(),
                 effects: store.clone(),

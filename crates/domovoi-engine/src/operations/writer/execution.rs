@@ -26,6 +26,7 @@ pub(super) fn authorize(
     authorization: Authorization,
     binding: PlanBinding,
     provenance: ApprovalProvenance,
+    chat_token: Option<String>,
 ) -> Change {
     let actor = authorization
         .human_approval()
@@ -40,6 +41,7 @@ pub(super) fn authorize(
         authorization,
         binding,
         provenance,
+        chat_token,
     }));
     change
 }

@@ -6,11 +6,13 @@ use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
 use crate::action::{
-    ApprovalProvenance, Authorization, HumanApproval, JournalEpoch, PlanBinding, PlanHash,
+    ApprovalChannel, ApprovalProvenance, Authorization, HumanApproval, JournalEpoch, PlanBinding,
+    PlanHash,
 };
 use crate::capability::ContractId;
 use crate::id::{ExecutionId, HostId, OperationId, StepId};
 use crate::signal::{CheckKey, TargetKey};
+use crate::skill::Risk;
 
 use super::intent::ExecutionIntent;
 use super::step::StepOutcome;
@@ -30,6 +32,10 @@ pub enum ExecutionError {
     /// Only a person can authorize an execution for now.
     #[error("only a person can approve this for now")]
     NotYetSupported,
+    /// The stored risk is not read or write, so only a web approval with the typed skill name
+    /// is allowed.
+    #[error("approve this in the web UI and type the skill's name")]
+    NeedsTypedConfirmation,
 }
 
 /// How far an execution got, derived from its row and its step's outcome. Never stored.
@@ -149,6 +155,10 @@ pub struct ExecutionParts {
     pub plan_hash: PlanHash,
     /// When the approval window closes.
     pub expires_at: Timestamp,
+    /// The skill's risk when the step was proposed; `None` when unknown.
+    pub risk: Option<Risk>,
+    /// The hash of the outstanding chat token, if any.
+    pub chat_token_hash: Option<[u8; 32]>,
     /// The stored approval.
     pub approval: Option<ExecutionApproval>,
     /// When the hub began waiting for the agent.
@@ -188,6 +198,9 @@ pub struct ExecutionRecord {
     pub plan_hash: PlanHash,
     /// When the approval window closes.
     pub expires_at: Timestamp,
+    risk: Option<Risk>,
+    // Boxed to keep the record (and the write enum that carries it) small.
+    chat_token_hash: Option<Box<[u8; 32]>>,
     approval: Option<ExecutionApproval>,
     /// When the hub began waiting for the agent to come back.
     pub waiting_since: Option<Timestamp>,
@@ -210,6 +223,7 @@ impl ExecutionRecord {
         operation: OperationId,
         plan_hash: PlanHash,
         expires_at: Timestamp,
+        risk: Risk,
         now: Timestamp,
     ) -> Self {
         Self {
@@ -224,6 +238,8 @@ impl ExecutionRecord {
             args: intent.args.clone(),
             plan_hash,
             expires_at,
+            risk: Some(risk),
+            chat_token_hash: None,
             approval: None,
             waiting_since: None,
             dispatched: None,
@@ -235,9 +251,10 @@ impl ExecutionRecord {
 
     /// Records a person's approval.
     ///
-    /// Refuses a second approval, an expired window, a policy authorization (not supported
-    /// yet) and a binding that does not name the stored plan hash. On any refusal nothing
-    /// changes.
+    /// Refuses, in this order: a policy authorization (not supported yet); a channel other
+    /// than a typed web confirmation when the stored risk is not read or write; a binding
+    /// that does not name the stored plan hash; a second approval; an expired window. On any
+    /// refusal nothing changes.
     pub fn authorize(
         &mut self,
         authorization: Authorization,
@@ -245,17 +262,26 @@ impl ExecutionRecord {
         binding: &PlanBinding,
         now: Timestamp,
     ) -> Result<(), ExecutionError> {
+        let Some(human) = authorization.human_approval() else {
+            return Err(ExecutionError::NotYetSupported);
+        };
+        let typed = matches!(
+            human.channel(),
+            ApprovalChannel::Web {
+                typed_confirmation: true
+            }
+        );
+        if !matches!(self.risk, Some(Risk::Read | Risk::Write)) && !typed {
+            return Err(ExecutionError::NeedsTypedConfirmation);
+        }
+        if !binding.matches(&self.plan_hash) {
+            return Err(ExecutionError::PlanChanged);
+        }
         if self.approval.is_some() {
             return Err(ExecutionError::AlreadyAuthorized);
         }
         if now >= self.expires_at {
             return Err(ExecutionError::Expired);
-        }
-        let Some(human) = authorization.human_approval() else {
-            return Err(ExecutionError::NotYetSupported);
-        };
-        if !binding.matches(&self.plan_hash) {
-            return Err(ExecutionError::PlanChanged);
         }
         let displayed = match binding {
             PlanBinding::Full(hash) => *hash,
@@ -268,6 +294,31 @@ impl ExecutionRecord {
         });
         self.updated_at = now;
         Ok(())
+    }
+
+    /// The risk of the skill when the step was proposed; `None` when unknown (rows written
+    /// before risk was stored). Unknown is treated like destructive wherever it matters.
+    #[must_use]
+    pub fn risk(&self) -> Option<Risk> {
+        self.risk
+    }
+
+    /// The hash of the single-use token a chat approval must carry, while one is outstanding.
+    #[must_use]
+    pub fn chat_token_hash(&self) -> Option<&[u8; 32]> {
+        self.chat_token_hash.as_deref()
+    }
+
+    /// The record with `hash` as its outstanding chat token.
+    #[must_use]
+    pub fn with_chat_token_hash(mut self, hash: [u8; 32]) -> Self {
+        self.chat_token_hash = Some(Box::new(hash));
+        self
+    }
+
+    /// Forgets the outstanding chat token.
+    pub fn clear_chat_token_hash(&mut self) {
+        self.chat_token_hash = None;
     }
 
     /// The stored approval, once a person gave one.
@@ -312,6 +363,8 @@ impl ExecutionRecord {
             args: parts.args,
             plan_hash: parts.plan_hash,
             expires_at: parts.expires_at,
+            risk: parts.risk,
+            chat_token_hash: parts.chat_token_hash.map(Box::new),
             approval: parts.approval,
             waiting_since: parts.waiting_since,
             dispatched: parts.dispatched,

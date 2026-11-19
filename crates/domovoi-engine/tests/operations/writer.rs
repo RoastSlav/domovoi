@@ -114,6 +114,7 @@ async fn authorize_requires_a_human_authorization() {
             Authorization::policy(permit),
             PlanBinding::Full(plan),
             ApprovalProvenance::new(None, "policy"),
+            None,
         )
         .await;
     assert_eq!(
@@ -149,6 +150,7 @@ async fn approve_with_the_wrong_plan_hash_changes_nothing() {
             approvals::authorize(approvals::human(w.user)),
             PlanBinding::Full(wrong),
             approvals::provenance(),
+            None,
         )
         .await;
 

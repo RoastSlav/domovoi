@@ -7,7 +7,8 @@
 use domovoi_core::capability::TargetQuery;
 use domovoi_core::ports::AgentSnapshot;
 use domovoi_core::{
-    ExecutionId, ImplHash, PlanContract, PlanHash, PlanTarget, SkillSummary, StepId, ValidatedArgs,
+    ExecutionId, ImplHash, PlanContract, PlanHash, PlanTarget, Risk, SkillSummary, StepId,
+    ValidatedArgs,
 };
 use jiff::Timestamp;
 
@@ -62,9 +63,9 @@ pub(super) async fn propose(
         .checked_add(shared.settings.approval_ttl)
         .unwrap_or(Timestamp::MAX);
     let hash = hash_for(shared, &intent, step, &session).await;
-    let (plan_hash, refused) = match hash {
-        Ok(hash) => (Some(hash), None),
-        Err(reason) => (None, Some(reason)),
+    let (plan_hash, risk, refused) = match hash {
+        Ok((hash, risk)) => (Some(hash), risk, None),
+        Err(reason) => (None, Risk::Destructive, Some(reason)),
     };
     let proposal = ExecutionProposal {
         intent,
@@ -74,18 +75,20 @@ pub(super) async fn propose(
         caused_by,
         plan_hash,
         expires_at,
+        risk,
         refused,
     };
     Ok((step, proposal))
 }
 
-/// The plan hash of `intent` against the skills `session` announced, or why it cannot run.
+/// The plan hash and declared risk of `intent` against the skills `session` announced, or
+/// why it cannot run.
 async fn hash_for(
     shared: &OpShared,
     intent: &domovoi_core::ExecutionIntent,
     step: StepId,
     session: &AgentSnapshot,
-) -> Result<PlanHash, String> {
+) -> Result<(PlanHash, Risk), String> {
     let Some(name) = intent.contract.skill_name() else {
         return Err("only skill contracts can be run".to_owned());
     };
@@ -107,5 +110,6 @@ async fn hash_for(
         intent.check.clone(),
         intent.target.clone(),
     );
-    plan_hash(skill, intent.contract_version, &target, &args, step)
+    let hash = plan_hash(skill, intent.contract_version, &target, &args, step)?;
+    Ok((hash, skill.risk))
 }

@@ -34,6 +34,7 @@ fn proposed() -> ExecutionRecord {
         OperationId::new(),
         hash(0xab),
         T0 + SignedDuration::from_hours(24),
+        domovoi_core::Risk::Write,
         T0,
     )
 }

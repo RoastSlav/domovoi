@@ -25,6 +25,9 @@ pub enum OperationError {
     /// Another runner holds the effect this write was fenced by.
     #[error("the effect was claimed by someone else")]
     StaleEffect,
+    /// A chat approval without the step's token, with a wrong one, or with one already used.
+    #[error("the approval link is not valid")]
+    BadToken,
     /// The store failed.
     #[error("store error: {0}")]
     Store(String),

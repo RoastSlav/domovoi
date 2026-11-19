@@ -9,8 +9,8 @@ use domovoi_core::ports::{StoreError, Versioned};
 use domovoi_core::{
     ApprovalChannel, ApprovalProvenance, ContractId, EdgeKind, ExecutionApproval, ExecutionParts,
     ExecutionRecord, HumanApproval, JournalEpoch, Operation, OperationKind, OperationStatus,
-    PauseReason, PinnedSubject, Step, StepEdge, StepIntent, StepKind, StepOutcome, StepProgress,
-    StepRecord,
+    PauseReason, PinnedSubject, Risk, Step, StepEdge, StepIntent, StepKind, StepOutcome,
+    StepProgress, StepRecord,
 };
 
 use crate::codec::{from_json, from_ms, from_ms_opt, from_name, parse, uint};
@@ -40,7 +40,7 @@ macro_rules! execution_columns {
         "SELECT execution_id, operation_id, host_id, contract, contract_version, check_key, \
          target, args, plan_hash, expires_at, authorization_kind, approved_by, approved_channel, \
          approved_at, approved_plan_hash, approval_session_ref, approval_client, waiting_since, \
-         agent_epoch, dispatched_at, settled_at, created_at, updated_at, version FROM executions"
+         agent_epoch, dispatched_at, settled_at, created_at, updated_at, version, risk, \n         chat_token_hash FROM executions"
     };
 }
 pub(super) use execution_columns;
@@ -212,6 +212,8 @@ pub(super) struct ExecutionRow {
     created_at: i64,
     updated_at: i64,
     version: i64,
+    risk: Option<String>,
+    chat_token_hash: Option<Vec<u8>>,
 }
 
 impl ExecutionRow {
@@ -251,6 +253,19 @@ impl ExecutionRow {
             args: from_json(&self.args, "execution args")?,
             plan_hash: from_name(&self.plan_hash, "plan hash")?,
             expires_at: from_ms(self.expires_at)?,
+            risk: self
+                .risk
+                .as_deref()
+                .map(|risk| Risk::from_name(risk).ok_or_else(|| corrupt("execution risk", risk)))
+                .transpose()?,
+            chat_token_hash: self
+                .chat_token_hash
+                .as_deref()
+                .map(|hash| {
+                    <[u8; 32]>::try_from(hash)
+                        .map_err(|_| corrupt("chat token hash", "wrong length"))
+                })
+                .transpose()?,
             approval,
             waiting_since: from_ms_opt(self.waiting_since)?,
             dispatched,

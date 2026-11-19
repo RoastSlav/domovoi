@@ -228,6 +228,8 @@ pub fn plan(
         EventKind::TriageCompleted { .. } => card_changed(incident, &state),
         // The status change that follows updates the card.
         EventKind::ActionApproved { .. } => Vec::new(),
+        // A decided step loses its buttons: the card is rebuilt.
+        EventKind::ExecutionChanged { .. } => card_changed(incident, &state),
         EventKind::ActionChanged { status, .. } => {
             let mut actions = Vec::new();
             if let Some(text) = action_problem(status)

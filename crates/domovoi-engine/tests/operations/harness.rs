@@ -256,6 +256,7 @@ impl World {
         let caps = action_caps(self.link.clone());
         OperationService::spawn(
             OperationDeps {
+                bus: tokio::sync::broadcast::channel(16).0,
                 operations: self.store.clone(),
                 uow: self.uow.clone(),
                 effects: self.queue.clone(),
@@ -341,6 +342,7 @@ impl World {
                 approvals::authorize(approvals::human(self.user)),
                 binding,
                 approvals::provenance(),
+                None,
             )
             .await
     }

@@ -347,6 +347,7 @@ async fn world_over_with_actions(
         ));
         let (handle, _task) = OperationService::spawn(
             OperationDeps {
+                bus: tokio::sync::broadcast::channel(16).0,
                 operations: store.clone(),
                 uow: store.clone(),
                 effects: store.clone(),

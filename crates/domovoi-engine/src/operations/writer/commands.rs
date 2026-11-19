@@ -85,6 +85,14 @@ pub(crate) enum OperationCommand {
         authorization: Authorization,
         binding: PlanBinding,
         provenance: ApprovalProvenance,
+        chat_token: Option<String>,
+        reply: Reply<()>,
+    },
+    /// Replaces the chat token hash of a step still awaiting approval.
+    RotateToken {
+        operation: OperationId,
+        step: StepId,
+        hash: [u8; 32],
         reply: Reply<()>,
     },
     /// A person denied an execution.

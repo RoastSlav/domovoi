@@ -158,6 +158,7 @@ impl Builder {
             self.operation,
             plan_hash(0xab),
             at(86_400),
+            domovoi_core::Risk::Write,
             at(0),
         );
         if approved {
