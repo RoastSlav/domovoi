@@ -11,6 +11,7 @@ mod command;
 mod commit;
 mod decide;
 mod dismiss;
+mod fold;
 mod handle;
 mod redact;
 
