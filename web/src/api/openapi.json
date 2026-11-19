@@ -3603,6 +3603,700 @@
         }
       }
     },
+    "/api/v1/policy": {
+      "get": {
+        "tags": [
+          "policy"
+        ],
+        "summary": "The policy at a glance: the active version, the draft and the shadow recorder.",
+        "operationId": "policy_overview",
+        "responses": {
+          "200": {
+            "description": "The overview",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyOverviewDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/policy/draft": {
+      "get": {
+        "tags": [
+          "policy"
+        ],
+        "summary": "The draft with its rules.",
+        "operationId": "policy_draft",
+        "responses": {
+          "200": {
+            "description": "The draft",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DraftDetailDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "There is no draft",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "policy"
+        ],
+        "summary": "Creates the draft or replaces it. Changing a locked prohibition needs the password and the\npreview hash of exactly these rules.",
+        "operationId": "policy_save_draft",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveDraftRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Saved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DraftSavedDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The rules are not valid; `issues` lists each problem",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Password missing or wrong for a locked change",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale draft revision, a draft exists, or a stale preview hash",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many wrong passwords",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "policy"
+        ],
+        "summary": "Discards the draft. It changes nothing live, so it needs no password.",
+        "operationId": "policy_discard_draft",
+        "parameters": [
+          {
+            "name": "revision",
+            "in": "query",
+            "description": "The revision the client read.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Discarded"
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "There is no draft",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The draft is at another revision",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/policy/draft/publish": {
+      "post": {
+        "tags": [
+          "policy"
+        ],
+        "summary": "Publishes the draft as the next version. Always needs the password; the acknowledged keys\nmust be exactly the blocking findings, and the preview hash that of the draft's rules.",
+        "operationId": "policy_publish",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublishRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Published",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublishedDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid rules, or an acknowledgement that is not a blocking finding",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Password missing or wrong",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "There is no draft",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale draft, stale active version, stale preview or a missing acknowledgement",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many wrong passwords",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/policy/preview": {
+      "post": {
+        "tags": [
+          "policy"
+        ],
+        "summary": "What a candidate rule set would do: validation, the publication review, locked changes and\na bounded simulation over recent recorded decisions. It writes nothing.",
+        "operationId": "policy_preview",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The preview",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A rule does not convert",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/policy/shadow": {
+      "get": {
+        "tags": [
+          "policy"
+        ],
+        "summary": "Recorded shadow decisions, newest first.",
+        "operationId": "policy_shadow_list",
+        "parameters": [
+          {
+            "name": "host",
+            "in": "query",
+            "description": "A host id.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "contract",
+            "in": "query",
+            "description": "A contract id.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "description": "`evaluated`, `unevaluable` or `skipped`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "outcome",
+            "in": "query",
+            "description": "An enforced outcome word.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "differing",
+            "in": "query",
+            "description": "Only rows whose enforced and shadow outcomes differ.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "description": "RFC 3339 lower bound of the recording time.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "until",
+            "in": "query",
+            "description": "RFC 3339 upper bound of the recording time.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "The `next_cursor` of the previous page.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page size, 1 to 100. Default 25.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShadowPageDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A filter value does not parse",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/policy/shadow/{execution_id}": {
+      "get": {
+        "tags": [
+          "policy"
+        ],
+        "summary": "One recorded decision with its inputs, gaps and both decisions.",
+        "operationId": "policy_shadow_detail",
+        "parameters": [
+          {
+            "name": "execution_id",
+            "in": "path",
+            "description": "The Execution step",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The decision",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShadowDetailDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No decision recorded for this step yet",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/policy/simulate": {
+      "post": {
+        "tags": [
+          "policy"
+        ],
+        "summary": "Replays or re-evaluates recorded Execution steps under a draft, a version or inline rules.\nIt never writes.",
+        "operationId": "policy_simulate",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SimulateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The re-run decisions next to the recorded ones",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimulationDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A value or an inline rule does not parse",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such version, or there is no draft",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/policy/versions": {
+      "get": {
+        "tags": [
+          "policy"
+        ],
+        "summary": "Published versions, newest first.",
+        "operationId": "policy_versions",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "The `next_cursor` of the previous page.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page size, 1 to 100. Default 25.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionPageDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/policy/versions/{number}": {
+      "get": {
+        "tags": [
+          "policy"
+        ],
+        "summary": "One published version with its rules and acknowledgements.",
+        "operationId": "policy_version",
+        "parameters": [
+          {
+            "name": "number",
+            "in": "path",
+            "description": "The version number",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionDetailDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/session": {
       "get": {
         "tags": [
@@ -4263,6 +4957,56 @@
   },
   "components": {
     "schemas": {
+      "AckDto": {
+        "type": "object",
+        "description": "One acknowledged publication finding.",
+        "required": [
+          "finding_key",
+          "kind",
+          "first_rule",
+          "second_rule",
+          "note",
+          "acknowledged_by",
+          "acknowledged_at"
+        ],
+        "properties": {
+          "acknowledged_at": {
+            "type": "string",
+            "description": "When, RFC 3339 UTC."
+          },
+          "acknowledged_by": {
+            "type": "string",
+            "description": "Who acknowledged it."
+          },
+          "finding_key": {
+            "type": "string",
+            "description": "The finding's stable key."
+          },
+          "first_rule": {
+            "type": "string",
+            "description": "The first rule involved."
+          },
+          "kind": {
+            "type": "string",
+            "description": "The finding's kind."
+          },
+          "note": {
+            "type": "string",
+            "description": "What the review said."
+          },
+          "resolution": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "What the pair resolves to."
+          },
+          "second_rule": {
+            "type": "string",
+            "description": "The second rule involved."
+          }
+        }
+      },
       "AckRuleDto": {
         "type": "object",
         "description": "A known condition: incidents that match it stay in the history and never notify.",
@@ -5082,6 +5826,135 @@
           }
         }
       },
+      "ConditionDto": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "An integer argument bound.",
+            "required": [
+              "arg",
+              "op",
+              "value",
+              "kind"
+            ],
+            "properties": {
+              "arg": {
+                "type": "string",
+                "description": "The argument name."
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "arg_constraint"
+                ]
+              },
+              "op": {
+                "type": "string",
+                "description": "`int_at_least` or `int_at_most`."
+              },
+              "value": {
+                "type": "integer",
+                "format": "int64",
+                "description": "The bound."
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "A UTC time-of-day window; an earlier end wraps across midnight.",
+            "required": [
+              "start",
+              "end",
+              "kind"
+            ],
+            "properties": {
+              "end": {
+                "type": "string",
+                "description": "`HH:MM`, exclusive."
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "time_window"
+                ]
+              },
+              "start": {
+                "type": "string",
+                "description": "`HH:MM`, inclusive."
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "A safety fact that must be known to have a value.",
+            "required": [
+              "fact",
+              "expected",
+              "kind"
+            ],
+            "properties": {
+              "expected": {
+                "type": "boolean",
+                "description": "The value it must be known to have."
+              },
+              "fact": {
+                "type": "string",
+                "description": "The fact id."
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "requires_fact"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "A request-rate bound.",
+            "required": [
+              "max_per_hour",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "max_rate"
+                ]
+              },
+              "max_per_hour": {
+                "type": "integer",
+                "format": "int32",
+                "description": "Requests per hour.",
+                "minimum": 0
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "A permit-lifetime bound.",
+            "required": [
+              "max_ttl_secs",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "max_ttl"
+                ]
+              },
+              "max_ttl_secs": {
+                "type": "integer",
+                "format": "int64",
+                "description": "Seconds."
+              }
+            }
+          }
+        ],
+        "description": "A condition on a rule."
+      },
       "DigestHostDto": {
         "type": "object",
         "description": "One host's part of the daily digest.",
@@ -5196,6 +6069,129 @@
           "reason": {
             "type": "string",
             "description": "Why this is not a real problem, 1 to 500 characters."
+          }
+        }
+      },
+      "DraftDetailDto": {
+        "type": "object",
+        "description": "The draft with its rules.",
+        "required": [
+          "revision",
+          "updated_at",
+          "updated_by",
+          "rules_hash",
+          "rules"
+        ],
+        "properties": {
+          "based_on": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The version number the draft was based on.",
+            "minimum": 0
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The draft's revision.",
+            "minimum": 0
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RuleDto"
+            },
+            "description": "The rules."
+          },
+          "rules_hash": {
+            "type": "string",
+            "description": "Hash of the rules."
+          },
+          "updated_at": {
+            "type": "string",
+            "description": "When it was last saved."
+          },
+          "updated_by": {
+            "type": "string",
+            "description": "Who saved it."
+          }
+        }
+      },
+      "DraftSavedDto": {
+        "type": "object",
+        "description": "The saved draft.",
+        "required": [
+          "draft",
+          "locked_changes"
+        ],
+        "properties": {
+          "draft": {
+            "$ref": "#/components/schemas/DraftDetailDto",
+            "description": "The draft as stored."
+          },
+          "locked_changes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LockChangeDto"
+            },
+            "description": "Locked prohibitions the save touched."
+          }
+        }
+      },
+      "DraftSummaryDto": {
+        "type": "object",
+        "description": "The header of the draft.",
+        "required": [
+          "revision",
+          "updated_at",
+          "updated_by",
+          "rule_count",
+          "locked_count",
+          "shadow_count"
+        ],
+        "properties": {
+          "based_on": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The version number the draft was based on, when one was active.",
+            "minimum": 0
+          },
+          "locked_count": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Locked prohibitions among them.",
+            "minimum": 0
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The draft's revision; echo it to replace or discard the draft.",
+            "minimum": 0
+          },
+          "rule_count": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Rules in the draft.",
+            "minimum": 0
+          },
+          "shadow_count": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Shadow rules among them.",
+            "minimum": 0
+          },
+          "updated_at": {
+            "type": "string",
+            "description": "When it was last saved."
+          },
+          "updated_by": {
+            "type": "string",
+            "description": "Who saved it."
           }
         }
       },
@@ -5438,6 +6434,56 @@
           "value": {
             "type": "string",
             "description": "The value as text."
+          }
+        }
+      },
+      "FindingDto": {
+        "type": "object",
+        "description": "One finding of the publication review.",
+        "required": [
+          "key",
+          "kind",
+          "first",
+          "second",
+          "shadow",
+          "note",
+          "requires_acknowledgement"
+        ],
+        "properties": {
+          "first": {
+            "type": "string",
+            "description": "The first rule involved."
+          },
+          "key": {
+            "type": "string",
+            "description": "The stable key to acknowledge."
+          },
+          "kind": {
+            "type": "string",
+            "description": "`equal_scope_conflict`, `incomparable_conflict`, `ineffective_under_lock` or\n`target_outside_every_ceiling`."
+          },
+          "note": {
+            "type": "string",
+            "description": "What the review says."
+          },
+          "requires_acknowledgement": {
+            "type": "boolean",
+            "description": "Whether publishing must wait for the owner to acknowledge it."
+          },
+          "resolution": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "What the pair resolves to."
+          },
+          "second": {
+            "type": "string",
+            "description": "The second rule involved."
+          },
+          "shadow": {
+            "type": "boolean",
+            "description": "Whether either rule is a shadow rule."
           }
         }
       },
@@ -5775,6 +6821,46 @@
             "description": "The agent's version, while connected."
           }
         }
+      },
+      "HostScopeDto": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "Every host.",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "all"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "One host.",
+            "required": [
+              "host_id",
+              "kind"
+            ],
+            "properties": {
+              "host_id": {
+                "type": "string",
+                "description": "The host's id."
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "host"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "The host dimension of a rule."
       },
       "HubSettings": {
         "type": "object",
@@ -6140,6 +7226,61 @@
           }
         }
       },
+      "Last24hDto": {
+        "type": "object",
+        "description": "What the recorder did in the last 24 hours.",
+        "required": [
+          "total",
+          "by_status",
+          "by_enforced_outcome",
+          "degraded",
+          "differing"
+        ],
+        "properties": {
+          "by_enforced_outcome": {
+            "type": "object",
+            "description": "By enforced outcome.",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "by_status": {
+            "type": "object",
+            "description": "By status.",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "degraded": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Decisions with some input unavailable.",
+            "minimum": 0
+          },
+          "differing": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Decisions whose enforced and shadow outcomes differ.",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Decisions recorded.",
+            "minimum": 0
+          }
+        }
+      },
       "LlmSettings": {
         "type": "object",
         "description": "One language model provider.",
@@ -6169,6 +7310,24 @@
               "null"
             ],
             "description": "The model, if set."
+          }
+        }
+      },
+      "LockChangeDto": {
+        "type": "object",
+        "description": "One locked prohibition that differs from the version it replaces.",
+        "required": [
+          "rule",
+          "change"
+        ],
+        "properties": {
+          "change": {
+            "type": "string",
+            "description": "`created`, `edited`, `unlocked` or `removed`."
+          },
+          "rule": {
+            "type": "string",
+            "description": "The rule."
           }
         }
       },
@@ -6741,6 +7900,160 @@
           "v2"
         ]
       },
+      "PolicyCapabilityDto": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "Every capability.",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "any"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Every capability of one effect class (`read`, `mutate`, `contain`, `destructive`).",
+            "required": [
+              "effect",
+              "kind"
+            ],
+            "properties": {
+              "effect": {
+                "type": "string",
+                "description": "The effect class."
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "effect"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Every capability of one category.",
+            "required": [
+              "category",
+              "kind"
+            ],
+            "properties": {
+              "category": {
+                "type": "string",
+                "description": "The category."
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "category"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "One contract.",
+            "required": [
+              "contract",
+              "kind"
+            ],
+            "properties": {
+              "contract": {
+                "type": "string",
+                "description": "The contract id."
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "contract"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "The capability dimension of a rule."
+      },
+      "PolicyOverviewDto": {
+        "type": "object",
+        "description": "The policy at a glance.",
+        "required": [
+          "shadow_enabled",
+          "time_window_zone",
+          "shadow",
+          "notes"
+        ],
+        "properties": {
+          "active": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/VersionSummaryDto",
+                "description": "The active version, if any was published."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "draft": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DraftSummaryDto",
+                "description": "The draft, if there is one."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Standing notes."
+          },
+          "shadow": {
+            "$ref": "#/components/schemas/ShadowStateDto",
+            "description": "The shadow recorder."
+          },
+          "shadow_enabled": {
+            "type": "boolean",
+            "description": "Whether `[policy] shadow` is on."
+          },
+          "time_window_zone": {
+            "type": "string",
+            "description": "The zone `time_window` conditions are read in; the UI must label it."
+          }
+        }
+      },
+      "PolicyReportDto": {
+        "type": "object",
+        "description": "The publication review.",
+        "required": [
+          "findings",
+          "blocked"
+        ],
+        "properties": {
+          "blocked": {
+            "type": "boolean",
+            "description": "Whether any finding blocks publication until acknowledged."
+          },
+          "findings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FindingDto"
+            },
+            "description": "Every finding, worst first."
+          }
+        }
+      },
       "PredicateDto": {
         "type": "object",
         "description": "One condition on a signal's evidence. `value` is text, a number, `true` or `false`;\n`at_most` and `at_least` need a number, and `in_network` an address such as\n`192.168.1.20` or an address range such as `192.168.1.0/24`.",
@@ -6774,6 +8087,110 @@
           "at_least",
           "in_network"
         ]
+      },
+      "PreviewDto": {
+        "type": "object",
+        "description": "What a candidate rule set would do.",
+        "required": [
+          "base_number",
+          "rules_hash",
+          "preview_hash",
+          "validation",
+          "blocking",
+          "locked_changes",
+          "notes"
+        ],
+        "properties": {
+          "base_number": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The active version number, 0 when none.",
+            "minimum": 0
+          },
+          "blocking": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The finding keys the owner must acknowledge."
+          },
+          "locked_changes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LockChangeDto"
+            },
+            "description": "Locked prohibitions the change touches."
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Standing notes."
+          },
+          "preview_hash": {
+            "type": "string",
+            "description": "Echo this to save a locked change or to publish."
+          },
+          "report": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PolicyReportDto",
+                "description": "The publication review."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rules_hash": {
+            "type": "string",
+            "description": "Hash of the candidate rules."
+          },
+          "simulation": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SimulationSummaryDto",
+                "description": "What the change would do to recent recorded decisions."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "validation": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ValidationDto"
+            },
+            "description": "Problems that stop the rules; when any, `report` is null."
+          }
+        }
+      },
+      "PreviewRequest": {
+        "type": "object",
+        "description": "Preview a candidate rule set.",
+        "required": [
+          "rules"
+        ],
+        "properties": {
+          "base_revision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "The draft revision the rules come from; `null` measures against the active version.",
+            "minimum": 0
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RuleDto"
+            },
+            "description": "The candidate rules."
+          }
+        }
       },
       "ProfileDto": {
         "type": "object",
@@ -6855,6 +8272,69 @@
           }
         }
       },
+      "PublishRequest": {
+        "type": "object",
+        "description": "Publish the draft.",
+        "required": [
+          "revision",
+          "preview_hash"
+        ],
+        "properties": {
+          "acknowledged": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Exactly the keys of the blocking findings."
+          },
+          "password": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The admin's password. Always needed."
+          },
+          "preview_hash": {
+            "type": "string",
+            "description": "The `preview_hash` of the draft's rules against the active version."
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The draft revision to publish.",
+            "minimum": 0
+          }
+        }
+      },
+      "PublishedDto": {
+        "type": "object",
+        "description": "The version that was published.",
+        "required": [
+          "version",
+          "locked_changes",
+          "acknowledged"
+        ],
+        "properties": {
+          "acknowledged": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The findings acknowledged."
+          },
+          "locked_changes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LockChangeDto"
+            },
+            "description": "Locked prohibitions that differ from the version it replaces."
+          },
+          "version": {
+            "$ref": "#/components/schemas/VersionSummaryDto",
+            "description": "The new version."
+          }
+        }
+      },
       "ReadyzBody": {
         "type": "object",
         "description": "The body of `/readyz`.",
@@ -6873,6 +8353,31 @@
           "ready": {
             "type": "boolean",
             "description": "True when no check failed."
+          }
+        }
+      },
+      "ReplayedDto": {
+        "type": "object",
+        "description": "One re-run decision next to the recorded one.",
+        "required": [
+          "comparison",
+          "simulated"
+        ],
+        "properties": {
+          "baseline": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "What the row recorded, when it could be read: a decision, or `{ \"error\": \"<code>\" }`."
+          },
+          "comparison": {
+            "type": "string",
+            "description": "`same`, `changed` or `not_replayable`."
+          },
+          "simulated": {
+            "type": "object",
+            "description": "What the rules decide now: a decision, or `{ \"error\": \"<code>\" }`."
           }
         }
       },
@@ -6961,6 +8466,169 @@
           "revoked": {
             "type": "boolean",
             "description": "`false` when the host had no live agent."
+          }
+        }
+      },
+      "RuleDto": {
+        "type": "object",
+        "description": "One policy rule as the editor reads and writes it.",
+        "required": [
+          "id",
+          "enabled",
+          "shadow",
+          "locked",
+          "host",
+          "capability",
+          "targets",
+          "outcome"
+        ],
+        "properties": {
+          "capability": {
+            "$ref": "#/components/schemas/PolicyCapabilityDto",
+            "description": "The capability dimension."
+          },
+          "conditions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConditionDto"
+            },
+            "description": "Conditions that decide whether the rule matches."
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "A disabled rule is ignored."
+          },
+          "host": {
+            "$ref": "#/components/schemas/HostScopeDto",
+            "description": "The host dimension."
+          },
+          "id": {
+            "type": "string",
+            "description": "The rule's stable id."
+          },
+          "locked": {
+            "type": "boolean",
+            "description": "A locked rule is an absolute prohibition; only a `deny` can be locked."
+          },
+          "note": {
+            "type": "string",
+            "description": "Owner text for the editor and the trace."
+          },
+          "outcome": {
+            "type": "string",
+            "description": "`allow`, `require_approval` or `deny`."
+          },
+          "shadow": {
+            "type": "boolean",
+            "description": "A shadow rule is evaluated and recorded, never enforced."
+          },
+          "targets": {
+            "$ref": "#/components/schemas/TargetsDto",
+            "description": "The target dimension."
+          }
+        }
+      },
+      "RulesSourceDto": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "The stored draft.",
+            "required": [
+              "source"
+            ],
+            "properties": {
+              "source": {
+                "type": "string",
+                "enum": [
+                  "draft"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "A published version.",
+            "required": [
+              "number",
+              "source"
+            ],
+            "properties": {
+              "number": {
+                "type": "integer",
+                "format": "int32",
+                "description": "The version number.",
+                "minimum": 0
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "version"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Rules sent with the request.",
+            "required": [
+              "rules",
+              "source"
+            ],
+            "properties": {
+              "rules": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/RuleDto"
+                },
+                "description": "The rules."
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "inline"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "Which rules a simulation evaluates."
+      },
+      "SaveDraftRequest": {
+        "type": "object",
+        "description": "Replace the draft, or create it.",
+        "required": [
+          "rules"
+        ],
+        "properties": {
+          "base_revision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "`null` creates the draft; a revision replaces that revision.",
+            "minimum": 0
+          },
+          "password": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The admin's password; needed only when a locked prohibition changes."
+          },
+          "preview_hash": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The `preview_hash` of exactly these rules; needed only when a locked prohibition changes."
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RuleDto"
+            },
+            "description": "The complete rule set."
           }
         }
       },
@@ -7129,6 +8797,468 @@
           "username": {
             "type": "string",
             "description": "Login name, 1 to 64 characters without spaces."
+          }
+        }
+      },
+      "ShadowDetailDto": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ShadowSummaryRowDto",
+            "description": "The list shape."
+          },
+          {
+            "type": "object",
+            "required": [
+              "gaps",
+              "candidate"
+            ],
+            "properties": {
+              "candidate": {
+                "type": "object",
+                "description": "The step that was evaluated."
+              },
+              "enforced": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "description": "The enforced-rules decision: a decision, or `{ \"error\": \"<code>\" }`."
+              },
+              "gaps": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                },
+                "description": "The inputs that were unavailable and why."
+              },
+              "inputs": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "description": "The exact inputs the evaluator was given; none unless the row is `evaluated`."
+              },
+              "shadow": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "description": "The shadow-rules decision."
+              }
+            }
+          }
+        ],
+        "description": "One recorded decision with everything needed to replay it."
+      },
+      "ShadowFilterDto": {
+        "type": "object",
+        "description": "Which recorded rows a simulation takes.",
+        "properties": {
+          "contract": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A contract id."
+          },
+          "differing": {
+            "type": "boolean",
+            "description": "Only rows whose enforced and shadow outcomes differ."
+          },
+          "host": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A host id."
+          },
+          "outcome": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "An enforced outcome word."
+          },
+          "since": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Only rows recorded at or after this instant, RFC 3339."
+          },
+          "status": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`evaluated`, `unevaluable` or `skipped`."
+          },
+          "until": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Only rows recorded before this instant, RFC 3339."
+          }
+        }
+      },
+      "ShadowPageDto": {
+        "type": "object",
+        "description": "A page of recorded decisions, newest first.",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ShadowSummaryRowDto"
+            },
+            "description": "The rows."
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Pass as `cursor` for the next page; absent on the last."
+          }
+        }
+      },
+      "ShadowStateDto": {
+        "type": "object",
+        "description": "The shadow recorder's state.",
+        "required": [
+          "total_evaluated",
+          "total_unevaluable",
+          "total_skipped",
+          "last_24h"
+        ],
+        "properties": {
+          "last_24h": {
+            "$ref": "#/components/schemas/Last24hDto",
+            "description": "The last 24 hours."
+          },
+          "last_error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the last sweep failed, if it did."
+          },
+          "last_sweep_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "When the last sweep committed."
+          },
+          "total_evaluated": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Decisions evaluated, ever.",
+            "minimum": 0
+          },
+          "total_skipped": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Steps never evaluated, ever.",
+            "minimum": 0
+          },
+          "total_unevaluable": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Steps whose inputs could not be established, ever.",
+            "minimum": 0
+          }
+        }
+      },
+      "ShadowSummaryRowDto": {
+        "type": "object",
+        "description": "One recorded decision in a list.",
+        "required": [
+          "execution_id",
+          "operation_id",
+          "host_id",
+          "contract",
+          "evaluated_at",
+          "status",
+          "policy_version",
+          "degraded"
+        ],
+        "properties": {
+          "contract": {
+            "type": "string",
+            "description": "Its contract."
+          },
+          "degraded": {
+            "type": "boolean",
+            "description": "Whether some input was unavailable."
+          },
+          "enforced_outcome": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "What the enforced rules decided."
+          },
+          "evaluated_at": {
+            "type": "string",
+            "description": "When the decision was recorded."
+          },
+          "execution_id": {
+            "type": "string",
+            "description": "The Execution step."
+          },
+          "host_id": {
+            "type": "string",
+            "description": "Its host."
+          },
+          "operation_id": {
+            "type": "string",
+            "description": "Its operation."
+          },
+          "policy_version": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The policy version it was recorded under; 0 when none was published.",
+            "minimum": 0
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why it is not evaluated, or `late`."
+          },
+          "shadow_outcome": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "What the shadow rules decided."
+          },
+          "status": {
+            "type": "string",
+            "description": "`evaluated`, `unevaluable` or `skipped`."
+          }
+        }
+      },
+      "SimulateRequest": {
+        "type": "object",
+        "description": "Simulate rules over recorded Execution steps.",
+        "required": [
+          "rules"
+        ],
+        "properties": {
+          "execution_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Explicit steps instead of a filter; at most 100."
+          },
+          "filter": {
+            "$ref": "#/components/schemas/ShadowFilterDto",
+            "description": "Which recorded rows."
+          },
+          "inputs": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`recorded` (the default) or `current`."
+          },
+          "limit": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Rows to take, 1 to 500; default 200.",
+            "minimum": 0
+          },
+          "rules": {
+            "$ref": "#/components/schemas/RulesSourceDto",
+            "description": "Whose rules."
+          },
+          "selection": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`enforced`, `shadow` or `both` (the default)."
+          }
+        }
+      },
+      "SimulationDto": {
+        "type": "object",
+        "description": "What a simulation found.",
+        "required": [
+          "label",
+          "summary",
+          "truncated",
+          "notes",
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SimulationItemDto"
+            },
+            "description": "The rows."
+          },
+          "label": {
+            "type": "string",
+            "description": "Which rules were simulated, in words."
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Standing notes."
+          },
+          "summary": {
+            "$ref": "#/components/schemas/SimulationSummaryDto",
+            "description": "Totals over every re-run."
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "Whether more rows matched than were taken."
+          }
+        }
+      },
+      "SimulationItemDto": {
+        "type": "object",
+        "description": "One recorded step with its re-run decisions.",
+        "required": [
+          "execution_id",
+          "operation_id",
+          "host_id",
+          "contract",
+          "evaluated_at",
+          "recorded_policy_version",
+          "degraded",
+          "gaps"
+        ],
+        "properties": {
+          "contract": {
+            "type": "string",
+            "description": "Its contract."
+          },
+          "degraded": {
+            "type": "boolean",
+            "description": "Whether some input was unavailable when it was recorded."
+          },
+          "enforced": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ReplayedDto",
+                "description": "The enforced-rules decision, when asked for."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "evaluated_at": {
+            "type": "string",
+            "description": "When the decision was recorded."
+          },
+          "execution_id": {
+            "type": "string",
+            "description": "The Execution step."
+          },
+          "gaps": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "The inputs that were unavailable and why."
+          },
+          "host_id": {
+            "type": "string",
+            "description": "Its host."
+          },
+          "operation_id": {
+            "type": "string",
+            "description": "Its operation."
+          },
+          "recorded_policy_version": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The policy version it was recorded under; 0 when none was published.",
+            "minimum": 0
+          },
+          "shadow": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ReplayedDto",
+                "description": "The shadow-rules decision, when asked for."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "SimulationSummaryDto": {
+        "type": "object",
+        "description": "How a rule set's counts changed across a batch of re-run decisions.",
+        "required": [
+          "evaluated",
+          "same",
+          "changed",
+          "not_replayable",
+          "newly_allowed",
+          "newly_denied",
+          "newly_requires_approval"
+        ],
+        "properties": {
+          "changed": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Rows whose decision changed.",
+            "minimum": 0
+          },
+          "evaluated": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Rows looked at.",
+            "minimum": 0
+          },
+          "newly_allowed": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Changed rows that are now `allow`.",
+            "minimum": 0
+          },
+          "newly_denied": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Changed rows that are now `deny`.",
+            "minimum": 0
+          },
+          "newly_requires_approval": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Changed rows that now `require_approval`.",
+            "minimum": 0
+          },
+          "not_replayable": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Rows that could not be replayed.",
+            "minimum": 0
+          },
+          "same": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Rows whose decision did not change.",
+            "minimum": 0
           }
         }
       },
@@ -7341,6 +9471,49 @@
             "description": "One line on what it came to."
           }
         }
+      },
+      "TargetsDto": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "Every target.",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "any"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Only the named targets.",
+            "required": [
+              "names",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "exact"
+                ]
+              },
+              "names": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "The names."
+              }
+            }
+          }
+        ],
+        "description": "The target dimension of a rule."
       },
       "TestRequest": {
         "type": "object",
@@ -7881,6 +10054,26 @@
           }
         }
       },
+      "ValidationDto": {
+        "type": "object",
+        "description": "One problem that stops the rules from being saved or published.",
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "What is wrong."
+          },
+          "rule": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The rule it is about, if any."
+          }
+        }
+      },
       "VerifyDto": {
         "type": "object",
         "description": "How the hub checks that a write skill worked.",
@@ -7897,6 +10090,109 @@
           "recheck": {
             "type": "boolean",
             "description": "Whether the hub re-runs the originating check."
+          }
+        }
+      },
+      "VersionDetailDto": {
+        "type": "object",
+        "description": "One published version with its rules and acknowledgements.",
+        "required": [
+          "summary",
+          "rules",
+          "acknowledgements"
+        ],
+        "properties": {
+          "acknowledgements": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AckDto"
+            },
+            "description": "The findings acknowledged when it was published."
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RuleDto"
+            },
+            "description": "Its rules."
+          },
+          "summary": {
+            "$ref": "#/components/schemas/VersionSummaryDto",
+            "description": "The version's header."
+          }
+        }
+      },
+      "VersionPageDto": {
+        "type": "object",
+        "description": "A page of published versions, newest first.",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VersionSummaryDto"
+            },
+            "description": "The versions."
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Pass as `cursor` for the next page; absent on the last."
+          }
+        }
+      },
+      "VersionSummaryDto": {
+        "type": "object",
+        "description": "The header of one policy version or draft.",
+        "required": [
+          "number",
+          "published_at",
+          "published_by",
+          "rule_count",
+          "locked_count",
+          "shadow_count",
+          "rules_hash"
+        ],
+        "properties": {
+          "locked_count": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Locked prohibitions among them.",
+            "minimum": 0
+          },
+          "number": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The version number.",
+            "minimum": 0
+          },
+          "published_at": {
+            "type": "string",
+            "description": "When it was published, RFC 3339 UTC."
+          },
+          "published_by": {
+            "type": "string",
+            "description": "Who published it."
+          },
+          "rule_count": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Rules in the version.",
+            "minimum": 0
+          },
+          "rules_hash": {
+            "type": "string",
+            "description": "Hash of the rules."
+          },
+          "shadow_count": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Shadow rules among them.",
+            "minimum": 0
           }
         }
       },
@@ -7960,6 +10256,10 @@
     {
       "name": "operations",
       "description": "Operations, their steps and step approvals"
+    },
+    {
+      "name": "policy",
+      "description": "Policy versions, shadow decisions, the simulator and publication"
     },
     {
       "name": "hosts",

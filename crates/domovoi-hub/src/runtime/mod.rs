@@ -8,6 +8,7 @@ pub(crate) mod every;
 mod local;
 mod lock;
 mod orchestration;
+pub mod policy;
 mod schedulers;
 mod serve;
 pub(crate) mod settings;
@@ -23,7 +24,7 @@ use std::sync::Arc;
 use domovoi_config::{Secrets, hub::HubConfig};
 use domovoi_core::capability::{ContractIndex, builtin_contracts};
 use domovoi_core::ports::{
-    AgentLink, ChatGateway, Clock, InteractionSink, LogSource, Notifier, ProcessExecutor,
+    AgentLink, ChatGateway, Clock, InteractionSink, LogSource, ProcessExecutor,
 };
 use domovoi_engine::{
     ActionDeps, ActionService, DomainEvent, Evidence, HostCatalog, IncidentManager, ManagerDeps,
@@ -31,8 +32,7 @@ use domovoi_engine::{
 };
 use domovoi_llm::LlmBuildError;
 use domovoi_store::{Store, StoreOpenError};
-use tokio::sync::broadcast;
-use tokio::task::JoinHandle;
+use tokio::{sync::broadcast, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
 
 use crate::agent_server::{
@@ -52,8 +52,8 @@ pub use local::{LocalAgents, LocalEnrollment};
 pub use lock::{HubLock, LockError};
 pub(crate) mod backup_job;
 pub(crate) use schedulers::{RuntimeContext, Schedulers};
-pub(crate) use support::FanOut;
 pub(crate) use support::public_url as support_public_url;
+pub(crate) use support::{AdapterOverrides, FanOut};
 
 /// How many of the newest chained audit rows the hub checks at start.
 pub const STARTUP_AUDIT_VERIFY_ROWS: u64 = 10_000;
@@ -121,15 +121,6 @@ pub enum RuntimeError {
     ShutdownTimeout,
 }
 
-#[derive(Default)]
-pub(crate) struct AdapterOverrides {
-    pub(crate) primary: Option<Arc<dyn domovoi_core::ports::LlmProvider>>,
-    pub(crate) secondary: Option<Arc<dyn domovoi_core::ports::LlmProvider>>,
-    pub(crate) gateways: Option<Vec<Arc<dyn ChatGateway>>>,
-    pub(crate) notifiers: Option<Vec<Arc<dyn Notifier>>>,
-    pub(crate) bus_capacity: Option<usize>,
-}
-
 /// A fully assembled hub. Build starts engine consumers; [`run`](Self::run) opens intake.
 pub struct HubRuntime {
     pub(crate) lock: HubLock,
@@ -151,6 +142,7 @@ pub struct HubRuntime {
     /// The operation service, present only while `[orchestration] enabled` is set.
     pub(crate) operations_task: Option<JoinHandle<()>>,
     pub(crate) profile_task: JoinHandle<()>,
+    pub(crate) policy_task: Option<JoinHandle<()>>,
     pub(crate) intake_shutdown: CancellationToken,
     pub(crate) worker_shutdown: CancellationToken,
     pub(crate) manager_shutdown: CancellationToken,
@@ -323,6 +315,15 @@ impl HubRuntime {
             clock.clone(),
             identity,
         ));
+        let policy = policy::wire(
+            &store,
+            &registry,
+            &evidence,
+            &config,
+            &clock,
+            &auth,
+            &worker_shutdown,
+        );
         let settings = settings.map(|(key, sources)| {
             server.use_check_overrides(store.clone());
             crate::settings::SettingsService::new(crate::settings::SettingsDeps {
@@ -364,6 +365,7 @@ impl HubRuntime {
             config: Arc::new(config.clone()),
             clock: clock.clone(),
             redactor: redactor.clone(),
+            policy: policy.service,
         });
         let api = ApiState::new(
             ApiDeps {
@@ -380,6 +382,7 @@ impl HubRuntime {
                 services: services.clone(),
                 triage: triage.0,
                 operation_repo: store.clone(),
+                policy: store.clone(),
                 agents: Arc::new(server.clone()),
                 capabilities: registry.clone(),
                 profiles: Some(profile_deps.clone()),
@@ -464,6 +467,7 @@ impl HubRuntime {
             actions_task,
             operations_task,
             profile_task,
+            policy_task: policy.task,
             intake_shutdown,
             worker_shutdown,
             manager_shutdown,

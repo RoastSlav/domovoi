@@ -32,6 +32,7 @@ pub(super) async fn run(
         actions_task,
         operations_task,
         profile_task,
+        policy_task,
         intake_shutdown,
         worker_shutdown,
         manager_shutdown,
@@ -112,6 +113,9 @@ pub(super) async fn run(
     let mut actions_task = actions_task;
     clean &= finish(&mut actions_task, &clock, total).await;
     if let Some(mut task) = operations_task {
+        clean &= finish(&mut task, &clock, total).await;
+    }
+    if let Some(mut task) = policy_task {
         clean &= finish(&mut task, &clock, total).await;
     }
 

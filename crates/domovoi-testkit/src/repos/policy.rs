@@ -117,6 +117,8 @@ pub(super) fn apply(state: &mut State, write: &PolicyWrite) -> Result<(), Commit
                     let index = require_draft(state, *id, *revision)?;
                     let (record, stored) = &mut state.policy_versions[index];
                     record.revision += 1;
+                    // A save re-bases the draft on the version active now.
+                    record.based_on = based_on.or(record.based_on);
                     record.rules_hash.clone_from(rules_hash);
                     record.rule_count = total;
                     record.locked_count = locked;

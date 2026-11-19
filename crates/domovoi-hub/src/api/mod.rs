@@ -8,6 +8,10 @@
 pub mod dto;
 pub mod dto_admin;
 pub mod dto_operations;
+pub mod dto_policy;
+pub mod dto_policy_query;
+pub mod dto_policy_rule;
+pub mod dto_policy_trace;
 pub mod dto_query;
 pub mod dto_trace;
 pub mod error;
@@ -29,6 +33,8 @@ pub(crate) mod operation_errors;
 pub(crate) mod operations;
 mod overview;
 mod plan_binding;
+mod policy;
+mod policy_shadow;
 pub(crate) mod profile;
 pub mod readiness;
 mod rules;
@@ -47,7 +53,7 @@ use domovoi_config::HubConfig;
 use domovoi_core::HostName;
 use domovoi_core::ports::{
     AckRepo, ActionRepo, AdvisoryRepo, Clock, FactRepo, HostRepo, IncidentRepo, LogSource,
-    NoteRepo, Notifier, Page, Redactor, SignalRepo, UsageRepo,
+    NoteRepo, Notifier, Page, PolicyRepo, Redactor, SignalRepo, UsageRepo,
 };
 use domovoi_engine::ManagerHandle;
 use domovoi_engine::triage::TriageHandle;
@@ -101,6 +107,9 @@ pub struct ApiDeps {
     pub triage: Option<TriageHandle>,
     /// Stored operations, read only; changes go through `services.operations`.
     pub operation_repo: Arc<dyn domovoi_core::ports::OperationRepo>,
+    /// Policy versions and recorded shadow decisions, read only; changes go through
+    /// `services.policy`.
+    pub policy: Arc<dyn PolicyRepo>,
     /// Enrollment, revocation, presence and catalogues.
     pub agents: Arc<dyn AgentAdmin>,
     /// The capability registry: the per-host skill switches the UI reads and writes.
@@ -259,6 +268,7 @@ pub(crate) async fn host_named(
         (name = "incidents", description = "Incidents and their triage"),
         (name = "actions", description = "Proposed actions and approvals"),
         (name = "operations", description = "Operations, their steps and step approvals"),
+        (name = "policy", description = "Policy versions, shadow decisions, the simulator and publication"),
         (name = "hosts", description = "Hosts, enrollment and skills"),
         (name = "notes", description = "Host and global notes"),
         (name = "system", description = "Settings, advisories, digest, events and health")
@@ -311,6 +321,19 @@ pub fn routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(operation_controls::pause))
         .routes(routes!(operation_controls::resume))
         .routes(routes!(operation_controls::answer))
+        .routes(routes!(policy::overview))
+        .routes(routes!(policy::versions))
+        .routes(routes!(policy::version))
+        .routes(routes!(
+            policy::draft,
+            policy::save_draft,
+            policy::discard_draft
+        ))
+        .routes(routes!(policy::preview))
+        .routes(routes!(policy::publish))
+        .routes(routes!(policy_shadow::simulate))
+        .routes(routes!(policy_shadow::list))
+        .routes(routes!(policy_shadow::detail))
         .routes(routes!(hosts::list))
         .routes(routes!(hosts::detail))
         .routes(routes!(hosts::enrollment))

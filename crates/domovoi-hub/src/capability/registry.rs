@@ -99,6 +99,12 @@ impl HubRegistry {
         self.hosts.get_host(id).await
     }
 
+    /// What `host`'s live session announced (status words and skills), or `None` without one.
+    /// Read only: the shadow policy recorder builds its inputs from it.
+    pub fn view(&self, host: HostId) -> Option<HostView> {
+        self.agent.view(host)
+    }
+
     /// One host's whole inventory, already computed. Used by the API.
     ///
     /// The catalogue is walked once for the whole list, never once per row, and no lock is

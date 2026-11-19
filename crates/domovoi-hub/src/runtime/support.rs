@@ -10,6 +10,15 @@ use domovoi_core::ports::{ChatError, Notifier, OutboundMessage};
 
 use super::RuntimeError;
 
+#[derive(Default)]
+pub(crate) struct AdapterOverrides {
+    pub(crate) primary: Option<Arc<dyn domovoi_core::ports::LlmProvider>>,
+    pub(crate) secondary: Option<Arc<dyn domovoi_core::ports::LlmProvider>>,
+    pub(crate) gateways: Option<Vec<Arc<dyn domovoi_core::ports::ChatGateway>>>,
+    pub(crate) notifiers: Option<Vec<Arc<dyn Notifier>>>,
+    pub(crate) bus_capacity: Option<usize>,
+}
+
 /// Every configured notifier behind one, for the API's "send the digest now". It succeeds
 /// when at least one notifier accepted the message.
 pub(crate) struct FanOut {

@@ -195,7 +195,8 @@ async fn save_draft(
             sqlx::query(
                 "UPDATE policy_versions SET draft_revision = draft_revision + 1, rules_hash = ?, \
                  rule_count = ?, locked_count = ?, shadow_count = ?, updated_at = ?, \
-                 updated_by = ? WHERE id = ? AND status = 'draft'",
+                 updated_by = ?, based_on = COALESCE(?, based_on) \
+                 WHERE id = ? AND status = 'draft'",
             )
             .bind(rules_hash)
             .bind(total)
@@ -203,6 +204,7 @@ async fn save_draft(
             .bind(shadow)
             .bind(ms(at))
             .bind(actor.to_string())
+            .bind(based_on.map(i64::from))
             .bind(id.to_string())
             .execute(&mut *conn)
             .await
