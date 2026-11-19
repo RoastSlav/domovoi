@@ -608,6 +608,9 @@ async fn event_stream_ends_when_the_server_shuts_down() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     let mut body = response.into_body().into_data_stream();
+    // The first frame is the "ready" announcement; whether it is already written by
+    // the time the response returns depends on scheduling, so wait for it.
+    assert!(body.next().await.is_some(), "the stream opens with a ready frame");
     for _ in 0..10 {
         tokio::task::yield_now().await;
     }
