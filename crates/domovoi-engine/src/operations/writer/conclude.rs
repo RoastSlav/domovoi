@@ -7,7 +7,7 @@ use super::commit::{finish_held_many, without_held_key};
 use super::{OpShared, answer, held_change};
 use crate::operations::decide::{EffectSpec, OperationEvent};
 
-/// Redacts a step's output. Output that is JSON is redacted value by value: running the
+/// Redacts a step's output. Output that is JSON is redacted key by key and value by value: running the
 /// redactor over the serialized text could let a secret swallow the quotes and keys next to
 /// it and leave a document nothing can read back.
 fn redact_output(shared: &OpShared, text: String) -> String {
@@ -15,7 +15,22 @@ fn redact_output(shared: &OpShared, text: String) -> String {
         match value {
             serde_json::Value::String(inner) => *inner = redact(inner),
             serde_json::Value::Array(items) => items.iter_mut().for_each(|v| walk(v, redact)),
-            serde_json::Value::Object(map) => map.values_mut().for_each(|v| walk(v, redact)),
+            serde_json::Value::Object(map) => {
+                // Keys are text an untrusted tool chose, so they are redacted too. Two keys
+                // that redact to the same text keep the first and number the later ones.
+                let mut clean = serde_json::Map::new();
+                for (key, mut inner) in std::mem::take(map) {
+                    walk(&mut inner, redact);
+                    let mut name = redact(&key);
+                    let mut n = 1;
+                    while clean.contains_key(&name) {
+                        n += 1;
+                        name = format!("{}#{n}", redact(&key));
+                    }
+                    clean.insert(name, inner);
+                }
+                *map = clean;
+            }
             _ => {}
         }
     }

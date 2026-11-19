@@ -193,7 +193,7 @@ How often an unacknowledged incident is announced again.
 
 ### `[orchestration]`
 
-The operation service: durable multi-step work with approvals. Off by default.
+The operation service: durable multi-step work with approvals. On by default; `enabled = false` switches it off.
 
 | Key | Type | Meaning |
 | --- | --- | --- |

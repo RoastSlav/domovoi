@@ -898,3 +898,37 @@ async fn the_wall_time_wake_ticks_the_budget_and_pauses_past_the_limit() {
     assert_eq!(snapshot.operation.status.name(), "paused");
     assert_eq!(snapshot.operation.budgets.used.wall_seconds, 73 * 3600);
 }
+
+#[tokio::test]
+async fn a_secret_in_a_json_output_key_is_redacted_and_the_document_stays_valid() {
+    let w = world().await;
+    let (op, step) = w.approved().await;
+    let plan = w.plan(op, step).await;
+    w.dispatch(op, step, plan).await.unwrap();
+
+    w.send(|reply| OperationCommand::Settle {
+        held: None,
+        operation: op,
+        step,
+        outcome: StepOutcome::Succeeded,
+        reason: None,
+        output: Some(r#"{"token hunter2":"ok","nested":{"note":"token hunter2"}}"#.to_owned()),
+        verify_after: None,
+        reply,
+    })
+    .await
+    .unwrap();
+
+    let snapshot = w.store.load(op).await.unwrap().unwrap();
+    let output = snapshot
+        .step(step)
+        .unwrap()
+        .progress
+        .output
+        .clone()
+        .unwrap();
+    assert!(!output.contains("hunter2"), "{output}");
+    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(parsed["token [REDACTED]"], "ok");
+    assert_eq!(parsed["nested"]["note"], "token [REDACTED]");
+}

@@ -59,7 +59,7 @@ expression: "HubConfig::json_schema()"
       "$ref": "#/$defs/NotifySection"
     },
     "orchestration": {
-      "description": "The operation service: durable multi-step work with approvals. Off by default.",
+      "description": "The operation service: durable multi-step work with approvals. On by default; `enabled = false` switches it off.",
       "$ref": "#/$defs/OrchestrationSection"
     },
     "probes": {
