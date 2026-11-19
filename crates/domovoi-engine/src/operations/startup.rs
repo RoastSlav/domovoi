@@ -1,13 +1,11 @@
 //! What the service does once before its runner claims anything.
 
-use domovoi_core::ports::{
-    AggregateKind, EffectKind, EffectReschedule, EffectStatus, StoreError, Transaction,
-};
+use domovoi_core::ports::{AggregateKind, EffectKind, EffectReschedule, StoreError, Transaction};
 
 use crate::operations::writer::{OpShared, admit_queued};
 
-/// The most claimed effects one start-up pass reads.
-const CLAIMED_LIMIT: u16 = 500;
+/// How many claimed dispatch effects one read returns.
+const PAGE: u16 = 500;
 
 /// Returns every claimed `dispatch` effect of an operation to pending, then admits queued
 /// operations once.
@@ -24,29 +22,40 @@ pub(super) async fn recover(shared: &OpShared) {
 }
 
 /// One fenced reschedule per claimed operation dispatch effect, using its stored token.
+///
+/// The store hands over the claimed dispatch effects of operations a page at a time, and a
+/// returned effect leaves that set, so the loop reads again until a page brings nothing back
+/// to pending (or the set is empty).
 async fn repend_dispatches(shared: &OpShared) -> Result<(), StoreError> {
-    let claimed = shared
-        .deps
-        .effect_read
-        .effects_with_status(EffectStatus::Claimed, CLAIMED_LIMIT)
-        .await?;
     let now = shared.deps.clock.now();
-    for effect in claimed {
-        let ours = effect.kind == EffectKind::Dispatch.as_str()
-            && effect.aggregate.kind == AggregateKind::Operation;
-        let Some(token) = effect.claim_token.filter(|_| ours) else {
-            continue;
-        };
-        let tx = Transaction::new().reschedule(EffectReschedule {
-            id: effect.id,
-            claim_token: token,
-            not_before: now,
-            error: "returned to pending at start".to_owned(),
-            at: now,
-        });
-        if let Err(err) = shared.deps.uow.commit(tx).await {
-            tracing::warn!(%err, effect = %effect.id, "a claimed dispatch effect was not returned");
+    loop {
+        let claimed = shared
+            .deps
+            .effect_read
+            .claimed_of(EffectKind::Dispatch, AggregateKind::Operation, PAGE)
+            .await?;
+        let page = claimed.len();
+        let mut returned = 0_usize;
+        for effect in claimed {
+            let Some(token) = effect.claim_token else {
+                continue;
+            };
+            let tx = Transaction::new().reschedule(EffectReschedule {
+                id: effect.id,
+                claim_token: token,
+                not_before: now,
+                error: "returned to pending at start".to_owned(),
+                at: now,
+            });
+            match shared.deps.uow.commit(tx).await {
+                Ok(_) => returned += 1,
+                Err(err) => {
+                    tracing::warn!(%err, effect = %effect.id, "a claimed dispatch effect was not returned");
+                }
+            }
+        }
+        if returned == 0 || page < usize::from(PAGE) {
+            return Ok(());
         }
     }
-    Ok(())
 }
