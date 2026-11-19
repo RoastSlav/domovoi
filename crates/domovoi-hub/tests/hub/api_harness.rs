@@ -32,7 +32,7 @@ use domovoi_hub::capability::{HubRegistry, RegistryDeps};
 use domovoi_hub::profile::ProfileDeps;
 use domovoi_hub::router::router;
 use domovoi_hub::runtime::updates::UpdateChecker;
-use domovoi_hub::services::{Services, ServicesDeps};
+use domovoi_hub::services::{PolicyDeps, PolicyService, Services, ServicesDeps};
 use domovoi_hub::settings::{ConfigSources, SecretKey, SettingsDeps, SettingsService};
 use domovoi_proto::EnrollToken;
 use domovoi_proto::messages::{CheckInfo, HostFacts};
@@ -201,6 +201,8 @@ pub struct Api {
     pub manager_task: tokio::task::JoinHandle<()>,
     /// The action service's task, for the same reason.
     pub action_task: tokio::task::JoinHandle<()>,
+    /// What the policy service's publication review and simulator know of hosts.
+    pub policy_env: Arc<crate::policy_env::PolicyFakeEnv>,
 }
 
 /// The variable that locks `triage.concurrency` in the settings tests.
@@ -496,6 +498,15 @@ async fn build(
         redactor: Arc::new(PatternRedactor::default()),
     });
     let config = Arc::new(config);
+    let policy_env = Arc::new(crate::policy_env::PolicyFakeEnv::new());
+    let policy = PolicyService::new(PolicyDeps {
+        repo: store.clone(),
+        uow: store.clone(),
+        env: policy_env.clone(),
+        auth: auth.clone(),
+        clock: clock.clone(),
+        shadow_enabled: true,
+    });
     let services = Services::new(ServicesDeps {
         manager: manager.clone(),
         triage: triage.clone(),
@@ -512,6 +523,7 @@ async fn build(
         config: config.clone(),
         clock: clock.clone(),
         redactor: Arc::new(PatternRedactor::default()),
+        policy,
     });
     let deps = ApiDeps {
         incidents: store.clone(),
@@ -527,6 +539,7 @@ async fn build(
         services: services.clone(),
         triage,
         operation_repo: store.clone(),
+        policy: store.clone(),
         agents,
         capabilities: Arc::new(test_registry(link.clone(), store.clone(), clock.clone()).await),
         logs: if logs { Some(source) } else { None },
@@ -563,6 +576,7 @@ async fn build(
         dir,
         manager_task,
         action_task,
+        policy_env,
     }
 }
 

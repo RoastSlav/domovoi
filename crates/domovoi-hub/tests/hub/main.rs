@@ -57,6 +57,10 @@ mod ops_harness;
 #[cfg(test)]
 mod plan_binding;
 #[cfg(test)]
+mod policy_api;
+#[cfg(test)]
+mod policy_env;
+#[cfg(test)]
 mod presence;
 #[cfg(test)]
 mod profile;

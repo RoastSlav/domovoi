@@ -218,6 +218,14 @@ Limits an operation starts with.
 | `tokens` | integer | Model tokens, input and output together. Default 200000. |
 | `wall_time` | duration | Wall-clock time from admission. Default `"72h"`. |
 
+### `[policy]`
+
+Policy rules the hub evaluates without enforcing them.
+
+| Key | Type | Meaning |
+| --- | --- | --- |
+| `shadow` | boolean | Record, for every Execution step, what the active policy and its shadow rules would decide. Nothing is enforced. Default `false`. |
+
 ### `[[probes]]`
 
 Network probes run from the hub.

@@ -933,3 +933,163 @@ mod chat {
         );
     }
 }
+
+/// The workspace root, two levels above this crate.
+fn workspace_root() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
+}
+
+/// Every `.rs` file under `dir` (workspace-relative), as (path, text).
+fn tree(dir: &str) -> Vec<(String, String)> {
+    let root = workspace_root();
+    let mut files = Vec::new();
+    source_files(&root.join(dir), &root.join(dir), dir, &mut files);
+    files
+}
+
+/// The production sources of every crate except the test-support crate, as (path, text).
+fn workspace_production() -> Vec<(String, String)> {
+    let crates = workspace_root().join("crates");
+    let mut all = Vec::new();
+    for entry in std::fs::read_dir(crates).unwrap().flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name != "domovoi-testkit" {
+            all.extend(tree(&format!("crates/{name}/src")));
+        }
+    }
+    all
+}
+
+/// Text with every whitespace character removed, so a call split across lines is still seen.
+fn squeezed(text: &str) -> String {
+    text.split_whitespace().collect()
+}
+
+/// A recorded policy decision is data. Nothing under the policy modules names an approval or
+/// a permit type, and no production code issues a `PolicyPermit` or builds the policy
+/// variant of an authorization before the permit issuer exists.
+#[test]
+fn no_code_path_issues_a_policy_permit() {
+    assert!(
+        !workspace_root()
+            .join("crates/domovoi-hub/src/policy")
+            .exists(),
+        "the permit issuer's directory does not exist yet"
+    );
+    let forbidden = [
+        "PolicyPermit",
+        "Authorization",
+        "HumanApproval",
+        "PermitIssuer",
+    ];
+    let mut checked = 0;
+    let mut scanned: Vec<(String, String)> = Vec::new();
+    for dir in [
+        "crates/domovoi-core/src/policy_store",
+        "crates/domovoi-store/src/policy",
+        "crates/domovoi-engine/src/policy_shadow",
+        "crates/domovoi-engine/src/policy",
+    ] {
+        scanned.extend(tree(dir));
+    }
+    scanned.extend(
+        tree("crates/domovoi-hub/src")
+            .into_iter()
+            .filter(|(path, _)| {
+                let file = path.rsplit('/').next().unwrap_or_default();
+                (path.contains("/services/") && file.starts_with("policy"))
+                    || path.ends_with("/runtime/policy.rs")
+                    || (path.contains("/api/") && file.contains("policy"))
+            }),
+    );
+    for (path, text) in &scanned {
+        checked += 1;
+        for word in forbidden {
+            assert!(!text.contains(word), "{path} names {word}");
+        }
+    }
+    assert!(
+        checked >= 20,
+        "the scan found the policy sources ({checked})"
+    );
+    for (path, text) in workspace_production() {
+        let live = text.split("#[cfg(test)]").next().unwrap_or_default();
+        let code: String = live
+            .lines()
+            .filter(|line| !line.trim_start().starts_with("//"))
+            .collect::<Vec<_>>()
+            .join(
+                "
+",
+            );
+        let code = squeezed(&code);
+        for call in ["Authorization::policy(", "PolicyPermit::issue("] {
+            assert!(!code.contains(call), "{path} calls {call}");
+        }
+    }
+}
+
+/// Draft and publication writes are built only by the hub's policy service, and recorded
+/// decisions only by the shadow recorder; the store's applier matches on them and builds none.
+#[test]
+fn policy_writes_are_built_only_by_their_owners() {
+    let owners: [(&[&str], &str); 2] = [
+        (
+            &[
+                "PolicyWrite::SaveDraft",
+                "PolicyWrite::DiscardDraft",
+                "PolicyWrite::Publish",
+            ],
+            "crates/domovoi-hub/src/services/policy",
+        ),
+        (
+            &["PolicyWrite::RecordShadow"],
+            "crates/domovoi-engine/src/policy_shadow/",
+        ),
+    ];
+    let applier = "crates/domovoi-store/src/policy/";
+    for (path, text) in workspace_production() {
+        for (names, owner) in owners {
+            for name in names {
+                if text.contains(name) {
+                    assert!(
+                        path.starts_with(owner) || path.starts_with(applier),
+                        "{path} names {name}, which only {owner} builds"
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// Every policy command takes the caller first, and publishing asks for the password before
+/// it reads anything: a text-order scan, so reordering the body fails here.
+#[test]
+fn policy_commands_take_a_caller_and_step_up() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/services");
+    let mut text = String::new();
+    for file in ["policy.rs", "policy_publish.rs"] {
+        text.push_str(&std::fs::read_to_string(dir.join(file)).unwrap());
+    }
+    let text = squeezed(&text);
+    for name in ["save_draft", "discard_draft", "publish"] {
+        let head = format!("pubasyncfn{name}(&self,caller:&Caller,");
+        assert!(text.contains(&head), "{name} takes `caller: &Caller` first");
+    }
+    let body = text.split("pubasyncfnpublish(").nth(1).unwrap_or_default();
+    let step = body
+        .find("self.step_up(")
+        .expect("publish asks for the password");
+    let read = body.find("self.repo.").expect("publish reads the draft");
+    assert!(step < read, "publish asks for the password before it reads");
+}
+
+/// Publishing and changing a locked prohibition are enforced step-up actions, not future ones.
+#[test]
+fn policy_publish_is_a_registered_step_up_action() {
+    use domovoi_hub::settings::step_up::{STEP_UP_ACTIONS, STEP_UP_ENFORCED_ACTIONS};
+    let enforced: Vec<&str> = STEP_UP_ENFORCED_ACTIONS.iter().map(|a| a.id).collect();
+    assert!(enforced.contains(&"policy.publish"));
+    assert!(enforced.contains(&"policy.lock_changed"));
+    assert!(STEP_UP_ACTIONS.iter().all(|a| a.id != "policy.publish"));
+}

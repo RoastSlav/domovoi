@@ -21,13 +21,14 @@ type Run = fn(&mut World<InMemoryStore>) -> BoxFuture<'_, ()>;
 
 /// The files a commit goes through. A later writer that commits anywhere else fails
 /// [`commit_sites_are_the_ones_the_sweep_exercises`] until it adds a scenario here.
-const COMMIT_SITES: [&str; 6] = [
+const COMMIT_SITES: [&str; 7] = [
     "actions/commit.rs",
     "effects/runner.rs",
     "manager/actor.rs",
     "operations/startup.rs",
     "operations/writer/commit.rs",
     "operations/writer/create.rs",
+    "policy_shadow/recorder.rs",
 ];
 
 /// Every audit kind the action and operation writers can produce, including the chat-token

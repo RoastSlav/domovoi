@@ -31,6 +31,7 @@ pub mod manager;
 pub mod notify;
 pub mod operations;
 pub mod policy;
+pub mod policy_shadow;
 pub mod redact;
 pub mod render;
 pub mod suppress;

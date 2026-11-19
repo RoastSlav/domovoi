@@ -63,6 +63,24 @@ Four requests control an operation. Each needs a logged-in session and the CSRF 
 
 An unknown operation or step is 404, and a bad reason, limit or answer is 400 with the reason in `message`.
 
+## Policy
+
+The policy routes read and change the policy draft, publish numbered versions and show shadow decisions. See [Policy](../concepts/policy.md) for what the terms mean.
+
+Reads need a logged-in session. Every change needs the session and the CSRF header.
+
+- `GET /api/v1/policy` returns the published version (its number, rule counts and hash) and the draft, if one exists.
+- `GET /api/v1/policy/versions` lists published versions, newest first.
+- `GET /api/v1/policy/versions/{number}` returns one published version with its rules and its acknowledgements. `404` for a number that was never published.
+- `GET /api/v1/policy/draft` returns the draft and its rules.
+- `PUT /api/v1/policy/draft` saves changes to the draft. A change to a locked rule also needs the admin password in the body.
+- `DELETE /api/v1/policy/draft` discards the draft. The published version is not affected.
+- `POST /api/v1/policy/preview` shows what the draft would change against the published version. The answer includes the `preview_hash` that publishing needs.
+- `POST /api/v1/policy/draft/publish` turns the draft into the next version. It needs the admin password and the `preview_hash` from the preview. A hash that does not match the current draft is refused, so preview again.
+- `POST /api/v1/policy/simulate` shows what the draft and the published version would decide for one described step. It changes nothing.
+- `GET /api/v1/policy/shadow` returns the shadow summary: decision rows in a time window, counted by status and by enforced outcome, with the number of degraded and differing rows.
+- `GET /api/v1/policy/shadow/{execution_id}` returns one decision row: both answers, the inputs, and the gap list. `404` for an execution with no row.
+
 ## Errors and paging
 
 Errors are JSON, with an HTTP status to match:

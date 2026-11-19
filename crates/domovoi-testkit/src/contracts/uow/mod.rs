@@ -57,7 +57,7 @@ use async_trait::async_trait;
 use domovoi_core::EffectId;
 use domovoi_core::ports::{
     ActionRepo, AuditLog, ClaimToken, EffectQueue, EffectRead, IncidentRepo, JournalFeed,
-    JournalRead, NoteRepo, OperationRepo, SignalRepo, UnitOfWork, VersionedRead,
+    JournalRead, NoteRepo, OperationRepo, PolicyRepo, SignalRepo, UnitOfWork, VersionedRead,
 };
 use jiff::Timestamp;
 
@@ -90,6 +90,8 @@ pub trait UowSubject: Send + Sync {
     fn audit(&self) -> &dyn AuditLog;
     /// Operation reads.
     fn operations(&self) -> &dyn OperationRepo;
+    /// Policy reads.
+    fn policy(&self) -> &dyn PolicyRepo;
     /// Claiming and recovering effects: the queue the runner works from.
     fn queue(&self) -> &dyn EffectQueue;
 
@@ -145,6 +147,10 @@ impl UowSubject for InMemoryStore {
     }
 
     fn operations(&self) -> &dyn OperationRepo {
+        self
+    }
+
+    fn policy(&self) -> &dyn PolicyRepo {
         self
     }
 

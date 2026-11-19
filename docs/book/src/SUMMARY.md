@@ -20,6 +20,7 @@
 - [Actions and approvals](concepts/actions.md)
 - [Operations](concepts/operations.md)
 - [Capabilities](concepts/capabilities.md)
+- [Policy](concepts/policy.md)
 - [Digest and advisories](concepts/digest.md)
 - [Logs in the web UI](concepts/logs.md)
 

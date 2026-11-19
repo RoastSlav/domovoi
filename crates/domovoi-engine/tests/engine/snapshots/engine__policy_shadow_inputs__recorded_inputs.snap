@@ -1,0 +1,41 @@
+---
+source: crates/domovoi-engine/tests/engine/policy_shadow_inputs.rs
+expression: "serde_json::to_string_pretty(&InputsEnvelope::new(inputs)).unwrap()"
+---
+{
+  "v": 1,
+  "host": "01900000-0000-7000-8000-0000000000a1",
+  "contract": {
+    "id": "skill.restart_plex",
+    "category": "skill.mutate",
+    "effect": "mutate",
+    "target_kind": "host",
+    "safety_facts": [],
+    "constrainable_args": []
+  },
+  "contract_version": 1,
+  "target": "01900000-0000-7000-8000-0000000000a1",
+  "target_identity": "host:01900000-0000-7000-8000-0000000000a1/4bb06f8e4e3a7715d201d573d0aa423762e55dabd61a2c02278fa56cc6d294e0",
+  "args": "container:4:plex\n",
+  "requested_rate_per_hour": null,
+  "requested_ttl_secs": null,
+  "pinned": [
+    "host:01900000-0000-7000-8000-0000000000a1/4bb06f8e4e3a7715d201d573d0aa423762e55dabd61a2c02278fa56cc6d294e0"
+  ],
+  "rule_targets": {},
+  "ceiling": null,
+  "facts": {},
+  "runs_as_root": false,
+  "containment": {
+    "attested": false,
+    "uncovered_paths": [],
+    "stale_confirmation": false,
+    "target_overlaps_verified_set": false,
+    "helper_incomplete": false
+  },
+  "autonomy": {
+    "paused": false,
+    "circuit_broken": false
+  },
+  "now": "2023-11-14T22:13:20Z"
+}

@@ -7,9 +7,10 @@
 //! this list, and a test walks the configuration schema so a new `llm.*.cli` field
 //! cannot slip through.
 //!
-//! [`STEP_UP_ACTIONS`] names the actions that will need the same confirmation once their
-//! features exist. Nothing enforces those entries yet; they are here so the intent is
-//! written down in one place.
+//! [`STEP_UP_ENFORCED_ACTIONS`] names the actions that already ask for the password again,
+//! and which service checks it. [`STEP_UP_ACTIONS`] names the actions that will need the same
+//! confirmation once their features exist. Nothing enforces those entries yet; they are here
+//! so the intent is written down in one place.
 //!
 //! Cancelling, pausing, resuming and answering an operation are deliberately not on that
 //! list: an owner session is enough, as for approving an offered step. `autonomy.resume` is
@@ -75,13 +76,31 @@ pub struct StepUpAction {
     pub applies_once: &'static str,
 }
 
+/// An action that already asks for the password again.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EnforcedStepUp {
+    /// A stable name for the action, such as `policy.publish`.
+    pub id: &'static str,
+    /// The service that checks the password before it acts.
+    pub enforced_by: &'static str,
+}
+
+/// Actions that ask for the password again today: publishing a policy version, and changing
+/// a locked prohibition in a policy draft.
+pub const STEP_UP_ENFORCED_ACTIONS: &[EnforcedStepUp] = &[
+    EnforcedStepUp {
+        id: "policy.publish",
+        enforced_by: "PolicyService",
+    },
+    EnforcedStepUp {
+        id: "policy.lock_changed",
+        enforced_by: "PolicyService",
+    },
+];
+
 /// Actions that need the password again when their features exist. Declared only:
 /// no code enforces them yet, and each says what must exist first.
 pub const STEP_UP_ACTIONS: &[StepUpAction] = &[
-    StepUpAction {
-        id: "policy.publish",
-        applies_once: "policy versions exist",
-    },
     StepUpAction {
         id: "capability.enable",
         applies_once: "capability packages exist",
@@ -125,7 +144,10 @@ pub fn path_needs_step_up(path: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{PathRule, STEP_UP_ACTIONS, STEP_UP_SETTINGS, covers, path_needs_step_up};
+    use super::{
+        PathRule, STEP_UP_ACTIONS, STEP_UP_ENFORCED_ACTIONS, STEP_UP_SETTINGS, covers,
+        path_needs_step_up,
+    };
 
     #[test]
     fn operation_controls_are_not_step_up_actions() {
@@ -220,6 +242,24 @@ mod tests {
             "webhooks.grafana.secret"
         ));
         assert!(covers(&PathRule::Under("webhooks"), "webhooks"));
+    }
+
+    #[test]
+    fn enforced_step_up_actions_are_not_declared_as_future() {
+        for action in STEP_UP_ENFORCED_ACTIONS {
+            assert!(
+                STEP_UP_ACTIONS.iter().all(|future| future.id != action.id),
+                "{} is enforced, so it is not a future action",
+                action.id
+            );
+            assert!(
+                !action.enforced_by.is_empty(),
+                "{} names its service",
+                action.id
+            );
+        }
+        let ids: Vec<&str> = STEP_UP_ENFORCED_ACTIONS.iter().map(|a| a.id).collect();
+        assert!(ids.contains(&"policy.publish") && ids.contains(&"policy.lock_changed"));
     }
 
     #[test]

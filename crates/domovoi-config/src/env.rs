@@ -9,8 +9,9 @@ use crate::issue::ConfigIssue;
 /// The prefix of override variables.
 pub const OVERRIDE_PREFIX: &str = "DOMOVOI_";
 
-/// The top-level tables of `hub.toml`.
-pub const HUB_SECTIONS: [&str; 16] = [
+/// The top-level tables of `hub.toml`, plus dotted keys of a table both files share (such
+/// as `policy.shadow`), so the other role's variables for those keys are skipped.
+pub const HUB_SECTIONS: [&str; 17] = [
     "hub",
     "web",
     "agent_server",
@@ -27,12 +28,14 @@ pub const HUB_SECTIONS: [&str; 16] = [
     "metrics",
     "secrets",
     "orchestration",
+    "policy.shadow",
 ];
 
-/// The top-level tables of `agent.toml`.
+/// The top-level tables of `agent.toml`, plus dotted keys of a table both files share (such
+/// as `policy.allow_risk`), so the other role's variables for those keys are skipped.
 pub const AGENT_SECTIONS: [&str; 6] = [
     "agent",
-    "policy",
+    "policy.allow_risk",
     "docker",
     "checks",
     "containers",
@@ -142,6 +145,7 @@ pub(crate) fn apply_overrides_tracked(
         if segments
             .first()
             .is_some_and(|first| foreign.contains(&first.as_str()))
+            || foreign.contains(&path.as_str())
         {
             continue;
         }

@@ -1598,3 +1598,58 @@ fn triage_queue_and_in_memory_retries_are_gone() {
         .collect();
     assert!(handle.is_empty(), "queue entry points remain: {handle:#?}");
 }
+
+/// Nothing that enforces anything reads a recorded policy decision: the operation writer,
+/// the action service and the approval code never name the shadow recorder, its repository,
+/// its rows or the evaluator entry points. A recorded `Allow` is data, not an authority.
+#[test]
+fn no_enforcement_path_reads_a_policy_decision() {
+    let engine = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let roots = [
+        engine.join("src/operations"),
+        engine.join("src/actions"),
+        engine.join("../domovoi-hub/src/auth"),
+    ];
+    let needles = [
+        "policy_shadow",
+        "PolicyRepo",
+        "ShadowRecord",
+        "policy::evaluate",
+        "evaluate_shadow",
+        "StateWrite::Policy",
+    ];
+    let mut offenders = Vec::new();
+    for root in &roots {
+        assert!(root.is_dir(), "{} is not a directory", root.display());
+        scan_for(root, &needles, &mut offenders);
+    }
+    assert!(
+        offenders.is_empty(),
+        "an enforcement path reads a policy decision: {offenders:?}",
+    );
+}
+
+/// Collects every line under `dir` that contains one of `needles`.
+fn scan_for(dir: &std::path::Path, needles: &[&str], offenders: &mut Vec<String>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            scan_for(&path, needles, offenders);
+            continue;
+        }
+        if path.extension().and_then(|ext| ext.to_str()) != Some("rs") {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        for (index, line) in text.lines().enumerate() {
+            if needles.iter().any(|needle| line.contains(needle)) {
+                offenders.push(format!("{}:{}", path.display(), index + 1));
+            }
+        }
+    }
+}

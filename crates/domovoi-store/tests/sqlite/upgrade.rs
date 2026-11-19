@@ -497,3 +497,65 @@ async fn upgrade_keeps_executions_and_adds_token_and_risk_columns() {
     assert_eq!(after.value.chat_token_hash(), Some(&[5; 32]));
     assert_eq!(after.value.risk(), None);
 }
+
+#[tokio::test]
+async fn migration_adds_the_policy_tables_and_keeps_existing_rows() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = copy_fixture(dir.path());
+    let store = Store::open(&path, StoreOptions::beside(&path, at(1000)))
+        .await
+        .unwrap();
+    let mut original = raw(&fixture()).await;
+    for table in [
+        "hosts",
+        "incidents",
+        "signals",
+        "incident_events",
+        "actions",
+        "notes",
+        "settings",
+    ] {
+        let sql = format!("SELECT count(*) FROM {table}");
+        let before: (i64,) = sqlx::query_as(sqlx::AssertSqlSafe(sql.clone()))
+            .fetch_one(&mut original)
+            .await
+            .unwrap();
+        let after: (i64,) = sqlx::query_as(sqlx::AssertSqlSafe(sql))
+            .fetch_one(store.pool_for_tests())
+            .await
+            .unwrap();
+        assert_eq!(before.0, after.0, "{table} keeps its rows");
+    }
+    sqlx::Connection::close(original).await.unwrap();
+
+    for (table, expected) in [
+        ("policy_versions", 0),
+        ("policy_rules", 0),
+        ("policy_acknowledgements", 0),
+        ("policy_shadow_decisions", 0),
+        ("policy_shadow_state", 1),
+    ] {
+        let sql = format!("SELECT count(*) FROM {table}");
+        let count: (i64,) = sqlx::query_as(sqlx::AssertSqlSafe(sql))
+            .fetch_one(store.pool_for_tests())
+            .await
+            .unwrap();
+        assert_eq!(count.0, expected, "{table}");
+    }
+    let state: (Option<i64>, i64) =
+        sqlx::query_as("SELECT last_sweep_at, total_evaluated FROM policy_shadow_state")
+            .fetch_one(store.pool_for_tests())
+            .await
+            .unwrap();
+    assert_eq!(state, (None, 0));
+    let violations: Vec<(String, i64, String, i64)> = sqlx::query_as("PRAGMA foreign_key_check")
+        .fetch_all(store.pool_for_tests())
+        .await
+        .unwrap();
+    assert!(violations.is_empty());
+    let compat: Vec<(i64, String)> = sqlx::query_as("SELECT id, min_reader FROM schema_compat")
+        .fetch_all(store.pool_for_tests())
+        .await
+        .unwrap();
+    assert_eq!(compat, vec![(1, MIN_READER.to_owned())]);
+}

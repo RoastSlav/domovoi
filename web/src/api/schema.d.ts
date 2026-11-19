@@ -917,6 +917,173 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The policy at a glance: the active version, the draft and the shadow recorder. */
+        get: operations["policy_overview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/policy/draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The draft with its rules. */
+        get: operations["policy_draft"];
+        /**
+         * Creates the draft or replaces it. Changing a locked prohibition needs the password and the
+         *     preview hash of exactly these rules.
+         */
+        put: operations["policy_save_draft"];
+        post?: never;
+        /** Discards the draft. It changes nothing live, so it needs no password. */
+        delete: operations["policy_discard_draft"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/policy/draft/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Publishes the draft as the next version. Always needs the password; the acknowledged keys
+         *     must be exactly the blocking findings, and the preview hash that of the draft's rules.
+         */
+        post: operations["policy_publish"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/policy/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * What a candidate rule set would do: validation, the publication review, locked changes and
+         *     a bounded simulation over recent recorded decisions. It writes nothing.
+         */
+        post: operations["policy_preview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/policy/shadow": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Recorded shadow decisions, newest first. */
+        get: operations["policy_shadow_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/policy/shadow/{execution_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One recorded decision with its inputs, gaps and both decisions. */
+        get: operations["policy_shadow_detail"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/policy/simulate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Replays or re-evaluates recorded Execution steps under a draft, a version or inline rules.
+         *     It never writes.
+         */
+        post: operations["policy_simulate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/policy/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Published versions, newest first. */
+        get: operations["policy_versions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/policy/versions/{number}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One published version with its rules and acknowledgements. */
+        get: operations["policy_version"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/session": {
         parameters: {
             query?: never;
@@ -1146,6 +1313,25 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @description One acknowledged publication finding. */
+        AckDto: {
+            /** @description When, RFC 3339 UTC. */
+            acknowledged_at: string;
+            /** @description Who acknowledged it. */
+            acknowledged_by: string;
+            /** @description The finding's stable key. */
+            finding_key: string;
+            /** @description The first rule involved. */
+            first_rule: string;
+            /** @description The finding's kind. */
+            kind: string;
+            /** @description What the review said. */
+            note: string;
+            /** @description What the pair resolves to. */
+            resolution?: string | null;
+            /** @description The second rule involved. */
+            second_rule: string;
+        };
         /** @description A known condition: incidents that match it stay in the history and never notify. */
         AckRuleDto: {
             /** @description The check the rule matches, for example `security.ssh_login`. */
@@ -1495,6 +1681,50 @@ export interface components {
             /** @description Thresholds merged over the agent's. */
             thresholds?: Record<string, never>;
         };
+        /** @description A condition on a rule. */
+        ConditionDto: {
+            /** @description The argument name. */
+            arg: string;
+            /** @enum {string} */
+            kind: "arg_constraint";
+            /** @description `int_at_least` or `int_at_most`. */
+            op: string;
+            /**
+             * Format: int64
+             * @description The bound.
+             */
+            value: number;
+        } | {
+            /** @description `HH:MM`, exclusive. */
+            end: string;
+            /** @enum {string} */
+            kind: "time_window";
+            /** @description `HH:MM`, inclusive. */
+            start: string;
+        } | {
+            /** @description The value it must be known to have. */
+            expected: boolean;
+            /** @description The fact id. */
+            fact: string;
+            /** @enum {string} */
+            kind: "requires_fact";
+        } | {
+            /** @enum {string} */
+            kind: "max_rate";
+            /**
+             * Format: int32
+             * @description Requests per hour.
+             */
+            max_per_hour: number;
+        } | {
+            /** @enum {string} */
+            kind: "max_ttl";
+            /**
+             * Format: int64
+             * @description Seconds.
+             */
+            max_ttl_secs: number;
+        };
         /** @description One host's part of the daily digest. */
         DigestHostDto: {
             /** @description The host's name. */
@@ -1541,6 +1771,66 @@ export interface components {
             ignore_for_minutes?: number | null;
             /** @description Why this is not a real problem, 1 to 500 characters. */
             reason: string;
+        };
+        /** @description The draft with its rules. */
+        DraftDetailDto: {
+            /**
+             * Format: int32
+             * @description The version number the draft was based on.
+             */
+            based_on?: number | null;
+            /**
+             * Format: int64
+             * @description The draft's revision.
+             */
+            revision: number;
+            /** @description The rules. */
+            rules: components["schemas"]["RuleDto"][];
+            /** @description Hash of the rules. */
+            rules_hash: string;
+            /** @description When it was last saved. */
+            updated_at: string;
+            /** @description Who saved it. */
+            updated_by: string;
+        };
+        /** @description The saved draft. */
+        DraftSavedDto: {
+            /** @description The draft as stored. */
+            draft: components["schemas"]["DraftDetailDto"];
+            /** @description Locked prohibitions the save touched. */
+            locked_changes: components["schemas"]["LockChangeDto"][];
+        };
+        /** @description The header of the draft. */
+        DraftSummaryDto: {
+            /**
+             * Format: int32
+             * @description The version number the draft was based on, when one was active.
+             */
+            based_on?: number | null;
+            /**
+             * Format: int32
+             * @description Locked prohibitions among them.
+             */
+            locked_count: number;
+            /**
+             * Format: int64
+             * @description The draft's revision; echo it to replace or discard the draft.
+             */
+            revision: number;
+            /**
+             * Format: int32
+             * @description Rules in the draft.
+             */
+            rule_count: number;
+            /**
+             * Format: int32
+             * @description Shadow rules among them.
+             */
+            shadow_count: number;
+            /** @description When it was last saved. */
+            updated_at: string;
+            /** @description Who saved it. */
+            updated_by: string;
         };
         /** @description The settings as the UI edits them. */
         EditableSettings: {
@@ -1645,6 +1935,28 @@ export interface components {
             unit?: string | null;
             /** @description The value as text. */
             value: string;
+        };
+        /** @description One finding of the publication review. */
+        FindingDto: {
+            /** @description The first rule involved. */
+            first: string;
+            /** @description The stable key to acknowledge. */
+            key: string;
+            /**
+             * @description `equal_scope_conflict`, `incomparable_conflict`, `ineffective_under_lock` or
+             *     `target_outside_every_ceiling`.
+             */
+            kind: string;
+            /** @description What the review says. */
+            note: string;
+            /** @description Whether publishing must wait for the owner to acknowledge it. */
+            requires_acknowledgement: boolean;
+            /** @description What the pair resolves to. */
+            resolution?: string | null;
+            /** @description The second rule involved. */
+            second: string;
+            /** @description Whether either rule is a shadow rule. */
+            shadow: boolean;
         };
         /** @description The follow-up conversation the model still remembers for an incident, oldest first. */
         FollowUpsDto: {
@@ -1764,6 +2076,16 @@ export interface components {
             reported_release?: string | null;
             /** @description The agent's version, while connected. */
             version?: string | null;
+        };
+        /** @description The host dimension of a rule. */
+        HostScopeDto: {
+            /** @enum {string} */
+            kind: "all";
+        } | {
+            /** @description The host's id. */
+            host_id: string;
+            /** @enum {string} */
+            kind: "host";
         };
         /** @description The hub's identity. */
         HubSettings: {
@@ -1911,6 +2233,32 @@ export interface components {
             /** @description `error` or `warning`. */
             severity: string;
         };
+        /** @description What the recorder did in the last 24 hours. */
+        Last24hDto: {
+            /** @description By enforced outcome. */
+            by_enforced_outcome: {
+                [key: string]: number;
+            };
+            /** @description By status. */
+            by_status: {
+                [key: string]: number;
+            };
+            /**
+             * Format: int64
+             * @description Decisions with some input unavailable.
+             */
+            degraded: number;
+            /**
+             * Format: int64
+             * @description Decisions whose enforced and shadow outcomes differ.
+             */
+            differing: number;
+            /**
+             * Format: int64
+             * @description Decisions recorded.
+             */
+            total: number;
+        };
         /** @description One language model provider. */
         LlmSettings: {
             /** @description `[set]` or `[unset]`. */
@@ -1921,6 +2269,13 @@ export interface components {
             kind: string;
             /** @description The model, if set. */
             model?: string | null;
+        };
+        /** @description One locked prohibition that differs from the version it replaces. */
+        LockChangeDto: {
+            /** @description `created`, `edited`, `unlocked` or `removed`. */
+            change: string;
+            /** @description The rule. */
+            rule: string;
         };
         /** @description One captured log line. */
         LogLineDto: {
@@ -2155,6 +2510,46 @@ export interface components {
          * @enum {string}
          */
         PlanBinding: "v1" | "v2";
+        /** @description The capability dimension of a rule. */
+        PolicyCapabilityDto: {
+            /** @enum {string} */
+            kind: "any";
+        } | {
+            /** @description The effect class. */
+            effect: string;
+            /** @enum {string} */
+            kind: "effect";
+        } | {
+            /** @description The category. */
+            category: string;
+            /** @enum {string} */
+            kind: "category";
+        } | {
+            /** @description The contract id. */
+            contract: string;
+            /** @enum {string} */
+            kind: "contract";
+        };
+        /** @description The policy at a glance. */
+        PolicyOverviewDto: {
+            active?: components["schemas"]["VersionSummaryDto"] | null;
+            draft?: components["schemas"]["DraftSummaryDto"] | null;
+            /** @description Standing notes. */
+            notes: string[];
+            /** @description The shadow recorder. */
+            shadow: components["schemas"]["ShadowStateDto"];
+            /** @description Whether `[policy] shadow` is on. */
+            shadow_enabled: boolean;
+            /** @description The zone `time_window` conditions are read in; the UI must label it. */
+            time_window_zone: string;
+        };
+        /** @description The publication review. */
+        PolicyReportDto: {
+            /** @description Whether any finding blocks publication until acknowledged. */
+            blocked: boolean;
+            /** @description Every finding, worst first. */
+            findings: components["schemas"]["FindingDto"][];
+        };
         /**
          * @description One condition on a signal's evidence. `value` is text, a number, `true` or `false`;
          *     `at_most` and `at_least` need a number, and `in_network` an address such as
@@ -2173,6 +2568,38 @@ export interface components {
          * @enum {string}
          */
         PredicateOpDto: "equals" | "contains" | "at_most" | "at_least" | "in_network";
+        /** @description What a candidate rule set would do. */
+        PreviewDto: {
+            /**
+             * Format: int32
+             * @description The active version number, 0 when none.
+             */
+            base_number: number;
+            /** @description The finding keys the owner must acknowledge. */
+            blocking: string[];
+            /** @description Locked prohibitions the change touches. */
+            locked_changes: components["schemas"]["LockChangeDto"][];
+            /** @description Standing notes. */
+            notes: string[];
+            /** @description Echo this to save a locked change or to publish. */
+            preview_hash: string;
+            report?: components["schemas"]["PolicyReportDto"] | null;
+            /** @description Hash of the candidate rules. */
+            rules_hash: string;
+            simulation?: components["schemas"]["SimulationSummaryDto"] | null;
+            /** @description Problems that stop the rules; when any, `report` is null. */
+            validation: components["schemas"]["ValidationDto"][];
+        };
+        /** @description Preview a candidate rule set. */
+        PreviewRequest: {
+            /**
+             * Format: int64
+             * @description The draft revision the rules come from; `null` measures against the active version.
+             */
+            base_revision?: number | null;
+            /** @description The candidate rules. */
+            rules: components["schemas"]["RuleDto"][];
+        };
         /** @description What the hub knows about one machine, as its agent reported it. */
         ProfileDto: {
             /** @description When the collection started. */
@@ -2202,12 +2629,44 @@ export interface components {
             /** @description Skill name. */
             skill: string;
         };
+        /** @description Publish the draft. */
+        PublishRequest: {
+            /** @description Exactly the keys of the blocking findings. */
+            acknowledged?: string[];
+            /** @description The admin's password. Always needed. */
+            password?: string | null;
+            /** @description The `preview_hash` of the draft's rules against the active version. */
+            preview_hash: string;
+            /**
+             * Format: int64
+             * @description The draft revision to publish.
+             */
+            revision: number;
+        };
+        /** @description The version that was published. */
+        PublishedDto: {
+            /** @description The findings acknowledged. */
+            acknowledged: string[];
+            /** @description Locked prohibitions that differ from the version it replaces. */
+            locked_changes: components["schemas"]["LockChangeDto"][];
+            /** @description The new version. */
+            version: components["schemas"]["VersionSummaryDto"];
+        };
         /** @description The body of `/readyz`. */
         ReadyzBody: {
             /** @description The names of the checks that failed, in a fixed order; empty when ready. */
             failing: string[];
             /** @description True when no check failed. */
             ready: boolean;
+        };
+        /** @description One re-run decision next to the recorded one. */
+        ReplayedDto: {
+            /** @description What the row recorded, when it could be read: a decision, or `{ "error": "<code>" }`. */
+            baseline?: Record<string, never> | null;
+            /** @description `same`, `changed` or `not_replayable`. */
+            comparison: string;
+            /** @description What the rules decide now: a decision, or `{ "error": "<code>" }`. */
+            simulated: Record<string, never>;
         };
         /** @description A triage report. */
         ReportDto: {
@@ -2239,6 +2698,61 @@ export interface components {
         RevokeDto: {
             /** @description `false` when the host had no live agent. */
             revoked: boolean;
+        };
+        /** @description One policy rule as the editor reads and writes it. */
+        RuleDto: {
+            /** @description The capability dimension. */
+            capability: components["schemas"]["PolicyCapabilityDto"];
+            /** @description Conditions that decide whether the rule matches. */
+            conditions?: components["schemas"]["ConditionDto"][];
+            /** @description A disabled rule is ignored. */
+            enabled: boolean;
+            /** @description The host dimension. */
+            host: components["schemas"]["HostScopeDto"];
+            /** @description The rule's stable id. */
+            id: string;
+            /** @description A locked rule is an absolute prohibition; only a `deny` can be locked. */
+            locked: boolean;
+            /** @description Owner text for the editor and the trace. */
+            note?: string;
+            /** @description `allow`, `require_approval` or `deny`. */
+            outcome: string;
+            /** @description A shadow rule is evaluated and recorded, never enforced. */
+            shadow: boolean;
+            /** @description The target dimension. */
+            targets: components["schemas"]["TargetsDto"];
+        };
+        /** @description Which rules a simulation evaluates. */
+        RulesSourceDto: {
+            /** @enum {string} */
+            source: "draft";
+        } | {
+            /**
+             * Format: int32
+             * @description The version number.
+             */
+            number: number;
+            /** @enum {string} */
+            source: "version";
+        } | {
+            /** @description The rules. */
+            rules: components["schemas"]["RuleDto"][];
+            /** @enum {string} */
+            source: "inline";
+        };
+        /** @description Replace the draft, or create it. */
+        SaveDraftRequest: {
+            /**
+             * Format: int64
+             * @description `null` creates the draft; a revision replaces that revision.
+             */
+            base_revision?: number | null;
+            /** @description The admin's password; needed only when a locked prohibition changes. */
+            password?: string | null;
+            /** @description The `preview_hash` of exactly these rules; needed only when a locked prohibition changes. */
+            preview_hash?: string | null;
+            /** @description The complete rule set. */
+            rules: components["schemas"]["RuleDto"][];
         };
         /** @description A saved change. */
         SavedDto: {
@@ -2300,6 +2814,188 @@ export interface components {
             token: string;
             /** @description Login name, 1 to 64 characters without spaces. */
             username: string;
+        };
+        /** @description One recorded decision with everything needed to replay it. */
+        ShadowDetailDto: components["schemas"]["ShadowSummaryRowDto"] & {
+            /** @description The step that was evaluated. */
+            candidate: Record<string, never>;
+            /** @description The enforced-rules decision: a decision, or `{ "error": "<code>" }`. */
+            enforced?: Record<string, never> | null;
+            /** @description The inputs that were unavailable and why. */
+            gaps: Record<string, never>[];
+            /** @description The exact inputs the evaluator was given; none unless the row is `evaluated`. */
+            inputs?: Record<string, never> | null;
+            /** @description The shadow-rules decision. */
+            shadow?: Record<string, never> | null;
+        };
+        /** @description Which recorded rows a simulation takes. */
+        ShadowFilterDto: {
+            /** @description A contract id. */
+            contract?: string | null;
+            /** @description Only rows whose enforced and shadow outcomes differ. */
+            differing?: boolean;
+            /** @description A host id. */
+            host?: string | null;
+            /** @description An enforced outcome word. */
+            outcome?: string | null;
+            /** @description Only rows recorded at or after this instant, RFC 3339. */
+            since?: string | null;
+            /** @description `evaluated`, `unevaluable` or `skipped`. */
+            status?: string | null;
+            /** @description Only rows recorded before this instant, RFC 3339. */
+            until?: string | null;
+        };
+        /** @description A page of recorded decisions, newest first. */
+        ShadowPageDto: {
+            /** @description The rows. */
+            items: components["schemas"]["ShadowSummaryRowDto"][];
+            /** @description Pass as `cursor` for the next page; absent on the last. */
+            next_cursor?: string | null;
+        };
+        /** @description The shadow recorder's state. */
+        ShadowStateDto: {
+            /** @description The last 24 hours. */
+            last_24h: components["schemas"]["Last24hDto"];
+            /** @description Why the last sweep failed, if it did. */
+            last_error?: string | null;
+            /** @description When the last sweep committed. */
+            last_sweep_at?: string | null;
+            /**
+             * Format: int64
+             * @description Decisions evaluated, ever.
+             */
+            total_evaluated: number;
+            /**
+             * Format: int64
+             * @description Steps never evaluated, ever.
+             */
+            total_skipped: number;
+            /**
+             * Format: int64
+             * @description Steps whose inputs could not be established, ever.
+             */
+            total_unevaluable: number;
+        };
+        /** @description One recorded decision in a list. */
+        ShadowSummaryRowDto: {
+            /** @description Its contract. */
+            contract: string;
+            /** @description Whether some input was unavailable. */
+            degraded: boolean;
+            /** @description What the enforced rules decided. */
+            enforced_outcome?: string | null;
+            /** @description When the decision was recorded. */
+            evaluated_at: string;
+            /** @description The Execution step. */
+            execution_id: string;
+            /** @description Its host. */
+            host_id: string;
+            /** @description Its operation. */
+            operation_id: string;
+            /**
+             * Format: int32
+             * @description The policy version it was recorded under; 0 when none was published.
+             */
+            policy_version: number;
+            /** @description Why it is not evaluated, or `late`. */
+            reason?: string | null;
+            /** @description What the shadow rules decided. */
+            shadow_outcome?: string | null;
+            /** @description `evaluated`, `unevaluable` or `skipped`. */
+            status: string;
+        };
+        /** @description Simulate rules over recorded Execution steps. */
+        SimulateRequest: {
+            /** @description Explicit steps instead of a filter; at most 100. */
+            execution_ids?: string[];
+            /** @description Which recorded rows. */
+            filter?: components["schemas"]["ShadowFilterDto"];
+            /** @description `recorded` (the default) or `current`. */
+            inputs?: string | null;
+            /**
+             * Format: int32
+             * @description Rows to take, 1 to 500; default 200.
+             */
+            limit?: number | null;
+            /** @description Whose rules. */
+            rules: components["schemas"]["RulesSourceDto"];
+            /** @description `enforced`, `shadow` or `both` (the default). */
+            selection?: string | null;
+        };
+        /** @description What a simulation found. */
+        SimulationDto: {
+            /** @description The rows. */
+            items: components["schemas"]["SimulationItemDto"][];
+            /** @description Which rules were simulated, in words. */
+            label: string;
+            /** @description Standing notes. */
+            notes: string[];
+            /** @description Totals over every re-run. */
+            summary: components["schemas"]["SimulationSummaryDto"];
+            /** @description Whether more rows matched than were taken. */
+            truncated: boolean;
+        };
+        /** @description One recorded step with its re-run decisions. */
+        SimulationItemDto: {
+            /** @description Its contract. */
+            contract: string;
+            /** @description Whether some input was unavailable when it was recorded. */
+            degraded: boolean;
+            enforced?: components["schemas"]["ReplayedDto"] | null;
+            /** @description When the decision was recorded. */
+            evaluated_at: string;
+            /** @description The Execution step. */
+            execution_id: string;
+            /** @description The inputs that were unavailable and why. */
+            gaps: Record<string, never>[];
+            /** @description Its host. */
+            host_id: string;
+            /** @description Its operation. */
+            operation_id: string;
+            /**
+             * Format: int32
+             * @description The policy version it was recorded under; 0 when none was published.
+             */
+            recorded_policy_version: number;
+            shadow?: components["schemas"]["ReplayedDto"] | null;
+        };
+        /** @description How a rule set's counts changed across a batch of re-run decisions. */
+        SimulationSummaryDto: {
+            /**
+             * Format: int32
+             * @description Rows whose decision changed.
+             */
+            changed: number;
+            /**
+             * Format: int32
+             * @description Rows looked at.
+             */
+            evaluated: number;
+            /**
+             * Format: int32
+             * @description Changed rows that are now `allow`.
+             */
+            newly_allowed: number;
+            /**
+             * Format: int32
+             * @description Changed rows that are now `deny`.
+             */
+            newly_denied: number;
+            /**
+             * Format: int32
+             * @description Changed rows that now `require_approval`.
+             */
+            newly_requires_approval: number;
+            /**
+             * Format: int32
+             * @description Rows that could not be replayed.
+             */
+            not_replayable: number;
+            /**
+             * Format: int32
+             * @description Rows whose decision did not change.
+             */
+            same: number;
         };
         /** @description A skill on a host. */
         SkillDto: {
@@ -2381,6 +3077,16 @@ export interface components {
             started_at?: string | null;
             /** @description One line on what it came to. */
             summary?: string | null;
+        };
+        /** @description The target dimension of a rule. */
+        TargetsDto: {
+            /** @enum {string} */
+            kind: "any";
+        } | {
+            /** @enum {string} */
+            kind: "exact";
+            /** @description The names. */
+            names: string[];
         };
         /** @description Candidate values for a connection test; nothing is saved. */
         TestRequest: {
@@ -2609,6 +3315,13 @@ export interface components {
             /** @description Login name. */
             username: string;
         };
+        /** @description One problem that stops the rules from being saved or published. */
+        ValidationDto: {
+            /** @description What is wrong. */
+            message: string;
+            /** @description The rule it is about, if any. */
+            rule?: string | null;
+        };
         /** @description How the hub checks that a write skill worked. */
         VerifyDto: {
             /**
@@ -2618,6 +3331,51 @@ export interface components {
             delay_secs: number;
             /** @description Whether the hub re-runs the originating check. */
             recheck: boolean;
+        };
+        /** @description One published version with its rules and acknowledgements. */
+        VersionDetailDto: {
+            /** @description The findings acknowledged when it was published. */
+            acknowledgements: components["schemas"]["AckDto"][];
+            /** @description Its rules. */
+            rules: components["schemas"]["RuleDto"][];
+            /** @description The version's header. */
+            summary: components["schemas"]["VersionSummaryDto"];
+        };
+        /** @description A page of published versions, newest first. */
+        VersionPageDto: {
+            /** @description The versions. */
+            items: components["schemas"]["VersionSummaryDto"][];
+            /** @description Pass as `cursor` for the next page; absent on the last. */
+            next_cursor?: string | null;
+        };
+        /** @description The header of one policy version or draft. */
+        VersionSummaryDto: {
+            /**
+             * Format: int32
+             * @description Locked prohibitions among them.
+             */
+            locked_count: number;
+            /**
+             * Format: int32
+             * @description The version number.
+             */
+            number: number;
+            /** @description When it was published, RFC 3339 UTC. */
+            published_at: string;
+            /** @description Who published it. */
+            published_by: string;
+            /**
+             * Format: int32
+             * @description Rules in the version.
+             */
+            rule_count: number;
+            /** @description Hash of the rules. */
+            rules_hash: string;
+            /**
+             * Format: int32
+             * @description Shadow rules among them.
+             */
+            shadow_count: number;
         };
         /** @description One inbound webhook. */
         WebhookSettings: {
@@ -5414,6 +6172,534 @@ export interface operations {
                 };
             };
             /** @description No such host */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    policy_overview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The overview */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyOverviewDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    policy_draft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The draft */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftDetailDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description There is no draft */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    policy_save_draft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveDraftRequest"];
+            };
+        };
+        responses: {
+            /** @description Saved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftSavedDto"];
+                };
+            };
+            /** @description The rules are not valid; `issues` lists each problem */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Password missing or wrong for a locked change */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Stale draft revision, a draft exists, or a stale preview hash */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Too many wrong passwords */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    policy_discard_draft: {
+        parameters: {
+            query: {
+                /** @description The revision the client read. */
+                revision: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Discarded */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description There is no draft */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The draft is at another revision */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    policy_publish: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PublishRequest"];
+            };
+        };
+        responses: {
+            /** @description Published */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublishedDto"];
+                };
+            };
+            /** @description Invalid rules, or an acknowledgement that is not a blocking finding */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Password missing or wrong */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description There is no draft */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Stale draft, stale active version, stale preview or a missing acknowledgement */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Too many wrong passwords */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    policy_preview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreviewRequest"];
+            };
+        };
+        responses: {
+            /** @description The preview */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreviewDto"];
+                };
+            };
+            /** @description A rule does not convert */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    policy_shadow_list: {
+        parameters: {
+            query?: {
+                /** @description A host id. */
+                host?: string;
+                /** @description A contract id. */
+                contract?: string;
+                /** @description `evaluated`, `unevaluable` or `skipped`. */
+                status?: string;
+                /** @description An enforced outcome word. */
+                outcome?: string;
+                /** @description Only rows whose enforced and shadow outcomes differ. */
+                differing?: boolean;
+                /** @description RFC 3339 lower bound of the recording time. */
+                since?: string;
+                /** @description RFC 3339 upper bound of the recording time. */
+                until?: string;
+                /** @description The `next_cursor` of the previous page. */
+                cursor?: string;
+                /** @description Page size, 1 to 100. Default 25. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShadowPageDto"];
+                };
+            };
+            /** @description A filter value does not parse */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    policy_shadow_detail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Execution step */
+                execution_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The decision */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShadowDetailDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No decision recorded for this step yet */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    policy_simulate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SimulateRequest"];
+            };
+        };
+        responses: {
+            /** @description The re-run decisions next to the recorded ones */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SimulationDto"];
+                };
+            };
+            /** @description A value or an inline rule does not parse */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such version, or there is no draft */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    policy_versions: {
+        parameters: {
+            query?: {
+                /** @description The `next_cursor` of the previous page. */
+                cursor?: string;
+                /** @description Page size, 1 to 100. Default 25. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VersionPageDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    policy_version: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The version number */
+                number: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The version */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VersionDetailDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such version */
             404: {
                 headers: {
                     [name: string]: unknown;

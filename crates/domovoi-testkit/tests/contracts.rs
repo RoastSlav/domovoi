@@ -92,6 +92,18 @@ contract_tests! {
     in_memory_incident_link_is_idempotent => incident_link_is_idempotent,
     in_memory_failed_operation_commit_rolls_back_every_stage => failed_operation_commit_rolls_back_every_stage,
     in_memory_operation_listing_filters_and_pages_newest_first => operation_listing_filters_and_pages_newest_first,
+    in_memory_policy_draft_create_replace_discard_round_trip => draft_create_replace_discard_round_trip,
+    in_memory_policy_second_draft_is_refused => second_draft_is_refused,
+    in_memory_policy_stale_draft_revision_is_refused => stale_draft_revision_is_refused,
+    in_memory_policy_publish_assigns_consecutive_numbers_and_freezes_rules => publish_assigns_consecutive_numbers_and_freezes_rules,
+    in_memory_policy_publish_with_wrong_number_conflicts => publish_with_wrong_number_conflicts,
+    in_memory_policy_acknowledgements_are_stored_with_the_version => acknowledgements_are_stored_with_the_version,
+    in_memory_policy_shadow_candidates_are_unrecorded_executions_oldest_first => shadow_candidates_are_unrecorded_executions_oldest_first,
+    in_memory_policy_record_shadow_is_idempotent_and_counts_inserted_rows => record_shadow_is_idempotent_and_counts_inserted_rows,
+    in_memory_policy_shadow_records_filter_and_page_newest_first => shadow_records_filter_and_page_newest_first,
+    in_memory_policy_shadow_summary_counts_by_status_and_outcome => shadow_summary_counts_by_status_and_outcome,
+    in_memory_policy_unevaluable_rows_are_not_counted_as_differing => unevaluable_rows_are_not_counted_as_differing,
+    in_memory_policy_empty_store_reads_are_empty => empty_store_reads_are_empty,
 }
 
 #[tokio::test]

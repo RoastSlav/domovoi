@@ -6,8 +6,8 @@ use domovoi_core::IncidentId;
 use domovoi_core::ports::{
     ActionRepo, AggregateKind, AggregateRef, AuditLog, ClaimToken, CommitError, EffectDeath,
     EffectDraft, EffectKind, EffectQueue, EffectRead, EffectReschedule, Expected, IncidentRepo,
-    IncidentTimelineEntry, JournalFeed, JournalRead, NoteRepo, OperationRepo, SignalRepo,
-    StateWrite, Transaction, UnitOfWork, VersionedRead,
+    IncidentTimelineEntry, JournalFeed, JournalRead, NoteRepo, OperationRepo, PolicyRepo,
+    SignalRepo, StateWrite, Transaction, UnitOfWork, VersionedRead,
 };
 use domovoi_store::Store;
 use domovoi_testkit::ContractError;
@@ -66,6 +66,10 @@ impl UowSubject for SqliteSubject {
     }
 
     fn operations(&self) -> &dyn OperationRepo {
+        &self.0
+    }
+
+    fn policy(&self) -> &dyn PolicyRepo {
         &self.0
     }
 
@@ -165,6 +169,18 @@ uow_contract_tests! {
     sqlite_incident_link_is_idempotent => incident_link_is_idempotent,
     sqlite_failed_operation_commit_rolls_back_every_stage => failed_operation_commit_rolls_back_every_stage,
     sqlite_operation_listing_filters_and_pages_newest_first => operation_listing_filters_and_pages_newest_first,
+    sqlite_policy_draft_create_replace_discard_round_trip => draft_create_replace_discard_round_trip,
+    sqlite_policy_second_draft_is_refused => second_draft_is_refused,
+    sqlite_policy_stale_draft_revision_is_refused => stale_draft_revision_is_refused,
+    sqlite_policy_publish_assigns_consecutive_numbers_and_freezes_rules => publish_assigns_consecutive_numbers_and_freezes_rules,
+    sqlite_policy_publish_with_wrong_number_conflicts => publish_with_wrong_number_conflicts,
+    sqlite_policy_acknowledgements_are_stored_with_the_version => acknowledgements_are_stored_with_the_version,
+    sqlite_policy_shadow_candidates_are_unrecorded_executions_oldest_first => shadow_candidates_are_unrecorded_executions_oldest_first,
+    sqlite_policy_record_shadow_is_idempotent_and_counts_inserted_rows => record_shadow_is_idempotent_and_counts_inserted_rows,
+    sqlite_policy_shadow_records_filter_and_page_newest_first => shadow_records_filter_and_page_newest_first,
+    sqlite_policy_shadow_summary_counts_by_status_and_outcome => shadow_summary_counts_by_status_and_outcome,
+    sqlite_policy_unevaluable_rows_are_not_counted_as_differing => unevaluable_rows_are_not_counted_as_differing,
+    sqlite_policy_empty_store_reads_are_empty => empty_store_reads_are_empty,
 }
 
 #[tokio::test]

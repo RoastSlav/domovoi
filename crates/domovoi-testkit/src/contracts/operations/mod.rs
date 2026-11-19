@@ -40,12 +40,12 @@ pub use writes::{
     step_progress_is_guarded_by_the_stored_outcome,
 };
 
-fn setup(error: impl std::fmt::Display) -> ContractError {
+pub(in crate::contracts) fn setup(error: impl std::fmt::Display) -> ContractError {
     ContractError::Setup(error.to_string())
 }
 
 /// A queued operation pinned to one container check on `host`, created at second `secs`.
-fn operation(host: HostId, secs: i64) -> Result<Operation, ContractError> {
+pub(in crate::contracts) fn operation(host: HostId, secs: i64) -> Result<Operation, ContractError> {
     Operation::queued(
         OperationId::new(),
         OperationKind::Investigate,
@@ -104,7 +104,7 @@ fn execution_intent(host: HostId) -> Result<ExecutionIntent, ContractError> {
 }
 
 /// An Execution step of `operation` at `ordinal`, with its proposed (unapproved) row.
-fn execution(
+pub(in crate::contracts) fn execution(
     operation: OperationId,
     ordinal: u32,
     host: HostId,
@@ -139,7 +139,7 @@ fn running(secs: i64) -> StepProgress {
 }
 
 /// Commits `writes`, in order, in one transaction.
-async fn commit(
+pub(in crate::contracts) async fn commit(
     subject: &dyn UowSubject,
     writes: Vec<OperationWrite>,
 ) -> Result<CommitReceipt, CommitError> {
@@ -150,7 +150,7 @@ async fn commit(
 }
 
 /// Stores `operation` and `steps` (in order) and fails the contract if the store refuses.
-async fn seed(
+pub(in crate::contracts) async fn seed(
     subject: &dyn UowSubject,
     operation: &Operation,
     steps: &[Step],

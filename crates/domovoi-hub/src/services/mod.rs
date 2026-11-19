@@ -18,6 +18,10 @@ mod caller;
 mod hosts;
 mod incidents;
 mod operations;
+mod policy;
+mod policy_publish;
+mod policy_simulate;
+mod policy_types;
 
 use std::sync::Arc;
 
@@ -39,6 +43,15 @@ pub use operations::{
     EXTEND_MAX_ENTRIES, EXTEND_MAX_MEASURED, OperationCommandError, OperationCommands, StepRef,
     risk_of_skill,
 };
+pub use policy::PolicyService;
+pub use policy_publish::PublishedVersion;
+pub use policy_simulate::{
+    InputsMode, RulesSource, SelectionChoice, SimulationItem, SimulationRequest, SimulationResult,
+};
+pub use policy_types::{
+    BAD_PASSWORD_TEXT, PASSWORD_REQUIRED_TEXT, PolicyCommandError, PolicyDeps, Preview, RuleIssue,
+    SavedDraft, StepUp,
+};
 
 use crate::agent_server::AgentAdmin;
 use crate::profile::ProfileDeps;
@@ -56,6 +69,8 @@ pub struct Services {
     pub hosts: HostService,
     /// The digest and profile summaries.
     pub briefing: BriefingService,
+    /// Policy drafts, versions, previews and the simulator.
+    pub policy: PolicyService,
 }
 
 /// What the services are built from.
@@ -90,6 +105,8 @@ pub struct ServicesDeps {
     pub clock: Arc<dyn Clock>,
     /// Removes secrets from text before it is stored.
     pub redactor: Arc<dyn Redactor>,
+    /// The policy use cases.
+    pub policy: PolicyService,
 }
 
 impl Services {
@@ -128,6 +145,7 @@ impl Services {
                 advisories: deps.advisories,
                 profiles: deps.profiles,
             },
+            policy: deps.policy,
         }
     }
 }

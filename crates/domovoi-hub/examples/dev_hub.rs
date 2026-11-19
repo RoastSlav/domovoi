@@ -39,13 +39,14 @@ use domovoi_hub::capability::{HubRegistry, RegistryDeps, RegistryError};
 use domovoi_hub::profile::ProfileDeps;
 use domovoi_hub::router::router;
 use domovoi_hub::runtime::caps::LinkCapabilities;
+use domovoi_hub::runtime::policy::HubShadowEnvironment;
 use domovoi_hub::runtime::updates::UpdateChecker;
-use domovoi_hub::services::{Services, ServicesDeps};
+use domovoi_hub::services::{PolicyDeps, PolicyService, Services, ServicesDeps};
 use domovoi_proto::messages::{CheckInfo, HostFacts};
 use domovoi_store::{Store, StoreOptions};
 use domovoi_testkit::build::{host, manifest};
 use domovoi_testkit::link::{action_caps, evidence_caps, observer_of};
-use domovoi_testkit::{CannedLogSource, FakeAgentLink};
+use domovoi_testkit::{CannedLogSource, FakeAgentLink, FakeTargetResolver};
 use jiff::{SignedDuration, Timestamp};
 use tokio::io::AsyncBufReadExt;
 
@@ -518,6 +519,30 @@ async fn main() -> Result<()> {
         link: link.clone(),
     });
     let config = Arc::new(config);
+    let registry = Arc::new(
+        HubRegistry::new(RegistryDeps {
+            contracts: Arc::new(
+                ContractIndex::new(builtin_contracts()).map_err(RegistryError::Index)?,
+            ),
+            agent: Arc::new(LinkCapabilities::new(link.clone())),
+            hosts: store.clone(),
+            store: store.clone(),
+            clock: clock.clone(),
+        })
+        .await?,
+    );
+    let policy = PolicyService::new(PolicyDeps {
+        repo: store.clone(),
+        uow: store.clone(),
+        env: Arc::new(HubShadowEnvironment::new(
+            registry.clone(),
+            Arc::new(FakeTargetResolver::new()),
+            store.clone(),
+        )),
+        auth: auth.clone(),
+        clock: clock.clone(),
+        shadow_enabled: false,
+    });
     let services = Services::new(ServicesDeps {
         manager: manager.clone(),
         triage: None,
@@ -534,6 +559,7 @@ async fn main() -> Result<()> {
         config: config.clone(),
         clock: clock.clone(),
         redactor: Arc::new(PatternRedactor::default()),
+        policy,
     });
     let deps = ApiDeps {
         incidents: store.clone(),
@@ -550,18 +576,8 @@ async fn main() -> Result<()> {
         triage: None,
         operation_repo: store.clone(),
         agents,
-        capabilities: Arc::new(
-            HubRegistry::new(RegistryDeps {
-                contracts: Arc::new(
-                    ContractIndex::new(builtin_contracts()).map_err(RegistryError::Index)?,
-                ),
-                agent: Arc::new(LinkCapabilities::new(link.clone())),
-                hosts: store.clone(),
-                store: store.clone(),
-                clock: clock.clone(),
-            })
-            .await?,
-        ),
+        capabilities: registry,
+        policy: store.clone(),
         profiles: Some(profile_deps.clone()),
         clock: clock.clone(),
         journal: store.clone(),

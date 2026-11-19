@@ -30,8 +30,19 @@ mod policy_publish;
 #[cfg(test)]
 mod policy_review;
 #[cfg(test)]
+mod policy_shadow_codec;
+#[cfg(test)]
+mod policy_shadow_inputs;
+#[cfg(test)]
+mod policy_shadow_replay;
+#[cfg(test)]
+mod policy_shadow_support;
+#[cfg(test)]
 mod policy_trace;
 #[cfg(test)]
 mod policy_validation;
 #[cfg(test)]
 mod properties;
+#[cfg(test)]
+#[path = "../support/shadow_env.rs"]
+mod shadow_env;

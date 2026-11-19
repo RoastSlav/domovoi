@@ -1,0 +1,75 @@
+---
+source: crates/domovoi-engine/tests/engine/policy_shadow_codec.rs
+expression: "serde_json::to_string_pretty(&doc).unwrap()"
+---
+{
+  "outcome": {
+    "kind": "deny"
+  },
+  "reason": "locked_deny",
+  "matched": [
+    "allow",
+    "lock"
+  ],
+  "winners": [],
+  "locked": [
+    "lock"
+  ],
+  "overridden": [
+    {
+      "broader": "allow",
+      "by": "lock"
+    }
+  ],
+  "would_have_been": {
+    "outcome": {
+      "kind": "allow"
+    },
+    "reason": "single_winner",
+    "matched": [
+      "allow",
+      "lock"
+    ],
+    "winners": [
+      "allow"
+    ],
+    "locked": [],
+    "overridden": [
+      {
+        "broader": "lock",
+        "by": "allow"
+      }
+    ],
+    "would_have_been": null,
+    "constraints": {
+      "max_per_hour": null,
+      "max_ttl_secs": null,
+      "targets": null,
+      "conditions": []
+    },
+    "hard_limits_applied": [],
+    "facts_used": [],
+    "typed_confirmation": "none",
+    "warnings": [
+      {
+        "kind": "dangerous_exception",
+        "allow": "allow",
+        "deny": "lock"
+      }
+    ],
+    "policy_version": null,
+    "ceiling_hash": "h1"
+  },
+  "constraints": {
+    "max_per_hour": null,
+    "max_ttl_secs": null,
+    "targets": null,
+    "conditions": []
+  },
+  "hard_limits_applied": [],
+  "facts_used": [],
+  "typed_confirmation": "none",
+  "warnings": [],
+  "policy_version": null,
+  "ceiling_hash": "h1"
+}

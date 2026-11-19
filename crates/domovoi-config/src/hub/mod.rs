@@ -16,6 +16,7 @@ use crate::time::{LocalTime, TimeZone};
 mod backup;
 mod llm;
 mod orchestration;
+mod policy;
 mod retention;
 mod updates;
 
@@ -24,6 +25,7 @@ pub use llm::{
     CliConfig, CliPreset, LlmKind, LlmProvider, LlmSection, Price, TriageLimits, TriageSection,
 };
 pub use orchestration::{OrchestrationBudgets, OrchestrationSection};
+pub use policy::HubPolicySection;
 pub use retention::{Applies, RETENTION_KEYS, RetentionKey, RetentionSection};
 pub use updates::UpdatesSection;
 
@@ -88,6 +90,9 @@ pub struct HubConfig {
     /// The operation service: durable multi-step work with approvals. On by default; `enabled = false` switches it off.
     #[serde(default)]
     pub orchestration: OrchestrationSection,
+    /// Policy rules the hub evaluates without enforcing them.
+    #[serde(default)]
+    pub policy: HubPolicySection,
 }
 
 /// `[hub]`.

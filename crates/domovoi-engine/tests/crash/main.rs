@@ -8,6 +8,8 @@ mod memory;
 #[cfg(test)]
 mod operations;
 #[cfg(test)]
+mod recorder;
+#[cfg(test)]
 mod scenarios;
 #[cfg(test)]
 mod sweep;
