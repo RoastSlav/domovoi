@@ -188,6 +188,15 @@ stateDiagram-v2
 - `Advisory`: a low-priority hygiene finding (stale image, stack without a source copy, missing heartbeat, secret marked exposed). Advisories appear in the digest and never notify on their own.
 - `Note`: markdown runbook text per host or global, searchable by triage.
 
+### 5.8 Operations
+
+- An **operation** is one durable piece of work on hosts, kind `investigate`, with a goal, a cycle counter, budgets, pinned subjects (host, check, optional target) and incident links. It is made of **steps**, which are immutable: a kind (`reasoning_turn`, `evidence_request`, `assessment`, `plan`, `policy_decision`, `approval`, `execution`, `verification`, `notification`, `question`, `note`), a phase, a cycle, a dense ordinal within the operation and an intent that never changes.
+- **Edges** (`depends_on`, `caused_by`, `verifies`, `retry_of`, `answers`) point from a later step to an earlier step of the same operation. The ordinal rule makes the graph acyclic, and the store refuses an edge that points forward.
+- A step's outcome is the only execution state: `pending`, `running`, `succeeded`, `failed`, `refused`, `not_run`, `unavailable`, `outcome_unknown`, `skipped` or `cancelled`. An **execution** is an Execution step with one `executions` row (host, contract, plan hash, approval, dispatch facts); its execution id is the step id.
+- The operation status (`queued`, `running`, `waiting_approval`, `waiting_user`, `waiting_agent`, `waiting_timer`, `paused`, `succeeded`, `failed`, `escalated`, `cancelled`) is derived from open steps and the pause state by a pure function and stored only as a cache of that derivation. `paused` carries one reason: `budget`, `outcome_unknown`, `global_pause` or `error`.
+- Executions run only `skill.<name>` contracts, against pinned targets. Every execution waits for an approval by a human (ADR 0025); no policy evaluation exists yet.
+- Every change is one `UnitOfWork` commit. `build_trace` gives a frozen, read-only view (schema version 1) that carries no output, intent or plan hash.
+
 ## 6. Ports
 
 All ports are `async_trait` traits in `domovoi-core::ports`, object-safe, `Send + Sync`.
@@ -206,6 +215,11 @@ All ports are `async_trait` traits in `domovoi-core::ports`, object-safe, `Send 
 | `ProcessExecutor` | Run an argv with limits | runner, testkit | checks (command-backed checks), llm (CLI provider), agent |
 | `HostFs` | Read files under a host root (`/proc`, `/sys`, logs) | checks (real), testkit (fixture tree) | checks |
 | `Redactor` | Remove secrets from text | engine (pattern based), testkit | engine, runner, chat |
+| `OperationRepo` | Read operations: one consistent snapshot, lists, executions, and the work that is dispatched or waiting; no write method | store, testkit | engine, hub |
+| `OperationWrite` | Write an operation's state inside one `UnitOfWork` commit: operation, steps, edges, executions and incident links | store, testkit | engine |
+| `EffectCancel` | Cancel the pending effects of one operation, and only of that operation | store, testkit | engine |
+
+Effect claims on `EffectQueue` are scoped to one aggregate: a claim names the operation whose effects it may take, and an empty scope claims nothing (ADR 0025).
 
 ## 7. Runtime architecture
 
@@ -221,6 +235,7 @@ The hub is a set of tokio tasks connected by channels:
 - **Scheduler**: digest, quiet-hours release, re-notify, TTL resolution, approval expiry, heartbeat ping, retention, backup.
 - **Action executor**: dispatches approved actions to agents, records results, runs verification.
 - **Capability registry**: the one place the hub combines its compiled contracts, the agent's walked catalogue and `hello.skills`, the host's own status words, per-host enablement, the raise-only skill floors and the agent's ceiling summary into one availability answer per `(host, contract)` (ADR 0024). It replaces the per-host link wrapper: the engine asks the registry through the `CapabilityRegistry` port, and enablement is enforced at the execution and read boundaries. It evaluates no policy, approves nothing and dispatches nothing.
+- **Operation service**: runs operations (§5.8) only when `[orchestration] enabled = true`; otherwise it is not started. One writer task commits every change through the unit of work, admits at most `max_running` operations at once, and dispatches Execution steps through the operation dispatch site (§12).
 
 ```mermaid
 flowchart LR
@@ -280,6 +295,7 @@ flowchart LR
 - `journal` is the operational record in commit order, `effects` is the work outbox and `schema_compat` records the lowest binary version that can read the schema.
 - Every commit is flushed to disk (`synchronous=FULL`), one write connection serialises writers, and start-up runs `PRAGMA quick_check`; a failed check refuses to open the database.
 - `audit_log` is append-only: a trigger rejects `UPDATE` and `DELETE`. From this release its rows also carry `prev_hash` and `hash`: the store hashes each event (canonical JSON, SHA-256) inside the transaction that inserts it, and the first chained row links to one `audit_anchor` row that commits to the legacy history. `domovoi audit verify` checks both parts, and `domovoi audit head` prints the newest hash to keep elsewhere. The chain detects edits, mid-chain deletions and rows inserted by tools that do not compute the chain; it cannot detect a full rewrite of the database that recomputes every hash, or deletion of the newest rows unless the head hash was recorded elsewhere.
+- The operation tables are added by migration `0012_operations.sql` (ADR 0025): `operations`, `operation_incidents`, `steps`, `step_edges` and `executions`. No existing table changes. Triggers refuse any update to a step's identity columns (its intent included) and any edge that does not point to an earlier step of the same operation. The tables stay empty while `[orchestration]` is disabled.
 - Retention: signals 30 days, transcripts 90 days, incidents and audit kept. A nightly `VACUUM INTO` backup goes to a configurable path.
 
 ## 10. HTTP API and web UI
@@ -311,6 +327,8 @@ flowchart LR
 - Every transition is one atomic commit of the action row, its `audit_log` entry and its journal entry: who proposed, who approved, plan hash, argv, exit code, output hash, duration and the verification result. An audit failure fails the transition, so the store never holds a status without the entry that explains it.
 - **Enablement and availability are different questions, and both are the hub's.** `host.<name>.skills` switches a skill off for one host; the switch is enforced at the two boundaries the engine owns, `collect_evidence` and `execute`, which refuse a disabled skill with the same sentence. `Availability` answers "would the hub offer this here", from the compiled contracts, the agent's own list and the host's words; it is a report about missing pieces, never an authorization decision. `HostAvailability` is only the agent's connection state, and the two names are never interchanged.
 
+- **Operations have a second dispatch site.** While the legacy action executor exists, the operation service dispatches its Execution steps through its own path in `operations/`. `xtask arch-check` (rule `EXEC-2`) allows exactly these: `hand_off` and `await_handoff_result` once each in `actions/execute.rs` and once each in `operations/execute.rs`; `OperationCommand::Dispatch` built once, in `operations/execute.rs`; `AuthorizedStep::of` and `execute::execute_step` once each, in `operations/effects/dispatch.rs`. The operation path names no agent link. When the legacy executor is removed, its cards go with it (ADR 0025).
+
 ## 13. Chat and notifications
 
 - `ChatGateway` maps `Card` to the platform's message format, creates one thread per incident, posts follow-ups in that thread and turns button presses and thread messages into `Interaction`s.
@@ -322,6 +340,7 @@ flowchart LR
 
 - Settings come from four layers, lowest first: built-in defaults, values saved in the web UI (`settings` table), `hub.toml`, `DOMOVOI_*` environment variables. Each field records its source; fields set in a file or the environment are read-only in the UI.
 - Bootstrap settings (`hub.data_dir`, `web.bind`, `agent_server.bind`) come only from the command line, file or environment. `hub.toml` is optional.
+- `[orchestration]` (operations, §5.8) is read once at start-up, so a change needs a restart. `enabled` is `false` by default; `max_running`, `approval_ttl`, `question_timeout`, `agent_wait_limit`, `loop_guard_per_hour` and the `[orchestration.budgets]` table have defaults, and every present value is validated (positive limits, durations above zero, `approval_ttl` at most seven days).
 - Secrets in files use `{ env = .. }` or `{ file = .. }`. Secrets entered in the UI are encrypted at rest with a key in `<data_dir>/secret.key`, are write-only through the API and are held as `secrecy::SecretString`.
 - A settings change is validated as a whole, audited, and applied by an in-process restart of the hub runtime, with rollback to the last good settings if the restart fails.
 - `domovoi check config <file>` validates without starting and reports every problem with its TOML path.
@@ -343,6 +362,8 @@ flowchart LR
 | INV-10 | Agent links are mutually authenticated; revoked agents are rejected. | protocol integration tests |
 | INV-11 | Alerts are delivered even when triage fails. | engine fallback tests |
 | INV-12 | Webhooks are rejected without a valid HMAC signature or token. | hub ingest tests |
+
+INV-1 and INV-6 hold for operation steps unchanged: an Execution step runs only after an approval by a `Human` principal, recorded on its `executions` row. The operation writer offers no approval route, chat command or model tool, and a `policy` authorization is refused until a policy layer exists (ADR 0025).
 
 ## 16. Errors, logging and observability
 
