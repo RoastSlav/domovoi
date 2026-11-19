@@ -814,6 +814,7 @@ fn step_approval_is_the_only_route_to_authorized() {
             );
         }
     }
+    authorize_sites.sort();
     assert_eq!(
         authorize_sites, allowed_authorize,
         "only the step-approval endpoint and the chat button handler may authorize a step"
