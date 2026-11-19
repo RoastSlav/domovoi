@@ -149,7 +149,28 @@ The reply counts what happened: `{"created": 2, "skipped": 0, "skipped_files": [
 
 ## Events
 
-`GET /api/v1/events` is a server-sent event stream of `incident` and `action` events. Each event's data is a JSON object naming the incident, the action and the new status. The UI reloads what changed. A comment is sent every 15 seconds to keep proxies from closing the stream.
+`GET /api/v1/events` streams committed journal rows as server-sent events. It needs a session and serves at most 32 streams at once (`503` beyond that).
+
+- `topics`: comma-separated, at most 16. Default `incidents,approvals,operations`. Also `operation:<id>`; `hosts` and `conversations:<id>` are accepted and deliver nothing yet. An unknown topic is `400`.
+- `after` or the `Last-Event-ID` header (which wins): resume after this journal position. Without either, the stream starts at the head.
+
+Frames:
+
+- `ready`: `{"head_seq": 4821, "resumed": false, "topics": ["approvals", "incidents", "operations"]}`. Sent first. Only a fresh connection carries `id: <head_seq>`.
+- `journal`: one row, with `id` equal to its `seq`.
+
+  ```json
+  {"seq": 4821, "aggregate_type": "operation", "aggregate_id": "0190a0a0-0000-7000-8000-0000000000a1",
+   "kind": "operation.step_finished", "payload_v": 1, "payload": {"outcome": "succeeded"},
+   "actor": "system:operations", "at": "2026-11-18T10:00:00Z",
+   "topics": ["operations", "operation:0190a0a0-0000-7000-8000-0000000000a1"]}
+  ```
+
+  `kind` and `aggregate_type` are open strings: show an unknown one generically. Incident timeline rows carry only `kind` and a redacted `summary`; fetch the incident for the rest. A payload over 16 KiB is sent as `null` with `"payload_truncated": true`.
+- `reset`: `{"reason": "pruned" | "ahead" | "lagged", "head_seq": 4821}`, with `id: <head_seq>`. What you hold may be incomplete, so refetch it. `pruned`: the position is older than the journal keeps. `ahead`: it is newer than the journal (a restored backup). `lagged`: the client fell more than 5,000 rows behind. The stream then continues from the head.
+- `: keepalive`, a comment sent after 15 seconds of silence.
+
+Incident lists, an incident, action lists and the overview each return `as_of_seq`, the journal position they were read at. Apply only events with a greater `seq`.
 
 ## Logs
 

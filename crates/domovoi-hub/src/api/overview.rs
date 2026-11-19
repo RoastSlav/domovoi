@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
 use super::error::{ApiError, ErrorBody};
+use super::snapshot::snapshot_seq;
 use super::{ApiState, Authed, MAX_PAGE, host_named};
 
 /// Which hosts the overview counts.
@@ -34,6 +35,8 @@ pub struct OverviewDto {
     pub hosts_offline: u32,
     /// Hosts counted.
     pub hosts_total: u32,
+    /// The journal position this snapshot was read at; apply only events with a greater `seq`.
+    pub as_of_seq: u64,
 }
 
 /// How many unresolved incidents are in each group of the incident list.
@@ -95,6 +98,7 @@ pub(super) async fn show(
     _auth: Authed,
     Query(query): Query<OverviewQuery>,
 ) -> Result<Json<OverviewDto>, ApiError> {
+    let as_of_seq = snapshot_seq(&state).await?;
     let hosts = match &query.host {
         Some(name) => vec![host_named(&state, name).await?],
         None => state.deps.hosts.list_hosts().await?,
@@ -142,5 +146,6 @@ pub(super) async fn show(
         approvals_waiting: count(waiting),
         hosts_offline: count(offline),
         hosts_total: count(hosts.len()),
+        as_of_seq,
     }))
 }

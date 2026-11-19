@@ -30,8 +30,6 @@ export type ActionPage = Schemas["ActionPage"];
 export type Overview = Schemas["OverviewDto"];
 /** A host and whether its agent is connected. */
 export type Host = Schemas["HostDto"];
-/** A change pushed over the event stream. */
-export type UiEvent = Schemas["UiEvent"];
 /** A host with its latest digest facts. */
 export type HostDetail = Schemas["HostDetailDto"];
 /** One digest fact about a host. */

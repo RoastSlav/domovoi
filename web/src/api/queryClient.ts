@@ -34,6 +34,8 @@ export const keys = {
   advisories: ["advisories"] as const,
   digest: ["digest"] as const,
   update: ["system", "update"] as const,
+  operations: ["operations"] as const,
+  operation: (id: string) => ["operations", "detail", id] as const,
   logs: (level: string | undefined, lines: number | undefined) =>
     ["system", "logs", level ?? "", lines ?? ""] as const,
 };

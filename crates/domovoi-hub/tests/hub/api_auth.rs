@@ -282,6 +282,7 @@ async fn unauthenticated_requests_get_401() {
         "/api/v1/advisories",
         "/api/v1/digest/preview",
         "/api/v1/events",
+        "/api/v1/events?topics=incidents",
     ] {
         let reply = a.send(Method::GET, uri, None, None).await;
         assert_eq!(reply.status, StatusCode::UNAUTHORIZED, "{uri}");

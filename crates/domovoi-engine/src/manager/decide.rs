@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use domovoi_core::ports::IncidentTimelineEntry;
+use domovoi_core::ports::{IncidentTimelineEntry, JournalDraft};
 use domovoi_core::{
     AckRule, Fingerprint, Incident, IncidentChange, IncidentEvent, IncidentId, IncidentStatus,
     MaintenanceWindow, Signal, SignalStatus, TransitionError, apply,
@@ -12,6 +12,7 @@ use jiff::Timestamp;
 use serde_json::json;
 
 use super::command::{Command, CommandError};
+use super::fold::{folded_row, status_name};
 use crate::correlate::{Candidates, Target, correlate};
 use crate::events::{DomainEvent, EventKind};
 use crate::policy::EnginePolicy;
@@ -50,6 +51,8 @@ pub enum Write {
     Timeline(IncidentTimelineEntry),
     /// Delete a pending incident that resolved before confirmation.
     DiscardPending(IncidentId),
+    /// Append a journal row that has no `incident_events` twin, in the same commit.
+    Journal(JournalDraft),
 }
 
 /// The outcome of one command.
@@ -61,16 +64,6 @@ pub struct Decision {
     pub events: Vec<DomainEvent>,
     /// Pending incidents dropped before confirmation.
     pub flaps: u32,
-}
-
-pub(super) fn status_name(status: IncidentStatus) -> &'static str {
-    match status {
-        IncidentStatus::Pending => "pending",
-        IncidentStatus::Open => "open",
-        IncidentStatus::Acked => "acked",
-        IncidentStatus::Muted { .. } => "muted",
-        IncidentStatus::Resolved => "resolved",
-    }
 }
 
 fn not_allowed(err: TransitionError) -> CommandError {
@@ -130,6 +123,8 @@ impl Builder<'_> {
                 }
                 IncidentChange::Folded { occurrences } => {
                     if let Some(signal) = signal {
+                        let row = folded_row(incident, signal, *occurrences, self.now);
+                        self.out.writes.push(Write::Journal(row));
                         let kind = EventKind::IncidentFolded {
                             signal: signal.id(),
                             occurrences: *occurrences,

@@ -85,6 +85,8 @@ pub struct IncidentPage {
     pub items: Vec<IncidentSummary>,
     /// Pass as `cursor` for the next page; absent on the last.
     pub next_cursor: Option<String>,
+    /// The journal position this snapshot was read at; apply only events with a greater `seq`.
+    pub as_of_seq: u64,
 }
 
 /// One captured log line.
@@ -261,6 +263,8 @@ pub struct IncidentDetail {
     pub actions: Vec<ActionDto>,
     /// Skills and tools used while triaging or answering, in first-call order.
     pub tools_used: Vec<ToolUsageDto>,
+    /// The journal position this snapshot was read at; apply only events with a greater `seq`.
+    pub as_of_seq: u64,
 }
 
 /// One skill or tool used while triaging or answering a follow-up.
@@ -362,6 +366,8 @@ pub struct ActionPage {
     pub items: Vec<ActionDto>,
     /// Pass as `cursor` for the next page; absent on the last.
     pub next_cursor: Option<String>,
+    /// The journal position this snapshot was read at; apply only events with a greater `seq`.
+    pub as_of_seq: u64,
 }
 
 /// Approving an action.

@@ -1,8 +1,10 @@
 //! Opening the database: directory, connection settings, FTS5, backup, migrations.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
+use domovoi_core::ports::JournalRead;
 use jiff::Timestamp;
 use sqlx::migrate::Migrator;
 use sqlx::sqlite::{
@@ -57,6 +59,8 @@ pub struct Store {
     pub(crate) read: SqlitePool,
     pub(crate) write: SqlitePool,
     pub(crate) options: StoreOptions,
+    /// The highest committed journal `seq`; stream waiters subscribe to it.
+    pub(crate) head: Arc<tokio::sync::watch::Sender<u64>>,
 }
 
 /// Whether a migration in `available` has not been applied yet.
@@ -180,11 +184,17 @@ impl Store {
             .connect_with(connect_options(path))
             .await
             .map_err(database)?;
-        Ok(Self {
+        let store = Self {
             read,
             write,
             options,
-        })
+            head: Arc::new(tokio::sync::watch::channel(0).0),
+        };
+        let head = JournalRead::head_seq(&store)
+            .await
+            .map_err(|e| StoreOpenError::Database(e.to_string()))?;
+        store.head.send_replace(head);
+        Ok(store)
     }
 
     /// Runs `PRAGMA quick_check` on the database.

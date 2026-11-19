@@ -543,7 +543,7 @@ async fn main() -> Result<()> {
         ),
         profiles: Some(profile_deps.clone()),
         clock: clock.clone(),
-        bus,
+        journal: store.clone(),
         config: Arc::new(config),
         notifier: None,
         metrics: None,

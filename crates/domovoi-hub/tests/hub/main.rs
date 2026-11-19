@@ -10,6 +10,8 @@ mod api_auth;
 #[cfg(test)]
 mod api_chat;
 #[cfg(test)]
+mod api_events;
+#[cfg(test)]
 mod api_harness;
 #[cfg(test)]
 mod api_logs;

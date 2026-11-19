@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use domovoi_core::ports::{
     AggregateKind, AggregateRef, ClaimToken, CommitError, CommitReceipt, EffectCancel,
     EffectCompletion, EffectDeath, EffectDraft, EffectKind, EffectRead, EffectRecord,
-    EffectReschedule, EffectStatus, JournalDraft, JournalEntry, JournalRead, StoreError,
-    Transaction, UnitOfWork, Versioned, VersionedRead,
+    EffectReschedule, EffectStatus, JournalDraft, JournalEntry, JournalFeed, JournalRead,
+    StoreError, Transaction, UnitOfWork, Versioned, VersionedRead,
 };
 use domovoi_core::{EffectId, Incident, IncidentId, Note, NoteId};
 
@@ -18,7 +18,8 @@ fn backend(err: StoreError) -> CommitError {
 }
 
 fn push_journal(state: &mut State, draft: &JournalDraft) -> u64 {
-    let seq = state.journal.len() as u64 + 1;
+    state.journal_seq += 1;
+    let seq = state.journal_seq;
     state.journal.push(JournalEntry {
         seq,
         aggregate: draft.aggregate.clone(),
@@ -207,7 +208,12 @@ impl UnitOfWork for InMemoryStore {
         for death in &tx.dead_effects {
             kill_effect(&mut draft, death)?;
         }
+        let head = draft.journal_seq;
         *state = draft;
+        drop(state);
+        if !receipt.journal_seqs.is_empty() {
+            self.head.0.send_modify(|h| *h = (*h).max(head));
+        }
         Ok(receipt)
     }
 }
@@ -292,7 +298,19 @@ impl JournalRead for InMemoryStore {
     }
 
     async fn head_seq(&self) -> Result<u64, StoreError> {
-        Ok(self.begin()?.journal.last().map_or(0, |entry| entry.seq))
+        Ok(self.begin()?.journal_seq)
+    }
+}
+
+#[async_trait]
+impl JournalFeed for InMemoryStore {
+    async fn floor_seq(&self) -> Result<u64, StoreError> {
+        Ok(self.begin()?.journal_floor)
+    }
+
+    async fn wait_after(&self, seq: u64) {
+        let mut rx = self.head.0.subscribe();
+        let _ = rx.wait_for(|head| *head > seq).await;
     }
 }
 

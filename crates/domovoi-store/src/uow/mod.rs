@@ -1,9 +1,11 @@
 //! The SQLite unit of work: one `BEGIN IMMEDIATE ... COMMIT` on the single writer connection.
 
 mod effects;
+mod feed;
 mod journal;
 mod operation_executions;
 mod operations;
+mod prune;
 mod queue;
 mod reads;
 mod writes;
@@ -88,6 +90,10 @@ impl UnitOfWork for Store {
             effects::kill(&mut dbtx, death).await?;
         }
         dbtx.commit().await.map_err(backend)?;
+        // Publish only after COMMIT succeeded, so a waiter never wakes for a rolled-back row.
+        if let Some(highest) = receipt.journal_seqs.iter().copied().max() {
+            self.head.send_modify(|head| *head = (*head).max(highest));
+        }
         Ok(receipt)
     }
 }

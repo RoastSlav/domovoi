@@ -1,36 +1,8 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
+import { FakeEventSource } from "../test/fakeEventSource";
 import { EVENTS_URL, MAX_RETRY_MS, PAUSED_AFTER_MS, retryDelay, useLiveEvents } from "./events";
-
-type Listener = (event: MessageEvent) => void;
-
-class FakeEventSource {
-  static all: FakeEventSource[] = [];
-  readonly url: string;
-  closed = false;
-  private listeners = new Map<string, Listener[]>();
-
-  constructor(url: string) {
-    this.url = url;
-    FakeEventSource.all.push(this);
-  }
-
-  addEventListener(type: string, listener: Listener) {
-    this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]);
-  }
-
-  close() {
-    this.closed = true;
-  }
-
-  emit(type: string, data?: unknown) {
-    const event = new MessageEvent(type, { data: data === undefined ? "" : JSON.stringify(data) });
-    for (const listener of this.listeners.get(type) ?? []) {
-      listener(event);
-    }
-  }
-}
 
 function setup() {
   const client = new QueryClient();
@@ -59,20 +31,31 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+test("topics_are_sent_comma_joined", () => {
+  const { hook, source } = setup();
+  expect(source.url).toBe(`${EVENTS_URL}?topics=incidents,approvals,operations`);
+  expect(source.url).toBe("/api/v1/events?topics=incidents,approvals,operations");
+  hook.unmount();
+});
+
 test("live_event_invalidates_incident_queries", () => {
   const { hook, invalidate, source } = setup();
-  expect(source.url).toBe(EVENTS_URL);
   expect(hook.result.current.status).toBe("connecting");
 
   act(() => source.emit("open"));
   expect(hook.result.current.status).toBe("live");
 
   act(() =>
-    source.emit("incident", {
-      kind: "incident",
-      event: "incident_acked",
-      incident_id: "inc-1",
-      status: "acked",
+    source.emit("journal", {
+      seq: 1,
+      aggregate_type: "incident",
+      aggregate_id: "inc-1",
+      kind: "incident.timeline",
+      payload_v: 1,
+      payload: { kind: "human.action" },
+      actor: "system:incidents",
+      at: "2026-11-18T10:00:00Z",
+      topics: ["incidents"],
     }),
   );
   expect(invalidatedKeys(invalidate)).toEqual([
@@ -83,12 +66,16 @@ test("live_event_invalidates_incident_queries", () => {
 
   invalidate.mockClear();
   act(() =>
-    source.emit("action", {
-      kind: "action",
-      event: "action_changed",
-      incident_id: "inc-1",
-      action_id: "act-1",
-      status: "approved",
+    source.emit("journal", {
+      seq: 2,
+      aggregate_type: "action",
+      aggregate_id: "act-1",
+      kind: "action.transition",
+      payload_v: 1,
+      payload: { incident: "inc-1", from: "proposed", to: "approved" },
+      actor: "system:actions",
+      at: "2026-11-18T10:00:00Z",
+      topics: ["approvals"],
     }),
   );
   expect(invalidatedKeys(invalidate)).toContainEqual(["actions"]);

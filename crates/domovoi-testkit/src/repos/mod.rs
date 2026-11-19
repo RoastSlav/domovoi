@@ -72,6 +72,10 @@ struct State {
     notes: BTreeMap<NoteId, Note>,
     versions: BTreeMap<AggregateRef, u64>,
     journal: Vec<JournalEntry>,
+    /// The last journal `seq` handed out; unlike `journal.len()` it survives pruning.
+    journal_seq: u64,
+    /// The highest `seq` that pruning deleted.
+    journal_floor: u64,
     effects: BTreeMap<domovoi_core::EffectId, EffectRecord>,
     /// Effect ids in insertion order; `effects` keeps lookup by id.
     effect_order: Vec<domovoi_core::EffectId>,
@@ -108,12 +112,38 @@ struct State {
 #[derive(Default)]
 pub struct InMemoryStore {
     state: Mutex<State>,
+    /// The committed journal head that `wait_after` subscribers watch.
+    head: Head,
     failures: Mutex<VecDeque<StoreError>>,
     /// How long an incident listing or note search takes before it answers.
     delay: Mutex<Option<std::time::Duration>>,
 }
 
+/// The watch channel behind [`InMemoryStore`]'s journal head.
+struct Head(tokio::sync::watch::Sender<u64>);
+
+impl Default for Head {
+    fn default() -> Self {
+        Self(tokio::sync::watch::channel(0).0)
+    }
+}
+
 impl InMemoryStore {
+    /// Deletes journal rows up to `seq` and raises the floor, as `Store::prune_journal_through`
+    /// does. Returns how many rows were deleted.
+    pub fn prune_journal_through(&self, seq: u64) -> u64 {
+        let mut state = lock(&self.state);
+        let before = state.journal.len();
+        state.journal.retain(|entry| entry.seq > seq);
+        let deleted = (before - state.journal.len()) as u64;
+        state.journal_floor = state.journal_floor.max(seq);
+        state.journal_seq = state.journal_seq.max(state.journal_floor);
+        let head = state.journal_seq;
+        drop(state);
+        self.head.0.send_modify(|h| *h = (*h).max(head));
+        deleted
+    }
+
     /// An empty store.
     #[must_use]
     pub fn new() -> Self {

@@ -20,6 +20,7 @@ use super::dto::{
 };
 use super::error::{ApiError, ErrorBody, busy};
 use super::rules;
+use super::snapshot::snapshot_seq;
 use super::tool_usage::tool_usage;
 use super::{ApiState, Authed, host_named, page};
 
@@ -64,6 +65,7 @@ pub(super) async fn list(
     _auth: Authed,
     Query(query): Query<IncidentQuery>,
 ) -> Result<Json<IncidentPage>, ApiError> {
+    let as_of_seq = snapshot_seq(&state).await?;
     if let Some(status) = &query.status
         && !IncidentStatus::NAMES.contains(&status.as_str())
     {
@@ -97,6 +99,7 @@ pub(super) async fn list(
     Ok(Json(IncidentPage {
         items: got.items.iter().map(IncidentSummary::from).collect(),
         next_cursor: got.next_cursor,
+        as_of_seq,
     }))
 }
 
@@ -159,6 +162,7 @@ pub(super) async fn detail(
     _auth: Authed,
     Path(id): Path<String>,
 ) -> Result<Json<IncidentDetail>, ApiError> {
+    let as_of_seq = snapshot_seq(&state).await?;
     let incident = load(&state, &id).await?;
     let deps = &state.deps;
     let host = deps
@@ -205,6 +209,7 @@ pub(super) async fn detail(
         timeline: timeline.iter().map(TimelineEntryDto::from).collect(),
         actions: actions.iter().map(ActionDto::from).collect(),
         tools_used: tool_usage(&timeline),
+        as_of_seq,
     }))
 }
 

@@ -150,7 +150,8 @@ async fn upgrade_from_previous_schema_keeps_every_row() {
         .unwrap();
     assert_eq!(note_versions, vec![(1,), (1,)]);
 
-    // 4. The new tables start empty and the compatibility row is written.
+    // 4. The journal holds one copied row per legacy event, the effects table starts empty and
+    // the compatibility row is written.
     let journal: (i64,) = sqlx::query_as("SELECT count(*) FROM journal")
         .fetch_one(store.pool_for_tests())
         .await
@@ -159,7 +160,12 @@ async fn upgrade_from_previous_schema_keeps_every_row() {
         .fetch_one(store.pool_for_tests())
         .await
         .unwrap();
-    assert_eq!((journal.0, effects.0), (0, 0));
+    let legacy_events = expected
+        .iter()
+        .find(|(table, _)| *table == "incident_events")
+        .map(|(_, count)| *count)
+        .unwrap();
+    assert_eq!((journal.0, effects.0), (legacy_events, 0));
     let compat: Vec<(i64, String)> = sqlx::query_as("SELECT id, min_reader FROM schema_compat")
         .fetch_all(store.pool_for_tests())
         .await

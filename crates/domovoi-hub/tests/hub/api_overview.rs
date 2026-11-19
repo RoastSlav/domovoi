@@ -59,7 +59,7 @@ async fn overview_counts_incidents_approvals_and_offline_hosts() {
     let all = a.get("/api/v1/overview", &login).await;
     assert_eq!(all.status, StatusCode::OK, "{}", all.text);
     assert_eq!(
-        all.body,
+        without_position(all.body),
         json!({
             "incidents_action_needed": 2,
             "incidents_open": 4,
@@ -74,7 +74,7 @@ async fn overview_counts_incidents_approvals_and_offline_hosts() {
 
     let nas = a.get("/api/v1/overview?host=nas", &login).await;
     assert_eq!(
-        nas.body,
+        without_position(nas.body),
         json!({
             "incidents_action_needed": 1,
             "incidents_open": 3,
@@ -224,4 +224,12 @@ async fn action_list_filters_by_decided_and_since() {
 
     let bad = a.get("/api/v1/actions?since=yesterday", &login).await;
     assert_eq!(bad.status, StatusCode::BAD_REQUEST);
+}
+
+/// The counts without the journal position they were read at, which moves with every write.
+fn without_position(mut body: serde_json::Value) -> serde_json::Value {
+    if let Some(object) = body.as_object_mut() {
+        object.remove("as_of_seq");
+    }
+    body
 }

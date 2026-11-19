@@ -1,6 +1,7 @@
 //! Contracts for the unit of work, run against the in-memory store and SQLite.
 
 mod effects;
+mod feed;
 mod journal;
 mod lifecycle;
 mod lifecycle_retry;
@@ -12,6 +13,10 @@ pub use effects::{
     completing_an_unclaimed_effect_without_a_token_marks_it_done,
     duplicate_dedup_key_is_refused_while_pending, effect_completion_needs_the_current_claim_token,
     effect_id_must_be_unique, effects_are_listed_in_insertion_order, zero_max_attempts_is_refused,
+};
+pub use feed::{
+    floor_starts_at_zero_and_wait_after_follows_the_committed_head,
+    head_equals_the_highest_receipt_seq,
 };
 pub use journal::{
     audit_draft_is_appended_with_the_next_sequence_number,
@@ -51,8 +56,8 @@ pub use states::{
 use async_trait::async_trait;
 use domovoi_core::EffectId;
 use domovoi_core::ports::{
-    ActionRepo, AuditLog, ClaimToken, EffectQueue, EffectRead, IncidentRepo, JournalRead, NoteRepo,
-    OperationRepo, SignalRepo, UnitOfWork, VersionedRead,
+    ActionRepo, AuditLog, ClaimToken, EffectQueue, EffectRead, IncidentRepo, JournalFeed,
+    JournalRead, NoteRepo, OperationRepo, SignalRepo, UnitOfWork, VersionedRead,
 };
 use jiff::Timestamp;
 
@@ -69,6 +74,8 @@ pub trait UowSubject: Send + Sync {
     fn versions(&self) -> &dyn VersionedRead;
     /// Journal reads.
     fn journal(&self) -> &dyn JournalRead;
+    /// The journal as a change stream.
+    fn feed(&self) -> &dyn JournalFeed;
     /// Effect reads.
     fn effects(&self) -> &dyn EffectRead;
     /// Incident writes.
@@ -106,6 +113,10 @@ impl UowSubject for InMemoryStore {
     }
 
     fn journal(&self) -> &dyn JournalRead {
+        self
+    }
+
+    fn feed(&self) -> &dyn JournalFeed {
         self
     }
 

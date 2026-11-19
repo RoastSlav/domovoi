@@ -29,6 +29,8 @@ pub enum JournalKind {
     StepFinished,
     /// An execution moved to another state.
     ExecutionTransition,
+    /// A signal folded into an existing incident.
+    IncidentFolded,
 }
 
 impl JournalKind {
@@ -44,6 +46,7 @@ impl JournalKind {
             Self::StepStarted => "operation.step_started",
             Self::StepFinished => "operation.step_finished",
             Self::ExecutionTransition => "operation.execution",
+            Self::IncidentFolded => "incident.folded",
         }
     }
 
@@ -59,6 +62,7 @@ impl JournalKind {
             "operation.step_started" => Some(Self::StepStarted),
             "operation.step_finished" => Some(Self::StepFinished),
             "operation.execution" => Some(Self::ExecutionTransition),
+            "incident.folded" => Some(Self::IncidentFolded),
             _ => None,
         }
     }
@@ -162,6 +166,18 @@ pub fn timeline_journal(entry: &IncidentTimelineEntry) -> JournalDraft {
     }
 }
 
+/// The journal as a change stream: what is gone, and a way to wait for what is new.
+#[async_trait]
+pub trait JournalFeed: JournalRead {
+    /// The highest `seq` that retention has ever deleted; 0 when nothing was pruned. A reader
+    /// whose cursor is below this may have missed deleted rows and must refetch.
+    async fn floor_seq(&self) -> Result<u64, StoreError>;
+
+    /// Completes once the committed head is greater than `seq`; at once if it already is.
+    /// Cancel-safe. Never reads rows: the caller re-reads with `entries_after`.
+    async fn wait_after(&self, seq: u64);
+}
+
 /// Reads the journal.
 #[async_trait]
 pub trait JournalRead: Send + Sync {
@@ -180,7 +196,8 @@ pub trait JournalRead: Send + Sync {
         limit: u16,
     ) -> Result<Vec<JournalEntry>, StoreError>;
 
-    /// The highest assigned `seq`, 0 when the journal is empty.
+    /// The highest assigned `seq` (never lower than the pruned floor), 0 when the journal has
+    /// never held a row.
     async fn head_seq(&self) -> Result<u64, StoreError>;
 }
 
@@ -203,6 +220,7 @@ mod tests {
             JournalKind::StepStarted,
             JournalKind::StepFinished,
             JournalKind::ExecutionTransition,
+            JournalKind::IncidentFolded,
         ] {
             assert_eq!(JournalKind::parse(kind.as_str()), Some(kind));
         }

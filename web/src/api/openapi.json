@@ -739,21 +739,58 @@
         "tags": [
           "system"
         ],
-        "summary": "A stream of incident and action changes, as `incident` and `action` events whose data is\na JSON `UiEvent`.",
+        "summary": "Committed journal rows as server-sent events.",
+        "description": "Frames: `ready` (`head_seq`, `resumed`, `topics`), `journal` (one row; its `id` is the journal\n`seq`) and `reset` (`reason` is `pruned`, `ahead` or `lagged`: refetch what you hold). A client\nthat reconnects sends `Last-Event-ID` (or `after`) and receives every matching row after it.\nAn idle stream sends a `: keepalive` comment every 15 seconds.",
         "operationId": "stream_events",
+        "parameters": [
+          {
+            "name": "topics",
+            "in": "query",
+            "description": "Comma-separated topics: `incidents`, `approvals`, `operations`, `operation:<id>`,\n`hosts`, `conversations:<id>`. At most 16. Absent means `incidents,approvals,operations`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "description": "Resume after this journal `seq`. The `Last-Event-ID` header wins when both are given.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "An event stream",
             "content": {
-              "text/event-stream": {
+              "text/event-stream": {}
+            }
+          },
+          "400": {
+            "description": "An unknown topic or a malformed position",
+            "content": {
+              "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/UiEvent"
+                  "$ref": "#/components/schemas/ErrorBody"
                 }
               }
             }
           },
           "401": {
             "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Too many open event streams",
             "content": {
               "application/json": {
                 "schema": {
@@ -3599,9 +3636,16 @@
         "type": "object",
         "description": "One page of actions, newest first.",
         "required": [
-          "items"
+          "items",
+          "as_of_seq"
         ],
         "properties": {
+          "as_of_seq": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The journal position this snapshot was read at; apply only events with a greater `seq`.",
+            "minimum": 0
+          },
           "items": {
             "type": "array",
             "items": {
@@ -4632,7 +4676,8 @@
           "card",
           "timeline",
           "actions",
-          "tools_used"
+          "tools_used",
+          "as_of_seq"
         ],
         "properties": {
           "actions": {
@@ -4641,6 +4686,12 @@
               "$ref": "#/components/schemas/ActionDto"
             },
             "description": "Actions for this incident, newest first."
+          },
+          "as_of_seq": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The journal position this snapshot was read at; apply only events with a greater `seq`.",
+            "minimum": 0
           },
           "card": {
             "$ref": "#/components/schemas/CardDto",
@@ -4739,9 +4790,16 @@
         "type": "object",
         "description": "One page of incidents, newest first.",
         "required": [
-          "items"
+          "items",
+          "as_of_seq"
         ],
         "properties": {
+          "as_of_seq": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The journal position this snapshot was read at; apply only events with a greater `seq`.",
+            "minimum": 0
+          },
           "items": {
             "type": "array",
             "items": {
@@ -5138,13 +5196,20 @@
           "incident_groups",
           "approvals_waiting",
           "hosts_offline",
-          "hosts_total"
+          "hosts_total",
+          "as_of_seq"
         ],
         "properties": {
           "approvals_waiting": {
             "type": "integer",
             "format": "int32",
             "description": "Actions waiting for a person to approve or deny them.",
+            "minimum": 0
+          },
+          "as_of_seq": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The journal position this snapshot was read at; apply only events with a greater `seq`.",
             "minimum": 0
           },
           "hosts_offline": {
@@ -5897,43 +5962,6 @@
           "question": {
             "type": "string",
             "description": "What the operator asked."
-          }
-        }
-      },
-      "UiEvent": {
-        "type": "object",
-        "description": "A change the web UI should show, sent on the event stream.",
-        "required": [
-          "kind",
-          "event",
-          "incident_id"
-        ],
-        "properties": {
-          "action_id": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "The action concerned, for action events."
-          },
-          "event": {
-            "type": "string",
-            "description": "What happened, for example `incident_opened` or `action_changed`."
-          },
-          "incident_id": {
-            "type": "string",
-            "description": "The incident concerned."
-          },
-          "kind": {
-            "type": "string",
-            "description": "`incident` or `action`."
-          },
-          "status": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "The new status name, when it changed."
           }
         }
       },

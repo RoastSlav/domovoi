@@ -80,6 +80,7 @@ export function detail(): IncidentDetail {
     ],
     actions: [action()],
     tools_used: [],
+    as_of_seq: 0,
   };
 }
 
@@ -92,6 +93,7 @@ export function overview(overrides: Partial<Overview> = {}): Overview {
     approvals_waiting: 0,
     hosts_offline: 0,
     hosts_total: 2,
+    as_of_seq: 0,
     ...overrides,
   };
 }

@@ -10,7 +10,8 @@ use jiff::Timestamp;
 use serde_json::json;
 
 use super::command::CommandError;
-use super::decide::{Decision, State, Write, status_name};
+use super::decide::{Decision, State, Write};
+use super::fold::status_name;
 use crate::events::{DomainEvent, EventKind};
 use crate::policy::EnginePolicy;
 

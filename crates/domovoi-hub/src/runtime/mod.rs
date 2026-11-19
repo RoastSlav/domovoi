@@ -365,7 +365,7 @@ impl HubRuntime {
                 capabilities: registry.clone(),
                 profiles: Some(profile_deps.clone()),
                 clock: clock.clone(),
-                bus: bus.clone(),
+                journal: store.clone(),
                 config: Arc::new(config.clone()),
                 notifier: FanOut::over(&notifiers),
                 metrics: deps.metrics,

@@ -30,7 +30,7 @@ The Chat page answers general questions about the operator's servers. It is abou
 
 SQLite holds incidents, signals, triage reports, action history, chat message references and notification state. A restart reuses those references, so later changes update existing cards instead of posting duplicates.
 
-Every event consumer handles a full or overwritten event buffer by reporting the lag and reloading authoritative state from SQLite. Delivery rebuilds cards for stored incidents, including incidents whose opening event was missed. Approval execution reloads approved actions. Lag therefore causes recovery work, not a crash or a silent loss of state.
+Every event consumer handles a full or overwritten event buffer by reporting the lag and reloading authoritative state from SQLite. Delivery rebuilds cards for stored incidents, including incidents whose opening event was missed. Approval execution reloads approved actions. Lag therefore causes recovery work, not a crash or a silent loss of state. The browser stream resumes from the last event it saw, and the hub tells it to refetch when it cannot replay what the browser missed.
 
 ## Schedules
 

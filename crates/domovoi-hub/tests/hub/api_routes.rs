@@ -306,6 +306,16 @@ async fn sse_stream_emits_incident_update() {
     );
     let mut body = response.into_body().into_data_stream();
 
+    let mut next = async || {
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(10), body.next())
+            .await
+            .expect("an event arrives")
+            .unwrap()
+            .unwrap();
+        String::from_utf8_lossy(&frame).into_owned()
+    };
+    assert!(next().await.starts_with("event: ready"));
+
     let ack = a
         .post(
             &format!("/api/v1/incidents/{}/ack", a.incident.id()),
@@ -314,14 +324,11 @@ async fn sse_stream_emits_incident_update() {
         )
         .await;
     assert_eq!(ack.status, StatusCode::NO_CONTENT);
-    let frame = tokio::time::timeout(std::time::Duration::from_secs(10), body.next())
-        .await
-        .expect("an event arrives")
-        .unwrap()
-        .unwrap();
-    let text = String::from_utf8_lossy(&frame);
-    assert!(text.starts_with("event: incident"), "{text}");
-    assert!(text.contains("\"event\":\"incident_acked\""), "{text}");
+    let text = next().await;
+    assert!(text.starts_with("event: journal"), "{text}");
+    assert!(text.contains("\"aggregate_type\":\"incident\""), "{text}");
+    assert!(text.contains("\"kind\":\"incident.timeline\""), "{text}");
+    assert!(text.contains("\"kind\":\"human.action\""), "{text}");
     assert!(text.contains(&a.incident.id().to_string()));
 }
 

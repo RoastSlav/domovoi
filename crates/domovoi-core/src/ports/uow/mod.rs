@@ -4,18 +4,20 @@ mod effects;
 mod journal;
 mod lifecycle;
 mod operations;
+mod topic;
 mod transaction;
 
 pub use effects::{
     ClaimToken, EffectCompletion, EffectDraft, EffectKind, EffectRead, EffectRecord, EffectStatus,
 };
 pub use journal::{
-    AuditDraft, JournalDraft, JournalEntry, JournalKind, JournalRead, timeline_journal,
+    AuditDraft, JournalDraft, JournalEntry, JournalFeed, JournalKind, JournalRead, timeline_journal,
 };
 pub use lifecycle::{
     ClaimBatch, ClaimedEffect, EffectCancel, EffectDeath, EffectQueue, EffectReschedule,
 };
 pub use operations::{ExecutionGuard, OperationWrite};
+pub use topic::{Topic, TopicError, TopicSet, topics_of};
 pub use transaction::{
     ActionGuard, AggregateKind, AggregateRef, CommitError, CommitReceipt, Expectation, Expected,
     Observed, StateWrite, Transaction, Versioned,

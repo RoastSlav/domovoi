@@ -510,19 +510,13 @@ async fn terminal(store: &Store, action: ActionId) -> ActionRequest {
     panic!("action {action} never reached an outcome");
 }
 
-/// What the fixture wrote before the journal existed, so the invariants can allow for it.
+/// What the fixture wrote before the journal existed, so the invariants can allow for it. The
+/// upgrade copies every legacy timeline row into the journal, so no timeline entry is exempt.
 async fn legacy(store: &Store) -> Exempt {
     let actions: BTreeSet<ActionId> = actions(store).await.iter().map(ActionRequest::id).collect();
-    let mut timeline = BTreeMap::new();
-    for incident in incidents(store).await {
-        let entries = IncidentRepo::timeline(store, incident.id())
-            .await
-            .expect("the timeline is readable");
-        timeline.insert(incident.id(), entries.len());
-    }
     Exempt {
         actions,
-        legacy_timeline: timeline,
+        legacy_timeline: BTreeMap::new(),
     }
 }
 

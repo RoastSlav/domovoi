@@ -363,7 +363,7 @@ impl IncidentManager {
                 }
             }
             Write::DiscardPending(id) => self.active.retain(|i| i.id() != *id),
-            Write::InsertSignal(..) | Write::Timeline(_) => {}
+            Write::InsertSignal(..) | Write::Timeline(_) | Write::Journal(_) => {}
         }
     }
 }

@@ -6,8 +6,8 @@ use domovoi_core::IncidentId;
 use domovoi_core::ports::{
     ActionRepo, AggregateKind, AggregateRef, AuditLog, ClaimToken, CommitError, EffectDeath,
     EffectDraft, EffectKind, EffectQueue, EffectRead, EffectReschedule, Expected, IncidentRepo,
-    IncidentTimelineEntry, JournalRead, NoteRepo, OperationRepo, SignalRepo, StateWrite,
-    Transaction, UnitOfWork, VersionedRead,
+    IncidentTimelineEntry, JournalFeed, JournalRead, NoteRepo, OperationRepo, SignalRepo,
+    StateWrite, Transaction, UnitOfWork, VersionedRead,
 };
 use domovoi_store::Store;
 use domovoi_testkit::ContractError;
@@ -26,6 +26,10 @@ impl UowSubject for SqliteSubject {
     }
 
     fn versions(&self) -> &dyn VersionedRead {
+        &self.0
+    }
+
+    fn feed(&self) -> &dyn JournalFeed {
         &self.0
     }
 
@@ -114,6 +118,8 @@ uow_contract_tests! {
     sqlite_chat_token_hash_must_be_unique_across_actions => chat_token_hash_must_be_unique_across_actions,
     sqlite_incident_event_is_mirrored_into_the_journal_with_its_original_time => incident_event_is_mirrored_into_the_journal_with_its_original_time,
     sqlite_journal_sequence_follows_commit_order => journal_sequence_follows_commit_order,
+    sqlite_floor_starts_at_zero_and_wait_after_follows_the_committed_head => floor_starts_at_zero_and_wait_after_follows_the_committed_head,
+    sqlite_head_equals_the_highest_receipt_seq => head_equals_the_highest_receipt_seq,
     sqlite_discarding_a_pending_incident_removes_its_timeline_and_unlinks_signals => discarding_a_pending_incident_removes_its_timeline_and_unlinks_signals,
     sqlite_audit_draft_is_appended_with_the_next_sequence_number => audit_draft_is_appended_with_the_next_sequence_number,
     sqlite_duplicate_dedup_key_is_refused_while_pending => duplicate_dedup_key_is_refused_while_pending,

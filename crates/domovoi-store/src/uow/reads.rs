@@ -225,7 +225,8 @@ impl JournalRead for Store {
     }
 
     async fn head_seq(&self) -> Result<u64, StoreError> {
-        let seq: i64 = sqlx::query_scalar("SELECT COALESCE(MAX(seq), 0) FROM journal")
+        const SQL: &str = "SELECT MAX(COALESCE((SELECT MAX(seq) FROM journal), 0),             (SELECT pruned_through_seq FROM journal_floor WHERE id = 1))";
+        let seq: i64 = sqlx::query_scalar(SQL)
             .fetch_one(&self.read)
             .await
             .map_err(db)?;
