@@ -10,6 +10,7 @@
 
 pub mod approvals;
 pub mod build;
+pub mod capability;
 pub mod chat;
 pub mod clock;
 pub mod contracts;
@@ -23,6 +24,7 @@ pub mod redact;
 pub mod repos;
 
 pub use build::BuildError;
+pub use capability::FakeCapabilityRegistry;
 pub use chat::{GatewayCall, RecordingGateway, RecordingNotifier};
 pub use clock::FakeClock;
 pub use contracts::ContractError;

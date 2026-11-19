@@ -11,7 +11,8 @@
 //! the loop guard's rejection, the answer for the run and the re-check's delay. This module
 //! reads the incident and the agent session it is handed, and never stores anything.
 
-use domovoi_core::ports::AgentSnapshot;
+use domovoi_core::capability::ContractId;
+use domovoi_core::ports::{AgentSnapshot, DISABLED_REASON};
 use domovoi_core::{
     ActionId, ActionRequest, ActionStatus, AuthorizationKind, ExecutionId, Incident, PlanFamily,
     PlanHash, SkillSummary, ValidatedArgs,
@@ -129,6 +130,17 @@ pub(crate) async fn execute(
     // point; this is the precondition's own guard for a direct call, and it writes nothing.
     if now >= action.expires_at() {
         return Err(ExecuteError::Expired);
+    }
+    // The owner's switch is the one enablement rule this boundary owns. It is checked here,
+    // before anything is reserved or sent, so a disabled skill can never reach the agent
+    // through a queue that was already committed. Every other availability state stays the
+    // agent's and the policy evaluator's business (RW-10).
+    if !deps
+        .capabilities
+        .enabled(action.host(), &ContractId::skill(&skill.name))
+    {
+        let _ = preflight::ask_reject(shared, id, DISABLED_REASON.to_owned(), true).await;
+        return Err(ExecuteError::Refused(DISABLED_REASON.to_owned()));
     }
     // The slot is claimed here, before the plan is even recomputed, so two catch-up runs
     // of the same skill cannot both read the same count and both pass (ADR 0019's writer

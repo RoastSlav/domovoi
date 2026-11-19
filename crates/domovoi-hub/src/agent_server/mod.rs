@@ -11,6 +11,7 @@ mod error;
 mod handshake;
 mod link;
 mod link_answers;
+mod live;
 mod memory;
 mod overrides;
 pub(crate) use overrides::{stored_docker, stored_overrides};
@@ -20,8 +21,6 @@ mod registry;
 mod registry_state;
 mod session;
 mod settings;
-mod skill_policy;
-mod skill_policy_key;
 #[cfg(test)]
 mod tests;
 mod tls;
@@ -51,8 +50,6 @@ pub use memory::MemoryTransport;
 pub use probes::{NetProbes, RealNetProbes};
 pub use registry::{AGENTS_CONNECTED, MAX_PENDING};
 pub use settings::ServerSettings;
-pub use skill_policy::{DISABLED_REASON, PolicyLink, SkillPolicy};
-pub use skill_policy_key::host_skills_key;
 pub use tls::{CHANNEL_BINDING_LABEL, HUB_SAN, TlsIdentity, colon_hex};
 pub use tokens::{EnrollmentInvite, TOKEN_TTL, token_hash};
 pub use ws::MAX_FRAMES_PER_SECOND;
@@ -148,23 +145,14 @@ impl AgentServer {
         self.inner.tls.fingerprint_text()
     }
 
-    /// The raw link, private to this module: the server's own methods and its tests are the
-    /// only code that can hold it.
+    /// The raw link, reachable only inside this module and by the runtime that composes the
+    /// engine's capabilities from it.
     ///
-    /// Nothing outside `agent_server/` can call it. The runtime composes the engine's
-    /// capabilities through [`AgentServer::policy_link`], which hands out the link already
-    /// wrapped in the skill policy, and a transport reaches agents through
-    /// [`crate::api::AgentAdmin`] (EXEC-4, ADR 0023).
-    fn link(&self) -> Arc<WsAgentLink> {
+    /// The runtime turns it into the engine's narrow capability objects and the capability
+    /// registry's view (ADR 0023); a transport reaches agents through
+    /// [`crate::api::AgentAdmin`] (EXEC-4).
+    pub(crate) fn link(&self) -> Arc<WsAgentLink> {
         self.inner.link.clone()
-    }
-
-    /// The link wrapped in the hub's skill policy: the one value the runtime turns into the
-    /// engine's capability objects. It is the only way outside this module to obtain the
-    /// link, and what it returns enforces the policy on every skill call.
-    #[must_use]
-    pub(crate) fn policy_link(&self, policy: Arc<SkillPolicy>) -> PolicyLink {
-        PolicyLink::wrap(self.link(), policy)
     }
 
     /// The link this server owns, for the test suites that drive an agent's wire directly.

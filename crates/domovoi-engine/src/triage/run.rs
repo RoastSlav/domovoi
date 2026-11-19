@@ -69,10 +69,7 @@ async fn outcome(
         // The repeat incident gets the same approve buttons a fresh triage would: the
         // cached report's proposals are re-validated against the host's current session.
         let snapshot = deps.catalog.snapshot(incident.host());
-        let skills = snapshot
-            .as_ref()
-            .map(|session| session.skills.clone())
-            .unwrap_or_default();
+        let skills = deps.capabilities.enabled_skills(incident.host());
         let tokens =
             proposals::create(shared, incident, snapshot.as_ref(), &skills, &mut report).await;
         return (TriageOutcome::Cached { report, from }, tokens);
@@ -110,10 +107,7 @@ async fn outcome(
         return (TriageOutcome::Skipped { reason }, BTreeMap::new());
     }
     let snapshot = deps.catalog.snapshot(incident.host());
-    let skills = snapshot
-        .as_ref()
-        .map(|session| session.skills.clone())
-        .unwrap_or_default();
+    let skills = deps.capabilities.enabled_skills(incident.host());
     let bundle = context::build(shared, incident, &skills).await;
     let mut tool_use: Vec<ToolUse> = Vec::new();
     let mut run = agent::RunBudget::for_run(shared);

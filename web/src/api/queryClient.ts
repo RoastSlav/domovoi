@@ -19,6 +19,7 @@ export const keys = {
   hosts: ["hosts"] as const,
   host: (name: string) => ["hosts", "detail", name] as const,
   skills: (name: string) => ["hosts", "skills", name] as const,
+  capabilities: (name: string) => ["hosts", "capabilities", name] as const,
   notes: ["notes"] as const,
   noteList: (host: string | undefined) => ["notes", "list", host ?? ""] as const,
   noteSearch: (q: string, host: string | undefined) => ["notes", "search", q, host ?? ""] as const,

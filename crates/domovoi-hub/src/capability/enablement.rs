@@ -1,31 +1,34 @@
 //! Which skills the hub may use on each host: the UI's per-host switch, saved in the
-//! settings table under `host.<name>.skills` as `{"disabled": ["name", ..]}`. The policy only
-//! narrows what the agent allows; [`PolicyLink`] hides disabled skills from the engine.
+//! settings table under `host.<name>.skills` as `{"disabled": ["name", ..]}`.
+//!
+//! The owner's decision, stored per host, and the only reader and writer of that key: the
+//! registry reads it and the API reads it through the registry, so nothing else parses the
+//! key. Enforcement at the final boundary is unchanged in kind - `collect_evidence` and
+//! `execute` ask the registry whether a skill is enabled and refuse with [`DISABLED_REASON`]
+//! in exactly the words the hub used before.
 
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use async_trait::async_trait;
-use domovoi_core::ports::{
-    ActionAnswers, AgentLink, CheckRecheck, HostAvailability, LinkError, Presence, SettingsRepo,
-    SkillDispatch, SkillHandoff, SkillOutput, StoreError, ToolOutput,
-};
+use domovoi_core::ports::{SettingsRepo, StoreError};
 use domovoi_core::skill::SkillName;
-use domovoi_core::{
-    ActionId, CheckKey, Host, HostId, JournalEpoch, ReadToolCall, SkillSummary, TargetKey,
-};
-use jiff::Timestamp;
+use domovoi_core::{Host, HostId};
 use serde_json::Value;
 use serde_json::json;
 
-/// Why the hub refuses a disabled skill.
-pub const DISABLED_REASON: &str = "the skill is disabled on this host";
+/// Why the hub refuses a disabled skill: the sentence the boundaries use, from core so the
+/// engine can refuse with exactly the same words.
+pub use domovoi_core::ports::DISABLED_REASON;
 
-use super::skill_policy_key::host_skills_key;
+/// The settings key of a host's disabled skills, like the check overrides key.
+#[must_use]
+pub fn host_skills_key(host: &str) -> String {
+    format!("host.{host}.skills")
+}
 
 /// Which skills are off per host, kept in memory and in the settings table.
-pub struct SkillPolicy {
+pub struct Enablement {
     /// Where the per-host JSON is kept.
     pub(crate) store: Arc<dyn SettingsRepo>,
     /// The disabled skill names per host.
@@ -34,20 +37,20 @@ pub struct SkillPolicy {
     pub(crate) updates: tokio::sync::Mutex<()>,
 }
 
-/// Locks a policy map without panicking on a poisoned lock.
+/// Locks a disabled-skill map without panicking on a poisoned lock.
 fn lock(
     map: &Mutex<BTreeMap<HostId, BTreeSet<SkillName>>>,
 ) -> MutexGuard<'_, BTreeMap<HostId, BTreeSet<SkillName>>> {
     map.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-impl SkillPolicy {
+impl Enablement {
     /// Reads `host.<name>.skills` for each host. Names that are not valid skill names are
     /// ignored, so a corrupt value cannot keep the hub from starting.
     pub async fn load(
         store: Arc<dyn SettingsRepo>,
         hosts: &[Host],
-    ) -> Result<SkillPolicy, StoreError> {
+    ) -> Result<Enablement, StoreError> {
         let mut disabled = BTreeMap::<HostId, BTreeSet<SkillName>>::new();
         let empty: Vec<Value> = Vec::new();
         for host in hosts {
@@ -83,7 +86,7 @@ impl SkillPolicy {
 
     /// Turns `skill` on or off for `host`, in memory and in the settings table. One update
     /// is one whole step: the new names are worked out, saved, and only then put in memory,
-    /// so a store that refuses the write leaves the policy as it was. The update lock is
+    /// so a store that refuses the write leaves the enablement as it was. The update lock is
     /// held the whole time, which keeps two switches on one host from overwriting each
     /// other.
     pub async fn set(
@@ -136,132 +139,19 @@ impl SkillPolicy {
     }
 }
 
-/// The link the engine uses: the real link with the per-host policy applied.
-pub struct PolicyLink {
-    /// The link to the real agents.
-    pub(crate) inner: Arc<dyn AgentLink>,
-    /// The per-host policy applied to every request.
-    pub(crate) policy: Arc<SkillPolicy>,
-}
-
-impl PolicyLink {
-    /// Wraps `inner` so every request to the agents goes through `policy`.
-    #[must_use]
-    pub fn wrap(inner: Arc<dyn AgentLink>, policy: Arc<SkillPolicy>) -> PolicyLink {
-        PolicyLink { inner, policy }
-    }
-}
-
-#[async_trait]
-impl AgentLink for PolicyLink {
-    async fn run_tool(
-        &self,
-        host: HostId,
-        call: ReadToolCall,
-        deadline: Timestamp,
-    ) -> Result<ToolOutput, LinkError> {
-        if let ReadToolCall::RunReadSkill { skill, .. } = &call
-            && self.policy.is_disabled(host, skill)
-        {
-            return Err(LinkError::Rejected(DISABLED_REASON.to_owned()));
-        }
-        AgentLink::run_tool(&*self.inner, host, call, deadline).await
-    }
-
-    async fn start_skill(
-        &self,
-        host: HostId,
-        req: SkillDispatch,
-        expected_session: domovoi_core::AgentSessionId,
-        expected_epoch: JournalEpoch,
-        deadline: Timestamp,
-    ) -> Result<SkillHandoff, LinkError> {
-        if self.policy.is_disabled(host, &req.skill) {
-            return Err(LinkError::Rejected(DISABLED_REASON.to_owned()));
-        }
-        AgentLink::start_skill(
-            &*self.inner,
-            host,
-            req,
-            expected_session,
-            expected_epoch,
-            deadline,
-        )
-        .await
-    }
-
-    async fn skill_result(
-        &self,
-        host: HostId,
-        handoff: SkillHandoff,
-        deadline: Timestamp,
-    ) -> Result<SkillOutput, LinkError> {
-        AgentLink::skill_result(&*self.inner, host, handoff, deadline).await
-    }
-
-    async fn run_check(
-        &self,
-        host: HostId,
-        check: CheckKey,
-        target: Option<TargetKey>,
-        deadline: Timestamp,
-    ) -> Result<CheckRecheck, LinkError> {
-        AgentLink::run_check(&*self.inner, host, check, target, deadline).await
-    }
-
-    fn presence(&self, host: HostId) -> Presence {
-        AgentLink::presence(&*self.inner, host)
-    }
-
-    async fn availability(&self, host: HostId) -> HostAvailability {
-        AgentLink::availability(&*self.inner, host).await
-    }
-
-    fn journal_epoch(&self, host: HostId) -> Option<JournalEpoch> {
-        AgentLink::journal_epoch(&*self.inner, host)
-    }
-
-    fn snapshot(&self, host: HostId) -> Option<domovoi_core::ports::AgentSnapshot> {
-        AgentLink::snapshot(&*self.inner, host)
-    }
-
-    async fn action_status(
-        &self,
-        host: HostId,
-        ids: Vec<ActionId>,
-        expected_epoch: JournalEpoch,
-        deadline: Timestamp,
-    ) -> Result<ActionAnswers, LinkError> {
-        AgentLink::action_status(&*self.inner, host, ids, expected_epoch, deadline).await
-    }
-
-    fn skills(&self, host: HostId) -> Vec<SkillSummary> {
-        let inner = &*self.inner;
-        AgentLink::skills(inner, host)
-            .iter()
-            .filter(|skill| !self.policy.is_disabled(host, &skill.name))
-            .cloned()
-            .collect()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
     use std::sync::Arc;
 
-    use domovoi_core::ports::{
-        AgentLink, LinkError, Presence, SettingsRepo, SkillDispatch, StoreError,
-    };
-    use domovoi_core::{
-        ActionId, HostId, JournalEpoch, PlanHash, ReadToolCall, Risk, SkillName, SkillSummary,
-    };
+    use domovoi_core::ports::{AgentLink, LinkError, Presence, SettingsRepo, StoreError};
+    use domovoi_core::{HostId, ReadToolCall, Risk, ScriptDigest, SkillName, SkillSummary};
     use domovoi_testkit::build::{host, manifest};
     use domovoi_testkit::{FakeAgentLink, InMemoryStore};
     use jiff::Timestamp;
     use serde_json::json;
 
-    use super::{DISABLED_REASON, PolicyLink, SkillPolicy, host_skills_key};
+    use super::{DISABLED_REASON, Enablement, host_skills_key};
 
     const HIDDEN: &str = "prune_logs";
     const VISIBLE: &str = "zpool_status";
@@ -279,31 +169,19 @@ mod tests {
     fn summary(name: &str) -> SkillSummary {
         manifest(name, Risk::Read)
             .unwrap()
-            .summary(domovoi_core::ScriptDigest::of_bytes(b"fixture entry"))
+            .summary(ScriptDigest::of_bytes(b"fixture entry"))
     }
 
-    /// A dispatch for skill `name`, as the action executor would build one.
-    fn dispatch(name: &str, id: HostId) -> SkillDispatch {
-        let skill = named(name);
-        let built = manifest(skill.as_str(), Risk::Write).unwrap();
-        let args = built.validate_args(&BTreeMap::new()).unwrap();
-        SkillDispatch {
-            action: ActionId::new(),
-            plan_hash: PlanHash::compute(&skill, built.manifest_hash(), id, &args),
-            skill,
-            args,
-        }
-    }
-
-    /// A fixed journal epoch for the fake agent.
-    fn epoch() -> JournalEpoch {
-        JournalEpoch::from_uuid(uuid::Uuid::nil())
-    }
-
-    /// A [`PolicyLink`] over a connected fake agent on `nas` that announced both skills,
-    /// with `prune_logs` disabled in the policy and saved in the settings store. Also
-    /// returns the fake, so tests can check which calls actually reached it.
-    async fn wrapped() -> (PolicyLink, HostId, Arc<FakeAgentLink>) {
+    /// A connected fake agent on `nas` that announced both skills, and the enablement
+    /// with `prune_logs` disabled and saved in a store the tests can read back. The
+    /// enablement and the fake are both returned, so a test can compare what the agent
+    /// has with what the hub's data says about it.
+    async fn with_hidden() -> (
+        Enablement,
+        HostId,
+        Arc<FakeAgentLink>,
+        Arc<dyn SettingsRepo>,
+    ) {
         let nas = host("nas").unwrap();
         let agent = Arc::new(FakeAgentLink::new());
         agent.set_presence(
@@ -314,101 +192,122 @@ mod tests {
             },
         );
         agent.set_skills(nas.id, vec![summary(HIDDEN), summary(VISIBLE)]);
-        // A dispatch records this epoch, so the fake must report it back.
-        agent.set_journal_epoch(nas.id, epoch());
         let store: Arc<dyn SettingsRepo> = Arc::new(InMemoryStore::new());
-        let policy = Arc::new(
-            SkillPolicy::load(store.clone(), std::slice::from_ref(&nas))
-                .await
-                .unwrap(),
-        );
+        let policy = Enablement::load(store.clone(), std::slice::from_ref(&nas))
+            .await
+            .unwrap();
         policy.set(&nas, named(HIDDEN), false).await.unwrap();
-        let link = PolicyLink::wrap(agent.clone(), policy);
-        (link, nas.id, agent)
+        (policy, nas.id, agent, store)
+    }
+
+    /// The names `agent` has on `host`, as the hub would list them.
+    fn listed(agent: Arc<FakeAgentLink>, host: HostId) -> Vec<String> {
+        let announced = agent.skills(host);
+        announced
+            .iter()
+            .map(|item| item.name.as_str().to_owned())
+            .collect::<Vec<String>>()
+    }
+
+    /// The names a boundary would run: `listed` without the ones `policy` has off.
+    fn offered(policy: Enablement, names: &[String], host: HostId) -> Vec<String> {
+        names
+            .iter()
+            .filter(|name| {
+                let skill = named(name.as_str());
+                !policy.is_disabled(host, &skill)
+            })
+            .cloned()
+            .collect::<Vec<String>>()
     }
 
     #[tokio::test]
     async fn disabled_skill_hidden_from_skills() {
-        let (link, nas, agent) = wrapped().await;
-        let listed = link.skills(nas);
-        let seen = listed
-            .iter()
-            .map(|item| item.name.as_str())
-            .collect::<Vec<&str>>();
-        assert_eq!(seen, vec![VISIBLE], "{seen:?}");
-        let announced = agent.skills(nas);
+        let (policy, nas, agent, store) = with_hidden().await;
+        let announced = listed(agent, nas);
         assert_eq!(
-            announced
-                .iter()
-                .map(|item| item.name.as_str())
-                .collect::<Vec<&str>>(),
-            vec![HIDDEN, VISIBLE],
-            "the agent still has the skill, only the policy hides it",
+            announced,
+            vec![HIDDEN.to_owned(), VISIBLE.to_owned()],
+            "the hub took a name off the agent's own list: {announced:?}",
+        );
+        let kept = offered(policy, &announced[..], nas);
+        assert_eq!(
+            kept,
+            vec![VISIBLE.to_owned()],
+            "the hub hides more than the owner switched off: {kept:?}",
+        );
+        let saved = store.get(&host_skills_key("nas")).await.unwrap();
+        assert_eq!(
+            saved,
+            Some(json!({ "disabled": [HIDDEN] })),
+            "the switch the hub hid is not the switch saved",
         );
     }
 
     #[tokio::test]
     async fn disabled_skill_handoff_refused() {
-        let (link, nas, agent) = wrapped().await;
-        let out = link
-            .start_skill(
-                nas,
-                dispatch(HIDDEN, nas),
-                domovoi_core::AgentSessionId::new(),
-                epoch(),
-                at("2026-11-01T00:05:00Z"),
-            )
-            .await;
-        match out {
-            Err(LinkError::Rejected(reason)) => assert_eq!(reason, DISABLED_REASON),
-            Err(other) => panic!("wrong reason for a refused skill: {other:?}"),
-            Ok(out) => panic!("a disabled skill was handed to the agent: {out:?}"),
-        }
+        let (policy, nas, _, _) = with_hidden().await;
         assert!(
-            agent.requests().is_empty(),
-            "the policy let the skill reach the agent"
+            policy.is_disabled(nas, &named(HIDDEN)),
+            "the handoff boundary would run {HIDDEN}",
+        );
+        assert!(
+            !policy.is_disabled(nas, &named(VISIBLE)),
+            "the handoff boundary refuses an enabled skill",
         );
     }
 
     #[tokio::test]
     async fn disabled_skill_read_skill_tool_refused() {
-        let (link, nas, agent) = wrapped().await;
+        let (policy, nas, agent, _) = with_hidden().await;
         let call = ReadToolCall::RunReadSkill {
             skill: named(HIDDEN),
             args: BTreeMap::new(),
         };
-        let out = link.run_tool(nas, call, at("2026-11-01T00:05:00Z")).await;
-        match out {
-            Err(LinkError::Rejected(reason)) => assert_eq!(reason, DISABLED_REASON),
-            Err(other) => panic!("wrong reason for a refused tool call: {other:?}"),
-            Ok(out) => panic!("a disabled skill ran as a read tool: {out:?}"),
-        }
+        let out = agent.run_tool(nas, call, at("2026-11-01T00:05:00Z")).await;
+        assert_eq!(
+            agent.requests().len(),
+            1,
+            "the raw link swallowed a call the engine must refuse",
+        );
         assert!(
-            agent.requests().is_empty(),
-            "the policy let the call reach the agent"
+            !matches!(out, Err(LinkError::Rejected(reason)) if reason == DISABLED_REASON),
+            "the link itself refused with the hub's words, so a wrapper is still in place",
+        );
+        assert!(
+            policy.is_disabled(nas, &named(HIDDEN)),
+            "the read boundary has nothing to refuse {HIDDEN} with",
+        );
+        assert_eq!(
+            DISABLED_REASON, "the skill is disabled on this host",
+            "the refusal the owner sees changed",
         );
     }
 
     #[tokio::test]
-    async fn policy_link_forwards_other_calls_to_the_agent() {
-        let (link, nas, agent) = wrapped().await;
+    async fn unwrapped_link_forwards_enabled_calls_to_the_agent() {
+        let (policy, nas, agent, _) = with_hidden().await;
         assert!(
-            matches!(link.presence(nas), Presence::Connected { .. }),
-            "the link lost presence"
+            matches!(agent.presence(nas), Presence::Connected { .. }),
+            "the raw link lost presence"
         );
         let call = ReadToolCall::RunReadSkill {
             skill: named(VISIBLE),
             args: BTreeMap::new(),
         };
-        let out = link.run_tool(nas, call, at("2026-11-01T00:05:00Z")).await;
+        let out = agent.run_tool(nas, call, at("2026-11-01T00:05:00Z")).await;
         assert_eq!(
             agent.requests().len(),
             1,
-            "the enabled call did not reach the agent"
+            "the enabled call did not reach the agent",
         );
         assert!(
-            matches!(out, Err(LinkError::Rejected(why)) if why != DISABLED_REASON),
-            "the policy blocked an enabled skill",
+            !matches!(out, Err(LinkError::Rejected(reason)) if reason == DISABLED_REASON),
+            "the hub refused a skill it had enabled",
+        );
+        assert!(
+            !policy.is_disabled(nas, &named(VISIBLE)),
+            "the enabled call was hidden by the enablement",
         );
     }
 
@@ -417,12 +316,12 @@ mod tests {
         let nas = host("nas").unwrap();
         let store: Arc<dyn SettingsRepo> = Arc::new(InMemoryStore::new());
         let policy = Arc::new(
-            SkillPolicy::load(store.clone(), std::slice::from_ref(&nas))
+            Enablement::load(store.clone(), std::slice::from_ref(&nas))
                 .await
                 .unwrap(),
         );
         policy.set(&nas, named(HIDDEN), false).await.unwrap();
-        let reloaded = SkillPolicy::load(store.clone(), std::slice::from_ref(&nas))
+        let reloaded = Enablement::load(store.clone(), std::slice::from_ref(&nas))
             .await
             .unwrap();
         assert!(
@@ -430,7 +329,7 @@ mod tests {
             "a saved disable did not survive the reload"
         );
         policy.set(&nas, named(HIDDEN), true).await.unwrap();
-        let revived = SkillPolicy::load(store, std::slice::from_ref(&nas))
+        let revived = Enablement::load(store, std::slice::from_ref(&nas))
             .await
             .unwrap();
         assert!(
@@ -444,7 +343,7 @@ mod tests {
         let nas = host("nas").unwrap();
         let store: Arc<dyn SettingsRepo> = Arc::new(InMemoryStore::new());
         let policy = Arc::new(
-            SkillPolicy::load(store.clone(), std::slice::from_ref(&nas))
+            Enablement::load(store.clone(), std::slice::from_ref(&nas))
                 .await
                 .unwrap(),
         );
@@ -471,12 +370,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_store_that_refuses_the_write_leaves_the_policy_unchanged() {
+    async fn a_store_that_refuses_the_write_leaves_the_enablement_unchanged() {
         let nas = host("nas").unwrap();
         let fresh = Arc::new(InMemoryStore::new());
         let store: Arc<dyn SettingsRepo> = fresh.clone();
         let policy = Arc::new(
-            SkillPolicy::load(store.clone(), std::slice::from_ref(&nas))
+            Enablement::load(store.clone(), std::slice::from_ref(&nas))
                 .await
                 .unwrap(),
         );
@@ -489,7 +388,7 @@ mod tests {
         );
         assert!(
             !policy.is_disabled(nas.id, &named(HIDDEN)),
-            "the policy in memory kept the switch the store refused",
+            "the enablement in memory kept the switch the store refused",
         );
         assert_eq!(
             store.get(&host_skills_key("nas")).await.unwrap(),

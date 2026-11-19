@@ -40,6 +40,10 @@ export type Fact = Schemas["FactDto"];
 export type Invite = Schemas["InviteDto"];
 /** A skill an agent reported. */
 export type Skill = Schemas["SkillDto"];
+/** One capability row of a host's inventory. */
+export type Capability = Schemas["CapabilityDto"];
+/** One host's capability inventory. */
+export type Capabilities = Schemas["CapabilitiesDto"];
 /** A note. */
 export type Note = Schemas["NoteDto"];
 /** Creating or replacing a note. */

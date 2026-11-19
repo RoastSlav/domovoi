@@ -70,6 +70,12 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         preload: PAGES.hosts.preload,
       },
       { to: "/skills", label: "Skills", icon: "tool", preload: PAGES.skills.preload },
+      {
+        to: "/capabilities",
+        label: "Capabilities",
+        icon: "shield",
+        preload: PAGES.capabilities.preload,
+      },
       { to: "/logs", label: "Logs", icon: "log", preload: PAGES.logs.preload },
     ],
   },

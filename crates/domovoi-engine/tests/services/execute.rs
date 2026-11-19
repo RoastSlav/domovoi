@@ -418,3 +418,68 @@ async fn output_excerpt_is_redacted_and_capped() {
     assert!(!entry.detail.to_string().contains(SECRET));
     assert_eq!(entry.detail["output_sha256"].as_str().unwrap().len(), 64);
 }
+
+#[tokio::test]
+async fn disabled_capability_refused_at_boundary() {
+    use domovoi_core::ports::DISABLED_REASON;
+    use domovoi_core::{ReadToolCall, SkillName};
+    use domovoi_engine::evidence::{Evidence, EvidenceError, EvidenceRequest};
+    use domovoi_testkit::link::evidence_caps;
+
+    let a = actions(ActionSettings::default()).await;
+    let skill = SkillName::parse("restart_container").expect("fixture skill name");
+    a.capabilities.disable(host_id(), skill.clone());
+    a.link.set_skills(host_id(), vec![restart_skill()]);
+    let (action, _) = a.propose().await;
+    approve(&a, action.id()).await;
+
+    let done = a
+        .until(action.id(), |s| matches!(s, ActionStatus::Rejected { .. }))
+        .await;
+    assert!(
+        matches!(
+            done.status(),
+            ActionStatus::Rejected { reason } if reason == DISABLED_REASON
+        ),
+        "the execution boundary did not refuse a disabled skill: {:?}",
+        done.status(),
+    );
+    assert!(
+        a.link
+            .requests()
+            .iter()
+            .all(|request| !matches!(request, LinkRequest::Skill { .. })),
+        "a disabled skill reached the agent",
+    );
+
+    let evidence = Evidence::new(
+        evidence_caps(a.link.clone()),
+        a.clock.clone(),
+        a.capabilities.clone(),
+    );
+    let call = ReadToolCall::RunReadSkill {
+        skill: skill.clone(),
+        args: Default::default(),
+    };
+    let request = EvidenceRequest::for_host(
+        host_id(),
+        call,
+        domovoi_core::ports::Clock::now(&*a.clock) + SignedDuration::from_secs(15),
+    );
+    let refused = evidence.collect_evidence(request).await;
+    assert_eq!(
+        refused,
+        Err(EvidenceError::NotEnabled(DISABLED_REASON.to_owned())),
+        "the read boundary did not refuse a disabled skill",
+    );
+    assert!(
+        a.link.requests().iter().all(|request| !matches!(
+            request,
+            LinkRequest::Tool {
+                call: ReadToolCall::RunReadSkill { .. },
+                ..
+            }
+        )),
+        "the read of a disabled skill reached the agent",
+    );
+}

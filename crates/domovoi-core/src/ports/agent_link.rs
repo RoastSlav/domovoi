@@ -4,7 +4,9 @@ use async_trait::async_trait;
 use jiff::Timestamp;
 
 use crate::action::{JournalEpoch, PlanHash};
+use crate::capability::catalog::{CatalogPageData, CatalogQuery};
 use crate::id::{ActionId, AgentId, AgentSessionId, HostId, RequestId};
+use crate::ports::capability::HostView;
 use crate::signal::{CheckKey, Evidence, Signal, SignalStatus, TargetKey};
 use crate::skill::{SkillName, SkillSummary, ValidatedArgs};
 use crate::triage::ReadToolCall;
@@ -330,7 +332,43 @@ pub trait AgentLink: Send + Sync {
 
     /// Skills the agent announced on its last handshake; empty when never connected.
     fn skills(&self, host: HostId) -> Vec<SkillSummary>;
+
+    /// What the host's live agent said about itself beyond presence, or `None` with no live
+    /// session. Words and skills are read together, so one session's status can never be
+    /// combined with another session's skills; a link that cannot answer `None` is treated as
+    /// having no session rather than as reporting absence.
+    fn host_view(&self, _host: HostId) -> Option<HostView> {
+        None
+    }
+
+    /// The catalogue hash the host's agent announced on its last handshake, as 64 lowercase
+    /// hex characters. `None` means no live session or no announcement, so a walk has nothing
+    /// to verify against and stays unverified.
+    fn catalog_hash(&self, _host: HostId) -> Option<String> {
+        None
+    }
+
+    /// Asks the agent for one page of its capability catalogue (wire 1.2).
+    ///
+    /// The answer is contract ids and versions only. A link that cannot page, and an agent too
+    /// old to answer (`unsupported`), both fail closed as an incomplete catalogue.
+    async fn get_catalog(
+        &self,
+        _host: HostId,
+        _query: CatalogQuery,
+        _deadline: Timestamp,
+    ) -> Result<CatalogPageData, LinkError> {
+        Err(LinkError::Rejected(CATALOGUE_UNSUPPORTED.to_owned()))
+    }
 }
+
+/// The refusal a link answers when it, or the agent behind it, cannot page a catalogue.
+///
+/// The registry reads exactly this text as [`CatalogueGap::Unsupported`] rather than a failed
+/// page, so an agent too old to answer is reported as not reporting a list at all.
+///
+/// [`CatalogueGap::Unsupported`]: crate::capability::CatalogueGap
+pub const CATALOGUE_UNSUPPORTED: &str = "the agent does not report its capability catalogue";
 
 /// Why signals were not accepted.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]

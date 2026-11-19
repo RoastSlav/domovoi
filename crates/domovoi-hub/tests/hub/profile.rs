@@ -7,18 +7,22 @@ use std::sync::Arc;
 
 use crate::api_harness::{Api, TestAgents, api, api_without_profiles};
 use axum::http::{Method, StatusCode};
-use domovoi_core::ports::{HostRepo, LinkError, NoteRepo, Presence, SettingsRepo, ToolOutput};
+use domovoi_core::capability::{ContractIndex, builtin_contracts};
+use domovoi_core::ports::{
+    CapabilityRegistry, HostRepo, LinkError, NoteRepo, Presence, SettingsRepo, ToolOutput,
+};
 use domovoi_core::{
     CheckKey, HostId, ParamKind, ParamName, ParamSpec, ReadToolCall, Risk, SkillSummary,
 };
 use domovoi_engine::{Evidence, HostCatalog, PatternRedactor};
-use domovoi_hub::agent_server::{PolicyLink, SkillPolicy};
+use domovoi_hub::capability::{HubRegistry, RegistryDeps};
 use domovoi_hub::profile::diff::{MAX_CHANGES, changes, recent_changes};
 use domovoi_hub::profile::{
     ContainerLine, GENERATED_TAG, HostProfile, PROFILE_TAG, ProfileDeps, ProfileError, STALE_AFTER,
     needs_refresh, note_text, profile_key, refresh, spawn, stored,
 };
 use domovoi_proto::messages::{CheckInfo, HostFacts};
+use domovoi_testkit::FakeCapabilityRegistry;
 use domovoi_testkit::build::{host, manifest};
 use domovoi_testkit::link::{LinkRequest, evidence_caps, observer_of};
 use serde_json::json;
@@ -141,8 +145,13 @@ fn seed(a: &Api, version: &str) {
 /// The hub's pieces put together as the profile task and the API use them.
 fn profile_deps(a: &Api) -> ProfileDeps {
     ProfileDeps {
-        evidence: Evidence::new(evidence_caps(a.link.clone()), a.clock.clone()),
+        evidence: Evidence::new(
+            evidence_caps(a.link.clone()),
+            a.clock.clone(),
+            Arc::new(FakeCapabilityRegistry::following(a.link.clone())),
+        ),
         catalog: HostCatalog::new(observer_of(a.link.clone())),
+        capabilities: Arc::new(FakeCapabilityRegistry::following(a.link.clone())),
         agents: Arc::new(TestAgents {
             link: a.link.clone(),
             hosts: a.store.clone(),
@@ -347,16 +356,32 @@ async fn a_disabled_read_skill_is_never_asked_for_a_profile() {
         saved.status,
         saved.text
     );
-    let policy = SkillPolicy::load(a.store.clone(), std::slice::from_ref(&a.nas))
-        .await
-        .unwrap();
-    let policy_link = Arc::new(PolicyLink::wrap(a.link.clone(), Arc::new(policy)));
+    let registry = match HubRegistry::new(RegistryDeps {
+        contracts: Arc::new(match ContractIndex::new(builtin_contracts()) {
+            Ok(index) => index,
+            Err(err) => panic!("{err}"),
+        }),
+        agent: Arc::new(domovoi_hub::runtime::caps::LinkCapabilities::new(
+            a.link.clone(),
+        )),
+        hosts: a.store.clone(),
+        store: a.store.clone(),
+        clock: a.clock.clone(),
+    })
+    .await
+    {
+        Ok(registry) => Arc::new(registry),
+        Err(err) => panic!("{err}"),
+    };
+    let capabilities: Arc<dyn CapabilityRegistry> = registry.clone();
     let deps = ProfileDeps {
         evidence: Evidence::new(
-            domovoi_hub::runtime::caps::evidence_caps(policy_link.clone()),
+            domovoi_hub::runtime::caps::evidence_caps(a.link.clone()),
             a.clock.clone(),
+            capabilities.clone(),
         ),
-        catalog: HostCatalog::new(domovoi_hub::runtime::caps::observer_of(policy_link)),
+        catalog: HostCatalog::new(domovoi_hub::runtime::caps::observer_of(a.link.clone())),
+        capabilities,
         agents: Arc::new(TestAgents {
             link: a.link.clone(),
             hosts: a.store.clone(),

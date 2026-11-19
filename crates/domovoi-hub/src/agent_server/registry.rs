@@ -1,14 +1,18 @@
 //! Who is connected, what is waiting for an answer, and when each host was last heard.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::net::IpAddr;
 #[cfg(test)]
 use std::sync::Arc;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
-use domovoi_core::ports::{AgentSnapshot, LinkError, Presence};
+use domovoi_core::ports::{
+    AgentSnapshot, HelperState, HostView, HostWords, LinkError, Presence, RunnerState,
+};
 use domovoi_core::{AgentId, AgentSessionId, HostId, JournalEpoch, RequestId, SkillSummary};
-use domovoi_proto::messages::{AgentStatus, CheckInfo, DockerReport, HostFacts, SessionId};
+use domovoi_proto::messages::{
+    AgentStatus, CheckInfo, DockerReport, HelperStatus, HostFacts, SessionId, SkillRunnerStatus,
+};
 use domovoi_proto::{Message, encode};
 use jiff::Timestamp;
 #[cfg(test)]
@@ -17,7 +21,6 @@ use tokio::sync::{mpsc, oneshot};
 
 use super::registry_state::{RegisterError, State};
 use tokio_util::sync::CancellationToken;
-use uuid::Uuid;
 
 /// Agents with a live session right now.
 pub const AGENTS_CONNECTED: &str = "domovoi_agents_connected";
@@ -25,48 +28,7 @@ pub const AGENTS_CONNECTED: &str = "domovoi_agents_connected";
 /// The most requests one agent may have in flight.
 pub const MAX_PENDING: usize = 256;
 
-/// The liveness signal raised for a silent host, until it is heard from again.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Liveness {
-    /// The host answers on the network but its agent does not.
-    AgentDown,
-    /// Neither the agent nor the host answers.
-    HostDown,
-}
-
-/// A live, authenticated session.
-pub(crate) struct Live {
-    pub session: SessionId,
-    /// The hub-local identity of this authenticated connection.
-    pub identity: AgentSessionId,
-    /// The enrolled agent that authenticated it.
-    pub agent: AgentId,
-    pub since: Timestamp,
-    pub version: String,
-    /// What the agent said about its machine, kept so the hub can profile the host.
-    pub facts: HostFacts,
-    pub skills: Vec<SkillSummary>,
-    pub checks: Vec<CheckInfo>,
-    pub docker: Option<DockerReport>,
-    /// The action journal's epoch the agent announced.
-    pub journal_epoch: Uuid,
-    /// Whether this agent promised that every action execution is in its journal, so a
-    /// missing record proves the execution never arrived. Older agents and agents with an
-    /// unjournaled execution path answer no, and their absence is then not proof.
-    pub authoritative_absence: bool,
-    /// The last `agent_status` the agent sent, if any.
-    pub agent_status: Option<AgentStatus>,
-    pub outbox: mpsc::Sender<String>,
-    pub pending: HashMap<RequestId, oneshot::Sender<Message>>,
-    pub cancel: CancellationToken,
-}
-
-/// What the session that accepted a request promised about itself.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct SessionFacts {
-    /// Whether a journal with no record of a run proves the run never arrived.
-    pub authoritative_absence: bool,
-}
+pub(crate) use super::live::{Live, Liveness, SessionFacts, SessionState, Watch};
 
 /// What the hub knows about one host's agent.
 #[derive(Default)]
@@ -77,35 +39,6 @@ pub(super) struct Entry {
     absent_since: Option<Timestamp>,
     remote_ip: Option<IpAddr>,
     raised: Option<Liveness>,
-}
-
-/// What this hub run knows about one host's session, as the action executor needs it.
-///
-/// `last_seen` is not enough here: it is carried over between frames and set by tracking a
-/// host, so it cannot say whether a session ever existed or when it ended.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum SessionState {
-    /// A session is live, started at `since`.
-    Live {
-        /// When the live session started.
-        since: Timestamp,
-    },
-    /// A session existed in this hub run and ended at `at`.
-    Lost {
-        /// When the last session ended.
-        at: Timestamp,
-    },
-    /// No session has existed in this hub run.
-    Never,
-}
-
-/// One host as the presence check sees it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Watch {
-    pub host: HostId,
-    pub last_seen: Option<Timestamp>,
-    pub remote_ip: Option<IpAddr>,
-    pub raised: Option<Liveness>,
 }
 
 /// Sessions by host. A host has at most one live session.
@@ -416,6 +349,41 @@ impl Registry {
             .get(&host)
             .and_then(|e| e.live.as_ref())
             .map(|live| JournalEpoch::from_uuid(live.journal_epoch))
+    }
+
+    /// The catalogue hash the host's live session announced, or `None` when it has none.
+    pub fn catalog_hash(&self, host: HostId) -> Option<String> {
+        self.lock()
+            .get(&host)
+            .and_then(|e| e.live.as_ref())
+            .and_then(|live| live.catalog_hash.clone())
+    }
+
+    /// The words and skills the host's live session announced, read together under one lock,
+    /// or `None` when it has none.
+    pub fn host_view(&self, host: HostId) -> Option<HostView> {
+        let hosts = self.lock();
+        let live = hosts.get(&host)?.live.as_ref()?;
+        Some(HostView {
+            words: HostWords {
+                runs_as_root: live.runs_as_root,
+                runner: match live.skill_runner_status {
+                    SkillRunnerStatus::Absent => RunnerState::Absent,
+                    SkillRunnerStatus::Unsupported { .. } => RunnerState::Unsupported,
+                    SkillRunnerStatus::Ok { .. } => RunnerState::Ready,
+                    SkillRunnerStatus::Error { .. } => RunnerState::Failed,
+                },
+                helper: match live.helper_status {
+                    HelperStatus::Absent => HelperState::Absent,
+                    HelperStatus::Ok { .. } => HelperState::Ready,
+                    HelperStatus::Error { .. } => HelperState::Failed,
+                },
+                ceiling_summary: live.ceiling_summary.clone(),
+                ceiling_hash: live.ceiling_hash.clone(),
+                container_runtime: live.docker.as_ref().is_some_and(|report| report.available),
+            },
+            skills: live.skills.clone(),
+        })
     }
 
     /// Every host with a live session right now.

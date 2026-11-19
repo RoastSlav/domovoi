@@ -142,6 +142,8 @@ pub struct ProfileDeps {
     pub evidence: Evidence,
     /// The agent sessions and skills read beside it.
     pub catalog: HostCatalog,
+    /// The capability registry: the skills the owner enables on each host.
+    pub capabilities: Arc<dyn domovoi_core::ports::CapabilityRegistry>,
     /// The handshake's facts and check settings.
     pub agents: Arc<dyn AgentAdmin>,
     /// Where the hosts are listed.

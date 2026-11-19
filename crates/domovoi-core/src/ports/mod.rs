@@ -5,6 +5,7 @@
 //! suites live in `domovoi-testkit`.
 
 pub mod agent_link;
+pub mod capability;
 pub mod caps;
 pub mod chat;
 pub mod clock;
@@ -16,12 +17,16 @@ pub mod reconcile;
 pub mod redact;
 pub mod repos;
 pub mod store_health;
+pub mod target;
 pub mod uow;
 
 pub use agent_link::{
-    ActionAnswer, ActionAnswerEntry, ActionAnswers, AgentLink, AgentSnapshot, CheckRecheck,
-    HostAvailability, IngestError, LinkError, Presence, SignalSink, SkillDispatch, SkillHandoff,
-    SkillOutput, ToolOutput, UnknownReason,
+    ActionAnswer, ActionAnswerEntry, ActionAnswers, AgentLink, AgentSnapshot,
+    CATALOGUE_UNSUPPORTED, CheckRecheck, HostAvailability, IngestError, LinkError, Presence,
+    SignalSink, SkillDispatch, SkillHandoff, SkillOutput, ToolOutput, UnknownReason,
+};
+pub use capability::{
+    CapabilityRegistry, DISABLED_REASON, HelperState, HostView, HostWords, RunnerState,
 };
 pub use caps::{
     ActionCaps, AvailabilityProbe, CheckRerun, EvidenceCaps, HandoffRunner, HostObservation,
@@ -42,4 +47,5 @@ pub use reconcile::HostReconciler;
 pub use redact::Redactor;
 pub use repos::*;
 pub use store_health::StoreHealth;
+pub use target::TargetResolver;
 pub use uow::*;

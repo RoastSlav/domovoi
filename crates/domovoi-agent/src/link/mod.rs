@@ -22,8 +22,8 @@ use std::sync::Arc;
 use domovoi_core::ports::{Clock, HostFs};
 use domovoi_core::{RequestId, SkillSummary};
 use domovoi_proto::messages::{
-    ActionStatusQuery, CheckInfo, GetLogs, Pong, RunCapability, RunCheck, RunSkill, RunTool,
-    Signals, Unsupported,
+    ActionStatusQuery, CheckInfo, GetCatalog, GetLogs, Pong, RunCapability, RunCheck, RunSkill,
+    RunTool, Signals, Unsupported,
 };
 use domovoi_proto::{Decoded, Message, Transport};
 use jiff::SignedDuration;
@@ -73,6 +73,8 @@ pub enum RequestKind {
     Capability(RunCapability),
     /// Report what the journal knows about executions.
     ActionStatus(ActionStatusQuery),
+    /// One page of the capability catalogue.
+    Catalog(GetCatalog),
 }
 
 /// A request and the id its reply must carry in `reply_to`.
@@ -430,6 +432,7 @@ impl Link {
             Message::GetLogs(get) => RequestKind::Logs(get),
             Message::RunCapability(run) => RequestKind::Capability(run),
             Message::ActionStatus(query) => RequestKind::ActionStatus(query),
+            Message::GetCatalog(get) => RequestKind::Catalog(get),
             Message::Unknown { kind } => {
                 let reply = Message::Unsupported(Unsupported { type_name: kind });
                 frame::send(transport, &reply, Some(id)).await?;

@@ -43,7 +43,10 @@ pub use actor::{Actor, ActorParseError, SYSTEM_ACTIONS, SYSTEM_AUDIT, SYSTEM_INC
 pub use addr::{in_cidr, valid_cidr};
 pub use advisory::{Advisory, AdvisoryKind};
 pub use baseline::{BaselineEntry, BaselineKind, Criticality};
-pub use capability::{CapabilityContract, ContractId, EffectClass, TargetKind};
+pub use capability::{
+    Availability, AvailabilityEntry, CapabilityContract, CatalogSnapshot, ContractId, EffectClass,
+    ResolvedTarget, TargetError, TargetKind, TargetQuery,
+};
 pub use card::{Card, CardBadge, CardButton, CardPlan};
 pub use digest::{Digest, DigestFact, FactValue, HostDigest, Trend};
 pub use error::{TransitionError, ValidationError};

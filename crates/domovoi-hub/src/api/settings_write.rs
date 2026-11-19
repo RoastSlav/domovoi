@@ -463,8 +463,8 @@ pub(super) async fn set_skill_enabled(
     }
     state
         .deps
-        .skill_policy
-        .set(&host, skill, req.enabled)
+        .capabilities
+        .set_skill_enabled(&host, skill, req.enabled)
         .await?;
     let kind = if req.enabled {
         "skill.enabled".to_owned()

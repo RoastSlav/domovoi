@@ -221,7 +221,7 @@ pub const BOUNDARY_PAIRS: &[&str] = &[
 
 /// The raw link's type names (EXEC-4, ADR 0023). Naming one outside the allowed files is how
 /// a transport, a service or a new module would reach the unrestricted link.
-pub const LINK_NAMES: &[&str] = &["AgentLink", "WsAgentLink", "PolicyLink"];
+pub const LINK_NAMES: &[&str] = &["AgentLink", "WsAgentLink"];
 
 /// Methods and fields that hand out or hold the raw link (EXEC-4, ADR 0023), by the name
 /// written after a `.`.
@@ -269,57 +269,39 @@ pub struct BoundaryCard {
     pub message: &'static str,
 }
 
-/// Every counted boundary operation (EXEC-1 to EXEC-3, ADR 0023). Counts are checked against
-/// the syntax tree, so a second call site, a call split across lines or a call inside a macro
-/// body cannot slip past. The hub's policy wrapper and the runtime capability are the only
-/// callers of a raw link operation: the first is the link's own `AgentLink` implementation,
-/// the second the composition root that turns it into capability objects. Adding a caller is
-/// a deliberate edit here, with an ADR.
+/// Every counted boundary operation (EXEC-1 to EXEC-3, ADR 0023, 0024). Counts are checked
+/// against the syntax tree, so a second call site, a call split across lines or a call inside a
+/// macro body cannot slip past. The hub's link and its runtime capabilities are the only callers
+/// of a raw link operation: the first is the link's own `AgentLink` implementation, the second
+/// the composition root that turns it into capability objects. Adding a caller is a deliberate
+/// edit here, with an ADR.
 pub const BOUNDARY_CARDS: &[BoundaryCard] = &[
     BoundaryCard {
         id: "EXEC-1",
         op: BoundaryOp::Call("run_tool"),
-        sites: &[
-            BoundarySite {
-                file: "crates/domovoi-hub/src/agent_server/skill_policy.rs",
-                count: 1,
-            },
-            BoundarySite {
-                file: "crates/domovoi-hub/src/runtime/caps.rs",
-                count: 1,
-            },
-        ],
-        message: "a host is read only through `HostRead::read_host`; the raw `run_tool` call belongs to the link's policy wrapper and the runtime capability (ADR 0023)",
+        sites: &[BoundarySite {
+            file: "crates/domovoi-hub/src/runtime/caps.rs",
+            count: 1,
+        }],
+        message: "a host is read only through `HostRead::read_host`; the raw `run_tool` call belongs to the runtime capability (ADR 0024)",
     },
     BoundaryCard {
         id: "EXEC-2",
         op: BoundaryOp::Call("start_skill"),
-        sites: &[
-            BoundarySite {
-                file: "crates/domovoi-hub/src/agent_server/skill_policy.rs",
-                count: 1,
-            },
-            BoundarySite {
-                file: "crates/domovoi-hub/src/runtime/caps.rs",
-                count: 1,
-            },
-        ],
-        message: "a skill is dispatched only through `HandoffRunner::hand_off` in execute.rs; the raw `start_skill` call belongs to the link's policy wrapper and the runtime capability (ADR 0023)",
+        sites: &[BoundarySite {
+            file: "crates/domovoi-hub/src/runtime/caps.rs",
+            count: 1,
+        }],
+        message: "a skill is dispatched only through `HandoffRunner::hand_off` in execute.rs; the raw `start_skill` call belongs to the runtime capability (ADR 0024)",
     },
     BoundaryCard {
         id: "EXEC-2",
         op: BoundaryOp::Call("skill_result"),
-        sites: &[
-            BoundarySite {
-                file: "crates/domovoi-hub/src/agent_server/skill_policy.rs",
-                count: 1,
-            },
-            BoundarySite {
-                file: "crates/domovoi-hub/src/runtime/caps.rs",
-                count: 1,
-            },
-        ],
-        message: "a skill result is awaited only through `HandoffRunner::await_handoff_result` in execute.rs; the raw `skill_result` call belongs to the link's policy wrapper and the runtime capability (ADR 0023)",
+        sites: &[BoundarySite {
+            file: "crates/domovoi-hub/src/runtime/caps.rs",
+            count: 1,
+        }],
+        message: "a skill result is awaited only through `HandoffRunner::await_handoff_result` in execute.rs; the raw `skill_result` call belongs to the runtime capability (ADR 0024)",
     },
     BoundaryCard {
         id: "EXEC-2",
@@ -378,17 +360,11 @@ pub const BOUNDARY_CARDS: &[BoundaryCard] = &[
     BoundaryCard {
         id: "EXEC-3",
         op: BoundaryOp::Call("run_check"),
-        sites: &[
-            BoundarySite {
-                file: "crates/domovoi-hub/src/agent_server/skill_policy.rs",
-                count: 1,
-            },
-            BoundarySite {
-                file: "crates/domovoi-hub/src/runtime/caps.rs",
-                count: 1,
-            },
-        ],
-        message: "a check is re-run only through `CheckRerun::rerun_check` in verify_wake.rs; the raw `run_check` call belongs to the link's policy wrapper and the runtime capability (ADR 0023)",
+        sites: &[BoundarySite {
+            file: "crates/domovoi-hub/src/runtime/caps.rs",
+            count: 1,
+        }],
+        message: "a check is re-run only through `CheckRerun::rerun_check` in verify_wake.rs; the raw `run_check` call belongs to the runtime capability (ADR 0024)",
     },
 ];
 
@@ -410,16 +386,15 @@ pub const EXEC_LINK_CRATES: &[&str] = &[
     "crates/domovoi/src/",
 ];
 
-/// Files allowed to name the raw link or take it through an accessor (EXEC-4, ADR 0023): the
-/// trait and its re-export, the hub's link with its policy wrapper and the server module that
-/// owns it, and the runtime composition root that turns it into capabilities. Exact files
-/// only: a new module in the same directory inherits nothing.
+/// Files allowed to name the raw link or take it through an accessor (EXEC-4, ADR 0023, 0024):
+/// the trait and its re-export, the hub's link and the server module that owns it, and the
+/// runtime composition root that turns it into capabilities. Exact files only: a new module in
+/// the same directory inherits nothing.
 pub const LINK_NAMES_ALLOWED_FILES: &[&str] = &[
     "crates/domovoi-core/src/ports/agent_link.rs",
     "crates/domovoi-core/src/ports/mod.rs",
     "crates/domovoi-hub/src/agent_server/link.rs",
     "crates/domovoi-hub/src/agent_server/mod.rs",
-    "crates/domovoi-hub/src/agent_server/skill_policy.rs",
     "crates/domovoi-hub/src/runtime/caps.rs",
     "crates/domovoi-hub/src/runtime/mod.rs",
 ];

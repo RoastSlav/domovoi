@@ -5,6 +5,7 @@
 //! refuses more than its queue holds as busy. Every request is cut off at its deadline,
 //! and tool output is redacted, then capped at [`MAX_TOOL_OUTPUT`].
 
+mod catalog;
 mod overview;
 mod skills;
 mod tools;
@@ -20,9 +21,9 @@ use domovoi_proto::Message;
 use domovoi_proto::Open;
 use domovoi_proto::messages::{
     ActionState, ActionStatusAnswer, ActionStatusAnswers, ActionStatusQuery, CheckObservation,
-    CheckResult, ErrorMessage, Logs, OutcomeUnknownReason, RefusalCode, Refused, RunCapability,
-    RunCheck, SkillFailure, SkillFailureCode, SkillOutcome, SkillResult, ToolFailure,
-    ToolFailureCode, ToolOutcome, ToolResult, ToolSuccess,
+    CheckResult, ErrorMessage, GetCatalog, Logs, OutcomeUnknownReason, RefusalCode, Refused,
+    RunCapability, RunCheck, SkillFailure, SkillFailureCode, SkillOutcome, SkillResult,
+    ToolFailure, ToolFailureCode, ToolOutcome, ToolResult, ToolSuccess,
 };
 use domovoi_runner::SkillCatalog;
 use jiff::Timestamp;
@@ -30,6 +31,7 @@ use tokio::sync::{Semaphore, mpsc};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
+pub use self::catalog::{catalog_entries, page};
 pub use self::overview::parse_loadavg;
 pub use self::skills::{run_read_skill, run_skill};
 pub use self::tools::{EVENTS_CHECK, run_tool};
@@ -184,12 +186,13 @@ pub fn busy_reply(kind: &RequestKind) -> Message {
             code: "busy".to_owned(),
             message: BUSY.to_owned(),
         }),
-        RequestKind::Logs(_) | RequestKind::Capability(_) | RequestKind::ActionStatus(_) => {
-            Message::Error(ErrorMessage {
-                code: "busy".to_owned(),
-                message: BUSY.to_owned(),
-            })
-        }
+        RequestKind::Logs(_)
+        | RequestKind::Capability(_)
+        | RequestKind::Catalog(_)
+        | RequestKind::ActionStatus(_) => Message::Error(ErrorMessage {
+            code: "busy".to_owned(),
+            message: BUSY.to_owned(),
+        }),
     }
 }
 
@@ -201,6 +204,23 @@ fn refused(code: &str, known: RefusalCode, detail: impl Into<String>) -> Message
         retry_after: None,
         scope: None,
     })
+}
+
+/// Answers `get_catalog` with one page of the agent's implementation list (6.4.1).
+///
+/// A page index past [`catalog::MAX_PAGE_INDEX`] is refused as `invalid` instead of answered
+/// empty: an empty page ends the hub's walk, and ending a walk that never read the list would
+/// let the hub report a verified catalogue.
+fn catalog_reply(ctx: &RequestCtx, query: &GetCatalog) -> Message {
+    if query.page > catalog::MAX_PAGE_INDEX {
+        let width = catalog::MAX_PAGE_ENTRIES;
+        let wanted = query.page;
+        return Message::Error(ErrorMessage {
+            code: "invalid".to_owned(),
+            message: format!("the page {wanted} cannot be addressed at {width} entries per page"),
+        });
+    }
+    Message::CatalogPage(catalog::page(&catalog_entries(&ctx.catalog), query))
 }
 
 /// Capabilities have no execution backend or registry in this milestone, so a request is
@@ -379,6 +399,7 @@ pub async fn handle(ctx: &RequestCtx, kind: &RequestKind) -> Message {
             chunk_logs(window, usize::from(get.offset))
         }
         RequestKind::Capability(run) => run_capability(ctx, run),
+        RequestKind::Catalog(get) => catalog_reply(ctx, get),
         RequestKind::ActionStatus(query) => action_status(ctx, query),
     }
 }

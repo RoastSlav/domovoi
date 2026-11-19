@@ -73,6 +73,16 @@ export type IssueSeverity = "error" | "warning";
 export type HostKind = "local" | "agent" | "container_agent" | "external";
 /** Where a check stands on a host. */
 export type CheckState = "ok" | "failing" | "disabled";
+/** Whether one capability is offered on one host: the hub's eight answers. */
+export type CapabilityState =
+  | "available"
+  | "not_installed"
+  | "disabled_by_hub"
+  | "not_allowed_on_host"
+  | "unavailable"
+  | "host_unknown"
+  | "host_absent"
+  | "host_incompatible";
 /** How one SSH login attempt ended; `many_failures` is a failed one from an address that keeps failing. */
 export type SshLogin = "accepted" | "failed" | "many_failures";
 /** Where one step of a guided flow stands. */

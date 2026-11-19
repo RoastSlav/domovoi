@@ -17,6 +17,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use domovoi_config::{HubConfig, MapEnv};
+use domovoi_core::capability::{ContractIndex, builtin_contracts};
 use domovoi_core::ports::{
     ActionRepo, Clock, HostRepo, IncidentFilter, IncidentRepo, LinkError, LogLine, Page, Presence,
     SkillOutput, ToolOutput,
@@ -30,13 +31,14 @@ use domovoi_engine::{
     ManagerHandle, PatternRedactor,
 };
 use domovoi_hub::agent_server::{
-    AgentServer, AgentServerDeps, AgentServerError, EnrollmentInvite, RealNetProbes,
-    ServerSettings, SkillPolicy,
+    AgentServer, AgentServerDeps, AgentServerError, EnrollmentInvite, RealNetProbes, ServerSettings,
 };
 use domovoi_hub::api::{AgentAdmin, ApiDeps, ApiState};
 use domovoi_hub::auth::{AuthState, WebIdentity};
+use domovoi_hub::capability::{HubRegistry, RegistryDeps, RegistryError};
 use domovoi_hub::profile::ProfileDeps;
 use domovoi_hub::router::router;
+use domovoi_hub::runtime::caps::LinkCapabilities;
 use domovoi_hub::runtime::updates::UpdateChecker;
 use domovoi_proto::messages::{CheckInfo, HostFacts};
 use domovoi_store::{Store, StoreOptions};
@@ -460,6 +462,9 @@ async fn main() -> Result<()> {
             probe: caps.probe,
             observer: caps.observer,
             journal: caps.journal,
+            capabilities: Arc::new(domovoi_testkit::FakeCapabilityRegistry::following(
+                link.clone(),
+            )),
             handoff: caps.handoff,
             rerun: caps.rerun,
             hosts: store.clone(),
@@ -475,8 +480,17 @@ async fn main() -> Result<()> {
     let config = config()?;
     let server = agent_server(dir.path(), clock.clone(), store.clone(), manager.clone())?;
     let profile_deps = ProfileDeps {
-        evidence: domovoi_engine::Evidence::new(evidence_caps(link.clone()), clock.clone()),
+        evidence: domovoi_engine::Evidence::new(
+            evidence_caps(link.clone()),
+            clock.clone(),
+            Arc::new(domovoi_testkit::FakeCapabilityRegistry::following(
+                link.clone(),
+            )),
+        ),
         catalog: domovoi_engine::HostCatalog::new(observer_of(link.clone())),
+        capabilities: Arc::new(domovoi_testkit::FakeCapabilityRegistry::following(
+            link.clone(),
+        )),
         agents: Arc::new(DevAgents {
             server: server.clone(),
             link: link.clone(),
@@ -515,8 +529,17 @@ async fn main() -> Result<()> {
             server: server.clone(),
             link: link.clone(),
         }),
-        skill_policy: Arc::new(
-            SkillPolicy::load(store.clone(), &HostRepo::list_hosts(&*store).await?).await?,
+        capabilities: Arc::new(
+            HubRegistry::new(RegistryDeps {
+                contracts: Arc::new(
+                    ContractIndex::new(builtin_contracts()).map_err(RegistryError::Index)?,
+                ),
+                agent: Arc::new(LinkCapabilities::new(link.clone())),
+                hosts: store.clone(),
+                store: store.clone(),
+                clock: clock.clone(),
+            })
+            .await?,
         ),
         profiles: Some(profile_deps.clone()),
         clock: clock.clone(),

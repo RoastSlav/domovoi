@@ -29,19 +29,11 @@ fn engine_sites() -> Vec<(String, String)> {
     ])
 }
 
-const POLICY: &str = "fn f() {\n    AgentLink::run_tool(a, b, c);\n    AgentLink::start_skill(a, b, c, d, e);\n    AgentLink::skill_result(a, b, c);\n    AgentLink::run_check(a, b, c, d);\n}\n";
-
-/// The hub's two card sites, with the calls split across lines as ordinary formatting allows.
+/// The hub's one card site, with the calls split across lines as ordinary formatting allows.
 const CAPS: &str = "fn f() {\n    self.link\n        .run_tool(a, b, c);\n    self.link\n        .start_skill(a, b, c, d, e);\n    self.link\n        .skill_result(a, b, c);\n    self.link\n        .run_check(a, b, c, d);\n}\n";
 
 fn hub_sites() -> Vec<(String, String)> {
-    files(&[
-        (
-            "crates/domovoi-hub/src/agent_server/skill_policy.rs",
-            POLICY,
-        ),
-        ("crates/domovoi-hub/src/runtime/caps.rs", CAPS),
-    ])
+    files(&[("crates/domovoi-hub/src/runtime/caps.rs", CAPS)])
 }
 
 /// The complete engine card set plus one extra production file.
@@ -60,7 +52,7 @@ fn the_card_sites_pass_in_their_exact_counts() {
 #[test]
 fn a_second_call_in_a_card_site_is_refused() {
     let mut hub = hub_sites();
-    hub[1].1 = format!("{CAPS}fn again() {{ self.link.run_tool(a, b, c); }}\n");
+    hub[0].1 = format!("{CAPS}fn again() {{ self.link.run_tool(a, b, c); }}\n");
     let violations = exec_violations(&hub);
     assert!(has(&violations, "EXEC-1"), "{violations:#?}");
 }

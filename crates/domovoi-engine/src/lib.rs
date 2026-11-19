@@ -32,6 +32,7 @@ pub mod policy;
 pub mod redact;
 pub mod render;
 pub mod suppress;
+pub mod targets;
 pub mod telemetry;
 pub mod triage;
 

@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 use axum::Json;
 use axum::extract::{Path, Query, State};
-use domovoi_core::ports::{IncidentFilter, LinkError, Page, Presence};
+use domovoi_core::ports::{CapabilityRegistry, IncidentFilter, LinkError, Page, Presence};
 use domovoi_core::{DigestFact, FactValue, HostKind, HostName};
 use jiff::SignedDuration;
 
@@ -291,7 +291,10 @@ pub(super) async fn skills(
                 delay_secs: v.delay.as_secs(),
             }),
             readme: s.readme,
-            enabled: !state.deps.skill_policy.is_disabled(host.id, &s.name),
+            enabled: state
+                .deps
+                .capabilities
+                .enabled(host.id, &domovoi_core::ContractId::skill(&s.name)),
         })
         .collect();
     Ok(Json(skills))

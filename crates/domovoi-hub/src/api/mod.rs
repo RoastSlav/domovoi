@@ -13,6 +13,7 @@ pub mod notes_import;
 
 mod actions;
 mod auth;
+mod capability;
 mod chat;
 mod events;
 mod followups;
@@ -55,7 +56,7 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use self::error::ApiError;
-use crate::agent_server::{AgentServer, AgentServerError, EnrollmentInvite, SkillPolicy};
+use crate::agent_server::{AgentServer, AgentServerError, EnrollmentInvite};
 use crate::auth::{AuthState, Current, csrf};
 
 /// The default page size of list endpoints.
@@ -159,8 +160,8 @@ pub struct ApiDeps {
     pub triage: Option<TriageHandle>,
     /// Enrollment, revocation, presence and catalogues.
     pub agents: Arc<dyn AgentAdmin>,
-    /// The per-host skill switches the UI reads and writes.
-    pub skill_policy: Arc<SkillPolicy>,
+    /// The capability registry: the per-host skill switches the UI reads and writes.
+    pub capabilities: Arc<crate::capability::HubRegistry>,
     /// The profile task's handles; `None` when the hub runs without one, where the
     /// profile endpoints answer 503.
     pub profiles: Option<crate::profile::ProfileDeps>,
@@ -343,6 +344,7 @@ pub fn routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(hosts::enrollment))
         .routes(routes!(hosts::revoke))
         .routes(routes!(hosts::skills))
+        .routes(routes!(capability::list_capabilities))
         .routes(routes!(hosts::logs))
         .routes(routes!(profile::get, profile::refresh))
         .routes(routes!(notes::list, notes::create))

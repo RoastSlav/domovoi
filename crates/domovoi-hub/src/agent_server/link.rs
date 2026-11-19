@@ -4,17 +4,20 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use async_trait::async_trait;
+use domovoi_core::capability::{
+    CatalogImplementation, CatalogPageData, CatalogQuery, ContractVersion,
+};
 use domovoi_core::ports::{
-    ActionAnswers, AgentLink, CheckRecheck, Clock, HostAvailability, HostRepo, LinkError, LogLine,
-    Presence, SkillDispatch, SkillHandoff, SkillOutput, ToolOutput,
+    ActionAnswers, AgentLink, CATALOGUE_UNSUPPORTED, CheckRecheck, Clock, HostAvailability,
+    HostRepo, LinkError, LogLine, Presence, SkillDispatch, SkillHandoff, SkillOutput, ToolOutput,
 };
 use domovoi_core::{
-    ActionId, AgentSessionId, CheckKey, HostId, JournalEpoch, ReadToolCall, RequestId,
+    ActionId, AgentSessionId, CheckKey, ContractId, HostId, JournalEpoch, ReadToolCall, RequestId,
     SkillSummary, TargetKey,
 };
 use domovoi_proto::messages::{
-    ActionStatusQuery, GetLogs, RunCheck, RunSkill, RunTool, SkillOutcome, ToolFailureCode,
-    ToolOutcome,
+    ActionStatusQuery, CatalogEntry, GetCatalog, GetLogs, RunCheck, RunSkill, RunTool,
+    SkillOutcome, ToolFailureCode, ToolOutcome,
 };
 use domovoi_proto::{Message, PROTOCOL_VERSION};
 use jiff::SignedDuration;
@@ -425,6 +428,66 @@ impl AgentLink for WsAgentLink {
     fn skills(&self, host: HostId) -> Vec<SkillSummary> {
         self.registry.skills(host)
     }
+
+    fn catalog_hash(&self, host: HostId) -> Option<String> {
+        self.registry.catalog_hash(host)
+    }
+
+    fn host_view(&self, host: HostId) -> Option<domovoi_core::ports::HostView> {
+        self.registry.host_view(host)
+    }
+
+    async fn get_catalog(
+        &self,
+        host: HostId,
+        query: CatalogQuery,
+        deadline: Timestamp,
+    ) -> Result<CatalogPageData, LinkError> {
+        // Zero asks for the default page: 100 entries.
+        let page_size = if query.page_size == 0 {
+            MAX_CATALOG_PAGE
+        } else {
+            query.page_size.clamp(1, MAX_CATALOG_PAGE)
+        };
+        let message = Message::GetCatalog(GetCatalog {
+            page: query.page,
+            page_size,
+        });
+        match self.request(host, &message, deadline).await? {
+            Message::CatalogPage(page) => {
+                let mut entries = Vec::with_capacity(page.entries.len());
+                for entry in page.entries {
+                    entries.push(implementation_of(entry).map_err(|text| {
+                        // The page arrived but cannot be read: the walk reports it as a
+                        // malformed page rather than a failed one.
+                        LinkError::Indeterminate(text)
+                    })?);
+                }
+                Ok(CatalogPageData {
+                    entries,
+                    next_page: page.next_page,
+                })
+            }
+            Message::Unsupported(_) => Err(LinkError::Rejected(CATALOGUE_UNSUPPORTED.to_owned())),
+            Message::Error(err) => Err(LinkError::Rejected(err.message)),
+            other => Err(unexpected(&other)),
+        }
+    }
+}
+
+/// The largest page the wire and the registry ask for.
+const MAX_CATALOG_PAGE: u32 = 100;
+
+/// One wire entry as the core type, or why its id or version is unreadable.
+///
+/// The descriptor is ignored on purpose: it is opaque at the wire layer, and deriving a
+/// contract from it would let an agent define its own authority (RW-07).
+fn implementation_of(entry: CatalogEntry) -> Result<CatalogImplementation, String> {
+    let contract = ContractId::parse(&entry.contract)
+        .map_err(|err| format!("{:?}: {}", entry.contract, err))?;
+    let version = ContractVersion::new(entry.version)
+        .map_err(|err| format!("{}: {}", entry.contract, err))?;
+    Ok(CatalogImplementation { contract, version })
 }
 
 #[cfg(test)]

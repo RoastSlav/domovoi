@@ -4,9 +4,11 @@ use std::collections::{BTreeMap, VecDeque};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
+use domovoi_core::capability::{CatalogPageData, CatalogQuery};
 use domovoi_core::ports::{
     ActionAnswer, ActionAnswerEntry, ActionAnswers, AgentLink, AgentSnapshot, CheckRecheck,
-    HostAvailability, LinkError, Presence, SkillDispatch, SkillHandoff, SkillOutput, ToolOutput,
+    HostAvailability, HostView, HostWords, LinkError, Presence, SkillDispatch, SkillHandoff,
+    SkillOutput, ToolOutput,
 };
 use domovoi_core::{
     ActionId, AgentId, AgentSessionId, CheckKey, HostId, JournalEpoch, ReadToolCall, SkillSummary,
@@ -15,8 +17,11 @@ use domovoi_core::{
 use domovoi_proto::messages::{CheckInfo, HostFacts};
 use jiff::Timestamp;
 
+mod agent;
 mod any_caps;
 mod caps;
+mod catalog;
+mod holds;
 mod recorders;
 mod request;
 mod script;
@@ -26,6 +31,8 @@ pub use caps::{action_caps, evidence_caps, observer_of};
 pub use recorders::{RecordingReconciler, RecordingSignalSink};
 pub use request::LinkRequest;
 
+use crate::link::catalog::Catalogue;
+use crate::link::holds::AvailabilityHold;
 use crate::lock;
 
 type ToolHandler =
@@ -46,13 +53,6 @@ struct Handlers {
     check: Option<CheckHandler>,
 }
 
-/// A held availability check: the gate that keeps it pending, and a notifier that fires when
-/// the check has been entered.
-struct AvailabilityHold {
-    gate: Arc<tokio::sync::Semaphore>,
-    entered: Arc<tokio::sync::Notify>,
-}
-
 /// An [`AgentLink`] with scripted presence, skills, host facts and handlers.
 ///
 /// Every request is recorded. A host that is not [`Presence::Connected`] gets
@@ -63,6 +63,10 @@ pub struct FakeAgentLink {
     availability: Mutex<BTreeMap<HostId, HostAvailability>>,
     skills: Mutex<BTreeMap<HostId, Vec<SkillSummary>>>,
     facts: Mutex<BTreeMap<HostId, HostFacts>>,
+    /// The hello status words the hosts announced, by host.
+    words: Mutex<BTreeMap<HostId, HostWords>>,
+    /// The catalogue one link serves: hashes, pages and the calls it saw.
+    catalogue: Catalogue,
     checks: Mutex<BTreeMap<HostId, Vec<CheckInfo>>>,
     epochs: Mutex<BTreeMap<HostId, JournalEpoch>>,
     agents: Mutex<BTreeMap<HostId, AgentId>>,
@@ -100,6 +104,8 @@ impl FakeAgentLink {
             availability: Mutex::new(BTreeMap::new()),
             skills: Mutex::new(BTreeMap::new()),
             facts: Mutex::new(BTreeMap::new()),
+            words: Mutex::new(BTreeMap::new()),
+            catalogue: Catalogue::default(),
             checks: Mutex::new(BTreeMap::new()),
             epochs: Mutex::new(BTreeMap::new()),
             agents: Mutex::new(BTreeMap::new()),
@@ -147,14 +153,9 @@ impl FakeAgentLink {
         host: HostId,
         gate: std::sync::Arc<tokio::sync::Semaphore>,
     ) -> std::sync::Arc<tokio::sync::Notify> {
-        let entered = std::sync::Arc::new(tokio::sync::Notify::new());
-        lock(&self.avail_gates).insert(
-            host,
-            AvailabilityHold {
-                gate,
-                entered: entered.clone(),
-            },
-        );
+        let hold = AvailabilityHold::new(gate);
+        let entered = hold.entered.clone();
+        lock(&self.avail_gates).insert(host, hold);
         entered
     }
 
@@ -199,6 +200,44 @@ impl FakeAgentLink {
     /// Sets the skills a host announces.
     pub fn set_skills(&self, host: HostId, skills: Vec<SkillSummary>) {
         lock(&self.skills).insert(host, skills);
+    }
+
+    /// Sets the catalogue hash a host's agent announces in its handshake.
+    pub fn set_catalog_hash(&self, host: HostId, hash: impl Into<String>) {
+        self.catalogue.set_hash(host, hash);
+    }
+
+    /// Sets the hello status words a host's agent announces: root, runner, helper, ceiling
+    /// summary and whether it has a container runtime.
+    pub fn set_host_words(&self, host: HostId, words: HostWords) {
+        lock(&self.words).insert(host, words);
+    }
+
+    /// Drops a host's announced catalogue hash, as an agent that announces none.
+    pub fn clear_catalog_hash(&self, host: HostId) {
+        self.catalogue.clear_hash(host);
+    }
+
+    /// Scripts the pages a host's agent answers `get_catalog` with, by page number.
+    pub fn set_catalog(&self, host: HostId, pages: Vec<CatalogPageData>) {
+        self.catalogue.set_pages(host, pages);
+    }
+
+    /// Answers every `get_catalog` with `handler`, instead of the scripted pages.
+    pub fn on_catalog(
+        &self,
+        handler: impl Fn(HostId, &CatalogQuery, Timestamp) -> Result<CatalogPageData, LinkError>
+        + Send
+        + Sync
+        + 'static,
+    ) {
+        self.catalogue.on_page(std::sync::Arc::new(handler));
+    }
+
+    /// Every catalogue page requested so far, oldest first.
+    #[must_use]
+    pub fn catalog_calls(&self) -> Vec<(HostId, CatalogQuery)> {
+        self.catalogue.calls()
     }
 
     /// Sets what a host's agent said about its machine, as a handshake would.
@@ -304,193 +343,6 @@ impl Default for FakeAgentLink {
 
 fn no_handler() -> LinkError {
     LinkError::Rejected("no handler registered".to_owned())
-}
-
-#[async_trait]
-impl AgentLink for FakeAgentLink {
-    async fn run_tool(
-        &self,
-        host: HostId,
-        call: ReadToolCall,
-        deadline: Timestamp,
-    ) -> Result<ToolOutput, LinkError> {
-        lock(&self.requests).push(LinkRequest::Tool {
-            host,
-            call: call.clone(),
-            deadline,
-        });
-        self.connected(host)?;
-        let handlers = lock(&self.handlers);
-        let handler = handlers.tool.as_ref().ok_or_else(no_handler)?;
-        handler(host, &call)
-    }
-
-    async fn start_skill(
-        &self,
-        host: HostId,
-        req: SkillDispatch,
-        expected_session: AgentSessionId,
-        expected_epoch: JournalEpoch,
-        deadline: Timestamp,
-    ) -> Result<SkillHandoff, LinkError> {
-        self.connected(host)?;
-        if let Some(error) = lock(&self.handoff_failure).take() {
-            return Err(error);
-        }
-        let gate = lock(&self.handoff_gate).clone();
-        if let Some(gate) = gate {
-            let _permit = gate
-                .acquire_owned()
-                .await
-                .map_err(|_| LinkError::NotConnected)?;
-        }
-        if self.session_id(host) != expected_session
-            || self.journal_epoch(host) != Some(expected_epoch)
-        {
-            return Err(LinkError::SessionChanged);
-        }
-        lock(&self.requests).push(LinkRequest::Skill {
-            host,
-            dispatch: req.clone(),
-            deadline,
-        });
-        let id = domovoi_core::RequestId::new();
-        lock(&self.sent_skills).insert(id, req);
-        Ok(SkillHandoff::new(id))
-    }
-
-    async fn skill_result(
-        &self,
-        host: HostId,
-        handoff: SkillHandoff,
-        _deadline: Timestamp,
-    ) -> Result<SkillOutput, LinkError> {
-        let Some(req) = lock(&self.sent_skills).remove(&handoff.request()) else {
-            return Err(LinkError::Indeterminate(
-                "no skill request was handed over".to_owned(),
-            ));
-        };
-        self.connected(host)?;
-        let handlers = lock(&self.handlers);
-        let handler = handlers.skill.as_ref().ok_or_else(no_handler)?;
-        handler(host, &req)
-    }
-
-    async fn run_check(
-        &self,
-        host: HostId,
-        check: CheckKey,
-        target: Option<TargetKey>,
-        deadline: Timestamp,
-    ) -> Result<CheckRecheck, LinkError> {
-        lock(&self.requests).push(LinkRequest::Check {
-            host,
-            check: check.clone(),
-            target: target.clone(),
-            deadline,
-        });
-        self.connected(host)?;
-        let handlers = lock(&self.handlers);
-        let handler = handlers.check.as_ref().ok_or_else(no_handler)?;
-        handler(host, &check, target.as_ref())
-    }
-
-    fn presence(&self, host: HostId) -> Presence {
-        lock(&self.presence)
-            .get(&host)
-            .cloned()
-            .unwrap_or(Presence::Disconnected { last_seen: None })
-    }
-
-    async fn availability(&self, host: HostId) -> HostAvailability {
-        let hold = lock(&self.avail_gates).get(&host).map(|hold| {
-            hold.entered.notify_one();
-            hold.gate.clone()
-        });
-        if let Some(gate) = hold {
-            // `HostAvailability` has no error channel, so a closed gate leaves the
-            // scripted state to answer as it would; tests keep the gate open.
-            let _held = gate.acquire_owned().await;
-        }
-        if let Some(scripted) = lock(&self.availability).get(&host).cloned() {
-            return scripted;
-        }
-        // The trait's default, spelled out because calling it here would recurse.
-        match self.presence(host) {
-            Presence::Connected { since, .. } => HostAvailability::Known { since },
-            Presence::Disconnected {
-                last_seen: Some(since),
-            } => HostAvailability::Absent { since },
-            Presence::Disconnected { last_seen: None } => HostAvailability::Unknown,
-        }
-    }
-
-    fn journal_epoch(&self, host: HostId) -> Option<JournalEpoch> {
-        lock(&self.epochs).get(&host).copied()
-    }
-
-    fn snapshot(&self, host: HostId) -> Option<AgentSnapshot> {
-        self.snapshot_calls
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        if let Some(scripted) = lock(&self.scripted_snapshots).pop_front() {
-            return scripted;
-        }
-        match self.presence(host) {
-            Presence::Connected { .. } => Some(AgentSnapshot {
-                session: self.session_id(host),
-                agent: self.agent_id(host),
-                journal_epoch: self.journal_epoch(host).unwrap_or_default(),
-                skills: self.skills(host),
-            }),
-            Presence::Disconnected { .. } => None,
-        }
-    }
-
-    async fn action_status(
-        &self,
-        host: HostId,
-        ids: Vec<ActionId>,
-        expected_epoch: JournalEpoch,
-        deadline: Timestamp,
-    ) -> Result<ActionAnswers, LinkError> {
-        lock(&self.requests).push(LinkRequest::Status {
-            host,
-            ids: ids.clone(),
-            expected_epoch,
-            deadline,
-        });
-        self.connected(host)?;
-        let gate = lock(&self.status_gates).get(&host).cloned();
-        if let Some(gate) = gate {
-            let _permit = gate
-                .acquire_owned()
-                .await
-                .map_err(|_| LinkError::NotConnected)?;
-        }
-        if let Some(handler) = lock(&self.status).clone() {
-            return handler(host, &ids, expected_epoch);
-        }
-        let scripted = lock(&self.answers);
-        let host_answers = scripted.get(&host);
-        let answers = ids
-            .into_iter()
-            .map(|id| ActionAnswerEntry {
-                execution: id,
-                answer: host_answers
-                    .and_then(|known| known.get(&id))
-                    .cloned()
-                    .unwrap_or(ActionAnswer::NotFound),
-            })
-            .collect();
-        Ok(ActionAnswers {
-            epoch: expected_epoch,
-            answers,
-        })
-    }
-
-    fn skills(&self, host: HostId) -> Vec<SkillSummary> {
-        lock(&self.skills).get(&host).cloned().unwrap_or_default()
-    }
 }
 
 #[cfg(test)]

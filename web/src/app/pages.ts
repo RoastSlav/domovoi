@@ -38,4 +38,7 @@ export const PAGES = {
   rules: page(() => import("../features/rules/RulesPage").then((m) => m.RulesPage)),
   settings: page(() => import("../features/settings/SettingsPage").then((m) => m.SettingsPage)),
   skills: page(() => import("../features/skills/SkillsPage").then((m) => m.SkillsPage)),
+  capabilities: page(() =>
+    import("../features/capabilities/CapabilitiesPage").then((m) => m.CapabilitiesPage),
+  ),
 } satisfies Record<string, LazyPage>;

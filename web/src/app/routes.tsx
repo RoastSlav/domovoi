@@ -73,6 +73,7 @@ export function AppRoutes() {
             <Route path="/hosts" element={<PAGES.hosts.Page />} />
             <Route path="/hosts/:name" element={<PAGES.host.Page />} />
             <Route path="/skills" element={<PAGES.skills.Page />} />
+            <Route path="/capabilities" element={<PAGES.capabilities.Page />} />
             <Route path="/notes" element={<PAGES.notes.Page />} />
             <Route path="/notes/:id" element={<PAGES.note.Page />} />
             <Route path="/digest" element={<PAGES.digest.Page />} />
