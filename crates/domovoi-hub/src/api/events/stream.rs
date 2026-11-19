@@ -82,6 +82,14 @@ impl Machine {
         }
         if head > self.cursor {
             let rows = self.feed.entries_after(self.cursor, BATCH_ROWS).await?;
+            // Retention may have pruned between the floor check and the read; a batch that
+            // starts past deleted rows must not be sent as if it were complete.
+            let floor_after = self.feed.floor_seq().await?;
+            if self.cursor < floor_after {
+                let head = self.feed.head_seq().await?;
+                self.reset("pruned", head);
+                return Ok(());
+            }
             if rows.is_empty() {
                 self.cursor = head;
             }
@@ -139,5 +147,98 @@ mod tests {
         assert_eq!(reset_reason(11, 10, 3), Some("ahead"));
         assert_eq!(reset_reason(0, LAG_LIMIT_ROWS + 1, 0), Some("lagged"));
         assert_eq!(reset_reason(1, LAG_LIMIT_ROWS + 1, 0), None);
+    }
+
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    use async_trait::async_trait;
+    use domovoi_core::ports::{
+        AggregateRef, JournalDraft, JournalEntry, JournalKind, JournalRead, StoreError,
+        Transaction, UnitOfWork,
+    };
+    use domovoi_core::{Actor, IncidentId};
+    use domovoi_testkit::{FakeClock, InMemoryStore};
+
+    /// A feed that prunes the journal while a batch is being read.
+    struct PrunesDuringRead {
+        store: Arc<InMemoryStore>,
+        armed: AtomicBool,
+    }
+
+    #[async_trait]
+    impl JournalRead for PrunesDuringRead {
+        async fn entries_after(
+            &self,
+            after: u64,
+            limit: u16,
+        ) -> Result<Vec<JournalEntry>, StoreError> {
+            let rows = self.store.entries_after(after, limit).await?;
+            if self.armed.swap(false, Ordering::SeqCst) {
+                self.store.prune_journal_through(after + 3);
+            }
+            Ok(rows)
+        }
+        async fn entries_for(
+            &self,
+            a: &AggregateRef,
+            limit: u16,
+        ) -> Result<Vec<JournalEntry>, StoreError> {
+            self.store.entries_for(a, limit).await
+        }
+        async fn head_seq(&self) -> Result<u64, StoreError> {
+            self.store.head_seq().await
+        }
+    }
+
+    #[async_trait]
+    impl JournalFeed for PrunesDuringRead {
+        async fn floor_seq(&self) -> Result<u64, StoreError> {
+            self.store.floor_seq().await
+        }
+        async fn wait_after(&self, seq: u64) {
+            self.store.wait_after(seq).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn pruning_between_the_floor_check_and_the_read_resets_instead_of_losing_rows() {
+        let store = Arc::new(InMemoryStore::new());
+        let mut tx = Transaction::new();
+        for _ in 0..10 {
+            tx = tx.journal(JournalDraft {
+                aggregate: AggregateRef::incident(IncidentId::new()),
+                kind: JournalKind::IncidentTimeline,
+                payload_v: 1,
+                payload: serde_json::json!({"kind": "k", "summary": "s"}),
+                actor: Actor::System("test".to_owned()),
+                occurred_at: Timestamp::UNIX_EPOCH,
+            });
+        }
+        store.commit(tx).await.unwrap();
+        let feed = Arc::new(PrunesDuringRead {
+            store: store.clone(),
+            armed: AtomicBool::new(true),
+        });
+        let open = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mut machine = Machine {
+            feed,
+            clock: Arc::new(FakeClock::new(Timestamp::UNIX_EPOCH)),
+            redactor: Arc::new(domovoi_engine::PatternRedactor::default()),
+            topics: TopicSet::default_set(),
+            resume: Some(2),
+            started: true,
+            cursor: 2,
+            pending: VecDeque::new(),
+            last_send: Timestamp::UNIX_EPOCH,
+            _guard: StreamGuard::acquire(&open).unwrap(),
+        };
+        machine.advance().await.unwrap();
+        let frames: Vec<String> = machine.pending.iter().map(|e| format!("{e:?}")).collect();
+        assert_eq!(frames.len(), 1, "{frames:?}");
+        assert!(
+            frames[0].contains("reset") && frames[0].contains("pruned"),
+            "{frames:?}"
+        );
+        assert_eq!(machine.cursor, 10);
     }
 }

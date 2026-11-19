@@ -37,6 +37,8 @@ mod gates;
 #[cfg(test)]
 mod harness;
 #[cfg(test)]
+mod journal_parity;
+#[cfg(test)]
 mod limits;
 #[cfg(test)]
 mod liveness;
