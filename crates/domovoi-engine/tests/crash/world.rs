@@ -9,8 +9,8 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use domovoi_core::ports::{
-    ActionFilter, ActionRepo, AdvisoryRepo, AgentLink, CheckRecheck, Clock, EffectQueue,
-    EffectRead, EffectStatus, HostReconciler, HostRepo, IncidentFilter, IncidentRepo,
+    ActionFilter, ActionRepo, AdvisoryRepo, AgentLink, AggregateKind, CheckRecheck, Clock,
+    EffectQueue, EffectRead, EffectStatus, HostReconciler, HostRepo, IncidentFilter, IncidentRepo,
     OperationRepo, Page, Presence, SkillOutput,
 };
 use domovoi_core::{
@@ -469,6 +469,72 @@ impl<S: SweepStore> World<S> {
         panic!("the services never went quiet");
     }
 
+    /// Waits until the operation service has nothing left to do at the current fake time: no
+    /// operation effect is claimed, and none is pending and due. Time does not move, so an
+    /// effect that is only due later (a wake, a verification) is not waited for.
+    ///
+    /// The scenario calls it after every step. Without it a handler runs beside the next step
+    /// and its commits land before or after the step's own depending on the scheduler, which
+    /// changes the commit sequence from one run to the next. Waiting for quiet makes the
+    /// sequence a function of the scenario alone.
+    ///
+    /// Returns at once when the process is down: a claimed effect then stays claimed for ever.
+    /// Ten quiet rounds in a row are needed, so a runner between a claim and its handler is
+    /// not mistaken for an idle one, and a run still out with its agent counts as work; each round reads the store, which takes as long as the
+    /// store takes.
+    pub async fn operations_quiet(&self)
+    where
+        S: OperationRepo,
+    {
+        let mut quiet = 0;
+        for _ in 0..5_000 {
+            if self.crashing.crashed() {
+                return;
+            }
+            for _ in 0..20 {
+                tokio::task::yield_now().await;
+            }
+            quiet = if self.operation_effects_busy().await {
+                0
+            } else {
+                quiet + 1
+            };
+            if quiet >= 10 {
+                return;
+            }
+        }
+        panic!("the operation service never went quiet");
+    }
+
+    /// Whether an operation effect is claimed or pending and due now, or a run is out with its
+    /// agent. A run has no effect of its own while it is out: the dispatch commit completes the
+    /// dispatch effect, and the commit that records the run's answer comes later from the
+    /// handler that is still waiting for it.
+    async fn operation_effects_busy(&self) -> bool
+    where
+        S: OperationRepo,
+    {
+        match OperationRepo::dispatched_on(&*self.store, host_id()).await {
+            Ok(running) if running.is_empty() => {}
+            _ => return true,
+        }
+        let now = self.now();
+        // Pending first: an effect that moves from pending to claimed between the two reads is
+        // then seen by the second one.
+        for status in [EffectStatus::Pending, EffectStatus::Claimed] {
+            let Ok(rows) = EffectRead::effects_with_status(&*self.store, status, 500).await else {
+                return true;
+            };
+            if rows.iter().any(|row| {
+                row.aggregate.kind == AggregateKind::Operation
+                    && (status == EffectStatus::Claimed || row.not_before <= now)
+            }) {
+                return true;
+            }
+        }
+        false
+    }
+
     /// Whether a verification is still to come: a wake effect that is claimed now, or due to
     /// be claimed. The verdict it writes is a later commit, so services are not quiet yet.
     async fn verification_pending(&self) -> bool {
@@ -637,8 +703,7 @@ impl<S: SweepStore> World<S> {
         Err("the verdict was never stored".to_owned())
     }
 
-    /// Stops the services and waits for their tasks with the fake clock only: no real
-    /// sleeps, at most 10 000 yields.
+    /// Stops the services and waits for their tasks to finish.
     pub async fn shutdown(mut self) {
         self.shutdown.cancel();
         join(self.manager_task.take()).await;
@@ -770,19 +835,16 @@ impl<S: SweepStore> World<S> {
     }
 }
 
-/// Waits for a service task without sleeping: a yield loop, at most 10 000 times.
+/// Waits for a service task to finish. The shutdown token is already cancelled, so the task
+/// ends once the commit it may be in the middle of has landed; how long that takes depends on
+/// the store and the machine, so a count of yields cannot bound it. The real-time limit only
+/// turns a task that never stops into a failure instead of a hang.
 async fn join(task: Option<JoinHandle<()>>) {
     let Some(task) = task else {
         return;
     };
-    for _ in 0..10_000 {
-        if task.is_finished() {
-            let _ = task.await;
-            return;
-        }
-        tokio::task::yield_now().await;
-    }
-    panic!("services did not stop");
+    let stopped = tokio::time::timeout(std::time::Duration::from_secs(60), task).await;
+    assert!(stopped.is_ok(), "services did not stop");
 }
 
 /// Scripts the agent: connected, announcing every skill, restarting containers and resolving

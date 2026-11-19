@@ -3,7 +3,8 @@
 //! commit.
 //!
 //! Like the other scenarios it is deterministic: the clock only moves when a step moves it,
-//! and every step is awaited before the next one starts.
+//! and every step is awaited, and the operation service allowed to go quiet, before the next
+//! one starts.
 
 use std::collections::BTreeMap;
 
@@ -25,7 +26,10 @@ use super::world::{World, host_id, operation_seed};
 macro_rules! step {
     ($world:expr, $name:expr, $e:expr) => {
         match $e.await {
-            Ok(value) => value,
+            Ok(value) => {
+                $world.operations_quiet().await;
+                value
+            }
             Err(err) => {
                 if !$world.crashing.crashed() {
                     panic!("{}: a step failed before any crash: {err}", $name);
