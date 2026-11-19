@@ -35,6 +35,9 @@ pub struct CatalogueCache {
     clock: Arc<dyn Clock>,
     contracts: Arc<ContractIndex>,
     snapshots: Mutex<BTreeMap<HostId, CatalogSnapshot>>,
+    /// One walk gate per host, so concurrent queries share one walk instead of repeating it.
+    /// A host's gate never blocks another host's.
+    walks: Mutex<BTreeMap<HostId, Arc<tokio::sync::Mutex<()>>>>,
 }
 
 impl CatalogueCache {
@@ -49,6 +52,7 @@ impl CatalogueCache {
             clock,
             contracts,
             snapshots: Mutex::new(BTreeMap::new()),
+            walks: Mutex::new(BTreeMap::new()),
         }
     }
 
@@ -56,25 +60,55 @@ impl CatalogueCache {
     ///
     /// A cached snapshot is served only when it is `Complete` and the agent still announces
     /// the hash it was walked under. Anything else walks again, because a list read under
-    /// another hash says nothing about the list the agent runs now.
+    /// another hash says nothing about the list the agent runs now. Concurrent callers for
+    /// one host share a single walk: the first holds the host's gate, and a waiter re-reads
+    /// the cache before deciding to walk.
     pub async fn catalog(&self, host: HostId) -> CatalogSnapshot {
+        if let Some(served) = self.served(host) {
+            return served;
+        }
+        let gate = self.gate(host);
+        let _walking = gate.lock().await;
+        // The caller this one waited for may have finished the walk for this hash.
+        if let Some(served) = self.served(host) {
+            return served;
+        }
         let announced = self.agent.catalog_hash(host);
         let cached = self.lock().get(&host).cloned();
         let Some(announced) = announced.as_deref().filter(|text| is_hash(text)) else {
             // Nothing announced, or nothing readable: no walk could prove a list against
             // it, so the entries are kept and the state says they are unverified.
             let gap = unannounced_gap(announced.as_deref());
-            return self.unverified(host, cached.as_ref(), gap);
+            let unverified = self.unverified(host, cached.as_ref(), gap);
+            self.lock().insert(host, unverified.clone());
+            return unverified;
         };
         let announced = announced.to_owned();
-        if let Some(cached) = cached.as_ref()
-            && matches!(&cached.state, CatalogueState::Complete { hash } if *hash == announced)
-        {
-            return cached.clone();
-        }
         let walked = self.walk(host, announced).await;
         self.lock().insert(host, walked.clone());
         walked
+    }
+
+    /// The snapshot that answers `host` without walking, when the agent still announces the
+    /// hash it was walked under.
+    fn served(&self, host: HostId) -> Option<CatalogSnapshot> {
+        let announced = self.agent.catalog_hash(host);
+        let announced = announced.as_deref().filter(|text| is_hash(text))?;
+        let cached = self.lock().get(&host).cloned()?;
+        match &cached.state {
+            CatalogueState::Complete { hash } if hash == announced => Some(cached),
+            _ => None,
+        }
+    }
+
+    /// The walk gate of one host.
+    fn gate(&self, host: HostId) -> Arc<tokio::sync::Mutex<()>> {
+        self.walks
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .entry(host)
+            .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+            .clone()
     }
 
     /// The cached snapshot for `host`, marked `Stale` when the announced hash moved on.
