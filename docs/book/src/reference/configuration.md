@@ -199,7 +199,7 @@ The operation service: durable multi-step work with approvals. Off by default.
 | --- | --- | --- |
 | `agent_wait_limit` | duration | How long an approved action waits for its host's agent to come back. Default `"30m"`. |
 | `approval_ttl` | duration | How long a proposed action waits for a person to approve it. At most `"7d"`. Default `"24h"`. |
-| `enabled` | boolean | Run investigations as operations: new incidents are investigated by an Investigate operation and its proposed actions are approved per step on the Operations page. Needs `[triage] enabled`. Read once at start, so changing it needs a restart. Default `false`. |
+| `enabled` | boolean | Investigate new incidents as operations and approve proposed actions per step on the Operations page. Default true. Set to false to switch off automatic investigation (alert cards still go out) and the operation service; follow-up questions, chat and any old pending actions keep working. Read once at start; changing it needs a restart. |
 | `loop_guard_per_hour` | integer | Runs of one skill on one host allowed per hour before the loop guard refuses the next. Default 3. |
 | `max_running` | integer | Operations that may be running, waiting or paused at once; the rest queue. Default 4. |
 | `question_timeout` | duration | How long a question waits for an answer. Default `"24h"`. |
@@ -262,7 +262,7 @@ Automatic triage of new incidents.
 | --- | --- | --- |
 | `cache_days` | integer | Days a triage report is reused for the same evidence. Default 7. |
 | `concurrency` | integer | Triage runs at the same time, and questions and chat at the same time. With `[orchestration] enabled` investigations are limited by `[orchestration] max_running` instead. Default 2. |
-| `enabled` | boolean | Whether new incidents are triaged automatically. Default `false`. |
+| `enabled` | boolean | Whether new incidents are triaged automatically. Automatic investigation also needs `[orchestration] enabled`. Default `false`. |
 | `monthly_budget_usd` | number | Spending cap per calendar month, in US dollars. Optional. |
 | `per_hour_runs` | integer | Runs started per hour at most. Default 6. |
 | `reserved_for_incidents` | integer | Runs the hour always keeps free for triage: questions and chat may not use these last runs of the hour. When set it must be less than `per_hour_runs`. When omitted it is 2, or one fewer than `per_hour_runs` when that is smaller. Ignored when `per_hour_runs` is 0. |

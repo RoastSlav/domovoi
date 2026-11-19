@@ -27,7 +27,6 @@ pub(super) struct TriageBuild<'a> {
     pub(super) executor: Option<Arc<dyn ProcessExecutor>>,
     pub(super) shutdown: &'a CancellationToken,
     pub(super) overrides: &'a AdapterOverrides,
-    pub(super) actions: domovoi_engine::ActionHandle,
 }
 
 /// Starts triage when it is enabled, with the primary provider and every fallback the
@@ -48,7 +47,6 @@ pub(super) async fn build(
         executor,
         shutdown,
         overrides,
-        actions,
     } = input;
     if !config.triage.enabled {
         return Ok((None, None));
@@ -98,7 +96,6 @@ pub(super) async fn build(
             notes: store.clone(),
             hosts: store.clone(),
             actions: store.clone(),
-            actions_service: actions,
             cache: store.clone(),
             usage: store.clone(),
             admission: store.clone(),

@@ -618,7 +618,7 @@ expression: "HubConfig::json_schema()"
       "additionalProperties": false
     },
     "OrchestrationSection": {
-      "description": "`[orchestration]`: durable operations that wait for a person, dispatch skills and verify\nthe result. Off by default; while it is off the operation service does not start and\nnothing else changes.",
+      "description": "`[orchestration]`: durable operations that wait for a person, dispatch skills and verify\nthe result. On by default; switching it off stops the operation service and automatic\ninvestigation.",
       "type": "object",
       "properties": {
         "agent_wait_limit": {
@@ -634,9 +634,9 @@ expression: "HubConfig::json_schema()"
           "$ref": "#/$defs/OrchestrationBudgets"
         },
         "enabled": {
-          "description": "Run investigations as operations: new incidents are investigated by an Investigate\noperation and its proposed actions are approved per step on the Operations page.\nNeeds `[triage] enabled`. Read once at start, so changing it needs a restart.\nDefault `false`.",
+          "description": "Investigate new incidents as operations and approve proposed actions per step on the\nOperations page. Default true. Set to false to switch off automatic investigation\n(alert cards still go out) and the operation service; follow-up questions, chat and\nany old pending actions keep working. Read once at start; changing it needs a\nrestart.",
           "type": "boolean",
-          "default": false
+          "default": true
         },
         "loop_guard_per_hour": {
           "description": "Runs of one skill on one host allowed per hour before the loop guard refuses the\nnext. Default 3.",
@@ -956,7 +956,7 @@ expression: "HubConfig::json_schema()"
           "minimum": 0
         },
         "enabled": {
-          "description": "Whether new incidents are triaged automatically. Default `false`.",
+          "description": "Whether new incidents are triaged automatically. Automatic investigation also needs\n`[orchestration] enabled`. Default `false`.",
           "type": "boolean",
           "default": false
         },

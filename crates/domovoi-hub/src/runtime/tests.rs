@@ -722,7 +722,25 @@ async fn shutdown_completes_within_15_seconds_with_inflight_triage() {
             .status(),
         StatusCode::ACCEPTED
     );
-    guard(started.notified()).await;
+    // The investigation's effects run against the fake clock, so it moves while the model
+    // call is awaited.
+    let begun = started.notified();
+    tokio::pin!(begun);
+    guard(async {
+        loop {
+            tokio::select! {
+                () = &mut begun => break,
+                () = async {
+                    harness.clock.advance(SignedDuration::from_secs(1));
+                    for _ in 0..20 {
+                        tokio::task::yield_now().await;
+                    }
+                } => {}
+            }
+        }
+    })
+    .await;
+    let began_at = harness.clock.now();
 
     shutdown.cancel();
     guard(workers.cancelled_owned()).await;
@@ -736,7 +754,7 @@ async fn shutdown_completes_within_15_seconds_with_inflight_triage() {
     let result = guard(running).await.unwrap();
     assert!(result.is_ok(), "shutdown failed: {result:?}");
     assert!(provider.completed());
-    assert!(harness.clock.now() < at("2026-10-31T12:00:15Z"));
+    assert!(harness.clock.now() < began_at + SignedDuration::from_secs(15));
     harness.stop().await;
 }
 

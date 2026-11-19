@@ -17,7 +17,7 @@ use domovoi_engine::operations::{
 };
 use domovoi_engine::triage::{TriageDeps, TriageHandle, TriageService, TriageSettings};
 use domovoi_engine::{
-    ActionDeps, ActionHandle, ActionService, ActionSettings, DomainEvent, EnginePolicy, EventKind,
+    ActionDeps, ActionService, ActionSettings, DomainEvent, EnginePolicy, EventKind,
     IncidentManager, ManagerDeps,
 };
 use domovoi_engine::{ManagerHandle, PatternRedactor};
@@ -38,20 +38,8 @@ pub fn host_id() -> HostId {
     HostId::from_uuid(Uuid::from_u128(0x0190_0000_0000_7000_8000_0000_0000_0001))
 }
 
-/// Which path triages an incident: the queue's direct run, or an investigation operation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Mode {
-    /// `TriageHandle::triage`: a run that stores `ActionRequest`s.
-    Legacy,
-    /// `OperationHandle::investigate_and_wait`: an Investigate operation that stores
-    /// Execution steps. The world has no queue.
-    Operations,
-}
-
 /// How a world is built.
 pub struct Setup {
-    /// The path `World::run` takes; `Operations` also starts an operation service.
-    pub mode: Mode,
     pub settings: TriageSettings,
     pub secondary: bool,
     pub third: bool,
@@ -70,7 +58,6 @@ pub struct Setup {
 impl Default for Setup {
     fn default() -> Self {
         Self {
-            mode: Mode::Legacy,
             settings: TriageSettings::default(),
             secondary: false,
             third: false,
@@ -109,15 +96,14 @@ pub struct World {
     pub bus: broadcast::Sender<DomainEvent>,
     pub incident: Incident,
     pub shutdown: CancellationToken,
-    /// The operation service, in `Mode::Operations`.
-    pub ops: Option<OperationHandle>,
-    /// The triage service's task, which ends when `shutdown` fires.
-    pub triage_task: Option<tokio::task::JoinHandle<()>>,
+    /// Stops the triage and operation services that started with the world.
+    services: CancellationToken,
+    /// The operation service that investigates the world's incidents.
+    pub ops: OperationHandle,
     /// What the running triage service was built from, so a restart can rebuild it.
     primary_dyn: Arc<dyn LlmProvider>,
     fallbacks: Vec<Arc<dyn LlmProvider>>,
     settings: TriageSettings,
-    actions_service: ActionHandle,
     redactor: Arc<PatternRedactor>,
     usage: Arc<dyn domovoi_core::ports::UsageRepo>,
     admission: Arc<dyn domovoi_core::ports::AdmissionRepo>,
@@ -167,16 +153,6 @@ pub async fn world(setup: Setup) -> World {
         None => InMemoryStore::new(),
     });
     world_over(setup, store.clone(), store).await
-}
-
-/// A world whose action repository is `actions` for both the writer and triage, so a test
-/// can change an action between triage's listing and the writer's rotation.
-pub async fn world_with_actions(
-    setup: Setup,
-    store: Arc<InMemoryStore>,
-    actions: Arc<dyn ActionRepo>,
-) -> World {
-    world_over_with_actions(setup, store.clone(), store, actions).await
 }
 
 /// A world whose stores `uow` commits the action service's writes, so a test can watch
@@ -279,7 +255,7 @@ async fn world_over_with_actions(
         (true, true) => vec![secondary_dyn, third_dyn],
     };
     let caps = action_caps(link.clone());
-    let (actions_service, _actions_task) = ActionService::spawn(
+    let (_actions_service, _actions_task) = ActionService::spawn(
         ActionDeps {
             actions: actions.clone(),
             incidents: store.clone(),
@@ -307,6 +283,8 @@ async fn world_over_with_actions(
     let capabilities = Arc::new(domovoi_testkit::FakeCapabilityRegistry::following(
         link.clone(),
     ));
+    // The triage and operation services stop on their own token, so a restart can end them.
+    let services = shutdown.child_token();
     let deps = TriageDeps {
         primary: primary_dyn.clone(),
         fallbacks: fallbacks.clone(),
@@ -322,7 +300,6 @@ async fn world_over_with_actions(
         notes: store.clone(),
         hosts: store.clone(),
         actions,
-        actions_service: actions_service.clone(),
         cache: store.clone(),
         usage: setup.usage.clone().unwrap_or_else(|| store.clone()),
         admission: setup.admission.clone().unwrap_or_else(|| store.clone()),
@@ -331,52 +308,13 @@ async fn world_over_with_actions(
         clock: clock.clone(),
         manager: manager.clone(),
         bus: bus.clone(),
-        shutdown: shutdown.clone(),
+        shutdown: services.clone(),
     };
     let usage = deps.usage.clone();
     let admission = deps.admission.clone();
-    let settings = TriageSettings {
-        run_queue: setup.settings.run_queue && setup.mode == Mode::Legacy,
-        ..setup.settings
-    };
-    let (triage, triage_task) = TriageService::spawn(deps, settings);
-    let ops = (setup.mode == Mode::Operations).then(|| {
-        let ports = action_caps(link.clone());
-        let registry = Arc::new(domovoi_testkit::FakeCapabilityRegistry::following(
-            link.clone(),
-        ));
-        let (handle, _task) = OperationService::spawn(
-            OperationDeps {
-                bus: tokio::sync::broadcast::channel(16).0,
-                operations: store.clone(),
-                uow: store.clone(),
-                effects: store.clone(),
-                effect_read: store.clone(),
-                advisories: store.clone(),
-                incidents: store.clone(),
-                hosts: store.clone(),
-                evidence: domovoi_engine::Evidence::new(
-                    evidence_caps(link.clone()),
-                    clock.clone(),
-                    registry.clone(),
-                ),
-                registry,
-                resolver: Arc::new(domovoi_testkit::FakeTargetResolver::new()),
-                observer: observer_of(link.clone()),
-                journal: ports.journal,
-                handoff: ports.handoff,
-                rerun: ports.rerun,
-                redactor: redactor.clone(),
-                clock: clock.clone(),
-                shutdown: shutdown.clone(),
-                investigate: Some(InvestigateDeps {
-                    triage: triage.clone(),
-                }),
-            },
-            OperationSettings::default(),
-        );
-        handle
-    });
+    let settings = setup.settings;
+    let (triage, _triage_task) = TriageService::spawn(deps, settings);
+    let ops = spawn_ops(&link, &store, &clock, &redactor, &services, triage.clone());
     // Give the spawned service the scheduler before handing the world over: its start-up
     // pass reads the store once, and a world whose incidents are created afterwards must
     // not have them swept up by a pass that runs in the middle of the test. The in-memory
@@ -398,22 +336,67 @@ async fn world_over_with_actions(
         bus,
         incident,
         shutdown,
+        services,
         ops,
-        triage_task: Some(triage_task),
         primary_dyn,
         fallbacks,
         settings,
-        actions_service,
         redactor,
         usage,
         admission,
     }
 }
 
+/// An operation service that investigates through `triage`, over the world's fakes.
+fn spawn_ops(
+    link: &Arc<FakeAgentLink>,
+    store: &Arc<InMemoryStore>,
+    clock: &Arc<FakeClock>,
+    redactor: &Arc<PatternRedactor>,
+    shutdown: &CancellationToken,
+    triage: TriageHandle,
+) -> OperationHandle {
+    let ports = action_caps(link.clone());
+    let registry = Arc::new(domovoi_testkit::FakeCapabilityRegistry::following(
+        link.clone(),
+    ));
+    let (handle, _task) = OperationService::spawn(
+        OperationDeps {
+            bus: tokio::sync::broadcast::channel(16).0,
+            operations: store.clone(),
+            uow: store.clone(),
+            effects: store.clone(),
+            effect_read: store.clone(),
+            advisories: store.clone(),
+            incidents: store.clone(),
+            hosts: store.clone(),
+            evidence: domovoi_engine::Evidence::new(
+                evidence_caps(link.clone()),
+                clock.clone(),
+                registry.clone(),
+            ),
+            registry,
+            resolver: Arc::new(domovoi_testkit::FakeTargetResolver::new()),
+            observer: observer_of(link.clone()),
+            journal: ports.journal,
+            handoff: ports.handoff,
+            rerun: ports.rerun,
+            redactor: redactor.clone(),
+            clock: clock.clone(),
+            shutdown: shutdown.clone(),
+            investigate: Some(InvestigateDeps { triage }),
+        },
+        OperationSettings::default(),
+    );
+    handle
+}
+
 impl World {
-    /// A second triage service over the same store and clock, as a hub restart builds.
-    /// The old handle keeps running until the world is dropped.
-    pub fn restart_triage(&self) -> TriageHandle {
+    /// A second triage and operation service over the same store and clock, as a hub restart
+    /// builds: the first services stop, so no two effect runners share the store.
+    pub fn restart_triage(&self) -> OperationHandle {
+        self.services.cancel();
+        let services = self.shutdown.child_token();
         let deps = TriageDeps {
             primary: self.primary_dyn.clone(),
             fallbacks: self.fallbacks.clone(),
@@ -433,7 +416,6 @@ impl World {
             notes: self.store.clone(),
             hosts: self.store.clone(),
             actions: self.store.clone(),
-            actions_service: self.actions_service.clone(),
             cache: self.store.clone(),
             usage: self.usage.clone(),
             admission: self.admission.clone(),
@@ -442,10 +424,17 @@ impl World {
             clock: self.clock.clone(),
             manager: self.manager.clone(),
             bus: self.bus.clone(),
-            shutdown: self.shutdown.clone(),
+            shutdown: services.clone(),
         };
         let (triage, _task) = TriageService::spawn(deps, self.settings);
-        triage
+        spawn_ops(
+            &self.link,
+            &self.store,
+            &self.clock,
+            &self.redactor,
+            &services,
+            triage,
+        )
     }
 
     /// Adds a newer signal with `evidence`, one second later.

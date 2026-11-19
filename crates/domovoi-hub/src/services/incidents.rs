@@ -36,6 +36,8 @@ pub enum Retriaged {
 pub enum RetriageError {
     /// Triage is not enabled.
     TriageOff,
+    /// Investigations are not enabled (`[orchestration] enabled = false`).
+    OperationsOff,
     /// An investigation of this incident is already running.
     AlreadyRunning,
     /// The operation service refused or failed.
@@ -89,30 +91,27 @@ impl IncidentService {
         Ok(triage.follow_up(incident, question, caller.user()).await?)
     }
 
-    /// Triages `incident` again, outside the queue but with the same caps. With operations
-    /// on it investigates as an operation; `fresh` skips a cached report.
+    /// Investigates `incident` again as an operation; `fresh` skips a cached report.
     pub async fn retriage(
         &self,
         caller: &Caller,
         incident: &Incident,
         fresh: bool,
     ) -> Result<Retriaged, RetriageError> {
-        let triage = self.triage.as_ref().ok_or(RetriageError::TriageOff)?;
-        tracing::debug!(user = %caller.user(), incident = %incident.id(), fresh, "retriage");
-        if let Some(operations) = &self.operations {
-            return match operations.investigate_and_wait(incident, fresh).await {
-                Ok(outcome) => Ok(Retriaged::Outcome(Box::new(outcome))),
-                Err(InvestigateError::AlreadyRunning(_)) => Err(RetriageError::AlreadyRunning),
-                Err(InvestigateError::TimedOut(_)) => Ok(Retriaged::StillRunning),
-                Err(InvestigateError::Operation(err)) => Err(RetriageError::Operation(err)),
-            };
+        if self.triage.is_none() {
+            return Err(RetriageError::TriageOff);
         }
-        let outcome = if fresh {
-            triage.retriage(incident).await
-        } else {
-            triage.triage(incident).await
-        };
-        Ok(Retriaged::Outcome(Box::new(outcome)))
+        let operations = self
+            .operations
+            .as_ref()
+            .ok_or(RetriageError::OperationsOff)?;
+        tracing::debug!(user = %caller.user(), incident = %incident.id(), fresh, "retriage");
+        match operations.investigate_and_wait(incident, fresh).await {
+            Ok(outcome) => Ok(Retriaged::Outcome(Box::new(outcome))),
+            Err(InvestigateError::AlreadyRunning(_)) => Err(RetriageError::AlreadyRunning),
+            Err(InvestigateError::TimedOut(_)) => Ok(Retriaged::StillRunning),
+            Err(InvestigateError::Operation(err)) => Err(RetriageError::Operation(err)),
+        }
     }
 }
 

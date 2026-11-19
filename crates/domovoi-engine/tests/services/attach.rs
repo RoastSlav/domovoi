@@ -179,5 +179,4 @@ async fn triage_requested_event_is_queued_triaged_and_attached() {
         1,
         "only the notified request ran"
     );
-    assert_eq!(w.triage.queued(), 0);
 }

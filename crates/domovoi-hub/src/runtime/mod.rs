@@ -284,9 +284,13 @@ impl HubRuntime {
             executor: deps.process_executor,
             shutdown: &worker_shutdown,
             overrides: &overrides,
-            actions: actions_service.clone(),
         })
         .await?;
+        if config.triage.enabled && !config.orchestration.enabled {
+            tracing::warn!(
+                "triage is on but orchestration is off: incidents are not investigated automatically"
+            );
+        }
         let (operations, operations_task) =
             match orchestration::build(orchestration::OperationBuild {
                 config: &config,

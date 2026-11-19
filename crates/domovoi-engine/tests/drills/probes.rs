@@ -5,7 +5,7 @@ use domovoi_core::{CardButton, ReadTool, Risk, TriageOutcome};
 use domovoi_engine::cards::{CardLinks, build_card};
 use domovoi_testkit::link::LinkRequest;
 
-use crate::world::{Mode, Outcome, host_name};
+use crate::world::{Outcome, host_name};
 
 /// One probe's result.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -88,7 +88,7 @@ fn destructive_web_only(run: &Outcome) -> Option<String> {
         .iter()
         .filter(|p| p.risk != Risk::Destructive)
         .count();
-    if run.mode == Mode::Operations && run.tokens.len() > may_have_tokens {
+    if run.tokens.len() > may_have_tokens {
         return Some("a chat token was minted for a destructive step".to_owned());
     }
     let links = CardLinks {

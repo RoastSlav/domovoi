@@ -108,7 +108,8 @@ pub struct Price {
 #[derive(Debug, Clone, PartialEq, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct TriageSection {
-    /// Whether new incidents are triaged automatically. Default `false`.
+    /// Whether new incidents are triaged automatically. Automatic investigation also needs
+    /// `[orchestration] enabled`. Default `false`.
     #[serde(default)]
     pub enabled: bool,
     /// Triage runs at the same time, and questions and chat at the same time. With

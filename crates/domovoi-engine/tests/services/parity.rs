@@ -1,7 +1,5 @@
-//! The queue-free triage run and the investigation operation give the same answers: the
-//! same report, the same limits, the same refusals and the same safety. Each scenario runs
-//! once in each mode and compares what an operator could see. This suite is the launch gate
-//! for removing the queue.
+//! The investigation operation's report, limits, refusals and safety, checked against the
+//! results recorded from the triage queue before it was removed.
 
 use std::fmt::Debug;
 use std::future::Future;
@@ -15,34 +13,26 @@ use domovoi_testkit::link::LinkRequest;
 use serde_json::{Value, json};
 
 use crate::harness::{
-    Mode, SECRET, Setup, World, add_signal, calls, disk, host_id, report, restart_skill,
+    SECRET, Setup, World, add_signal, calls, disk, host_id, report, restart_skill,
     seen as text_seen, world,
 };
 
-/// Both modes, in the order scenarios run them.
-pub const MODES: [Mode; 2] = [Mode::Legacy, Mode::Operations];
-
-/// A setup for `mode` with everything else default.
-pub fn setup(mode: Mode) -> Setup {
-    Setup {
-        mode,
-        ..Setup::default()
-    }
+/// A setup with everything default.
+pub fn setup() -> Setup {
+    Setup::default()
 }
 
-/// Runs `scenario` in both modes and requires equal results.
-pub async fn both<T, F, Fut>(name: &str, scenario: F) -> T
+/// Runs `scenario` and requires its result to equal the snapshot recorded from the path that
+/// ran triage directly before that path was removed.
+pub async fn once<T, F, Fut>(name: &str, scenario: F) -> T
 where
-    T: PartialEq + Debug,
-    F: Fn(Mode) -> Fut,
+    T: Debug,
+    F: Fn() -> Fut,
     Fut: Future<Output = T>,
 {
-    let legacy = scenario(Mode::Legacy).await;
-    // The snapshot is the result recorded from the legacy path before it was removed.
-    insta::assert_debug_snapshot!(name, legacy);
-    let operations = scenario(Mode::Operations).await;
-    assert_eq!(legacy, operations, "the two paths disagree");
-    legacy
+    let result = scenario().await;
+    insta::assert_debug_snapshot!(name, result);
+    result
 }
 
 /// `details` without the sentence an investigation adds while a step waits for a person.
@@ -122,11 +112,7 @@ pub async fn another(w: &World, target: &str) -> Incident {
 }
 
 /// Lets an investigation that has nothing left to do close, so a second one may start.
-/// Does nothing in `Mode::Legacy`.
-pub async fn quiesce(w: &World, mode: Mode, incident: &Incident) {
-    if mode == Mode::Legacy {
-        return;
-    }
+pub async fn quiesce(w: &World, incident: &Incident) {
     for _ in 0..40 {
         let open = w
             .snapshots(incident)
@@ -163,7 +149,7 @@ pub fn tool_requests(w: &World) -> Vec<(HostId, String)> {
 }
 
 #[tokio::test]
-async fn report_fields_are_identical_across_modes() {
+async fn report_fields_match_the_frozen_snapshot() {
     let answer = json!({
         "headline": "nginx keeps restarting",
         "summary": "The container exits a few seconds after start.",
@@ -182,15 +168,15 @@ async fn report_fields_are_identical_across_modes() {
         "details": "The log shows a syntax error on line 12."
     })
     .to_string();
-    let run = |mode: Mode| {
+    let run = || {
         let answer = answer.clone();
         async move {
-            let w = world(setup(mode)).await;
+            let w = world(setup()).await;
             w.link.set_skills(host_id(), vec![restart_skill()]);
             w.primary.push_text(answer);
-            let outcome = w.run(mode).await;
+            let outcome = w.run().await;
             let TriageOutcome::Report(report) = &outcome else {
-                panic!("{mode:?}: {outcome:?}");
+                panic!("{outcome:?}");
             };
             let proposed: Vec<_> = report
                 .proposals
@@ -198,7 +184,7 @@ async fn report_fields_are_identical_across_modes() {
                 .map(|p| (p.skill.clone(), p.args.clone()))
                 .collect();
             let views: Vec<_> = w
-                .proposals(mode, &w.incident)
+                .proposals(&w.incident)
                 .await
                 .into_iter()
                 .map(|p| (p.skill, p.args, p.awaiting_human, p.approved))
@@ -206,7 +192,7 @@ async fn report_fields_are_identical_across_modes() {
             (seen(&w, &outcome).await, proposed, views)
         }
     };
-    let (seen, proposed, views) = both("report_fields", run).await;
+    let (seen, proposed, views) = once("report_fields", run).await;
     assert_eq!(proposed.len(), 1, "only the skill on the host is offered");
     assert_eq!(
         views.len(),
@@ -227,9 +213,9 @@ async fn report_fields_are_identical_across_modes() {
 }
 
 #[tokio::test]
-async fn tool_call_budget_is_enforced_the_same() {
-    let run = |mode: Mode| async move {
-        let w = world(setup(mode)).await;
+async fn tool_call_budget_is_enforced() {
+    let run = || async move {
+        let w = world(setup()).await;
         let ids: Vec<String> = (1..=20).map(|n| format!("c{n}")).collect();
         let list: Vec<(&str, &str, Value)> = ids
             .iter()
@@ -237,7 +223,7 @@ async fn tool_call_budget_is_enforced_the_same() {
             .collect();
         w.primary.push_ok(calls(&list));
         w.primary.push_text(report());
-        let outcome = w.run(mode).await;
+        let outcome = w.run().await;
         assert!(matches!(outcome, TriageOutcome::Report(_)), "{outcome:?}");
         let tools = tool_requests(&w)
             .into_iter()
@@ -245,7 +231,7 @@ async fn tool_call_budget_is_enforced_the_same() {
             .count();
         (seen(&w, &outcome).await, tools)
     };
-    let (seen, docker_ps) = both("tool_call_budget", run).await;
+    let (seen, docker_ps) = once("tool_call_budget", run).await;
     let entry = seen.tools.expect("the tool use is recorded");
     let refused = entry["tools"]
         .as_array()
@@ -260,9 +246,9 @@ async fn tool_call_budget_is_enforced_the_same() {
 }
 
 #[tokio::test]
-async fn output_token_budget_and_deadline_are_enforced_the_same() {
+async fn output_token_budget_and_deadline_are_enforced() {
     // The run's total output budget runs out on the retry.
-    let spent = |mode: Mode| async move {
+    let spent = || async move {
         let settings = TriageSettings {
             budget: TriageBudget {
                 max_tool_calls: 15,
@@ -273,14 +259,13 @@ async fn output_token_budget_and_deadline_are_enforced_the_same() {
             ..TriageSettings::default()
         };
         let w = world(Setup {
-            mode,
             settings,
             ..Setup::default()
         })
         .await;
         w.primary.push_ok(reasoning_only());
         w.primary.push_ok(reasoning_only());
-        let outcome = w.run(mode).await;
+        let outcome = w.run().await;
         let asked: Vec<u32> = w
             .primary
             .requests()
@@ -289,7 +274,7 @@ async fn output_token_budget_and_deadline_are_enforced_the_same() {
             .collect();
         (seen(&w, &outcome).await, asked)
     };
-    let (seen_spent, asked) = both("token_budget_spent", spent).await;
+    let (seen_spent, asked) = once("token_budget_spent", spent).await;
     assert_eq!(
         asked,
         [2000, 500],
@@ -303,7 +288,7 @@ async fn output_token_budget_and_deadline_are_enforced_the_same() {
     );
 
     // A deadline that has already passed sends no request.
-    let late = |mode: Mode| async move {
+    let late = || async move {
         let settings = TriageSettings {
             budget: TriageBudget {
                 max_seconds: 0,
@@ -312,15 +297,14 @@ async fn output_token_budget_and_deadline_are_enforced_the_same() {
             ..TriageSettings::default()
         };
         let w = world(Setup {
-            mode,
             settings,
             ..Setup::default()
         })
         .await;
-        let outcome = w.run(mode).await;
+        let outcome = w.run().await;
         seen(&w, &outcome).await
     };
-    let seen_late = both("token_budget_late", late).await;
+    let seen_late = once("token_budget_late", late).await;
     assert_eq!(seen_late.model_requests, 0);
     assert!(
         seen_late.shape["failed"]
@@ -331,12 +315,12 @@ async fn output_token_budget_and_deadline_are_enforced_the_same() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_slow_model_is_cut_off_the_same_way_in_both_modes() {
-    let run = |mode: Mode| async move {
-        let w = world(setup(mode)).await;
+async fn a_slow_model_is_cut_off() {
+    let run = || async move {
+        let w = world(setup()).await;
         w.primary.hold();
         let incident = w.incident.clone();
-        let task = w.spawn_run(mode, &incident);
+        let task = w.spawn_run(&incident);
         // The request is inside the provider; the run's time then runs out.
         for _ in 0..3000 {
             w.drive(1, 1).await;
@@ -344,16 +328,12 @@ async fn a_slow_model_is_cut_off_the_same_way_in_both_modes() {
                 break;
             }
         }
-        assert_eq!(
-            w.primary.requests().len(),
-            1,
-            "{mode:?}: the model was asked"
-        );
+        assert_eq!(w.primary.requests().len(), 1, "the model was asked");
         tokio::time::advance(std::time::Duration::from_secs(91)).await;
         let outcome = w.finish(task).await;
         seen(&w, &outcome).await
     };
-    let seen = both("slow_model", run).await;
+    let seen = once("slow_model", run).await;
     assert!(
         seen.shape["failed"]
             .as_str()
@@ -365,15 +345,14 @@ async fn a_slow_model_is_cut_off_the_same_way_in_both_modes() {
 }
 
 #[tokio::test]
-async fn secret_never_reaches_the_model_in_either_mode() {
-    let run = |mode: Mode| async move {
+async fn secret_never_reaches_the_model() {
+    let run = || async move {
         let mut evidence = disk(92.4);
         evidence.insert(
             "env",
             domovoi_core::EvidenceValue::Text(format!("DB_PASSWORD={SECRET}")),
         );
         let w = world(Setup {
-            mode,
             evidence,
             ..Setup::default()
         })
@@ -390,34 +369,28 @@ async fn secret_never_reaches_the_model_in_either_mode() {
             ("c2", "notes_search", json!({"query": "password"})),
         ]));
         w.primary.push_text(report());
-        let outcome = w.run(mode).await;
+        let outcome = w.run().await;
         for request in w.primary.requests() {
             let text = text_seen(&request);
-            assert!(
-                !text.contains(SECRET),
-                "{mode:?}: a secret reached the model"
-            );
-            assert!(
-                !text.contains("abc123"),
-                "{mode:?}: a token reached the model"
-            );
+            assert!(!text.contains(SECRET), "a secret reached the model");
+            assert!(!text.contains("abc123"), "a token reached the model");
         }
         // Nor does it reach what was stored for the operator.
         let mut stored = format!("{outcome:?}");
         for snapshot in w.snapshots(&w.incident).await {
             stored.push_str(&format!("{:?}{:?}", snapshot.steps, snapshot.operation));
         }
-        assert!(!stored.contains(SECRET), "{mode:?}: a secret was stored");
+        assert!(!stored.contains(SECRET), "a secret was stored");
         seen(&w, &outcome).await
     };
-    let seen = both("secret_never_reaches_model", run).await;
+    let seen = once("secret_never_reaches_model", run).await;
     assert_eq!(seen.model_requests, 2);
 }
 
 #[tokio::test]
-async fn host_scoping_is_the_same() {
-    let run = |mode: Mode| async move {
-        let w = world(setup(mode)).await;
+async fn host_scoping_keeps_to_the_incident_host() {
+    let run = || async move {
+        let w = world(setup()).await;
         // Another host's note names a marker the model must never be shown.
         let other = Note {
             id: NoteId::new(),
@@ -433,7 +406,7 @@ async fn host_scoping_is_the_same() {
             ("c2", "docker_ps", json!({})),
         ]));
         w.primary.push_text(report());
-        let outcome = w.run(mode).await;
+        let outcome = w.run().await;
         assert!(matches!(outcome, TriageOutcome::Report(_)), "{outcome:?}");
         let leaked = w
             .primary
@@ -446,7 +419,7 @@ async fn host_scoping_is_the_same() {
             .collect();
         (seen(&w, &outcome).await, leaked, hosts)
     };
-    let (_, leaked, hosts) = both("host_scoping", run).await;
+    let (_, leaked, hosts) = once("host_scoping", run).await;
     assert!(!leaked, "another host's note reached the model");
     assert!(!hosts.is_empty());
     assert!(

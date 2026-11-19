@@ -27,11 +27,17 @@ bind = "127.0.0.1:0"
     domovoi_config::parse(&text, &MapEnv::new()).unwrap().0
 }
 
-/// The clock never moves: every stage here completes on events, and the deadlines only
-/// matter for a real gateway or model.
+/// The clock stays put unless a test moves it: the stages complete on events, except the
+/// investigation, whose effects wait for the clock ([`tick`]).
 fn deps() -> HubDeps {
+    deps_on(Arc::new(FakeClock::new(
+        "2026-11-01T12:00:00Z".parse().unwrap(),
+    )))
+}
+
+fn deps_on(clock: Arc<FakeClock>) -> HubDeps {
     HubDeps {
-        clock: Arc::new(FakeClock::new("2026-11-01T12:00:00Z".parse().unwrap())),
+        clock,
         process_executor: None,
         metrics: None,
         apply: None,
@@ -49,7 +55,18 @@ async fn guard<F: Future>(future: F) -> F::Output {
 #[tokio::test]
 async fn offline_selftest_passes_every_stage_without_touching_the_data_dir() {
     let _ = rustls::crypto::ring::default_provider().install_default();
-    let report = guard(run(config(""), deps(), Mode::Offline)).await;
+    let clock = Arc::new(FakeClock::new("2026-11-01T12:00:00Z".parse().unwrap()));
+    let ticker = {
+        let clock = clock.clone();
+        tokio::spawn(async move {
+            loop {
+                clock.advance(jiff::SignedDuration::from_millis(500));
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+    };
+    let report = guard(run(config(""), deps_on(clock), Mode::Offline)).await;
+    ticker.abort();
     let stages: Vec<_> = report.stages.iter().map(|s| s.stage).collect();
     assert_eq!(
         stages,

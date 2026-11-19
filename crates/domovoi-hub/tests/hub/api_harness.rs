@@ -300,8 +300,7 @@ pub async fn api_with_operations() -> Api {
     build(false, None, true, true, TriageSettings::default(), true).await
 }
 
-/// [`api_with_operations`] with triage on, so investigations can start. As in the hub, the
-/// triage queue is off while operations are on.
+/// [`api_with_operations`] with triage on, so investigations can start.
 pub async fn api_with_triage_and_operations() -> Api {
     build(true, None, true, true, TriageSettings::default(), true).await
 }
@@ -311,10 +310,9 @@ async fn build(
     notifier: Option<Arc<dyn Notifier>>,
     profiles: bool,
     logs: bool,
-    mut triage_settings: TriageSettings,
+    triage_settings: TriageSettings,
     orchestration: bool,
 ) -> Api {
-    triage_settings.run_queue = !orchestration;
     // The binary installs the process-wide provider; connection tests build HTTP clients.
     let _ = rustls::crypto::ring::default_provider().install_default();
     let dir = tempfile::tempdir().unwrap();
@@ -406,7 +404,6 @@ async fn build(
                 notes: store.clone(),
                 hosts: store.clone(),
                 actions: store.clone(),
-                actions_service: actions_service.clone(),
                 cache: store.clone(),
                 usage: store.clone(),
                 admission: store.clone(),

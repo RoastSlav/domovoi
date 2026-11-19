@@ -6,7 +6,7 @@ use domovoi_core::{Note, NoteId, TriageOutcome};
 
 use domovoi_testkit::build::T0;
 
-use crate::harness::{Mode, Setup, host_id, report, seen, world};
+use crate::harness::{Setup, host_id, report, seen, world};
 
 /// The tag the hub puts on the note it generates from the host profile; the engine
 /// copies it because it cannot see the hub.
@@ -55,10 +55,7 @@ async fn triage_sees_the_profile_summary_but_not_the_tool_output_behind_it() {
     };
     NoteRepo::upsert(&*w.store, &note).await.unwrap();
 
-    assert!(matches!(
-        w.run(Mode::Legacy).await,
-        TriageOutcome::Report(_)
-    ));
+    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
 
     let requests = w.primary.requests();
     let first = requests.first().expect("the model was asked once");
@@ -130,10 +127,7 @@ async fn a_profile_note_the_hub_wrote_earlier_cuts_its_tool_output_too() {
     };
     NoteRepo::upsert(&*w.store, &note).await.unwrap();
 
-    assert!(matches!(
-        w.run(Mode::Legacy).await,
-        TriageOutcome::Report(_)
-    ));
+    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
 
     let requests = w.primary.requests();
     let first = requests.first().expect("the model was asked once");
@@ -194,10 +188,7 @@ async fn the_profile_note_never_takes_a_place_from_the_host_notes() {
     )
     .await;
 
-    assert!(matches!(
-        w.run(Mode::Legacy).await,
-        TriageOutcome::Report(_)
-    ));
+    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
 
     let requests = w.primary.requests();
     let first = requests.first().expect("the model was asked once");

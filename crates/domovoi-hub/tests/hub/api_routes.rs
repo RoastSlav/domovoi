@@ -8,7 +8,9 @@ use domovoi_testkit::build::{open_incident, resolved_incident};
 use futures::StreamExt;
 use serde_json::{Value, json};
 
-use crate::api_harness::{Login, api, api_with_notifier, api_with_triage};
+use crate::api_harness::{
+    Login, api, api_with_notifier, api_with_triage, api_with_triage_and_operations,
+};
 
 async fn incidents_page(a: &crate::api_harness::Api, login: &Login, query: &str) -> Value {
     let reply = a.get(&format!("/api/v1/incidents{query}"), login).await;
@@ -633,8 +635,15 @@ const TRIAGE_REPORT: &str = r#"{
 
 #[tokio::test]
 async fn retrying_triage_runs_the_model_again_and_reports_how_it_went() {
-    let a = api_with_triage().await;
+    let a = api_with_triage_and_operations().await;
     let login = a.admin().await;
+    let clock = a.clock.clone();
+    let ticker = tokio::spawn(async move {
+        loop {
+            clock.advance(jiff::SignedDuration::from_millis(500));
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    });
     a.llm.push_text(TRIAGE_REPORT);
 
     let reply = a
@@ -644,6 +653,7 @@ async fn retrying_triage_runs_the_model_again_and_reports_how_it_went() {
             json!({}),
         )
         .await;
+    ticker.abort();
     assert_eq!(reply.status, StatusCode::OK, "{}", reply.text);
     assert_eq!(reply.body["kind"], "report", "{}", reply.text);
     assert_eq!(a.llm.requests().len(), 1, "the model ran once");

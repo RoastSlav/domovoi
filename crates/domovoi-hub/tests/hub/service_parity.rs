@@ -8,7 +8,7 @@ use domovoi_testkit::RecordingNotifier;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-use crate::api_harness::{Api, Reply, api, api_with_notifier, api_with_triage};
+use crate::api_harness::{Api, Reply, api, api_with_notifier, api_with_triage_and_operations};
 use crate::interactions::{ALLOWED, approve, chat, interaction, press, proposed};
 
 /// Replaces every UUID and every 64-character hex string by `<id-N>` in order of first
@@ -115,8 +115,15 @@ async fn incident_commands_answer_as_before() {
 
 #[tokio::test]
 async fn retry_triage_answers_as_before() {
-    let a = api_with_triage().await;
+    let a = api_with_triage_and_operations().await;
     let login = a.admin().await;
+    let clock = a.clock.clone();
+    let ticker = tokio::spawn(async move {
+        loop {
+            clock.advance(jiff::SignedDuration::from_millis(500));
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    });
     a.llm.push_text(
         r#"{"headline":"disk filling","summary":"s","cause":"c","evidence":[],"verdict":"ACTION_NEEDED","next_step":"n","proposals":[],"details":"d"}"#,
     );
@@ -125,6 +132,7 @@ async fn retry_triage_answers_as_before() {
     let cached = a
         .post(&format!("{uri}?fresh=false"), &login, json!({}))
         .await;
+    ticker.abort();
     let off = api().await;
     let off_login = off.admin().await;
     let refused = off

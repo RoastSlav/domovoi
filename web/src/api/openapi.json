@@ -2193,7 +2193,7 @@
         "tags": [
           "incidents"
         ],
-        "summary": "Runs triage again on an incident, outside the queue but with the same caps, and reports\nhow it went. A report already cached for unchanged evidence is reused unless `fresh` is\ntrue.",
+        "summary": "Investigates an incident again as an operation, with the same caps, and reports how it\nwent. A report already cached for unchanged evidence is reused unless `fresh` is true.",
         "operationId": "retry_triage",
         "parameters": [
           {
@@ -2247,7 +2247,7 @@
             }
           },
           "503": {
-            "description": "Triage is not enabled",
+            "description": "Triage is not enabled, or investigations are off ([orchestration] enabled = false)",
             "content": {
               "application/json": {
                 "schema": {

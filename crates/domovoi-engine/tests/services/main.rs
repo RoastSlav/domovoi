@@ -68,7 +68,6 @@ mod reliability;
 #[cfg(test)]
 mod report;
 #[cfg(test)]
-mod run_queue;
 #[cfg(test)]
 mod targets;
 #[cfg(test)]

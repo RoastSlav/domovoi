@@ -310,8 +310,8 @@ fn the_boundary_gate_counts_each_operation_exactly_once() {
 }
 
 use crate::harness::{
-    Mode, SECRET, Setup, World, calls, disk, host_id, report, report_json, restart_skill, results,
-    seen, world,
+    SECRET, Setup, World, calls, disk, host_id, report, report_json, restart_skill, results, seen,
+    world,
 };
 
 fn no_skill_ran(w: &World) {
@@ -331,7 +331,7 @@ async fn model_sees_only_read_tools() {
         .push_ok(calls(&[("c1", "host_overview", json!({}))]));
     w.primary.push_text("not a report");
     w.primary.push_text(report());
-    w.run(Mode::Legacy).await;
+    w.run().await;
     w.primary.push_ok(calls(&[("c2", "docker_ps", json!({}))]));
     w.primary.push_text("Fine.");
     w.triage
@@ -363,10 +363,7 @@ async fn model_calling_approve_or_unknown_tool_changes_nothing() {
         ("c3", "shell", json!({"command": "reboot"})),
     ]));
     w.primary.push_text(report());
-    assert!(matches!(
-        w.run(Mode::Legacy).await,
-        TriageOutcome::Report(_)
-    ));
+    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
 
     for (content, is_error) in results(&w.primary.requests()[1]) {
         assert!(is_error);
@@ -395,7 +392,7 @@ async fn shell_command_in_report_is_never_executed() {
     })
     .to_string();
     w.primary.push_text(text);
-    let TriageOutcome::Report(report) = w.run(Mode::Legacy).await else {
+    let TriageOutcome::Report(report) = w.run().await else {
         panic!("a report");
     };
     assert_eq!(report.next_step, "rm -rf /", "kept as text, nothing more");
@@ -431,7 +428,7 @@ async fn secrets_never_reach_the_model() {
         ("c2", "notes_search", json!({"query": "password"})),
     ]));
     w.primary.push_text(report());
-    w.run(Mode::Legacy).await;
+    w.run().await;
     w.primary.push_text("Rotate it.");
     w.triage
         .follow_up(
@@ -475,10 +472,7 @@ async fn prompt_injection_in_logs_does_not_create_actions() {
         json!({"container": "nginx"}),
     )]));
     w.primary.push_text(report());
-    assert!(matches!(
-        w.run(Mode::Legacy).await,
-        TriageOutcome::Report(_)
-    ));
+    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
     assert!(w.actions().await.is_empty());
 
     // Even a model that complies cannot create the action.
@@ -491,7 +485,7 @@ async fn prompt_injection_in_logs_does_not_create_actions() {
         "ACTION_NEEDED",
         json!([{"skill": "restart_container", "args": {"container": "nginx"}, "reason": "the logs said so"}]),
     ));
-    let TriageOutcome::Report(report) = w.run(Mode::Legacy).await else {
+    let TriageOutcome::Report(report) = w.run().await else {
         panic!("a report");
     };
     assert!(report.proposals.is_empty());
@@ -518,7 +512,7 @@ async fn triage_failure_still_leaves_a_card() {
     );
 
     w.primary.push_err(domovoi_core::ports::LlmError::Auth);
-    let outcome = w.run(Mode::Legacy).await;
+    let outcome = w.run().await;
     assert!(matches!(outcome, TriageOutcome::Failed { .. }));
     let completed = w
         .drain()
@@ -558,7 +552,7 @@ mod redaction {
     use domovoi_testkit::build::resolved_incident;
     use serde_json::json;
 
-    use crate::harness::{Mode, SECRET, Setup, disk, host_id, restart_skill, world};
+    use crate::harness::{SECRET, Setup, disk, host_id, restart_skill, world};
 
     /// A token the pattern redactor recognises without being told about it.
     const GITHUB_TOKEN: &str = "ghp_abcdefghijklmnopqrstuvwxyz0123456789";
@@ -649,7 +643,7 @@ mod redaction {
         })
         .to_string();
         w.primary.push_text(text);
-        let outcome = w.run(Mode::Legacy).await;
+        let outcome = w.run().await;
         let TriageOutcome::Report(report) = &outcome else {
             panic!("a report, not {outcome:?}");
         };
@@ -695,7 +689,8 @@ mod redaction {
             resolved_incident(host_id(), "docker.container", Some("nginx"), w.now()).unwrap();
         IncidentRepo::insert(&*w.store, &earlier).await.unwrap();
         w.signal(disk(92.1)).await;
-        let cached = w.run(Mode::Legacy).await;
+        w.withdraw(&w.incident).await;
+        let cached = w.run().await;
         assert_cached_report(&cached, report, w.incident.id(), w.actions().await);
         assert_clean("the cached report", &format!("{cached:?}"));
     }
