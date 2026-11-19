@@ -2,13 +2,14 @@
 //! their logic out of the transports cannot change a status, a body, a chat sentence or an
 //! audit row. The snapshots were written before the move and must not change with it.
 
-use domovoi_core::ports::{AuditFilter, AuditLog, Notifier, OutboundMessage, Page};
+use domovoi_core::ports::{AuditFilter, AuditLog, Notifier, OperationRepo, OutboundMessage, Page};
 use domovoi_core::{CardButton, InteractionKind, InteractionReply, Risk};
 use domovoi_testkit::RecordingNotifier;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-use crate::api_harness::{Api, Reply, api, api_with_notifier, api_with_triage};
+use crate::api_harness::{Api, Reply, api, api_with_notifier, api_with_triage_and_operations};
+use crate::harness::pump;
 use crate::interactions::{ALLOWED, approve, chat, interaction, press, proposed};
 
 /// Replaces every UUID and every 64-character hex string by `<id-N>` in order of first
@@ -115,16 +116,36 @@ async fn incident_commands_answer_as_before() {
 
 #[tokio::test]
 async fn retry_triage_answers_as_before() {
-    let a = api_with_triage().await;
+    let a = api_with_triage_and_operations().await;
     let login = a.admin().await;
     a.llm.push_text(
         r#"{"headline":"disk filling","summary":"s","cause":"c","evidence":[],"verdict":"ACTION_NEEDED","next_step":"n","proposals":[],"details":"d"}"#,
     );
     let uri = format!("/api/v1/incidents/{}/triage", a.incident.id());
-    let first = a.post(&uri, &login, json!({})).await;
-    let cached = a
-        .post(&format!("{uri}?fresh=false"), &login, json!({}))
-        .await;
+    let step = jiff::SignedDuration::from_millis(100);
+    // The investigation's effects run against the fake clock, so it moves while a route waits.
+    let first = pump(&a.clock, step, a.post(&uri, &login, json!({}))).await;
+    // The outcome reaches the caller before the operation closes; let it close first.
+    for _ in 0..2000 {
+        let open = OperationRepo::for_incident(&*a.store, a.incident.id())
+            .await
+            .unwrap()
+            .iter()
+            .any(|op| !op.status.is_terminal());
+        if !open {
+            break;
+        }
+        a.clock.advance(jiff::SignedDuration::from_secs(1));
+        for _ in 0..20 {
+            tokio::task::yield_now().await;
+        }
+    }
+    let cached = pump(
+        &a.clock,
+        step,
+        a.post(&format!("{uri}?fresh=false"), &login, json!({})),
+    )
+    .await;
     let off = api().await;
     let off_login = off.admin().await;
     let refused = off

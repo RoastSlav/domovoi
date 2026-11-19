@@ -1,6 +1,6 @@
 //! Parity of the limits and fallbacks: the provider chain, a provider that refuses a
 //! capability, the hourly cap, the monthly budget and the repeat cache, plus the safety
-//! properties both modes keep.
+//! properties of an investigation.
 
 use std::sync::{Arc, OnceLock};
 
@@ -17,10 +17,8 @@ use url::Url;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 
-use crate::harness::{
-    Mode, Setup, calls, disk, host_id, report, report_json, restart_skill, world,
-};
-use crate::parity::{MODES, another, both, kinds, quiesce, seen, setup, shape};
+use crate::harness::{Setup, calls, disk, host_id, report, report_json, restart_skill, world};
+use crate::parity::{another, kinds, once, quiesce, seen, setup, shape};
 
 /// Installs the rustls provider once, as the binary does at startup.
 fn crypto() {
@@ -44,10 +42,9 @@ fn body_of(request: &Request) -> Value {
 }
 
 #[tokio::test]
-async fn fallback_chain_behaves_the_same() {
-    let run = |mode: Mode| async move {
+async fn fallback_chain_behaves_as_frozen() {
+    let run = || async move {
         let mut w = world(Setup {
-            mode,
             secondary: true,
             settings: TriageSettings {
                 per_hour_runs: 20,
@@ -60,9 +57,9 @@ async fn fallback_chain_behaves_the_same() {
         w.primary
             .push_err(LlmError::Unavailable("overloaded".to_owned()));
         w.secondary.push_text(report());
-        let answered = w.run(mode).await;
+        let answered = w.run().await;
         let first = (shape(&answered), w.secondary.requests().len());
-        quiesce(&w, mode, &w.incident).await;
+        quiesce(&w, &w.incident).await;
 
         // Both fail: the reason lists each provider's.
         let mut reasons = Vec::new();
@@ -73,7 +70,7 @@ async fn fallback_chain_behaves_the_same() {
                 .push_err(LlmError::RateLimited { retry_after: None });
             w.secondary
                 .push_err(LlmError::Transport("connection reset".to_owned()));
-            let outcome = w.run_on(mode, &incident).await;
+            let outcome = w.run_on(&incident).await;
             reasons.push(shape(&outcome));
             advisories.push((n, AdvisoryRepo::list_open(&*w.store).await.unwrap().len()));
         }
@@ -90,7 +87,8 @@ async fn fallback_chain_behaves_the_same() {
             .count();
         (first, reasons, advisories, kinds_open, degraded_events)
     };
-    let (first, reasons, advisories, kinds_open, degraded_events) = both(run).await;
+    let (first, reasons, advisories, kinds_open, degraded_events) =
+        once("fallback_chain", run).await;
     assert!(first.0.get("report").is_some(), "the secondary answered");
     assert_eq!(first.1, 1);
     let reason = reasons[0]["failed"].as_str().unwrap();
@@ -105,8 +103,8 @@ async fn fallback_chain_behaves_the_same() {
 }
 
 #[tokio::test]
-async fn capability_rejection_rebuilds_the_run_the_same() {
-    let run = |mode: Mode| async move {
+async fn capability_rejection_rebuilds_the_run() {
+    let run = || async move {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/v1/chat/completions"))
@@ -126,12 +124,11 @@ async fn capability_rejection_rebuilds_the_run_the_same() {
             .mount(&server)
             .await;
         let w = world(Setup {
-            mode,
             provider: Some(provider(&server.uri())),
             ..Setup::default()
         })
         .await;
-        let outcome = w.run(mode).await;
+        let outcome = w.run().await;
         assert!(matches!(outcome, TriageOutcome::Report(_)), "{outcome:?}");
         let requests = server.received_requests().await.unwrap();
         let first = body_of(&requests[0]);
@@ -153,16 +150,16 @@ async fn capability_rejection_rebuilds_the_run_the_same() {
                 && opening.contains("You cannot call tools"),
         )
     };
-    let (_, requests, first_had_tools, rebuilt_had_tools, prefetched) = both(run).await;
+    let (_, requests, first_had_tools, rebuilt_had_tools, prefetched) =
+        once("capability_rejection", run).await;
     assert_eq!(requests, 2, "one attempt refused the tools, one rebuilt");
     assert!(first_had_tools && !rebuilt_had_tools && prefetched);
 }
 
 #[tokio::test]
-async fn hourly_and_monthly_caps_behave_the_same() {
-    let hourly = |mode: Mode| async move {
+async fn hourly_and_monthly_caps_hold() {
+    let hourly = || async move {
         let w = world(Setup {
-            mode,
             settings: TriageSettings {
                 per_hour_runs: 1,
                 ..TriageSettings::default()
@@ -172,11 +169,11 @@ async fn hourly_and_monthly_caps_behave_the_same() {
         .await;
         w.primary.push_text(report());
         w.primary.push_text(report());
-        let first = w.run(mode).await;
+        let first = w.run().await;
         assert!(matches!(first, TriageOutcome::Report(_)), "{first:?}");
-        quiesce(&w, mode, &w.incident).await;
+        quiesce(&w, &w.incident).await;
         let later = another(&w, "b").await;
-        let skipped = w.run_on(mode, &later).await;
+        let skipped = w.run_on(&later).await;
         let after_skip = w.primary.requests().len();
 
         // Not yet: the slot frees an hour after the first run.
@@ -192,7 +189,7 @@ async fn hourly_and_monthly_caps_behave_the_same() {
             kinds(&w, &later).await,
         )
     };
-    let (skipped, requests, kinds) = both(hourly).await;
+    let (skipped, requests, kinds) = once("hourly_cap", hourly).await;
     let reason = skipped["skipped"].as_str().unwrap();
     assert!(reason.contains("per hour") && reason.contains("tries again from"));
     assert_eq!(
@@ -202,9 +199,8 @@ async fn hourly_and_monthly_caps_behave_the_same() {
     );
     assert_eq!(kinds.last().map(String::as_str), Some("triage.report"));
 
-    let monthly = |mode: Mode| async move {
+    let monthly = || async move {
         let w = world(Setup {
-            mode,
             settings: TriageSettings {
                 monthly_budget_micros: Some(1_000_000),
                 ..TriageSettings::default()
@@ -215,11 +211,11 @@ async fn hourly_and_monthly_caps_behave_the_same() {
         UsageRepo::record(&*w.store, "anthropic", 10, 10, 1_000_000, w.now())
             .await
             .unwrap();
-        let outcome = w.run(mode).await;
+        let outcome = w.run().await;
         w.drive(3, 600).await;
         (seen(&w, &outcome).await, w.primary.requests().len())
     };
-    let (seen_monthly, requests) = both(monthly).await;
+    let (seen_monthly, requests) = once("monthly_cap", monthly).await;
     assert!(
         seen_monthly.shape["skipped"]
             .as_str()
@@ -233,29 +229,29 @@ async fn hourly_and_monthly_caps_behave_the_same() {
 }
 
 #[tokio::test]
-async fn repeat_cache_is_used_the_same() {
-    let run = |mode: Mode| async move {
-        let w = world(setup(mode)).await;
+async fn repeat_cache_is_used() {
+    let run = || async move {
+        let w = world(setup()).await;
         w.primary.push_text(report());
-        let first = w.run(mode).await;
+        let first = w.run().await;
         assert!(matches!(first, TriageOutcome::Report(_)), "{first:?}");
-        quiesce(&w, mode, &w.incident).await;
+        quiesce(&w, &w.incident).await;
 
         // The same check on the same target resolved earlier, with the same evidence.
         let earlier =
             resolved_incident(host_id(), "docker.container", Some("nginx"), w.now()).unwrap();
         IncidentRepo::insert(&*w.store, &earlier).await.unwrap();
         w.signal(disk(92.1)).await;
-        let second = w.run(mode).await;
+        let second = w.run().await;
         let from_earlier =
             matches!(&second, TriageOutcome::Cached { from, .. } if *from == earlier.id());
         let cached_requests = w.primary.requests().len();
-        quiesce(&w, mode, &w.incident).await;
+        quiesce(&w, &w.incident).await;
 
         // Different evidence is a different situation.
         w.signal(disk(55.0)).await;
         w.primary.push_text(report());
-        let third = w.run(mode).await;
+        let third = w.run().await;
         (
             shape(&second),
             from_earlier,
@@ -264,7 +260,7 @@ async fn repeat_cache_is_used_the_same() {
             w.primary.requests().len(),
         )
     };
-    let (second, from_earlier, cached_requests, third, requests) = both(run).await;
+    let (second, from_earlier, cached_requests, third, requests) = once("repeat_cache", run).await;
     assert!(second.get("cached").is_some() && from_earlier);
     assert_eq!(cached_requests, 1, "no second model call");
     assert!(third.get("report").is_some());
@@ -272,9 +268,9 @@ async fn repeat_cache_is_used_the_same() {
 }
 
 #[tokio::test]
-async fn nothing_runs_without_a_human_in_either_mode() {
-    let run = |mode: Mode| async move {
-        let w = world(setup(mode)).await;
+async fn nothing_runs_without_a_human() {
+    let run = || async move {
+        let w = world(setup()).await;
         w.link.set_skills(host_id(), vec![restart_skill()]);
         w.link.on_tool(|_, _| {
             Ok(domovoi_core::ports::ToolOutput {
@@ -292,7 +288,7 @@ async fn nothing_runs_without_a_human_in_either_mode() {
             "ACTION_NEEDED",
             json!([{"skill": "restart_container", "args": {"container": "nginx"}, "reason": "the logs said so"}]),
         ));
-        let outcome = w.run(mode).await;
+        let outcome = w.run().await;
         assert!(matches!(outcome, TriageOutcome::Report(_)), "{outcome:?}");
         // Hours pass; a proposal that nobody approves never runs.
         w.clock.advance(SignedDuration::from_hours(30));
@@ -303,7 +299,7 @@ async fn nothing_runs_without_a_human_in_either_mode() {
             .iter()
             .filter(|request| matches!(request, LinkRequest::Skill { .. }))
             .count();
-        let views = w.proposals(mode, &w.incident).await;
+        let views = w.proposals(&w.incident).await;
         let authorized = w
             .snapshots(&w.incident)
             .await
@@ -318,7 +314,7 @@ async fn nothing_runs_without_a_human_in_either_mode() {
             views.len(),
         )
     };
-    let (ran, authorized, approved, proposed) = both(run).await;
+    let (ran, authorized, approved, proposed) = once("nothing_runs_without_human", run).await;
     assert_eq!(ran, 0, "no skill request reached the agent");
     assert_eq!(authorized, 0, "no step was authorized");
     assert_eq!(proposed, 1);
@@ -326,27 +322,20 @@ async fn nothing_runs_without_a_human_in_either_mode() {
 }
 
 #[tokio::test]
-async fn legacy_mode_creates_no_operation_and_operations_mode_creates_no_action() {
-    for mode in MODES {
-        let w = world(setup(mode)).await;
-        w.link.set_skills(host_id(), vec![restart_skill()]);
-        w.primary.push_text(report_json(
-            "ACTION_NEEDED",
-            json!([{"skill": "restart_container", "args": {"container": "nginx"}, "reason": "Stuck."}]),
-        ));
-        let outcome = w.run(mode).await;
-        assert!(matches!(outcome, TriageOutcome::Report(_)), "{outcome:?}");
-        let operations = w.operations().await.len();
-        let actions = w.actions().await.len();
-        match mode {
-            Mode::Legacy => assert_eq!((operations, actions), (0, 1), "legacy keeps an action"),
-            Mode::Operations => {
-                assert_eq!(
-                    (operations, actions),
-                    (1, 0),
-                    "an investigation keeps a step"
-                );
-            }
-        }
-    }
+async fn an_investigation_keeps_a_step_and_creates_no_action() {
+    let w = world(setup()).await;
+    w.link.set_skills(host_id(), vec![restart_skill()]);
+    w.primary.push_text(report_json(
+        "ACTION_NEEDED",
+        json!([{"skill": "restart_container", "args": {"container": "nginx"}, "reason": "Stuck."}]),
+    ));
+    let outcome = w.run().await;
+    assert!(matches!(outcome, TriageOutcome::Report(_)), "{outcome:?}");
+    let operations = w.operations().await.len();
+    let actions = w.actions().await.len();
+    assert_eq!(
+        (operations, actions),
+        (1, 0),
+        "an investigation keeps a step"
+    );
 }

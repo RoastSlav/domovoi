@@ -5,7 +5,7 @@
 
 use std::collections::BTreeMap;
 
-use domovoi_core::{ActionRequest, ActionStatus, OperationSnapshot, Risk, SkillSummary, StepKind};
+use domovoi_core::{OperationSnapshot, Risk, SkillSummary, StepKind};
 
 /// One proposed run of a skill.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -20,20 +20,6 @@ pub struct ProposalView {
     pub awaiting_human: bool,
     /// Whether a person approved it.
     pub approved: bool,
-}
-
-/// The views of the legacy actions in `actions`.
-pub fn from_actions(actions: &[ActionRequest]) -> Vec<ProposalView> {
-    actions
-        .iter()
-        .map(|action| ProposalView {
-            skill: action.skill().to_string(),
-            args: action.args().clone(),
-            risk: action.risk(),
-            awaiting_human: *action.status() == ActionStatus::Proposed,
-            approved: action.approved_by().is_some(),
-        })
-        .collect()
 }
 
 /// The views of the Execution steps of `snapshot` that have an executions row, so a refused

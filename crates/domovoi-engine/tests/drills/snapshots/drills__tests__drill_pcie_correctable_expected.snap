@@ -1,0 +1,30 @@
+---
+source: crates/domovoi-engine/tests/drills/drills.rs
+expression: "frozen(drill, &outcome)"
+---
+{
+  "model_requests": 2,
+  "proposals": [],
+  "report": {
+    "cause": "Physical layer receiver errors on a consumer board, common and harmless at a few per day.\n",
+    "evidence": [
+      {
+        "label": "severity",
+        "source": "journal",
+        "value": "Corrected"
+      },
+      {
+        "label": "history",
+        "source": "incident_history",
+        "value": "9 earlier incidents resolved on their own"
+      }
+    ],
+    "headline": "Corrected PCIe errors from the network card, harmless at this rate",
+    "manual_steps": [],
+    "next_step": "Nothing to do. If uncorrected errors appear, reseat or replace the card.",
+    "proposals": [],
+    "summary": "The kernel logged 4 corrected PCIe errors from the igb network card in a day. The hardware corrected all of them and none were uncorrected.\n",
+    "verdict": "EXPECTED"
+  },
+  "score_total": 100
+}

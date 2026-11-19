@@ -7,13 +7,13 @@ An operation is one durable piece of work on your hosts: find out why something 
 - **Execution:** a step that runs a skill on a host. It needs a person's approval, and the approval is recorded with it.
 - **Status:** the operation as a whole is queued, running, waiting for an approval, a user or an agent, waiting for a timer, paused, or finished (succeeded, failed, escalated or cancelled). The status is worked out from its steps, never set by hand.
 
-## Off by default, and no screen yet
+## On by default
 
-Operations are switched off unless you enable them under `[orchestration]`. With them off, Domovoi does not start the operation service, and its storage stays empty. Actions and approvals work as described in [Actions and approvals](actions.md), unchanged.
+Operations are on unless you switch them off under `[orchestration]`. With `enabled = false`, Domovoi does not start the operation service and does not investigate incidents automatically: alert cards still go out, without a report. Follow-up questions and chat keep working, and the Operations endpoints answer 503. Actions that were already waiting or running when you upgraded still finish as described in [Actions and approvals](actions.md); they are labelled Legacy.
 
-There is no page in the web UI for operations yet, so there is nothing to create or watch from the browser.
+With `[orchestration] enabled` and `[triage] enabled` both on, an incident is investigated by an operation; see [Investigations](#investigations). There is no separate triage queue any more. A new round of reasoning after a failed check starts another cycle of that investigation. No other kind of operation exists yet.
 
-With `[orchestration] enabled` and `[triage] enabled` both on, an incident is investigated by an operation instead of the triage queue; see [Investigations](#investigations). A new round of reasoning after a failed check starts another cycle of that investigation. No other kind of operation exists yet.
+To keep automatic investigation off, set `enabled = false` and restart the hub. A hub that has `[triage] enabled = true` and `enabled = false` logs a warning at start.
 
 ## Settings
 
@@ -21,7 +21,7 @@ Set them in `hub.toml` under `[orchestration]`. A change takes effect after a re
 
 ```toml
 [orchestration]
-enabled = false          # start the operation service at all
+enabled = true           # start the operation service at all
 max_running = 4          # operations that may run at the same time
 approval_ttl = "24h"     # how long a proposed execution waits for approval (at most 7d)
 question_timeout = "24h" # how long a question to a person waits for an answer
@@ -53,7 +53,7 @@ An operation can propose work, but it cannot run an execution on its own. Each e
 
 ## Investigations
 
-With `[orchestration] enabled = true` (and `[triage] enabled = true`) a new incident is investigated by an Investigate operation. It gives the same report as before: the same limits (runs per hour, the monthly budget, tool calls, seconds and output tokens per run), the same fallback between models, the same tools for the incident's host, and the same card on the incident. What changes is where the work lives:
+With `[orchestration] enabled = true` (the default) and `[triage] enabled = true` a new incident is investigated by an Investigate operation. It gives the same report as the old triage queue did: the same limits (runs per hour, the monthly budget, tool calls, seconds and output tokens per run), the same fallback between models, the same tools for the incident's host, and the same card on the incident. What changes is where the work lives:
 
 - The work survives a restart. A deferred or interrupted investigation continues from the store.
 - The model's tool reads stay inside one reasoning step. Its result is an assessment, a plan and a notification step, and the card.
@@ -63,4 +63,4 @@ With `[orchestration] enabled = true` (and `[triage] enabled = true`) a new inci
 
 A person approves or denies a step with the hash shown on it. A destructive skill, or one the host no longer offers, needs its name typed to approve. In chat, a step that proposes a read or write skill gets Approve and Deny buttons on the incident card, named after the skill and the host, exactly like an action. A press approves with the same human authorization as the web, a single-use token and the first six characters of the plan hash. The token is stored only as a hash on the step, replaced when the card is sent again, and spent or cleared as soon as the step is decided. The plan prefix is a staleness check, not a boundary against a compromised hub: the hub still recomputes the full plan hash before dispatch and refuses any difference. A destructive step, a step whose risk is unknown (proposed before risk was recorded), a step with arguments too long for the card, and any step beyond the card's third get a link to the Operations page instead, and the report then says where to approve. The card is rebuilt when a step is approved, denied or expires, so the buttons disappear. A later card refresh that carries no new token also shows the link until the card is sent again.
 
-An investigation of an incident that already has one open is refused; re-running triage on the incident page waits for the first outcome and says so if the investigation is still running.
+An investigation of an incident that already has one open is refused; re-running triage on the incident page starts an investigation and waits for its first outcome, and says so if it is still running. With orchestration off, re-running triage answers that investigations are not enabled.

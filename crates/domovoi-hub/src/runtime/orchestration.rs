@@ -54,6 +54,11 @@ pub(super) fn build(input: OperationBuild<'_>) -> Option<(OperationHandle, JoinH
         triage,
     } = input;
     if !config.orchestration.enabled {
+        if config.triage.enabled {
+            tracing::warn!(
+                "triage is on but orchestration is off: incidents are not investigated automatically"
+            );
+        }
         return None;
     }
     let deps = OperationDeps {

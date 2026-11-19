@@ -111,6 +111,7 @@ pub async fn spawn(
     )
     .await
     .unwrap();
+    let investigates = triage.is_some();
     let registry = Arc::new(FakeCapabilityRegistry::following(link.clone()));
     let caps = action_caps(link.clone());
     OperationService::spawn(
@@ -118,7 +119,13 @@ pub async fn spawn(
             bus: tokio::sync::broadcast::channel(16).0,
             operations: store.clone(),
             uow: store.clone(),
-            effects: Arc::new(Closed),
+            // With triage the service must run the investigation it is asked for; otherwise
+            // its runner claims nothing, so a test reads what a commit queued.
+            effects: if investigates {
+                store.clone()
+            } else {
+                Arc::new(Closed)
+            },
             effect_read: store.clone(),
             advisories: store.clone(),
             incidents: store.clone(),

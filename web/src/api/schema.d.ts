@@ -622,9 +622,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Runs triage again on an incident, outside the queue but with the same caps, and reports
-         *     how it went. A report already cached for unchanged evidence is reused unless `fresh` is
-         *     true.
+         * Investigates an incident again as an operation, with the same caps, and reports how it
+         *     went. A report already cached for unchanged evidence is reused unless `fresh` is true.
          */
         post: operations["retry_triage"];
         delete?: never;
@@ -4390,7 +4389,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description Triage is not enabled */
+            /** @description Triage is not enabled, or investigations are off ([orchestration] enabled = false) */
             503: {
                 headers: {
                     [name: string]: unknown;

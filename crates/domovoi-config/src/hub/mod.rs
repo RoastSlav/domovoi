@@ -85,7 +85,7 @@ pub struct HubConfig {
     /// Looking for a newer Domovoi release.
     #[serde(default)]
     pub updates: UpdatesSection,
-    /// The operation service: durable multi-step work with approvals. Off by default.
+    /// The operation service: durable multi-step work with approvals. On by default; `enabled = false` switches it off.
     #[serde(default)]
     pub orchestration: OrchestrationSection,
 }

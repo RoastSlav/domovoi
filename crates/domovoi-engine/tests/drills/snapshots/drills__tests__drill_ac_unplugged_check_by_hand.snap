@@ -1,0 +1,40 @@
+---
+source: crates/domovoi-engine/tests/drills/drills.rs
+expression: "frozen(drill, &outcome)"
+---
+{
+  "model_requests": 2,
+  "proposals": [],
+  "report": {
+    "cause": "The mains cable came out of its wall bracket, most likely knocked loose by a trolley behind the machine; the UPS was never wired in.\n",
+    "evidence": [
+      {
+        "label": "ac adapter",
+        "source": "run_read_skill",
+        "value": "not connected"
+      },
+      {
+        "label": "battery",
+        "source": "run_read_skill",
+        "value": "Discharging 41 %"
+      },
+      {
+        "label": "ups driver",
+        "source": "run_read_skill",
+        "value": "not reachable"
+      }
+    ],
+    "headline": "The host is on battery, the mains cable is out of its bracket",
+    "manual_steps": [
+      "Check the mains cable is still seated in the wall bracket behind the machine.",
+      "Check the same cable at the PSU inlet, and that the PSU itself is not unplugged.",
+      "Check the UPS power cable runs from the UPS to the case, and its leads are seated.",
+      "Hold the power button for five seconds if the machine does not come back on mains."
+    ],
+    "next_step": "Push the mains cable back into its wall bracket and reseat it in the PSU.",
+    "proposals": [],
+    "summary": "The host is running on battery at 41 % and still falling. The AC adapter is not connected and the UPS driver is unreachable, so nothing is feeding the PSU.\n",
+    "verdict": "ACTION_NEEDED"
+  },
+  "score_total": 100
+}

@@ -6,16 +6,17 @@ use serde::Deserialize;
 use crate::duration::Duration;
 
 /// `[orchestration]`: durable operations that wait for a person, dispatch skills and verify
-/// the result. Off by default; while it is off the operation service does not start and
-/// nothing else changes.
+/// the result. On by default; switching it off stops the operation service and automatic
+/// investigation.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct OrchestrationSection {
-    /// Run investigations as operations: new incidents are investigated by an Investigate
-    /// operation and its proposed actions are approved per step on the Operations page.
-    /// Needs `[triage] enabled`. Read once at start, so changing it needs a restart.
-    /// Default `false`.
-    #[serde(default)]
+    /// Investigate new incidents as operations and approve proposed actions per step on the
+    /// Operations page. Default true. Set to false to switch off automatic investigation
+    /// (alert cards still go out) and the operation service; follow-up questions, chat and
+    /// any old pending actions keep working. Read once at start; changing it needs a
+    /// restart.
+    #[serde(default = "default_enabled")]
     pub enabled: bool,
     /// Operations that may be running, waiting or paused at once; the rest queue.
     /// Default 4.
@@ -40,10 +41,15 @@ pub struct OrchestrationSection {
     pub budgets: OrchestrationBudgets,
 }
 
+/// Investigations are on unless the owner switches them off.
+fn default_enabled() -> bool {
+    true
+}
+
 impl Default for OrchestrationSection {
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: default_enabled(),
             max_running: default_max_running(),
             approval_ttl: default_day(),
             question_timeout: default_day(),

@@ -153,3 +153,59 @@ async fn denied_action_is_audited_and_cannot_be_approved() {
         ["action.proposed", "action.denied"]
     );
 }
+
+#[tokio::test]
+async fn rotating_a_legacy_chat_token_retires_the_old_one_and_keeps_the_window() {
+    let a = actions(ActionSettings::default()).await;
+    let (action, old) = a.propose().await;
+    let new = domovoi_engine::chat_token::mint_token();
+
+    let rotated = a
+        .service
+        .rotate_chat_token(action.id(), domovoi_engine::chat_token::token_hash(&new))
+        .await
+        .unwrap();
+    assert_eq!(
+        rotated.expires_at(),
+        action.expires_at(),
+        "no longer window"
+    );
+
+    let discord = || chat(UserId::new(), "discord", "1234");
+    let (authorization, provenance) = a.authorization(discord());
+    assert_eq!(
+        a.service
+            .approve(
+                action.id(),
+                authorization,
+                Some(&old),
+                PlanBinding::Full(action.plan_hash_for_approval()),
+                provenance,
+            )
+            .await
+            .err(),
+        Some(ApprovalError::BadToken),
+        "the replaced token no longer works"
+    );
+    let (authorization, provenance) = a.authorization(discord());
+    let approved = a
+        .service
+        .approve(
+            action.id(),
+            authorization,
+            Some(&new),
+            PlanBinding::Full(action.plan_hash_for_approval()),
+            provenance,
+        )
+        .await
+        .unwrap();
+    assert!(matches!(approved.status(), ActionStatus::Approved));
+
+    let (late, _) = a.propose().await;
+    a.clock.advance(SignedDuration::from_hours(2));
+    assert_eq!(
+        a.service.rotate_chat_token(late.id(), [9; 32]).await.err(),
+        Some(ApprovalError::Refused(ActionError::Expired)),
+        "an expired window is not rotated"
+    );
+}

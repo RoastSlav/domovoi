@@ -310,8 +310,8 @@ fn the_boundary_gate_counts_each_operation_exactly_once() {
 }
 
 use crate::harness::{
-    Mode, SECRET, Setup, World, calls, disk, host_id, report, report_json, restart_skill, results,
-    seen, world,
+    SECRET, Setup, World, calls, disk, host_id, report, report_json, restart_skill, results, seen,
+    world,
 };
 
 fn no_skill_ran(w: &World) {
@@ -331,7 +331,7 @@ async fn model_sees_only_read_tools() {
         .push_ok(calls(&[("c1", "host_overview", json!({}))]));
     w.primary.push_text("not a report");
     w.primary.push_text(report());
-    w.run(Mode::Legacy).await;
+    w.run().await;
     w.primary.push_ok(calls(&[("c2", "docker_ps", json!({}))]));
     w.primary.push_text("Fine.");
     w.triage
@@ -363,10 +363,7 @@ async fn model_calling_approve_or_unknown_tool_changes_nothing() {
         ("c3", "shell", json!({"command": "reboot"})),
     ]));
     w.primary.push_text(report());
-    assert!(matches!(
-        w.run(Mode::Legacy).await,
-        TriageOutcome::Report(_)
-    ));
+    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
 
     for (content, is_error) in results(&w.primary.requests()[1]) {
         assert!(is_error);
@@ -395,7 +392,7 @@ async fn shell_command_in_report_is_never_executed() {
     })
     .to_string();
     w.primary.push_text(text);
-    let TriageOutcome::Report(report) = w.run(Mode::Legacy).await else {
+    let TriageOutcome::Report(report) = w.run().await else {
         panic!("a report");
     };
     assert_eq!(report.next_step, "rm -rf /", "kept as text, nothing more");
@@ -431,7 +428,7 @@ async fn secrets_never_reach_the_model() {
         ("c2", "notes_search", json!({"query": "password"})),
     ]));
     w.primary.push_text(report());
-    w.run(Mode::Legacy).await;
+    w.run().await;
     w.primary.push_text("Rotate it.");
     w.triage
         .follow_up(
@@ -475,10 +472,7 @@ async fn prompt_injection_in_logs_does_not_create_actions() {
         json!({"container": "nginx"}),
     )]));
     w.primary.push_text(report());
-    assert!(matches!(
-        w.run(Mode::Legacy).await,
-        TriageOutcome::Report(_)
-    ));
+    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
     assert!(w.actions().await.is_empty());
 
     // Even a model that complies cannot create the action.
@@ -491,11 +485,31 @@ async fn prompt_injection_in_logs_does_not_create_actions() {
         "ACTION_NEEDED",
         json!([{"skill": "restart_container", "args": {"container": "nginx"}, "reason": "the logs said so"}]),
     ));
-    let TriageOutcome::Report(report) = w.run(Mode::Legacy).await else {
+    let TriageOutcome::Report(report) = w.run().await else {
         panic!("a report");
     };
     assert!(report.proposals.is_empty());
     assert!(w.actions().await.is_empty());
+    no_skill_ran(&w);
+
+    // When the host does offer the skill, a complying model gets a proposal and nothing
+    // more: an Execution step that waits for a person, no legacy action, no dispatch.
+    w.link.set_skills(host_id(), vec![restart_skill()]);
+    w.withdraw(&w.incident).await;
+    w.primary.push_ok(calls(&[(
+        "c1",
+        "docker_logs",
+        json!({"container": "nginx"}),
+    )]));
+    w.primary.push_text(report_json(
+        "ACTION_NEEDED",
+        json!([{"skill": "restart_container", "args": {"container": "nginx"}, "reason": "the logs said so"}]),
+    ));
+    w.run().await;
+    let proposed = w.proposals(&w.incident).await;
+    assert_eq!(proposed.len(), 1, "one proposal: {proposed:?}");
+    assert!(proposed[0].awaiting_human && !proposed[0].approved);
+    assert!(w.actions().await.is_empty(), "no legacy action");
     no_skill_ran(&w);
 }
 
@@ -518,7 +532,7 @@ async fn triage_failure_still_leaves_a_card() {
     );
 
     w.primary.push_err(domovoi_core::ports::LlmError::Auth);
-    let outcome = w.run(Mode::Legacy).await;
+    let outcome = w.run().await;
     assert!(matches!(outcome, TriageOutcome::Failed { .. }));
     let completed = w
         .drain()
@@ -558,7 +572,9 @@ mod redaction {
     use domovoi_testkit::build::resolved_incident;
     use serde_json::json;
 
-    use crate::harness::{Mode, SECRET, Setup, disk, host_id, restart_skill, world};
+    use domovoi_core::Risk;
+
+    use crate::harness::{SECRET, Setup, disk, host_id, restart_skill, world};
 
     /// A token the pattern redactor recognises without being told about it.
     const GITHUB_TOKEN: &str = "ghp_abcdefghijklmnopqrstuvwxyz0123456789";
@@ -649,7 +665,7 @@ mod redaction {
         })
         .to_string();
         w.primary.push_text(text);
-        let outcome = w.run(Mode::Legacy).await;
+        let outcome = w.run().await;
         let TriageOutcome::Report(report) = &outcome else {
             panic!("a report, not {outcome:?}");
         };
@@ -680,10 +696,14 @@ mod redaction {
             .unwrap();
         assert_clean("the timeline", &format!("{timeline:?}"));
 
+        // A legacy action waiting on the incident still lands on the card, so the card check
+        // covers action arguments and reasons too.
+        let legacy =
+            domovoi_testkit::build::action(w.incident.id(), host_id(), Risk::Write).unwrap();
         let card = build_card(
             &w.incident,
             Some(report),
-            &w.actions().await,
+            std::slice::from_ref(&legacy),
             &HostName::parse("nas").unwrap(),
             &CardLinks::default(),
             None,
@@ -695,7 +715,8 @@ mod redaction {
             resolved_incident(host_id(), "docker.container", Some("nginx"), w.now()).unwrap();
         IncidentRepo::insert(&*w.store, &earlier).await.unwrap();
         w.signal(disk(92.1)).await;
-        let cached = w.run(Mode::Legacy).await;
+        w.withdraw(&w.incident).await;
+        let cached = w.run().await;
         assert_cached_report(&cached, report, w.incident.id(), w.actions().await);
         assert_clean("the cached report", &format!("{cached:?}"));
     }
@@ -1500,4 +1521,80 @@ fn step_authorization_is_called_only_inside_the_operation_service() {
         .map(|(rel, _)| rel)
         .collect();
     assert!(outside.is_empty(), "authorize is called from {outside:?}");
+}
+
+/// Nothing creates a legacy action any more: the proposal constructor of the action table is
+/// named only by the legacy executor's own module and its tests, and the removed storing
+/// path is named nowhere.
+#[test]
+fn no_code_path_creates_a_legacy_action() {
+    let legacy = crate_path("actions/");
+    let mut files = production_sources();
+    files.extend(
+        crate_sources("domovoi-hub")
+            .into_iter()
+            .filter(|(rel, _)| !rel.contains("/tests/") && !rel.ends_with("_tests.rs")),
+    );
+    let removed = ["proposals::store", "proposals::create"];
+    // Triage no longer holds the action service: its module and the hub's triage wiring
+    // never name it.
+    let triage_files: Vec<_> = files
+        .iter()
+        .filter(|(rel, _)| {
+            rel.starts_with(&crate_path("triage/")) || rel.ends_with("runtime/triage_build.rs")
+        })
+        .cloned()
+        .collect();
+    let offenders: Vec<String> = forbidden_in(&files, &[], &removed)
+        .into_iter()
+        .chain(forbidden_in(&triage_files, &["actions_service"], &[]))
+        .chain(
+            files
+                .iter()
+                .filter(|(rel, _)| !rel.starts_with(&legacy))
+                .flat_map(|(rel, text)| {
+                    code_lines(text)
+                        .filter(|(_, line)| names_path(line, "ActionRequest::propose"))
+                        .map(|(number, line)| format!("{rel}:{number}: {line}"))
+                        .collect::<Vec<_>>()
+                }),
+        )
+        .collect();
+    assert!(
+        offenders.is_empty(),
+        "a legacy action is created: {offenders:#?}"
+    );
+}
+
+/// The triage queue and its in-memory retries are gone, and the triage handle serves only
+/// follow-ups, chat and history.
+#[test]
+fn triage_queue_and_in_memory_retries_are_gone() {
+    let queue = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/triage/queue.rs");
+    assert!(!queue.exists(), "the triage queue module is back");
+    let files = production_sources();
+    let words = [
+        "RetryReason",
+        "retry_deferred",
+        "deferred_ready",
+        "DEFAULT_QUEUE",
+    ];
+    let offenders = forbidden_in(&files, &words, &[]);
+    assert!(offenders.is_empty(), "queue remnants: {offenders:#?}");
+
+    let handle: Vec<_> = files
+        .iter()
+        .filter(|(rel, _)| rel.starts_with(&crate_path("triage/")))
+        .flat_map(|(rel, text)| {
+            code_lines(text)
+                .filter(|(_, line)| {
+                    ["fn triage(", "fn retriage(", "fn queued("]
+                        .iter()
+                        .any(|f| line.contains(f))
+                })
+                .map(|(number, line)| format!("{rel}:{number}: {line}"))
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    assert!(handle.is_empty(), "queue entry points remain: {handle:#?}");
 }

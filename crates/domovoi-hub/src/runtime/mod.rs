@@ -284,7 +284,6 @@ impl HubRuntime {
             executor: deps.process_executor,
             shutdown: &worker_shutdown,
             overrides: &overrides,
-            actions: actions_service.clone(),
         })
         .await?;
         let (operations, operations_task) =

@@ -20,10 +20,7 @@ use domovoi_engine::operations::{
     InvestigateDeps, OperationDeps, OperationService, OperationSettings,
 };
 use domovoi_engine::triage::{TriageDeps, TriageService, TriageSettings};
-use domovoi_engine::{
-    ActionDeps, ActionService, ActionSettings, DomainEvent, EnginePolicy, EventKind,
-    IncidentManager, ManagerDeps,
-};
+use domovoi_engine::{DomainEvent, EnginePolicy, EventKind, IncidentManager, ManagerDeps};
 use domovoi_testkit::build::{T0, open_incident};
 use domovoi_testkit::link::LinkRequest;
 use domovoi_testkit::link::{action_caps, evidence_caps, observer_of};
@@ -35,7 +32,7 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::format::{Drill, IncidentSpec, Turn};
-use crate::proposal_view::{ProposalView, from_actions, from_snapshot};
+use crate::proposal_view::{ProposalView, from_snapshot};
 
 pub const HOST: &str = "nas";
 
@@ -51,22 +48,11 @@ pub enum Model {
     Live(Arc<dyn LlmProvider>),
 }
 
-/// Which path triages the drill's incident.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Mode {
-    /// The direct triage run, which stores `ActionRequest`s.
-    Legacy,
-    /// An investigation operation, which stores Execution steps. The effect runner is driven
-    /// by the fake clock, so a live model cannot be used with it.
-    Operations,
-}
-
 /// Everything a drill run produced, for scoring and probing.
 pub struct Outcome {
-    pub mode: Mode,
     pub outcome: TriageOutcome,
     pub incident: Incident,
-    /// The legacy actions; none in `Mode::Operations`.
+    /// The legacy actions; none, since investigations store Execution steps.
     pub actions: Vec<ActionRequest>,
     /// What was proposed, from the actions or from the Execution steps.
     pub proposals: Vec<ProposalView>,
@@ -196,8 +182,8 @@ async fn open(store: &InMemoryStore, spec: &IncidentSpec, at: Timestamp) -> (Inc
     (incident, first)
 }
 
-/// Runs `drill` once with `model`, triaged by `mode`.
-pub async fn run(drill: &Drill, model: Model, mode: Mode) -> Outcome {
+/// Runs `drill` once with `model`, investigated as an operation.
+pub async fn run(drill: &Drill, model: Model) -> Outcome {
     let store = Arc::new(InMemoryStore::new());
     let mut registered = domovoi_testkit::build::host(HOST).unwrap();
     registered.id = host_id();
@@ -311,32 +297,6 @@ pub async fn run(drill: &Drill, model: Model, mode: Mode) -> Outcome {
         requests: Mutex::new(Vec::new()),
     });
     let primary: Arc<dyn LlmProvider> = recording.clone();
-    let caps = action_caps(link.clone());
-    let (actions_service, _actions_task) = ActionService::spawn(
-        ActionDeps {
-            actions: store.clone(),
-            incidents: store.clone(),
-            audit: store.clone(),
-            uow: store.clone(),
-            effects: store.clone(),
-            advisories: store.clone(),
-            probe: caps.probe,
-            observer: caps.observer,
-            journal: caps.journal,
-            capabilities: Arc::new(domovoi_testkit::FakeCapabilityRegistry::following(
-                link.clone(),
-            )),
-            handoff: caps.handoff,
-            rerun: caps.rerun,
-            hosts: store.clone(),
-            redactor: redactor.clone(),
-            clock: clock.clone(),
-            manager: manager.clone(),
-            bus: bus.clone(),
-            shutdown: shutdown.clone(),
-        },
-        ActionSettings::default(),
-    );
     let deps = TriageDeps {
         primary,
         fallbacks: Vec::new(),
@@ -356,7 +316,6 @@ pub async fn run(drill: &Drill, model: Model, mode: Mode) -> Outcome {
         notes: store.clone(),
         hosts: store.clone(),
         actions: store.clone(),
-        actions_service,
         cache: store.clone(),
         usage: store.clone(),
         admission: store.clone(),
@@ -367,70 +326,63 @@ pub async fn run(drill: &Drill, model: Model, mode: Mode) -> Outcome {
         bus,
         shutdown: shutdown.clone(),
     };
-    let settings = TriageSettings {
-        run_queue: mode == Mode::Legacy,
-        ..TriageSettings::default()
-    };
-    let (triage, _triage_task) = TriageService::spawn(deps, settings);
-    let outcome = match mode {
-        Mode::Legacy => triage.triage(&incident).await,
-        Mode::Operations => {
-            let ports = action_caps(link.clone());
-            let registry = Arc::new(domovoi_testkit::FakeCapabilityRegistry::following(
-                link.clone(),
-            ));
-            let (ops, _ops_task) = OperationService::spawn(
-                OperationDeps {
-                    bus: tokio::sync::broadcast::channel(16).0,
-                    operations: store.clone(),
-                    uow: store.clone(),
-                    effects: store.clone(),
-                    effect_read: store.clone(),
-                    advisories: store.clone(),
-                    incidents: store.clone(),
-                    hosts: store.clone(),
-                    evidence: domovoi_engine::Evidence::new(
-                        evidence_caps(link.clone()),
-                        clock.clone(),
-                        registry.clone(),
-                    ),
-                    registry,
-                    resolver: Arc::new(domovoi_testkit::FakeTargetResolver::new()),
-                    observer: observer_of(link.clone()),
-                    journal: ports.journal,
-                    handoff: ports.handoff,
-                    rerun: ports.rerun,
-                    redactor: redactor.clone(),
-                    clock: clock.clone(),
-                    shutdown: shutdown.clone(),
-                    investigate: Some(InvestigateDeps {
-                        triage: triage.clone(),
-                    }),
-                },
-                OperationSettings::default(),
-            );
-            let asked = incident.clone();
-            let run = tokio::spawn(async move { ops.investigate_and_wait(&asked, false).await });
-            // The effect runner works against the fake clock. A scripted drill needs no time
-            // to pass, so the clock moves only when the investigation has stayed unfinished
-            // for a long while, and never far enough to reach the run's deadline on a
-            // loaded machine.
-            for round in 0..60_000_u32 {
-                for _ in 0..100 {
-                    tokio::task::yield_now().await;
-                }
-                if run.is_finished() {
-                    break;
-                }
-                if round % 600 == 599 {
-                    clock.advance(SignedDuration::from_secs(1));
-                }
+    let (triage, _triage_task) = TriageService::spawn(deps, TriageSettings::default());
+    let outcome = {
+        let ports = action_caps(link.clone());
+        let registry = Arc::new(domovoi_testkit::FakeCapabilityRegistry::following(
+            link.clone(),
+        ));
+        let (ops, _ops_task) = OperationService::spawn(
+            OperationDeps {
+                bus: tokio::sync::broadcast::channel(16).0,
+                operations: store.clone(),
+                uow: store.clone(),
+                effects: store.clone(),
+                effect_read: store.clone(),
+                advisories: store.clone(),
+                incidents: store.clone(),
+                hosts: store.clone(),
+                evidence: domovoi_engine::Evidence::new(
+                    evidence_caps(link.clone()),
+                    clock.clone(),
+                    registry.clone(),
+                ),
+                registry,
+                resolver: Arc::new(domovoi_testkit::FakeTargetResolver::new()),
+                observer: observer_of(link.clone()),
+                journal: ports.journal,
+                handoff: ports.handoff,
+                rerun: ports.rerun,
+                redactor: redactor.clone(),
+                clock: clock.clone(),
+                shutdown: shutdown.clone(),
+                investigate: Some(InvestigateDeps {
+                    triage: triage.clone(),
+                }),
+            },
+            OperationSettings::default(),
+        );
+        let asked = incident.clone();
+        let run = tokio::spawn(async move { ops.investigate_and_wait(&asked, false).await });
+        // The effect runner works against the fake clock. A scripted drill needs no time
+        // to pass, so the clock moves only when the investigation has stayed unfinished
+        // for a long while, and never far enough to reach the run's deadline on a
+        // loaded machine.
+        for round in 0..60_000_u32 {
+            for _ in 0..100 {
+                tokio::task::yield_now().await;
             }
-            assert!(run.is_finished(), "the investigation never gave an outcome");
-            run.await
-                .expect("the investigation task finished")
-                .unwrap_or_else(|err| panic!("the investigation gave no outcome: {err}"))
+            if run.is_finished() {
+                break;
+            }
+            if round % 600 == 599 {
+                clock.advance(SignedDuration::from_secs(1));
+            }
         }
+        assert!(run.is_finished(), "the investigation never gave an outcome");
+        run.await
+            .expect("the investigation task finished")
+            .unwrap_or_else(|err| panic!("the investigation gave no outcome: {err}"))
     };
 
     let mut tokens = BTreeMap::new();
@@ -444,32 +396,28 @@ pub async fn run(drill: &Drill, model: Model, mode: Mode) -> Outcome {
         .unwrap()
         .items;
     let requests = recording.requests.lock().unwrap().clone();
-    let proposals = match mode {
-        Mode::Legacy => from_actions(&actions),
-        Mode::Operations => {
-            let skills: Vec<SkillSummary> = drill
-                .setup
-                .skills
-                .iter()
-                .map(|name| starter_skill(name))
-                .collect();
-            let mut views = Vec::new();
-            for operation in OperationRepo::for_incident(&*store, incident.id())
+    let proposals = {
+        let skills: Vec<SkillSummary> = drill
+            .setup
+            .skills
+            .iter()
+            .map(|name| starter_skill(name))
+            .collect();
+        let mut views = Vec::new();
+        for operation in OperationRepo::for_incident(&*store, incident.id())
+            .await
+            .unwrap()
+        {
+            let snapshot = OperationRepo::load(&*store, operation.id)
                 .await
                 .unwrap()
-            {
-                let snapshot = OperationRepo::load(&*store, operation.id)
-                    .await
-                    .unwrap()
-                    .unwrap();
-                views.extend(from_snapshot(&snapshot, &skills));
-            }
-            views
+                .unwrap();
+            views.extend(from_snapshot(&snapshot, &skills));
         }
+        views
     };
     shutdown.cancel();
     Outcome {
-        mode,
         outcome,
         incident,
         actions,

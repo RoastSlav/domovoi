@@ -1,0 +1,21 @@
+---
+source: crates/domovoi-engine/tests/services/parity.rs
+expression: legacy
+---
+(
+    Seen {
+        shape: Object {
+            "failed": String("scripted failed: unavailable: the run spent its whole output token budget before the model finished; raise [triage] per_run.total_tokens"),
+        },
+        model_requests: 2,
+        tools: None,
+        kinds: [
+            "triage.cached",
+            "triage.failed",
+        ],
+    },
+    [
+        2000,
+        500,
+    ],
+)

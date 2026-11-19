@@ -23,7 +23,7 @@ use serde_json::json;
 use tokio::task::yield_now;
 
 use crate::harness::{
-    Mode, SECRET, Setup, World, add_signal, calls, disk, host_id, report, results, seen, world,
+    SECRET, Setup, World, add_signal, calls, disk, host_id, report, results, seen, world,
     world_over,
 };
 use domovoi_core::ports::ToolOutput;
@@ -222,31 +222,32 @@ async fn admission_survives_restart() {
     })
     .await;
     w.primary.push_text(report());
-    assert!(matches!(
-        w.run(Mode::Legacy).await,
-        TriageOutcome::Report(_)
-    ));
+    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
     assert_eq!(w.primary.requests().len(), 1);
 
     let other = another(&w, "redis").await;
-    let restarted = w.restart_triage();
-    let skipped = restarted.triage(&other).await;
+    // The restarted service's start-up pass investigates the open incident nobody triaged.
+    let _restarted = w.restart_triage();
+    w.drive(2, 1).await;
+    let kinds = crate::parity::kinds(&w, &other).await;
     assert!(
-        matches!(&skipped, TriageOutcome::Skipped { reason } if reason.contains("per hour")),
-        "the restarted service still counts the run from before it: {skipped:?}"
+        kinds.iter().any(|kind| kind == "triage.skipped"),
+        "the restarted service still counts the run from before it: {kinds:?}"
     );
     assert_eq!(w.primary.requests().len(), 1, "no model call was made");
 
-    w.clock.advance(SignedDuration::from_mins(61));
+    // The skipped investigation retries through its own effect once the slot frees.
     w.primary.push_text(report());
-    assert!(matches!(
-        restarted.triage(&other).await,
-        TriageOutcome::Report(_)
-    ));
+    w.drive(70, 61).await;
     assert_eq!(
         w.primary.requests().len(),
         2,
         "the slot freed after an hour"
+    );
+    let kinds = crate::parity::kinds(&w, &other).await;
+    assert!(
+        kinds.iter().any(|kind| kind == "triage.report"),
+        "{kinds:?}"
     );
 }
 
@@ -262,7 +263,7 @@ async fn cache_hit_uses_no_slot() {
     })
     .await;
     w.primary.push_text(report());
-    let TriageOutcome::Report(first) = w.run(Mode::Legacy).await else {
+    let TriageOutcome::Report(first) = w.run().await else {
         unreachable!("the first run calls the model");
     };
 
@@ -270,7 +271,7 @@ async fn cache_hit_uses_no_slot() {
     IncidentRepo::insert(&*w.store, &earlier).await.unwrap();
     w.signal(disk(92.1)).await;
     assert_eq!(
-        w.run(Mode::Legacy).await,
+        w.run().await,
         TriageOutcome::Cached {
             report: first,
             from: earlier.id()
@@ -288,10 +289,7 @@ async fn cache_hit_uses_no_slot() {
     w.clock.advance(SignedDuration::from_mins(61));
     w.signal(disk(55.0)).await;
     w.primary.push_text(report());
-    assert!(matches!(
-        w.run(Mode::Legacy).await,
-        TriageOutcome::Report(_)
-    ));
+    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
     assert_eq!(w.primary.requests().len(), 2);
 }
 
@@ -341,7 +339,7 @@ async fn unverifiable_admission_skips_triage_and_leaves_the_card() {
     )
     .await;
     w.drain();
-    let outcome = w.run(Mode::Legacy).await;
+    let outcome = w.run().await;
     assert!(
         matches!(&outcome, TriageOutcome::Skipped { reason } if reason.contains("could not be checked")),
         "an unreadable limit skips the run: {outcome:?}"
@@ -376,7 +374,7 @@ async fn unpriced_admission_still_refuses_before_the_request() {
         ..Setup::default()
     })
     .await;
-    let outcome = w.run(Mode::Legacy).await;
+    let outcome = w.run().await;
     assert!(
         matches!(&outcome, TriageOutcome::Skipped { reason } if reason.contains("has no price")),
         "{outcome:?}"
@@ -390,7 +388,7 @@ async fn admit_error_skips_triage_and_defers_the_retry() {
     let mut w = flaky_world(admission.clone()).await;
     w.drain();
 
-    let outcome = w.run(Mode::Legacy).await;
+    let outcome = w.run().await;
     assert!(
         matches!(&outcome, TriageOutcome::Skipped { reason } if reason.contains("could not be checked")),
         "an unreadable admission window skips the run: {outcome:?}"
@@ -446,7 +444,7 @@ async fn starts_since_error_defers_the_due_retry_by_five_minutes() {
     admission.fail_admit();
     let w = flaky_world(admission.clone()).await;
 
-    let skipped = w.run(Mode::Legacy).await;
+    let skipped = w.run().await;
     assert!(
         matches!(&skipped, TriageOutcome::Skipped { reason } if reason.contains("could not be checked")),
         "{skipped:?}"
@@ -505,10 +503,7 @@ async fn failed_call_records_usage() {
     .await;
     w.secondary.push_text(report());
 
-    assert!(matches!(
-        w.run(Mode::Legacy).await,
-        TriageOutcome::Report(_)
-    ));
+    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
     let rows = w.store.usage_rows();
     assert_eq!(rows.len(), 2, "one row per provider call");
     let failed = &rows[0];
@@ -545,10 +540,7 @@ async fn unknown_cost_is_recorded_as_unknown_not_free() {
         ..Setup::default()
     })
     .await;
-    assert!(matches!(
-        w.run(Mode::Legacy).await,
-        TriageOutcome::Report(_)
-    ));
+    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
     let unknown = row(&w, 0);
     assert_eq!(unknown.cost_micros, None, "unknown is stored as NULL");
     assert_eq!(unknown.usage_source, Some(UsageSource::Unknown));
@@ -565,10 +557,7 @@ async fn unknown_cost_is_recorded_as_unknown_not_free() {
     // A genuine zero price is a different value from an unknown one.
     let free = world(Setup::default()).await;
     free.primary.push_text(report());
-    assert!(matches!(
-        free.run(Mode::Legacy).await,
-        TriageOutcome::Report(_)
-    ));
+    assert!(matches!(free.run().await, TriageOutcome::Report(_)));
     let zero = row(&free, 0);
     assert_eq!(zero.cost_micros, Some(0));
     assert_eq!(zero.usage_source, Some(UsageSource::Reported));
@@ -626,7 +615,7 @@ async fn provider_error_redacted() {
     w.primary
         .push_err(LlmError::Unavailable(format!("upstream said {SECRET}")));
 
-    let outcome = w.run(Mode::Legacy).await;
+    let outcome = w.run().await;
     let TriageOutcome::Failed { reason } = outcome else {
         unreachable!("the provider failure fails the run");
     };
@@ -716,10 +705,7 @@ async fn prompt_over_the_cap_is_trimmed_from_old_tool_results() {
             .push_ok(calls(&[(id.as_str(), "host_overview", json!({}))]));
     }
     w.primary.push_text(report());
-    assert!(matches!(
-        w.run(Mode::Legacy).await,
-        TriageOutcome::Report(_)
-    ));
+    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
 
     let requests = w.primary.requests();
     let first_message = requests[0].messages[0].clone();
@@ -804,10 +790,7 @@ async fn similar_incidents_come_from_the_same_host_only() {
     IncidentRepo::insert(&*w.store, &elsewhere).await.unwrap();
 
     w.primary.push_text(report());
-    assert!(matches!(
-        w.run(Mode::Legacy).await,
-        TriageOutcome::Report(_)
-    ));
+    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
     let prompt = seen(&w.primary.requests()[0]);
     assert!(
         prompt.contains("nginx on host alpha"),
@@ -852,10 +835,7 @@ async fn measure_prompt_sizes() {
             .push_ok(calls(&[(id.as_str(), "host_overview", json!({}))]));
     }
     w.primary.push_text(report());
-    assert!(matches!(
-        w.run(Mode::Legacy).await,
-        TriageOutcome::Report(_)
-    ));
+    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
 
     let mut sizes: Vec<usize> = w.primary.requests().iter().map(size).collect();
     let sorted = {

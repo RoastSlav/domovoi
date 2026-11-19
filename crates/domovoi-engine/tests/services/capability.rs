@@ -13,7 +13,7 @@ use url::Url;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 
-use crate::harness::{Mode, Setup, host_id, report, world};
+use crate::harness::{Setup, host_id, report, world};
 
 /// Installs the rustls provider once, as the binary does at startup.
 fn crypto() {
@@ -99,7 +99,7 @@ async fn stream_usage_then_tools_are_both_handled_without_a_loop() {
         ..Setup::default()
     })
     .await;
-    let outcome = w.run(Mode::Legacy).await;
+    let outcome = w.run().await;
     assert!(matches!(outcome, TriageOutcome::Report(_)), "{outcome:?}");
 
     let requests = server.received_requests().await.unwrap();
@@ -164,7 +164,7 @@ async fn a_provider_that_refuses_tools_gets_prefetched_output_in_the_same_run() 
         ..Setup::default()
     })
     .await;
-    let outcome = w.run(Mode::Legacy).await;
+    let outcome = w.run().await;
     assert!(matches!(outcome, TriageOutcome::Report(_)), "{outcome:?}");
 
     let requests = server.received_requests().await.unwrap();
@@ -223,7 +223,7 @@ async fn a_reasoning_model_that_runs_out_is_retried_and_answers() {
         ..Setup::default()
     })
     .await;
-    let outcome = w.run(Mode::Legacy).await;
+    let outcome = w.run().await;
     assert!(matches!(outcome, TriageOutcome::Report(_)), "{outcome:?}");
 
     let requests = server.received_requests().await.unwrap();
@@ -286,7 +286,7 @@ async fn a_tool_calling_provider_still_runs_its_call_and_answers() {
         ..Setup::default()
     })
     .await;
-    let outcome = w.run(Mode::Legacy).await;
+    let outcome = w.run().await;
     assert!(matches!(outcome, TriageOutcome::Report(_)), "{outcome:?}");
 
     let requests = server.received_requests().await.unwrap();
@@ -339,7 +339,7 @@ async fn a_refused_tools_rejection_refunds_the_run_budget() {
         ..Setup::default()
     })
     .await;
-    let outcome = w.run(Mode::Legacy).await;
+    let outcome = w.run().await;
     assert!(
         matches!(outcome, TriageOutcome::Report(_)),
         "the refund lets the rebuilt attempt use the allowance: {outcome:?}"
@@ -385,7 +385,7 @@ async fn an_uncountable_answer_is_billed_and_the_fallback_is_recorded_once() {
     .await;
     w.secondary.push_text(report());
 
-    let outcome = w.run(Mode::Legacy).await;
+    let outcome = w.run().await;
     assert!(
         matches!(outcome, TriageOutcome::Report(_)),
         "the priced fallback answers: {outcome:?}"
@@ -405,7 +405,7 @@ async fn an_uncountable_answer_is_billed_and_the_fallback_is_recorded_once() {
     assert!(total.tokens_in > 0, "the input cost is retained");
     assert!(total.cost_micros > 0, "the attempts are not free");
 
-    let again = w.run(Mode::Legacy).await;
+    let again = w.run().await;
     assert!(
         matches!(&again, TriageOutcome::Skipped { reason } if reason.contains("monthly")),
         "the conservative charge counts against the monthly budget: {again:?}"

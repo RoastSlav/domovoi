@@ -1,0 +1,45 @@
+---
+source: crates/domovoi-engine/tests/drills/drills.rs
+expression: "frozen(drill, &outcome)"
+---
+{
+  "model_requests": 3,
+  "proposals": [
+    {
+      "args": {
+        "container": "nginx"
+      },
+      "skill": "restart_container"
+    }
+  ],
+  "report": {
+    "cause": "An out-of-memory kill during a memory spike; the container's config is fine.",
+    "evidence": [
+      {
+        "label": "exit code",
+        "source": "docker_inspect",
+        "value": "137 (OOMKilled)"
+      },
+      {
+        "label": "memory at 11:51",
+        "source": "host_overview",
+        "value": "7.1 of 7.7 GiB"
+      }
+    ],
+    "headline": "nginx was killed for running out of memory",
+    "manual_steps": [],
+    "next_step": "Restart nginx, then look at what used the memory at 11:51.",
+    "proposals": [
+      {
+        "args": {
+          "container": "nginx"
+        },
+        "reason": "The container stopped after a one-off out-of-memory kill.",
+        "skill": "restart_container"
+      }
+    ],
+    "summary": "nginx exited with code 137 at 11:51 after the kernel killed its worker. Memory was nearly full at the time and has since recovered.\n",
+    "verdict": "ACTION_NEEDED"
+  },
+  "score_total": 100
+}

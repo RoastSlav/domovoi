@@ -1,0 +1,18 @@
+---
+source: crates/domovoi-engine/tests/services/parity.rs
+expression: legacy
+---
+(
+    Seen {
+        shape: Object {
+            "skipped": String("the monthly triage budget is spent"),
+        },
+        model_requests: 0,
+        tools: None,
+        kinds: [
+            "triage.cached",
+            "triage.skipped",
+        ],
+    },
+    0,
+)

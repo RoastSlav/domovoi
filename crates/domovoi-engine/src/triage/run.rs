@@ -1,22 +1,17 @@
-//! One triage run: caps, the repeat cache, the provider chain, proposals, then the outcome
-//! attached through the incident manager. Also tracks consecutive failures.
+//! The steps of one triage run: caps, the repeat cache and the provider chain. Also tracks
+//! consecutive failures.
 
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use domovoi_core::ports::{LlmCapability, LlmError, LlmMessage, LlmProvider, Part, Role};
-use domovoi_core::{
-    ActionId, Incident, IncidentId, ReadToolCall, SkillSummary, TriageOutcome, TriageReport,
-};
+use domovoi_core::{Incident, IncidentId, ReadToolCall, SkillSummary, TriageReport};
 use jiff::{SignedDuration, Timestamp};
 
 use super::admission::{ADMISSION_RETRY, Purpose, Refusal, admit, unpriced_text};
 use super::agent::{self, ToolUse, text_of};
 use super::cache::evidence_digest;
 use super::report::{parse_report, redact_report};
-use super::{
-    DEGRADED_AFTER, FAILED_RETRY, RetryReason, SYSTEM_PROMPT, Shared, context, proposals, tools,
-};
+use super::{DEGRADED_AFTER, SYSTEM_PROMPT, Shared, tools};
 use crate::advisories::triage_degraded;
 use crate::events::{DomainEvent, EventKind};
 
@@ -33,21 +28,6 @@ pub(crate) fn limits(shared: &Shared) -> std::sync::MutexGuard<'_, Limits> {
         .limits
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
-}
-
-/// Triages `incident`, attaches the outcome and returns it. With `fresh`, the repeat cache
-/// is skipped.
-pub(crate) async fn triage(shared: &Shared, incident: &Incident, fresh: bool) -> TriageOutcome {
-    let (outcome, tokens) = outcome(shared, incident, fresh).await;
-    if let Err(err) = shared
-        .deps
-        .manager
-        .attach_triage(incident.id(), outcome.clone(), tokens)
-        .await
-    {
-        tracing::warn!(%err, incident = %incident.id(), "could not attach the triage outcome");
-    }
-    outcome
 }
 
 /// What the gates before a model call decided.
@@ -158,78 +138,6 @@ pub(crate) async fn generate(
         tool_use,
         usage: run.usage(),
     }
-}
-
-async fn outcome(
-    shared: &Shared,
-    incident: &Incident,
-    fresh: bool,
-) -> (TriageOutcome, BTreeMap<ActionId, String>) {
-    let deps = &shared.deps;
-    // Read before anything runs, as the cache key of the report this run may produce.
-    let evidence = digest(shared, incident).await;
-    match prepare(shared, incident, fresh).await {
-        Prepared::Cached { mut report, from } => {
-            // The repeat incident gets the same approve buttons a fresh triage would: the
-            // cached report's proposals are re-validated against the host's current session.
-            let snapshot = deps.catalog.snapshot(incident.host());
-            let skills = deps.capabilities.enabled_skills(incident.host());
-            let tokens =
-                proposals::create(shared, incident, snapshot.as_ref(), &skills, &mut report).await;
-            return (TriageOutcome::Cached { report, from }, tokens);
-        }
-        Prepared::Refused(refusal) => {
-            let (reason, retry_at) = refusal_text(shared, &refusal);
-            if let Some(at) = retry_at {
-                shared.defer(incident.id(), at, RetryReason::Cap);
-            }
-            return (TriageOutcome::Skipped { reason }, BTreeMap::new());
-        }
-        Prepared::Admitted => {}
-    }
-    let snapshot = deps.catalog.snapshot(incident.host());
-    let skills = deps.capabilities.enabled_skills(incident.host());
-    let bundle = context::build(shared, incident, &skills).await;
-    let generated = generate(shared, incident, &skills, &bundle).await;
-    let outcome = match generated.result {
-        Ok(mut report) => {
-            let tokens =
-                proposals::create(shared, incident, snapshot.as_ref(), &skills, &mut report).await;
-            if let Err(err) = deps
-                .cache
-                .put(
-                    &incident.fingerprint(),
-                    &evidence,
-                    &report,
-                    deps.clock.now(),
-                )
-                .await
-            {
-                tracing::warn!(%err, "could not cache the triage report");
-            }
-            succeeded(shared).await;
-            (TriageOutcome::Report(report), tokens)
-        }
-        Err(reason) => {
-            tracing::warn!(incident = %incident.id(), reason = reason.as_str(), "triage failed");
-            failed(shared, incident, &reason).await;
-            if !limits(shared).degraded
-                && let Some(at) = deps.clock.now().checked_add(FAILED_RETRY).ok()
-            {
-                shared.defer(incident.id(), at, RetryReason::Failed);
-            }
-            (TriageOutcome::Failed { reason }, BTreeMap::new())
-        }
-    };
-    if !generated.tool_use.is_empty()
-        && let Err(err) = deps
-            .manager
-            .record_tool_use(incident.id(), "triage".to_owned(), generated.tool_use)
-            .await
-    {
-        tracing::warn!(%err, incident = %incident.id(), "could not record the triage tool use");
-    }
-    outcome
 }
 
 /// A cached report for the same fingerprint and evidence, and the resolved incident it

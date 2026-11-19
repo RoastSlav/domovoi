@@ -221,7 +221,7 @@ async fn catch_up(handle: &OperationHandle, runtime: &Runtime, only_open: bool) 
         ..IncidentFilter::default()
     };
     let mut page = Page::first(Page::MAX_LIMIT);
-    let mut examined: u32 = 0;
+    let mut started: u32 = 0;
     loop {
         let got = match incidents.list(&filter, &page).await {
             Ok(got) => got,
@@ -231,10 +231,6 @@ async fn catch_up(handle: &OperationHandle, runtime: &Runtime, only_open: bool) 
             }
         };
         for incident in got.items {
-            if examined >= u32::from(runtime.settings.catch_up_limit) {
-                return;
-            }
-            examined += 1;
             let status = incident.status();
             if status == IncidentStatus::Pending || (only_open && status != IncidentStatus::Open) {
                 continue;
@@ -251,7 +247,16 @@ async fn catch_up(handle: &OperationHandle, runtime: &Runtime, only_open: bool) 
                     continue;
                 }
             };
-            if !done && let Err(err) = handle.investigate(&incident, false).await {
+            if done {
+                continue;
+            }
+            // The limit bounds the investigations one pass starts, not the incidents it
+            // reads, so a long list of handled incidents cannot hide an open one.
+            if started >= u32::from(runtime.settings.catch_up_limit) {
+                return;
+            }
+            started += 1;
+            if let Err(err) = handle.investigate(&incident, false).await {
                 tracing::warn!(%err, incident = %incident.id(), "could not start an investigation");
             }
         }

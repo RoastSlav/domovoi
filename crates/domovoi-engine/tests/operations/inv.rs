@@ -100,7 +100,7 @@ impl EffectQueue for KindGate {
 
 /// How an investigation world is built.
 pub struct InvSetup {
-    /// Triage limits; `run_queue` is forced off.
+    /// Triage limits.
     pub triage: TriageSettings,
     /// Operation limits.
     pub ops: OperationSettings,
@@ -289,7 +289,7 @@ pub async fn inv(setup: InvSetup) -> Inv {
     let llm = Arc::new(ScriptedLlm::new());
     let primary: Arc<dyn LlmProvider> = llm.clone();
     let action_ports = action_caps(link.clone());
-    let (actions_service, _actions_task) = ActionService::spawn(
+    let (_actions_service, _actions_task) = ActionService::spawn(
         ActionDeps {
             actions: store.clone(),
             incidents: store.clone(),
@@ -329,7 +329,6 @@ pub async fn inv(setup: InvSetup) -> Inv {
         notes: store.clone(),
         hosts: store.clone(),
         actions: store.clone(),
-        actions_service,
         cache: store.clone(),
         usage: store.clone(),
         admission: store.clone(),
@@ -340,11 +339,7 @@ pub async fn inv(setup: InvSetup) -> Inv {
         bus: bus.clone(),
         shutdown: shutdown.clone(),
     };
-    let triage_settings = TriageSettings {
-        run_queue: false,
-        ..setup.triage
-    };
-    let (triage, _triage_task) = TriageService::spawn(triage_deps, triage_settings);
+    let (triage, _triage_task) = TriageService::spawn(triage_deps, setup.triage);
     let gate = KindGate::new(store.clone(), &setup.held);
     let ops_shutdown = CancellationToken::new();
     let ops_caps = action_caps(link.clone());

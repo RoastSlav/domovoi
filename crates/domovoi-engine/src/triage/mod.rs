@@ -1,11 +1,11 @@
-//! Triage: turns `TriageRequested` events into [`TriageOutcome`]s (ARCHITECTURE.md §11).
+//! Triage: follow-up questions, chat and the investigation steps (ARCHITECTURE.md §11).
 //!
-//! A bounded queue feeds a few workers. Each run checks the hourly and monthly caps, then
-//! the repeat cache, builds a redacted context bundle and runs a bounded loop over the
-//! closed [`ReadTool`](domovoi_core::ReadTool) set. The final answer must be one JSON
-//! [`TriageReport`](domovoi_core::TriageReport). The primary provider falls back to the
-//! providers after it in order; a failed run still leaves the card that already went out (INV-11). Valid
-//! action proposals become `Proposed` actions; nothing the model writes is ever run (INV-9).
+//! This module serves follow-up questions and chat, and holds the steps an investigation
+//! operation runs for one incident: the hourly and monthly caps, the repeat cache, a redacted
+//! context bundle and a bounded loop over the closed [`ReadTool`](domovoi_core::ReadTool)
+//! set. The final answer must be one JSON [`TriageReport`](domovoi_core::TriageReport). The
+//! primary provider falls back to the providers after it in order; a failed run still leaves
+//! the card that already went out (INV-11). Nothing the model writes is ever run (INV-9).
 
 pub(crate) mod admission;
 pub(crate) mod agent;
@@ -18,7 +18,6 @@ mod history;
 mod incident_context;
 mod prompt;
 pub(crate) mod proposals;
-mod queue;
 pub(crate) mod report;
 pub(crate) mod run;
 mod tools;
@@ -29,12 +28,11 @@ use domovoi_core::ports::{
     ActionRepo, AdmissionRepo, AdvisoryRepo, CapabilityRegistry, Clock, HostRepo, IncidentRepo,
     LlmProvider, NoteRepo, Redactor, SignalRepo, TriageCacheRepo, UsageRepo,
 };
-use domovoi_core::{HostId, Incident, IncidentId, TriageBudget, TriageOutcome, UserId};
+use domovoi_core::{HostId, IncidentId, TriageBudget, UserId};
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-use crate::actions::ActionHandle;
 use crate::events::DomainEvent;
 use crate::evidence::{Evidence, HostCatalog};
 use crate::manager::ManagerHandle;
@@ -46,19 +44,12 @@ pub use agent::{
 pub use chat::{CHAT_PROMPT, ChatRole, ChatTurn};
 pub use followup::{FOLLOW_UP_PROMPT, MAX_ANSWER_CHARS};
 pub use history::{CLEAR_KIND, FOLLOW_UP_KIND, Turn, count_clear, since_clear};
-pub use proposals::PROPOSER;
 pub use report::parse_report;
 pub(crate) use tools::cut;
 pub use tools::{MAX_RESULT_BYTES, TOOL_DEADLINE};
 
 /// The system prompt for triage runs.
 pub const SYSTEM_PROMPT: &str = include_str!("../../prompts/triage_system.md");
-
-/// Requests waiting beyond this many drop the oldest, which is attached as skipped.
-pub const DEFAULT_QUEUE: usize = 64;
-
-/// How long a proposed action waits for a human before it expires.
-pub const PROPOSAL_TTL: jiff::SignedDuration = jiff::SignedDuration::from_hours(1);
 
 /// Consecutive failed runs that mark triage as degraded.
 pub const DEGRADED_AFTER: u32 = 3;
@@ -73,10 +64,8 @@ pub const FAILED_RETRY_LIMIT: usize = 3;
 /// How triage runs are limited. The hub fills it from `[triage]` in `hub.toml`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TriageSettings {
-    /// Runs at the same time.
+    /// Questions and chat answered at the same time.
     pub concurrency: u8,
-    /// Requests that may wait.
-    pub queue: usize,
     /// Runs started per rolling hour at most.
     pub per_hour_runs: u32,
     /// Runs the hour always keeps free for triage: questions and chat may not use these
@@ -91,16 +80,12 @@ pub struct TriageSettings {
     pub max_prompt_bytes: usize,
     /// Limits for one run.
     pub budget: TriageBudget,
-    /// Whether the queue and its workers run. Turned off when investigations do the work
-    /// instead: the queue and its deferred retries are then not started.
-    pub run_queue: bool,
 }
 
 impl Default for TriageSettings {
     fn default() -> Self {
         Self {
             concurrency: 2,
-            queue: DEFAULT_QUEUE,
             per_hour_runs: 6,
             reserved_for_incidents: 2,
             monthly_budget_micros: None,
@@ -114,7 +99,6 @@ impl Default for TriageSettings {
                 // `default_total_output_tokens`.
                 max_total_output_tokens: default_total_output_tokens(2000, 15),
             },
-            run_queue: true,
         }
     }
 }
@@ -146,16 +130,14 @@ pub struct TriageDeps {
     pub capabilities: Arc<dyn CapabilityRegistry>,
     /// Incidents, read only; changes go through `manager`.
     pub incidents: Arc<dyn IncidentRepo>,
+    /// Actions of an incident, read only: the follow-up context lists the legacy ones.
+    pub actions: Arc<dyn ActionRepo>,
     /// Recent signals of an incident.
     pub signals: Arc<dyn SignalRepo>,
     /// Host notes.
     pub notes: Arc<dyn NoteRepo>,
     /// Enrolled hosts and their agent keys, for the v2 plan target.
     pub hosts: Arc<dyn HostRepo>,
-    /// Where proposed actions are read for the duplicate check.
-    pub actions: Arc<dyn ActionRepo>,
-    /// The action writer, where proposals and chat token rotations are stored.
-    pub actions_service: ActionHandle,
     /// Reports reused for repeat incidents.
     pub cache: Arc<dyn TriageCacheRepo>,
     /// Token use and cost per call.
@@ -204,15 +186,6 @@ pub enum TriageError {
     AdmissionUnavailable,
 }
 
-/// Why a triage run was deferred for a retry.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum RetryReason {
-    /// The hourly cap skipped the run; it retries once a slot frees.
-    Cap,
-    /// The run failed; it retries after the failure delay, within the failure limit.
-    Failed,
-}
-
 /// The triage service's state shared by its workers and handles.
 pub(crate) struct Shared {
     pub(crate) deps: TriageDeps,
@@ -221,26 +194,9 @@ pub(crate) struct Shared {
     /// One answer in flight per worker: questions and chat hold a permit while their
     /// model call runs.
     pub(crate) questions: tokio::sync::Semaphore,
-    pub(crate) queue: queue::Queue,
-    pub(crate) deferred: std::sync::Mutex<Vec<(jiff::Timestamp, IncidentId, RetryReason)>>,
-    pub(crate) deferred_ready: tokio::sync::Notify,
 }
 
 impl Shared {
-    /// Schedules a triage of `id` at `at` for `reason`. The newest call wins, so the
-    /// reason in the last skip or failure is the one the retry matches.
-    pub(crate) fn defer(&self, id: IncidentId, at: jiff::Timestamp, reason: RetryReason) {
-        let mut deferred = self
-            .deferred
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        match deferred.iter().position(|(_, entry_id, _)| *entry_id == id) {
-            Some(index) => deferred[index] = (at, id, reason),
-            None => deferred.push((at, id, reason)),
-        }
-        self.deferred_ready.notify_one();
-    }
-
     /// The providers a triage run tries, in order: the primary, then its fallbacks.
     pub(crate) fn chain(&self) -> Vec<Arc<dyn LlmProvider>> {
         std::iter::chain(
@@ -270,29 +226,18 @@ impl std::fmt::Debug for TriageHandle {
 pub struct TriageService;
 
 impl TriageService {
-    /// Starts the service: it subscribes to `deps.bus` and runs `settings.concurrency`
-    /// workers until `deps.shutdown` fires.
+    /// Starts the service. It only waits for `deps.shutdown`: questions and chat run on
+    /// the caller's task, and investigations run as operations.
     #[must_use]
     pub fn spawn(deps: TriageDeps, settings: TriageSettings) -> (TriageHandle, JoinHandle<()>) {
-        let events = deps.bus.subscribe();
+        let shutdown = deps.shutdown.clone();
         let shared = Arc::new(Shared {
-            queue: queue::Queue::new(settings.queue.max(1)),
             limits: std::sync::Mutex::new(run::Limits::default()),
             questions: tokio::sync::Semaphore::new(usize::from(settings.concurrency.max(1))),
-            deferred: std::sync::Mutex::new(Vec::new()),
-            deferred_ready: tokio::sync::Notify::new(),
             deps,
             settings,
         });
-        let task = if shared.settings.run_queue {
-            tokio::spawn(queue::serve(shared.clone(), events))
-        } else {
-            let shutdown = shared.deps.shutdown.clone();
-            tokio::spawn(async move {
-                drop(events);
-                shutdown.cancelled().await;
-            })
-        };
+        let task = tokio::spawn(async move { shutdown.cancelled().await });
         (TriageHandle { shared }, task)
     }
 }
@@ -302,17 +247,6 @@ impl TriageHandle {
     /// queued run.
     pub(crate) fn shared(&self) -> Arc<Shared> {
         self.shared.clone()
-    }
-
-    /// Triages `incident` now, outside the queue but with the same caps, and attaches the
-    /// outcome. The service does this for every `TriageRequested`.
-    pub async fn triage(&self, incident: &Incident) -> TriageOutcome {
-        run::triage(&self.shared, incident, false).await
-    }
-
-    /// Triages `incident` again from scratch: no repeat cache, same caps.
-    pub async fn retriage(&self, incident: &Incident) -> TriageOutcome {
-        run::triage(&self.shared, incident, true).await
     }
 
     /// Answers `question` about `incident` in plain text, with the same read tools and
@@ -360,11 +294,5 @@ impl TriageHandle {
             Err(err) => return Err(TriageError::Store(err.to_string())),
         };
         Ok(since_clear(&timeline))
-    }
-
-    /// Requests waiting for a worker.
-    #[must_use]
-    pub fn queued(&self) -> usize {
-        self.shared.queue.len()
     }
 }

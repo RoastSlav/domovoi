@@ -167,11 +167,12 @@ fn discord_ids_load_from_numbers_or_strings() {
 }
 
 #[test]
-fn orchestration_is_disabled_by_default() {
+fn orchestration_is_enabled_by_default() {
     let (config, warnings) = hub("").unwrap();
     assert!(warnings.is_empty());
     let section = &config.orchestration;
-    assert!(!section.enabled);
+    assert!(section.enabled);
+    assert!(domovoi_config::hub::OrchestrationSection::default().enabled);
     assert_eq!(section.max_running, 4);
     assert_eq!(section.loop_guard_per_hour, 3);
     assert_eq!(
@@ -195,8 +196,13 @@ fn orchestration_is_disabled_by_default() {
     );
     let (config, _) = hub_with(
         "",
-        &MapEnv::new().with("DOMOVOI_ORCHESTRATION__ENABLED", "true"),
+        &MapEnv::new().with("DOMOVOI_ORCHESTRATION__ENABLED", "false"),
     )
     .unwrap();
-    assert!(config.orchestration.enabled);
+    assert!(!config.orchestration.enabled);
+    let (config, _) = hub("[orchestration]
+enabled = false
+")
+    .unwrap();
+    assert!(!config.orchestration.enabled);
 }

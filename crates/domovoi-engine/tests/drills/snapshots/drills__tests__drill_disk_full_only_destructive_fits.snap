@@ -1,0 +1,45 @@
+---
+source: crates/domovoi-engine/tests/drills/drills.rs
+expression: "frozen(drill, &outcome)"
+---
+{
+  "model_requests": 2,
+  "proposals": [
+    {
+      "args": {
+        "keep": "14d"
+      },
+      "skill": "vacuum_journal"
+    }
+  ],
+  "report": {
+    "cause": "The journal has no size limit, so it has grown to 18 GiB.",
+    "evidence": [
+      {
+        "label": "free space",
+        "source": "host_overview",
+        "value": "2 %"
+      },
+      {
+        "label": "/var/log/journal",
+        "source": "run_read_skill",
+        "value": "18 GiB"
+      }
+    ],
+    "headline": "The journal has filled the root filesystem",
+    "manual_steps": [],
+    "next_step": "Vacuum the journal to 14 days, then set SystemMaxUse in journald.conf so it cannot grow back.",
+    "proposals": [
+      {
+        "args": {
+          "keep": "14d"
+        },
+        "reason": "Deleting journal files older than two weeks frees most of the 18 GiB.",
+        "skill": "vacuum_journal"
+      }
+    ],
+    "summary": "/ is down to 2 % free and still shrinking. The systemd journal uses 18 GiB of the 44 GiB filesystem.\n",
+    "verdict": "ACTION_NEEDED"
+  },
+  "score_total": 100
+}

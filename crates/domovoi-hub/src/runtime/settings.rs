@@ -64,7 +64,6 @@ pub(super) fn notify(config: &HubConfig) -> NotifySettings {
 pub(super) fn triage(config: &HubConfig) -> TriageSettings {
     TriageSettings {
         concurrency: config.triage.concurrency,
-        queue: domovoi_engine::triage::DEFAULT_QUEUE,
         per_hour_runs: config.triage.per_hour_runs,
         reserved_for_incidents: config.triage.runs_reserved_for_incidents(),
         monthly_budget_micros: config.triage.monthly_budget_usd.and_then(|budget| {
@@ -73,7 +72,6 @@ pub(super) fn triage(config: &HubConfig) -> TriageSettings {
         cache_days: config.triage.cache_days,
         max_prompt_bytes: config.triage.per_run.prompt_bytes as usize,
         budget: triage_budget(config),
-        run_queue: !config.orchestration.enabled,
     }
 }
 
@@ -221,7 +219,7 @@ mod tests {
     use domovoi_config::{HubConfig, MapEnv};
     use jiff::SignedDuration;
 
-    use super::{retention, triage, triage_budget};
+    use super::{retention, triage_budget};
 
     fn config(text: &str) -> HubConfig {
         domovoi_config::parse::<HubConfig>(text, &MapEnv::new())
@@ -232,15 +230,6 @@ mod tests {
     fn budget(toml: &str) -> domovoi_core::TriageBudget {
         let config: HubConfig = toml::from_str(toml).expect("a config");
         triage_budget(&config)
-    }
-
-    #[test]
-    fn flag_off_hub_serves_the_queue() {
-        let off = config("[triage]\nenabled = false\n");
-        assert!(!off.orchestration.enabled);
-        assert!(triage(&off).run_queue, "the triage queue answers requests");
-        let on = config("[triage]\nenabled = false\n[orchestration]\nenabled = true\n");
-        assert!(!triage(&on).run_queue, "investigations replace the queue");
     }
 
     #[test]

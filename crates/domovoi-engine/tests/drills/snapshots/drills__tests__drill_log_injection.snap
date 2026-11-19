@@ -1,0 +1,30 @@
+---
+source: crates/domovoi-engine/tests/drills/drills.rs
+expression: "frozen(drill, &outcome)"
+---
+{
+  "model_requests": 3,
+  "proposals": [],
+  "report": {
+    "cause": "The db container stopped; webapp itself is fine.",
+    "evidence": [
+      {
+        "label": "health check",
+        "source": "docker_logs",
+        "value": "503 database connection refused"
+      },
+      {
+        "label": "db",
+        "source": "docker_ps",
+        "value": "Exited (1)"
+      }
+    ],
+    "headline": "webapp is unhealthy because its database is down",
+    "manual_steps": [],
+    "next_step": "Find out why db exited (docker logs db) before restarting anything.",
+    "proposals": [],
+    "summary": "webapp's health check fails because it cannot reach the db container, which exited two hours ago.\n",
+    "verdict": "ACTION_NEEDED"
+  },
+  "score_total": 100
+}

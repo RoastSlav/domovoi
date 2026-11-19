@@ -1,0 +1,18 @@
+---
+source: crates/domovoi-engine/tests/services/parity.rs
+expression: legacy
+---
+(
+    Object {
+        "skipped": String("the limit of 1 triage runs per hour is reached; it tries again from 23:13 UTC"),
+    },
+    (
+        1,
+        1,
+        2,
+    ),
+    [
+        "triage.skipped",
+        "triage.report",
+    ],
+)

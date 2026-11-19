@@ -441,9 +441,8 @@ pub(super) async fn ask(
     Ok(Json(AskResponse { answer }))
 }
 
-/// Runs triage again on an incident, outside the queue but with the same caps, and reports
-/// how it went. A report already cached for unchanged evidence is reused unless `fresh` is
-/// true.
+/// Investigates an incident again as an operation, with the same caps, and reports how it
+/// went. A report already cached for unchanged evidence is reused unless `fresh` is true.
 #[utoipa::path(
     post, path = "/api/v1/incidents/{id}/triage", operation_id = "retry_triage", tag = "incidents",
     params(("id" = String, Path, description = "Incident id"), RetryQuery),
@@ -451,7 +450,7 @@ pub(super) async fn ask(
         (status = 200, description = "Triaged again; how it went", body = TriageStateDto),
         (status = 401, description = "Not logged in", body = ErrorBody),
         (status = 404, description = "No such incident", body = ErrorBody),
-        (status = 503, description = "Triage is not enabled", body = ErrorBody),
+        (status = 503, description = "Triage is not enabled, or investigations are off ([orchestration] enabled = false)", body = ErrorBody),
     )
 )]
 pub(super) async fn retry_triage(
@@ -482,6 +481,9 @@ pub(super) async fn retry_triage(
             ),
         })),
         Err(RetriageError::TriageOff) => Err(ApiError::TriageOff),
+        Err(RetriageError::OperationsOff) => Err(ApiError::Unavailable(
+            "investigations are not enabled; set [orchestration] enabled = true".to_owned(),
+        )),
         Err(RetriageError::AlreadyRunning) => Err(ApiError::Conflict(
             "an investigation is already running for this incident".to_owned(),
         )),
