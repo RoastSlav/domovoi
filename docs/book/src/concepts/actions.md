@@ -18,7 +18,7 @@ stateDiagram-v2
     Succeeded --> VerifyFailed: the original check still fails
 ```
 
-- **Proposed:** triage suggested it. The card shows Approve and Deny buttons. Proposals stay open for one hour. The same buttons approve the steps an investigation proposes; see [Operations](operations.md).
+- **Proposed:** an older triage run suggested it. The card shows Approve and Deny buttons, and the proposal expires when its window closes. New proposals are not actions: they are steps of an investigation; see [Operations](operations.md).
 - **Approved:** a person said yes. It runs once its host's agent is reachable, and only if the approval and the incident still stand, so an approval made just before a restart waits for the host instead of failing.
 - **Rejected:** something changed between approval and running, the incident was resolved or deleted, the agent never came back, or the loop guard stopped it. The thread says why.
 - **Dispatched:** it was sent to the agent. If the hub loses the answer, the action stays here and its result is asked for when the agent authenticates again.
@@ -78,4 +78,4 @@ Every entry also names the incident, host, skill, risk and plan hash.
 
 ## Legacy actions
 
-When [operations](operations.md) are enabled, new proposals are steps of an investigation and are approved on the Operations page. Actions created before that, and the ones created by follow-up questions and chat, stay here: they are listed with a **Legacy** label, they finish the way they always did and can still be approved or denied here. They are never converted into steps, and nothing is invented for them.
+New proposals are steps of an investigation and are approved per step on the Operations page. Nothing creates a new action any more, and a follow-up question or chat answer only describes what might help; it proposes nothing. Actions created before this change stay here: they are listed with a **Legacy** label, they finish the way they always did and can still be approved or denied here until they expire. They are never converted into steps, and nothing is invented for them.

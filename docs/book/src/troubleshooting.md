@@ -62,7 +62,7 @@ The host named after the hub is its own machine, shown as "Hub only, no agent" w
 
 ## Triage
 
-**Cards have no verdict.** Triage failed or is off. The card still goes out, so you never miss an alert. Use **Test** on **Settings → Models and triage**, and look in the hub's log for the provider's error.
+**Cards have no verdict.** Triage failed or is off, or `[orchestration] enabled` is `false`, which stops automatic investigation (it is on by default). The card still goes out, so you never miss an alert. Use **Test** on **Settings → Models and triage**, and look in the hub's log for the provider's error.
 
 **Triage stopped for the month.** The monthly budget is spent. Raise it on **Settings → Models and triage**, or wait for the next month.
 
