@@ -1482,3 +1482,22 @@ fn investigate_never_constructs_an_authorization() {
         assert!(!probe(text).is_empty(), "{text} was not caught");
     }
 }
+
+/// A step becomes authorized only inside the operation service: nothing else in the engine
+/// calls an `authorize` method, so the two hub call sites are the only routes in.
+#[test]
+fn step_authorization_is_called_only_inside_the_operation_service() {
+    let inside = crate_path("operations/");
+    let outside: Vec<String> = production_sources()
+        .into_iter()
+        .filter(|(rel, text)| {
+            !rel.starts_with(&inside)
+                && text
+                    .split_whitespace()
+                    .collect::<String>()
+                    .contains(".authorize(")
+        })
+        .map(|(rel, _)| rel)
+        .collect();
+    assert!(outside.is_empty(), "authorize is called from {outside:?}");
+}

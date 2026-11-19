@@ -12,10 +12,12 @@ use jiff::Timestamp;
 
 const T0: Timestamp = Timestamp::constant(1_760_000_000, 0);
 
+#[cfg(test)]
 fn hash() -> PlanHash {
     hex::encode([0xab; 32]).parse().unwrap()
 }
 
+#[cfg(test)]
 fn record(risk: Option<Risk>) -> ExecutionRecord {
     let intent = ExecutionIntent {
         contract: ContractId::parse("skill.restart_container").unwrap(),
@@ -57,10 +59,12 @@ fn record(risk: Option<Risk>) -> ExecutionRecord {
     })
 }
 
+#[cfg(test)]
 fn by(channel: ApprovalChannel) -> Authorization {
     Authorization::human(HumanApproval::new(UserId::new(), channel, T0))
 }
 
+#[cfg(test)]
 fn chat() -> ApprovalChannel {
     ApprovalChannel::Chat {
         platform: "discord".to_owned(),
@@ -68,12 +72,14 @@ fn chat() -> ApprovalChannel {
     }
 }
 
+#[cfg(test)]
 fn web(typed: bool) -> ApprovalChannel {
     ApprovalChannel::Web {
         typed_confirmation: typed,
     }
 }
 
+#[cfg(test)]
 fn try_approve(risk: Option<Risk>, channel: ApprovalChannel) -> Result<(), ExecutionError> {
     record(risk).authorize(
         by(channel),

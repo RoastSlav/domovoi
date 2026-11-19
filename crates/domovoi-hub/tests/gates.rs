@@ -796,7 +796,10 @@ fn no_tool_or_chat_command_reaches_settings() {
 #[test]
 fn step_approval_is_the_only_route_to_authorized() {
     let squeeze = |text: &str| text.split_whitespace().collect::<String>();
-    let allowed_authorize = crate_path("api/operations.rs");
+    let allowed_authorize = [
+        crate_path("api/operations.rs"),
+        crate_path("auth/interactions/buttons.rs"),
+    ];
     let auth_prefix = crate_path("auth/");
     let mut authorize_sites = Vec::new();
     for (rel, text) in hub_sources() {
@@ -812,9 +815,8 @@ fn step_approval_is_the_only_route_to_authorized() {
         }
     }
     assert_eq!(
-        authorize_sites,
-        [allowed_authorize],
-        "only the step-approval endpoint may authorize a step"
+        authorize_sites, allowed_authorize,
+        "only the step-approval endpoint and the chat button handler may authorize a step"
     );
 }
 
