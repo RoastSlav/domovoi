@@ -12,6 +12,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build && npm run size",
     "size": "node scripts/size.mjs",
+    "smoke": "node scripts/smoke.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run",

@@ -304,6 +304,17 @@ jobs:
           npm run gen:api
           git diff --exit-code -- src/api
       - run: npm run build
+      - name: Browser smoke test
+        run: |
+          npx playwright install --with-deps chromium
+          npm run smoke
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: web-smoke-out
+          path: web/smoke-out
+          if-no-files-found: ignore
+          retention-days: 7
       - uses: actions/upload-artifact@v7
         with:
           name: web-dist

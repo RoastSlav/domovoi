@@ -360,6 +360,16 @@ left edge. Every focusable thing shows a focus ring. The "Live" indicator is tru
 event stream really drops, the UI says "Reconnecting", and the fault is fixed in the hub, not
 hidden here.
 
+## Right-hand slot and Operations
+
+One right-hand slot is shared by every side panel. A surface registers under its own id and is opened or closed through the slot API; the slot keeps the open surfaces oldest first, so the last one is the most recent. When the page keeps at least 640 px (`--right-slot-content-min`) beside the slot, the panel sits beside the page at 400 px (`--right-slot-width`). Otherwise the panel opens as a sheet and the page behind it is inert. Escape closes one thing per press, the front-most panel first.
+
+- `SidePanel` is the chrome of one panel: heading, header actions, close button and a body that scrolls on its own. It knows nothing about the slot.
+- `ApprovalCard` is the one approval card for steps and actions. It takes `extras` (the effect, policy and refusal notes) and `readOnly`, which hides the decision buttons. A destructive or unknown-risk approval is always drawn as danger, and needs the skill name typed exactly before Approve works.
+- `--motion-panel` (240 ms, `transform` only) drives opening and closing. It is zero under `prefers-reduced-motion`.
+
+The operation detail page is laid out in this order: the header, one banner at a time, a **Waiting for you** section when a person must act, the steps, then the details. Choosing a step opens the step inspector in the slot.
+
 ## Planned (added with the operation UI)
 
 Nothing in this section exists in the code yet, and no test reads it. It records the agreed
@@ -482,6 +492,7 @@ as the graph.
 | `fetch` outside `src/api`                                      | `npm run lint`  | A hook in `src/api/hooks/`                                       |
 | A source file over 250 lines (no exemptions)                   | `npm run lint`  | Split by responsibility                                          |
 | Initial JS over budget, a chunk over 120 kB, CSS over 30 kB    | `npm run build` | Load it lazily or drop the dependency (`npm run size`)           |
+| A broken operations page, slot, focus or contrast in a browser | `npm run smoke` | Fix the page; failure screenshots go to `web/smoke-out`          |
 
 The lint rules live in `eslint/domovoi-rules.js`; `src/guardrails.test.ts` proves they fire.
 

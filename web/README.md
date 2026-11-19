@@ -38,6 +38,7 @@ npm run lint
 npm run typecheck
 npm test
 npm run build
+npm run smoke       # after build: browser smoke test of the operations pages against a mock hub
 ```
 
 `cargo xtask ci --web` runs these, then lints and tests the hub with the built UI embedded.

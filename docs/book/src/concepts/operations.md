@@ -64,3 +64,24 @@ With `[orchestration] enabled = true` (the default) and `[triage] enabled = true
 A person approves or denies a step with the hash shown on it. A destructive skill, or one the host no longer offers, needs its name typed to approve. In chat, a step that proposes a read or write skill gets Approve and Deny buttons on the incident card, named after the skill and the host, exactly like an action. A press approves with the same human authorization as the web, a single-use token and the first six characters of the plan hash. The token is stored only as a hash on the step, replaced when the card is sent again, and spent or cleared as soon as the step is decided. The plan prefix is a staleness check, not a boundary against a compromised hub: the hub still recomputes the full plan hash before dispatch and refuses any difference. A destructive step, a step whose risk is unknown (proposed before risk was recorded), a step with arguments too long for the card, and any step beyond the card's third get a link to the Operations page instead, and the report then says where to approve. The card is rebuilt when a step is approved, denied or expires, so the buttons disappear. A later card refresh that carries no new token also shows the link until the card is sent again.
 
 An investigation of an incident that already has one open is refused; re-running triage on the incident page starts an investigation and waits for its first outcome, and says so if it is still running. With orchestration off, re-running triage answers that investigations are not enabled.
+
+## The Operations page
+
+The Operations page lists your operations. Each row shows the operation's status. Actions from before operations existed are listed too, with a **Legacy** label. A Legacy action has no steps of its own; open its incident page to see what happened and to act on it there.
+
+Open an operation to see its detail page. It has a header with the status, then one banner at a time, the most urgent first:
+
+- **Waiting for you** lists what the operation needs from a person: a step to approve, or a question to answer.
+- A banner says when the operation is paused, when a limit has run out, or when it has finished.
+
+The controls are:
+
+- **Pause** stops the operation from adding steps. Nothing is undone, and you can resume at any time.
+- **Cancel** stops what has not started. You can give a reason, which is kept with the operation. A run already handed to an agent is not recalled.
+- **Resume** starts a paused operation again. If a limit ran out, raise that limit first.
+- **Raise a spent limit** lets the operation go on after one of its budgets ran out.
+- **Answer a question** sends your reply to the operation. The reply is shown to the model as information, never as an instruction.
+
+A step that needs approval shows its plan code, marked `v2 binding`. Check what the action will do, then approve or deny it. Approval is the only way an action runs. A destructive action, or one whose risk is unknown, also asks you to type the skill's name exactly as shown before the Approve button works.
+
+Click any step in the list to open the step inspector beside the page, or as a full-width sheet on a narrow window. Press Escape to close it.
