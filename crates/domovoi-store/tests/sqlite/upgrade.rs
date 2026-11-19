@@ -419,3 +419,81 @@ async fn previous_schema_keeps_an_advisory_and_accepts_backup_failed() {
         .expect("backup_failed round-trips");
     assert_eq!(stored.kind, AdvisoryKind::BackupFailed);
 }
+
+/// A database written by the schema before the chat-token columns, holding one execution row.
+async fn database_before_chat_tokens(path: &Path) -> (String, String) {
+    use std::borrow::Cow;
+    let mut old = sqlx::migrate::Migrator::DEFAULT;
+    old.migrations = Cow::Owned(
+        MIGRATOR
+            .iter()
+            .filter(|m| m.version <= 13)
+            .cloned()
+            .collect(),
+    );
+    let mut conn = sqlx::sqlite::SqliteConnectOptions::new()
+        .filename(path)
+        .create_if_missing(true)
+        .connect()
+        .await
+        .unwrap();
+    old.run(&mut conn).await.unwrap();
+    let operation = domovoi_core::OperationId::new().to_string();
+    let step = domovoi_core::StepId::new().to_string();
+    let host = domovoi_core::HostId::new().to_string();
+    for statement in [
+        format!(
+            "INSERT INTO operations (id, kind, goal, status, budgets, pinned, created_at, updated_at) \
+             VALUES ('{operation}', 'investigate', 'g', 'waiting_approval', '{{}}', '[]', 1, 1)"
+        ),
+        format!(
+            "INSERT INTO steps (id, operation_id, ordinal, kind, phase, cycle, intent, created_at) \
+             VALUES ('{step}', '{operation}', 0, 'execution', 'execution', 0, '{{}}', 1)"
+        ),
+        format!(
+            "INSERT INTO executions (execution_id, operation_id, host_id, contract, contract_version, \
+             check_key, args, plan_hash, expires_at, created_at, updated_at) \
+             VALUES ('{step}', '{operation}', '{host}', 'skill.restart_container', 1, \
+             'container.down', '{{}}', '{}', 9999999999999, 1, 1)",
+            "ab".repeat(32)
+        ),
+    ] {
+        sqlx::query(sqlx::AssertSqlSafe(statement))
+            .execute(&mut conn)
+            .await
+            .unwrap();
+    }
+    (operation, step)
+}
+
+#[tokio::test]
+async fn upgrade_keeps_executions_and_adds_token_and_risk_columns() {
+    use domovoi_core::ports::{
+        ExecutionGuard, OperationRepo, OperationWrite, StateWrite, Transaction, UnitOfWork,
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let dbdir = dir.path().join("db");
+    std::fs::create_dir_all(&dbdir).unwrap();
+    let path = dbdir.join("domovoi.db");
+    let (operation, step) = database_before_chat_tokens(&path).await;
+
+    let store = Store::open(&path, StoreOptions::beside(&path, at(1000)))
+        .await
+        .unwrap();
+    let id = domovoi_core::ExecutionId::from_step(step.parse().unwrap());
+    let stored = OperationRepo::execution(&store, id).await.unwrap().unwrap();
+    assert_eq!(stored.value.operation.to_string(), operation);
+    assert_eq!(stored.value.step.to_string(), step);
+    assert_eq!(stored.value.risk(), None, "an old row's risk stays unknown");
+    assert_eq!(stored.value.chat_token_hash(), None);
+
+    let rotated = stored.value.clone().with_chat_token_hash([5; 32]);
+    let tx = Transaction::new().write(StateWrite::Operation(OperationWrite::Execution {
+        execution: rotated,
+        expected: ExecutionGuard::Version(stored.version),
+    }));
+    UnitOfWork::commit(&store, tx).await.unwrap();
+    let after = OperationRepo::execution(&store, id).await.unwrap().unwrap();
+    assert_eq!(after.value.chat_token_hash(), Some(&[5; 32]));
+    assert_eq!(after.value.risk(), None);
+}

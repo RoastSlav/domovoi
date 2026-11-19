@@ -261,3 +261,22 @@ async fn step_reason_covers_every_operation_error() {
         assert_eq!(step_reason(&err), text);
     }
 }
+
+#[tokio::test]
+async fn chat_deny_with_a_rotated_token_is_refused() {
+    let a = api_with_operations().await;
+    a.admin().await;
+    let c = chat(&a).await;
+    let w = proposed_step(&a, "restart_container", true).await;
+    a.ops()
+        .rotate_chat_token(w.operation, w.step, token_hash(&mint_token()))
+        .await
+        .unwrap();
+    let deny = CardButton::Deny {
+        action: w.action(),
+        token: w.token.clone(),
+    };
+    let reply = c.authorizer.deliver(press(&a, ALLOWED, deny)).await;
+    assert_eq!(message(&reply), "This button no longer works");
+    assert!(execution(&a, &w).await.chat_token_hash().is_some());
+}

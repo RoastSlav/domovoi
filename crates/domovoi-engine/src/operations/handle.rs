@@ -206,6 +206,28 @@ impl OperationHandle {
             operation,
             step,
             approval,
+            chat_token: None,
+            reply,
+        })
+        .await
+    }
+
+    /// Records that the person in `approval` denied an execution from chat. Like a chat
+    /// approval it must carry the step's single-use `chat_token`, which is checked and spent
+    /// in the same commit as the denial; a wrong or used token is `BadToken`.
+    pub async fn deny_from_chat(
+        &self,
+        operation: OperationId,
+        step: StepId,
+        approval: HumanApproval,
+        chat_token: &str,
+    ) -> Result<(), OperationError> {
+        let chat_token = Some(chat_token.to_owned());
+        self.ask(|reply| OperationCommand::Deny {
+            operation,
+            step,
+            approval,
+            chat_token,
             reply,
         })
         .await

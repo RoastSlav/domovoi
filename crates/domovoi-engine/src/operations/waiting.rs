@@ -7,7 +7,8 @@ use super::state::OperationState;
 use crate::cards::WaitingStep;
 
 /// The incident's executions awaiting approval on the incident's host, oldest first, at most
-/// `limit`. Reads only. An expired step is settled by its wake effect, so it is listed here
+/// `limit`. Reads only. `host` must be the name of the incident's host: it is shown on the
+/// card as given. An expired step is settled by its wake effect, so it is listed here
 /// until then, as a waiting action is.
 ///
 /// # Errors

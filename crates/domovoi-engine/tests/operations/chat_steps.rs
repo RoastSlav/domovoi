@@ -311,3 +311,32 @@ async fn deciding_a_step_publishes_execution_changed() {
     ));
     assert!(rx.try_recv().is_err());
 }
+
+#[tokio::test]
+async fn chat_deny_checks_and_spends_the_token() {
+    let w = world().await;
+    let (op, step) = waiting(&w).await;
+    let old = rotated(&w, op, step).await;
+    let current = rotated(&w, op, step).await;
+    let human = || approvals::chat(w.user, "discord", "42");
+    for bad in [mint_token(), old] {
+        let err = w
+            .handle()
+            .deny_from_chat(op, step, human(), &bad)
+            .await
+            .unwrap_err();
+        assert_eq!(err, OperationError::BadToken);
+    }
+    assert!(record(&w, op, step).await.chat_token_hash().is_some());
+    w.handle()
+        .deny_from_chat(op, step, human(), &current)
+        .await
+        .unwrap();
+    assert!(record(&w, op, step).await.chat_token_hash().is_none());
+    assert!(
+        w.handle()
+            .deny_from_chat(op, step, human(), &current)
+            .await
+            .is_err()
+    );
+}

@@ -146,8 +146,12 @@ pub(crate) async fn process(shared: &OpShared, command: OperationCommand) {
             operation,
             step,
             approval,
+            chat_token,
             reply,
-        } => answer(shared, execution::deny(operation, step, &approval), reply).await,
+        } => {
+            let change = execution::deny(operation, step, &approval, chat_token);
+            answer(shared, change, reply).await;
+        }
         OperationCommand::Answer {
             operation,
             question,

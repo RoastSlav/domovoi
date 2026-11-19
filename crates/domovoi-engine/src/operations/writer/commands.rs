@@ -100,6 +100,8 @@ pub(crate) enum OperationCommand {
         operation: OperationId,
         step: StepId,
         approval: HumanApproval,
+        /// The chat token a chat denial must carry; the web passes `None`.
+        chat_token: Option<String>,
         reply: Reply<()>,
     },
     /// A person answered a question.

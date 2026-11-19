@@ -153,7 +153,7 @@ impl InteractionAuthorizer {
                 self.approve(actor, incident, *action, token, plan_prefix.as_deref())
                     .await
             }
-            CardButton::Deny { action, .. } => self.deny(actor, incident, *action).await,
+            CardButton::Deny { action, token } => self.deny(actor, incident, *action, token).await,
             CardButton::OpenInWeb { .. } => Err(WEB_ONLY.to_owned()),
         }
     }
@@ -239,9 +239,10 @@ impl InteractionAuthorizer {
         actor: &Actor<'_>,
         incident: IncidentId,
         action: ActionId,
+        token: &str,
     ) -> Result<Accepted, String> {
         if let Some(target) = self.step_for(incident, action).await? {
-            return self.deny_step(actor, incident, target).await;
+            return self.deny_step(actor, incident, target, token).await;
         }
         let found = self.load(incident, action).await?;
         let deps = self.api.deps();
@@ -349,6 +350,7 @@ impl InteractionAuthorizer {
         actor: &Actor<'_>,
         incident: IncidentId,
         target: StepTarget,
+        token: &str,
     ) -> Result<Accepted, String> {
         let deps = self.api.deps();
         let Some(operations) = &deps.operations else {
@@ -361,7 +363,7 @@ impl InteractionAuthorizer {
             deps.clock.now(),
         );
         operations
-            .deny(target.operation, target.step, approval)
+            .deny_from_chat(target.operation, target.step, approval, token)
             .await
             .map_err(|e| step_reason(&e))?;
         Ok(Accepted::new(

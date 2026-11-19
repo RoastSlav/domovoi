@@ -54,6 +54,9 @@ pub(crate) enum Edit {
     None,
     /// Records a person's approval on the row.
     Authorize(Box<AuthorizeEdit>),
+    /// Refuses the change unless the step's outstanding chat token matches. A chat denial
+    /// carries one; the decision then clears it in the same commit.
+    CheckChatToken(StepId, String),
     /// Records when the hub began waiting for the agent, once.
     Waiting(StepId),
     /// Records the journal epoch and time of the hand-off.
@@ -72,6 +75,7 @@ impl Edit {
         let step = match self {
             Self::None => return Ok(Vec::new()),
             Self::Authorize(edit) => edit.step,
+            Self::CheckChatToken(step, _) => *step,
             Self::Waiting(step) | Self::Dispatched(step, _) | Self::Settled(step) => *step,
         };
         let row = snapshot
@@ -80,8 +84,14 @@ impl Edit {
             .find(|row| row.value.step == step)
             .ok_or(DecideError::UnknownStep(step))?;
         let record = &mut row.value;
+        if let Self::CheckChatToken(_, token) = self {
+            if !chat_token_ok(Some(token), record.chat_token_hash()) {
+                return Err(OperationError::BadToken);
+            }
+            return Ok(Vec::new());
+        }
         match self {
-            Self::None => {}
+            Self::None | Self::CheckChatToken(..) => {}
             Self::Authorize(edit) => {
                 let chat = edit
                     .authorization
