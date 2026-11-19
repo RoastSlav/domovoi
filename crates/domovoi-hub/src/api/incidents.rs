@@ -8,7 +8,6 @@ use domovoi_core::{
     AckRule, AckRuleId, Incident, IncidentGroup, IncidentId, IncidentStatus, Severity,
     TargetPattern, TriageOutcome,
 };
-use domovoi_engine::CommandError;
 use domovoi_engine::cards::{CardLinks, build_card};
 use domovoi_engine::triage::TriageError;
 use jiff::SignedDuration;
@@ -19,7 +18,7 @@ use super::dto::{
     TriageStateDto,
 };
 use super::error::{ApiError, ErrorBody, busy};
-use super::operation_errors::operation_error;
+use super::operation_errors::{command, operation_error};
 use super::rules;
 use super::snapshot::snapshot_seq;
 use super::tool_usage::tool_usage;
@@ -39,17 +38,6 @@ fn parse_id(id: &str) -> Result<IncidentId, ApiError> {
 fn severity(name: &str) -> Result<Severity, ApiError> {
     serde_json::from_value(serde_json::Value::String(name.to_owned()))
         .map_err(|_| ApiError::BadRequest(format!("unknown severity `{name}`")))
-}
-
-fn command(err: CommandError) -> ApiError {
-    match err {
-        CommandError::UnknownIncident(_) => ApiError::NotFound,
-        CommandError::NotAllowed(why) => ApiError::Conflict(why),
-        CommandError::Unavailable => {
-            ApiError::Unavailable("the incident manager is not running".to_owned())
-        }
-        CommandError::Store(e) => ApiError::internal("incident command failed", e),
-    }
 }
 
 /// Incidents, newest first, with optional filters.

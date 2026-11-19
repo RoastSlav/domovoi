@@ -145,7 +145,7 @@ pub(super) async fn metrics(
         .token
         .as_ref()
         .is_some_and(|token| {
-            crate::ingest::auth::verify_bearer(token.value(), headers.get(header::AUTHORIZATION))
+            crate::auth::bearer::verify_bearer(token.value(), headers.get(header::AUTHORIZATION))
         });
     if !token_ok {
         auth?;

@@ -1,6 +1,7 @@
 //! How an operation command's refusal answers an HTTP request.
 
 use domovoi_core::ExecutionError;
+use domovoi_engine::CommandError;
 use domovoi_engine::operations::OperationError;
 
 use super::error::ApiError;
@@ -58,5 +59,17 @@ pub(crate) fn command_error(err: OperationCommandError) -> ApiError {
         OperationCommandError::Conflict(text) => ApiError::Conflict(text),
         OperationCommandError::NotFound => ApiError::NotFound,
         OperationCommandError::Operation(err) => operation_error(err),
+    }
+}
+
+/// What a refused incident command means for the caller.
+pub(crate) fn command(err: CommandError) -> ApiError {
+    match err {
+        CommandError::UnknownIncident(_) => ApiError::NotFound,
+        CommandError::NotAllowed(why) => ApiError::Conflict(why),
+        CommandError::Unavailable => {
+            ApiError::Unavailable("the incident manager is not running".to_owned())
+        }
+        CommandError::Store(e) => ApiError::internal("incident command failed", e),
     }
 }

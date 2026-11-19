@@ -216,6 +216,22 @@ pub(crate) struct ChatReads<'a> {
     pub(crate) public_url: &'a url::Url,
 }
 
+impl<'a> ChatReads<'a> {
+    pub(crate) fn new(
+        store: &'a Arc<Store>,
+        clock: &'a Arc<dyn Clock>,
+        notifier: Option<Arc<dyn Notifier>>,
+        public_url: &'a url::Url,
+    ) -> Self {
+        Self {
+            store,
+            clock,
+            notifier,
+            public_url,
+        }
+    }
+}
+
 pub(crate) fn gateway_sinks(
     config: &HubConfig,
     services: &Services,

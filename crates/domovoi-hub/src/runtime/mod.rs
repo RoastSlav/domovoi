@@ -366,7 +366,6 @@ impl HubRuntime {
             clock: clock.clone(),
             redactor: redactor.clone(),
         });
-        let notifier = FanOut::over(&notifiers);
         let api = ApiState::new(
             ApiDeps {
                 incidents: store.clone(),
@@ -388,7 +387,7 @@ impl HubRuntime {
                 clock: clock.clone(),
                 journal: store.clone(),
                 config: Arc::new(config.clone()),
-                notifier: notifier.clone(),
+                notifier: FanOut::over(&notifiers),
                 metrics: deps.metrics,
                 store_health: store.clone(),
                 settings,
@@ -413,12 +412,7 @@ impl HubRuntime {
         let gateways = adapters::gateway_sinks(
             &config,
             &services,
-            adapters::ChatReads {
-                store: &store,
-                clock: &clock,
-                notifier,
-                public_url: &public_url,
-            },
+            adapters::ChatReads::new(&store, &clock, FanOut::over(&notifiers), &public_url),
             gateways,
         );
         let config = Arc::new(config);

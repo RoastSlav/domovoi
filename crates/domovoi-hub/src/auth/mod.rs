@@ -5,6 +5,7 @@
 //! [`HumanApproval`](domovoi_core::HumanApproval); `xtask arch-check` enforces it.
 
 pub mod approval;
+pub(crate) mod bearer;
 pub mod csrf;
 pub mod interactions;
 pub mod limit;
