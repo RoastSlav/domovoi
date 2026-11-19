@@ -37,6 +37,7 @@ export { EmptyState } from "./EmptyState";
 export { QueryBoundary } from "./QueryBoundary";
 
 // Layout
+export { SidePanel } from "./SidePanel";
 export { Cluster, Grid, Stack, type Gap } from "./Stack";
 export { PageHeader } from "./PageHeader";
 export { Section } from "./Section";

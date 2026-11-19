@@ -63,7 +63,7 @@ export function TopBar({
   slot: (element: HTMLElement | null) => void;
 }) {
   return (
-    <header className={styles.topbar}>
+    <header className={styles.topbar} data-slot-inert>
       <Link to="/" className={styles.logo} aria-label="Domovoi">
         <span className={brand.mark} aria-hidden="true">
           D

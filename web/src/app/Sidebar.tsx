@@ -80,6 +80,7 @@ export function Sidebar({
       ref={sheet}
       id={SIDEBAR_ID}
       className={styles.sidebar}
+      data-slot-inert
       data-open={open}
       data-rail={rail}
       {...(open ? { role: "dialog", "aria-modal": true, "aria-label": "Menu" } : {})}

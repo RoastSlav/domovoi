@@ -25,6 +25,14 @@
   min-height: 100dvh;
 }
 
+/* The page and the right-hand slot side by side; the host measures this element. */
+.body {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+
 .main {
   flex: 1 1 auto;
   min-width: 0;
