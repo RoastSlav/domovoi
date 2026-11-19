@@ -12,6 +12,8 @@ mod dismiss;
 #[cfg(test)]
 mod harness;
 #[cfg(test)]
+mod journal_parity;
+#[cfg(test)]
 mod policy;
 #[cfg(test)]
 mod policy_conditions;

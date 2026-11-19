@@ -73,6 +73,10 @@ pub(crate) fn build_transaction(
                 }
             }
             Write::Timeline(entry) => StateWrite::IncidentEvent(entry.clone()),
+            Write::Journal(draft) => {
+                tx = tx.journal(draft.clone());
+                continue;
+            }
             Write::DiscardPending(id) => {
                 let version = known_version(*id, &tracked, cached)?;
                 tracked.remove(id);
@@ -115,7 +119,10 @@ pub(crate) fn record_versions(
     for write in writes {
         let incident = match write {
             Write::InsertIncident(incident) | Write::UpdateIncident(incident) => incident,
-            Write::InsertSignal(..) | Write::Timeline(_) | Write::DiscardPending(_) => continue,
+            Write::InsertSignal(..)
+            | Write::Timeline(_)
+            | Write::Journal(_)
+            | Write::DiscardPending(_) => continue,
         };
         let Some((_, version)) = committed.next() else {
             return;

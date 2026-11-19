@@ -126,7 +126,7 @@ impl Sim {
                     }
                 }
                 Write::DiscardPending(id) => self.state.active.retain(|a| a.id() != *id),
-                Write::InsertSignal(..) | Write::Timeline(_) => {}
+                Write::InsertSignal(..) | Write::Timeline(_) | Write::Journal(_) => {}
             }
         }
         Ok(decision)

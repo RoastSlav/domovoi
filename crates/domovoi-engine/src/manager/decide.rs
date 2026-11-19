@@ -3,10 +3,11 @@
 
 use std::collections::BTreeMap;
 
-use domovoi_core::ports::IncidentTimelineEntry;
+use domovoi_core::ports::{AggregateRef, IncidentTimelineEntry, JournalDraft, JournalKind};
 use domovoi_core::{
-    AckRule, Fingerprint, Incident, IncidentChange, IncidentEvent, IncidentId, IncidentStatus,
-    MaintenanceWindow, Signal, SignalStatus, TransitionError, apply,
+    AckRule, Actor, Fingerprint, Incident, IncidentChange, IncidentEvent, IncidentId,
+    IncidentStatus, MaintenanceWindow, SYSTEM_INCIDENTS, Signal, SignalStatus, TransitionError,
+    apply,
 };
 use jiff::Timestamp;
 use serde_json::json;
@@ -50,6 +51,8 @@ pub enum Write {
     Timeline(IncidentTimelineEntry),
     /// Delete a pending incident that resolved before confirmation.
     DiscardPending(IncidentId),
+    /// Append a journal row that has no `incident_events` twin, in the same commit.
+    Journal(JournalDraft),
 }
 
 /// The outcome of one command.
@@ -130,6 +133,17 @@ impl Builder<'_> {
                 }
                 IncidentChange::Folded { occurrences } => {
                     if let Some(signal) = signal {
+                        self.out.writes.push(Write::Journal(JournalDraft {
+                            aggregate: AggregateRef::incident(incident.id()),
+                            kind: JournalKind::IncidentFolded,
+                            payload_v: 1,
+                            payload: json!({
+                                "signal": signal.id().to_string(),
+                                "occurrences": occurrences,
+                            }),
+                            actor: Actor::System(SYSTEM_INCIDENTS.to_owned()),
+                            occurred_at: self.now,
+                        }));
                         let kind = EventKind::IncidentFolded {
                             signal: signal.id(),
                             occurrences: *occurrences,
