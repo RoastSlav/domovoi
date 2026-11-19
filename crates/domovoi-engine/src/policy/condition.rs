@@ -12,6 +12,7 @@ use super::request::EvaluateRequest;
 /// UTC keeps a decision identical across hosts and replays and avoids daylight-saving
 /// ambiguity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(try_from = "RawTimeOfDay")]
 pub struct TimeOfDay {
     /// Hour, `0..=23`.
     pub hour: u8,
@@ -19,7 +20,36 @@ pub struct TimeOfDay {
     pub minute: u8,
 }
 
+#[derive(Deserialize)]
+struct RawTimeOfDay {
+    hour: u8,
+    minute: u8,
+}
+
+impl TryFrom<RawTimeOfDay> for TimeOfDay {
+    type Error = String;
+
+    fn try_from(raw: RawTimeOfDay) -> Result<Self, Self::Error> {
+        let value = Self {
+            hour: raw.hour,
+            minute: raw.minute,
+        };
+        if value.is_valid() {
+            Ok(value)
+        } else {
+            Err(format!("{}:{} is not a time of day", raw.hour, raw.minute))
+        }
+    }
+}
+
 impl TimeOfDay {
+    /// Whether the hour is `0..=23` and the minute `0..=59`. Rule validation refuses a rule
+    /// holding anything else, and deserialization refuses it too.
+    #[must_use]
+    pub const fn is_valid(self) -> bool {
+        self.hour < 24 && self.minute < 60
+    }
+
     fn minutes(self) -> u16 {
         u16::from(self.hour) * 60 + u16::from(self.minute)
     }

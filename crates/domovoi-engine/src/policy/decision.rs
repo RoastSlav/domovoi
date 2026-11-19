@@ -22,7 +22,7 @@ pub struct Constraints {
     pub max_per_hour: Option<u32>,
     /// The lowest `MaxTtl` bound among the winners, further reduced by the requested TTL.
     pub max_ttl: Option<SignedDuration>,
-    /// The intersection of the winners' `Exact` sets; `None` when any winner is `Any`.
+    /// The intersection of the winners' `Exact` sets; `None` only when every winner is `Any`.
     pub targets: Option<BTreeSet<TargetName>>,
     /// The conjunction of the winners' conditions, in winner id order then each rule's order.
     pub conditions: Vec<Condition>,

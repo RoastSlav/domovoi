@@ -26,6 +26,8 @@ mod policy_properties;
 #[cfg(test)]
 mod policy_publish;
 #[cfg(test)]
+mod policy_review;
+#[cfg(test)]
 mod policy_trace;
 #[cfg(test)]
 mod policy_validation;

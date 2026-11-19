@@ -134,7 +134,11 @@ fn pair_findings(resolved: &[(&Rule, ResolvedScope)], out: &mut Vec<Finding>) {
 }
 
 fn lock_findings(resolved: &[(&Rule, ResolvedScope)], out: &mut Vec<Finding>) {
-    for (lock, lock_scope) in resolved.iter().filter(|(r, _)| r.locked) {
+    // A lock with conditions only applies where they hold, so it guarantees nothing.
+    for (lock, lock_scope) in resolved
+        .iter()
+        .filter(|(r, _)| r.locked && r.conditions.is_empty())
+    {
         for (rule, scope) in resolved {
             if rule.id == lock.id
                 || rule.outcome == Outcome::Deny
@@ -149,7 +153,8 @@ fn lock_findings(resolved: &[(&Rule, ResolvedScope)], out: &mut Vec<Finding>) {
                 second: rule.id.clone(),
                 resolution: Some(Outcome::Deny),
                 shadow,
-                note: "A locked deny covers this rule, so it can never take effect.".to_owned(),
+                note: "An unconditional locked deny covers this rule, so it can never take effect."
+                    .to_owned(),
                 requires_acknowledgement: !shadow,
             });
         }

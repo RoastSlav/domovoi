@@ -64,6 +64,12 @@ pub fn validate_rules(rules: &[Rule]) -> Result<(), PolicyError> {
         }
         for condition in &rule.conditions {
             match condition {
+                Condition::TimeWindow { start, end } if !start.is_valid() || !end.is_valid() => {
+                    return Err(PolicyError::InvalidTimeOfDay { rule: id() });
+                }
+                Condition::MaxTtl { max_ttl } if max_ttl.is_negative() => {
+                    return Err(PolicyError::NegativeMaxTtl { rule: id() });
+                }
                 Condition::TimeWindow { start, end } if start == end => {
                     return Err(PolicyError::DegenerateTimeWindow {
                         rule: id(),
@@ -292,13 +298,15 @@ fn resolve(matched: &MatchSet<'_>, request: &EvaluateRequest) -> Decision {
 
 /// The intersection of the winners' bounds, carried to the permit.
 ///
+/// `Any` is the identity of the target intersection: it never erases an `Exact` restriction
+/// another winner states, so `targets` is `None` only when every winner is `Any`.
+///
 /// The target intersection always contains the request's target, because every winner
 /// matched and a rule only matches a target its scope contains.
 fn allow_constraints(winners: &[&Matched<'_>], request: &EvaluateRequest) -> Constraints {
     let mut rate = request.requested_rate_per_hour;
     let mut ttl = request.requested_ttl;
     let mut targets: Option<BTreeSet<TargetName>> = None;
-    let mut any_target = false;
     let mut conditions = Vec::new();
     for w in winners {
         for condition in &w.rule.conditions {
@@ -314,7 +322,7 @@ fn allow_constraints(winners: &[&Matched<'_>], request: &EvaluateRequest) -> Con
             conditions.push(condition.clone());
         }
         match &w.rule.targets {
-            TargetScope::Any => any_target = true,
+            TargetScope::Any => {}
             TargetScope::Exact(names) => {
                 targets = Some(match targets {
                     None => names.clone(),
@@ -326,7 +334,7 @@ fn allow_constraints(winners: &[&Matched<'_>], request: &EvaluateRequest) -> Con
     Constraints {
         max_per_hour: rate,
         max_ttl: ttl,
-        targets: if any_target { None } else { targets },
+        targets,
         conditions,
     }
 }

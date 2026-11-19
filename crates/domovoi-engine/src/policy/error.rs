@@ -43,6 +43,18 @@ pub enum PolicyError {
         /// The window end, `HH:MM`.
         end: String,
     },
+    /// A time of day outside `00:00..=23:59`.
+    #[error("rule {rule}: a time window holds a value that is not a time of day")]
+    InvalidTimeOfDay {
+        /// The offending rule.
+        rule: RuleId,
+    },
+    /// A TTL bound below zero, which no request can satisfy.
+    #[error("rule {rule}: a TTL bound cannot be negative")]
+    NegativeMaxTtl {
+        /// The offending rule.
+        rule: RuleId,
+    },
     /// An argument condition names an argument that cannot exist.
     #[error("rule {rule}: {key:?} is not a valid argument name")]
     BadArgKey {
