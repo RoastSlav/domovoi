@@ -207,16 +207,22 @@ pub const RAW_OPS: &[&str] = &[
     "run_check",
     "run_skill",
     "run_capability",
+    "hand_off",
+    "await_handoff_result",
 ];
 
 /// Boundary paths, `Type::assoc` as written (EXEC-2, ADR 0022, ADR 0023): the one authorizing
-/// constructor, the one dispatch, and `WriteCommand::Dispatch`. A `WriteCommand::Dispatch` that
-/// is the path of a struct expression or a struct pattern is counted by the construction and
-/// pattern cards instead; this card sees every other mention of it.
+/// constructor, the one dispatch, and the dispatch command, once for the action service and once
+/// for the operation service. A dispatch command that is the path of a struct expression or a
+/// struct pattern is counted by the construction and pattern cards instead; this card sees every
+/// other mention of it.
 pub const BOUNDARY_PAIRS: &[&str] = &[
     "AuthorizedExecution::of",
     "execute::execute",
     "WriteCommand::Dispatch",
+    "AuthorizedStep::of",
+    "execute::execute_step",
+    "OperationCommand::Dispatch",
 ];
 
 /// The raw link's type names (EXEC-4, ADR 0023). Naming one outside the allowed files is how
@@ -356,6 +362,78 @@ pub const BOUNDARY_CARDS: &[BoundaryCard] = &[
         op: BoundaryOp::Pair("WriteCommand::Dispatch"),
         sites: &[],
         message: "`WriteCommand::Dispatch` may appear only as the struct expression in execute.rs and the struct pattern in writer.rs; any other mention (a path, a tuple pattern, a macro body) is not one of the two sites (ADR 0022)",
+    },
+    BoundaryCard {
+        id: "EXEC-2",
+        op: BoundaryOp::Call("hand_off"),
+        sites: &[
+            BoundarySite {
+                file: "crates/domovoi-engine/src/actions/execute.rs",
+                count: 1,
+            },
+            BoundarySite {
+                file: "crates/domovoi-engine/src/operations/execute.rs",
+                count: 1,
+            },
+        ],
+        message: "a skill is handed to an agent only through `HandoffRunner::hand_off`, once in actions/execute.rs and once in operations/execute.rs (ADR 0022)",
+    },
+    BoundaryCard {
+        id: "EXEC-2",
+        op: BoundaryOp::Call("await_handoff_result"),
+        sites: &[
+            BoundarySite {
+                file: "crates/domovoi-engine/src/actions/execute.rs",
+                count: 1,
+            },
+            BoundarySite {
+                file: "crates/domovoi-engine/src/operations/execute.rs",
+                count: 1,
+            },
+        ],
+        message: "a skill result is awaited only through `HandoffRunner::await_handoff_result`, once in actions/execute.rs and once in operations/execute.rs (ADR 0022)",
+    },
+    BoundaryCard {
+        id: "EXEC-2",
+        op: BoundaryOp::Pair("AuthorizedStep::of"),
+        sites: &[BoundarySite {
+            file: "crates/domovoi-engine/src/operations/effects/dispatch.rs",
+            count: 1,
+        }],
+        message: "`AuthorizedStep::of` is the one authorizing constructor of the operation service and runs once per execution, in effects/dispatch.rs (ADR 0022)",
+    },
+    BoundaryCard {
+        id: "EXEC-2",
+        op: BoundaryOp::Pair("execute::execute_step"),
+        sites: &[BoundarySite {
+            file: "crates/domovoi-engine/src/operations/effects/dispatch.rs",
+            count: 1,
+        }],
+        message: "`execute::execute_step` is the operation service's one dispatch and is called once, from effects/dispatch.rs (ADR 0022)",
+    },
+    BoundaryCard {
+        id: "EXEC-2",
+        op: BoundaryOp::Construct("OperationCommand::Dispatch"),
+        sites: &[BoundarySite {
+            file: "crates/domovoi-engine/src/operations/execute.rs",
+            count: 1,
+        }],
+        message: "`OperationCommand::Dispatch { .. }` is built once, in operations/execute.rs; a second struct expression is a second dispatch path (ADR 0022)",
+    },
+    BoundaryCard {
+        id: "EXEC-2",
+        op: BoundaryOp::Pattern("OperationCommand::Dispatch"),
+        sites: &[BoundarySite {
+            file: "crates/domovoi-engine/src/operations/writer/mod.rs",
+            count: 1,
+        }],
+        message: "`OperationCommand::Dispatch { .. }` is matched once, in operations/writer/mod.rs; a second struct pattern is a second place that acts on a dispatch (ADR 0022)",
+    },
+    BoundaryCard {
+        id: "EXEC-2",
+        op: BoundaryOp::Pair("OperationCommand::Dispatch"),
+        sites: &[],
+        message: "`OperationCommand::Dispatch` may appear only as the struct expression in operations/execute.rs and the struct pattern in operations/writer/mod.rs; any other mention (a path, a tuple pattern, a macro body) is not one of the two sites (ADR 0022)",
     },
     BoundaryCard {
         id: "EXEC-3",

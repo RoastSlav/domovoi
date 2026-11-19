@@ -97,10 +97,21 @@ const EXECUTOR: &str = "let authorized = AuthorizedExecution::of(action)?;\nexec
 
 /// The fixture's `execute.rs`: the handoff capability and the one dispatch command, a struct
 /// expression.
-const EXECUTE: &str = "deps.handoff.hand_off(host, dispatch, session, epoch, deadline).await;\nask(shared, id, \"a dispatch\", WriteCommand::Dispatch { id, plan }, answer).await;\n";
+const EXECUTE: &str = "deps.handoff.hand_off(host, dispatch, session, epoch, deadline).await;\ndeps.handoff.await_handoff_result(host, handoff, deadline).await;\nask(shared, id, \"a dispatch\", WriteCommand::Dispatch { id, plan }, answer).await;\n";
 
 /// The fixture's `writer.rs`: the one match on the dispatch command, a struct pattern.
 const WRITER: &str = "match command {\n    WriteCommand::Dispatch { id, plan, .. } => {}\n}\n";
+
+/// The fixture's `operations/execute.rs`: the operation service's own handoff calls and its one
+/// dispatch command, a struct expression.
+const OP_EXECUTE: &str = "deps.handoff.hand_off(host, dispatch, session, epoch, deadline).await;\ndeps.handoff.await_handoff_result(host, handoff, deadline).await;\nlet command = OperationCommand::Dispatch { held, step };\n";
+
+/// The fixture's `operations/effects/dispatch.rs`: the one authorizing constructor and the one
+/// dispatch of the operation service.
+const OP_DISPATCH: &str = "let authorized = AuthorizedStep::of(row)?;\nexecute::execute_step(shared, held, authorized, skill, args, session).await?;\n";
+
+/// The fixture's `operations/writer/mod.rs`: the one match on the operation dispatch command.
+const OP_WRITER: &str = "match command {\n    OperationCommand::Dispatch { held, .. } => {}\n}\n";
 
 /// Collects every `.rs` file under `dir` with its workspace-relative path and text.
 fn source_files(
@@ -140,6 +151,12 @@ fn boundary_tree() -> Vec<(String, String)> {
         (crate_path("actions/executor.rs"), EXECUTOR.to_owned()),
         (crate_path("actions/execute.rs"), EXECUTE.to_owned()),
         (crate_path("actions/writer.rs"), WRITER.to_owned()),
+        (crate_path("operations/execute.rs"), OP_EXECUTE.to_owned()),
+        (
+            crate_path("operations/effects/dispatch.rs"),
+            OP_DISPATCH.to_owned(),
+        ),
+        (crate_path("operations/writer/mod.rs"), OP_WRITER.to_owned()),
     ]
 }
 
@@ -985,4 +1002,357 @@ fn dispatch_construction_and_match_are_separate_sites() {
             "{what} passed: {violations:#?}"
         );
     }
+}
+
+// ---- The operation aggregate (ADR 0022 and the operation service's own boundary) ----
+
+/// The tables only the operation writer's unit-of-work commits may change.
+const OPERATION_TABLES: [&str; 5] = [
+    "operations",
+    "steps",
+    "step_edges",
+    "executions",
+    "operation_incidents",
+];
+
+/// Whether `ch` can be part of an identifier.
+fn is_ident(ch: char) -> bool {
+    ch.is_alphanumeric() || ch == '_'
+}
+
+/// Whether `text` names `word` as a whole identifier, so `rerun_check` does not name
+/// `run_check`.
+fn names(text: &str, word: &str) -> bool {
+    text.match_indices(word).any(|(at, _)| {
+        let before = text[..at].chars().next_back();
+        let after = text[at + word.len()..].chars().next();
+        !before.is_some_and(is_ident) && !after.is_some_and(is_ident)
+    })
+}
+
+/// The lines of `text` that are code: not a comment, doc comment or blank line.
+fn code_lines(text: &str) -> impl Iterator<Item = (usize, &str)> {
+    text.lines()
+        .enumerate()
+        .map(|(index, line)| (index + 1, line.trim()))
+        .filter(|(_, line)| !line.is_empty() && !line.starts_with("//"))
+}
+
+/// Every `.rs` file under the named crate's `src/`, as (workspace-relative path, text).
+fn crate_sources(krate: &str) -> Vec<(String, String)> {
+    let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join(krate)
+        .join("src");
+    let prefix = format!("crates/{krate}/src");
+    let mut files = Vec::new();
+    source_files(&src, &src, &prefix, &mut files);
+    files
+}
+
+/// Whether a lower-cased, single-spaced code line writes one of the operation tables by SQL.
+fn writes_an_operation_table(flat: &str) -> bool {
+    const VERBS: [&str; 6] = [
+        "insert into",
+        "insert or ignore into",
+        "insert or replace into",
+        "replace into",
+        "delete from",
+        "update",
+    ];
+    OPERATION_TABLES.iter().any(|table| {
+        VERBS.iter().any(|verb| {
+            let needle = format!("{verb} {table}");
+            flat.match_indices(&needle).any(|(at, _)| {
+                !flat[at + needle.len()..]
+                    .chars()
+                    .next()
+                    .is_some_and(is_ident)
+            })
+        })
+    })
+}
+
+/// The places in `files` that write operation state other than through the operation
+/// writer: a SQL write to an operation table anywhere, or the write type itself outside the
+/// engine's `operations/` directory.
+fn operation_write_offenders(files: &[(String, String)]) -> Vec<String> {
+    let mut offenders = Vec::new();
+    for (rel, text) in files {
+        let home = rel.starts_with("crates/domovoi-engine/src/operations/");
+        for (number, line) in code_lines(text) {
+            let flat = line
+                .to_ascii_lowercase()
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ");
+            if writes_an_operation_table(&flat) || (!home && names(line, "OperationWrite")) {
+                offenders.push(format!("{rel}:{number}: {line}"));
+            }
+        }
+    }
+    offenders
+}
+
+/// Operation state changes in one commit of the unit of work, built only by the operation
+/// writer. No engine or hub source writes an operation table by SQL or builds an
+/// `OperationWrite` anywhere else.
+#[test]
+fn operation_state_is_written_only_through_the_unit_of_work() {
+    let mut files = crate_sources("domovoi-engine");
+    files.extend(crate_sources("domovoi-hub"));
+    assert!(!files.is_empty(), "the scan found no sources");
+    let offenders = operation_write_offenders(&files);
+    assert!(
+        offenders.is_empty(),
+        "operation state is written outside the unit of work: {offenders:#?}",
+    );
+
+    // The scan itself: each way of writing is caught, and a comment is not a write.
+    for (rel, text) in [
+        (
+            "crates/domovoi-hub/src/runtime/x.rs",
+            "let _ = OperationWrite::Step(step);\n",
+        ),
+        (
+            "crates/domovoi-engine/src/actions/x.rs",
+            "let write = OperationWrite::Progress { step, from, to };\n",
+        ),
+        (
+            "crates/domovoi-engine/src/operations/x.rs",
+            "sqlx::query(\"INSERT  INTO steps (id) VALUES (?)\");\n",
+        ),
+        (
+            "crates/domovoi-hub/src/x.rs",
+            "\"UPDATE   operations SET status = ?\"\n",
+        ),
+        (
+            "crates/domovoi-hub/src/x.rs",
+            "\"delete from executions where 1\"\n",
+        ),
+        (
+            "crates/domovoi-hub/src/x.rs",
+            "\"INSERT OR IGNORE INTO operation_incidents VALUES (1)\"\n",
+        ),
+    ] {
+        let found = operation_write_offenders(&[(rel.to_owned(), text.to_owned())]);
+        assert!(!found.is_empty(), "{rel}: {text} was not caught");
+    }
+    for (rel, text) in [
+        (
+            "crates/domovoi-engine/src/operations/writer/commit.rs",
+            "tx.write(StateWrite::Operation(OperationWrite::Step(step)));\n",
+        ),
+        (
+            "crates/domovoi-hub/src/x.rs",
+            "// OperationWrite::Step and INSERT INTO steps\n",
+        ),
+        (
+            "crates/domovoi-hub/src/x.rs",
+            "let steps_total = 1; // update steps_total\n",
+        ),
+    ] {
+        let found = operation_write_offenders(&[(rel.to_owned(), text.to_owned())]);
+        assert!(found.is_empty(), "{rel}: {text} was flagged: {found:?}");
+    }
+}
+
+/// The names of the raw link and of its operations.
+const RAW_LINK_NAMES: [&str; 6] = [
+    "AgentLink",
+    "WsAgentLink",
+    "run_skill",
+    "run_tool",
+    "run_check",
+    "start_skill",
+];
+
+/// The places in `files` that name the raw agent link or one of its operations.
+fn raw_link_offenders(files: &[(String, String)]) -> Vec<String> {
+    let mut offenders = Vec::new();
+    for (rel, text) in files {
+        for (number, line) in code_lines(text) {
+            if RAW_LINK_NAMES.iter().any(|word| names(line, word)) {
+                offenders.push(format!("{rel}:{number}: {line}"));
+            }
+        }
+    }
+    offenders
+}
+
+/// The operation service reaches agents only through the narrow capability ports; no file
+/// under `operations/` names the raw link or one of its operations.
+#[test]
+fn operations_never_name_the_raw_link() {
+    let files: Vec<_> = crate_sources("domovoi-engine")
+        .into_iter()
+        .filter(|(rel, _)| rel.starts_with("crates/domovoi-engine/src/operations/"))
+        .collect();
+    assert!(
+        files.len() > 20,
+        "the scan found only {} operation sources",
+        files.len()
+    );
+    let offenders = raw_link_offenders(&files);
+    assert!(
+        offenders.is_empty(),
+        "the operation service names the raw link: {offenders:#?}",
+    );
+
+    // The scan reads whole identifiers: the capability's own method does not trip it, and
+    // each real name does.
+    let probe = |text: &str| {
+        let rel = "crates/domovoi-engine/src/operations/x.rs";
+        raw_link_offenders(&[(rel.to_owned(), text.to_owned())])
+    };
+    assert!(probe("let out = deps.rerun.rerun_check(host, check, target, at).await;\n").is_empty());
+    assert!(probe("// the AgentLink is not used here\n").is_empty());
+    for text in [
+        "link: Arc<dyn AgentLink>,\n",
+        "let out = link.run_check(host, check, target, at).await;\n",
+        "link.start_skill(host, req, session, epoch, at).await;\n",
+        "link.run_tool(host, call, at).await;\n",
+        "link.run_skill(host, req).await;\n",
+        "use domovoi_hub::WsAgentLink;\n",
+    ] {
+        assert!(!probe(text).is_empty(), "{text} was not caught");
+    }
+}
+
+/// What the model can do is the closed read-tool catalogue. Neither the catalogue nor any
+/// tool's schema offers a way to propose, approve or deny an execution, and nothing in the
+/// triage module names the operation service.
+#[test]
+fn model_cannot_reach_the_operation_writer() {
+    let catalogue: Vec<&str> = ReadTool::ALL.iter().map(ReadTool::name).collect();
+    assert_eq!(
+        catalogue,
+        [
+            "docker_ps",
+            "docker_logs",
+            "docker_inspect",
+            "docker_events",
+            "host_overview",
+            "journal",
+            "listening_ports",
+            "smart_report",
+            "incident_history",
+            "notes_search",
+            "run_read_skill",
+        ],
+        "the tool catalogue changed; every new tool needs a security review",
+    );
+    for tool in ReadTool::ALL {
+        let spec = domovoi_core::ports::ToolSpec::from(tool);
+        let shown = format!("{} {} {}", spec.name, spec.description, spec.input_schema)
+            .to_ascii_lowercase();
+        for word in [
+            "propose_execution",
+            "authorize",
+            "approve",
+            "deny",
+            "operation",
+            "dispatch",
+        ] {
+            assert!(
+                !shown.contains(word),
+                "the {} tool offers {word} to the model",
+                tool.name()
+            );
+        }
+    }
+    let triage: Vec<_> = crate_sources("domovoi-engine")
+        .into_iter()
+        .filter(|(rel, _)| rel.starts_with("crates/domovoi-engine/src/triage/"))
+        .collect();
+    assert!(!triage.is_empty());
+    for (rel, text) in &triage {
+        for (number, line) in code_lines(text) {
+            for word in [
+                "OperationHandle",
+                "OperationService",
+                "OperationCommand",
+                "OperationSeed",
+                "ExecutionRequest",
+            ] {
+                assert!(
+                    !names(line, word),
+                    "{rel}:{number} reaches the operation writer: {line}"
+                );
+            }
+        }
+    }
+}
+
+/// The operation service's card sites are counted exactly like the action service's: a
+/// second hand-off, constructor, dispatch call, dispatch command or dispatch match fails,
+/// and the real sources hold exactly one of each.
+#[test]
+fn operation_dispatch_sites_are_counted_exactly() {
+    assert_passed(
+        &production_sources(),
+        "the engine's real sources (one operation dispatch path)",
+    );
+    assert_passed(&boundary_tree(), "the fixture tree");
+
+    for (rel, text, what) in [
+        (
+            "operations/execute.rs",
+            "deps.handoff.hand_off(host, other, session, epoch, deadline).await;\n",
+            "a second hand-off in the operation boundary",
+        ),
+        (
+            "operations/execute.rs",
+            "deps.handoff.await_handoff_result(host, other, deadline).await;\n",
+            "a second result wait in the operation boundary",
+        ),
+        (
+            "operations/effects/dispatch.rs",
+            "let again = AuthorizedStep::of(row)?;\n",
+            "a second operation constructor",
+        ),
+        (
+            "operations/effects/dispatch.rs",
+            "execute::execute_step(shared, held, other, skill, args, session).await?;\n",
+            "a second operation dispatch call",
+        ),
+        (
+            "operations/execute.rs",
+            "let again = OperationCommand::Dispatch { held, step };\n",
+            "a second operation dispatch command",
+        ),
+        (
+            "operations/writer/mod.rs",
+            "    OperationCommand::Dispatch { held, .. } => {}\n",
+            "a second operation dispatch match",
+        ),
+        (
+            "operations/effects/wake.rs",
+            "let command = OperationCommand::Dispatch { held, step };\n",
+            "a dispatch command built by a handler",
+        ),
+        (
+            "operations/effects/wake.rs",
+            "deps.handoff.hand_off(host, dispatch, session, epoch, deadline).await;\n",
+            "a hand-off from a handler",
+        ),
+        (
+            "actions/executor.rs",
+            "let step = AuthorizedStep::of(row)?;\n",
+            "an operation constructor in the action service",
+        ),
+    ] {
+        let mut tree = boundary_tree();
+        push_line(&mut tree, rel, text);
+        assert_refused(&tree, what);
+    }
+
+    let mut tree = boundary_tree();
+    tree.retain(|(rel, _)| !rel.ends_with("operations/execute.rs"));
+    push_line(
+        &mut tree,
+        "operations/execute.rs",
+        "let command = OperationCommand::Dispatch { held, step };\n",
+    );
+    assert_refused(&tree, "an operation boundary that never hands the run over");
 }
