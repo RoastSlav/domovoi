@@ -19,7 +19,7 @@ mod host_wait;
 mod outcome;
 mod preflight;
 mod recheck;
-mod reconcile;
+pub(crate) mod reconcile;
 mod record;
 mod recover;
 mod reject;

@@ -11,6 +11,7 @@ pub mod decide;
 mod deps;
 mod effects;
 mod error;
+mod execute;
 mod handle;
 pub mod journal;
 mod proposal;
@@ -51,6 +52,24 @@ impl OperationService {
         deps: OperationDeps,
         settings: OperationSettings,
     ) -> (OperationHandle, JoinHandle<()>) {
+        Self::start(deps, settings, true)
+    }
+
+    /// The service without handlers on its runner, so the writer's own tests can claim and
+    /// answer effects by hand without the handlers racing them.
+    #[cfg(test)]
+    pub(crate) fn spawn_bare(
+        deps: OperationDeps,
+        settings: OperationSettings,
+    ) -> (OperationHandle, JoinHandle<()>) {
+        Self::start(deps, settings, false)
+    }
+
+    fn start(
+        deps: OperationDeps,
+        settings: OperationSettings,
+        handlers: bool,
+    ) -> (OperationHandle, JoinHandle<()>) {
         let (writer, incoming) = writer::queue();
         let nudge = Arc::new(Notify::new());
         let shared = Arc::new(OpShared {
@@ -58,6 +77,7 @@ impl OperationService {
             settings,
             writer,
             nudge: nudge.clone(),
+            dispatch_gates: std::sync::Mutex::new(std::collections::BTreeMap::new()),
         });
         let mut runner = EffectRunner::new(
             EffectRunnerDeps {
@@ -71,7 +91,9 @@ impl OperationService {
             EffectSettings::default(),
         )
         .scoped(vec![AggregateKind::Operation]);
-        effects::register(&mut runner, &shared);
+        if handlers {
+            effects::register(&mut runner, &shared);
+        }
         let service = shared.clone();
         let task = tokio::spawn(async move {
             startup::recover(&service).await;

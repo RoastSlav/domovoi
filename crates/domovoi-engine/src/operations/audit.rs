@@ -33,3 +33,8 @@ pub const EXECUTION_NOT_RUN: &str = "execution.not_run";
 pub const EXECUTION_UNAVAILABLE: &str = "execution.unavailable";
 /// An execution was refused before it was approved or dispatched.
 pub const EXECUTION_REFUSED: &str = "execution.refused";
+
+/// What a settlement's reason starts with when the loop guard stopped the dispatch. The
+/// decision function files such a refusal under [`EXECUTION_BLOCKED`] instead of
+/// [`EXECUTION_REFUSED`].
+pub const LOOP_GUARD_REASON: &str = "loop guard:";

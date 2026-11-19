@@ -15,7 +15,7 @@ use domovoi_testkit::approvals;
 use domovoi_testkit::build::T0;
 use jiff::SignedDuration;
 
-use crate::harness::{Flaky, restart, seed, world, world_over, world_with};
+use crate::harness::{Flaky, restart, seed, world, world_gated, world_over, world_with};
 
 fn kinds(entries: &[domovoi_core::ports::JournalEntry]) -> Vec<&str> {
     entries.iter().map(|entry| entry.kind.as_str()).collect()
@@ -170,7 +170,7 @@ async fn approve_with_the_wrong_plan_hash_changes_nothing() {
 
 #[tokio::test]
 async fn approving_creates_a_dispatch_effect_and_an_audit_row_in_one_commit() {
-    let w = world().await;
+    let w = world_gated().await;
     let op = w.create().await;
     let step = w.propose(op).await;
 
@@ -440,7 +440,7 @@ async fn budget_exhaustion_pauses() {
 
 #[tokio::test]
 async fn startup_returns_a_claimed_dispatch_effect_to_pending() {
-    let w = world().await;
+    let mut w = world_gated().await;
     let op = w.create().await;
     let step = w.propose(op).await;
     w.approve(op, step).await.unwrap();
@@ -458,15 +458,10 @@ async fn startup_returns_a_claimed_dispatch_effect_to_pending() {
     assert_eq!(claimed.claimed.len(), 1);
     assert_eq!(w.effects(op, EffectStatus::Claimed).await.len(), 1);
 
-    let restarted = w.spawn();
-    for _ in 0..200 {
-        if w.effects(op, EffectStatus::Claimed).await.is_empty() {
-            break;
-        }
-        tokio::task::yield_now().await;
-    }
+    w.restart().await;
+    w.settle().await;
 
-    assert!(restarted.is_alive());
+    assert!(w.handle().is_alive());
     assert!(w.effects(op, EffectStatus::Claimed).await.is_empty());
     let pending = w.effects(op, EffectStatus::Pending).await;
     assert!(

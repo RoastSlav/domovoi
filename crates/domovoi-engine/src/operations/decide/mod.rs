@@ -28,7 +28,10 @@ use domovoi_core::{
 use jiff::Timestamp;
 use serde_json::Value;
 
-pub(crate) use effects::{RECONCILE_ATTEMPTS, reconcile_key, step_payload};
+pub(crate) use effects::{
+    DISPATCH_ATTEMPTS, RECONCILE_ATTEMPTS, WAKE_ATTEMPTS, dispatch_key, reconcile_key,
+    step_payload, wake_payload,
+};
 pub use events::{ExecutionProposal, NewEdge, NewStep, OperationEvent};
 pub use status::derive_status;
 

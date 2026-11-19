@@ -39,7 +39,7 @@ pub(super) fn verify_payload(
 }
 
 /// Payload of `wake`; `step` is absent for the wall-time wake.
-pub(super) fn wake_payload(operation: OperationId, step: Option<StepId>, purpose: &str) -> Value {
+pub(crate) fn wake_payload(operation: OperationId, step: Option<StepId>, purpose: &str) -> Value {
     let mut payload = json!({ "v": 1, "operation": operation.to_string(), "purpose": purpose });
     if let Some(step) = step {
         payload["step"] = json!(step.to_string());
@@ -58,7 +58,7 @@ pub(super) fn collect_key(step: StepId) -> String {
 }
 
 /// Dedup key of the dispatch of Execution step `step`.
-pub(super) fn dispatch_key(step: StepId) -> String {
+pub(crate) fn dispatch_key(step: StepId) -> String {
     format!("dispatch:{step}")
 }
 

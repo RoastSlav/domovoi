@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 
+use crate::drive::Gated;
 use async_trait::async_trait;
 use domovoi_core::ports::{
     AggregateRef, AuditEvent, AuditFilter, AuditLog, CommitError, CommitReceipt, EffectRead,
@@ -12,7 +13,7 @@ use domovoi_core::ports::{
     Presence, StateWrite, Transaction, UnitOfWork,
 };
 use domovoi_core::{
-    Actor, AgentIdentity, CheckKey, ContractId, ExecutionIntent, HostId, OperationId,
+    Actor, AgentIdentity, CheckKey, ContractId, ExecutionIntent, HostId, JournalEpoch, OperationId,
     OperationKind, OperationSnapshot, ParamKind, ParamName, ParamSpec, PinnedSubject, PlanBinding,
     Risk, SkillSummary, StepId, TargetKey, UserId,
 };
@@ -106,7 +107,9 @@ pub struct World {
     pub resolver: Arc<FakeTargetResolver>,
     pub uow: Arc<dyn UnitOfWork>,
     pub settings: OperationSettings,
-    handle: Option<OperationHandle>,
+    pub handle: Option<OperationHandle>,
+    pub task: Option<tokio::task::JoinHandle<()>>,
+    pub queue: Arc<Gated>,
     pub shutdown: CancellationToken,
     pub user: UserId,
 }
@@ -128,11 +131,27 @@ pub async fn world_with(settings: OperationSettings) -> World {
     world_over(settings, store.clone(), store).await
 }
 
+/// A world whose runner claims nothing until `world.queue.open()`, so a test can look at,
+/// or claim by hand, what a commit queued.
+pub async fn world_gated() -> World {
+    let store = Arc::new(InMemoryStore::new());
+    build(OperationSettings::default(), store.clone(), store, true).await
+}
+
 /// A world whose commits go through `uow`, which must forward to `store`.
 pub async fn world_over(
     settings: OperationSettings,
     store: Arc<InMemoryStore>,
     uow: Arc<dyn UnitOfWork>,
+) -> World {
+    build(settings, store, uow, false).await
+}
+
+async fn build(
+    settings: OperationSettings,
+    store: Arc<InMemoryStore>,
+    uow: Arc<dyn UnitOfWork>,
+    closed: bool,
 ) -> World {
     let clock = Arc::new(FakeClock::new(T0));
     let link = Arc::new(FakeAgentLink::new());
@@ -144,6 +163,10 @@ pub async fn world_over(
         },
     );
     link.set_skills(host_id(), vec![restart_skill()]);
+    // Every dispatch records the journal it was sent under, so the agent has one.
+    link.set_journal_epoch(host_id(), JournalEpoch::from_uuid(Uuid::now_v7()));
+    link.on_skill(|_, _| Ok(crate::drive::ok_output("restarted plex")));
+    link.on_check(|_, _, _| Ok(crate::drive::resolved()));
     let mut registered = domovoi_testkit::build::host("nas").unwrap();
     registered.id = host_id();
     HostRepo::upsert_host(&*store, &registered).await.unwrap();
@@ -163,6 +186,7 @@ pub async fn world_over(
     let registry = Arc::new(FakeCapabilityRegistry::following(link.clone()));
     let resolver = Arc::new(FakeTargetResolver::new());
     let shutdown = CancellationToken::new();
+    let store_for_queue = store.clone();
     let mut world = World {
         store,
         uow,
@@ -172,10 +196,14 @@ pub async fn world_over(
         resolver,
         settings,
         handle: None,
+        task: None,
+        queue: Gated::new(store_for_queue, closed),
         shutdown,
         user: UserId::new(),
     };
-    world.handle = Some(world.spawn());
+    let (handle, task) = world.start();
+    world.handle = Some(handle);
+    world.task = Some(task);
     world
 }
 
@@ -224,13 +252,13 @@ pub fn restart(name: &str) -> ExecutionRequest {
 
 impl World {
     /// Starts a service over this world's store, as a hub start does.
-    pub fn spawn(&self) -> OperationHandle {
+    pub fn start(&self) -> (OperationHandle, tokio::task::JoinHandle<()>) {
         let caps = action_caps(self.link.clone());
-        let (handle, _task) = OperationService::spawn(
+        OperationService::spawn(
             OperationDeps {
                 operations: self.store.clone(),
                 uow: self.uow.clone(),
-                effects: self.store.clone(),
+                effects: self.queue.clone(),
                 effect_read: self.store.clone(),
                 advisories: self.store.clone(),
                 incidents: self.store.clone(),
@@ -251,8 +279,7 @@ impl World {
                 shutdown: self.shutdown.clone(),
             },
             self.settings.clone(),
-        );
-        handle
+        )
     }
 
     /// The running service.

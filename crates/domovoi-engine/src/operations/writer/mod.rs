@@ -13,14 +13,16 @@ mod execution;
 #[cfg(test)]
 mod tests;
 
-use std::sync::Arc;
+use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex};
 
-use domovoi_core::OperationId;
+use domovoi_core::{HostId, OperationId};
 use tokio::sync::{Notify, mpsc};
 
-pub(crate) use commands::{Held, OperationCommand, Reply};
+pub(crate) use commands::{DispatchAnswer, Held, OperationCommand, Reply};
+pub(crate) use commit::queue_reconcile;
 
-use commit::{Applied, Change, Edit, apply, finish_held, queue_reconcile};
+use commit::{Applied, Change, Edit, apply, finish_held};
 use execution::system;
 
 use super::decide::{EffectSpec, OperationEvent};
@@ -40,6 +42,28 @@ pub(crate) struct OpShared {
     pub(crate) writer: mpsc::Sender<OperationCommand>,
     /// Wakes the effect runner as soon as a commit creates an effect that is due.
     pub(crate) nudge: Arc<Notify>,
+    /// One gate per host, held from before a dispatch is committed until the request has
+    /// been handed to the agent's outgoing queue, and by reconciliation while it reads the
+    /// execution. That keeps a committed-but-unsent run from being read as one the agent
+    /// never got.
+    pub(crate) dispatch_gates: Mutex<BTreeMap<HostId, Arc<tokio::sync::Mutex<()>>>>,
+}
+
+impl OpShared {
+    /// The host's dispatch gate; see [`OpShared::dispatch_gates`].
+    pub(crate) async fn dispatch_gate(&self, host: HostId) -> tokio::sync::OwnedMutexGuard<()> {
+        let gate = {
+            let mut gates = self
+                .dispatch_gates
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            gates
+                .entry(host)
+                .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+                .clone()
+        };
+        gate.lock_owned().await
+    }
 }
 
 /// Opens the queue into the writer; the receiver goes to [`run`].

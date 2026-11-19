@@ -427,6 +427,15 @@ pub(super) fn settled(
     work.set_progress(step, ended)?;
     let after_state = work.exec_state(step).unwrap_or(before);
     work.transition(step, before, after_state, reason.as_deref());
+    let kind = if outcome == StepOutcome::Refused
+        && reason
+            .as_deref()
+            .is_some_and(|text| text.starts_with(audit::LOOP_GUARD_REASON))
+    {
+        audit::EXECUTION_BLOCKED
+    } else {
+        kind
+    };
     work.audit_execution(kind, step, json!({ "reason": reason }));
     if record_only {
         return Ok(());

@@ -87,7 +87,7 @@ async fn world() -> World {
     let registry = Arc::new(FakeCapabilityRegistry::following(link.clone()));
     let caps = action_caps(link.clone());
     let shutdown = CancellationToken::new();
-    let (handle, _task) = OperationService::spawn(
+    let (handle, _task) = OperationService::spawn_bare(
         OperationDeps {
             operations: store.clone(),
             uow: store.clone(),
