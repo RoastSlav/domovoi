@@ -1,0 +1,99 @@
+{
+  "as_of_seq": 100,
+  "edges": [
+    {
+      "from": "01900000-0000-7000-8000-000000040003",
+      "kind": "depends_on",
+      "to": "01900000-0000-7000-8000-000000040002"
+    }
+  ],
+  "operation": {
+    "budgets": {
+      "limits": {
+        "cost_micros": null,
+        "cycles": null,
+        "evidence_requests": null,
+        "executions": null,
+        "model_turns": null,
+        "tokens": null,
+        "wall_seconds": null
+      },
+      "used": {
+        "cost_micros": 0,
+        "evidence_requests": 0,
+        "executions": 0,
+        "model_turns": 0,
+        "tokens": 0,
+        "wall_seconds": 0
+      }
+    },
+    "created_at": "2025-10-09T08:52:20Z",
+    "cycle": 0,
+    "ended_at": null,
+    "goal": "find out why plex keeps going down",
+    "id": "01900000-0000-7000-8000-00000004ffff",
+    "incidents": [
+      "01900000-0000-7000-8000-000000000003"
+    ],
+    "kind": "investigate",
+    "parent": null,
+    "pause_reason": {
+      "step": "01900000-0000-7000-8000-000000040003",
+      "type": "outcome_unknown"
+    },
+    "pinned": [
+      {
+        "check": "container.down",
+        "host": "01900000-0000-7000-8000-000000000001",
+        "target": "plex"
+      }
+    ],
+    "started_at": "2025-10-09T08:53:20Z",
+    "status": "paused",
+    "waiting_for": []
+  },
+  "schema_version": 1,
+  "steps": [
+    {
+      "cycle": 0,
+      "ended_at": "2025-10-09T08:53:30Z",
+      "id": "01900000-0000-7000-8000-000000040001",
+      "kind": "evidence_request",
+      "outcome": "succeeded",
+      "parent": null,
+      "phase": "diagnose",
+      "refs": [],
+      "started_at": "2025-10-09T08:53:21Z",
+      "summary": null
+    },
+    {
+      "cycle": 0,
+      "ended_at": "2025-10-09T08:54:30Z",
+      "id": "01900000-0000-7000-8000-000000040002",
+      "kind": "approval",
+      "outcome": "succeeded",
+      "parent": null,
+      "phase": "fix",
+      "refs": [],
+      "started_at": "2025-10-09T08:54:21Z",
+      "summary": null
+    },
+    {
+      "cycle": 0,
+      "ended_at": "2025-10-09T08:55:30Z",
+      "id": "01900000-0000-7000-8000-000000040003",
+      "kind": "execution",
+      "outcome": "outcome_unknown",
+      "parent": null,
+      "phase": "fix",
+      "refs": [
+        {
+          "id": "01900000-0000-7000-8000-000000040003",
+          "kind": "execution"
+        }
+      ],
+      "started_at": "2025-10-09T08:55:21Z",
+      "summary": null
+    }
+  ]
+}

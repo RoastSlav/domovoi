@@ -28,9 +28,9 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use domovoi_core::ports::{
-    AckRepo, ActionGuard, ActionRepo, AuditLog, CommitError, CommitReceipt, EffectRead, Expected,
-    IncidentRepo, JournalRead, SignalRepo, StateWrite, StoreError, Transaction, UnitOfWork,
-    VersionedRead,
+    AckRepo, ActionGuard, ActionRepo, AuditLog, CommitError, CommitReceipt, EffectRead,
+    ExecutionGuard, Expected, IncidentRepo, JournalRead, OperationWrite, SignalRepo, StateWrite,
+    StoreError, Transaction, UnitOfWork, VersionedRead,
 };
 
 use crate::lock;
@@ -130,6 +130,20 @@ fn summarize(tx: &Transaction) -> TxSummary {
             StateWrite::Note { expected, .. } => writes.push(match expected {
                 Expected::New => "note:new".to_owned(),
                 Expected::Version(_) => "note:version".to_owned(),
+            }),
+            StateWrite::Operation(write) => writes.push(match write {
+                OperationWrite::Operation { expected, .. } => match expected {
+                    Expected::New => "operation:new".to_owned(),
+                    Expected::Version(_) => "operation:version".to_owned(),
+                },
+                OperationWrite::Step(_) => "step:new".to_owned(),
+                OperationWrite::Progress { .. } => "step:progress".to_owned(),
+                OperationWrite::Edge(_) => "edge".to_owned(),
+                OperationWrite::Execution { expected, .. } => match expected {
+                    ExecutionGuard::New => "execution:new".to_owned(),
+                    ExecutionGuard::Version(_) => "execution:version".to_owned(),
+                },
+                OperationWrite::IncidentLink { .. } => "incident_link".to_owned(),
             }),
         }
     }

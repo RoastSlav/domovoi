@@ -12,11 +12,11 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use domovoi_core::ports::{
-    AckRepo, ActionFilter, ActionRepo, AdvisoryRepo, AggregateRef, AuditEvent, AuditFilter,
-    AuditLog, ClaimBatch, CommitError, CommitReceipt, EffectKind, EffectQueue, EffectRead,
-    EffectRecord, EffectStatus, EnrollmentToken, HostRepo, IncidentFilter, IncidentRepo,
-    IncidentTimelineEntry, JournalEntry, JournalRead, Page, Paged, SignalRepo, StoreError,
-    Transaction, UnitOfWork, Versioned, VersionedRead,
+    AckRepo, ActionFilter, ActionRepo, AdvisoryRepo, AggregateKind, AggregateRef, AuditEvent,
+    AuditFilter, AuditLog, ClaimBatch, CommitError, CommitReceipt, EffectKind, EffectQueue,
+    EffectRead, EffectRecord, EffectStatus, EnrollmentToken, HostRepo, IncidentFilter,
+    IncidentRepo, IncidentTimelineEntry, JournalEntry, JournalRead, Page, Paged, SignalRepo,
+    StoreError, Transaction, UnitOfWork, Versioned, VersionedRead,
 };
 use domovoi_core::{
     AckRule, AckRuleId, ActionId, ActionRequest, Advisory, AdvisoryId, AgentId, AgentIdentity,
@@ -112,15 +112,19 @@ impl EffectQueue for SqliteStore {
         &self,
         runner: &str,
         kinds: &[EffectKind],
+        aggregates: &[AggregateKind],
         now: Timestamp,
         lease: SignedDuration,
         limit: u16,
     ) -> Result<ClaimBatch, StoreError> {
-        EffectQueue::claim_due(&*self.0, runner, kinds, now, lease, limit).await
+        EffectQueue::claim_due(&*self.0, runner, kinds, aggregates, now, lease, limit).await
     }
 
-    async fn revert_claimed_at_start(&self) -> Result<u64, StoreError> {
-        EffectQueue::revert_claimed_at_start(&*self.0).await
+    async fn revert_claimed_at_start(
+        &self,
+        aggregates: &[AggregateKind],
+    ) -> Result<u64, StoreError> {
+        EffectQueue::revert_claimed_at_start(&*self.0, aggregates).await
     }
 }
 

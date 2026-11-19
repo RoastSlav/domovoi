@@ -88,7 +88,8 @@ define_id!(
 define_id!(
     /// The opaque idempotency key of one execution of an action.
     ///
-    /// At M1 it is the action's [`ActionId`]; later milestones give a step its own id.
+    /// A legacy action's execution is keyed by its [`ActionId`]; an operation's execution
+    /// is keyed by the id of its Execution [`StepId`]. An id never names both.
     ExecutionId
 );
 
@@ -103,6 +104,18 @@ impl ExecutionId {
     #[must_use]
     pub fn as_action(self) -> ActionId {
         ActionId::from_uuid(self.as_uuid())
+    }
+
+    /// The execution identity of an operation's Execution `step`: the step id's UUID.
+    #[must_use]
+    pub fn from_step(step: StepId) -> Self {
+        Self(step.as_uuid())
+    }
+
+    /// The Execution step this identity belongs to, for operation executions.
+    #[must_use]
+    pub fn as_step(self) -> StepId {
+        StepId::from_uuid(self.as_uuid())
     }
 }
 
@@ -127,6 +140,14 @@ define_id!(
     AdvisoryId
 );
 define_id!(
+    /// Identifies an operation: one durable piece of work on hosts.
+    OperationId
+);
+define_id!(
+    /// Identifies one immutable step of an operation.
+    StepId
+);
+define_id!(
     /// Identifies a pending effect in the work outbox.
     EffectId
 );
@@ -140,6 +161,14 @@ mod tests {
         let id = HostId::new();
         let parsed: HostId = id.to_string().parse().unwrap();
         assert_eq!(id, parsed);
+    }
+
+    #[test]
+    fn execution_id_from_step_keeps_the_uuid() {
+        let step = StepId::new();
+        let execution = ExecutionId::from_step(step);
+        assert_eq!(execution.as_uuid(), step.as_uuid());
+        assert_eq!(execution.as_step(), step);
     }
 
     #[test]

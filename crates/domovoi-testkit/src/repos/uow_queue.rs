@@ -3,8 +3,8 @@
 use async_trait::async_trait;
 use domovoi_core::EffectId;
 use domovoi_core::ports::{
-    ClaimBatch, ClaimToken, ClaimedEffect, EffectKind, EffectQueue, EffectRecord, EffectStatus,
-    StoreError,
+    AggregateKind, ClaimBatch, ClaimToken, ClaimedEffect, EffectKind, EffectQueue, EffectRecord,
+    EffectStatus, StoreError,
 };
 use jiff::{SignedDuration, Timestamp};
 
@@ -18,6 +18,7 @@ const DISPATCH: &str = "dispatch";
 fn candidates(
     state: &State,
     kinds: &[EffectKind],
+    aggregates: &[AggregateKind],
     now: Timestamp,
 ) -> (Vec<EffectId>, Vec<EffectId>) {
     let wanted = |kind: &str| kinds.iter().any(|candidate| candidate.as_str() == kind);
@@ -29,6 +30,7 @@ fn candidates(
             effect.status == EffectStatus::Pending.as_str()
                 && effect.not_before <= now
                 && wanted(&effect.kind)
+                && aggregates.contains(&effect.aggregate.kind)
         })
         .collect();
     pending.sort_by_key(|effect| effect.not_before);
@@ -40,6 +42,7 @@ fn candidates(
             effect.status == EffectStatus::Claimed.as_str()
                 && effect.kind != DISPATCH
                 && wanted(&effect.kind)
+                && aggregates.contains(&effect.aggregate.kind)
                 && effect.lease_until.is_some_and(|until| until <= now)
         })
         .collect();
@@ -95,16 +98,17 @@ impl EffectQueue for InMemoryStore {
         &self,
         runner: &str,
         kinds: &[EffectKind],
+        aggregates: &[AggregateKind],
         now: Timestamp,
         lease: SignedDuration,
         limit: u16,
     ) -> Result<ClaimBatch, StoreError> {
         let mut batch = ClaimBatch::default();
-        if kinds.is_empty() || limit == 0 {
+        if kinds.is_empty() || aggregates.is_empty() || limit == 0 {
             return Ok(batch);
         }
         let mut state = self.begin()?;
-        let (pending, expired) = candidates(&state, kinds, now);
+        let (pending, expired) = candidates(&state, kinds, aggregates, now);
         let mut budget = usize::from(limit);
         for (group, error) in [
             (pending, "attempt limit reached"),
@@ -134,14 +138,20 @@ impl EffectQueue for InMemoryStore {
         Ok(batch)
     }
 
-    async fn revert_claimed_at_start(&self) -> Result<u64, StoreError> {
+    async fn revert_claimed_at_start(
+        &self,
+        aggregates: &[AggregateKind],
+    ) -> Result<u64, StoreError> {
         let mut state = self.begin()?;
         let mut reverted = 0;
         for id in state.effect_order.clone() {
             let Some(effect) = state.effects.get_mut(&id) else {
                 continue;
             };
-            if effect.status != EffectStatus::Claimed.as_str() || effect.kind == DISPATCH {
+            if effect.status != EffectStatus::Claimed.as_str()
+                || effect.kind == DISPATCH
+                || !aggregates.contains(&effect.aggregate.kind)
+            {
                 continue;
             }
             effect.status = EffectStatus::Pending.as_str().to_owned();

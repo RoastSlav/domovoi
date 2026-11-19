@@ -1,0 +1,323 @@
+//! The execution row of an Execution step: what was approved and how far it got.
+
+use std::collections::BTreeMap;
+
+use jiff::Timestamp;
+use serde::{Deserialize, Serialize};
+
+use crate::action::{
+    ApprovalProvenance, Authorization, HumanApproval, JournalEpoch, PlanBinding, PlanHash,
+};
+use crate::capability::ContractId;
+use crate::id::{ExecutionId, HostId, OperationId, StepId};
+use crate::signal::{CheckKey, TargetKey};
+
+use super::intent::ExecutionIntent;
+use super::step::StepOutcome;
+
+/// Why an authorization was refused. The record is unchanged.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum ExecutionError {
+    /// A person already approved this execution.
+    #[error("this execution was already approved")]
+    AlreadyAuthorized,
+    /// The approval window has closed.
+    #[error("the approval window has closed")]
+    Expired,
+    /// The approval named a different plan than the one stored.
+    #[error("the plan changed since it was shown")]
+    PlanChanged,
+    /// Only a person can authorize an execution for now.
+    #[error("only a person can approve this for now")]
+    NotYetSupported,
+}
+
+/// How far an execution got, derived from its row and its step's outcome. Never stored.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecutionState {
+    /// Proposed, with no approval step yet.
+    Proposed,
+    /// Waiting for a person to approve.
+    AwaitingApproval,
+    /// Approved and not yet sent.
+    Authorized,
+    /// Sent to the agent; no result yet.
+    Dispatched,
+    /// Refused before it ran.
+    Refused,
+    /// Never ran.
+    NotRun,
+    /// Could not run.
+    Unavailable,
+    /// Ran and worked.
+    Succeeded,
+    /// Ran and did not work.
+    Failed,
+    /// May have run; nobody knows.
+    OutcomeUnknown,
+    /// Skipped when the operation ended.
+    Skipped,
+    /// Cancelled with the operation.
+    Cancelled,
+}
+
+impl ExecutionState {
+    /// The snake_case name used in journal payloads.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Proposed => "proposed",
+            Self::AwaitingApproval => "awaiting_approval",
+            Self::Authorized => "authorized",
+            Self::Dispatched => "dispatched",
+            Self::Refused => "refused",
+            Self::NotRun => "not_run",
+            Self::Unavailable => "unavailable",
+            Self::Succeeded => "succeeded",
+            Self::Failed => "failed",
+            Self::OutcomeUnknown => "outcome_unknown",
+            Self::Skipped => "skipped",
+            Self::Cancelled => "cancelled",
+        }
+    }
+}
+
+/// A person's approval of one execution, as stored.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExecutionApproval {
+    approval: HumanApproval,
+    displayed: PlanHash,
+    provenance: ApprovalProvenance,
+}
+
+impl ExecutionApproval {
+    /// Rebuilds an approval the store persisted. Call only in `crates/domovoi-store/src/`
+    /// when loading an execution; it records no new decision.
+    #[must_use]
+    pub fn restore(
+        approval: HumanApproval,
+        displayed: PlanHash,
+        provenance: ApprovalProvenance,
+    ) -> Self {
+        Self {
+            approval,
+            displayed,
+            provenance,
+        }
+    }
+
+    /// Who approved, where and when.
+    #[must_use]
+    pub fn approval(&self) -> &HumanApproval {
+        &self.approval
+    }
+
+    /// The plan hash the approving surface displayed.
+    #[must_use]
+    pub fn displayed(&self) -> PlanHash {
+        self.displayed
+    }
+
+    /// Where the approval was made.
+    #[must_use]
+    pub fn provenance(&self) -> &ApprovalProvenance {
+        &self.provenance
+    }
+}
+
+/// Everything a store needs to give back to rebuild an [`ExecutionRecord`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExecutionParts {
+    /// The operation.
+    pub operation: OperationId,
+    /// The Execution step.
+    pub step: StepId,
+    /// The host.
+    pub host: HostId,
+    /// The contract.
+    pub contract: ContractId,
+    /// The contract version.
+    pub contract_version: u32,
+    /// The check.
+    pub check: CheckKey,
+    /// The target.
+    pub target: Option<TargetKey>,
+    /// The arguments.
+    pub args: BTreeMap<String, String>,
+    /// The v2 plan hash.
+    pub plan_hash: PlanHash,
+    /// When the approval window closes.
+    pub expires_at: Timestamp,
+    /// The stored approval.
+    pub approval: Option<ExecutionApproval>,
+    /// When the hub began waiting for the agent.
+    pub waiting_since: Option<Timestamp>,
+    /// The journal epoch and time of dispatch.
+    pub dispatched: Option<(JournalEpoch, Timestamp)>,
+    /// When the execution settled.
+    pub settled_at: Option<Timestamp>,
+    /// When the row was created.
+    pub created_at: Timestamp,
+    /// When the row last changed.
+    pub updated_at: Timestamp,
+}
+
+/// The execution row of one Execution step. Its id is the step's id.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExecutionRecord {
+    /// The idempotency key of the run: always [`ExecutionId::from_step`] of `step`.
+    pub execution: ExecutionId,
+    /// The operation.
+    pub operation: OperationId,
+    /// The Execution step.
+    pub step: StepId,
+    /// The host to run on.
+    pub host: HostId,
+    /// The contract to run.
+    pub contract: ContractId,
+    /// The contract version the plan was made against.
+    pub contract_version: u32,
+    /// The check the run is about.
+    pub check: CheckKey,
+    /// The target the run is about.
+    pub target: Option<TargetKey>,
+    /// The arguments.
+    pub args: BTreeMap<String, String>,
+    /// The v2 plan hash a person approves and dispatch recomputes.
+    pub plan_hash: PlanHash,
+    /// When the approval window closes.
+    pub expires_at: Timestamp,
+    approval: Option<ExecutionApproval>,
+    /// When the hub began waiting for the agent to come back.
+    pub waiting_since: Option<Timestamp>,
+    /// The agent journal epoch and time the run was handed off at.
+    pub dispatched: Option<(JournalEpoch, Timestamp)>,
+    /// When the result was recorded.
+    pub settled_at: Option<Timestamp>,
+    /// When the row was created.
+    pub created_at: Timestamp,
+    /// When the row last changed.
+    pub updated_at: Timestamp,
+}
+
+impl ExecutionRecord {
+    /// A proposed execution of `intent` as `step` of `operation`, not yet approved.
+    #[must_use]
+    pub fn propose(
+        intent: &ExecutionIntent,
+        step: StepId,
+        operation: OperationId,
+        plan_hash: PlanHash,
+        expires_at: Timestamp,
+        now: Timestamp,
+    ) -> Self {
+        Self {
+            execution: ExecutionId::from_step(step),
+            operation,
+            step,
+            host: intent.host,
+            contract: intent.contract.clone(),
+            contract_version: intent.contract_version,
+            check: intent.check.clone(),
+            target: intent.target.clone(),
+            args: intent.args.clone(),
+            plan_hash,
+            expires_at,
+            approval: None,
+            waiting_since: None,
+            dispatched: None,
+            settled_at: None,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    /// Records a person's approval.
+    ///
+    /// Refuses a second approval, an expired window, a policy authorization (not supported
+    /// yet) and a binding that does not name the stored plan hash. On any refusal nothing
+    /// changes.
+    pub fn authorize(
+        &mut self,
+        authorization: Authorization,
+        provenance: ApprovalProvenance,
+        binding: &PlanBinding,
+        now: Timestamp,
+    ) -> Result<(), ExecutionError> {
+        if self.approval.is_some() {
+            return Err(ExecutionError::AlreadyAuthorized);
+        }
+        if now >= self.expires_at {
+            return Err(ExecutionError::Expired);
+        }
+        let Some(human) = authorization.human_approval() else {
+            return Err(ExecutionError::NotYetSupported);
+        };
+        if !binding.matches(&self.plan_hash) {
+            return Err(ExecutionError::PlanChanged);
+        }
+        let displayed = match binding {
+            PlanBinding::Full(hash) => *hash,
+            PlanBinding::Prefix(_) => self.plan_hash,
+        };
+        self.approval = Some(ExecutionApproval {
+            approval: human.clone(),
+            displayed,
+            provenance,
+        });
+        self.updated_at = now;
+        Ok(())
+    }
+
+    /// The stored approval, once a person gave one.
+    #[must_use]
+    pub fn approval(&self) -> Option<&ExecutionApproval> {
+        self.approval.as_ref()
+    }
+
+    /// The state derived from the step's outcome and, while pending, the approval step's.
+    #[must_use]
+    pub fn state(&self, step: StepOutcome, approval_step: Option<StepOutcome>) -> ExecutionState {
+        match step {
+            StepOutcome::Succeeded => ExecutionState::Succeeded,
+            StepOutcome::Failed => ExecutionState::Failed,
+            StepOutcome::Refused => ExecutionState::Refused,
+            StepOutcome::NotRun => ExecutionState::NotRun,
+            StepOutcome::Unavailable => ExecutionState::Unavailable,
+            StepOutcome::OutcomeUnknown => ExecutionState::OutcomeUnknown,
+            StepOutcome::Skipped => ExecutionState::Skipped,
+            StepOutcome::Cancelled => ExecutionState::Cancelled,
+            StepOutcome::Running => ExecutionState::Dispatched,
+            StepOutcome::Pending if self.approval.is_some() => ExecutionState::Authorized,
+            StepOutcome::Pending if approval_step == Some(StepOutcome::Pending) => {
+                ExecutionState::AwaitingApproval
+            }
+            StepOutcome::Pending => ExecutionState::Proposed,
+        }
+    }
+
+    /// Rebuilds a record from stored parts. Call only in `crates/domovoi-store/src/`.
+    #[must_use]
+    pub fn restore(parts: ExecutionParts) -> Self {
+        Self {
+            execution: ExecutionId::from_step(parts.step),
+            operation: parts.operation,
+            step: parts.step,
+            host: parts.host,
+            contract: parts.contract,
+            contract_version: parts.contract_version,
+            check: parts.check,
+            target: parts.target,
+            args: parts.args,
+            plan_hash: parts.plan_hash,
+            expires_at: parts.expires_at,
+            approval: parts.approval,
+            waiting_since: parts.waiting_since,
+            dispatched: parts.dispatched,
+            settled_at: parts.settled_at,
+            created_at: parts.created_at,
+            updated_at: parts.updated_at,
+        }
+    }
+}

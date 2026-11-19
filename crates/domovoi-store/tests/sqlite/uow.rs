@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use domovoi_core::EffectId;
 use domovoi_core::IncidentId;
 use domovoi_core::ports::{
-    ActionRepo, AggregateRef, AuditLog, ClaimToken, CommitError, EffectDeath, EffectDraft,
-    EffectKind, EffectQueue, EffectRead, EffectReschedule, Expected, IncidentRepo,
+    ActionRepo, AggregateKind, AggregateRef, AuditLog, ClaimToken, CommitError, EffectDeath,
+    EffectDraft, EffectKind, EffectQueue, EffectRead, EffectReschedule, Expected, IncidentRepo,
     IncidentTimelineEntry, JournalRead, NoteRepo, SignalRepo, StateWrite, Transaction, UnitOfWork,
     VersionedRead,
 };
@@ -128,6 +128,10 @@ uow_contract_tests! {
     sqlite_dispatch_effects_are_never_reclaimed_after_lease_expiry => dispatch_effects_are_never_reclaimed_after_lease_expiry,
     sqlite_restart_reverts_claimed_effects_except_dispatch => restart_reverts_claimed_effects_except_dispatch,
     sqlite_dedup_key_blocks_a_second_pending_effect => dedup_key_blocks_a_second_pending_effect,
+    sqlite_claim_filters_by_aggregate_kind => claim_filters_by_aggregate_kind,
+    sqlite_an_empty_aggregate_scope_claims_nothing => an_empty_aggregate_scope_claims_nothing,
+    sqlite_revert_claimed_at_start_is_scoped_to_aggregates => revert_claimed_at_start_is_scoped_to_aggregates,
+    sqlite_cancel_effects_cancels_only_pending_effects_of_the_aggregate => cancel_effects_cancels_only_pending_effects_of_the_aggregate,
     sqlite_reschedule_returns_effect_to_pending_with_backoff_time => reschedule_returns_effect_to_pending_with_backoff_time,
     sqlite_attempt_limit_dead_letters_at_claim => attempt_limit_dead_letters_at_claim,
     sqlite_expired_lease_beyond_attempt_limit_dies_instead_of_reclaim => expired_lease_beyond_attempt_limit_dies_instead_of_reclaim,
@@ -247,6 +251,7 @@ async fn claim_due_claims_a_due_effect_under_a_fresh_token() {
         .claim_due(
             "runner-a",
             &[EffectKind::Wake],
+            &AggregateKind::LEGACY,
             at(20),
             SignedDuration::from_secs(30),
             10,
@@ -281,6 +286,7 @@ async fn claim_due_reclaims_an_expired_lease_with_the_next_generation() {
         .claim_due(
             "runner-a",
             &[EffectKind::Wake],
+            &AggregateKind::LEGACY,
             at(10),
             SignedDuration::from_secs(30),
             10,
@@ -294,6 +300,7 @@ async fn claim_due_reclaims_an_expired_lease_with_the_next_generation() {
         .claim_due(
             "runner-b",
             &[EffectKind::Wake],
+            &AggregateKind::LEGACY,
             at(60),
             SignedDuration::from_secs(30),
             10,
@@ -336,19 +343,28 @@ async fn claim_due_dead_letters_a_pending_effect_past_its_attempt_limit() {
         .claim_due(
             "runner-a",
             &[EffectKind::Wake],
+            &AggregateKind::LEGACY,
             at(10),
             SignedDuration::from_secs(30),
             10,
         )
         .await
         .unwrap();
-    assert_eq!(fresh.store.revert_claimed_at_start().await.unwrap(), 1);
+    assert_eq!(
+        fresh
+            .store
+            .revert_claimed_at_start(&AggregateKind::LEGACY)
+            .await
+            .unwrap(),
+        1
+    );
 
     let batch = fresh
         .store
         .claim_due(
             "runner-a",
             &[EffectKind::Wake],
+            &AggregateKind::LEGACY,
             at(20),
             SignedDuration::from_secs(30),
             10,
@@ -382,6 +398,7 @@ async fn claim_due_dead_letters_an_expired_claim_past_its_attempt_limit() {
         .claim_due(
             "runner-a",
             &[EffectKind::Wake],
+            &AggregateKind::LEGACY,
             at(10),
             SignedDuration::from_secs(30),
             10,
@@ -394,6 +411,7 @@ async fn claim_due_dead_letters_an_expired_claim_past_its_attempt_limit() {
         .claim_due(
             "runner-b",
             &[EffectKind::Wake],
+            &AggregateKind::LEGACY,
             at(60),
             SignedDuration::from_secs(30),
             10,
@@ -424,6 +442,7 @@ async fn claim_due_never_reclaims_an_expired_dispatch_effect() {
         .claim_due(
             "runner-a",
             &[EffectKind::Dispatch],
+            &AggregateKind::LEGACY,
             at(10),
             SignedDuration::from_secs(30),
             10,
@@ -437,6 +456,7 @@ async fn claim_due_never_reclaims_an_expired_dispatch_effect() {
         .claim_due(
             "runner-b",
             &[EffectKind::Dispatch],
+            &AggregateKind::LEGACY,
             at(60),
             SignedDuration::from_secs(30),
             10,
@@ -474,6 +494,7 @@ async fn claim_due_claims_in_due_order_up_to_the_limit() {
         .claim_due(
             "runner-a",
             &[EffectKind::Wake],
+            &AggregateKind::LEGACY,
             at(20),
             SignedDuration::from_secs(30),
             2,
@@ -498,7 +519,14 @@ async fn claim_due_ignores_kinds_it_was_not_given_and_empty_requests() {
 
     let none = fresh
         .store
-        .claim_due("runner-a", &[], at(20), SignedDuration::from_secs(30), 10)
+        .claim_due(
+            "runner-a",
+            &[],
+            &AggregateKind::LEGACY,
+            at(20),
+            SignedDuration::from_secs(30),
+            10,
+        )
         .await
         .unwrap();
     let zero = fresh
@@ -506,6 +534,7 @@ async fn claim_due_ignores_kinds_it_was_not_given_and_empty_requests() {
         .claim_due(
             "runner-a",
             &[EffectKind::CallModel],
+            &AggregateKind::LEGACY,
             at(20),
             SignedDuration::from_secs(30),
             0,
@@ -517,6 +546,7 @@ async fn claim_due_ignores_kinds_it_was_not_given_and_empty_requests() {
         .claim_due(
             "runner-a",
             &[EffectKind::Wake],
+            &AggregateKind::LEGACY,
             at(20),
             SignedDuration::from_secs(30),
             10,
@@ -549,6 +579,7 @@ async fn revert_claimed_at_start_returns_work_to_pending_but_leaves_dispatch() {
         .claim_due(
             "runner-a",
             &[EffectKind::Wake],
+            &AggregateKind::LEGACY,
             at(10),
             SignedDuration::from_secs(600),
             10,
@@ -560,6 +591,7 @@ async fn revert_claimed_at_start_returns_work_to_pending_but_leaves_dispatch() {
         .claim_due(
             "runner-a",
             &[EffectKind::Dispatch],
+            &AggregateKind::LEGACY,
             at(10),
             SignedDuration::from_secs(600),
             10,
@@ -567,7 +599,14 @@ async fn revert_claimed_at_start_returns_work_to_pending_but_leaves_dispatch() {
         .await
         .unwrap();
 
-    assert_eq!(fresh.store.revert_claimed_at_start().await.unwrap(), 1);
+    assert_eq!(
+        fresh
+            .store
+            .revert_claimed_at_start(&AggregateKind::LEGACY)
+            .await
+            .unwrap(),
+        1
+    );
 
     let reverted = effect_row(&fresh.store, wake.id).await;
     assert_eq!(reverted.status, "pending");
@@ -596,6 +635,7 @@ async fn reschedule_returns_a_claimed_effect_to_pending_fenced_by_its_token() {
         .claim_due(
             "runner-a",
             &[EffectKind::Wake],
+            &AggregateKind::LEGACY,
             at(10),
             SignedDuration::from_secs(30),
             10,
@@ -656,6 +696,7 @@ async fn dead_lettering_a_claimed_effect_is_fenced_by_its_token() {
         .claim_due(
             "runner-a",
             &[EffectKind::Wake],
+            &AggregateKind::LEGACY,
             at(10),
             SignedDuration::from_secs(30),
             10,

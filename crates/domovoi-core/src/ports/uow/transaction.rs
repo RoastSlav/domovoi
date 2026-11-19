@@ -2,12 +2,13 @@
 
 use std::fmt;
 
-use crate::id::{ActionId, EffectId, IncidentId, NoteId};
+use crate::id::{ActionId, EffectId, IncidentId, NoteId, OperationId};
 use crate::ports::repos::IncidentTimelineEntry;
 use crate::{ActionRequest, Incident, Note, Signal};
 
 use super::{
-    AuditDraft, EffectCompletion, EffectDeath, EffectDraft, EffectReschedule, JournalDraft,
+    AuditDraft, EffectCancel, EffectCompletion, EffectDeath, EffectDraft, EffectReschedule,
+    JournalDraft, OperationWrite,
 };
 
 /// Which kind of aggregate a write, journal entry or effect belongs to.
@@ -19,16 +20,24 @@ pub enum AggregateKind {
     Action,
     /// A runbook note.
     Note,
+    /// An operation.
+    Operation,
 }
 
 impl AggregateKind {
-    /// Stable lowercase name stored in the database: `"incident"`, `"action"` or `"note"`.
+    /// The aggregates the incident and action services own. The legacy effect runner claims
+    /// only these, so it never touches an operation's effects.
+    pub const LEGACY: [Self; 3] = [Self::Incident, Self::Action, Self::Note];
+
+    /// Stable lowercase name stored in the database: `"incident"`, `"action"`, `"note"` or
+    /// `"operation"`.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Incident => "incident",
             Self::Action => "action",
             Self::Note => "note",
+            Self::Operation => "operation",
         }
     }
 
@@ -39,6 +48,7 @@ impl AggregateKind {
             "incident" => Some(Self::Incident),
             "action" => Some(Self::Action),
             "note" => Some(Self::Note),
+            "operation" => Some(Self::Operation),
             _ => None,
         }
     }
@@ -77,6 +87,17 @@ impl AggregateRef {
     pub fn note(id: NoteId) -> Self {
         Self {
             kind: AggregateKind::Note,
+            id: id.to_string(),
+        }
+    }
+}
+
+impl AggregateRef {
+    /// An operation reference: the aggregate of every operation journal entry and effect.
+    #[must_use]
+    pub fn operation(id: OperationId) -> Self {
+        Self {
+            kind: AggregateKind::Operation,
             id: id.to_string(),
         }
     }
@@ -158,8 +179,8 @@ pub struct Versioned<T> {
 /// One typed state change.
 ///
 /// Each variant is meant to be built only by the writer that owns the aggregate: the incident
-/// manager for incidents and their signals, the action writer for actions, and the note writer
-/// for notes. The unit of work applies whatever it is given; it does not decide ownership.
+/// manager for incidents and their signals, the action writer for actions, the note writer
+/// for notes, and the operation writer for operations. The unit of work applies whatever it is given; it does not decide ownership.
 #[derive(Debug, Clone)]
 pub enum StateWrite {
     /// Stores a signal and, if given, links it to an incident.
@@ -199,12 +220,16 @@ pub enum StateWrite {
         /// What the stored row must look like.
         expected: Expected,
     },
+    /// One change to an operation, its steps, edges, executions or incident links.
+    Operation(OperationWrite),
 }
 
 /// Everything one business event changes.
 ///
 /// Applied in this order: `writes`, then the mirrored and explicit journal rows, then `audit`,
-/// then `new_effects`, `completed_effects`, `rescheduled_effects` and `dead_effects`.
+/// then `cancelled_effects`, `new_effects`, `completed_effects`, `rescheduled_effects` and
+/// `dead_effects`. Cancelling before creating means an aggregate's cancellation never removes
+/// an effect the same transaction creates.
 #[derive(Debug, Clone, Default)]
 pub struct Transaction {
     /// State changes, applied in order.
@@ -213,6 +238,8 @@ pub struct Transaction {
     pub journal: Vec<JournalDraft>,
     /// Audit entries to append.
     pub audit: Vec<AuditDraft>,
+    /// Aggregates whose pending effects are cancelled.
+    pub cancelled_effects: Vec<EffectCancel>,
     /// Effects to create.
     pub new_effects: Vec<EffectDraft>,
     /// Effects to complete.
@@ -236,6 +263,7 @@ impl Transaction {
         self.writes.is_empty()
             && self.journal.is_empty()
             && self.audit.is_empty()
+            && self.cancelled_effects.is_empty()
             && self.new_effects.is_empty()
             && self.completed_effects.is_empty()
             && self.rescheduled_effects.is_empty()
@@ -260,6 +288,13 @@ impl Transaction {
     #[must_use]
     pub fn audit(mut self, draft: AuditDraft) -> Self {
         self.audit.push(draft);
+        self
+    }
+
+    /// Cancels every pending effect of one aggregate.
+    #[must_use]
+    pub fn cancel_effects(mut self, cancel: EffectCancel) -> Self {
+        self.cancelled_effects.push(cancel);
         self
     }
 
@@ -345,10 +380,28 @@ mod tests {
             AggregateKind::Incident,
             AggregateKind::Action,
             AggregateKind::Note,
+            AggregateKind::Operation,
         ] {
             assert_eq!(AggregateKind::parse(kind.as_str()), Some(kind));
         }
         assert_eq!(AggregateKind::parse("host"), None);
+        assert_eq!(
+            AggregateKind::LEGACY,
+            [
+                AggregateKind::Incident,
+                AggregateKind::Action,
+                AggregateKind::Note
+            ]
+        );
+    }
+
+    #[test]
+    fn a_cancellation_alone_makes_a_transaction_non_empty() {
+        let cancel = EffectCancel {
+            aggregate: AggregateRef::operation(OperationId::new()),
+            at: Timestamp::constant(1_700_000_000, 0),
+        };
+        assert!(!Transaction::new().cancel_effects(cancel).is_empty());
     }
 
     #[test]

@@ -53,6 +53,9 @@ pub(super) fn apply(
         StateWrite::DiscardPendingIncident { id, expected } => apply_discard(state, *id, *expected),
         StateWrite::Action { action, expected } => apply_action(state, action, expected),
         StateWrite::Note { note, expected } => apply_note(state, note, *expected, receipt),
+        StateWrite::Operation(_) => Err(CommitError::Backend(
+            "operation writes are not implemented yet".to_owned(),
+        )),
     }
 }
 

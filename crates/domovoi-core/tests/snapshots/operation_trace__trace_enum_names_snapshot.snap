@@ -1,0 +1,54 @@
+---
+source: crates/domovoi-core/tests/operation_trace.rs
+expression: "json!({\n    \"step_kinds\": StepKind::ALL, \"step_outcomes\": StepOutcome::ALL,\n    \"edge_kinds\": EdgeKind::ALL, \"wait_kinds\":\n    [WaitKind::Approval, WaitKind::User, WaitKind::Agent, WaitKind::Timer],\n    \"budget_kinds\": domovoi_core::BudgetKind::ALL, \"host\": host(),\n})"
+---
+{
+  "budget_kinds": [
+    "model_turns",
+    "evidence_requests",
+    "executions",
+    "cycles",
+    "wall_time",
+    "tokens",
+    "cost"
+  ],
+  "edge_kinds": [
+    "depends_on",
+    "caused_by",
+    "verifies",
+    "retry_of",
+    "answers"
+  ],
+  "host": "01900000-0000-7000-8000-000000000001",
+  "step_kinds": [
+    "reasoning_turn",
+    "evidence_request",
+    "assessment",
+    "plan",
+    "policy_decision",
+    "approval",
+    "execution",
+    "verification",
+    "notification",
+    "question",
+    "note"
+  ],
+  "step_outcomes": [
+    "pending",
+    "running",
+    "succeeded",
+    "failed",
+    "refused",
+    "not_run",
+    "unavailable",
+    "outcome_unknown",
+    "skipped",
+    "cancelled"
+  ],
+  "wait_kinds": [
+    "approval",
+    "user",
+    "agent",
+    "timer"
+  ]
+}

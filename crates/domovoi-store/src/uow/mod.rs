@@ -70,6 +70,9 @@ impl UnitOfWork for Store {
             let seq = insert_audit(&mut dbtx, &event).await.map_err(map_store)?;
             receipt.audit_seqs.push(seq);
         }
+        for cancel in &tx.cancelled_effects {
+            effects::cancel(&mut dbtx, cancel).await?;
+        }
         for draft in &tx.new_effects {
             effects::insert(&mut dbtx, draft).await?;
         }

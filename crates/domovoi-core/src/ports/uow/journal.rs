@@ -17,6 +17,18 @@ pub enum JournalKind {
     IncidentTimeline,
     /// An action changed status.
     ActionTransition,
+    /// An operation was created.
+    OperationCreated,
+    /// An operation changed status.
+    OperationStatus,
+    /// A step was added to an operation.
+    StepCreated,
+    /// A step started.
+    StepStarted,
+    /// A step finished.
+    StepFinished,
+    /// An execution moved to another state.
+    ExecutionTransition,
 }
 
 impl JournalKind {
@@ -26,6 +38,12 @@ impl JournalKind {
         match self {
             Self::IncidentTimeline => "incident.timeline",
             Self::ActionTransition => "action.transition",
+            Self::OperationCreated => "operation.created",
+            Self::OperationStatus => "operation.status",
+            Self::StepCreated => "operation.step_created",
+            Self::StepStarted => "operation.step_started",
+            Self::StepFinished => "operation.step_finished",
+            Self::ExecutionTransition => "operation.execution",
         }
     }
 
@@ -35,6 +53,12 @@ impl JournalKind {
         match text {
             "incident.timeline" => Some(Self::IncidentTimeline),
             "action.transition" => Some(Self::ActionTransition),
+            "operation.created" => Some(Self::OperationCreated),
+            "operation.status" => Some(Self::OperationStatus),
+            "operation.step_created" => Some(Self::StepCreated),
+            "operation.step_started" => Some(Self::StepStarted),
+            "operation.step_finished" => Some(Self::StepFinished),
+            "operation.execution" => Some(Self::ExecutionTransition),
             _ => None,
         }
     }
@@ -170,7 +194,16 @@ mod tests {
 
     #[test]
     fn journal_kinds_round_trip() {
-        for kind in [JournalKind::IncidentTimeline, JournalKind::ActionTransition] {
+        for kind in [
+            JournalKind::IncidentTimeline,
+            JournalKind::ActionTransition,
+            JournalKind::OperationCreated,
+            JournalKind::OperationStatus,
+            JournalKind::StepCreated,
+            JournalKind::StepStarted,
+            JournalKind::StepFinished,
+            JournalKind::ExecutionTransition,
+        ] {
             assert_eq!(JournalKind::parse(kind.as_str()), Some(kind));
         }
         assert_eq!(JournalKind::parse("incident.status"), None);

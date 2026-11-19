@@ -9,6 +9,8 @@ use crate::id::{HostId, UserId};
 pub const SYSTEM_INCIDENTS: &str = "incidents";
 /// The action writer.
 pub const SYSTEM_ACTIONS: &str = "actions";
+/// The operation writer.
+pub const SYSTEM_OPERATIONS: &str = "operations";
 /// The audit verifier, which records a broken chain at hub start.
 pub const SYSTEM_AUDIT: &str = "audit";
 

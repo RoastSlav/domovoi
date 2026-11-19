@@ -1,0 +1,63 @@
+---
+source: crates/domovoi-core/tests/operation_trace.rs
+expression: statuses
+---
+[
+  {
+    "type": "queued"
+  },
+  {
+    "type": "running"
+  },
+  {
+    "type": "waiting_approval"
+  },
+  {
+    "type": "waiting_user"
+  },
+  {
+    "type": "waiting_agent"
+  },
+  {
+    "type": "waiting_timer"
+  },
+  {
+    "type": "paused",
+    "reason": {
+      "type": "budget",
+      "exhausted": "cycles"
+    }
+  },
+  {
+    "type": "paused",
+    "reason": {
+      "type": "outcome_unknown",
+      "step": "01900000-0000-7000-8000-000000000020"
+    }
+  },
+  {
+    "type": "paused",
+    "reason": {
+      "type": "global_pause"
+    }
+  },
+  {
+    "type": "paused",
+    "reason": {
+      "type": "error",
+      "message": "disk full"
+    }
+  },
+  {
+    "type": "succeeded"
+  },
+  {
+    "type": "failed"
+  },
+  {
+    "type": "escalated"
+  },
+  {
+    "type": "cancelled"
+  }
+]

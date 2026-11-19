@@ -66,6 +66,10 @@ contract_tests! {
     in_memory_dispatch_effects_are_never_reclaimed_after_lease_expiry => dispatch_effects_are_never_reclaimed_after_lease_expiry,
     in_memory_restart_reverts_claimed_effects_except_dispatch => restart_reverts_claimed_effects_except_dispatch,
     in_memory_dedup_key_blocks_a_second_pending_effect => dedup_key_blocks_a_second_pending_effect,
+    in_memory_claim_filters_by_aggregate_kind => claim_filters_by_aggregate_kind,
+    in_memory_an_empty_aggregate_scope_claims_nothing => an_empty_aggregate_scope_claims_nothing,
+    in_memory_revert_claimed_at_start_is_scoped_to_aggregates => revert_claimed_at_start_is_scoped_to_aggregates,
+    in_memory_cancel_effects_cancels_only_pending_effects_of_the_aggregate => cancel_effects_cancels_only_pending_effects_of_the_aggregate,
 }
 
 #[tokio::test]

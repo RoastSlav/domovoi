@@ -2,9 +2,10 @@
 
 use async_trait::async_trait;
 use domovoi_core::ports::{
-    AggregateRef, ClaimToken, CommitError, CommitReceipt, EffectCompletion, EffectDeath,
-    EffectDraft, EffectRead, EffectRecord, EffectReschedule, EffectStatus, JournalDraft,
-    JournalEntry, JournalRead, StoreError, Transaction, UnitOfWork, Versioned, VersionedRead,
+    AggregateRef, ClaimToken, CommitError, CommitReceipt, EffectCancel, EffectCompletion,
+    EffectDeath, EffectDraft, EffectRead, EffectRecord, EffectReschedule, EffectStatus,
+    JournalDraft, JournalEntry, JournalRead, StoreError, Transaction, UnitOfWork, Versioned,
+    VersionedRead,
 };
 use domovoi_core::{EffectId, Incident, IncidentId, Note, NoteId};
 
@@ -70,6 +71,19 @@ fn insert_effect(state: &mut State, draft: &EffectDraft) -> Result<(), CommitErr
     );
     state.effect_order.push(draft.id);
     Ok(())
+}
+
+/// Cancels every pending effect of one aggregate, as the real store does.
+fn cancel_effects(state: &mut State, cancel: &EffectCancel) {
+    for effect in state.effects.values_mut() {
+        if effect.aggregate == cancel.aggregate && effect.status == EffectStatus::Pending.as_str() {
+            effect.status = EffectStatus::Cancelled.as_str().to_owned();
+            effect.completed_at = Some(cancel.at);
+            effect.claim_token = None;
+            effect.lease_until = None;
+            effect.runner_id = None;
+        }
+    }
 }
 
 fn complete_effect(state: &mut State, completion: &EffectCompletion) -> Result<(), CommitError> {
@@ -177,6 +191,9 @@ impl UnitOfWork for InMemoryStore {
         for audit in &tx.audit {
             draft.audit.push(audit.clone().into_event());
             receipt.audit_seqs.push(draft.audit.len() as u64);
+        }
+        for cancel in &tx.cancelled_effects {
+            cancel_effects(&mut draft, cancel);
         }
         for effect in &tx.new_effects {
             insert_effect(&mut draft, effect)?;

@@ -4,6 +4,7 @@ mod effects;
 mod journal;
 mod lifecycle;
 mod lifecycle_retry;
+mod lifecycle_scope;
 mod rollback;
 mod states;
 
@@ -30,6 +31,11 @@ pub use lifecycle_retry::{
     attempt_limit_dead_letters_at_claim,
     expired_lease_beyond_attempt_limit_dies_instead_of_reclaim,
     reschedule_returns_effect_to_pending_with_backoff_time,
+};
+pub use lifecycle_scope::{
+    an_empty_aggregate_scope_claims_nothing,
+    cancel_effects_cancels_only_pending_effects_of_the_aggregate, claim_filters_by_aggregate_kind,
+    revert_claimed_at_start_is_scoped_to_aggregates,
 };
 pub use rollback::failed_effect_completion_rolls_back_every_stage;
 pub use states::{
