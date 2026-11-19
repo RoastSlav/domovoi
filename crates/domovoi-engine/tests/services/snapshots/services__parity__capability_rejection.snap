@@ -1,0 +1,72 @@
+---
+source: crates/domovoi-engine/tests/services/parity.rs
+expression: legacy
+---
+(
+    Seen {
+        shape: Object {
+            "report": Object {
+                "cause": String("A bad config file, fairly sure."),
+                "details": String(""),
+                "evidence": Array [
+                    Object {
+                        "label": String("exit code"),
+                        "source": String("docker_logs"),
+                        "value": String("1"),
+                    },
+                ],
+                "headline": String("nginx keeps restarting"),
+                "manual_steps": Array [],
+                "next_step": String("Fix the config file and restart the container."),
+                "proposals": Array [],
+                "summary": String("The container exits a few seconds after start."),
+                "verdict": String("ACTION_NEEDED"),
+            },
+        },
+        model_requests: 0,
+        tools: Some(
+            Object {
+                "during": String("triage"),
+                "tools": Array [
+                    Object {
+                        "failed": Bool(false),
+                        "raw": Null,
+                        "refused": Bool(false),
+                        "skill": Null,
+                        "tool": String("docker_ps"),
+                    },
+                    Object {
+                        "failed": Bool(false),
+                        "raw": Null,
+                        "refused": Bool(false),
+                        "skill": Null,
+                        "tool": String("docker_logs"),
+                    },
+                    Object {
+                        "failed": Bool(false),
+                        "raw": Null,
+                        "refused": Bool(false),
+                        "skill": Null,
+                        "tool": String("journal"),
+                    },
+                    Object {
+                        "failed": Bool(false),
+                        "raw": Null,
+                        "refused": Bool(false),
+                        "skill": Null,
+                        "tool": String("host_overview"),
+                    },
+                ],
+            },
+        ),
+        kinds: [
+            "triage.cached",
+            "triage.tools",
+            "triage.report",
+        ],
+    },
+    2,
+    true,
+    false,
+    true,
+)

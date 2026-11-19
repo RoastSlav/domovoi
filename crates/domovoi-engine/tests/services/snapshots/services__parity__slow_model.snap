@@ -1,0 +1,15 @@
+---
+source: crates/domovoi-engine/tests/services/parity.rs
+expression: legacy
+---
+Seen {
+    shape: Object {
+        "failed": String("scripted failed: unavailable: the run deadline passed while the model was answering; raise [triage] per_run.seconds"),
+    },
+    model_requests: 1,
+    tools: None,
+    kinds: [
+        "triage.cached",
+        "triage.failed",
+    ],
+}

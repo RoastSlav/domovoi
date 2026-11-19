@@ -1,0 +1,30 @@
+---
+source: crates/domovoi-engine/tests/drills/drills.rs
+expression: "frozen(drill, &outcome)"
+---
+{
+  "model_requests": 2,
+  "proposals": [],
+  "report": {
+    "cause": "The USB backup disk is unplugged or failed to mount at boot.",
+    "evidence": [
+      {
+        "label": "rsync error",
+        "source": "journal",
+        "value": "mkdir /mnt/usb-backup/nas failed"
+      },
+      {
+        "label": "mounts",
+        "source": "host_overview",
+        "value": "/mnt/usb-backup missing"
+      }
+    ],
+    "headline": "The backup failed because its USB disk is not mounted",
+    "manual_steps": [],
+    "next_step": "Check the USB disk is plugged in and run `mount /mnt/usb-backup`, then start backup.service again.",
+    "proposals": [],
+    "summary": "backup.service failed at 03:00 because /mnt/usb-backup is not mounted, so rsync had nowhere to write.\n",
+    "verdict": "ACTION_NEEDED"
+  },
+  "score_total": 100
+}

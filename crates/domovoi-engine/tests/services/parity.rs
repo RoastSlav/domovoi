@@ -31,13 +31,15 @@ pub fn setup(mode: Mode) -> Setup {
 }
 
 /// Runs `scenario` in both modes and requires equal results.
-pub async fn both<T, F, Fut>(scenario: F) -> T
+pub async fn both<T, F, Fut>(name: &str, scenario: F) -> T
 where
     T: PartialEq + Debug,
     F: Fn(Mode) -> Fut,
     Fut: Future<Output = T>,
 {
     let legacy = scenario(Mode::Legacy).await;
+    // The snapshot is the result recorded from the legacy path before it was removed.
+    insta::assert_debug_snapshot!(name, legacy);
     let operations = scenario(Mode::Operations).await;
     assert_eq!(legacy, operations, "the two paths disagree");
     legacy
@@ -204,7 +206,7 @@ async fn report_fields_are_identical_across_modes() {
             (seen(&w, &outcome).await, proposed, views)
         }
     };
-    let (seen, proposed, views) = both(run).await;
+    let (seen, proposed, views) = both("report_fields", run).await;
     assert_eq!(proposed.len(), 1, "only the skill on the host is offered");
     assert_eq!(
         views.len(),
@@ -243,7 +245,7 @@ async fn tool_call_budget_is_enforced_the_same() {
             .count();
         (seen(&w, &outcome).await, tools)
     };
-    let (seen, docker_ps) = both(run).await;
+    let (seen, docker_ps) = both("tool_call_budget", run).await;
     let entry = seen.tools.expect("the tool use is recorded");
     let refused = entry["tools"]
         .as_array()
@@ -287,7 +289,7 @@ async fn output_token_budget_and_deadline_are_enforced_the_same() {
             .collect();
         (seen(&w, &outcome).await, asked)
     };
-    let (seen_spent, asked) = both(spent).await;
+    let (seen_spent, asked) = both("token_budget_spent", spent).await;
     assert_eq!(
         asked,
         [2000, 500],
@@ -318,7 +320,7 @@ async fn output_token_budget_and_deadline_are_enforced_the_same() {
         let outcome = w.run(mode).await;
         seen(&w, &outcome).await
     };
-    let seen_late = both(late).await;
+    let seen_late = both("token_budget_late", late).await;
     assert_eq!(seen_late.model_requests, 0);
     assert!(
         seen_late.shape["failed"]
@@ -351,7 +353,7 @@ async fn a_slow_model_is_cut_off_the_same_way_in_both_modes() {
         let outcome = w.finish(task).await;
         seen(&w, &outcome).await
     };
-    let seen = both(run).await;
+    let seen = both("slow_model", run).await;
     assert!(
         seen.shape["failed"]
             .as_str()
@@ -408,7 +410,7 @@ async fn secret_never_reaches_the_model_in_either_mode() {
         assert!(!stored.contains(SECRET), "{mode:?}: a secret was stored");
         seen(&w, &outcome).await
     };
-    let seen = both(run).await;
+    let seen = both("secret_never_reaches_model", run).await;
     assert_eq!(seen.model_requests, 2);
 }
 
@@ -444,7 +446,7 @@ async fn host_scoping_is_the_same() {
             .collect();
         (seen(&w, &outcome).await, leaked, hosts)
     };
-    let (_, leaked, hosts) = both(run).await;
+    let (_, leaked, hosts) = both("host_scoping", run).await;
     assert!(!leaked, "another host's note reached the model");
     assert!(!hosts.is_empty());
     assert!(

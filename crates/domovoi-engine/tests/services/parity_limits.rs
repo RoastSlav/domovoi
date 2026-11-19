@@ -90,7 +90,7 @@ async fn fallback_chain_behaves_the_same() {
             .count();
         (first, reasons, advisories, kinds_open, degraded_events)
     };
-    let (first, reasons, advisories, kinds_open, degraded_events) = both(run).await;
+    let (first, reasons, advisories, kinds_open, degraded_events) = both("fallback_chain", run).await;
     assert!(first.0.get("report").is_some(), "the secondary answered");
     assert_eq!(first.1, 1);
     let reason = reasons[0]["failed"].as_str().unwrap();
@@ -153,7 +153,7 @@ async fn capability_rejection_rebuilds_the_run_the_same() {
                 && opening.contains("You cannot call tools"),
         )
     };
-    let (_, requests, first_had_tools, rebuilt_had_tools, prefetched) = both(run).await;
+    let (_, requests, first_had_tools, rebuilt_had_tools, prefetched) = both("capability_rejection", run).await;
     assert_eq!(requests, 2, "one attempt refused the tools, one rebuilt");
     assert!(first_had_tools && !rebuilt_had_tools && prefetched);
 }
@@ -192,7 +192,7 @@ async fn hourly_and_monthly_caps_behave_the_same() {
             kinds(&w, &later).await,
         )
     };
-    let (skipped, requests, kinds) = both(hourly).await;
+    let (skipped, requests, kinds) = both("hourly_cap", hourly).await;
     let reason = skipped["skipped"].as_str().unwrap();
     assert!(reason.contains("per hour") && reason.contains("tries again from"));
     assert_eq!(
@@ -219,7 +219,7 @@ async fn hourly_and_monthly_caps_behave_the_same() {
         w.drive(3, 600).await;
         (seen(&w, &outcome).await, w.primary.requests().len())
     };
-    let (seen_monthly, requests) = both(monthly).await;
+    let (seen_monthly, requests) = both("monthly_cap", monthly).await;
     assert!(
         seen_monthly.shape["skipped"]
             .as_str()
@@ -264,7 +264,7 @@ async fn repeat_cache_is_used_the_same() {
             w.primary.requests().len(),
         )
     };
-    let (second, from_earlier, cached_requests, third, requests) = both(run).await;
+    let (second, from_earlier, cached_requests, third, requests) = both("repeat_cache", run).await;
     assert!(second.get("cached").is_some() && from_earlier);
     assert_eq!(cached_requests, 1, "no second model call");
     assert!(third.get("report").is_some());
@@ -318,7 +318,7 @@ async fn nothing_runs_without_a_human_in_either_mode() {
             views.len(),
         )
     };
-    let (ran, authorized, approved, proposed) = both(run).await;
+    let (ran, authorized, approved, proposed) = both("nothing_runs_without_human", run).await;
     assert_eq!(ran, 0, "no skill request reached the agent");
     assert_eq!(authorized, 0, "no step was authorized");
     assert_eq!(proposed, 1);

@@ -1,0 +1,69 @@
+---
+source: crates/domovoi-engine/tests/services/parity.rs
+expression: legacy
+---
+(
+    Seen {
+        shape: Object {
+            "report": Object {
+                "cause": String("A bad config file, fairly sure."),
+                "details": String("The log shows a syntax error on line 12.\n\nProposals not offered:\n- wipe_disk: not a skill on this host"),
+                "evidence": Array [
+                    Object {
+                        "label": String("exit code"),
+                        "source": String("docker_logs"),
+                        "value": String("1"),
+                    },
+                    Object {
+                        "label": String("restarts"),
+                        "source": String("docker_inspect"),
+                        "value": String("14"),
+                    },
+                ],
+                "headline": String("nginx keeps restarting"),
+                "manual_steps": Array [
+                    String("Open /etc/nginx/nginx.conf"),
+                    String("Reload the container"),
+                ],
+                "next_step": String("Fix the config file and restart the container."),
+                "proposals": Array [
+                    Object {
+                        "args": Object {
+                            "container": String("nginx"),
+                        },
+                        "reason": String("It is stuck."),
+                        "skill": String("restart_container"),
+                    },
+                ],
+                "summary": String("The container exits a few seconds after start."),
+                "verdict": String("ACTION_NEEDED"),
+            },
+        },
+        model_requests: 1,
+        tools: None,
+        kinds: [
+            "triage.cached",
+            "triage.report",
+        ],
+    },
+    [
+        (
+            SkillName(
+                "restart_container",
+            ),
+            {
+                "container": "nginx",
+            },
+        ),
+    ],
+    [
+        (
+            "restart_container",
+            {
+                "container": "nginx",
+            },
+            true,
+            false,
+        ),
+    ],
+)

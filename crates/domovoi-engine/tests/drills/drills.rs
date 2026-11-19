@@ -67,6 +67,34 @@ mod tests {
         }
     }
 
+    /// The fields of a run that must not change: the report without its details, what was
+    /// proposed, the score and the number of model requests.
+    fn frozen(drill: &Drill, outcome: &crate::world::Outcome) -> serde_json::Value {
+        let report = match &outcome.outcome {
+            TriageOutcome::Report(report) | TriageOutcome::Cached { report, .. } => {
+                let mut value = serde_json::to_value(report).expect("a report serializes");
+                if let Some(map) = value.as_object_mut() {
+                    map.remove("details");
+                }
+                value
+            }
+            other => serde_json::json!({ "not a report": format!("{other:?}") }),
+        };
+        let drill_score = score(&drill.answer_key, &outcome.outcome, &outcome.proposals)
+            .0
+            .total();
+        serde_json::json!({
+            "report": report,
+            "proposals": outcome
+                .proposals
+                .iter()
+                .map(|p| serde_json::json!({ "skill": p.skill, "args": p.args }))
+                .collect::<Vec<_>>(),
+            "score_total": drill_score,
+            "model_requests": outcome.requests.len(),
+        })
+    }
+
     fn table(results: &[DrillResult]) -> String {
         let mut out = String::from(
             "| Drill | Detection | Discrimination | Action | Restraint | Total | Probes | Pass |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n",
@@ -133,6 +161,11 @@ mod tests {
         let mut legacy = Vec::new();
         let mut operations = Vec::new();
         for drill in &drills {
+            for mode in [Mode::Legacy, Mode::Operations] {
+                let outcome = run(drill, Model::Scripted, mode).await;
+                // The legacy path's result, recorded before that path was removed.
+                insta::assert_json_snapshot!(format!("drill_{}", drill.name), frozen(drill, &outcome));
+            }
             legacy.push(run_drill(drill, Model::Scripted, Mode::Legacy).await);
             operations.push(run_drill(drill, Model::Scripted, Mode::Operations).await);
         }

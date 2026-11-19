@@ -1,0 +1,12 @@
+---
+source: crates/domovoi-engine/tests/services/parity.rs
+expression: legacy
+---
+(
+    0,
+    0,
+    [
+        false,
+    ],
+    1,
+)
