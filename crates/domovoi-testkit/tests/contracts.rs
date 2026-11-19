@@ -45,6 +45,8 @@ contract_tests! {
     in_memory_chat_token_hash_must_be_unique_across_actions => chat_token_hash_must_be_unique_across_actions,
     in_memory_incident_event_is_mirrored_into_the_journal_with_its_original_time => incident_event_is_mirrored_into_the_journal_with_its_original_time,
     in_memory_journal_sequence_follows_commit_order => journal_sequence_follows_commit_order,
+    in_memory_floor_starts_at_zero_and_wait_after_follows_the_committed_head => floor_starts_at_zero_and_wait_after_follows_the_committed_head,
+    in_memory_head_equals_the_highest_receipt_seq => head_equals_the_highest_receipt_seq,
     in_memory_discarding_a_pending_incident_removes_its_timeline_and_unlinks_signals => discarding_a_pending_incident_removes_its_timeline_and_unlinks_signals,
     in_memory_audit_draft_is_appended_with_the_next_sequence_number => audit_draft_is_appended_with_the_next_sequence_number,
     in_memory_duplicate_dedup_key_is_refused_while_pending => duplicate_dedup_key_is_refused_while_pending,

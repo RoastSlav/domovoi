@@ -24,6 +24,7 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 domovoi-testkit = { workspace = true }
+futures = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tracing-subscriber = { workspace = true }

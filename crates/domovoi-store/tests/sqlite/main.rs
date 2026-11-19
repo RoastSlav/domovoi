@@ -24,6 +24,8 @@ mod contracts;
 #[cfg(test)]
 mod durability;
 #[cfg(test)]
+mod journal_feed;
+#[cfg(test)]
 mod migrations;
 #[cfg(test)]
 mod operations;
