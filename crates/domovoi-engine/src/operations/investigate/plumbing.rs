@@ -10,6 +10,7 @@ use domovoi_core::{
 
 use super::Runtime;
 use crate::effects::EffectOutcome;
+use crate::operations::OperationError;
 use crate::operations::decide::EffectSpec;
 use crate::operations::effects::{ask, finish, held, outcome};
 use crate::operations::handle::OperationHandle;
@@ -61,13 +62,22 @@ pub(super) async fn end_operation(
     result: FinishOutcome,
     summary: &str,
 ) -> EffectOutcome {
-    if let Err(err) = handle_of(shared)
+    match handle_of(shared)
         .finish(operation, result, summary.to_owned())
         .await
     {
-        tracing::debug!(%err, %operation, "an investigation could not be ended");
+        // A transient failure leaves the effect to be tried again: it is the only thing
+        // that can still end this investigation.
+        Err(
+            err @ (OperationError::Store(_)
+            | OperationError::Conflict
+            | OperationError::Unavailable),
+        ) => EffectOutcome::Retry {
+            error: err.to_string(),
+        },
+        // Ended, or ended before: nothing is left for the effect to do.
+        _ => finish(shared, held).await,
     }
-    finish(shared, held).await
 }
 
 /// The step `id` of the snapshot.

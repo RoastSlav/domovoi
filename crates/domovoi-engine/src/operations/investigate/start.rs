@@ -117,16 +117,16 @@ impl OperationHandle {
         let runtime = self.runtime()?;
         // Registered before the operation exists, so an outcome attached at once is not
         // missed.
-        let outcome = runtime.waiters.register(incident.id());
+        let (ticket, outcome) = runtime.waiters.register(incident.id());
         let (id, created) = match self.start_investigation(incident, fresh).await {
             Ok(started) => started,
             Err(err) => {
-                runtime.waiters.forget(incident.id());
+                runtime.waiters.forget(incident.id(), ticket);
                 return Err(err.into());
             }
         };
         if !created {
-            runtime.waiters.forget(incident.id());
+            runtime.waiters.forget(incident.id(), ticket);
             return Err(InvestigateError::AlreadyRunning(id));
         }
         let clock = self.shared.deps.clock.clone();
@@ -135,7 +135,7 @@ impl OperationHandle {
         tokio::select! {
             got = outcome => got.map_err(|_| InvestigateError::Operation(OperationError::Unavailable)),
             () = clock.sleep_until(limit) => {
-                runtime.waiters.forget(incident.id());
+                runtime.waiters.forget(incident.id(), ticket);
                 Err(InvestigateError::TimedOut(id))
             }
         }
