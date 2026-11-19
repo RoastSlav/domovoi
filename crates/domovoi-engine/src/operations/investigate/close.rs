@@ -1,0 +1,289 @@
+//! Closing an investigation: when nothing is left to do, and the task that notices.
+
+use domovoi_core::{
+    EdgeKind, FinishOutcome, OperationKind, OperationSnapshot, OperationStatus, StepKind,
+    StepOutcome,
+};
+
+use super::plumbing::cut as cut_chars;
+
+use super::super::OperationHandle;
+
+/// The statuses of an investigation that may still be closed.
+const OPEN: [&str; 5] = [
+    "running",
+    "waiting_approval",
+    "waiting_user",
+    "waiting_agent",
+    "waiting_timer",
+];
+
+/// `Some((outcome, summary))` when the investigation has nothing left to do.
+///
+/// Only an Investigate operation that is running or waiting is closed, and only when no step
+/// is pending or running, the latest reasoning turn is final and the notification that turn
+/// caused has succeeded. A proposed execution is an open step until it is final, so an
+/// investigation never closes while one waits for a person.
+pub(crate) fn close_decision(snapshot: &OperationSnapshot) -> Option<(FinishOutcome, String)> {
+    let operation = &snapshot.operation;
+    let open_status = matches!(
+        operation.status,
+        OperationStatus::Running
+            | OperationStatus::WaitingApproval
+            | OperationStatus::WaitingUser
+            | OperationStatus::WaitingAgent
+            | OperationStatus::WaitingTimer
+    );
+    if operation.kind != OperationKind::Investigate || !open_status {
+        return None;
+    }
+    if snapshot.open_steps().next().is_some() {
+        return None;
+    }
+    let turn = snapshot
+        .steps
+        .iter()
+        .filter(|record| record.step.kind == StepKind::ReasoningTurn)
+        .max_by_key(|record| record.step.ordinal)?;
+    let notified = snapshot.steps.iter().any(|record| {
+        record.step.kind == StepKind::Notification
+            && record.progress.outcome == StepOutcome::Succeeded
+            && snapshot.edges.iter().any(|edge| {
+                edge.kind == EdgeKind::CausedBy
+                    && edge.from == record.step.id
+                    && edge.to == turn.step.id
+            })
+    });
+    if !notified {
+        return None;
+    }
+    let reason = turn.progress.reason.clone().unwrap_or_default();
+    Some(match turn.progress.outcome {
+        StepOutcome::Succeeded => (FinishOutcome::Succeeded, "report delivered".to_owned()),
+        StepOutcome::NotRun => (
+            FinishOutcome::Failed,
+            cut_chars(&format!("skipped: {reason}"), 200),
+        ),
+        _ => (FinishOutcome::Failed, cut_chars(&reason, 200)),
+    })
+}
+
+/// Closes `operation` when it has nothing left to do. A refusal is ignored: the closer
+/// looks again on its next pass.
+pub(super) async fn try_close(handle: &OperationHandle, snapshot: &OperationSnapshot) {
+    if let Some((outcome, summary)) = close_decision(snapshot) {
+        let operation = snapshot.operation.id;
+        if let Err(err) = handle.finish(operation, outcome, summary).await {
+            tracing::debug!(%err, %operation, "an investigation was not closed yet");
+        }
+    }
+}
+
+/// Looks at every open investigation each `close_interval` until shutdown.
+pub(super) async fn run_closer(handle: OperationHandle) {
+    let shared = handle.shared.clone();
+    let Some(runtime) = shared.investigate.clone() else {
+        return;
+    };
+    let clock = shared.deps.clock.clone();
+    let shutdown = shared.deps.shutdown.clone();
+    loop {
+        let now = clock.now();
+        let next = now
+            .checked_add(runtime.settings.close_interval)
+            .unwrap_or(now);
+        tokio::select! {
+            () = shutdown.cancelled() => return,
+            () = clock.sleep_until(next) => {}
+        }
+        let open = match shared.deps.operations.with_status(&OPEN, 200).await {
+            Ok(open) => open,
+            Err(err) => {
+                tracing::warn!(%err, "could not list the open investigations");
+                continue;
+            }
+        };
+        for operation in open
+            .into_iter()
+            .filter(|op| op.kind == OperationKind::Investigate)
+        {
+            match shared.deps.operations.load(operation.id).await {
+                Ok(Some(snapshot)) => try_close(&handle, &snapshot).await,
+                Ok(None) => {}
+                Err(err) => tracing::warn!(%err, "could not read an open investigation"),
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use domovoi_core::{
+        Budgets, CheckKey, EdgeKind, HostId, Operation, OperationId, PinnedSubject, Step, StepEdge,
+        StepId, StepIntent, StepProgress, StepRecord,
+    };
+    use jiff::Timestamp;
+
+    use super::*;
+
+    fn subject() -> PinnedSubject {
+        PinnedSubject {
+            host: HostId::new(),
+            check: CheckKey::parse("disk.usage").expect("a check key"),
+            target: None,
+        }
+    }
+
+    fn snapshot(kind: OperationKind, status: OperationStatus) -> OperationSnapshot {
+        let mut operation = Operation::queued(
+            OperationId::new(),
+            kind,
+            "Investigate: disk",
+            vec![subject()],
+            None,
+            Budgets::new(Default::default()),
+            Timestamp::UNIX_EPOCH,
+        )
+        .expect("an operation");
+        operation.status = status;
+        OperationSnapshot {
+            operation,
+            version: 1,
+            steps: Vec::new(),
+            edges: Vec::new(),
+            executions: Vec::new(),
+            incidents: Vec::new(),
+        }
+    }
+
+    fn add(snap: &mut OperationSnapshot, intent: StepIntent, outcome: StepOutcome) -> StepId {
+        let id = StepId::new();
+        let ordinal = u32::try_from(snap.steps.len()).expect("few steps");
+        snap.steps.push(StepRecord {
+            step: Step {
+                id,
+                operation: snap.operation.id,
+                ordinal,
+                kind: intent.kind(),
+                phase: "p".to_owned(),
+                parent: None,
+                cycle: 0,
+                intent,
+                created_at: Timestamp::UNIX_EPOCH,
+            },
+            progress: StepProgress {
+                outcome,
+                reason: Some("because".to_owned()),
+                ..StepProgress::pending()
+            },
+        });
+        id
+    }
+
+    fn turn(snap: &mut OperationSnapshot, outcome: StepOutcome) -> StepId {
+        add(
+            snap,
+            StepIntent::ReasoningTurn {
+                context_refs: Vec::new(),
+            },
+            outcome,
+        )
+    }
+
+    fn notification(snap: &mut OperationSnapshot, turn: StepId, outcome: StepOutcome) {
+        let id = add(
+            snap,
+            StepIntent::Notification {
+                channel: "incident".to_owned(),
+                subject: "s".to_owned(),
+            },
+            outcome,
+        );
+        snap.edges.push(StepEdge {
+            operation: snap.operation.id,
+            from: id,
+            to: turn,
+            kind: EdgeKind::CausedBy,
+        });
+    }
+
+    fn running() -> OperationSnapshot {
+        snapshot(OperationKind::Investigate, OperationStatus::Running)
+    }
+
+    #[test]
+    fn nothing_closes_without_a_turn_or_with_a_running_one() {
+        assert_eq!(close_decision(&running()), None);
+        let mut snap = running();
+        turn(&mut snap, StepOutcome::Running);
+        assert_eq!(close_decision(&snap), None);
+    }
+
+    #[test]
+    fn a_finished_turn_without_a_succeeded_notification_stays_open() {
+        let mut snap = running();
+        let t = turn(&mut snap, StepOutcome::Succeeded);
+        assert_eq!(close_decision(&snap), None);
+        notification(&mut snap, t, StepOutcome::Pending);
+        assert_eq!(close_decision(&snap), None);
+    }
+
+    #[test]
+    fn a_delivered_report_closes_succeeded() {
+        let mut snap = running();
+        let t = turn(&mut snap, StepOutcome::Succeeded);
+        notification(&mut snap, t, StepOutcome::Succeeded);
+        let (outcome, summary) = close_decision(&snap).expect("it closes");
+        assert_eq!(outcome, FinishOutcome::Succeeded);
+        assert_eq!(summary, "report delivered");
+    }
+
+    #[test]
+    fn failed_and_skipped_turns_close_failed_with_their_reason() {
+        for (outcome, text) in [
+            (StepOutcome::Failed, "because"),
+            (StepOutcome::NotRun, "skipped: because"),
+        ] {
+            let mut snap = running();
+            let t = turn(&mut snap, outcome);
+            notification(&mut snap, t, StepOutcome::Succeeded);
+            assert_eq!(
+                close_decision(&snap),
+                Some((FinishOutcome::Failed, text.to_owned()))
+            );
+        }
+    }
+
+    #[test]
+    fn a_pending_execution_keeps_the_investigation_open() {
+        let mut snap = running();
+        let t = turn(&mut snap, StepOutcome::Succeeded);
+        notification(&mut snap, t, StepOutcome::Succeeded);
+        add(
+            &mut snap,
+            StepIntent::Assessment {
+                text: "a".to_owned(),
+            },
+            StepOutcome::Pending,
+        );
+        assert_eq!(close_decision(&snap), None);
+    }
+
+    #[test]
+    fn only_a_running_or_waiting_investigation_is_closed() {
+        for status in [
+            OperationStatus::Queued,
+            OperationStatus::Succeeded,
+            OperationStatus::Cancelled,
+        ] {
+            let mut snap = snapshot(OperationKind::Investigate, status);
+            let t = turn(&mut snap, StepOutcome::Succeeded);
+            notification(&mut snap, t, StepOutcome::Succeeded);
+            assert_eq!(close_decision(&snap), None);
+        }
+        let mut waiting = snapshot(OperationKind::Investigate, OperationStatus::WaitingApproval);
+        let t = turn(&mut waiting, StepOutcome::Succeeded);
+        notification(&mut waiting, t, StepOutcome::Succeeded);
+        assert!(close_decision(&waiting).is_some());
+    }
+}

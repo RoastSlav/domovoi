@@ -30,6 +30,23 @@ pub(crate) struct Held {
     pub(crate) claim: ClaimToken,
 }
 
+/// How a step ends in a [`OperationCommand::Conclude`].
+#[derive(Debug, Clone)]
+pub(crate) struct Conclusion {
+    /// The step.
+    pub(crate) step: StepId,
+    /// The final outcome.
+    pub(crate) outcome: StepOutcome,
+    /// A one-line summary.
+    pub(crate) summary: Option<String>,
+    /// Why it ended so.
+    pub(crate) reason: Option<String>,
+    /// What it produced; stored on the step only.
+    pub(crate) output: Option<String>,
+    /// What a model turn used.
+    pub(crate) usage: Option<StepUsage>,
+}
+
 /// What the writer decided about a dispatch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DispatchAnswer {
@@ -206,6 +223,15 @@ pub(crate) enum OperationCommand {
     Tick {
         held: Held,
         operation: OperationId,
+        reply: Reply<()>,
+    },
+    /// Handler: the held effect is done. Optionally ends a step and creates effects, all in
+    /// the same commit.
+    Conclude {
+        held: Held,
+        operation: OperationId,
+        step: Option<Conclusion>,
+        successors: Vec<EffectSpec>,
         reply: Reply<()>,
     },
     /// Handler: the held effect has nothing left to do.

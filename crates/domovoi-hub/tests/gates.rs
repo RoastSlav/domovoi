@@ -789,6 +789,35 @@ fn no_tool_or_chat_command_reaches_settings() {
     }
 }
 
+/// INV-1: a step becomes authorized only through the step-approval endpoint. `.authorize(`
+/// on an operation handle appears in the hub's sources only in `api/operations.rs`, and a
+/// `HumanApproval` is built only under `src/auth/`. Whitespace is ignored, so a call split
+/// across lines is still seen.
+#[test]
+fn step_approval_is_the_only_route_to_authorized() {
+    let squeeze = |text: &str| text.split_whitespace().collect::<String>();
+    let allowed_authorize = crate_path("api/operations.rs");
+    let auth_prefix = crate_path("auth/");
+    let mut authorize_sites = Vec::new();
+    for (rel, text) in hub_sources() {
+        let text = squeeze(&text);
+        if text.contains(".authorize(") {
+            authorize_sites.push(rel.clone());
+        }
+        if text.contains("HumanApproval::new(") {
+            assert!(
+                rel.starts_with(&auth_prefix),
+                "{rel} builds a HumanApproval outside src/auth/"
+            );
+        }
+    }
+    assert_eq!(
+        authorize_sites,
+        [allowed_authorize],
+        "only the step-approval endpoint may authorize a step"
+    );
+}
+
 mod chat {
     use domovoi_chat::discord::ids::custom_id;
     use domovoi_core::ports::{ActionRepo, InteractionSink};

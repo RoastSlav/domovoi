@@ -14,7 +14,7 @@ use serde_json::json;
 
 use domovoi_engine::triage::{SYSTEM_PROMPT, parse_report};
 
-use crate::harness::{SECRET, Setup, host_id, report_json, restart_skill, world, world_over};
+use crate::harness::{Mode, SECRET, Setup, host_id, report_json, restart_skill, world, world_over};
 use crate::uow_probe::RecordingUow;
 
 /// One model answer, as text, with the given by-hand steps.
@@ -126,7 +126,7 @@ async fn triage_drops_blank_manual_steps_and_redacts_a_step_that_quotes_a_secret
     ]
     .to_vec();
     w.primary.push_text(answer(steps));
-    let outcome = w.run().await;
+    let outcome = w.run(Mode::Legacy).await;
 
     let kept: Vec<String> = match &outcome {
         TriageOutcome::Report(report) => report.manual_steps.clone(),
@@ -179,7 +179,7 @@ async fn triage_proposals_use_the_writer() {
             {"skill": "restart_container", "args": {"container": "redis"}, "reason": "also restarting"},
         ]),
     ));
-    let outcome = w.run().await;
+    let outcome = w.run(Mode::Legacy).await;
     let TriageOutcome::Report(report) = outcome else {
         panic!("a report, not {outcome:?}");
     };

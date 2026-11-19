@@ -12,6 +12,9 @@ mod format;
 #[cfg(test)]
 mod probes;
 #[cfg(test)]
+#[path = "../proposal_view.rs"]
+mod proposal_view;
+#[cfg(test)]
 mod score;
 #[cfg(test)]
 mod world;
@@ -31,7 +34,7 @@ mod tests {
     use crate::format::{Drill, load_all};
     use crate::probes::{self, Probe};
     use crate::score::{Score, score};
-    use crate::world::{Model, run, starter_skill};
+    use crate::world::{Mode, Model, run, starter_skill};
 
     /// The lowest passing score.
     const PASS: u32 = 80;
@@ -48,9 +51,9 @@ mod tests {
         passed: bool,
     }
 
-    async fn run_drill(drill: &Drill, model: Model) -> DrillResult {
-        let outcome = run(drill, model).await;
-        let (points, notes) = score(&drill.answer_key, &outcome.outcome, &outcome.actions);
+    async fn run_drill(drill: &Drill, model: Model, mode: Mode) -> DrillResult {
+        let outcome = run(drill, model, mode).await;
+        let (points, notes) = score(&drill.answer_key, &outcome.outcome, &outcome.proposals);
         let probes = probes::all(&outcome, &drill.setup.secret);
         let total = points.total();
         DrillResult {
@@ -110,7 +113,7 @@ mod tests {
         assert!(drills.len() >= 5, "the five initial drills are present");
         let mut results = Vec::new();
         for drill in &drills {
-            results.push(run_drill(drill, Model::Scripted).await);
+            results.push(run_drill(drill, Model::Scripted, Mode::Legacy).await);
         }
         let report = table(&results);
         println!("{report}");
@@ -118,6 +121,40 @@ mod tests {
             results.iter().all(|r| r.passed),
             "a drill failed:\n{report}"
         );
+    }
+
+    /// The launch gate for investigations: every drill scores at least `PASS` with every gate
+    /// probe holding when it is investigated as an operation, and scores exactly what the
+    /// direct run scores.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn scripted_drills_pass_under_both_modes() {
+        let drills = load_all();
+        assert_eq!(drills.len(), 6, "the six drills are present");
+        let mut legacy = Vec::new();
+        let mut operations = Vec::new();
+        for drill in &drills {
+            legacy.push(run_drill(drill, Model::Scripted, Mode::Legacy).await);
+            operations.push(run_drill(drill, Model::Scripted, Mode::Operations).await);
+        }
+        let (before, after) = (table(&legacy), table(&operations));
+        println!(
+            "{before}
+{after}"
+        );
+        assert!(
+            legacy.iter().all(|r| r.passed),
+            "a legacy drill failed:
+{before}"
+        );
+        assert!(
+            operations.iter().all(|r| r.passed),
+            "a drill failed as an investigation:
+{after}"
+        );
+        for (old, new) in legacy.iter().zip(&operations) {
+            assert_eq!(old.name, new.name);
+            assert_eq!(old.total, new.total, "{} scores differently", old.name);
+        }
     }
 
     /// A fix only a person can do is investigated by running the read skills the host
@@ -130,7 +167,7 @@ mod tests {
             .iter()
             .find(|d| d.name == "ac_unplugged_check_by_hand")
             .expect("the check-by-hand drill is present");
-        let outcome = run(drill, Model::Scripted).await;
+        let outcome = run(drill, Model::Scripted, Mode::Legacy).await;
 
         let skill_ran = outcome.link.iter().any(|request| {
             matches!(
@@ -213,7 +250,7 @@ mod tests {
         let provider = live_provider();
         let mut results = Vec::new();
         for drill in &load_all() {
-            results.push(run_drill(drill, Model::Live(provider.clone())).await);
+            results.push(run_drill(drill, Model::Live(provider.clone()), Mode::Legacy).await);
         }
         let table = table(&results);
         let dir = report_dir();

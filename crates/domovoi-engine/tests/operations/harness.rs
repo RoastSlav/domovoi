@@ -277,6 +277,7 @@ impl World {
                 redactor: Arc::new(ListRedactor::new(["hunter2"])),
                 clock: self.clock.clone(),
                 shutdown: self.shutdown.clone(),
+                investigate: None,
             },
             self.settings.clone(),
         )

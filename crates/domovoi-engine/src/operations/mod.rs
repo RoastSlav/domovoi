@@ -13,6 +13,7 @@ mod effects;
 mod error;
 mod execute;
 mod handle;
+pub mod investigate;
 pub mod journal;
 mod proposal;
 mod settings;
@@ -33,6 +34,7 @@ pub use decide::{
 pub use deps::OperationDeps;
 pub use error::OperationError;
 pub use handle::{ExecutionRequest, OperationHandle, OperationSeed, StepFinish};
+pub use investigate::{APPROVAL_POINTER, InvestigateDeps, InvestigateError, InvestigateSettings};
 pub use settings::OperationSettings;
 pub use state::OperationState;
 
@@ -70,6 +72,10 @@ impl OperationService {
         settings: OperationSettings,
         handlers: bool,
     ) -> (OperationHandle, JoinHandle<()>) {
+        let investigate = deps
+            .investigate
+            .as_ref()
+            .map(|deps| Arc::new(investigate::Runtime::new(deps)));
         let (writer, incoming) = writer::queue();
         let nudge = Arc::new(Notify::new());
         let shared = Arc::new(OpShared {
@@ -77,6 +83,7 @@ impl OperationService {
             settings,
             writer,
             nudge: nudge.clone(),
+            investigate,
             dispatch_gates: std::sync::Mutex::new(std::collections::BTreeMap::new()),
         });
         let mut runner = EffectRunner::new(
@@ -93,11 +100,23 @@ impl OperationService {
         .scoped(vec![AggregateKind::Operation]);
         if handlers {
             effects::register(&mut runner, &shared);
+            if shared.investigate.is_some() {
+                investigate::register(&mut runner, &shared);
+            }
         }
         let service = shared.clone();
+        let investigations = handlers && shared.investigate.is_some();
         let task = tokio::spawn(async move {
             startup::recover(&service).await;
-            let _ = tokio::join!(writer::run(service, incoming), runner.run());
+            let handle = OperationHandle {
+                shared: service.clone(),
+            };
+            let investigating = async {
+                if investigations {
+                    investigate::run(handle).await;
+                }
+            };
+            let _ = tokio::join!(writer::run(service, incoming), runner.run(), investigating);
         });
         (OperationHandle { shared }, task)
     }

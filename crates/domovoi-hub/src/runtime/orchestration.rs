@@ -6,7 +6,10 @@ use std::sync::Arc;
 use domovoi_config::hub::HubConfig;
 use domovoi_core::HostId;
 use domovoi_core::ports::{ActionCaps, Clock, HostReconciler};
-use domovoi_engine::operations::{OperationDeps, OperationHandle, OperationService};
+use domovoi_engine::TriageHandle;
+use domovoi_engine::operations::{
+    InvestigateDeps, OperationDeps, OperationHandle, OperationService,
+};
 use domovoi_engine::targets::TargetService;
 use domovoi_engine::{Evidence, PatternRedactor};
 use domovoi_store::Store;
@@ -26,6 +29,9 @@ pub(super) struct OperationBuild<'a> {
     pub(super) redactor: &'a Arc<PatternRedactor>,
     pub(super) clock: &'a Arc<dyn Clock>,
     pub(super) shutdown: &'a CancellationToken,
+    /// The triage service whose gates and cards investigations reuse; `None` when triage is
+    /// off, where investigations do not start.
+    pub(super) triage: Option<&'a TriageHandle>,
 }
 
 /// Starts the operation service when the flag is on; with it off nothing is built or
@@ -40,6 +46,7 @@ pub(super) fn build(input: OperationBuild<'_>) -> Option<(OperationHandle, JoinH
         redactor,
         clock,
         shutdown,
+        triage,
     } = input;
     if !config.orchestration.enabled {
         return None;
@@ -65,6 +72,9 @@ pub(super) fn build(input: OperationBuild<'_>) -> Option<(OperationHandle, JoinH
         redactor: redactor.clone(),
         clock: clock.clone(),
         shutdown: shutdown.clone(),
+        investigate: triage.map(|triage| InvestigateDeps {
+            triage: triage.clone(),
+        }),
     };
     Some(OperationService::spawn(deps, settings::operations(config)))
 }

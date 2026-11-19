@@ -7,7 +7,9 @@
 
 pub mod dto;
 pub mod dto_admin;
+pub mod dto_operations;
 pub mod dto_query;
+pub mod dto_trace;
 pub mod error;
 pub mod notes_import;
 
@@ -22,6 +24,7 @@ pub(crate) mod hosts;
 pub(crate) mod incidents;
 mod logs;
 mod notes;
+pub(crate) mod operations;
 mod overview;
 mod plan_binding;
 pub(crate) mod profile;
@@ -158,6 +161,11 @@ pub struct ApiDeps {
     pub actions_service: ActionHandle,
     /// Follow-up questions; `None` when triage is off.
     pub triage: Option<TriageHandle>,
+    /// The operation service; `None` unless `[orchestration] enabled` is set, where the
+    /// operation endpoints answer 503 and the list is empty.
+    pub operations: Option<domovoi_engine::operations::OperationHandle>,
+    /// Stored operations, read only; changes go through `operations`.
+    pub operation_repo: Arc<dyn domovoi_core::ports::OperationRepo>,
     /// Enrollment, revocation, presence and catalogues.
     pub agents: Arc<dyn AgentAdmin>,
     /// The capability registry: the per-host skill switches the UI reads and writes.
@@ -300,6 +308,7 @@ pub(crate) async fn host_named(
         (name = "auth", description = "Setup, login and sessions"),
         (name = "incidents", description = "Incidents and their triage"),
         (name = "actions", description = "Proposed actions and approvals"),
+        (name = "operations", description = "Operations, their steps and step approvals"),
         (name = "hosts", description = "Hosts, enrollment and skills"),
         (name = "notes", description = "Host and global notes"),
         (name = "system", description = "Settings, advisories, digest, events and health")
@@ -342,6 +351,12 @@ pub fn routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(actions::list))
         .routes(routes!(actions::approve))
         .routes(routes!(actions::deny))
+        .routes(routes!(operations::list))
+        .routes(routes!(operations::detail))
+        .routes(routes!(operations::trace))
+        .routes(routes!(operations::step))
+        .routes(routes!(operations::approve_step))
+        .routes(routes!(operations::deny_step))
         .routes(routes!(hosts::list))
         .routes(routes!(hosts::detail))
         .routes(routes!(hosts::enrollment))

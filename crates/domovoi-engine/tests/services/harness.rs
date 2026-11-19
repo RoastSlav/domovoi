@@ -10,7 +10,10 @@ use domovoi_core::ports::{
 use domovoi_core::{
     ActionRequest, AgentIdentity, CheckKey, Evidence, EvidenceValue, HostId, Incident, Note,
     NoteId, ParamKind, ParamName, ParamSpec, Risk, Severity, Signal, SkillSummary, SourceKind,
-    TargetKey, TriageOutcome,
+    TargetKey,
+};
+use domovoi_engine::operations::{
+    InvestigateDeps, OperationDeps, OperationHandle, OperationService, OperationSettings,
 };
 use domovoi_engine::triage::{TriageDeps, TriageHandle, TriageService, TriageSettings};
 use domovoi_engine::{
@@ -35,8 +38,20 @@ pub fn host_id() -> HostId {
     HostId::from_uuid(Uuid::from_u128(0x0190_0000_0000_7000_8000_0000_0000_0001))
 }
 
+/// Which path triages an incident: the queue's direct run, or an investigation operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    /// `TriageHandle::triage`: a run that stores `ActionRequest`s.
+    Legacy,
+    /// `OperationHandle::investigate_and_wait`: an Investigate operation that stores
+    /// Execution steps. The world has no queue.
+    Operations,
+}
+
 /// How a world is built.
 pub struct Setup {
+    /// The path `World::run` takes; `Operations` also starts an operation service.
+    pub mode: Mode,
     pub settings: TriageSettings,
     pub secondary: bool,
     pub third: bool,
@@ -55,6 +70,7 @@ pub struct Setup {
 impl Default for Setup {
     fn default() -> Self {
         Self {
+            mode: Mode::Legacy,
             settings: TriageSettings::default(),
             secondary: false,
             third: false,
@@ -93,6 +109,10 @@ pub struct World {
     pub bus: broadcast::Sender<DomainEvent>,
     pub incident: Incident,
     pub shutdown: CancellationToken,
+    /// The operation service, in `Mode::Operations`.
+    pub ops: Option<OperationHandle>,
+    /// The triage service's task, which ends when `shutdown` fires.
+    pub triage_task: Option<tokio::task::JoinHandle<()>>,
     /// What the running triage service was built from, so a restart can rebuild it.
     primary_dyn: Arc<dyn LlmProvider>,
     fallbacks: Vec<Arc<dyn LlmProvider>>,
@@ -315,7 +335,47 @@ async fn world_over_with_actions(
     };
     let usage = deps.usage.clone();
     let admission = deps.admission.clone();
-    let (triage, _task) = TriageService::spawn(deps, setup.settings);
+    let settings = TriageSettings {
+        run_queue: setup.settings.run_queue && setup.mode == Mode::Legacy,
+        ..setup.settings
+    };
+    let (triage, triage_task) = TriageService::spawn(deps, settings);
+    let ops = (setup.mode == Mode::Operations).then(|| {
+        let ports = action_caps(link.clone());
+        let registry = Arc::new(domovoi_testkit::FakeCapabilityRegistry::following(
+            link.clone(),
+        ));
+        let (handle, _task) = OperationService::spawn(
+            OperationDeps {
+                operations: store.clone(),
+                uow: store.clone(),
+                effects: store.clone(),
+                effect_read: store.clone(),
+                advisories: store.clone(),
+                incidents: store.clone(),
+                hosts: store.clone(),
+                evidence: domovoi_engine::Evidence::new(
+                    evidence_caps(link.clone()),
+                    clock.clone(),
+                    registry.clone(),
+                ),
+                registry,
+                resolver: Arc::new(domovoi_testkit::FakeTargetResolver::new()),
+                observer: observer_of(link.clone()),
+                journal: ports.journal,
+                handoff: ports.handoff,
+                rerun: ports.rerun,
+                redactor: redactor.clone(),
+                clock: clock.clone(),
+                shutdown: shutdown.clone(),
+                investigate: Some(InvestigateDeps {
+                    triage: triage.clone(),
+                }),
+            },
+            OperationSettings::default(),
+        );
+        handle
+    });
     // Give the spawned service the scheduler before handing the world over: its start-up
     // pass reads the store once, and a world whose incidents are created afterwards must
     // not have them swept up by a pass that runs in the middle of the test. The in-memory
@@ -337,9 +397,11 @@ async fn world_over_with_actions(
         bus,
         incident,
         shutdown,
+        ops,
+        triage_task: Some(triage_task),
         primary_dyn,
         fallbacks,
-        settings: setup.settings,
+        settings,
         actions_service,
         redactor,
         usage,
@@ -393,10 +455,6 @@ impl World {
 
     pub fn now(&self) -> Timestamp {
         Clock::now(&*self.clock)
-    }
-
-    pub async fn run(&self) -> TriageOutcome {
-        self.triage.triage(&self.incident).await
     }
 
     /// Every event published so far.

@@ -1,9 +1,11 @@
 /**
- * The operation trace as the hub writes it. Hand-written, not generated: the trace is a
- * frozen, versioned schema (`schema_version`). Adding a value to a union is not breaking, so
- * every union also admits any other string through `(string & {})`; a reader must not
- * assume the list is closed.
+ * The operation trace as the hub writes it. The shapes are the generated API schema; the
+ * enumerations the API sends as plain strings are listed here, because the trace is a frozen,
+ * versioned schema (`schema_version`). Adding a value is not breaking, so every union also
+ * admits any other string through `(string & {})`; a reader must not assume the list is
+ * closed.
  */
+import type { components } from "./schema";
 
 /** The step kinds the trace schema names today. */
 export const STEP_KINDS = [
@@ -84,97 +86,23 @@ export type WaitKind = (typeof WAIT_KINDS)[number] | (string & {});
 /** A budget kind. */
 export type BudgetKind = (typeof BUDGET_KINDS)[number] | (string & {});
 
-/** Why an operation is paused. The tag is `type`. */
-export type PauseReason =
-  | { type: "budget"; exhausted: BudgetKind }
-  | { type: "outcome_unknown"; step: string }
-  | { type: "global_pause" }
-  | { type: "error"; message: string };
-
-/** The limits set for an operation. `null` means no limit. */
-export interface BudgetLimits {
-  model_turns: number | null;
-  evidence_requests: number | null;
-  executions: number | null;
-  cycles: number | null;
-  wall_seconds: number | null;
-  tokens: number | null;
-  cost_micros: number | null;
-}
-
-/** What an operation has spent so far. */
-export interface BudgetUsed {
-  model_turns: number;
-  evidence_requests: number;
-  executions: number;
-  wall_seconds: number;
-  tokens: number;
-  cost_micros: number;
-}
-
-/** Limits and use together. */
-export interface Budgets {
-  limits: BudgetLimits;
-  used: BudgetUsed;
-}
-
-/** One thing an operation may act on: a check on a target on a host. */
-export interface PinnedSubject {
-  host: string;
-  check: string;
-  target: string | null;
-}
-
-/** The operation part of a trace. */
-export interface TraceOperation {
-  id: string;
-  kind: OperationKind;
-  goal: string;
-  status: OperationStatus;
-  pause_reason: PauseReason | null;
-  waiting_for: WaitKind[];
-  cycle: number;
-  budgets: Budgets;
-  pinned: PinnedSubject[];
-  parent: string | null;
-  incidents: string[];
-  created_at: string;
-  started_at: string | null;
-  ended_at: string | null;
-}
-
-/** A link from a step to something else, such as its execution. */
-export interface TraceRef {
-  kind: "execution" | (string & {});
-  id: string;
-}
-
-/** One step in a trace. Steps are listed in ordinal order. */
-export interface TraceStep {
-  id: string;
-  parent: string | null;
-  kind: StepKind;
-  phase: string;
-  cycle: number;
-  outcome: StepOutcome;
-  started_at: string | null;
-  ended_at: string | null;
-  summary: string | null;
-  refs: TraceRef[];
-}
-
-/** One edge in a trace. `from` is the later step, `to` the earlier one. */
-export interface TraceEdge {
-  from: string;
-  to: string;
-  kind: EdgeKind;
-}
-
 /** The frozen read-only view of one operation. */
-export interface OperationTrace {
-  schema_version: number;
-  as_of_seq: number;
-  operation: TraceOperation;
-  steps: TraceStep[];
-  edges: TraceEdge[];
-}
+export type OperationTrace = components["schemas"]["OperationTraceDto"];
+/** The operation part of a trace. */
+export type TraceOperation = components["schemas"]["TraceOperationDto"];
+/** One step in a trace. Steps are listed in ordinal order. */
+export type TraceStep = components["schemas"]["TraceStepDto"];
+/** One edge in a trace. `from` is the later step, `to` the earlier one. */
+export type TraceEdge = components["schemas"]["TraceEdgeDto"];
+/** A link from a step to something else, such as its execution. */
+export type TraceRef = components["schemas"]["TraceRefDto"];
+/** Why an operation is paused. The tag is `type`. */
+export type PauseReason = components["schemas"]["PauseReasonDto"];
+/** The limits set for an operation. `null` means no limit. */
+export type BudgetLimits = components["schemas"]["BudgetLimitsDto"];
+/** What an operation has spent so far. */
+export type BudgetUsed = components["schemas"]["BudgetUsedDto"];
+/** Limits and use together. */
+export type Budgets = components["schemas"]["BudgetsDto"];
+/** One thing an operation may act on: a check on a target on a host. */
+export type PinnedSubject = components["schemas"]["PinnedSubjectDto"];

@@ -9,7 +9,7 @@ use serde_json::json;
 use tokio::task::yield_now;
 
 use crate::harness::{
-    Setup, World, add_signal, disk, host_id, report, report_json, restart_skill, world,
+    Mode, Setup, World, add_signal, disk, host_id, report, report_json, restart_skill, world,
 };
 
 /// Gives the service's tasks turns to run their own awaits between clock jumps.
@@ -51,9 +51,12 @@ async fn per_hour_cap_and_monthly_budget_skip_without_model_call() {
     .await;
     w.primary.push_text(report());
     w.primary.push_text(report());
-    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
     assert!(matches!(
-        w.run().await,
+        w.run(Mode::Legacy).await,
+        TriageOutcome::Report(_)
+    ));
+    assert!(matches!(
+        w.run(Mode::Legacy).await,
         TriageOutcome::Skipped {
             reason,
         } if reason.contains("per hour")
@@ -65,7 +68,7 @@ async fn per_hour_cap_and_monthly_budget_skip_without_model_call() {
         .await
         .unwrap();
     assert!(matches!(
-        w.run().await,
+        w.run(Mode::Legacy).await,
         TriageOutcome::Skipped { reason } if reason.contains("monthly")
     ));
     assert_eq!(
@@ -88,9 +91,12 @@ async fn hourly_cap_skip_runs_again_when_a_slot_frees() {
     .await;
     w.primary.push_text(report());
     w.primary.push_text(report());
-    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
     assert!(matches!(
-        w.run().await,
+        w.run(Mode::Legacy).await,
+        TriageOutcome::Report(_)
+    ));
+    assert!(matches!(
+        w.run(Mode::Legacy).await,
         TriageOutcome::Skipped {
             reason,
         } if reason.contains("per hour") && reason.contains("tries again from")
@@ -132,7 +138,10 @@ async fn failed_triage_runs_again_after_the_retry_delay() {
     .await;
     w.primary.push_err(LlmError::Unavailable("down".to_owned()));
     w.primary.push_text(report());
-    assert!(matches!(w.run().await, TriageOutcome::Failed { .. }));
+    assert!(matches!(
+        w.run(Mode::Legacy).await,
+        TriageOutcome::Failed { .. }
+    ));
     assert_eq!(w.primary.requests().len(), 1);
 
     w.clock.advance(SignedDuration::from_mins(61));
@@ -158,7 +167,7 @@ async fn failed_triage_runs_again_after_the_retry_delay() {
 async fn repeat_incident_uses_cache_without_model_call() {
     let mut w = world(Setup::default()).await;
     w.primary.push_text(report());
-    let TriageOutcome::Report(first) = w.run().await else {
+    let TriageOutcome::Report(first) = w.run(Mode::Legacy).await else {
         panic!("the first run calls the model");
     };
 
@@ -167,7 +176,7 @@ async fn repeat_incident_uses_cache_without_model_call() {
     IncidentRepo::insert(&*w.store, &earlier).await.unwrap();
     w.signal(disk(92.1)).await;
     w.drain();
-    let outcome = w.run().await;
+    let outcome = w.run(Mode::Legacy).await;
     assert_eq!(
         outcome,
         TriageOutcome::Cached {
@@ -187,7 +196,10 @@ async fn repeat_incident_uses_cache_without_model_call() {
     // Different evidence is a different situation.
     w.signal(disk(55.0)).await;
     w.primary.push_text(report());
-    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+    assert!(matches!(
+        w.run(Mode::Legacy).await,
+        TriageOutcome::Report(_)
+    ));
     assert_eq!(w.primary.requests().len(), 2);
 }
 
@@ -200,7 +212,7 @@ async fn a_cached_report_stores_its_proposals_as_actions() {
         json!([{"skill": "restart_container", "args": {"container": "nginx"}, "reason": "It is stuck."}]),
     );
     w.primary.push_text(answer);
-    let TriageOutcome::Report(first) = w.run().await else {
+    let TriageOutcome::Report(first) = w.run(Mode::Legacy).await else {
         panic!("the first run calls the model");
     };
     assert_eq!(first.proposals.len(), 1, "the fresh run kept the proposal");
@@ -265,7 +277,7 @@ async fn a_cached_proposal_for_a_removed_skill_is_dropped() {
         json!([{"skill": "restart_container", "args": {"container": "nginx"}, "reason": "It is stuck."}]),
     );
     w.primary.push_text(answer);
-    let TriageOutcome::Report(first) = w.run().await else {
+    let TriageOutcome::Report(first) = w.run(Mode::Legacy).await else {
         panic!("the first run calls the model");
     };
     assert_eq!(
@@ -329,7 +341,7 @@ async fn a_cached_report_does_not_duplicate_a_waiting_action() {
         "ACTION_NEEDED",
         json!([{"skill": "restart_container", "args": {"container": "nginx"}, "reason": "It is stuck."}]),
     ));
-    let TriageOutcome::Report(first) = w.run().await else {
+    let TriageOutcome::Report(first) = w.run(Mode::Legacy).await else {
         panic!("the first run calls the model");
     };
     assert_eq!(
@@ -350,7 +362,7 @@ async fn a_cached_report_does_not_duplicate_a_waiting_action() {
     w.signal(disk(92.1)).await;
     w.drain();
 
-    let TriageOutcome::Cached { report, from } = w.run().await else {
+    let TriageOutcome::Cached { report, from } = w.run(Mode::Legacy).await else {
         panic!("the repeat uses the cache");
     };
     assert_eq!(from, earlier.id());
@@ -389,7 +401,7 @@ async fn a_cached_report_does_not_duplicate_a_waiting_action() {
 async fn fresh_retriage_skips_the_repeat_cache_and_calls_the_model_again() {
     let mut w = world(Setup::default()).await;
     w.primary.push_text(report());
-    let TriageOutcome::Report(first) = w.run().await else {
+    let TriageOutcome::Report(first) = w.run(Mode::Legacy).await else {
         panic!("the first run calls the model");
     };
 
@@ -398,7 +410,7 @@ async fn fresh_retriage_skips_the_repeat_cache_and_calls_the_model_again() {
     w.signal(disk(92.1)).await;
     w.drain();
     assert_eq!(
-        w.run().await,
+        w.run(Mode::Legacy).await,
         TriageOutcome::Cached {
             report: first,
             from: earlier.id()
@@ -428,7 +440,10 @@ async fn fallback_to_secondary_then_failed() {
     w.primary
         .push_err(LlmError::Unavailable("overloaded".to_owned()));
     w.secondary.push_text(report());
-    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+    assert!(matches!(
+        w.run(Mode::Legacy).await,
+        TriageOutcome::Report(_)
+    ));
     assert_eq!(w.secondary.requests().len(), 1);
 
     w.primary
@@ -437,7 +452,7 @@ async fn fallback_to_secondary_then_failed() {
         .push_err(LlmError::Transport("connection reset".to_owned()));
     assert!(
         matches!(
-            w.run().await,
+            w.run(Mode::Legacy).await,
             TriageOutcome::Failed { reason } if reason.contains("rate limited") && reason.contains("connection reset")
         ),
         "the failure lists why each provider failed"
@@ -445,7 +460,7 @@ async fn fallback_to_secondary_then_failed() {
 
     w.primary.push_err(LlmError::Auth);
     assert!(
-        matches!(w.run().await, TriageOutcome::Failed { reason } if reason.contains("authentication failed")),
+        matches!(w.run(Mode::Legacy).await, TriageOutcome::Failed { reason } if reason.contains("authentication failed")),
         "refused credentials still try the fallback"
     );
     assert_eq!(
@@ -465,7 +480,10 @@ async fn model_not_found_from_primary_falls_back_to_secondary() {
     w.primary
         .push_err(LlmError::InvalidResponse("model not found".to_owned()));
     w.secondary.push_text(report());
-    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+    assert!(matches!(
+        w.run(Mode::Legacy).await,
+        TriageOutcome::Report(_)
+    ));
     assert_eq!(w.secondary.requests().len(), 1);
 }
 
@@ -479,7 +497,10 @@ async fn unusable_answer_falls_back_to_secondary_after_the_repair_turn() {
     w.primary.push_text("I cannot help");
     w.primary.push_text("Still not a report");
     w.secondary.push_text(report());
-    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+    assert!(matches!(
+        w.run(Mode::Legacy).await,
+        TriageOutcome::Report(_)
+    ));
     assert_eq!(
         w.primary.requests().len(),
         2,
@@ -501,7 +522,7 @@ async fn unusable_answers_from_every_provider_name_the_provider_that_failed() {
     w.secondary.push_text("still not a report");
     assert!(
         matches!(
-            w.run().await,
+            w.run(Mode::Legacy).await,
             TriageOutcome::Failed { reason }
                 if reason.contains("scripted failed:") && reason.contains("; scripted failed:")
         ),
@@ -523,7 +544,7 @@ async fn triage_recovers_when_the_second_fallback_answers() {
         .push_err(LlmError::Transport("second stop".to_owned()));
     w.third.push_text(report());
     assert!(
-        matches!(w.run().await, TriageOutcome::Report(_)),
+        matches!(w.run(Mode::Legacy).await, TriageOutcome::Report(_)),
         "the second fallback answers when the two providers before it fail",
     );
     assert_eq!(w.primary.requests().len(), 1, "the primary is tried first");
@@ -552,7 +573,7 @@ async fn triage_falls_back_through_secondary_then_fallback_model() {
     w.secondary
         .push_err(LlmError::Transport("second stop".to_owned()));
     w.third.push_err(LlmError::Auth);
-    let reason = match w.run().await {
+    let reason = match w.run(Mode::Legacy).await {
         TriageOutcome::Failed { reason } => reason,
         TriageOutcome::Report(_) => "".to_owned(),
         TriageOutcome::Skipped { .. } => "".to_owned(),
@@ -590,13 +611,16 @@ async fn three_failures_raise_triage_degraded_and_success_clears_it() {
     .await;
     for _ in 0..2 {
         w.primary.push_err(LlmError::Unavailable("down".to_owned()));
-        assert!(matches!(w.run().await, TriageOutcome::Failed { .. }));
+        assert!(matches!(
+            w.run(Mode::Legacy).await,
+            TriageOutcome::Failed { .. }
+        ));
     }
     assert!(AdvisoryRepo::list_open(&*w.store).await.unwrap().is_empty());
     w.drain();
 
     w.primary.push_err(LlmError::Unavailable("down".to_owned()));
-    w.run().await;
+    w.run(Mode::Legacy).await;
     let open = AdvisoryRepo::list_open(&*w.store).await.unwrap();
     assert_eq!(open.len(), 1);
     assert_eq!(open[0].kind, domovoi_core::AdvisoryKind::TriageDegraded);
@@ -609,7 +633,7 @@ async fn three_failures_raise_triage_degraded_and_success_clears_it() {
     assert_eq!(degraded[0].incident.id(), w.incident.id());
 
     w.primary.push_err(LlmError::Unavailable("down".to_owned()));
-    w.run().await;
+    w.run(Mode::Legacy).await;
     assert!(
         !w.drain()
             .iter()
@@ -618,7 +642,10 @@ async fn three_failures_raise_triage_degraded_and_success_clears_it() {
     );
 
     w.primary.push_text(report());
-    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+    assert!(matches!(
+        w.run(Mode::Legacy).await,
+        TriageOutcome::Report(_)
+    ));
     assert!(AdvisoryRepo::list_open(&*w.store).await.unwrap().is_empty());
 }
 
@@ -634,7 +661,7 @@ async fn zero_hourly_cap_skips_once_and_never_retries() {
     })
     .await;
     assert!(matches!(
-        w.run().await,
+        w.run(Mode::Legacy).await,
         TriageOutcome::Skipped {
             reason,
         } if reason.contains("per hour") && !reason.contains("runs again at")
@@ -662,7 +689,10 @@ async fn failed_retries_stop_at_the_limit_even_when_other_incidents_succeed() {
     let other = open_incident(host_id(), "docker.container", Some("redis")).unwrap();
     IncidentRepo::insert(&*w.store, &other).await.unwrap();
     w.primary.push_err(LlmError::Unavailable("bad".to_owned()));
-    assert!(matches!(w.run().await, TriageOutcome::Failed { .. }));
+    assert!(matches!(
+        w.run(Mode::Legacy).await,
+        TriageOutcome::Failed { .. }
+    ));
     for i in 0..4 {
         w.primary.push_text(report());
         assert!(matches!(
@@ -695,7 +725,10 @@ async fn failed_retries_stop_at_the_limit_when_other_timeline_entries_land_betwe
     let other = open_incident(host_id(), "docker.container", Some("redis")).unwrap();
     IncidentRepo::insert(&*w.store, &other).await.unwrap();
     w.primary.push_err(LlmError::Unavailable("bad".to_owned()));
-    assert!(matches!(w.run().await, TriageOutcome::Failed { .. }));
+    assert!(matches!(
+        w.run(Mode::Legacy).await,
+        TriageOutcome::Failed { .. }
+    ));
     for i in 0..8 {
         w.primary.push_text(report());
         assert!(matches!(
@@ -740,7 +773,10 @@ async fn a_tool_use_entry_does_not_stop_a_failed_retry() {
     })
     .await;
     w.primary.push_err(LlmError::Unavailable("bad".to_owned()));
-    assert!(matches!(w.run().await, TriageOutcome::Failed { .. }));
+    assert!(matches!(
+        w.run(Mode::Legacy).await,
+        TriageOutcome::Failed { .. }
+    ));
 
     // A follow-up that used tools lands after the failed run.
     IncidentRepo::append_event(
@@ -785,7 +821,10 @@ async fn cap_retry_runs_even_after_an_old_failed_retry_chain() {
 
     // Three failed runs exhaust the incident's failure retries.
     w.primary.push_err(LlmError::Unavailable("down".to_owned()));
-    assert!(matches!(w.run().await, TriageOutcome::Failed { .. }));
+    assert!(matches!(
+        w.run(Mode::Legacy).await,
+        TriageOutcome::Failed { .. }
+    ));
     for _ in 0..2 {
         w.primary.push_err(LlmError::Unavailable("down".to_owned()));
         w.clock.advance(SignedDuration::from_mins(61));
@@ -815,7 +854,10 @@ async fn cap_retry_runs_even_after_an_old_failed_retry_chain() {
         w.triage.triage(&other).await,
         TriageOutcome::Report(_)
     ));
-    assert!(matches!(w.run().await, TriageOutcome::Skipped { .. }));
+    assert!(matches!(
+        w.run(Mode::Legacy).await,
+        TriageOutcome::Skipped { .. }
+    ));
 
     w.primary.push_text(report());
     w.clock.advance(SignedDuration::from_mins(61));
@@ -831,7 +873,10 @@ async fn cap_retry_runs_even_after_an_old_failed_retry_chain() {
 async fn muted_incident_is_not_retried() {
     let w = world(Setup::default()).await;
     w.primary.push_err(LlmError::Unavailable("down".to_owned()));
-    assert!(matches!(w.run().await, TriageOutcome::Failed { .. }));
+    assert!(matches!(
+        w.run(Mode::Legacy).await,
+        TriageOutcome::Failed { .. }
+    ));
     let until = w.now().checked_add(SignedDuration::from_hours(24)).unwrap();
     w.manager
         .mute(w.incident.id(), until, UserId::new())
@@ -864,7 +909,10 @@ async fn one_free_slot_retries_one_incident_without_new_skips() {
         others.push(other);
     }
     w.primary.push_text(report());
-    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+    assert!(matches!(
+        w.run(Mode::Legacy).await,
+        TriageOutcome::Report(_)
+    ));
     for other in &others {
         assert!(matches!(
             w.triage.triage(other).await,
@@ -907,7 +955,10 @@ async fn waiting_incidents_take_the_next_slot_that_frees() {
         others.push(other);
     }
     w.primary.push_text(report());
-    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+    assert!(matches!(
+        w.run(Mode::Legacy).await,
+        TriageOutcome::Report(_)
+    ));
     w.clock.advance(SignedDuration::from_mins(30));
     w.primary.push_text(report());
     assert!(matches!(
@@ -957,7 +1008,10 @@ async fn resolved_incident_is_not_retried() {
     })
     .await;
     w.primary.push_text(report());
-    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+    assert!(matches!(
+        w.run(Mode::Legacy).await,
+        TriageOutcome::Report(_)
+    ));
     let gone = resolved_incident(host_id(), "docker.container", Some("solved"), w.now()).unwrap();
     IncidentRepo::insert(&*w.store, &gone).await.unwrap();
     assert!(matches!(
@@ -1014,7 +1068,10 @@ async fn failed_run_is_not_retried_once_triage_is_degraded() {
     let gamma = open_incident(host_id(), "docker.container", Some("gamma")).unwrap();
     IncidentRepo::insert(&*w.store, &gamma).await.unwrap();
     w.primary.push_err(LlmError::Unavailable("down".to_owned()));
-    assert!(matches!(w.run().await, TriageOutcome::Failed { .. }));
+    assert!(matches!(
+        w.run(Mode::Legacy).await,
+        TriageOutcome::Failed { .. }
+    ));
     w.primary.push_err(LlmError::Unavailable("down".to_owned()));
     assert!(matches!(
         w.triage.triage(&beta).await,
@@ -1138,7 +1195,7 @@ async fn questions_cannot_use_the_reserved_runs() {
 
     w.primary.push_text(report());
     assert!(
-        matches!(w.run().await, TriageOutcome::Report(_)),
+        matches!(w.run(Mode::Legacy).await, TriageOutcome::Report(_)),
         "triage still gets the run the hour keeps free for it",
     );
     assert_eq!(

@@ -13,7 +13,7 @@ Operations are switched off unless you enable them under `[orchestration]`. With
 
 There is no page in the web UI for operations yet, so there is nothing to create or watch from the browser.
 
-The step that asks a model what to do next is not part of Domovoi yet. An operation that needs a new round of reasoning, for example after a failed check, records that it does and then waits; nothing picks that up until the reasoning step arrives.
+With `[orchestration] enabled` and `[triage] enabled` both on, an incident is investigated by an operation instead of the triage queue; see [Investigations](#investigations). A new round of reasoning after a failed check starts another cycle of that investigation. No other kind of operation exists yet.
 
 ## Settings
 
@@ -46,3 +46,17 @@ tokens = 200000
 ## Approval
 
 An operation can propose work, but it cannot run an execution on its own. Each execution waits for a person to approve it, in the same way as an action, and the approval expires after `approval_ttl` if nobody answers. Nothing in an operation, including the model, can approve an execution.
+
+## Investigations
+
+With `[orchestration] enabled = true` (and `[triage] enabled = true`) a new incident is investigated by an Investigate operation. It gives the same report as before: the same limits (runs per hour, the monthly budget, tool calls, seconds and output tokens per run), the same fallback between models, the same tools for the incident's host, and the same card on the incident. What changes is where the work lives:
+
+- The work survives a restart. A deferred or interrupted investigation continues from the store.
+- The model's tool reads stay inside one reasoning step. Its result is an assessment, a plan and a notification step, and the card.
+- Each action the model proposes, and that passes the checks, is an **Execution** step with a plan hash that a person approves on the Operations page. It never becomes a row on the Approvals page. A proposal that does not pass is listed in the report under "Proposals not offered".
+- An investigation closes itself when nothing is left to do. It stays open while a proposed action waits for a person, while a retry is pending, and while it is paused.
+- When the hourly limit is reached the run is skipped with a note and tried again once an hour slot frees; a failed run is tried again after an hour, up to three failed runs.
+
+A person approves or denies a step with the hash shown on it. A destructive skill, or one the host no longer offers, needs its name typed to approve. Buttons in chat cannot approve a step yet, so the card in chat points to the Operations page while a step waits.
+
+An investigation of an incident that already has one open is refused; re-running triage on the incident page waits for the first outcome and says so if the investigation is still running.

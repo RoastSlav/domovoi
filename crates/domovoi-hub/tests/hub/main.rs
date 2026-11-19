@@ -47,6 +47,12 @@ mod harness;
 #[cfg(test)]
 mod interactions;
 #[cfg(test)]
+mod operations_api;
+#[cfg(test)]
+mod operations_steps;
+#[cfg(test)]
+mod ops_harness;
+#[cfg(test)]
 mod plan_binding;
 #[cfg(test)]
 mod presence;

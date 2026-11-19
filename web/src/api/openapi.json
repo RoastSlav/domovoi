@@ -2698,6 +2698,502 @@
         }
       }
     },
+    "/api/v1/operations": {
+      "get": {
+        "tags": [
+          "operations"
+        ],
+        "summary": "Operations, newest first.",
+        "operationId": "list_operations",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "description": "An operation status name, for example `running`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "incident",
+            "in": "query",
+            "description": "Only operations about this incident.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "host",
+            "in": "query",
+            "description": "Only operations that act on this host (by name).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "description": "An operation kind, for example `investigate`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "The `next_cursor` of the previous page.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page size, 1 to 200. Default 50.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown status or kind, or an incident id that does not parse",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such host",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/operations/{id}": {
+      "get": {
+        "tags": [
+          "operations"
+        ],
+        "summary": "One operation with its trace and executions.",
+        "operationId": "get_operation",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Operation id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationDetailDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Orchestration is not enabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/operations/{id}/steps/{step}": {
+      "get": {
+        "tags": [
+          "operations"
+        ],
+        "summary": "One step with its stored intent and output.",
+        "operationId": "get_operation_step",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Operation id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "step",
+            "in": "path",
+            "description": "Step id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The step",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StepDetailDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such operation, or no such step in it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Orchestration is not enabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/operations/{id}/steps/{step}/approve": {
+      "post": {
+        "tags": [
+          "operations"
+        ],
+        "summary": "Approves an Execution step. The body names the v2 plan hash shown on the execution; a\ndestructive skill, or one whose risk is not known, needs `confirm_text` equal to its name.",
+        "operationId": "approve_operation_step",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Operation id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "step",
+            "in": "path",
+            "description": "Execution step id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveStepRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Approved; it runs next",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No valid plan hash",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Needs the typed confirmation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such operation or execution",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Expired, already decided, or the plan hash does not match",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Orchestration is not enabled, or the service is restarting",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/operations/{id}/steps/{step}/deny": {
+      "post": {
+        "tags": [
+          "operations"
+        ],
+        "summary": "Denies an Execution step.",
+        "operationId": "deny_operation_step",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Operation id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "step",
+            "in": "path",
+            "description": "Execution step id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such operation or execution",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Already decided",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Orchestration is not enabled, or the service is restarting",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/operations/{id}/trace": {
+      "get": {
+        "tags": [
+          "operations"
+        ],
+        "summary": "The timeline and graph of one operation.",
+        "operationId": "get_operation_trace",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Operation id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The trace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationTraceDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Orchestration is not enabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/overview": {
       "get": {
         "tags": [
@@ -3548,7 +4044,8 @@
           "proposed_by",
           "expires_at",
           "created_at",
-          "updated_at"
+          "updated_at",
+          "legacy"
         ],
         "properties": {
           "approved_by": {
@@ -3587,6 +4084,10 @@
           "incident_id": {
             "type": "string",
             "description": "The incident it is for."
+          },
+          "legacy": {
+            "type": "boolean",
+            "description": "Whether this action belongs to the old approval path, which is read-only history\nnext to operations: true for every action while orchestration is enabled."
           },
           "plan_binding": {
             "$ref": "#/components/schemas/PlanBinding",
@@ -3725,6 +4226,29 @@
           }
         }
       },
+      "ApproveStepRequest": {
+        "type": "object",
+        "description": "Approving an execution step.",
+        "required": [
+          "plan_hash"
+        ],
+        "properties": {
+          "confirm_text": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Required when the execution says `confirm_required`: the skill's name typed exactly."
+          },
+          "plan_hash": {
+            "type": "string",
+            "description": "Required. The v2 plan hash shown on the execution, 64 hex characters.",
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      },
       "AskRequest": {
         "type": "object",
         "description": "A follow-up question.",
@@ -3748,6 +4272,143 @@
           "answer": {
             "type": "string",
             "description": "Plain text, at most 4000 characters."
+          }
+        }
+      },
+      "BudgetLimitsDto": {
+        "type": "object",
+        "description": "The limits of an operation; `null` means no limit.",
+        "properties": {
+          "cost_micros": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Model cost in millionths of a US dollar.",
+            "minimum": 0
+          },
+          "cycles": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Investigation cycles.",
+            "minimum": 0
+          },
+          "evidence_requests": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Evidence requests.",
+            "minimum": 0
+          },
+          "executions": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Executions.",
+            "minimum": 0
+          },
+          "model_turns": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Model turns.",
+            "minimum": 0
+          },
+          "tokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Model tokens.",
+            "minimum": 0
+          },
+          "wall_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Wall-clock seconds.",
+            "minimum": 0
+          }
+        }
+      },
+      "BudgetUsedDto": {
+        "type": "object",
+        "description": "What an operation has used so far.",
+        "required": [
+          "model_turns",
+          "evidence_requests",
+          "executions",
+          "wall_seconds",
+          "tokens",
+          "cost_micros"
+        ],
+        "properties": {
+          "cost_micros": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Model cost in millionths of a US dollar.",
+            "minimum": 0
+          },
+          "evidence_requests": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Evidence requests.",
+            "minimum": 0
+          },
+          "executions": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Executions.",
+            "minimum": 0
+          },
+          "model_turns": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Model turns.",
+            "minimum": 0
+          },
+          "tokens": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Model tokens.",
+            "minimum": 0
+          },
+          "wall_seconds": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Wall-clock seconds.",
+            "minimum": 0
+          }
+        }
+      },
+      "BudgetsDto": {
+        "type": "object",
+        "description": "An operation's limits and use.",
+        "required": [
+          "limits",
+          "used"
+        ],
+        "properties": {
+          "limits": {
+            "$ref": "#/components/schemas/BudgetLimitsDto",
+            "description": "The limits."
+          },
+          "used": {
+            "$ref": "#/components/schemas/BudgetUsedDto",
+            "description": "The use."
           }
         }
       },
@@ -4229,6 +4890,119 @@
           }
         }
       },
+      "ExecutionDto": {
+        "type": "object",
+        "description": "A run of a capability that a person approves or denies.",
+        "required": [
+          "step",
+          "contract",
+          "contract_version",
+          "host_id",
+          "check",
+          "args",
+          "state",
+          "plan_hash",
+          "plan_binding",
+          "confirm_required",
+          "expires_at"
+        ],
+        "properties": {
+          "approval_step": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The Approval step that waits for a person."
+          },
+          "approved_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "When it was approved."
+          },
+          "approved_by": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Who approved it, for example `user:<id>`."
+          },
+          "args": {
+            "type": "object",
+            "description": "Arguments by parameter name.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "check": {
+            "type": "string",
+            "description": "The check it is about."
+          },
+          "confirm_required": {
+            "type": "boolean",
+            "description": "Whether approving needs the skill's name typed: for a destructive skill, and for one\nwhose risk is not known."
+          },
+          "contract": {
+            "type": "string",
+            "description": "The contract, for example `skill.restart_container`."
+          },
+          "contract_version": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The contract version the plan was made against.",
+            "minimum": 0
+          },
+          "expires_at": {
+            "type": "string",
+            "description": "When the approval window closes."
+          },
+          "host_id": {
+            "type": "string",
+            "description": "The host it runs on."
+          },
+          "plan_binding": {
+            "type": "string",
+            "description": "Always `v2`."
+          },
+          "plan_hash": {
+            "type": "string",
+            "description": "The v2 plan hash a person approves, 64 hex characters."
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why it was refused, not run, unavailable or failed."
+          },
+          "risk": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`read`, `write` or `destructive` from the host's current skills; `null` when the\nskill is not on the host now."
+          },
+          "state": {
+            "type": "string",
+            "description": "The derived state, for example `awaiting_approval` or `succeeded`."
+          },
+          "step": {
+            "type": "string",
+            "description": "The Execution step id, which is also the execution id."
+          },
+          "target": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The target it is about."
+          }
+        }
+      },
       "FactDto": {
         "type": "object",
         "description": "One digest fact about a host.",
@@ -4676,6 +5450,7 @@
           "card",
           "timeline",
           "actions",
+          "operations",
           "tools_used",
           "as_of_seq"
         ],
@@ -4704,6 +5479,13 @@
           "incident": {
             "$ref": "#/components/schemas/IncidentSummary",
             "description": "The incident."
+          },
+          "operations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OperationSummaryDto"
+            },
+            "description": "Operations about this incident, newest first."
           },
           "report": {
             "oneOf": [
@@ -5187,6 +5969,206 @@
           }
         }
       },
+      "OperationDetailDto": {
+        "type": "object",
+        "description": "An operation, its trace and its executions.",
+        "required": [
+          "as_of_seq",
+          "operation",
+          "trace",
+          "executions"
+        ],
+        "properties": {
+          "as_of_seq": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The journal position read before loading; equals `trace.as_of_seq`.",
+            "minimum": 0
+          },
+          "executions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExecutionDto"
+            },
+            "description": "The runs a person approves or denies."
+          },
+          "operation": {
+            "$ref": "#/components/schemas/OperationSummaryDto",
+            "description": "The operation."
+          },
+          "trace": {
+            "$ref": "#/components/schemas/OperationTraceDto",
+            "description": "The timeline and graph."
+          }
+        }
+      },
+      "OperationPage": {
+        "type": "object",
+        "description": "One page of operations, newest first.",
+        "required": [
+          "items",
+          "as_of_seq"
+        ],
+        "properties": {
+          "as_of_seq": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The journal position read before the page; apply only events with a greater `seq`.",
+            "minimum": 0
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OperationSummaryDto"
+            },
+            "description": "The operations."
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Pass as `cursor` for the next page; absent on the last one."
+          }
+        }
+      },
+      "OperationSummaryDto": {
+        "type": "object",
+        "description": "One operation in a list or on the incident page.",
+        "required": [
+          "id",
+          "kind",
+          "goal",
+          "status",
+          "waiting_for",
+          "cycle",
+          "incidents",
+          "hosts",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "description": "When it was created."
+          },
+          "cycle": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The current cycle.",
+            "minimum": 0
+          },
+          "ended_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "When it ended."
+          },
+          "goal": {
+            "type": "string",
+            "description": "What it is trying to achieve."
+          },
+          "hosts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The hosts it may act on."
+          },
+          "id": {
+            "type": "string",
+            "description": "Operation id."
+          },
+          "incidents": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The incidents it is about."
+          },
+          "kind": {
+            "type": "string",
+            "description": "The kind, for example `investigate`."
+          },
+          "pause_reason": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PauseReasonDto",
+                "description": "Why it is paused, when it is."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "started_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "When it started."
+          },
+          "status": {
+            "type": "string",
+            "description": "The status name, for example `running`."
+          },
+          "updated_at": {
+            "type": "string",
+            "description": "When it last changed."
+          },
+          "waiting_for": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "What it waits for: `approval`, `user`, `agent` or `timer`."
+          }
+        }
+      },
+      "OperationTraceDto": {
+        "type": "object",
+        "description": "The read-only view the timeline and the graph are drawn from.",
+        "required": [
+          "schema_version",
+          "as_of_seq",
+          "operation",
+          "steps",
+          "edges"
+        ],
+        "properties": {
+          "as_of_seq": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The journal position it was read at; apply only events with a greater `seq`.",
+            "minimum": 0
+          },
+          "edges": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TraceEdgeDto"
+            },
+            "description": "The links between them."
+          },
+          "operation": {
+            "$ref": "#/components/schemas/TraceOperationDto",
+            "description": "The operation."
+          },
+          "schema_version": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The version of this layout.",
+            "minimum": 0
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TraceStepDto"
+            },
+            "description": "Its steps in order."
+          }
+        }
+      },
       "OverviewDto": {
         "type": "object",
         "description": "What needs the operator right now, as counts. Each count stops at 200.",
@@ -5266,6 +6248,65 @@
           "required": {
             "type": "boolean",
             "description": "Whether it must be given."
+          }
+        }
+      },
+      "PauseReasonDto": {
+        "type": "object",
+        "description": "Why an operation is paused.",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "exhausted": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "For `budget`: the limit that ran out."
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "For `error`: what went wrong."
+          },
+          "step": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "For `outcome_unknown`: the Execution step whose result is not known."
+          },
+          "type": {
+            "type": "string",
+            "description": "`budget`, `outcome_unknown`, `global_pause` or `error`."
+          }
+        }
+      },
+      "PinnedSubjectDto": {
+        "type": "object",
+        "description": "A host, check and target an operation may act on.",
+        "required": [
+          "host",
+          "check"
+        ],
+        "properties": {
+          "check": {
+            "type": "string",
+            "description": "The check, for example `container.down`."
+          },
+          "host": {
+            "type": "string",
+            "description": "Host id."
+          },
+          "target": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The target, for example `plex`."
           }
         }
       },
@@ -5766,6 +6807,105 @@
           }
         }
       },
+      "StepDetailDto": {
+        "type": "object",
+        "description": "One step with its stored intent and bounded output.",
+        "required": [
+          "id",
+          "operation_id",
+          "ordinal",
+          "kind",
+          "phase",
+          "cycle",
+          "outcome",
+          "intent",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "description": "When it was created."
+          },
+          "cycle": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The cycle it belongs to.",
+            "minimum": 0
+          },
+          "ended_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "When it ended."
+          },
+          "id": {
+            "type": "string",
+            "description": "Step id."
+          },
+          "intent": {
+            "type": "object",
+            "description": "What the step is for, as stored. Never changes."
+          },
+          "kind": {
+            "type": "string",
+            "description": "The step kind."
+          },
+          "operation_id": {
+            "type": "string",
+            "description": "The operation it belongs to."
+          },
+          "ordinal": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Its position in the operation.",
+            "minimum": 0
+          },
+          "outcome": {
+            "type": "string",
+            "description": "The outcome so far."
+          },
+          "output": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "What it produced, redacted and at most 16 KiB."
+          },
+          "parent": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The step it follows from."
+          },
+          "phase": {
+            "type": "string",
+            "description": "A short label of the phase of work."
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why it ended as it did."
+          },
+          "started_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "When it started."
+          },
+          "summary": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "One line on what it came to."
+          }
+        }
+      },
       "TestRequest": {
         "type": "object",
         "description": "Candidate values for a connection test; nothing is saved.",
@@ -5872,6 +7012,219 @@
             "format": "int32",
             "description": "How many of those calls were not run because the tool-call budget was spent.",
             "minimum": 0
+          }
+        }
+      },
+      "TraceEdgeDto": {
+        "type": "object",
+        "description": "A link between two steps.",
+        "required": [
+          "from",
+          "to",
+          "kind"
+        ],
+        "properties": {
+          "from": {
+            "type": "string",
+            "description": "The dependent step."
+          },
+          "kind": {
+            "type": "string",
+            "description": "`depends_on`, `caused_by`, `verifies`, `retry_of` or `answers`."
+          },
+          "to": {
+            "type": "string",
+            "description": "The earlier step it points at."
+          }
+        }
+      },
+      "TraceOperationDto": {
+        "type": "object",
+        "description": "The operation a trace is about.",
+        "required": [
+          "id",
+          "kind",
+          "goal",
+          "status",
+          "waiting_for",
+          "cycle",
+          "budgets",
+          "pinned",
+          "incidents",
+          "created_at"
+        ],
+        "properties": {
+          "budgets": {
+            "$ref": "#/components/schemas/BudgetsDto",
+            "description": "Limits and use."
+          },
+          "created_at": {
+            "type": "string",
+            "description": "When it was created."
+          },
+          "cycle": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The current cycle.",
+            "minimum": 0
+          },
+          "ended_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "When it ended."
+          },
+          "goal": {
+            "type": "string",
+            "description": "What it is trying to achieve."
+          },
+          "id": {
+            "type": "string",
+            "description": "Operation id."
+          },
+          "incidents": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The incidents it is about."
+          },
+          "kind": {
+            "type": "string",
+            "description": "The kind, for example `investigate`."
+          },
+          "parent": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The operation it was started from."
+          },
+          "pause_reason": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PauseReasonDto",
+                "description": "Why it is paused, when it is."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "pinned": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PinnedSubjectDto"
+            },
+            "description": "What it may act on."
+          },
+          "started_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "When it started."
+          },
+          "status": {
+            "type": "string",
+            "description": "The status name, for example `waiting_approval`."
+          },
+          "waiting_for": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "What it waits for: `approval`, `user`, `agent` or `timer`."
+          }
+        }
+      },
+      "TraceRefDto": {
+        "type": "object",
+        "description": "A link from a step to something stored elsewhere.",
+        "required": [
+          "kind",
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Its id."
+          },
+          "kind": {
+            "type": "string",
+            "description": "What it points at, for example `execution`."
+          }
+        }
+      },
+      "TraceStepDto": {
+        "type": "object",
+        "description": "One step as the timeline shows it. Never carries output, intent or approval details.",
+        "required": [
+          "id",
+          "kind",
+          "phase",
+          "cycle",
+          "outcome",
+          "refs"
+        ],
+        "properties": {
+          "cycle": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The cycle it belongs to.",
+            "minimum": 0
+          },
+          "ended_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "When it ended."
+          },
+          "id": {
+            "type": "string",
+            "description": "Step id."
+          },
+          "kind": {
+            "type": "string",
+            "description": "The step kind, for example `reasoning_turn`."
+          },
+          "outcome": {
+            "type": "string",
+            "description": "The outcome so far, for example `running` or `succeeded`."
+          },
+          "parent": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The step it follows from."
+          },
+          "phase": {
+            "type": "string",
+            "description": "A short label of the phase of work."
+          },
+          "refs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TraceRefDto"
+            },
+            "description": "What it links to."
+          },
+          "started_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "When it started."
+          },
+          "summary": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "One line on what it came to."
           }
         }
       },
@@ -6167,6 +7520,10 @@
     {
       "name": "actions",
       "description": "Proposed actions and approvals"
+    },
+    {
+      "name": "operations",
+      "description": "Operations, their steps and step approvals"
     },
     {
       "name": "hosts",

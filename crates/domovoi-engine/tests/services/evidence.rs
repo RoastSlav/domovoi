@@ -9,7 +9,7 @@ use domovoi_testkit::build::manifest;
 use domovoi_testkit::link::LinkRequest;
 use serde_json::json;
 
-use crate::harness::{Setup, calls, host_id, report, results, world};
+use crate::harness::{Mode, Setup, calls, host_id, report, results, world};
 
 /// A read skill the host announced, as the agent would list it.
 fn read_skill() -> SkillSummary {
@@ -49,7 +49,10 @@ async fn the_triage_tool_path_reads_through_the_boundary() {
     w.primary
         .push_ok(calls(&[("c1", "docker_ps", json!({"all": true}))]));
     w.primary.push_text(report());
-    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+    assert!(matches!(
+        w.run(Mode::Legacy).await,
+        TriageOutcome::Report(_)
+    ));
 
     // The agent's output reached the model as it arrived: no extra formatting here.
     let shown = results(&w.primary.requests()[1]);
@@ -105,7 +108,10 @@ async fn an_unavailable_host_reaches_the_model_as_not_connected() {
         json!({"skill": "restart_container", "args": {}}),
     )]));
     w.primary.push_text(report());
-    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+    assert!(matches!(
+        w.run(Mode::Legacy).await,
+        TriageOutcome::Report(_)
+    ));
 
     let shown = results(&w.primary.requests()[1]);
     assert!(
@@ -132,7 +138,10 @@ async fn a_read_skill_with_unexpected_arguments_never_reaches_the_agent() {
         json!({"skill": "disk_report", "args": {"unexpected": "1"}}),
     )]));
     w.primary.push_text(report());
-    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+    assert!(matches!(
+        w.run(Mode::Legacy).await,
+        TriageOutcome::Report(_)
+    ));
 
     let shown = results(&w.primary.requests()[1]);
     assert!(

@@ -7,6 +7,7 @@
 
 mod commands;
 mod commit;
+mod conclude;
 mod create;
 mod dispatch;
 mod execution;
@@ -19,7 +20,7 @@ use std::sync::{Arc, Mutex};
 use domovoi_core::{HostId, OperationId};
 use tokio::sync::{Notify, mpsc};
 
-pub(crate) use commands::{DispatchAnswer, Held, OperationCommand, Reply};
+pub(crate) use commands::{Conclusion, DispatchAnswer, Held, OperationCommand, Reply};
 pub(crate) use commit::queue_reconcile;
 
 use commit::{Applied, Change, Edit, apply, finish_held};
@@ -42,6 +43,8 @@ pub(crate) struct OpShared {
     pub(crate) writer: mpsc::Sender<OperationCommand>,
     /// Wakes the effect runner as soon as a commit creates an effect that is due.
     pub(crate) nudge: Arc<Notify>,
+    /// What investigations need, when the service runs them.
+    pub(crate) investigate: Option<Arc<super::investigate::Runtime>>,
     /// One gate per host, held from before a dispatch is committed until the request has
     /// been handed to the agent's outgoing queue, and by reconciliation while it reads the
     /// execution. That keeps a committed-but-unsent run from being read as one the agent
@@ -378,6 +381,13 @@ pub(crate) async fn process(shared: &OpShared, command: OperationCommand) {
             )
             .await;
         }
+        OperationCommand::Conclude {
+            held,
+            operation,
+            step,
+            successors,
+            reply,
+        } => conclude::run(shared, held, operation, step, successors, reply).await,
         OperationCommand::FinishEffect { held, reply } => {
             let result = finish_held_effect(shared, held).await;
             let _ = reply.send(result);

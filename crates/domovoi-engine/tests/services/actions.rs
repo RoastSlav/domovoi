@@ -19,8 +19,8 @@ use jiff::{SignedDuration, Timestamp};
 use serde_json::json;
 
 use crate::harness::{
-    Setup, World, add_signal, calls, disk, host_id, report, report_json, restart_skill, world,
-    world_with_actions,
+    Mode, Setup, World, add_signal, calls, disk, host_id, report, report_json, restart_skill,
+    world, world_with_actions,
 };
 
 #[tokio::test]
@@ -31,7 +31,10 @@ async fn cli_provider_gets_prefetched_context_and_no_tools() {
     })
     .await;
     w.primary.push_text(report());
-    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+    assert!(matches!(
+        w.run(Mode::Legacy).await,
+        TriageOutcome::Report(_)
+    ));
 
     let requests = w.primary.requests();
     assert_eq!(requests.len(), 1, "one shot");
@@ -62,7 +65,7 @@ async fn valid_proposal_creates_proposed_action_with_hashed_chat_token() {
         "ACTION_NEEDED",
         json!([{"skill": "restart_container", "args": {"container": "nginx"}, "reason": "It is stuck."}]),
     ));
-    let TriageOutcome::Report(report) = w.run().await else {
+    let TriageOutcome::Report(report) = w.run(Mode::Legacy).await else {
         panic!("a report");
     };
     assert_eq!(report.proposals.len(), 1);
@@ -101,7 +104,7 @@ async fn running_triage_twice_with_the_same_proposal_leaves_one_proposed_action(
     w.primary.push_text(answer.clone());
     w.primary.push_text(answer);
 
-    let TriageOutcome::Report(first) = w.run().await else {
+    let TriageOutcome::Report(first) = w.run(Mode::Legacy).await else {
         panic!("a report");
     };
     assert_eq!(first.proposals.len(), 1);
@@ -143,7 +146,7 @@ async fn proposal_for_unknown_skill_or_bad_args_is_dropped() {
             {"skill": "clean_disk", "args": {"container": "nginx"}, "reason": "x"}
         ]),
     ));
-    let TriageOutcome::Report(report) = w.run().await else {
+    let TriageOutcome::Report(report) = w.run(Mode::Legacy).await else {
         panic!("a report");
     };
     assert!(report.proposals.is_empty());
@@ -274,7 +277,7 @@ async fn a_stable_agent_snapshot_stores_the_proposal_with_the_expected_v2_hash()
         "ACTION_NEEDED",
         json!([{"skill": "restart_container", "args": {"container": "nginx"}, "reason": "It is stuck."}]),
     ));
-    let TriageOutcome::Report(report) = w.run().await else {
+    let TriageOutcome::Report(report) = w.run(Mode::Legacy).await else {
         panic!("a report");
     };
     assert_eq!(report.proposals.len(), 1);
@@ -319,7 +322,7 @@ async fn a_session_change_during_triage_stores_no_action() {
         json!([{"skill": "restart_container", "args": {"container": "nginx"}, "reason": "It is stuck."}]),
     ));
 
-    let TriageOutcome::Report(report) = w.run().await else {
+    let TriageOutcome::Report(report) = w.run(Mode::Legacy).await else {
         panic!("a report");
     };
     assert!(report.proposals.is_empty());
@@ -352,7 +355,7 @@ async fn an_agent_change_during_triage_stores_no_action() {
         json!([{"skill": "restart_container", "args": {"container": "nginx"}, "reason": "It is stuck."}]),
     ));
 
-    let TriageOutcome::Report(report) = w.run().await else {
+    let TriageOutcome::Report(report) = w.run(Mode::Legacy).await else {
         panic!("a report");
     };
     assert!(report.proposals.is_empty());
@@ -378,7 +381,7 @@ async fn a_cached_report_with_a_changed_session_stores_no_action() {
         json!([{"skill": "restart_container", "args": {"container": "nginx"}, "reason": "It is stuck."}]),
     );
     w.primary.push_text(answer);
-    let TriageOutcome::Report(first) = w.run().await else {
+    let TriageOutcome::Report(first) = w.run(Mode::Legacy).await else {
         panic!("the first run calls the model");
     };
     assert_eq!(first.proposals.len(), 1);
@@ -436,7 +439,7 @@ fn restart_proposal() -> String {
 /// Runs one fresh triage that stores a single proposal.
 async fn triage_once(w: &mut World) -> ActionRequest {
     w.primary.push_text(restart_proposal());
-    let TriageOutcome::Report(report) = w.run().await else {
+    let TriageOutcome::Report(report) = w.run(Mode::Legacy).await else {
         panic!("a report");
     };
     assert_eq!(report.proposals.len(), 1, "the proposal is stored");
@@ -447,7 +450,7 @@ async fn triage_once(w: &mut World) -> ActionRequest {
 
 async fn triage_again(w: &mut World) -> TriageOutcome {
     w.primary.push_text(restart_proposal());
-    w.run().await
+    w.run(Mode::Legacy).await
 }
 
 #[tokio::test]

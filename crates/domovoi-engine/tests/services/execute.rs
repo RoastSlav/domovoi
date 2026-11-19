@@ -513,6 +513,7 @@ fn spawn_operations(a: &Actions) -> domovoi_engine::operations::OperationHandle 
             redactor: std::sync::Arc::new(domovoi_testkit::ListRedactor::new(["hunter2"])),
             clock: a.clock.clone(),
             shutdown: a.shutdown.clone(),
+            investigate: None,
         },
         domovoi_engine::operations::OperationSettings::default(),
     );

@@ -14,7 +14,7 @@ use jiff::SignedDuration;
 use jiff::tz::TimeZone;
 use serde_json::json;
 
-use crate::harness::{SECRET, Setup, calls, host_id, report, restart_skill, results, world};
+use crate::harness::{Mode, SECRET, Setup, calls, host_id, report, restart_skill, results, world};
 
 /// A response that ended at the output limit without saying anything, as a reasoning model
 /// that spent the whole allowance thinking does.
@@ -38,7 +38,10 @@ async fn tool_use_is_recorded_on_the_timeline() {
         .push_ok(calls(&[("c1", "journal", json!({"unit": "nginx"}))]));
     w.primary.push_text(report());
 
-    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+    assert!(matches!(
+        w.run(Mode::Legacy).await,
+        TriageOutcome::Report(_)
+    ));
 
     let entries = w.store.timeline(w.incident.id()).await.expect("timeline");
     let entry = entries
@@ -62,7 +65,10 @@ async fn failed_skill_call_keeps_the_skill_name() {
     )]));
     w.primary.push_text(report());
 
-    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+    assert!(matches!(
+        w.run(Mode::Legacy).await,
+        TriageOutcome::Report(_)
+    ));
 
     let entries = w.store.timeline(w.incident.id()).await.expect("timeline");
     let entry = entries
@@ -83,7 +89,10 @@ async fn prefetched_tools_are_recorded_for_a_provider_without_tools() {
     .await;
     w.primary.push_text(report());
 
-    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+    assert!(matches!(
+        w.run(Mode::Legacy).await,
+        TriageOutcome::Report(_)
+    ));
 
     let entries = w.store.timeline(w.incident.id()).await.expect("timeline");
     let entry = entries
@@ -108,7 +117,10 @@ async fn model_invented_tool_names_are_folded_into_unknown_tool() {
     ]));
     w.primary.push_text(report());
 
-    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+    assert!(matches!(
+        w.run(Mode::Legacy).await,
+        TriageOutcome::Report(_)
+    ));
 
     let entries = w.store.timeline(w.incident.id()).await.expect("timeline");
     let entry = entries
@@ -156,7 +168,10 @@ async fn budget_refused_calls_are_recorded_as_not_run() {
     ]));
     w.primary.push_text(report());
 
-    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+    assert!(matches!(
+        w.run(Mode::Legacy).await,
+        TriageOutcome::Report(_)
+    ));
 
     let entries = w.store.timeline(w.incident.id()).await.expect("timeline");
     let entry = entries
@@ -188,7 +203,10 @@ async fn tool_calls_are_routed_to_agent_and_store() {
     ]));
     w.primary.push_text(report());
 
-    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+    assert!(matches!(
+        w.run(Mode::Legacy).await,
+        TriageOutcome::Report(_)
+    ));
 
     let agent_calls: Vec<ReadToolCall> = w
         .link
@@ -246,7 +264,7 @@ async fn tool_results_are_truncated_and_redacted() {
     w.primary
         .push_ok(calls(&[("c1", "journal", json!({"unit": "nginx"}))]));
     w.primary.push_text(report());
-    w.run().await;
+    w.run(Mode::Legacy).await;
 
     let (content, is_error) = results(&w.primary.requests()[1]).remove(0);
     assert!(!is_error);
@@ -262,7 +280,7 @@ async fn invalid_json_gets_one_repair_turn_then_fails() {
     let w = world(Setup::default()).await;
     w.primary.push_text("The disk is full, I think.");
     w.primary.push_text(r#"{"headline": ""}"#);
-    let outcome = w.run().await;
+    let outcome = w.run(Mode::Legacy).await;
     assert!(
         matches!(&outcome, TriageOutcome::Failed { reason } if reason.contains("no usable report")),
         "{outcome:?}"
@@ -276,7 +294,10 @@ async fn invalid_json_gets_one_repair_turn_then_fails() {
     w.primary.push_text("```json\n{\"headline\": 3}\n```");
     w.primary
         .push_text(format!("Here you go:\n```json\n{}\n```", report()));
-    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+    assert!(matches!(
+        w.run(Mode::Legacy).await,
+        TriageOutcome::Report(_)
+    ));
 }
 
 #[tokio::test]
@@ -285,7 +306,10 @@ async fn reasoning_only_answer_is_retried_with_a_larger_allowance() {
     w.primary.push_ok(reasoning_only());
     w.primary.push_text(report());
 
-    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+    assert!(matches!(
+        w.run(Mode::Legacy).await,
+        TriageOutcome::Report(_)
+    ));
 
     let requests = w.primary.requests();
     assert_eq!(requests.len(), 2);
@@ -309,7 +333,10 @@ async fn a_truncated_answer_is_retried_with_more_room() {
     )]));
     w.primary.push_text(report());
 
-    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+    assert!(matches!(
+        w.run(Mode::Legacy).await,
+        TriageOutcome::Report(_)
+    ));
 
     let requests = w.primary.requests();
     assert_eq!(requests.len(), 2, "the cut-off answer is not repaired");
@@ -331,7 +358,10 @@ async fn a_truncated_tool_call_is_never_run() {
     }]));
     w.primary.push_text(report());
 
-    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+    assert!(matches!(
+        w.run(Mode::Legacy).await,
+        TriageOutcome::Report(_)
+    ));
 
     let requests = w.primary.requests();
     assert_eq!(requests.len(), 2);
@@ -361,7 +391,10 @@ async fn a_truncated_text_and_tool_call_is_never_run() {
     ]));
     w.primary.push_text(report());
 
-    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+    assert!(matches!(
+        w.run(Mode::Legacy).await,
+        TriageOutcome::Report(_)
+    ));
 
     let requests = w.primary.requests();
     assert_eq!(requests.len(), 2);
@@ -380,7 +413,7 @@ async fn a_model_that_never_answers_fails_with_the_output_allowance() {
     w.primary.push_ok(reasoning_only());
     w.primary.push_ok(reasoning_only());
 
-    let outcome = w.run().await;
+    let outcome = w.run(Mode::Legacy).await;
     assert!(
         matches!(
             &outcome,
@@ -417,7 +450,7 @@ async fn a_run_that_spends_its_output_budget_stops() {
     w.primary.push_ok(reasoning_only());
     w.primary.push_ok(reasoning_only());
 
-    let outcome = w.run().await;
+    let outcome = w.run(Mode::Legacy).await;
     assert!(
         matches!(
             &outcome,
@@ -459,7 +492,10 @@ async fn every_retry_is_recorded_as_usage() {
         },
     });
 
-    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+    assert!(matches!(
+        w.run(Mode::Legacy).await,
+        TriageOutcome::Report(_)
+    ));
 
     let month = w.now().to_zoned(TimeZone::UTC).date();
     let total = w.store.month_total(month).await.expect("usage");
@@ -488,7 +524,7 @@ async fn an_allowance_at_the_ceiling_is_not_grown() {
     .await;
     w.primary.push_ok(reasoning_only());
 
-    let outcome = w.run().await;
+    let outcome = w.run(Mode::Legacy).await;
     assert!(
         matches!(
             &outcome,
@@ -513,7 +549,7 @@ async fn a_slow_model_is_cut_off_at_the_run_deadline() {
     let advance = async {
         tokio::time::advance(Duration::from_secs(91)).await;
     };
-    let (outcome, ()) = tokio::join!(w.run(), advance);
+    let (outcome, ()) = tokio::join!(w.run(Mode::Legacy), advance);
     assert!(
         matches!(&outcome, TriageOutcome::Failed { reason } if reason.contains("run deadline")),
         "{outcome:?}"
@@ -537,7 +573,7 @@ async fn a_deadline_that_has_passed_sends_no_request() {
     })
     .await;
 
-    let outcome = w.run().await;
+    let outcome = w.run(Mode::Legacy).await;
     assert!(
         matches!(&outcome, TriageOutcome::Failed { reason } if reason.contains("run deadline")),
         "{outcome:?}"
@@ -568,7 +604,10 @@ async fn budget_exhaustion_forces_final_answer() {
         ("c3", "listening_ports", json!({})),
     ]));
     w.primary.push_text(report());
-    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+    assert!(matches!(
+        w.run(Mode::Legacy).await,
+        TriageOutcome::Report(_)
+    ));
     let requests = w.primary.requests();
     assert_eq!(requests.len(), 3);
     assert_eq!(requests[0].max_output_tokens, 500);
@@ -601,7 +640,7 @@ async fn a_slow_tool_does_not_outlive_the_run() {
     w.primary
         .push_ok(calls(&[("c1", "host_overview", json!({}))]));
 
-    let outcome = w.run().await;
+    let outcome = w.run(Mode::Legacy).await;
     assert!(
         matches!(&outcome, TriageOutcome::Failed { reason } if reason.contains("run deadline")),
         "{outcome:?}"
@@ -629,7 +668,7 @@ async fn a_batch_of_tools_cannot_outlive_the_run() {
         ("c2", "docker_ps", json!({})),
     ]));
 
-    let outcome = w.run().await;
+    let outcome = w.run(Mode::Legacy).await;
     assert!(
         matches!(&outcome, TriageOutcome::Failed { reason } if reason.contains("run deadline")),
         "{outcome:?}"
@@ -657,7 +696,7 @@ async fn prefetch_past_the_deadline_never_calls_the_model() {
         })
     });
 
-    let outcome = w.run().await;
+    let outcome = w.run(Mode::Legacy).await;
     assert!(
         matches!(&outcome, TriageOutcome::Failed { reason } if reason.contains("run deadline")),
         "{outcome:?}"
@@ -682,7 +721,7 @@ async fn an_unpriced_provider_is_refused_before_any_request() {
     })
     .await;
 
-    let outcome = w.run().await;
+    let outcome = w.run(Mode::Legacy).await;
     assert!(
         matches!(
             &outcome,
@@ -718,7 +757,7 @@ async fn an_unpriced_primary_stops_the_priced_fallback_too() {
     })
     .await;
 
-    let outcome = w.run().await;
+    let outcome = w.run(Mode::Legacy).await;
     assert!(
         matches!(&outcome, TriageOutcome::Skipped { reason } if reason.contains("has no price")),
         "{outcome:?}"
@@ -744,7 +783,10 @@ async fn a_fully_priced_chain_runs_under_a_monthly_budget() {
     .await;
     w.primary.push_text(report());
 
-    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+    assert!(matches!(
+        w.run(Mode::Legacy).await,
+        TriageOutcome::Report(_)
+    ));
     assert_eq!(w.primary.requests().len(), 1);
 }
 
@@ -767,7 +809,10 @@ async fn an_unpriced_provider_without_a_budget_runs_and_records_no_cost() {
     })
     .await;
 
-    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+    assert!(matches!(
+        w.run(Mode::Legacy).await,
+        TriageOutcome::Report(_)
+    ));
     let month = w.now().to_zoned(TimeZone::UTC).date();
     let total = w.store.month_total(month).await.expect("usage");
     assert_eq!(
@@ -799,7 +844,10 @@ async fn an_allowance_above_the_ceiling_is_clamped() {
     .await;
     w.primary.push_text(report());
 
-    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+    assert!(matches!(
+        w.run(Mode::Legacy).await,
+        TriageOutcome::Report(_)
+    ));
     assert_eq!(
         w.primary.requests()[0].max_output_tokens,
         16_000,
@@ -826,7 +874,10 @@ async fn a_repair_turn_draws_on_the_same_budget() {
     w.primary.push_text("The disk is full, I think.");
     w.primary.push_text(report());
 
-    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+    assert!(matches!(
+        w.run(Mode::Legacy).await,
+        TriageOutcome::Report(_)
+    ));
     let requests = w.primary.requests();
     assert_eq!(requests.len(), 2);
     assert_eq!(requests[1].max_output_tokens, 2000);
@@ -850,7 +901,7 @@ async fn no_request_is_sent_once_the_run_budget_is_spent() {
     .await;
     w.primary.push_text("The disk is full, I think.");
 
-    let outcome = w.run().await;
+    let outcome = w.run(Mode::Legacy).await;
     assert!(
         matches!(&outcome, TriageOutcome::Failed { reason } if reason.contains("output token budget")),
         "{outcome:?}"
@@ -878,7 +929,7 @@ async fn tool_work_past_the_deadline_ends_the_run() {
     w.primary
         .push_ok(calls(&[("c2", "host_overview", json!({}))]));
 
-    let outcome = w.run().await;
+    let outcome = w.run(Mode::Legacy).await;
     assert!(
         matches!(&outcome, TriageOutcome::Failed { reason } if reason.contains("run deadline")),
         "{outcome:?}"
@@ -927,7 +978,10 @@ async fn the_default_budget_grants_the_whole_ladder_and_the_repair() {
     // The 16000-token answer was unusable, so the repair runs at the configured allowance.
     w.primary.push_text(report());
 
-    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+    assert!(matches!(
+        w.run(Mode::Legacy).await,
+        TriageOutcome::Report(_)
+    ));
 
     let requests = w.primary.requests();
     assert_eq!(
@@ -967,7 +1021,7 @@ async fn an_ambiguous_failure_spends_the_allowance_without_a_refund() {
     w.primary
         .push_err(LlmError::Unavailable("the network went away".to_owned()));
 
-    let outcome = w.run().await;
+    let outcome = w.run(Mode::Legacy).await;
     assert!(
         matches!(&outcome, TriageOutcome::Failed { reason } if reason.contains("output token budget")),
         "{outcome:?}"
@@ -994,7 +1048,7 @@ async fn a_slow_incident_history_ends_the_run() {
         w.clock.advance(SignedDuration::from_secs(91));
         tokio::time::advance(Duration::from_secs(91)).await;
     };
-    let (outcome, ()) = tokio::join!(w.run(), advance);
+    let (outcome, ()) = tokio::join!(w.run(Mode::Legacy), advance);
     assert!(
         matches!(&outcome, TriageOutcome::Failed { reason } if reason.contains("run deadline")),
         "{outcome:?}"
@@ -1017,7 +1071,7 @@ async fn a_slow_notes_search_ends_the_run() {
         w.clock.advance(SignedDuration::from_secs(91));
         tokio::time::advance(Duration::from_secs(91)).await;
     };
-    let (outcome, ()) = tokio::join!(w.run(), advance);
+    let (outcome, ()) = tokio::join!(w.run(Mode::Legacy), advance);
     assert!(
         matches!(&outcome, TriageOutcome::Failed { reason } if reason.contains("run deadline")),
         "{outcome:?}"
@@ -1040,7 +1094,7 @@ async fn a_store_tool_that_finishes_in_time_is_used() {
         w.primary.wait_for_request().await;
         tokio::time::advance(Duration::from_secs(11)).await;
     };
-    let (outcome, ()) = tokio::join!(w.run(), advance);
+    let (outcome, ()) = tokio::join!(w.run(Mode::Legacy), advance);
     assert!(matches!(outcome, TriageOutcome::Report(_)), "{outcome:?}");
     assert_eq!(w.primary.requests().len(), 2);
 }
@@ -1075,7 +1129,10 @@ async fn a_disabled_skill_is_never_offered_to_triage() {
     );
     w.primary.push_text(report());
 
-    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+    assert!(matches!(
+        w.run(Mode::Legacy).await,
+        TriageOutcome::Report(_)
+    ));
 
     let asked = asked_text(&w);
     assert!(

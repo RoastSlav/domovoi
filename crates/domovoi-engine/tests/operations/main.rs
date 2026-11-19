@@ -17,6 +17,16 @@ mod execution;
 #[cfg(test)]
 mod harness;
 #[cfg(test)]
+mod inv;
+#[cfg(test)]
+mod inv_drive;
+#[cfg(test)]
+mod investigate;
+#[cfg(test)]
+mod investigate_effects;
+#[cfg(test)]
+mod investigate_limits;
+#[cfg(test)]
 mod properties;
 #[cfg(test)]
 mod queued;

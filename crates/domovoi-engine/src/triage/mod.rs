@@ -7,20 +7,20 @@
 //! providers after it in order; a failed run still leaves the card that already went out (INV-11). Valid
 //! action proposals become `Proposed` actions; nothing the model writes is ever run (INV-9).
 
-mod admission;
-mod agent;
-mod cache;
+pub(crate) mod admission;
+pub(crate) mod agent;
+pub(crate) mod cache;
 mod chat;
 mod complete;
-mod context;
+pub(crate) mod context;
 mod followup;
 mod history;
 mod incident_context;
 mod prompt;
-mod proposals;
+pub(crate) mod proposals;
 mod queue;
-mod report;
-mod run;
+pub(crate) mod report;
+pub(crate) mod run;
 mod tools;
 
 use std::sync::Arc;
@@ -91,6 +91,9 @@ pub struct TriageSettings {
     pub max_prompt_bytes: usize,
     /// Limits for one run.
     pub budget: TriageBudget,
+    /// Whether the queue and its workers run. Turned off when investigations do the work
+    /// instead: the queue and its deferred retries are then not started.
+    pub run_queue: bool,
 }
 
 impl Default for TriageSettings {
@@ -111,6 +114,7 @@ impl Default for TriageSettings {
                 // `default_total_output_tokens`.
                 max_total_output_tokens: default_total_output_tokens(2000, 15),
             },
+            run_queue: true,
         }
     }
 }
@@ -280,12 +284,26 @@ impl TriageService {
             deps,
             settings,
         });
-        let task = tokio::spawn(queue::serve(shared.clone(), events));
+        let task = if shared.settings.run_queue {
+            tokio::spawn(queue::serve(shared.clone(), events))
+        } else {
+            let shutdown = shared.deps.shutdown.clone();
+            tokio::spawn(async move {
+                drop(events);
+                shutdown.cancelled().await;
+            })
+        };
         (TriageHandle { shared }, task)
     }
 }
 
 impl TriageHandle {
+    /// The shared state, for the investigation handlers that run the same steps as a
+    /// queued run.
+    pub(crate) fn shared(&self) -> Arc<Shared> {
+        self.shared.clone()
+    }
+
     /// Triages `incident` now, outside the queue but with the same caps, and attaches the
     /// outcome. The service does this for every `TriageRequested`.
     pub async fn triage(&self, incident: &Incident) -> TriageOutcome {

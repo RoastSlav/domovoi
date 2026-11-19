@@ -111,7 +111,9 @@ pub struct TriageSection {
     /// Whether new incidents are triaged automatically. Default `false`.
     #[serde(default)]
     pub enabled: bool,
-    /// Triage runs at the same time. Default 2.
+    /// Triage runs at the same time, and questions and chat at the same time. With
+    /// `[orchestration] enabled` investigations are limited by `[orchestration] max_running`
+    /// instead. Default 2.
     #[serde(default = "default_concurrency")]
     pub concurrency: u8,
     /// Limits for a single run.

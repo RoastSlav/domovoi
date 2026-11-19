@@ -49,4 +49,6 @@ pub struct OperationDeps {
     pub clock: Arc<dyn Clock>,
     /// Stops the service.
     pub shutdown: CancellationToken,
+    /// Runs investigations when present; without it `TriageRequested` is ignored.
+    pub investigate: Option<super::InvestigateDeps>,
 }
