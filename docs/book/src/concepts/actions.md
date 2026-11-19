@@ -18,7 +18,7 @@ stateDiagram-v2
     Succeeded --> VerifyFailed: the original check still fails
 ```
 
-- **Proposed:** triage suggested it. The card shows Approve and Deny buttons. Proposals stay open for one hour.
+- **Proposed:** triage suggested it. The card shows Approve and Deny buttons. Proposals stay open for one hour. The same buttons approve the steps an investigation proposes; see [Operations](operations.md).
 - **Approved:** a person said yes. It runs once its host's agent is reachable, and only if the approval and the incident still stand, so an approval made just before a restart waits for the host instead of failing.
 - **Rejected:** something changed between approval and running, the incident was resolved or deleted, the agent never came back, or the loop guard stopped it. The thread says why.
 - **Dispatched:** it was sent to the agent. If the hub loses the answer, the action stays here and its result is asked for when the agent authenticates again.
