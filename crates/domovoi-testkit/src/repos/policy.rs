@@ -209,28 +209,6 @@ pub(super) fn apply(state: &mut State, write: &PolicyWrite) -> Result<(), Commit
     }
 }
 
-fn differs(record: &ShadowRecord) -> bool {
-    record.enforced_outcome != record.shadow_outcome
-}
-
-fn matches(filter: &ShadowFilter, record: &ShadowRecord) -> bool {
-    filter.host.is_none_or(|host| record.host == host)
-        && filter
-            .contract
-            .as_deref()
-            .is_none_or(|contract| record.contract == contract)
-        && filter.status.is_none_or(|status| record.status == status)
-        && filter
-            .enforced_outcome
-            .as_deref()
-            .is_none_or(|outcome| record.enforced_outcome.as_deref() == Some(outcome))
-        && (!filter.differing || differs(record))
-        && filter
-            .since
-            .is_none_or(|since| record.evaluated_at >= since)
-        && filter.until.is_none_or(|until| record.evaluated_at < until)
-}
-
 #[async_trait]
 impl PolicyRepo for InMemoryStore {
     async fn active(&self) -> Result<Option<PolicyVersionRecord>, StoreError> {
@@ -342,7 +320,7 @@ impl PolicyRepo for InMemoryStore {
         let items: Vec<(Key, ShadowRecord)> = state
             .shadow
             .values()
-            .filter(|record| matches(filter, record))
+            .filter(|record| filter.matches(record))
             .map(|record| {
                 (
                     (nanos(record.evaluated_at), record.execution.to_string()),
@@ -376,7 +354,7 @@ impl PolicyRepo for InMemoryStore {
                     .or_insert(0) += 1;
             }
             summary.degraded += u64::from(record.degraded);
-            summary.differing += u64::from(differs(record));
+            summary.differing += u64::from(record.outcomes_differ());
         }
         Ok(summary)
     }

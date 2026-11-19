@@ -179,6 +179,7 @@ uow_contract_tests! {
     sqlite_policy_record_shadow_is_idempotent_and_counts_inserted_rows => record_shadow_is_idempotent_and_counts_inserted_rows,
     sqlite_policy_shadow_records_filter_and_page_newest_first => shadow_records_filter_and_page_newest_first,
     sqlite_policy_shadow_summary_counts_by_status_and_outcome => shadow_summary_counts_by_status_and_outcome,
+    sqlite_policy_unevaluable_rows_are_not_counted_as_differing => unevaluable_rows_are_not_counted_as_differing,
     sqlite_policy_empty_store_reads_are_empty => empty_store_reads_are_empty,
 }
 

@@ -4,8 +4,8 @@ use domovoi_core::HostId;
 use domovoi_core::capability::CeilingSummary;
 use domovoi_engine::policy::{Condition, FactState, Outcome, Rule};
 use domovoi_engine::policy_shadow::{
-    CeilingReading, GapInput, GapReason, InputGap, InputsEnvelope, Verdict, build, decode_inputs,
-    request_from_inputs,
+    CeilingReading, GapInput, GapReason, InputGap, InputsEnvelope, ReplayError, Verdict, build,
+    decode_decision, decode_inputs, request_from_inputs,
 };
 use uuid::Uuid;
 
@@ -174,4 +174,40 @@ async fn reported_ceiling_and_known_facts_are_used_as_given() {
     let replayed = request_from_inputs(&built.inputs.unwrap(), None).unwrap();
     request.expected_ceiling_hash = Some("h1".to_owned());
     assert_eq!(replayed, request);
+}
+
+async fn inputs_text() -> String {
+    let built = build(&skill_candidate(), &[], &env(), t(0)).await;
+    serde_json::to_string(&InputsEnvelope::new(built.inputs.unwrap())).unwrap()
+}
+
+#[tokio::test]
+async fn decode_inputs_rejects_a_missing_version() {
+    let text = inputs_text().await.replace("\"v\":1,", "");
+    assert!(!text.contains("\"v\""));
+    assert!(matches!(decode_inputs(&text), Err(ReplayError::Json(_))));
+}
+
+#[tokio::test]
+async fn decode_inputs_rejects_a_non_integer_version() {
+    let text = inputs_text().await.replace("\"v\":1", "\"v\":\"1\"");
+    assert!(matches!(decode_inputs(&text), Err(ReplayError::Json(_))));
+}
+
+#[tokio::test]
+async fn decode_inputs_rejects_an_unknown_version() {
+    let text = inputs_text().await.replace("\"v\":1", "\"v\":2");
+    assert_eq!(decode_inputs(&text).unwrap_err(), ReplayError::Version(2));
+}
+
+#[test]
+fn decode_decision_rejects_missing_wrong_type_and_unknown_versions() {
+    for text in [
+        r#"{"error":"x"}"#,
+        r#"{"v":"1","error":"x"}"#,
+        r#"{"v":2,"error":"x"}"#,
+    ] {
+        assert!(decode_decision(text).is_err(), "{text}");
+    }
+    assert!(decode_decision(r#"{"v":1,"error":"x"}"#).is_ok());
 }

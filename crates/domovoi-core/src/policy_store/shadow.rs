@@ -155,6 +155,35 @@ pub struct ShadowFilter {
     pub until: Option<Timestamp>,
 }
 
+impl ShadowFilter {
+    /// Whether `record` passes every set criterion. `differing` needs both outcomes present
+    /// and unequal, so an unevaluable row never counts as differing.
+    #[must_use]
+    pub fn matches(&self, record: &ShadowRecord) -> bool {
+        self.host.is_none_or(|host| record.host == host)
+            && self
+                .contract
+                .as_deref()
+                .is_none_or(|contract| record.contract == contract)
+            && self.status.is_none_or(|status| record.status == status)
+            && self
+                .enforced_outcome
+                .as_deref()
+                .is_none_or(|outcome| record.enforced_outcome.as_deref() == Some(outcome))
+            && (!self.differing || ShadowRecord::outcomes_differ(record))
+            && self.since.is_none_or(|since| record.evaluated_at >= since)
+            && self.until.is_none_or(|until| record.evaluated_at < until)
+    }
+}
+
+impl ShadowRecord {
+    /// Whether both outcomes are recorded and they differ.
+    #[must_use]
+    pub fn outcomes_differ(&self) -> bool {
+        matches!((&self.enforced_outcome, &self.shadow_outcome), (Some(a), Some(b)) if a != b)
+    }
+}
+
 /// Counts of the decision rows since a point in time.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShadowSummary {

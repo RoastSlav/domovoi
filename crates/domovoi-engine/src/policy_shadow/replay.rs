@@ -31,9 +31,11 @@ pub enum ReplayError {
 pub fn decode_inputs(text: &str) -> Result<RecordedInputs, ReplayError> {
     let probe: serde_json::Value =
         serde_json::from_str(text).map_err(|e| ReplayError::Json(e.to_string()))?;
-    if let Some(v) = probe.get("v").and_then(serde_json::Value::as_u64)
-        && v != VERSION
-    {
+    let v = probe
+        .get("v")
+        .and_then(serde_json::Value::as_u64)
+        .ok_or_else(|| ReplayError::Json("missing or non-integer version".to_owned()))?;
+    if v != VERSION {
         return Err(ReplayError::Version(v));
     }
     let envelope: InputsEnvelope =

@@ -160,8 +160,8 @@ pub async fn record_step(a: &Api, rules: &[Rule], version: u32) -> ExecutionId {
         degraded: !built.gaps.is_empty(),
         candidate: serde_json::to_string(&CandidateDoc::from_candidate(&candidate)).unwrap(),
         inputs: Some(serde_json::to_string(&InputsEnvelope::new(inputs)).unwrap()),
-        enforced: Some(enforced.to_json()),
-        shadow: Some(shadow.to_json()),
+        enforced: Some(enforced.to_json().unwrap()),
+        shadow: Some(shadow.to_json().unwrap()),
         gaps: serde_json::to_string(&built.gaps).unwrap(),
     };
     let write = PolicyWrite::RecordShadow {

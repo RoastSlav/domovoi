@@ -189,7 +189,7 @@ fn decision_doc_mirrors_decision_field_for_field() {
     );
     let envelope = DecisionEnvelope::Decision(Box::new(doc));
     assert_eq!(
-        DecisionEnvelope::from_json(&envelope.to_json()),
+        DecisionEnvelope::from_json(&envelope.to_json().unwrap()),
         Some(envelope)
     );
 }
@@ -200,6 +200,9 @@ fn error_envelope_keeps_only_the_code() {
     let fx = Fx::new();
     let err = evaluate(&duplicate, &fx.req(RESTART)).unwrap_err();
     let envelope = DecisionEnvelope::from_result(&Err(err));
-    assert_eq!(envelope.to_json(), r#"{"v":1,"error":"duplicate_rule_id"}"#);
+    assert_eq!(
+        envelope.to_json().unwrap(),
+        r#"{"v":1,"error":"duplicate_rule_id"}"#
+    );
     assert_eq!(envelope.outcome_text(), "error");
 }

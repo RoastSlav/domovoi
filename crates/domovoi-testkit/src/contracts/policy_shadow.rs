@@ -303,6 +303,48 @@ pub async fn shadow_summary_counts_by_status_and_outcome(
     Ok(())
 }
 
+/// An unevaluable row with only one outcome recorded is not a difference, in the filter or the
+/// summary; an evaluated row with two different outcomes is.
+pub async fn unevaluable_rows_are_not_counted_as_differing(
+    subject: &dyn UowSubject,
+) -> ContractResult {
+    let (host, op) = (HostId::new(), OperationId::new());
+    let (partial, evaluated) = (ExecutionId::new(), ExecutionId::new());
+    let rows = vec![
+        shadow(
+            (partial, op, host),
+            "skill.x",
+            10,
+            ShadowStatus::Unevaluable,
+            (Some("allow"), None),
+            false,
+        ),
+        shadow(
+            (evaluated, op, host),
+            "skill.x",
+            20,
+            ShadowStatus::Evaluated,
+            (Some("allow"), Some("deny")),
+            false,
+        ),
+    ];
+    record(subject, rows, 30).await?;
+    let differing = subject
+        .policy()
+        .shadow_records(
+            &ShadowFilter {
+                differing: true,
+                ..ShadowFilter::default()
+            },
+            &Page::first(10),
+        )
+        .await?;
+    let seen: Vec<_> = differing.items.iter().map(|r| r.execution).collect();
+    assert_eq!(seen, vec![evaluated]);
+    assert_eq!(subject.policy().shadow_summary(at(0)).await?.differing, 1);
+    Ok(())
+}
+
 /// A store with no policy answers every read with nothing.
 pub async fn empty_store_reads_are_empty(subject: &dyn UowSubject) -> ContractResult {
     let repo = subject.policy();

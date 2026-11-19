@@ -7,9 +7,11 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use axum::extract::connect_info::MockConnectInfo;
 use axum::http::{Method, StatusCode};
-use domovoi_core::policy_store::{ShadowFilter, ShadowStatus};
+use domovoi_core::ExecutionId;
+use domovoi_core::policy_store::{PolicyWrite, ShadowFilter, ShadowStatus, SweepStats};
 use domovoi_core::ports::{
-    AuditFilter, CommitError, CommitReceipt, JournalRead, Page, PolicyRepo, Transaction, UnitOfWork,
+    AuditFilter, CommitError, CommitReceipt, JournalRead, Page, PolicyRepo, StateWrite,
+    Transaction, UnitOfWork,
 };
 use domovoi_engine::policy::Rule;
 use domovoi_hub::api::dto_policy_rule::RuleDto;
@@ -619,6 +621,62 @@ async fn simulate_draft_shows_what_would_change() {
         )
         .await;
     assert_eq!(gone.status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn simulate_with_explicit_ids_still_applies_the_filter() {
+    let a = api().await;
+    let login = a.admin().await;
+    let evaluated = record_step(&a, &[], 0).await;
+    let other = record_step(&a, &[], 0).await;
+    let mut skipped = a.store.shadow(other).await.unwrap().unwrap();
+    skipped.execution = ExecutionId::new();
+    skipped.status = ShadowStatus::Skipped;
+    skipped.enforced_outcome = None;
+    skipped.shadow_outcome = None;
+    let skipped_id = skipped.execution;
+    let write = PolicyWrite::RecordShadow {
+        records: vec![skipped],
+        sweep: SweepStats {
+            skipped: 1,
+            ..SweepStats::default()
+        },
+        at: a.now(),
+        error: None,
+    };
+    a.store
+        .commit(Transaction::new().write(StateWrite::Policy(write)))
+        .await
+        .unwrap();
+    let missing = ExecutionId::new();
+    let body = json!({
+        "rules": { "source": "inline", "rules": [] },
+        "filter": { "status": "evaluated" },
+        "execution_ids": [evaluated.to_string(), skipped_id.to_string(), missing.to_string()],
+    });
+    let reply = a.post("/api/v1/policy/simulate", &login, body).await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.text);
+    let items = reply.body["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1, "{}", reply.text);
+    assert_eq!(items[0]["execution_id"], evaluated.to_string());
+}
+
+#[tokio::test]
+async fn preview_with_a_stale_or_missing_draft_revision_is_refused() {
+    let a = api().await;
+    let login = a.admin().await;
+    let send = |base: u64| {
+        a.send(
+            Method::POST,
+            "/api/v1/policy/preview",
+            Some(&login),
+            Some(json!({ "rules": [], "base_revision": base })),
+        )
+    };
+    assert_eq!(send(1).await.status, StatusCode::NOT_FOUND);
+    save(&a, &login, &[plex("one", "deny")]).await;
+    assert_eq!(send(5).await.status, StatusCode::CONFLICT);
+    assert_eq!(send(1).await.status, StatusCode::OK);
 }
 
 #[tokio::test]

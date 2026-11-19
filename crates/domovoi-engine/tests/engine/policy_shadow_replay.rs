@@ -36,8 +36,8 @@ async fn record(rules: &[Rule], secs: i64) -> ShadowRecord {
         degraded: !built.gaps.is_empty(),
         candidate: serde_json::to_string(&CandidateDoc::from_candidate(&step)).unwrap(),
         inputs: Some(serde_json::to_string(&InputsEnvelope::new(built.inputs.unwrap())).unwrap()),
-        enforced: Some(enforced.to_json()),
-        shadow: Some(shadow.to_json()),
+        enforced: Some(enforced.to_json().unwrap()),
+        shadow: Some(shadow.to_json().unwrap()),
         gaps: serde_json::to_string(&built.gaps).unwrap(),
     }
 }
@@ -130,7 +130,7 @@ async fn current_inputs_mode_uses_the_clock_not_the_recorded_instant() {
     let mut row = record(&rules, 0).await;
     row.inputs =
         Some(serde_json::to_string(&InputsEnvelope::new(row_inputs.inputs.unwrap())).unwrap());
-    row.enforced = Some(enforced.to_json());
+    row.enforced = Some(enforced.to_json().unwrap());
     // Recorded inputs replay at the recorded instant.
     assert_eq!(
         replay(&rules, &row, RuleSelection::Enforced).comparison,

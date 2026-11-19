@@ -24,7 +24,8 @@ pub(crate) async fn shadow_records(
         AND (?2 IS NULL OR contract = ?2) \
         AND (?3 IS NULL OR status = ?3) \
         AND (?4 IS NULL OR enforced_outcome = ?4) \
-        AND (?5 = 0 OR enforced_outcome IS NOT shadow_outcome) \
+        AND (?5 = 0 OR (enforced_outcome IS NOT NULL AND shadow_outcome IS NOT NULL \
+        AND enforced_outcome != shadow_outcome)) \
         AND (?6 IS NULL OR evaluated_at >= ?6) \
         AND (?7 IS NULL OR evaluated_at < ?7) \
         AND (?8 IS NULL OR evaluated_at < ?8 OR (evaluated_at = ?8 AND execution_id < ?9)) \
@@ -67,7 +68,8 @@ pub(crate) async fn shadow_summary(
 ) -> Result<ShadowSummary, StoreError> {
     let (total, degraded, differing): (i64, Option<i64>, Option<i64>) = sqlx::query_as(
         "SELECT count(*), sum(degraded), \
-         sum(CASE WHEN enforced_outcome IS NOT shadow_outcome THEN 1 ELSE 0 END) \
+         sum(CASE WHEN enforced_outcome IS NOT NULL AND shadow_outcome IS NOT NULL \
+         AND enforced_outcome != shadow_outcome THEN 1 ELSE 0 END) \
          FROM policy_shadow_decisions WHERE evaluated_at >= ?",
     )
     .bind(ms(since))

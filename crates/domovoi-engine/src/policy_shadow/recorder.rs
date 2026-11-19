@@ -203,6 +203,14 @@ impl ShadowRecorder {
     ) -> ShadowRecord {
         let built = build(candidate, &active.rules, self.env.as_ref(), now).await;
         let mut record = base_record(candidate, active, now, &built);
+        match serde_json::to_string(&CandidateDoc::from_candidate(candidate)) {
+            Ok(text) => record.candidate = text,
+            Err(_) => {
+                "{}".clone_into(&mut record.candidate);
+                mark_serialization_failed(&mut record);
+                return record;
+            }
+        }
         match built.verdict {
             Verdict::Skip(code) => {
                 record.status = ShadowStatus::Skipped;
@@ -232,26 +240,61 @@ impl ShadowRecorder {
         };
         let enforced = DecisionEnvelope::from_result(&evaluate(&active.rules, &request));
         let shadow = DecisionEnvelope::from_result(&evaluate_shadow(&active.rules, &request));
-        let inputs_json = serde_json::to_string(&InputsEnvelope::new(inputs)).unwrap_or_default();
-        let (enforced_json, shadow_json) = (enforced.to_json(), shadow.to_json());
-        let too_large = [&inputs_json, &enforced_json, &shadow_json]
-            .iter()
-            .any(|text| text.len() > MAX_ROW_JSON_BYTES);
-        if too_large {
-            record.status = ShadowStatus::Unevaluable;
-            record.reason = Some("too_large".to_owned());
-            return;
-        }
-        record.status = ShadowStatus::Evaluated;
-        record.enforced_outcome = Some(enforced.outcome_text().to_owned());
-        record.shadow_outcome = Some(shadow.outcome_text().to_owned());
-        record.inputs = Some(inputs_json);
-        record.enforced = Some(enforced_json);
-        record.shadow = Some(shadow_json);
-        if now.duration_since(candidate.created_at) > LATE_AFTER {
+        let texts = (
+            serde_json::to_string(&InputsEnvelope::new(inputs)),
+            enforced.to_json(),
+            shadow.to_json(),
+        );
+        let outcomes = (enforced.outcome_text(), shadow.outcome_text());
+        store_texts(record, texts, outcomes);
+        if record.status == ShadowStatus::Evaluated
+            && now.duration_since(candidate.created_at) > LATE_AFTER
+        {
             record.reason = Some("late".to_owned());
         }
     }
+}
+
+/// Marks a row whose documents could not be written as JSON.
+fn mark_serialization_failed(record: &mut ShadowRecord) {
+    record.status = ShadowStatus::Unevaluable;
+    record.reason = Some("serialization_failed".to_owned());
+    record.enforced_outcome = None;
+    record.shadow_outcome = None;
+    record.inputs = None;
+    record.enforced = None;
+    record.shadow = None;
+}
+
+/// Stores the serialized documents on `record`, or marks it unevaluable when one failed to
+/// serialize or is too large.
+fn store_texts(
+    record: &mut ShadowRecord,
+    texts: (
+        Result<String, serde_json::Error>,
+        Result<String, serde_json::Error>,
+        Result<String, serde_json::Error>,
+    ),
+    outcomes: (&'static str, &'static str),
+) {
+    let (Ok(inputs_json), Ok(enforced_json), Ok(shadow_json)) = texts else {
+        mark_serialization_failed(record);
+        return;
+    };
+    let too_large = [&inputs_json, &enforced_json, &shadow_json]
+        .iter()
+        .any(|text| text.len() > MAX_ROW_JSON_BYTES);
+    if too_large {
+        record.status = ShadowStatus::Unevaluable;
+        record.reason = Some("too_large".to_owned());
+        return;
+    }
+    record.status = ShadowStatus::Evaluated;
+    record.enforced_outcome = Some(outcomes.0.to_owned());
+    record.shadow_outcome = Some(outcomes.1.to_owned());
+    record.inputs = Some(inputs_json);
+    record.enforced = Some(enforced_json);
+    record.shadow = Some(shadow_json);
 }
 
 /// A row with everything that does not depend on the evaluation.
@@ -281,11 +324,67 @@ fn base_record(
         enforced_outcome: None,
         shadow_outcome: None,
         degraded: !gaps.is_empty(),
-        candidate: serde_json::to_string(&CandidateDoc::from_candidate(candidate))
-            .unwrap_or_default(),
+        candidate: String::new(),
         inputs: None,
         enforced: None,
         shadow: None,
         gaps: serde_json::to_string(gaps).unwrap_or_else(|_| "[]".to_owned()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn failure() -> serde_json::Error {
+        serde_json::from_str::<()>("not json").unwrap_err()
+    }
+
+    fn blank() -> ShadowRecord {
+        let ts = Timestamp::UNIX_EPOCH;
+        ShadowRecord {
+            execution: Default::default(),
+            operation: Default::default(),
+            host: Default::default(),
+            contract: String::new(),
+            step_created_at: ts,
+            evaluated_at: ts,
+            status: ShadowStatus::Unevaluable,
+            reason: None,
+            policy_version: 0,
+            rules_hash: String::new(),
+            enforced_outcome: None,
+            shadow_outcome: None,
+            degraded: false,
+            candidate: "{}".to_owned(),
+            inputs: None,
+            enforced: None,
+            shadow: None,
+            gaps: "[]".to_owned(),
+        }
+    }
+
+    #[test]
+    fn marks_row_unevaluable_when_a_document_fails_to_serialize() {
+        let mut record = blank();
+        let texts = (Ok("{}".to_owned()), Err(failure()), Ok("{}".to_owned()));
+        store_texts(&mut record, texts, ("allow", "deny"));
+        assert_eq!(record.status, ShadowStatus::Unevaluable);
+        assert_eq!(record.reason.as_deref(), Some("serialization_failed"));
+        assert!(record.inputs.is_none() && record.enforced.is_none() && record.shadow.is_none());
+        assert!(record.enforced_outcome.is_none() && record.shadow_outcome.is_none());
+    }
+
+    #[test]
+    fn stores_documents_as_evaluated_when_all_serialize() {
+        let mut record = blank();
+        let texts = (
+            Ok("{}".to_owned()),
+            Ok("{}".to_owned()),
+            Ok("{}".to_owned()),
+        );
+        store_texts(&mut record, texts, ("allow", "deny"));
+        assert_eq!(record.status, ShadowStatus::Evaluated);
+        assert_eq!(record.shadow_outcome.as_deref(), Some("deny"));
     }
 }

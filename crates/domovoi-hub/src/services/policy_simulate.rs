@@ -61,7 +61,7 @@ pub struct SimulationRequest {
     pub selection: SelectionChoice,
     /// Recorded or current inputs.
     pub inputs: InputsMode,
-    /// Which recorded rows, when no explicit ids are given.
+    /// Which recorded rows; also applied to each explicit step, which is dropped when it fails.
     pub filter: ShadowFilter,
     /// Explicit steps; at most [`MAX_EXPLICIT_IDS`].
     pub execution_ids: Vec<ExecutionId>,
@@ -209,7 +209,9 @@ impl PolicyService {
             ids.truncate(MAX_EXPLICIT_IDS);
             let mut rows = Vec::with_capacity(ids.len());
             for id in ids {
-                if let Some(row) = self.repo.shadow(id).await? {
+                if let Some(row) = self.repo.shadow(id).await?
+                    && filter.matches(&row)
+                {
                     rows.push(row);
                 }
             }

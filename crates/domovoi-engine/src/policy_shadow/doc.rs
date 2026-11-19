@@ -145,8 +145,11 @@ impl DecisionEnvelope {
     }
 
     /// `{"v":1,"decision":..}` or `{"v":1,"error":".."}`.
-    #[must_use]
-    pub fn to_json(&self) -> String {
+    ///
+    /// # Errors
+    ///
+    /// Returns the serializer's error when the document cannot be written.
+    pub fn to_json(&self) -> Result<String, serde_json::Error> {
         let repr = match self {
             Self::Decision(doc) => Repr {
                 v: VERSION,
@@ -159,7 +162,7 @@ impl DecisionEnvelope {
                 error: Some(code.clone()),
             },
         };
-        serde_json::to_string(&repr).unwrap_or_default()
+        serde_json::to_string(&repr)
     }
 
     /// Reads [`DecisionEnvelope::to_json`] back; `None` for any other shape or version.

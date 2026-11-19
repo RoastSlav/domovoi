@@ -230,7 +230,8 @@ impl PolicyService {
     }
 
     /// The rules a change is measured against: the draft when `base_revision` names it, else
-    /// the active version.
+    /// the active version when none is named. A named revision that is not the stored draft is
+    /// an error, never a silent fallback.
     pub(super) async fn load_base(
         &self,
         base_revision: Option<u64>,
@@ -242,8 +243,14 @@ impl PolicyService {
             None => Vec::new(),
         };
         let draft = match (base_revision, self.repo.draft().await?) {
+            (None, _) => None,
             (Some(wanted), Some(draft)) if draft.revision == wanted => Some(draft),
-            _ => None,
+            (Some(_), Some(draft)) => {
+                return Err(PolicyCommandError::StaleDraft {
+                    current: draft.revision,
+                });
+            }
+            (Some(_), None) => return Err(PolicyCommandError::NoDraft),
         };
         let rules = match &draft {
             Some(draft) => self.rules_of(draft.id).await?,
