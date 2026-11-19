@@ -65,6 +65,7 @@ pub(super) fn build(input: OperationBuild<'_>) -> Option<(OperationHandle, JoinH
         redactor: redactor.clone(),
         clock: clock.clone(),
         shutdown: shutdown.clone(),
+        investigate: None,
     };
     Some(OperationService::spawn(deps, settings::operations(config)))
 }

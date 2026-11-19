@@ -98,7 +98,12 @@ pub(super) async fn create(
             incident,
         }));
     }
-    for (kind, payload) in effects {
+    for (kind, mut payload) in effects {
+        // The caller cannot know the id of an operation that does not exist yet: a payload
+        // object gets the new operation as its address.
+        if let Some(fields) = payload.as_object_mut() {
+            fields.insert("operation".to_owned(), serde_json::json!(id.to_string()));
+        }
         tx = tx.effect(EffectDraft {
             id: EffectId::new(),
             kind,

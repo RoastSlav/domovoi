@@ -379,6 +379,7 @@ impl<S: SweepStore + EffectQueue + AdvisoryRepo + HostRepo + OperationRepo> Worl
                 redactor: Arc::new(PatternRedactor::default()),
                 clock: clock.clone(),
                 shutdown: shutdown.clone(),
+                investigate: None,
             },
             OperationSettings::default(),
         );

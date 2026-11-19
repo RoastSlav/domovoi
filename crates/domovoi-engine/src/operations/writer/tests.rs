@@ -106,6 +106,7 @@ async fn world() -> World {
             redactor: Arc::new(ListRedactor::new(["hunter2"])),
             clock: clock.clone(),
             shutdown: shutdown.clone(),
+            investigate: None,
         },
         OperationSettings::default(),
     );

@@ -455,9 +455,19 @@ pub(crate) async fn finish_held(
     operation: OperationId,
     successor: Option<EffectSpec>,
 ) -> Result<(), OperationError> {
+    finish_held_many(shared, held, operation, successor.into_iter().collect()).await
+}
+
+/// Completes a held effect and creates every effect of `successors`, in one commit.
+pub(crate) async fn finish_held_many(
+    shared: &OpShared,
+    held: Held,
+    operation: OperationId,
+    successors: Vec<EffectSpec>,
+) -> Result<(), OperationError> {
     let now = shared.deps.clock.now();
     let mut tx = Transaction::new();
-    if let Some(spec) = successor {
+    for spec in successors {
         let spec = without_held_key(shared, held, spec).await?;
         tx = tx.effect(draft(&spec, operation, now));
     }
