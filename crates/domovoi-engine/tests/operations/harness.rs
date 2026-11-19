@@ -112,6 +112,7 @@ pub struct World {
     pub queue: Arc<Gated>,
     pub shutdown: CancellationToken,
     pub user: UserId,
+    pub bus: tokio::sync::broadcast::Sender<domovoi_engine::events::DomainEvent>,
 }
 
 impl Drop for World {
@@ -200,6 +201,7 @@ async fn build(
         queue: Gated::new(store_for_queue, closed),
         shutdown,
         user: UserId::new(),
+        bus: tokio::sync::broadcast::channel(64).0,
     };
     let (handle, task) = world.start();
     world.handle = Some(handle);
@@ -256,7 +258,7 @@ impl World {
         let caps = action_caps(self.link.clone());
         OperationService::spawn(
             OperationDeps {
-                bus: tokio::sync::broadcast::channel(16).0,
+                bus: self.bus.clone(),
                 operations: self.store.clone(),
                 uow: self.uow.clone(),
                 effects: self.queue.clone(),
