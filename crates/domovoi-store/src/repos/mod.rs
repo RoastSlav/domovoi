@@ -11,6 +11,7 @@ mod notes;
 mod notify;
 mod operations;
 mod operations_rows;
+mod policy;
 mod triage;
 
 pub use notes::SNIPPET_CHARS;

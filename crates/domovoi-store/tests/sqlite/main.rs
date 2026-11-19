@@ -32,6 +32,8 @@ mod operations;
 #[cfg(test)]
 mod paging;
 #[cfg(test)]
+mod policy;
+#[cfg(test)]
 mod purge;
 #[cfg(test)]
 mod restore;

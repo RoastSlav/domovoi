@@ -19,6 +19,7 @@ mod error;
 mod fts;
 mod health;
 mod integrity;
+mod policy;
 mod purge;
 mod repos;
 mod restore;

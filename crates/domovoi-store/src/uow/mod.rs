@@ -28,7 +28,7 @@ fn map_store(err: StoreError) -> CommitError {
 }
 
 /// Maps a SQLite failure onto the unit-of-work error.
-fn backend(err: sqlx::Error) -> CommitError {
+pub(crate) fn backend(err: sqlx::Error) -> CommitError {
     match &err {
         sqlx::Error::Database(e) if e.is_unique_violation() || e.is_foreign_key_violation() => {
             CommitError::Constraint(e.message().to_owned())
