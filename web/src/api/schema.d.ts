@@ -230,8 +230,11 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * A stream of incident and action changes, as `incident` and `action` events whose data is
-         *     a JSON `UiEvent`.
+         * Committed journal rows as server-sent events.
+         * @description Frames: `ready` (`head_seq`, `resumed`, `topics`), `journal` (one row; its `id` is the journal
+         *     `seq`) and `reset` (`reason` is `pruned`, `ahead` or `lagged`: refetch what you hold). A client
+         *     that reconnects sends `Last-Event-ID` (or `after`) and receives every matching row after it.
+         *     An idle stream sends a `: keepalive` comment every 15 seconds.
          */
         get: operations["stream_events"];
         put?: never;
@@ -1058,6 +1061,11 @@ export interface components {
         };
         /** @description One page of actions, newest first. */
         ActionPage: {
+            /**
+             * Format: int64
+             * @description The journal position this snapshot was read at; apply only events with a greater `seq`.
+             */
+            as_of_seq: number;
             /** @description The actions. */
             items: components["schemas"]["ActionDto"][];
             /** @description Pass as `cursor` for the next page; absent on the last. */
@@ -1452,6 +1460,11 @@ export interface components {
         IncidentDetail: {
             /** @description Actions for this incident, newest first. */
             actions: components["schemas"]["ActionDto"][];
+            /**
+             * Format: int64
+             * @description The journal position this snapshot was read at; apply only events with a greater `seq`.
+             */
+            as_of_seq: number;
             /** @description The chat card. */
             card: components["schemas"]["CardDto"];
             /** @description The host's name. */
@@ -1495,6 +1508,11 @@ export interface components {
         };
         /** @description One page of incidents, newest first. */
         IncidentPage: {
+            /**
+             * Format: int64
+             * @description The journal position this snapshot was read at; apply only events with a greater `seq`.
+             */
+            as_of_seq: number;
             /** @description The incidents. */
             items: components["schemas"]["IncidentSummary"][];
             /** @description Pass as `cursor` for the next page; absent on the last. */
@@ -1648,6 +1666,11 @@ export interface components {
              * @description Actions waiting for a person to approve or deny them.
              */
             approvals_waiting: number;
+            /**
+             * Format: int64
+             * @description The journal position this snapshot was read at; apply only events with a greater `seq`.
+             */
+            as_of_seq: number;
             /**
              * Format: int32
              * @description Hosts with an enrolled agent that is not connected.
@@ -1968,19 +1991,6 @@ export interface components {
             at: string;
             /** @description What the operator asked. */
             question: string;
-        };
-        /** @description A change the web UI should show, sent on the event stream. */
-        UiEvent: {
-            /** @description The action concerned, for action events. */
-            action_id?: string | null;
-            /** @description What happened, for example `incident_opened` or `action_changed`. */
-            event: string;
-            /** @description The incident concerned. */
-            incident_id: string;
-            /** @description `incident` or `action`. */
-            kind: string;
-            /** @description The new status name, when it changed. */
-            status?: string | null;
         };
         /** @description The newest release this hub knows about, with commands ready to copy. */
         UpdateDto: {
@@ -2658,7 +2668,15 @@ export interface operations {
     };
     stream_events: {
         parameters: {
-            query?: never;
+            query?: {
+                /**
+                 * @description Comma-separated topics: `incidents`, `approvals`, `operations`, `operation:<id>`,
+                 *     `hosts`, `conversations:<id>`. At most 16. Absent means `incidents,approvals,operations`.
+                 */
+                topics?: string;
+                /** @description Resume after this journal `seq`. The `Last-Event-ID` header wins when both are given. */
+                after?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -2671,11 +2689,29 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "text/event-stream": components["schemas"]["UiEvent"];
+                    "text/event-stream": unknown;
+                };
+            };
+            /** @description An unknown topic or a malformed position */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
                 };
             };
             /** @description Not logged in */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Too many open event streams */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

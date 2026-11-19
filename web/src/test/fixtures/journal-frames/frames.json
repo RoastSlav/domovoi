@@ -1,0 +1,254 @@
+{
+  "schema_version": 1,
+  "frames": [
+    {
+      "name": "incident_opened",
+      "event": "journal",
+      "id": 11,
+      "data": {
+        "seq": 11,
+        "aggregate_type": "incident",
+        "aggregate_id": "0190a0a0-0000-7000-8000-0000000000a1",
+        "kind": "incident.timeline",
+        "payload_v": 1,
+        "payload": {
+          "kind": "incident.created",
+          "summary": "Incident opened"
+        },
+        "actor": "system:incidents",
+        "at": "2026-11-18T10:00:00Z",
+        "topics": ["incidents"]
+      }
+    },
+    {
+      "name": "incident_folded",
+      "event": "journal",
+      "id": 12,
+      "data": {
+        "seq": 12,
+        "aggregate_type": "incident",
+        "aggregate_id": "0190a0a0-0000-7000-8000-0000000000a1",
+        "kind": "incident.folded",
+        "payload_v": 1,
+        "payload": {
+          "signal": "0190a0a0-0000-7000-8000-0000000000c1",
+          "occurrences": 2
+        },
+        "actor": "system:incidents",
+        "at": "2026-11-18T10:00:00Z",
+        "topics": ["incidents"]
+      }
+    },
+    {
+      "name": "incident_escalated",
+      "event": "journal",
+      "id": 13,
+      "data": {
+        "seq": 13,
+        "aggregate_type": "incident",
+        "aggregate_id": "0190a0a0-0000-7000-8000-0000000000a1",
+        "kind": "incident.timeline",
+        "payload_v": 1,
+        "payload": {
+          "kind": "severity.changed",
+          "summary": "Severity raised"
+        },
+        "actor": "system:incidents",
+        "at": "2026-11-18T10:00:00Z",
+        "topics": ["incidents"]
+      }
+    },
+    {
+      "name": "incident_reopened",
+      "event": "journal",
+      "id": 14,
+      "data": {
+        "seq": 14,
+        "aggregate_type": "incident",
+        "aggregate_id": "0190a0a0-0000-7000-8000-0000000000a1",
+        "kind": "incident.timeline",
+        "payload_v": 1,
+        "payload": {
+          "kind": "status.changed",
+          "summary": "Incident reopened"
+        },
+        "actor": "system:incidents",
+        "at": "2026-11-18T10:00:00Z",
+        "topics": ["incidents"]
+      }
+    },
+    {
+      "name": "incident_resolved",
+      "event": "journal",
+      "id": 15,
+      "data": {
+        "seq": 15,
+        "aggregate_type": "incident",
+        "aggregate_id": "0190a0a0-0000-7000-8000-0000000000a1",
+        "kind": "incident.timeline",
+        "payload_v": 1,
+        "payload": {
+          "kind": "status.changed",
+          "summary": "Incident resolved"
+        },
+        "actor": "system:incidents",
+        "at": "2026-11-18T10:00:00Z",
+        "topics": ["incidents"]
+      }
+    },
+    {
+      "name": "incident_acked",
+      "event": "journal",
+      "id": 16,
+      "data": {
+        "seq": 16,
+        "aggregate_type": "incident",
+        "aggregate_id": "0190a0a0-0000-7000-8000-0000000000a1",
+        "kind": "incident.timeline",
+        "payload_v": 1,
+        "payload": {
+          "kind": "human.action",
+          "summary": "Incident acknowledged"
+        },
+        "actor": "system:incidents",
+        "at": "2026-11-18T10:00:00Z",
+        "topics": ["incidents"]
+      }
+    },
+    {
+      "name": "incident_muted",
+      "event": "journal",
+      "id": 17,
+      "data": {
+        "seq": 17,
+        "aggregate_type": "incident",
+        "aggregate_id": "0190a0a0-0000-7000-8000-0000000000a1",
+        "kind": "incident.timeline",
+        "payload_v": 1,
+        "payload": {
+          "kind": "human.action",
+          "summary": "Incident muted"
+        },
+        "actor": "system:incidents",
+        "at": "2026-11-18T10:00:00Z",
+        "topics": ["incidents"]
+      }
+    },
+    {
+      "name": "incident_unmuted",
+      "event": "journal",
+      "id": 18,
+      "data": {
+        "seq": 18,
+        "aggregate_type": "incident",
+        "aggregate_id": "0190a0a0-0000-7000-8000-0000000000a1",
+        "kind": "incident.timeline",
+        "payload_v": 1,
+        "payload": {
+          "kind": "status.changed",
+          "summary": "Incident unmuted"
+        },
+        "actor": "system:incidents",
+        "at": "2026-11-18T10:00:00Z",
+        "topics": ["incidents"]
+      }
+    },
+    {
+      "name": "triage_completed",
+      "event": "journal",
+      "id": 19,
+      "data": {
+        "seq": 19,
+        "aggregate_type": "incident",
+        "aggregate_id": "0190a0a0-0000-7000-8000-0000000000a1",
+        "kind": "incident.timeline",
+        "payload_v": 1,
+        "payload": {
+          "kind": "triage.report",
+          "summary": "Triage finished"
+        },
+        "actor": "system:incidents",
+        "at": "2026-11-18T10:00:00Z",
+        "topics": ["incidents"]
+      }
+    },
+    {
+      "name": "action_changed",
+      "event": "journal",
+      "id": 20,
+      "data": {
+        "seq": 20,
+        "aggregate_type": "action",
+        "aggregate_id": "0190a0a0-0000-7000-8000-0000000000d1",
+        "kind": "action.transition",
+        "payload_v": 1,
+        "payload": {
+          "incident": "0190a0a0-0000-7000-8000-0000000000a1",
+          "from": "proposed",
+          "to": "approved"
+        },
+        "actor": "system:actions",
+        "at": "2026-11-18T10:00:00Z",
+        "topics": ["approvals", "incidents"]
+      }
+    },
+    {
+      "name": "action_blocked",
+      "event": "journal",
+      "id": 21,
+      "data": {
+        "seq": 21,
+        "aggregate_type": "action",
+        "aggregate_id": "0190a0a0-0000-7000-8000-0000000000d1",
+        "kind": "action.transition",
+        "payload_v": 1,
+        "payload": {
+          "incident": "0190a0a0-0000-7000-8000-0000000000a1",
+          "from": "proposed",
+          "to": "rejected"
+        },
+        "actor": "system:actions",
+        "at": "2026-11-18T10:00:00Z",
+        "topics": ["approvals", "incidents"]
+      }
+    },
+    {
+      "name": "operation_step_finished",
+      "event": "journal",
+      "id": 22,
+      "data": {
+        "seq": 22,
+        "aggregate_type": "operation",
+        "aggregate_id": "0190a0a0-0000-7000-8000-0000000000b1",
+        "kind": "operation.step_finished",
+        "payload_v": 1,
+        "payload": {
+          "step": "0190a0a0-0000-7000-8000-0000000000b2",
+          "outcome": "succeeded"
+        },
+        "actor": "system:operations",
+        "at": "2026-11-18T10:00:00Z",
+        "topics": ["operations", "operation:0190a0a0-0000-7000-8000-0000000000b1"]
+      }
+    },
+    {
+      "name": "ready_fresh",
+      "event": "ready",
+      "id": 22,
+      "data": {
+        "head_seq": 22,
+        "resumed": false,
+        "topics": ["approvals", "incidents", "operations"]
+      }
+    },
+    {
+      "name": "reset_pruned",
+      "event": "reset",
+      "id": 22,
+      "data": {
+        "reason": "pruned",
+        "head_seq": 22
+      }
+    }
+  ]
+}

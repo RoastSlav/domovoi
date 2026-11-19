@@ -28,7 +28,7 @@ function withIncident() {
   const made = setup();
   made.client.setQueryData<IncidentDetail>(keys.incident("inc-1"), detail());
   made.client.setQueryData<InfiniteData<IncidentPage>>(OPEN_LIST, {
-    pages: [{ items: [incident(), incident({ id: "inc-2" })], next_cursor: null }],
+    pages: [{ items: [incident(), incident({ id: "inc-2" })], next_cursor: null, as_of_seq: 0 }],
     pageParams: [undefined],
   });
   made.client.setQueryData(keys.followUps("inc-1"), { turns: [] });
