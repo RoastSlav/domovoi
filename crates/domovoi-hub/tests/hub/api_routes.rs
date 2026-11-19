@@ -640,8 +640,8 @@ async fn retrying_triage_runs_the_model_again_and_reports_how_it_went() {
     let clock = a.clock.clone();
     let ticker = tokio::spawn(async move {
         loop {
-            clock.advance(jiff::SignedDuration::from_millis(500));
-            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            clock.advance(jiff::SignedDuration::from_millis(100));
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
     });
     a.llm.push_text(TRIAGE_REPORT);

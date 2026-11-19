@@ -2,7 +2,7 @@
 //! their logic out of the transports cannot change a status, a body, a chat sentence or an
 //! audit row. The snapshots were written before the move and must not change with it.
 
-use domovoi_core::ports::{AuditFilter, AuditLog, Notifier, OutboundMessage, Page};
+use domovoi_core::ports::{AuditFilter, AuditLog, Notifier, OperationRepo, OutboundMessage, Page};
 use domovoi_core::{CardButton, InteractionKind, InteractionReply, Risk};
 use domovoi_testkit::RecordingNotifier;
 use serde_json::{Value, json};
@@ -120,8 +120,8 @@ async fn retry_triage_answers_as_before() {
     let clock = a.clock.clone();
     let ticker = tokio::spawn(async move {
         loop {
-            clock.advance(jiff::SignedDuration::from_millis(500));
-            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            clock.advance(jiff::SignedDuration::from_millis(100));
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
     });
     a.llm.push_text(
@@ -129,6 +129,18 @@ async fn retry_triage_answers_as_before() {
     );
     let uri = format!("/api/v1/incidents/{}/triage", a.incident.id());
     let first = a.post(&uri, &login, json!({})).await;
+    // The outcome reaches the caller before the operation closes; let it close first.
+    for _ in 0..2000 {
+        let open = OperationRepo::for_incident(&*a.store, a.incident.id())
+            .await
+            .unwrap()
+            .iter()
+            .any(|op| !op.status.is_terminal());
+        if !open {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
     let cached = a
         .post(&format!("{uri}?fresh=false"), &login, json!({}))
         .await;

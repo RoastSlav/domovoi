@@ -347,3 +347,28 @@ PROPOSALS: [{{\"skill\": \"restart_container\", \"args\": {{\"container\": \"ngi
     assert_eq!(answer.chars().count(), MAX_ANSWER_CHARS);
     assert!(w.actions().await.is_empty(), "no action was stored");
 }
+
+/// The triage service has no queue: questions and chat answer on their own, and nothing
+/// else is started on the incident.
+#[tokio::test]
+async fn triage_service_without_a_queue_answers_questions_and_chat() {
+    let w = world(Setup::default()).await;
+    w.primary.push_text("It is the config.");
+    w.primary.push_text("Disk is fine.");
+
+    let answer = w
+        .triage
+        .follow_up(w.incident.id(), "Why?", UserId::new())
+        .await
+        .unwrap();
+    assert_eq!(answer, "It is the config.");
+    let chat = w
+        .triage
+        .chat(Some(host_id()), "One host.", &Vec::new(), "Is the disk ok?")
+        .await
+        .unwrap();
+    assert_eq!(chat, "Disk is fine.");
+    assert_eq!(w.primary.requests().len(), 2, "one model call each");
+    assert!(w.operations().await.is_empty(), "no investigation started");
+    assert!(w.actions().await.is_empty());
+}

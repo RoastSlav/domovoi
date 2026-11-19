@@ -286,3 +286,48 @@ async fn a_rejection_queued_after_the_window_closed_is_not_run() {
         "the reason the rejection was queued with is not what stopped it",
     );
 }
+
+#[tokio::test]
+async fn legacy_proposed_action_expires_through_the_existing_sweep() {
+    // A row written before the upgrade carries the old one-hour window; nothing creates one
+    // now, and the sweep settles it by itself.
+    let a = crate::actions_harness::actions(ActionSettings::default()).await;
+    let (legacy, _) = a.propose().await;
+
+    a.clock.advance(SignedDuration::from_mins(59));
+    assert_eq!(a.service.expire_due().await.unwrap(), 0, "still inside it");
+    a.clock.advance(SignedDuration::from_mins(2));
+    assert_eq!(a.service.expire_due().await.unwrap(), 1);
+
+    assert_eq!(a.get(legacy.id()).await.status(), &ActionStatus::Expired);
+    assert_eq!(
+        a.trail(legacy.id()).await,
+        [audit::PROPOSED.to_owned(), audit::EXPIRED.to_owned()],
+    );
+    assert_eq!(a.runs(), 0);
+}
+
+#[tokio::test]
+async fn legacy_approved_action_still_dispatches_with_orchestration_on() {
+    // The legacy executor does not depend on `[orchestration]`: an approved row dispatches
+    // once under its own id.
+    let a = crate::actions_harness::actions(ActionSettings::default()).await;
+    let (legacy, _) = a.propose().await;
+    let plan = a.get(legacy.id()).await.plan_hash_for_approval();
+    a.service
+        .approve(
+            legacy.id(),
+            Authorization::human(human(UserId::new())),
+            None,
+            PlanBinding::Full(plan),
+            ApprovalProvenance::new(None, "test"),
+        )
+        .await
+        .unwrap();
+
+    let done = a
+        .until(legacy.id(), |s| matches!(s, ActionStatus::Verified))
+        .await;
+    assert_eq!(done.id(), legacy.id());
+    assert_eq!(a.runs(), 1, "dispatched exactly once");
+}

@@ -552,6 +552,8 @@ mod redaction {
     use domovoi_testkit::build::resolved_incident;
     use serde_json::json;
 
+    use domovoi_core::Risk;
+
     use crate::harness::{SECRET, Setup, disk, host_id, restart_skill, world};
 
     /// A token the pattern redactor recognises without being told about it.
@@ -674,10 +676,14 @@ mod redaction {
             .unwrap();
         assert_clean("the timeline", &format!("{timeline:?}"));
 
+        // A legacy action waiting on the incident still lands on the card, so the card check
+        // covers action arguments and reasons too.
+        let legacy =
+            domovoi_testkit::build::action(w.incident.id(), host_id(), Risk::Write).unwrap();
         let card = build_card(
             &w.incident,
             Some(report),
-            &w.actions().await,
+            std::slice::from_ref(&legacy),
             &HostName::parse("nas").unwrap(),
             &CardLinks::default(),
             None,
@@ -1495,4 +1501,80 @@ fn step_authorization_is_called_only_inside_the_operation_service() {
         .map(|(rel, _)| rel)
         .collect();
     assert!(outside.is_empty(), "authorize is called from {outside:?}");
+}
+
+/// Nothing creates a legacy action any more: the proposal constructor of the action table is
+/// named only by the legacy executor's own module and its tests, and the removed storing
+/// path is named nowhere.
+#[test]
+fn no_code_path_creates_a_legacy_action() {
+    let legacy = crate_path("actions/");
+    let mut files = production_sources();
+    files.extend(
+        crate_sources("domovoi-hub")
+            .into_iter()
+            .filter(|(rel, _)| !rel.contains("/tests/") && !rel.ends_with("_tests.rs")),
+    );
+    let removed = ["proposals::store", "proposals::create"];
+    // Triage no longer holds the action service: its module and the hub's triage wiring
+    // never name it.
+    let triage_files: Vec<_> = files
+        .iter()
+        .filter(|(rel, _)| {
+            rel.starts_with(&crate_path("triage/")) || rel.ends_with("runtime/triage_build.rs")
+        })
+        .cloned()
+        .collect();
+    let offenders: Vec<String> = forbidden_in(&files, &[], &removed)
+        .into_iter()
+        .chain(forbidden_in(&triage_files, &["actions_service"], &[]))
+        .chain(
+            files
+                .iter()
+                .filter(|(rel, _)| !rel.starts_with(&legacy))
+                .flat_map(|(rel, text)| {
+                    code_lines(text)
+                        .filter(|(_, line)| names_path(line, "ActionRequest::propose"))
+                        .map(|(number, line)| format!("{rel}:{number}: {line}"))
+                        .collect::<Vec<_>>()
+                }),
+        )
+        .collect();
+    assert!(
+        offenders.is_empty(),
+        "a legacy action is created: {offenders:#?}"
+    );
+}
+
+/// The triage queue and its in-memory retries are gone, and the triage handle serves only
+/// follow-ups, chat and history.
+#[test]
+fn triage_queue_and_in_memory_retries_are_gone() {
+    let queue = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/triage/queue.rs");
+    assert!(!queue.exists(), "the triage queue module is back");
+    let files = production_sources();
+    let words = [
+        "RetryReason",
+        "retry_deferred",
+        "deferred_ready",
+        "DEFAULT_QUEUE",
+    ];
+    let offenders = forbidden_in(&files, &words, &[]);
+    assert!(offenders.is_empty(), "queue remnants: {offenders:#?}");
+
+    let handle: Vec<_> = files
+        .iter()
+        .filter(|(rel, _)| rel.starts_with(&crate_path("triage/")))
+        .flat_map(|(rel, text)| {
+            code_lines(text)
+                .filter(|(_, line)| {
+                    ["fn triage(", "fn retriage(", "fn queued("]
+                        .iter()
+                        .any(|f| line.contains(f))
+                })
+                .map(|(number, line)| format!("{rel}:{number}: {line}"))
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    assert!(handle.is_empty(), "queue entry points remain: {handle:#?}");
 }

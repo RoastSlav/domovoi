@@ -427,3 +427,22 @@ async fn host_scoping_keeps_to_the_incident_host() {
         "a read reached another host"
     );
 }
+
+/// The frozen parity snapshots hold only redacted output: the harness's secret appears in
+/// none of them.
+#[test]
+fn frozen_snapshots_contain_no_secret() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/services/snapshots");
+    let mut scanned = 0;
+    for entry in std::fs::read_dir(&dir).unwrap() {
+        let path = entry.unwrap().path();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            !text.contains(crate::harness::SECRET),
+            "the secret is in {}",
+            path.display()
+        );
+        scanned += 1;
+    }
+    assert!(scanned >= 13, "the scan found only {scanned} snapshots");
+}

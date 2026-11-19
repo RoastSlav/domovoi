@@ -86,7 +86,11 @@ async fn end_to_end_signal_to_card_to_triage_update() {
             if updated {
                 break;
             }
-            tokio::task::yield_now().await;
+            // The investigation's effects run against the fake clock.
+            harness.clock.advance(SignedDuration::from_secs(1));
+            for _ in 0..20 {
+                tokio::task::yield_now().await;
+            }
         }
     })
     .await;
