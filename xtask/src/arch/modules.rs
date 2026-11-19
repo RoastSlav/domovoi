@@ -61,7 +61,7 @@ pub fn module_edge_violations(files: &[(String, String)]) -> Vec<Violation> {
         }
         let aliases = aliases(&file);
         let mut walker = Walker {
-            module: &module,
+            module: module.clone(),
             zone: zone_of(&module),
             aliases: &aliases,
             found: Vec::new(),
@@ -154,7 +154,8 @@ fn zone_of(module: &[String]) -> Option<&'static Zone> {
 
 /// Collects the hub modules a file mentions, and the forbidden handle names it writes.
 struct Walker<'a> {
-    module: &'a [String],
+    /// The module being visited: the file's, plus any inline modules entered so far.
+    module: Vec<String>,
     zone: Option<&'static Zone>,
     aliases: &'a BTreeMap<String, Vec<String>>,
     /// Resolved module paths below `crate`, with the line each was written on.
@@ -182,12 +183,12 @@ impl Walker<'_> {
             }
             Some("self") => {
                 path.remove(0);
-                let mut full = self.module.to_vec();
+                let mut full = self.module.clone();
                 full.extend(path);
                 Some(full)
             }
             Some("super") => {
-                let mut base = self.module.to_vec();
+                let mut base = self.module.clone();
                 while path.first().is_some_and(|s| s == "super") {
                     path.remove(0);
                     base.pop()?;
@@ -306,7 +307,9 @@ impl<'ast> Visit<'ast> for Walker<'_> {
 
     fn visit_item_mod(&mut self, node: &'ast ItemMod) {
         if !is_cfg_test(&node.attrs) {
+            self.module.push(node.ident.to_string());
             syn::visit::visit_item_mod(self, node);
+            self.module.pop();
         }
     }
 

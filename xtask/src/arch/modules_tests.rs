@@ -220,3 +220,29 @@ fn zones_do_not_overlap() {
         }
     }
 }
+
+#[test]
+fn an_inline_module_resolves_super_from_its_own_module() {
+    let chat = "crates/domovoi-hub/src/auth/interactions/mod.rs";
+    let found = check(&[(
+        chat,
+        "mod nested { use super::super::super::api::ApiState; }",
+    )]);
+    assert!(found.iter().any(|v| v.rule == "MOD-1"), "{found:#?}");
+    let services = "crates/domovoi-hub/src/services/x.rs";
+    let found = check(&[(
+        services,
+        "mod a { mod b { use super::super::super::super::runtime::support; } }",
+    )]);
+    assert!(found.iter().any(|v| v.rule == "MOD-2"), "{found:#?}");
+}
+
+#[test]
+fn an_inline_module_may_import_within_its_own_zone() {
+    let chat = "crates/domovoi-hub/src/auth/interactions/mod.rs";
+    let found = check(&[(
+        chat,
+        "mod nested { use super::Accepted; mod deeper { use super::super::Actor; } }",
+    )]);
+    assert!(found.is_empty(), "{found:#?}");
+}
