@@ -11,6 +11,13 @@ import {
   SSH_LOGINS,
   STEP_STATES,
 } from "./fleetVocab";
+import {
+  EDGE_KINDS,
+  EXECUTION_STATES,
+  OPERATION_STATUSES,
+  STEP_KINDS,
+  STEP_OUTCOMES,
+} from "./operationVocab";
 import { INCIDENT_GROUPS, INCIDENT_STATUSES, SEVERITIES, VERDICTS } from "./respondVocab";
 import { lookup, type HostConnection, type IncidentGroup, type StatusMeta } from "./status";
 
@@ -22,6 +29,13 @@ import { lookup, type HostConnection, type IncidentGroup, type StatusMeta } from
  */
 
 export { TONES } from "./status";
+export type {
+  EdgeKind,
+  ExecutionState,
+  OperationStatus,
+  StepKind,
+  StepOutcome,
+} from "./operationVocab";
 export type {
   ActionStatus,
   CheckState,
@@ -93,6 +107,31 @@ export function incidentStateMeta(
 /** How an action's status is shown. */
 export function actionStatusMeta(status: string): StatusMeta {
   return lookup(ACTION_STATUSES, status);
+}
+
+/** How an operation's status is shown. */
+export function operationStatusMeta(status: string): StatusMeta {
+  return lookup(OPERATION_STATUSES, status);
+}
+
+/** How a step's outcome is shown. */
+export function stepOutcomeMeta(outcome: string): StatusMeta {
+  return lookup(STEP_OUTCOMES, outcome);
+}
+
+/** How an execution's state is shown. */
+export function executionStateMeta(state: string): StatusMeta {
+  return lookup(EXECUTION_STATES, state);
+}
+
+/** How a step's kind is shown. */
+export function stepKindMeta(kind: string): StatusMeta {
+  return lookup(STEP_KINDS, kind);
+}
+
+/** How an edge between two steps is shown. */
+export function edgeKindMeta(kind: string): StatusMeta {
+  return lookup(EDGE_KINDS, kind);
 }
 
 /** How a skill's risk is shown. */
@@ -211,4 +250,9 @@ export const VOCABULARIES: {
   { name: "Container state", meta: containerStateMeta, values: Object.keys(CONTAINER_STATES) },
   { name: "SSH login", meta: sshLoginMeta, values: Object.keys(SSH_LOGINS) },
   { name: "Step state", meta: stepStateMeta, values: Object.keys(STEP_STATES) },
+  { name: "Operation status", meta: operationStatusMeta, values: Object.keys(OPERATION_STATUSES) },
+  { name: "Step outcome", meta: stepOutcomeMeta, values: Object.keys(STEP_OUTCOMES) },
+  { name: "Execution state", meta: executionStateMeta, values: Object.keys(EXECUTION_STATES) },
+  { name: "Step kind", meta: stepKindMeta, values: Object.keys(STEP_KINDS) },
+  { name: "Edge kind", meta: edgeKindMeta, values: Object.keys(EDGE_KINDS) },
 ];

@@ -16,10 +16,11 @@ export interface ActionFilters {
 }
 
 /** Actions matching `filters` (all of them when empty), newest first. */
-export function useActions(filters: ActionFilters = {}) {
+export function useActions(filters: ActionFilters = {}, enabled = true) {
   const query = defined({ ...filters, limit: 200 });
   return useQuery({
     queryKey: keys.actionList(query),
+    enabled,
     queryFn: () => call<ActionPage>(api.GET("/api/v1/actions", { params: { query } })),
   });
 }

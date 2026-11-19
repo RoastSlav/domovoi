@@ -53,7 +53,7 @@ export type ActionStatus =
   | "verified"
   | "verify_failed";
 /** What a skill may do. */
-export type Risk = "read" | "write" | "destructive";
+export type Risk = "read" | "write" | "destructive" | "unknown";
 /** How a triage run went. */
 export type TriageKind = "report" | "cached" | "skipped" | "failed";
 /** Whether a host's agent is reachable. */

@@ -36,6 +36,9 @@ export const keys = {
   update: ["system", "update"] as const,
   operations: ["operations"] as const,
   operation: (id: string) => ["operations", "detail", id] as const,
+  operationList: (filters: object) => ["operations", "list", filters] as const,
+  operationStep: (operation: string, step: string | undefined) =>
+    ["operations", "detail", operation, "step", step ?? ""] as const,
   logs: (level: string | undefined, lines: number | undefined) =>
     ["system", "logs", level ?? "", lines ?? ""] as const,
 };

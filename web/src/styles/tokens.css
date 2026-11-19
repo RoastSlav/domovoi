@@ -163,6 +163,8 @@
   --sidebar-rail-width: 3.25rem;
   --content-max: 1200px;
   --content-pad: var(--space-6);
+  --right-slot-width: 25rem;
+  --right-slot-content-min: 40rem;
 
   /* Layers. */
   --z-sticky: 10;
@@ -174,6 +176,7 @@
   /* Motion: short, eases out, explains a change. */
   --motion-fast: 120ms;
   --motion-base: 180ms;
+  --motion-panel: 240ms;
   --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
   --scrim-blur: 2px;
 
@@ -399,6 +402,7 @@
   :root {
     --motion-fast: 0ms;
     --motion-base: 0ms;
+    --motion-panel: 0ms;
     --scrim-blur: 0px;
   }
 }
